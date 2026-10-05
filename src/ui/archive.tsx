@@ -13,7 +13,7 @@ import {
 } from "../state/workspaces"
 import { IconRestore, IconX } from "./icons"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
-import { WorkspaceIcon } from "./workspaces"
+import { archiveFailed, WorkspaceIcon } from "./workspaces"
 
 const purgeAge = 7 * 24 * 60 * 60 * 1000
 
@@ -28,10 +28,14 @@ export function ArchiveModal(props: { onClose: () => void }) {
   })
 
   async function restoreThread(sessionId: string, workspaceId: string) {
+    try {
+      await unarchiveSession(sessionId, engine.actions.setArchived)
+    } catch (cause) {
+      return archiveFailed(engine, cause)
+    }
     const workspace = allWorkspaces().find((entry) => entry.id === workspaceId)
     if (workspace?.removedAt) await restoreWorkspace(workspace)
     else if (workspace) selectWorkspace(workspace.id)
-    await unarchiveSession(sessionId)
     selectSession(sessionId)
     props.onClose()
   }

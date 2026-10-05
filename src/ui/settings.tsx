@@ -1,7 +1,8 @@
-import type { Agent, ProviderAuthMethod } from "@opencode-ai/sdk/client"
+import type { ProviderAuthMethod } from "../engine/shapes"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
+import type { AgentInfo } from "../engine/store"
 import { filePreviewTypes } from "../file-preview-types"
 import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs"
 import {
@@ -35,7 +36,6 @@ import {
   alertSounds,
   animateResponses,
   attentionKinds,
-  autoAcceptGlobal,
   autoUpdate,
   collapseCompaction,
   compactionCollapsed,
@@ -45,7 +45,6 @@ import {
   responseAnimationSpeedMin,
   setAlertSound,
   setAnimateResponses,
-  setAutoAcceptGlobal,
   setAutoUpdate,
   setCollapseCompaction,
   setCompactionCollapsed,
@@ -65,7 +64,7 @@ import {
   toolErrorsExpanded,
   type AttentionKind,
 } from "../state/prefs"
-import { shellInvoke } from "../shell"
+import { openExternal, shellInvoke } from "../shell"
 import { isRemoteRuntime } from "../runtime"
 import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation"
 import {
@@ -86,7 +85,9 @@ import {
   type SplashMascotAnimation,
 } from "../state/startup"
 import {
+  agentBehaviorIssue,
   agentOverrideValue,
+  applicableOverride,
   loadPromptSnapshot,
   resetPromptOverride,
   savePromptOverride,
@@ -131,7 +132,6 @@ import { Jellyfish, preloadJellyfish } from "./jellyfish"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { RemoteAccessSection } from "./settings-remote-access"
 import { StorageSection } from "./settings-storage"
-import { ToolRoutingSetting } from "./settings-tool-routing"
 import { UsageLimitsSection } from "./settings-usage"
 import { VoiceSection } from "./settings-voice"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
@@ -140,6 +140,8 @@ import { Toggle } from "./controls"
 import { ProviderIcon } from "./provider-icon"
 import { authorizationPrompt } from "../engine/provider-auth"
 import { Picker } from "./picker"
+import { BasePromptsSection } from "./settings-base-prompts"
+import { PermissionsSection } from "./settings-permissions"
 import { Chevron } from "./controls"
 import { playAlertSound, soundOptions } from "./sounds"
 
@@ -157,7 +159,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Storage", "Remote Access", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions", "Storage", "Remote Access", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -172,13 +174,14 @@ const sectionLabels: Record<Section, string> = {
   MCP: "dialog.mcp.title",
   Prompts: "drift.settings.prompts",
   Agents: "settings.agents.title",
+  Permissions: "drift.settings.permissions",
   Storage: "drift.storage",
   "Remote Access": "drift.remote.title",
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"] },
+  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"] },
   { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ]
 
@@ -204,6 +207,7 @@ const settingsSearchDefinitions = {
     { title: "command.permissions.autoaccept.enable", description: "toast.permissions.autoaccept.on.description" },
     { title: "settings.general.row.reasoningSummaries.title", description: "settings.general.row.reasoningSummaries.description" },
     { title: "drift.settings.toolErrors.title", description: "drift.settings.toolErrors.description" },
+    { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
     { title: "drift.settings.summaries.collapsible.title", description: "drift.settings.summaries.collapsible.description" },
     { title: "drift.settings.summaries.collapsed.title", description: "drift.settings.summaries.collapsed.description" },
     { title: "settings.updates.row.startup.title", description: "settings.updates.row.startup.description" },
@@ -248,7 +252,6 @@ const settingsSearchDefinitions = {
   ],
   Shortcuts: Object.values(keybindLabels).map((title) => ({ title })),
   Tools: [
-    { title: "drift.settings.toolRouting.title", description: "drift.settings.toolRouting.description" },
     { title: "drift.settings.shellTimeout.title", description: "drift.settings.shellTimeout.description" },
     { title: "drift.settings.shellTimeout.customMinutes", description: "drift.settings.shellTimeout.customDescription" },
   ],
@@ -271,23 +274,24 @@ const settingsSearchDefinitions = {
     { title: "drift.mcp.add" },
     { title: "drift.mcp.name" },
     { title: "drift.mcp.form.command" },
-    { title: "drift.mcp.form.cwd" },
     { title: "drift.mcp.form.environment" },
     { title: "drift.mcp.form.url" },
     { title: "drift.mcp.form.headers" },
-    { title: "drift.mcp.form.oauth" },
   ],
   Prompts: [
     { title: "drift.settings.prompts.modelFamilies", description: "drift.settings.prompts.familyDescription" },
-    { title: "drift.settings.prompts.systemPrompt" },
-    { title: "drift.settings.prompts.astraDescription" },
-    { title: "drift.settings.prompts.upstreamOriginal" },
+    { title: "drift.settings.prompts.systemPrompt", description: "drift.settings.prompts.allDescription" },
+    { title: "drift.settings.prompts.sharedRules", description: "drift.settings.prompts.sharedDescription" },
   ],
   Agents: [
     { title: "drift.settings.prompts.agents", description: "drift.settings.prompts.agentDescription" },
     { title: "command.category.model" },
     { title: "drift.settings.prompts.agentPrompt", description: "drift.settings.prompts.inheritsFamily" },
     { title: "drift.settings.prompts.behavior" },
+  ],
+  Permissions: [
+    { title: "drift.permissions.rules", description: "drift.permissions.rulesDescription" },
+    { title: "drift.permissions.grants" },
   ],
   Storage: [
     { title: "drift.storage.sessions.total", description: "drift.storage.sessions.total.description" },
@@ -311,10 +315,9 @@ const settingsSearchDefinitions = {
   ],
   About: [
     { title: "drift.about.row.app.title", description: "drift.about.row.app.description" },
-    { title: "drift.about.row.engine.title", description: "drift.about.row.engine.description" },
+    { title: "drift.about.row.native.title", description: "drift.about.row.native.description" },
     { title: "drift.about.row.updates.title", description: "drift.about.row.updates.installed" },
     { title: "drift.about.row.website.title", description: "drift.about.row.website.description" },
-    { title: "drift.about.group.credits", description: "drift.about.credits.engine" },
   ],
 } satisfies Record<Section, SettingsSearchDefinition[]>
 
@@ -539,10 +542,13 @@ function SettingsModal(props: { onClose: () => void }) {
                     <KeybindsSection />
                   </Match>
                   <Match when={section() === "Prompts"}>
-                    <PromptEditorSection view="prompts" />
+                    <BasePromptsSection />
                   </Match>
                   <Match when={section() === "Agents"}>
-                    <PromptEditorSection view="agents" />
+                    <PromptEditorSection />
+                  </Match>
+                  <Match when={section() === "Permissions"}>
+                    <PermissionsSection />
                   </Match>
                   <Match when={section() === "Storage"}>
                     <StorageSection />
@@ -596,6 +602,18 @@ function SettingsSearchResults(props: { items: SettingsSearchItem[]; onSelect: (
 }
 
 function GeneralSection() {
+  const engine = useEngine()
+  // The engine owns this preference; null until it answers.
+  const [autoCompact, setAutoCompactShown] = createSignal<boolean | null>(null)
+  onMount(() => void engine.actions.engineSettings().then((settings) => setAutoCompactShown(settings.autoCompact ?? true)).catch(() => undefined))
+  function toggleAutoCompact() {
+    const next = !autoCompact()
+    setAutoCompactShown(next)
+    void engine.actions
+      .setAutoCompact(next)
+      .then((settings) => setAutoCompactShown(settings.autoCompact ?? next))
+      .catch(() => setAutoCompactShown(!next))
+  }
   return (
     <div class="space-y-5">
       <SettingsGroup title={t("settings.general.section.display")}>
@@ -695,12 +713,12 @@ function GeneralSection() {
         <SettingsRow
           title={t("command.permissions.autoaccept.enable")}
           description={t("toast.permissions.autoaccept.on.description")}
-          onClick={() => setAutoAcceptGlobal(!autoAcceptGlobal())}
+          onClick={() => void engine.actions.setAutoAcceptAll(!engine.state.autoAcceptAll)}
         >
           <Toggle
             label={t("command.permissions.autoaccept.enable")}
-            checked={autoAcceptGlobal()}
-            onChange={() => setAutoAcceptGlobal(!autoAcceptGlobal())}
+            checked={engine.state.autoAcceptAll}
+            onChange={() => void engine.actions.setAutoAcceptAll(!engine.state.autoAcceptAll)}
           />
         </SettingsRow>
         <SettingsRow
@@ -728,6 +746,19 @@ function GeneralSection() {
       </SettingsGroup>
 
       <SettingsGroup title={t("drift.settings.summaries")}>
+        <SettingsRow
+          title={t("drift.settings.autoCompact.title")}
+          description={t("drift.settings.autoCompact.description")}
+          disabled={autoCompact() === null}
+          onClick={() => autoCompact() !== null && toggleAutoCompact()}
+        >
+          <Toggle
+            label={t("drift.settings.autoCompact.title")}
+            checked={autoCompact() ?? false}
+            disabled={autoCompact() === null}
+            onChange={toggleAutoCompact}
+          />
+        </SettingsRow>
         <SettingsRow
           title={t("drift.settings.summaries.collapsible.title")}
           description={t("drift.settings.summaries.collapsible.description")}
@@ -800,7 +831,6 @@ function ToolExecutionSection() {
   return (
     <div class="space-y-5">
       <SettingsGroup title={t("drift.settings.toolExecution")}>
-        <ToolRoutingSetting />
         <SettingsRow
           title={t("drift.settings.shellTimeout.title")}
           description={t("drift.settings.shellTimeout.description")}
@@ -1236,7 +1266,7 @@ function ProviderConnect(props: {
   const [code, setCode] = createSignal("")
   const [pending, setPending] = createSignal<"connect" | "disconnect" | null>(null)
   const [error, setError] = createSignal("")
-  const [authorization, setAuthorization] = createSignal<{ url: string; method: string; instructions: string } | null>(null)
+  const [authorization, setAuthorization] = createSignal<{ url: string; method: string; instructions: string; code?: string } | null>(null)
   const method = () => props.methods[methodIndex()] ?? props.methods[0]
 
   function fail(message: string) {
@@ -1324,14 +1354,14 @@ function ProviderConnect(props: {
       <Show when={props.methods.length > 1 || props.connected}>
         <div class="flex items-center gap-2">
           <Show when={props.methods.length > 1} fallback={<div class="flex-1" />}>
-            <div class="flex min-w-0 flex-1 flex-wrap gap-1 rounded-lg border border-edge bg-overlay/50 p-1">
+            <div class="flex min-w-0 flex-1 flex-wrap gap-1.5">
               <For each={props.methods}>
                 {(item, index) => (
                   <button
-                    class="rounded-md px-2.5 py-1 text-xs transition-colors"
+                    class="rounded-full border px-3 py-1 text-xs transition-colors"
                     classList={{
-                      "bg-raised text-ink shadow-sm shadow-black/10": index() === methodIndex(),
-                      "text-ink-faint hover:bg-raised/60 hover:text-ink-muted": index() !== methodIndex(),
+                      "border-accent/50 bg-accent/10 text-ink": index() === methodIndex(),
+                      "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted": index() !== methodIndex(),
                     }}
                     onClick={() => {
                       setMethodIndex(index())
@@ -1419,14 +1449,14 @@ function ProviderConnect(props: {
         </Show>
       </Show>
       <Show when={error()}>
-        <div class="text-xs text-danger">{error()}</div>
+        <div class="rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-xs text-danger">{error()}</div>
       </Show>
     </div>
   )
 }
 
-function AuthorizationHint(props: { auth: { url: string; method: string; instructions: string }; onCancel: () => void }) {
-  const prompt = () => authorizationPrompt(props.auth.instructions)
+function AuthorizationHint(props: { auth: { url: string; method: string; instructions: string; code?: string }; onCancel: () => void }) {
+  const prompt = () => (props.auth.code ? { code: props.auth.code } : authorizationPrompt(props.auth.instructions))
   const [copied, setCopied] = createSignal(false)
   const fallback = () => (props.auth.method === "code" ? t("drift.provider.pasteCode") : t("drift.provider.finishInBrowser"))
   const copyLink = () => {
@@ -1459,15 +1489,6 @@ function AuthorizationHint(props: { auth: { url: string; method: string; instruc
       </div>
     </div>
   )
-}
-
-function openExternal(url: string) {
-  const invoke = shellInvoke()
-  if (invoke) {
-    void invoke("plugin:opener|open_url", { url }).catch(() => {})
-    return
-  }
-  window.open(url, "_blank")
 }
 
 function KeybindsSection() {
@@ -1523,23 +1544,18 @@ function KeybindsSection() {
   )
 }
 
-function PromptEditorSection(props: { view: "prompts" | "agents" }) {
+function PromptEditorSection() {
   const engine = useEngine()
   const [snapshot, setSnapshot] = createSignal<PromptSnapshot | null>(null)
-  const [familyID, setFamilyID] = createSignal("gpt")
-  const [familyPrompt, setFamilyPrompt] = createSignal("")
   const [agentName, setAgentName] = createSignal("build")
   const [agentPrompt, setAgentPrompt] = createSignal("")
   const [agentBehavior, setAgentBehavior] = createSignal("{}")
-  const [familyBaseline, setFamilyBaseline] = createSignal("")
   const [agentPromptBaseline, setAgentPromptBaseline] = createSignal("")
   const [agentBehaviorBaseline, setAgentBehaviorBaseline] = createSignal("{}")
-  const [familyDirty, setFamilyDirty] = createSignal(false)
   const [showSavedNotice, setShowSavedNotice] = createSignal(false)
   const [error, setError] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   const override = (key: string) => snapshot()?.overrides.find((item) => item.key === key)
-  const familyOverridden = () => !!override(`family:${familyID()}`)
   const agentOverridden = () => !!override(`agent:${agentName()}`)
   const agentDirty = () => agentPrompt() !== agentPromptBaseline() || agentBehavior() !== agentBehaviorBaseline()
   const agentOverrideFields = () => {
@@ -1547,7 +1563,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
     if (!storedValue || typeof storedValue !== "object" || Array.isArray(storedValue)) return {}
     return storedValue as Record<string, unknown>
   }
-  const familyModified = () => familyDirty() || familyOverridden()
   const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
   const agentBehaviorModified = () =>
     agentBehavior() !== agentBehaviorBaseline() || Object.keys(agentOverrideFields()).some((key) => key !== "prompt")
@@ -1583,15 +1598,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
 
   onMount(() => void load())
 
-  createEffect(() => {
-    if (familyDirty()) return
-    const family = snapshot()?.catalog.families.find((item) => item.id === familyID())
-    const value = override(`family:${familyID()}`)?.value
-    const prompt = typeof value === "string" ? value : (family?.default ?? "")
-    setFamilyPrompt(prompt)
-    setFamilyBaseline(prompt)
-  })
-
   // Splits a resolved agent config into the two editors: the prompt gets its own textarea, every
   // other field is edited as raw JSON. Both editors reset their baseline so nothing reads as dirty.
   function loadAgentEditors(config: ReturnType<typeof agentConfig>) {
@@ -1611,7 +1617,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   createEffect(() => {
     if (agentDirty()) return
     const storedOverride = override(`agent:${agentName()}`)
-    loadAgentEditors(agentConfig(currentAgent(), snapshot(), storedOverride))
+    loadAgentEditors(agentConfig(currentAgent(), storedOverride))
   })
 
   async function mutate(action: () => Promise<void>, clean: () => void) {
@@ -1620,7 +1626,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
     setShowSavedNotice(false)
     try {
       await action()
-      if (props.view === "agents") await engine.actions.refreshAgents()
+      await engine.actions.refreshAgents()
       clean()
       await load()
       setShowSavedNotice(true)
@@ -1643,11 +1649,16 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
       setError(t("drift.settings.prompts.invalidJson"))
       return
     }
+    const issue = agentBehaviorIssue(behavior as Record<string, unknown>)
+    if (issue) {
+      setError(t("drift.settings.prompts.behaviorRefused", { field: issue }))
+      return
+    }
     const key = `agent:${agentName()}`
     const storedOverride = override(key)
     const existing =
       storedOverride?.value && typeof storedOverride.value === "object"
-        ? (storedOverride.value as Record<string, unknown>)
+        ? applicableOverride(storedOverride.value as Record<string, unknown>)
         : {}
     const baseline = JSON.parse(agentBehaviorBaseline()) as Record<string, unknown>
     const value = agentOverrideValue(
@@ -1655,7 +1666,9 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
       { ...baseline, prompt: agentPromptBaseline() },
       existing,
     )
-    const original = storedOverride?.original ?? agentConfig(currentAgent(), snapshot())
+    // A baseline stored before the engine narrowed agent overrides still names retired fields, which the shell now refuses.
+    const recorded = storedOverride?.original
+    const original = recorded && typeof recorded === "object" ? applicableOverride(recorded as Record<string, unknown>) : agentConfig(currentAgent())
     const action = Object.keys(value).length
       ? () => savePromptOverride(key, value, original)
       : () => resetPromptOverride(key)
@@ -1663,16 +1676,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
       setAgentPromptBaseline(agentPrompt())
       setAgentBehaviorBaseline(agentBehavior())
     })
-  }
-
-  function resetFamily() {
-    const key = `family:${familyID()}`
-    if (override(key)) return void mutate(() => resetPromptOverride(key), () => setFamilyDirty(false))
-    const family = snapshot()?.catalog.families.find((item) => item.id === familyID())
-    const prompt = family?.default ?? ""
-    setFamilyPrompt(prompt)
-    setFamilyBaseline(prompt)
-    setFamilyDirty(false)
   }
 
   function resetAgent() {
@@ -1683,7 +1686,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
         setAgentBehaviorBaseline(agentBehavior())
       })
     }
-    loadAgentEditors(agentConfig(currentAgent(), snapshot()))
+    loadAgentEditors(agentConfig(currentAgent()))
   }
 
   return (
@@ -1696,75 +1699,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
           </Show>
         }
       >
-        {(data) => (
-          <>
-            <Show when={props.view === "prompts"}>
-              <SettingsGroup title={t("drift.settings.prompts.modelFamilies")}>
-              <div class="space-y-3 py-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="text-xs text-ink-faint">{t("drift.settings.prompts.familyDescription")}</div>
-                  <Picker
-                    label={t("drift.settings.prompts.modelFamilies")}
-                    items={data().catalog.families.map((family) => ({ id: family.id, label: familyLabel(family.id) }))}
-                    selected={familyID()}
-                    floating bordered chevronAtEnd placement="below" width="11rem"
-                    onPick={(value) => {
-                      if (familyDirty()) {
-                        setError(t("drift.settings.prompts.saveBeforeSwitch"))
-                        return
-                      }
-                      setFamilyDirty(false)
-                      setFamilyID(value)
-                    }}
-                  />
-                </div>
-                <Show when={data().catalog.families.find((item) => item.id === familyID())?.variants?.length}>
-                  <p class="text-xs text-ink-faint">{t("drift.settings.prompts.astraDescription")}</p>
-                </Show>
-                <textarea
-                  aria-label={t("drift.settings.prompts.systemPrompt")}
-                  class="h-64 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
-                  classList={{ "text-ink": familyModified(), "text-ink-faint": !familyModified() }}
-                  spellcheck={false}
-                  value={familyPrompt()}
-                  onInput={(event) => {
-                    const value = event.currentTarget.value
-                    setFamilyPrompt(value)
-                    setFamilyDirty(value !== familyBaseline())
-                  }}
-                />
-                <details class="text-xs text-ink-faint">
-                  <summary class="cursor-pointer select-none">{t("drift.settings.prompts.upstreamOriginal")}</summary>
-                  <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-bg/40 p-3 font-mono text-[0.68rem] leading-relaxed">
-                    {data().catalog.families.find((item) => item.id === familyID())?.original}
-                  </pre>
-                </details>
-                <For each={data().catalog.families.find((item) => item.id === familyID())?.variants}>
-                  {(variant) => (
-                    <details class="text-xs text-ink-faint">
-                      <summary class="cursor-pointer select-none">GPT-6 (Astra): {t("drift.settings.prompts.upstreamOriginal")}</summary>
-                      <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-bg/40 p-3 font-mono text-[0.68rem] leading-relaxed">
-                        {variant.original}
-                      </pre>
-                    </details>
-                  )}
-                </For>
-                <PromptActions
-                  disabled={saving()}
-                  dirty={familyDirty()}
-                  overridden={familyOverridden()}
-                  onSave={() =>
-                    void mutate(() => savePromptOverride(`family:${familyID()}`, familyPrompt()), () =>
-                      setFamilyDirty(false),
-                    )
-                  }
-                  onReset={resetFamily}
-                />
-              </div>
-              </SettingsGroup>
-            </Show>
-
-            <Show when={props.view === "agents"}>
               <SettingsGroup title={t("drift.settings.prompts.agents")}>
               <div class="space-y-3 py-3">
                 <div class="flex items-center justify-between gap-3">
@@ -1822,6 +1756,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                       setAgentBehavior(value)
                     }}
                   />
+                  <span class="mt-1 block">{t("drift.settings.prompts.behaviorFields")}</span>
                 </label>
                 <PromptActions
                   disabled={saving()}
@@ -1832,9 +1767,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                 />
               </div>
               </SettingsGroup>
-            </Show>
-          </>
-        )}
       </Show>
       <Show when={showSavedNotice()}>
         <div class="text-xs text-accent">{t("drift.settings.prompts.saved")}</div>
@@ -1873,46 +1805,21 @@ function PromptActions(props: {
   )
 }
 
-function familyLabel(id: string) {
-  const labels: Record<string, string> = {
-    meta: "Meta Muse",
-    beast: "GPT-4 / o1 / o3",
-    codex: "GPT Codex",
-    gpt: "GPT",
-    gemini: "Gemini",
-    anthropic: "Claude",
-    trinity: "Trinity",
-    kimi: "Kimi",
-    default: "Default",
-  }
-  return labels[id] ?? id
-}
-
-function agentConfig(agent: Agent | undefined, snapshot: PromptSnapshot | null, storedOverride?: PromptOverride) {
+/** The agent as the engine runs it, in the fields Settings can change: nothing shown here goes unapplied. */
+function agentConfig(agent: AgentInfo | undefined, storedOverride?: PromptOverride) {
   const restored =
     storedOverride?.value && typeof storedOverride.value === "object"
-      ? (storedOverride.value as Record<string, unknown>)
+      ? applicableOverride(storedOverride.value as Record<string, unknown>)
       : undefined
   if (!agent) return restored ? { ...restored } : {}
-  const source = agent as Agent & {
-    prompt?: string
-    hidden?: boolean
-    model?: { providerID: string; modelID: string }
-    variant?: string
-    temperature?: number
-    topP?: number
-    steps?: number
-  }
   return {
-    prompt: source.prompt ?? snapshot?.catalog.agents.find((item) => item.name === source.name)?.prompt,
-    description: source.description,
-    mode: source.mode,
-    hidden: source.hidden,
-    model: source.model ? `${source.model.providerID}/${source.model.modelID}` : undefined,
-    variant: source.variant,
-    temperature: source.temperature,
-    top_p: source.topP,
-    steps: source.steps,
+    prompt: agent.prompt,
+    model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
+    steps: agent.steps,
+    permissions: agent.permissions?.length ? agent.permissions : undefined,
+    variant: agent.variant,
+    // An empty list is every tool; showing none keeps the editor from offering an override that would mean the same.
+    tools: agent.tools.length ? agent.tools : undefined,
     ...restored,
   }
 }
@@ -1921,8 +1828,11 @@ const websiteUrl = "https://driftagent.dev"
 
 function AboutSection() {
   const engine = useEngine()
-  const engineVersion = () =>
-    engine.state.version || (engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting"))
+  const nativeVersion = () => {
+    if (!engine.state.nativeVersion) return engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting")
+    const link = engine.state.nativeOnline ? t("drift.about.native.connected") : t("drift.about.native.offline")
+    return `${engine.state.nativeVersion} (${link})`
+  }
 
   return (
     <div class="space-y-6 select-text">
@@ -1936,8 +1846,8 @@ function AboutSection() {
         <SettingsRow title={t("drift.about.row.app.title")} description={t("drift.about.row.app.description")}>
           <span class="font-mono text-[0.75rem] text-ink-muted">{__DRIFT_VERSION__}</span>
         </SettingsRow>
-        <SettingsRow title={t("drift.about.row.engine.title")} description={t("drift.about.row.engine.description")}>
-          <span class="font-mono text-[0.75rem] text-ink-muted">{engineVersion()}</span>
+        <SettingsRow title={t("drift.about.row.native.title")} description={t("drift.about.row.native.description")}>
+          <span class="font-mono text-[0.75rem] text-ink-muted">{nativeVersion()}</span>
         </SettingsRow>
         <SettingsRow
           title={t("drift.about.row.updates.title")}
@@ -1971,12 +1881,6 @@ function AboutSection() {
             driftagent.dev
           </button>
         </SettingsRow>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("drift.about.group.credits")}>
-        <div class="space-y-2 px-1 py-2.5 text-[0.74rem] leading-relaxed text-ink-muted">
-          <p>{t("drift.about.credits.engine")}</p>
-        </div>
       </SettingsGroup>
     </div>
   )
@@ -2243,6 +2147,7 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "MCP") return <IconShieldCheck />
     if (props.section === "Prompts") return <IconCode />
     if (props.section === "Agents") return <IconSliders />
+    if (props.section === "Permissions") return <IconShieldCheck />
     if (props.section === "Storage") return <IconArchive />
     if (props.section === "Remote Access") return <IconShieldCheck />
     return <IconInfo />

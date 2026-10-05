@@ -1,8 +1,8 @@
 # Drift store
 
-Drift-side persistence lives in SQLite owned by the Tauri shell:
-`%APPDATA%/dev.drift.app/drift.db`. The engine keeps its own storage; this database only
-holds what Drift adds on top.
+Everything lives in one SQLite file, `%APPDATA%/dev.drift.app/drift.db`. The engine's tables
+(conversations, workspaces, MCP servers, settings) sit beside the shell's; this page covers the
+shell's, which hold what the app adds on top.
 
 ## Performance posture
 
@@ -17,14 +17,12 @@ holds what Drift adds on top.
 | --- | --- | --- |
 | `workspace` | id, path (unique), name, icon, last_used, removed_at | workspaces = directories with display identity; `icon` is empty (initials rendered from name) or a small data-URL image thumbnail |
 | `session_meta` | session_id, workspace_id, archived_at | Drift metadata about engine sessions; today that is archive state |
-| `mcp_server` | name, config_json, updated_at | global Drift-owned definitions; full JSON preserves unknown fields |
-| `mcp_decision` | fingerprint, name, decision, decided_at | immutable global approval/rejection history by exact fingerprint |
-| `mcp_state` | id, generation, materialized_generation | CAS and generated-policy publication state |
+| `mcp_server`, `mcp_decision`, `mcp_state` | | Drift 1.3's MCP servers and approvals; read once by the importer, never written (servers now live in the engine's `mcp_config`, see [mcp.md](mcp.md)) |
 
 Workspace icons are images only, downscaled client-side to a 64px webp data URL
 (a few KB) before storage, so no blob handling or asset protocol is needed.
 
-Native startup imports OpenCode projects only when they own at least one session. Drift
+The first-launch import adds opencode projects as workspaces only when they own at least one session. Drift
 also removes untouched temporary rows created by the older project-only importer while
 preserving workspaces explicitly added through Drift, including empty ones.
 

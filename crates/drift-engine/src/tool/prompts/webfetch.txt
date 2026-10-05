@@ -1,0 +1,5 @@
+Fetches a URL and returns its content. HTML pages come back as Markdown by default; other content types are returned as-is.
+
+- Use it for documentation, changelogs, issues and API references the task points at. It is not a search engine: you need the URL.
+- Over 64 KB, you get the first and last 16 KB and a file holding all of it; `read` that file for the rest. Over 5 MB is refused.
+- Each new host is asked about once per session.

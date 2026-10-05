@@ -1,56 +1,18 @@
 import { For, onMount, Show } from "solid-js"
 import { t } from "../state/i18n"
-import {
-  analyzeStorage,
-  autoCleanup,
-  compactStorage,
-  formatBytes,
-  pruneStorage,
-  reclaimableBytes,
-  refreshStorageStats,
-  setAutoCleanup,
-  setStorageRule,
-  storageBusy,
-  storageError,
-  storageEstimates,
-  storageRules,
-  storageStats,
-  type StorageRules,
-} from "../state/storage"
-import { Toggle } from "./controls"
+import { compactStorage, formatBytes, pruneStorage, refreshStorageStats, storageBusy, storageError, storageStats } from "../state/storage"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 
 /** One band of the usage bar. `tone` is a Tailwind background class. */
 type Segment = { key: string; label: string; bytes: number; tone: string }
 
-/**
- * The `event` log is listed first because it is almost always the largest consumer and the only one
- * this screen can actually shrink; `part` and `message` are the transcripts themselves.
- */
+/** Transcripts and images live in the database; undo history and shell output in folders beside it. */
 const tableTones: Record<string, { tone: string; label: string; hint: string }> = {
-  event: { tone: "bg-accent", label: "drift.storage.table.event", hint: "drift.storage.table.event.hint" },
   part: { tone: "bg-ok", label: "drift.storage.table.part", hint: "drift.storage.table.part.hint" },
-  message: { tone: "bg-warn", label: "drift.storage.table.message", hint: "drift.storage.table.message.hint" },
+  blob: { tone: "bg-warn", label: "drift.storage.table.blob", hint: "drift.storage.table.blob.hint" },
+  undo: { tone: "bg-accent", label: "drift.storage.table.undo", hint: "drift.storage.table.undo.hint" },
+  output: { tone: "bg-ink-faint", label: "drift.storage.table.output", hint: "drift.storage.table.output.hint" },
 }
-
-const ruleLabels: { rule: keyof StorageRules; label: string; description: string }[] = [
-  {
-    rule: "supersededSnapshots",
-    label: "drift.storage.rule.superseded",
-    description: "drift.storage.rule.superseded.description",
-  },
-  {
-    rule: "subagentEvents",
-    label: "drift.storage.rule.subagent",
-    description: "drift.storage.rule.subagent.description",
-  },
-  {
-    rule: "archivedEvents",
-    label: "drift.storage.rule.archived",
-    description: "drift.storage.rule.archived.description",
-  },
-  { rule: "orphanEvents", label: "drift.storage.rule.orphan", description: "drift.storage.rule.orphan.description" },
-]
 
 export function StorageSection() {
   onMount(() => void refreshStorageStats())
@@ -81,9 +43,8 @@ export function StorageSection() {
     return bands
   }
 
-  /** Bar widths are relative to the file, so unaccounted bytes (indexes) simply leave a gap. */
+  /** Bar widths are relative to the whole, so unaccounted bytes (indexes) simply leave a gap. */
   const barTotal = () => Math.max(stats()?.totalBytes ?? 0, 1)
-  const reclaimable = () => reclaimableBytes(storageEstimates() ?? [], storageRules())
 
   return (
     <div class="space-y-6">
@@ -170,49 +131,11 @@ export function StorageSection() {
         )}
       </Show>
 
-      <SettingsGroup title={t("drift.storage.cleanup")}>
-        <SettingsRow title={t("drift.storage.auto")} description={t("drift.storage.auto.description")}>
-          <Toggle label={t("drift.storage.auto")} checked={autoCleanup()} onChange={() => setAutoCleanup(!autoCleanup())} />
-        </SettingsRow>
-        <For each={ruleLabels}>
-          {(entry) => (
-            <SettingsRow title={t(entry.label)} description={t(entry.description)}>
-              <div class="flex items-center gap-3">
-                <Show when={ruleBytes(entry.rule) > 0}>
-                  <span class="text-[0.7rem] tabular-nums text-ink-faint">{formatBytes(ruleBytes(entry.rule))}</span>
-                </Show>
-                <Toggle
-                  label={t(entry.label)}
-                  checked={storageRules()[entry.rule]}
-                  onChange={() => setStorageRule(entry.rule, !storageRules()[entry.rule])}
-                />
-              </div>
-            </SettingsRow>
-          )}
-        </For>
-      </SettingsGroup>
-
       <SettingsGroup title={t("drift.storage.actions")}>
-        <SettingsRow title={t("drift.storage.analyze")} description={t("drift.storage.analyze.description")}>
-          <button
-            class="h-9 rounded-md border border-edge px-3.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-            disabled={working()}
-            onClick={() => void analyzeStorage()}
-          >
-            {storageBusy() === "analyze" ? t("drift.storage.analyzing") : t("drift.storage.analyze.action")}
-          </button>
-        </SettingsRow>
-        <SettingsRow
-          title={t("drift.storage.prune")}
-          description={
-            reclaimable() > 0
-              ? t("drift.storage.prune.available", { size: formatBytes(reclaimable()) })
-              : t("drift.storage.prune.description")
-          }
-        >
+        <SettingsRow title={t("drift.storage.prune")} description={t("drift.storage.prune.description")}>
           <button
             class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
-            disabled={working() || !Object.values(storageRules()).some(Boolean)}
+            disabled={working()}
             onClick={() => void pruneStorage()}
           >
             {storageBusy() === "prune" ? t("drift.storage.pruning") : t("drift.storage.prune.action")}
@@ -234,20 +157,4 @@ export function StorageSection() {
       </Show>
     </div>
   )
-}
-
-/** Rule names from the backend are prefixed (`superseded:message.part.updated.1`). */
-function ruleKey(rule: keyof StorageRules) {
-  if (rule === "supersededSnapshots") return "superseded"
-  if (rule === "subagentEvents") return "subagent-events"
-  if (rule === "archivedEvents") return "archived-events"
-  return "orphan-events"
-}
-
-/** Superseded snapshots are reported per event type, so its estimates are summed. */
-function ruleBytes(rule: keyof StorageRules) {
-  const key = ruleKey(rule)
-  return (storageEstimates() ?? [])
-    .filter((estimate) => estimate.rule.startsWith(key))
-    .reduce((sum, estimate) => sum + estimate.bytes, 0)
 }

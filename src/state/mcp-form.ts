@@ -1,128 +1,73 @@
-import type { McpConfig } from "./store"
+import type { McpServerConfig, McpServerConfigView } from "../engine/store"
 
-export type McpPair = { key: string; value: string }
-export type McpOAuthMode = "auto" | "disabled" | "configured"
+/** `saved`: the engine holds a value under this name, never shown; left empty, it is kept as it is. */
+export type McpPair = { key: string; value: string; saved?: boolean }
+/** Exactly what the engine's server config holds: a command with its arguments, environment and directory, or a URL with headers; and a call timeout. */
 export type McpFormState = {
-  type: "local" | "remote"
+  type: "stdio" | "http" | "sse"
   command: string[]
-  cwd: string
   environment: McpPair[]
+  cwd: string
   url: string
   headers: McpPair[]
-  enabled: boolean
-  timeout: string
-  oauthMode: McpOAuthMode
+  /** A pre-registered app for servers that will not register Drift; an empty client id means none. */
   clientId: string
+  /** Typed only to set or replace it; left empty, a saved one is kept for the same client id. */
   clientSecret: string
-  scope: string
-  callbackPort: string
-  redirectUri: string
-  extra: Record<string, unknown>
-  oauthExtra: Record<string, unknown>
-  present: Set<string>
-  oauthPresent: Set<string>
+  secretSaved: boolean
+  /** Space-separated, as OAuth writes them. */
+  scopes: string
+  /** Seconds, as typed; empty means no limit. */
+  timeout: string
 }
 
-export type McpFormIssue =
-  | "commandRequired"
-  | "urlRequired"
-  | "urlInvalid"
-  | "timeoutInvalid"
-  | "pairInvalid"
-  | "callbackPortInvalid"
-  | "redirectUriInvalid"
-export type McpFormResult = { config: McpConfig; issue?: never } | { config?: never; issue: McpFormIssue }
+export type McpFormIssue = "commandRequired" | "urlRequired" | "urlInvalid" | "pairInvalid" | "timeoutInvalid"
+export type McpFormResult = { config: McpServerConfig; issue?: never } | { config?: never; issue: McpFormIssue }
 
-export function mcpFormState(config?: McpConfig): McpFormState {
-  const current = config ?? { type: "local" }
-  const oauth = recordValue(current.oauth)
-  const known = new Set(
-    current.type === "local"
-      ? ["type", "command", "cwd", "environment", "enabled", "timeout"]
-      : ["type", "url", "headers", "oauth", "enabled", "timeout"],
-  )
-  const oauthKnown = new Set(["clientId", "clientSecret", "scope", "callbackPort", "redirectUri"])
-  return {
-    type: current.type,
-    command:
-      Array.isArray(current.command) && current.command.every((item) => typeof item === "string")
-        ? [...current.command]
-        : [""],
-    cwd: stringValue(current.cwd),
-    environment: pairsValue(current.environment),
-    url: stringValue(current.url),
-    headers: pairsValue(current.headers),
-    enabled: current.enabled !== false,
-    timeout: typeof current.timeout === "number" ? String(current.timeout) : "",
-    oauthMode: current.oauth === false ? "disabled" : oauth ? "configured" : "auto",
-    clientId: stringValue(oauth?.clientId),
-    clientSecret: stringValue(oauth?.clientSecret),
-    scope: stringValue(oauth?.scope),
-    callbackPort: typeof oauth?.callbackPort === "number" ? String(oauth.callbackPort) : "",
-    redirectUri: stringValue(oauth?.redirectUri),
-    extra: Object.fromEntries(Object.entries(current).filter(([key]) => !known.has(key))),
-    oauthExtra: Object.fromEntries(Object.entries(oauth ?? {}).filter(([key]) => !oauthKnown.has(key))),
-    present: new Set(Object.keys(current)),
-    oauthPresent: new Set(Object.keys(oauth ?? {})),
+export function mcpFormState(config?: McpServerConfigView): McpFormState {
+  const timeout = config?.timeoutSeconds ? String(config.timeoutSeconds) : ""
+  const noApp = { clientId: "", clientSecret: "", secretSaved: false, scopes: "" }
+  if (config?.type === "http" || config?.type === "sse") {
+    const app = config.oauth
+    const oauth = app ? { clientId: app.clientId, clientSecret: "", secretSaved: app.hasSecret, scopes: app.scopes.join(" ") } : noApp
+    return { type: config.type, command: [""], environment: [], cwd: "", url: config.url, headers: savedPairs(config.headers), ...oauth, timeout }
   }
+  return {
+    type: "stdio",
+    command: config ? [config.command, ...config.args] : [""],
+    environment: savedPairs(config?.env ?? []),
+    cwd: config?.cwd ?? "",
+    url: "",
+    headers: [],
+    ...noApp,
+    timeout,
+  }
+}
+
+/** The app as the engine takes it: `null` for the secret keeps a saved one. */
+function oauthFromForm(form: McpFormState) {
+  const clientId = form.clientId.trim()
+  if (!clientId) return null
+  const scopes = form.scopes.split(/\s+/).filter(Boolean)
+  return { clientId, clientSecret: form.clientSecret || null, scopes }
 }
 
 export function mcpConfigFromForm(form: McpFormState): McpFormResult {
-  const timeout = positiveInteger(form.timeout)
-  if (timeout === null) return { issue: "timeoutInvalid" }
-  const shared = {
-    ...(form.present.has("enabled") ? { enabled: form.enabled } : {}),
-    ...(form.present.has("timeout") && timeout !== undefined ? { timeout } : {}),
-  }
-  if (form.type === "local") {
-    if (!form.command[0]?.trim()) return { issue: "commandRequired" }
-    const environment = pairRecord(form.environment)
-    if (!environment) return { issue: "pairInvalid" }
-    return {
-      config: {
-        ...form.extra,
-        type: "local",
-        command: [...form.command],
-        ...(form.present.has("cwd") ? { cwd: form.cwd } : {}),
-        ...(form.present.has("environment") ? { environment } : {}),
-        ...shared,
-      },
-    }
+  const timeout = form.timeout.trim()
+  const timeoutSeconds = timeout ? Number(timeout) : null
+  if (timeoutSeconds !== null && !(Number.isInteger(timeoutSeconds) && timeoutSeconds > 0)) return { issue: "timeoutInvalid" }
+  if (form.type === "stdio") {
+    const [command, ...args] = form.command
+    if (!command?.trim()) return { issue: "commandRequired" }
+    const env = pairRecord(form.environment)
+    if (!env) return { issue: "pairInvalid" }
+    return { config: { type: "stdio", command, args, env, cwd: form.cwd.trim() || null, timeoutSeconds } }
   }
   if (!form.url) return { issue: "urlRequired" }
   if (!mcpRemoteUrlAllowed(form.url)) return { issue: "urlInvalid" }
   const headers = pairRecord(form.headers)
   if (!headers) return { issue: "pairInvalid" }
-  const callbackPort = positiveInteger(form.callbackPort)
-  if (callbackPort === null || (callbackPort !== undefined && callbackPort > 65535)) {
-    return { issue: "callbackPortInvalid" }
-  }
-  if (form.redirectUri && !mcpRemoteUrlAllowed(form.redirectUri)) return { issue: "redirectUriInvalid" }
-  const oauth =
-    form.oauthMode === "disabled"
-      ? { oauth: false }
-      : form.oauthMode === "configured"
-        ? {
-            oauth: {
-              ...form.oauthExtra,
-              ...(form.oauthPresent.has("clientId") ? { clientId: form.clientId } : {}),
-              ...(form.oauthPresent.has("clientSecret") ? { clientSecret: form.clientSecret } : {}),
-              ...(form.oauthPresent.has("scope") ? { scope: form.scope } : {}),
-              ...(form.oauthPresent.has("callbackPort") && callbackPort !== undefined ? { callbackPort } : {}),
-              ...(form.oauthPresent.has("redirectUri") ? { redirectUri: form.redirectUri } : {}),
-            },
-          }
-        : {}
-  return {
-    config: {
-      ...form.extra,
-      type: "remote",
-      url: form.url,
-      ...(form.present.has("headers") ? { headers } : {}),
-      ...oauth,
-      ...shared,
-    },
-  }
+  return { config: { type: form.type, url: form.url, headers, oauth: oauthFromForm(form), timeoutSeconds } }
 }
 
 export function mcpRemoteUrlAllowed(value: string) {
@@ -134,44 +79,17 @@ export function mcpRemoteUrlAllowed(value: string) {
   }
 }
 
-export function withMcpPresence(form: McpFormState, field: string, present: boolean) {
-  const fields = new Set(form.present)
-  if (present) fields.add(field)
-  else fields.delete(field)
-  return { ...form, present: fields }
+/** A changed name is a new entry: the engine holds nothing under it to keep. */
+export function updatePair(pairs: McpPair[], index: number, patch: Partial<McpPair>) {
+  return pairs.map((pair, item) => (item === index ? { ...pair, ...patch, ...("key" in patch ? { saved: false } : {}) } : pair))
 }
 
-export function withMcpOAuthPresence(form: McpFormState, field: string, present: boolean) {
-  const fields = new Set(form.oauthPresent)
-  if (present) fields.add(field)
-  else fields.delete(field)
-  return { ...form, oauthPresent: fields }
+function savedPairs(names: string[]): McpPair[] {
+  return names.map((key) => ({ key, value: "", saved: true }))
 }
 
-function recordValue(value: unknown) {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
-}
-
-function stringValue(value: unknown) {
-  return typeof value === "string" ? value : ""
-}
-
-function pairsValue(value: unknown): McpPair[] {
-  const record = recordValue(value)
-  return record
-    ? Object.entries(record).flatMap(([key, item]) => (typeof item === "string" ? [{ key, value: item }] : []))
-    : []
-}
-
-function pairRecord(pairs: McpPair[]) {
-  const entries = pairs.filter((item) => item.key || item.value)
-  if (entries.some((item) => !item.key) || new Set(entries.map((item) => item.key)).size !== entries.length) return null
-  return Object.fromEntries(entries.map((item) => [item.key, item.value]))
-}
-
-function positiveInteger(value: string) {
-  if (!value.trim()) return undefined
-  if (!/^\d+$/.test(value.trim())) return null
-  const number = Number(value)
-  return Number.isSafeInteger(number) && number > 0 ? number : null
+function pairRecord(entries: McpPair[]): Record<string, string | null> | null {
+  const filled = entries.filter((item) => item.key || item.value || item.saved)
+  if (filled.some((item) => !item.key) || new Set(filled.map((item) => item.key)).size !== filled.length) return null
+  return Object.fromEntries(filled.map((item) => [item.key, item.saved && !item.value ? null : item.value]))
 }

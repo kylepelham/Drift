@@ -1,217 +1,48 @@
-# Engine integration
+# Engine
 
-Drift embeds the opencode engine. Upstream source is vendored as a graph-clean snapshot at
-`engine/upstream` and remains byte-for-byte upstream; all opencode config (agents, MCP
-servers, plugins, providers) applies unchanged. Users do not install opencode.
+Drift's agent engine is a Rust library, `crates/drift-engine`, linked into the Tauri shell and
+running in the app's own process. Every decision behind it, with its milestones and baselines,
+is in [engine-rewrite.md](engine-rewrite.md); this page is the short version of how the app
+uses it.
 
-## Embedded engine lifecycle
+## How the app hosts it
 
-- Vendoring: a temporary `--no-tags` fetch plus `git read-tree` replaces the engine
-  snapshot without linking OpenCode's commit history into Drift (see the runbook below).
-  One-time setup after an update: `bun install
-  --ignore-scripts` inside `engine/upstream` (native tree-sitter grammars are optional,
-  wasm is used at runtime).
-- Building: `bun run build:engine` calls upstream's own build
-  (`script/build.ts --single --skip-embed-web-ui`) and copies the result to
-  `src-tauri/binaries/drift-engine[-<triple>].exe`. We never maintain our own bundling
-  of their code; their build script is the contract.
-- Drift-specific engine adaptations live as named patches in `engine/overlays`, outside
-  the snapshot. Build and engine-test commands apply them under a process lock and reverse
-  every applied patch after the command, including recovery after an interrupted prior
-  command. Restoration failures fail the command, preserve callback and cleanup errors,
-  and retain `engine/.overlay-lock` until a later run proves the snapshot is pristine. Lock
-  ownership is initialized in an ignored same-volume candidate and atomically published
-  without replacement. Dead generations are atomically moved to UUID tombstones before a new
-  owner can claim the lock; retaining those tombstones prevents delayed stale contenders from
-  moving a newer live lock. An empty legacy ownerless lock is quarantined only after the
-  upstream snapshot is proven clean; dirty or malformed ownerless locks fail closed. On startup,
-  only a fully applied patch is recovered automatically; an
-  indeterminate patch state fails with a manual-recovery error instead of being silently
-  skipped. A patch that no longer applies fails with an explicit refresh message instead of
-  modifying the vendored snapshot.
-- Dev: `bun run dev` creates an ephemeral fail-closed MCP policy, spawns
-  `drift-engine.exe serve --hostname 127.0.0.1 --port 4096` (cwd = repo root), and
-  gives the engine and Vite a random shared password.
-- Shell: `src-tauri/src/main.rs` locates the sidecar (next to the app exe, or
-  `src-tauri/binaries` in dev), spawns `serve --hostname 127.0.0.1 --port 0` with a random
-  Basic-auth password, parses the printed URL, and serves both via `engine_status`. The child
-  is killed on exit. The frontend polls status until the sidecar is up, surfaces an
-  early process failure with its last stderr line, and times out after 45 seconds.
-- Packaging: `tauri build` produces an NSIS installer bundling the sidecar
-  (`externalBin`) plus generated `drift-extensions/` beside the exe. Tauri builds
-  clear the raw release resource directory before copying it so removed plugins
-  cannot survive incremental builds. Before every
-   frontend/native build, Bun bundles local extension imports and schemas into standalone
-   ESM, generates the model-family and built-in-agent prompt catalog from the vendored
-   source, then writes a dependency-free package manifest. Release startup never resolves
-   packages from a developer checkout or installs local plugin dependencies.
-  The generated config and MCP policy live in app data, separate from bundled extensions.
-- Iteration: `bun run build:native` compiles without bundling; `bun run package` creates
-  the installer. Release builds use incremental parallel codegen and NSIS zlib so a
-  warm native build takes about 9 seconds and a packaged build about 20 seconds.
-- Version drift symptom (engine binary older than the shared SQLite schema): prompts
-  500 with `SQLiteError: no such column ...`. Fix by rebuilding the engine binary.
-- Release builds use the canonical `opencode.db`, so existing provider logins and
-  sessions remain available without duplicating transcript or event data. Before the
-  first switch, Drift transactionally merges any sessions created in its channel-specific
-  database; that database is retained as rollback data. Existing OpenCode project paths
-  are inserted into Drift's workspace list without overwriting Drift names, icons, or
-  removals. Development builds keep their channel database isolated.
-- Skill reload: the shell polls conventional global and workspace skill roots once per
-  second and hashes a bounded set of `SKILL.md` contents, so ordinary additions, removals, renames, and in-place edits
-  under `.agents/skills`, `.claude/skills`, OpenCode `skill`/`skills` directories, and
-  configured local `skills.paths` (up to 4,096 skill files, 16 directory levels, and
-  the first 1 MiB of each file) publish a new runtime configuration snapshot. JSON config,
-  Markdown agents/commands, and custom tool/plugin files are also polled. The resulting
-  `skill-config-changed` event refreshes Drift's slash-command metadata. Remote clients also
-  refresh command/config metadata whenever the slash menu opens.
+- At setup `src-tauri/src/native.rs` opens the engine on `drift.db` in the app's data folder
+  and serves its HTTP API and one WebSocket on `127.0.0.1`, on a free port, behind a random
+  token made at each launch. The window asks the shell for both (`native_engine_status`); the
+  engine never listens beyond loopback.
+- Remote Access mounts the same router inside its HTTPS gateway, in process, and adds the
+  token itself after a device signs in (see [remote.md](remote.md)).
+- `crates/drift-engined` is the same engine headless: `bun run dev` runs it for the browser
+  dev loop, the conformance tests drive it, and it can serve a remote host
+  (`drift-engined [--data-dir DIR] [--port N]`, data in `~/.local/share/drift` by default).
+- Settings the shell keeps (agent overrides from Settings > Agents, the shell time limit) are
+  handed to the engine at startup and on every change; everything else the engine owns.
 
-### Configuration changes during active work
+## Data
 
-`zzzzz-runtime-config-snapshots.patch` retains a configuration revision for each running session.
-That revision owns its parsed config, skills, agents, commands, providers, plugins, tool registry,
-MCP clients, formatters, and LSP clients. Model turns, tool calls, and permission/question waits
-continue using those resources until the run ends. Detached title/summary work retains its own
-reference until it finishes.
+- One `drift.db`, one writer: the engine's tables beside the shell's own (workspaces,
+  archives, preferences, remote devices). See [store.md](store.md).
+- Sign-ins and API keys live in the operating system's credential store.
+- The user's own config is `~/.config/drift`: `drift.json` (model, permission rules,
+  providers, formatters, checks, language servers, skill paths), `AGENTS.md`, and `agents/`,
+  `commands/` and `skills/`. A project adds its own `drift.json`, `.drift/{agents,commands,skills}`
+  and `AGENTS.md` (or `CLAUDE.md`) files; it can never add providers or language servers.
+- On first launch `crates/drift-migrate` imports opencode's conversations, sign-ins, MCP
+  servers and config once, in the background ("Importing opencode conversations" in
+  engine-rewrite.md).
 
-File changes and config API writes publish a new revision without disposing instances. An idle
-session selects the latest revision when its next run starts, independently of sessions still
-running on older revisions. Repeated edits replace the pending revision; unused intermediate
-revisions are released. Retired clients and plugin hooks close only after their final reader exits.
-Session runners, pending questions, permission requests, and other live instance state stay intact.
+## API and events
 
-The shell uses `POST /global/config/reload` for config and skill changes. MCP edits still synchronize
-the approval policy before `POST /global/mcp/reload`, which publishes the same kind of revision.
-Explicit engine restarts, disposal requests, shutdown, and user cancellation still stop work.
-
-### Startup
-
-The native window starts hidden. The inline preload waits for the splash image to decode and for
-the renderer's first contentful paint, then lets the completed splash frame settle before revealing
-the window. The preload remains mounted through reveal and two visible animation frames; bootstrap
-does not replace it with a connection placeholder. When the splash is disabled, the app or error
-screen renders first and its contentful paint triggers reveal. Engine readiness and thread hydration
-do not gate the splash. Native setup never hides a window that has already appeared, and no timer
-bypasses the painted-content requirement.
-
-Legacy database import and OpenCode workspace discovery run on the engine launch worker, outside
-the UI event loop. A no-op import skips the full shared-database foreign-key audit; imports that
-write rows still validate before committing. The existing launch generation also covers preparation,
-so shutdown or replacement invalidates a pending launch. The frontend refreshes imported workspaces
-once the engine is available and loads thread/status snapshots independently of provider and agent
-discovery. Captured stderr includes monotonic `drift startup:` milestones for window, database,
-workspace import, and engine timing.
-
-## Optional Jev tool routing
-
-Tool execution settings can enable Jev routing through OpenCode Zen. It is off by default.
-The native shell persists the choice in SQLite and atomically publishes `tool-routing.json`.
-Policy-change events are emitted under the persistence lock so concurrent desktop/companion
-updates cannot publish an older value after a newer one.
-The bundled `tool-routing.js` reads it at each model step, so changing the setting requires
-no restart. The launcher selects an existing `tool-routing.js`, falling back to
-`tool-routing.ts` for source extensions. If neither exists, it leaves the module environment
-variable unset, clearing any inherited value. A small `zzzzzzz-jev-tool-routing.patch` bridge runs after permission filtering
-and before either LLM transport. It reads a stored `opencode` (Zen) API key from engine
-auth, falling back to an `opencode-go` key, only when routing is enabled. No credentials
-enter the UI or routing cache.
-
-Free Zen models work without a key because the engine sends the anonymous `public` key, so a
-connected `opencode` provider does not mean Jev is usable. Jev rejects the anonymous key with
-401 ("rate-limited Zen models require a workspace") and bills the workspace's Zen balance,
-which Go plans do not cover, answering 402 when it is empty. The router therefore reports what
-actually happened instead of guessing: each turn writes one `{ outcome, at, hidden?, httpStatus? }`
-record to `tool-routing-status.json` (path in `DRIFT_TOOL_ROUTING_STATUS`), and settings poll it
-through `tool_routing_status`. Outcomes cover routed, no key, unauthorized, insufficient funds,
-other HTTP errors, timeout, network, invalid or uncertain answers, and catalogs outside the
-routing budget. Toggling the setting deletes the stale record.
-
-Jev receives up to four recent conversational text excerpts, each capped at 2,000 characters,
-and tool names/descriptions grouped by MCP server, with descriptions capped at 256 characters.
-It receives neither reasoning parts nor tool outputs or parameter schemas. Built-ins,
-custom tools without an unambiguous MCP prefix,
-and previously used tools remain visible. Code-mode catalogs with no direct MCP tools bypass
-routing. Fewer than two groups, more than 24 groups, or a catalog over 96,000 characters also bypass it.
-
-One `jev-1.13` request batches a Noul relevance question per group. Only groups scored 0.15 or
-lower are hidden; every other group stays, however unsure the score. An earlier rule that also
-required a 0.8 score to keep anything let one middling group cancel the whole turn: replaying
-"what is apophis status?" scored Apophis 0.61 and kept all 161 MCP tools, while hiding only the
-confident misses drops three servers. Malformed responses, missing auth, HTTP failures, and a
-1.2-second timeout keep all tools. The threshold is experimental, not a measured accuracy guarantee.
-Decisions and failures are shared for one session/user-turn/catalog key in a bounded 128-entry
-cache. A new user turn or changed catalog triggers reevaluation. No network retries are added
-to the model's critical path. Stable ordering preserves caching within a turn where possible.
-
-Filtered requests include `drift_expand_tools`, which restores the full already-permitted
-set on the next step for the rest of that turn. Expansion never restores tools excluded by
-permissions or the user's tool settings. Routing does not grant execution approval. Existing
-permission checks still run when a selected tool executes. End-to-end latency and task-success
-improvements have not yet been benchmarked on Drift workloads.
-
-## Async questions
-
-The question tool defaults to `async: true`. It registers a pending request and returns
-its ID immediately so independent work can continue. Work that depends on the answer
-must wait. The model can pass `async: false` for a blocking clarification; direct
-`Question.ask`, plan exit, and permission approvals remain blocking.
-
-Drift labels async cards and offers **Answer later**, which collapses the card without
-rejecting it. The pending-request selector switches between requests across sessions;
-answer drafts stay keyed to their request. Replies go to the owning workspace and session,
-not whichever thread is currently selected. Failed submissions retain the card and draft.
-Sending and failure state also stay keyed to the request when switching cards. Once an
-async answer is submitted, its contents are locked: **Retry original answer** resends the
-original snapshot because an unconfirmed delivery might already have saved it. Blocking
-questions remain editable after failed submission. Dismissal remains a separate rejection.
-
-Question replies and rejections have an eight-second transport deadline. Identical
-in-flight submissions share one request; conflicting submissions are not sent. A timeout
-means delivery is unconfirmed, not that the engine discarded the answer. Confirmed
-resolution clears the draft and submission state; late transport completions cannot
-recreate cleared state.
-
-The engine saves accepted answers as user messages with the session's latest agent,
-model, variant, system instructions, and output format. It queues a serialized follow-up
-without interrupting active work. Cancellation and permission/question rejection invalidate
-queued follow-ups; an already saved answer remains in history for the next manual turn.
-Save failures retain the pending request, and events publish only after the save commits.
-Failed question notifications cannot strand a blocking caller: rejection still settles its
-wait, and a failed asked notification removes the pending request.
-
-Accepted answers carry `metadata.driftClarification` on their durable text part. Drift
-renders them as compact, expandable **Answered** rows instead of protocol-text bubbles.
-The request ID is not displayed or copied. Older answers with the exact legacy protocol
-heading use the same disclosure without guessing where multiline questions or answers end.
-The model-facing text remains unchanged, and ordinary messages keep their existing rendering.
-
-Pending requests and queued follow-ups are instance-local, not restart-persistent.
-Restarting the engine clears unanswered cards. Saved answers survive, but a crash after
-admission can require manually resuming the session.
-
-## Response latency
-
-Prompt preparation uses upstream's sequential ordering. The experimental five-way overlap
-was removed after a slower-response report and review found that sibling failure could
-interrupt cold skill-cache initialization and leave its interrupted result cached. Synthetic
-overlap tests did not establish an end-to-end latency benefit or safe cold-cache recovery.
-Snapshot capture and permission enforcement remain unchanged.
-
-Locally created sessions start with a ready, empty transcript before selection or prompt
-dispatch. This prevents the initial transcript GET from racing the first response and
-discarding its events, without adding an HTTP wait to first-send latency. Existing-session
-hydration is unchanged; accepting partial live messages during an initial GET requires
-part-level reconciliation rather than the current whole-message revision merge.
-
-The UI batches consecutive text/part deltas already received in one network chunk into
-one reactive update. It flushes before control events and before awaiting more network
-data, so busy/idle transitions remain observable and no pacing timer delays the first text.
-In a synthetic browser-Solid test, 128 deltas in one chunk cause one downstream memo/effect
-rerun instead of 128. This measures reactive work, not provider token speed or end-to-end latency.
-
-See [the async question comparison](async-question-comparison.md) for the public Codex
-protocol findings, the limits of the installed-app inspection, and follow-up work.
-
+- The HTTP API is described by its OpenAPI document (`/openapi.json`); the UI's types in
+  `src/engine/native/types.ts` are generated from it with `bun run gen:engine`, never written
+  by hand. `src/engine/` is the only part of the UI that talks to the engine.
+- Every event carries a monotonic `seq`. A client reconnects with `cursor`, the engine replays
+  what it missed from a bounded window, and a client too far behind gets `resync` and hydrates
+  again. A socket that falls behind while connected does the same.
+- Questions the agent asks (async by default), permission asks and their replies, tasks and
+  workers, undo and redo, compaction and retries are all engine features; engine-rewrite.md
+  documents each.
 ## Context meter and plan usage limits
 
 The context meter in the chat header shows the context window as one bar split by
@@ -226,11 +57,13 @@ current model, in the style of the Codex and Claude Code desktop apps. Each wind
 bar that turns amber at 70% and red at 90%. The ring in the header uses the same colors
 for context usage.
 
-`provider_usage` (`src-tauri/src/usage_limits.rs`) reads the engine's `auth.json`, calls the
-provider's usage endpoint, and returns normalized windows (kind, optional label, percent
-used, and reset time in epoch milliseconds). Tokens never reach the webview or a remote
-device. Expired OAuth tokens are not refreshed here, because the engine owns refresh and
-refresh tokens can rotate; the popover says the sign-in refreshes on the next request.
+`provider_usage` (`src-tauri/src/usage_limits.rs`) takes the credential from Drift's own
+engine (`Engine::current_credential`, the keyring), calls the provider's usage endpoint, and
+returns normalized windows (kind, optional label, percent used, and reset time in epoch
+milliseconds). Tokens never reach the webview or a remote device. An expired sign-in is
+renewed through the engine's own refresh, behind the same per-provider lock a turn uses, so
+a rotating refresh token is never spent twice; when renewal fails the popover says the
+sign-in has expired.
 The frontend asks at most once a minute per provider, when the popover opens or a
 session goes idle. **Settings > Usage limits** lists every linked provider that reports
 limits, and its Refresh button bypasses the one-minute cache.
@@ -250,184 +83,3 @@ Anthropic, OpenAI, and z.ai parsers were checked against live responses on 2026-
 other parsers follow CodexBar's source and fixtures. API keys for Anthropic and OpenAI
 have no plan windows, so no section is shown for them. MiniMax is left out because its
 wire units are unconfirmed, and Gemini because it has no suitable endpoint.
-
-## Engine update runbook
-
-The 2026-09-28 update imports OpenCode 1.18.33 at `7f964bbb00e505178847e2c08721b0fff56208f9`.
-It catches MCP OAuth browser launchers that exit before OpenCode attaches its exit listener
-(seen on Windows), routes browser opening through one shared opener, redacts credentials in
-`opencode debug config`, fixes Gemini and Gemma thinking defaults, applies provider timeouts to
-Cloudflare AI Gateway models, and bumps `gitlab-ai-provider` to 6.18.0. All overlays applied
-unchanged and the SDK moves to 1.18.33.
-
-Upstream's ACP subprocess tests spawn `bun` by name. When `bun` on PATH is only a shell shim
-(for example `bun.ps1` from nvm4w), put the directory holding `bun.exe` first on PATH before
-`bun run test:engine`, or those tests fail with `ENOENT`.
-
-The previous 2026-09-23 update imported OpenCode 1.18.32 at `18ef3cc7c5a25b82114c953a80ccc09f4988f74e`.
-That snapshot includes Codex OAuth support for GPT-6 Sol and Luna, restricts Bedrock image
-tool-output hoisting to supported model families, fixes Node package entrypoint resolution,
-and updates TogetherAI and GitLab provider dependencies. The 1.18.32 SDK is aligned with
-the embedded engine. The GPT-6 Astra context-limit regression overlay was refreshed to
-retain upstream's new Sol and Luna coverage.
-
-The upstream Vertex Anthropic wire test still expects `block_binding`, but the pinned
-`@ai-sdk/google-vertex` transport omits that field. It fails on the pristine upstream
-snapshot without Drift overlays; the other engine suites and overlay tests pass.
-
-The previous 2026-09-15 update imported OpenCode 1.18.31 at
-`a74c472ffb941e6b027e5348be50cfe2225c6c56`.
-This is upstream's version-sync commit on `dev`. Its complete tree equals the `v1.18.31`
-release tag's tree, including the 1.18.31 manifests. The marker stays pinned to the `dev`
-sync commit so future updates can validate ancestry along `dev`, rather than the separate release commit.
-The snapshot is imported without upstream history, and overlays remain separate.
-
-The 1.18.31 release restores ACP session model, effort, mode, and reasoning boundaries when
-loading, resuming, or forking. It requests summarized adaptive thinking for GitHub Copilot,
-surfaces remote-config authentication errors during TUI startup, and updates `@ai-sdk/gateway`
-to 3.0.191. Drift's JavaScript SDK dependency is updated to 1.18.31 alongside the engine.
-
-The previous 1.18.30 update updated the OpenAI, Azure, and GitLab provider dependencies, preserved Bedrock
-ARN/DeepSeek identifiers, and added the GPT-6 Astra prompt. Drift includes Astra as a template
-variant while retaining saved GPT/Codex override keys. Explicit OpenAI service tiers now reach
-the provider rather than being silently dropped by the SDK's model allowlist.
-`zz-provider-plugin-init.patch` defers reading provider plugin exports until registration,
-fixing a circular-import failure exposed by running the core Bedrock suite independently.
-
-The temporary Astra catalog and allowlist workaround was removed after verifying models.dev's
-native entry and upstream's integer GPT-version filter. GPT-6 OAuth and API-key connections retain
-the catalog limits. The GPT-6 OAuth clamp shipped in 1.3.5 has been removed;
-`zz-codex-context-limits.patch` now contains regression tests only. The current GPT-6 Astra catalog
-matches [OpenAI's model reference](https://developers.openai.com/api/docs/models/gpt-6-astra):
-1,050,000 context, 922,000 input, and 128,000 output tokens. With the default 20,000-token reserve,
-automatic compaction starts at 902,000 reported tokens. Both the engine and context meter use the
-input limit for this threshold. Explicit compaction reserve settings can change the engine threshold.
-Upstream now preserves running tool timestamps, replacing that hunk in `shell-timeout.patch`.
-`zz-v2-mcp-compat.patch` preserves existing camelCase MCP OAuth fields when V2 fields trigger
-normalization. Ordinary V1 configs retain their shape. Drift's external MCP editor still expects
-V1 layout; this update does not add editing support for nested V2 `mcp.servers` definitions.
-
-The `OpenCode update` workflow checks upstream `dev` every day at 06:17 UTC and can be
-run manually. When an update exists and no update pull request is open, it fetches into
-the dedicated `refs/remotes/opencode-update/dev` ref, creates or refreshes
-`automation/opencode-update`, opens one review pull request, and explicitly dispatches
-CI for that branch. It never merges the pull request. The repository Actions setting
-must allow GitHub Actions to create and approve pull requests.
-
-`engine/upstream.commit` records the imported upstream SHA outside the pristine snapshot.
-Automation validates that the next revision descends from that marker, stages the upstream
-tree under `engine/upstream`, and records both changes in one ordinary Drift commit. It then
-deletes the temporary upstream ref so OpenCode commits do not remain reachable in Drift's
-graph. The initial `5542415b6` baseline and snapshot process were validated against the
-existing vendored fixture adjustment; the resulting tree matches upstream exactly.
-
-For a manual update, reproduce the workflow's marker and metadata sequence:
-
-```bash
-git fetch --no-tags https://github.com/sst/opencode.git +dev:refs/remotes/opencode-update/dev
-latest="$(git rev-parse refs/remotes/opencode-update/dev)"
-current="$(tr -d '\r\n' < engine/upstream.commit)"
-git merge-base --is-ancestor "$current" "$latest"
-git rm -r --quiet engine/upstream
-git read-tree --prefix=engine/upstream/ -u "refs/remotes/opencode-update/dev^{tree}"
-printf '%s\n' "$latest" > engine/upstream.commit
-git add engine/upstream.commit
-git commit -m "chore: update vendored OpenCode to ${latest:0:10}"
-git update-ref -d refs/remotes/opencode-update/dev
-```
-
-Never merge, subtree-merge, or retain the temporary upstream ref. Any of those choices can
-make OpenCode's history reachable in Drift's graph. Keep `--no-tags` as well: OpenCode's
-release tags could otherwise trigger Drift's own `v*` release workflow if pushed.
-
-1. `bun install --ignore-scripts` inside `engine/upstream` (skips optional native grammars).
-2. `bun run test:engine` from the repo root. If an overlay no longer applies, refresh
-   that isolated patch against the new source; never resolve it inside `engine/upstream`.
-3. `bun run build:engine` from the repo root to rebuild `src-tauri/binaries/drift-engine.exe`.
-4. Restart the dev loop or the app, then confirm the new version in Settings > About
-   (served live from `GET /global/health`).
-5. Smoke: send a prompt, run a tool, answer a permission. Schema errors mean step 3
-   was skipped or failed.
-
-## Surface used
-
-| Concern | Endpoint |
-| --- | --- |
-| Sessions | `GET/POST /session`, `PATCH/DELETE /session/{id}` |
-| Fork | `POST /session/{id}/fork` (`mode: active` for stable compacted context, `mode: full` for completed history) |
-| Transcript | `GET /session/{id}/message` |
-| Prompt | `POST /session/{id}/prompt_async` (body: parts, model, agent; attachments are `file` parts with data URLs, persisted by the engine) |
-| Revert | `POST /session/{id}/revert` and `/unrevert` (message and file rollback) |
-| Abort | `POST /session/{id}/abort` |
-| Permissions | `POST /session/{id}/permissions/{permissionID}` (once/always/reject) |
-| Models | `GET /provider` (all + connected + per-provider defaults) |
-| Provider refresh | `POST /provider/reload` (invalidates provider catalogs without disposing active instances; auth changes reload automatically) |
-| Agents | `GET /agent` |
-| Directory | `GET /path` |
-| File search | `GET /find/file` (fuzzy paths for composer @-mentions; mention parts use `file://` URLs + `source.text`, content read engine-side) |
-| Events | `GET /global/event` (SSE, all instances; frames are `{ directory, payload }`) |
-| Statuses | `GET /session/status` (per-instance map of non-idle sessions) |
-
-## Forking long sessions
-
-The sidebar fork button and `/fork` copy the stable active context: the latest completed
-compaction summary, its retained tail, and completed turns since it. Earlier history stays in
-the source session. The sidebar button remains disabled while its fork request is pending.
-Use `/fork all` when the new session needs the entire completed history.
-
-`bounded-fork.patch` copies full histories in forward pages of 25 message headers and loads
-parts for one message at a time. It fixes the upper bound before copying, so new source turns
-are excluded. The ID map retains only message IDs for parent and compaction-tail remapping.
-Forks still copy historical payloads into independent durable storage, so full-history copying
-takes time proportional to the history size.
-
-Copied events still pass through the durable event log and projectors. Their internal
-`driftFork` metadata prevents the global event bridge from broadcasting historical payloads
-to the WebView. One final session update announces completion; opening it loads transcript
-pages normally. Errors or interruption clean up the partial copy without modifying the source.
-Engine tests cover multi-page copies, timestamp ties, busy-turn exclusion, appended source
-messages, reference remapping, bounded global-event payloads, and interruption cleanup.
-
-## Events reduced into the store
-
-`message.updated`, `message.removed`, `message.part.updated`, `message.part.removed`,
-`session.created/updated/deleted`, `session.status`, `session.idle`, `session.error`,
-`permission.updated`, `permission.replied`, `todo.updated`. `server.connected` triggers
-(re)hydration; `sync` and `server.heartbeat` frames are dropped in the SSE parser; everything
-else is ignored on purpose. Native `skill-config-changed` refreshes runtime metadata after
-instance disposal. `mcp-config-changed` does so after the serialized policy/config transaction
-and in-place MCP reload complete, without disposing engine instances.
-
-## Gotchas learned the hard way
-
-- `GET /event` is scoped to the per-directory instance resolved from the request, so a
-  per-directory stream goes silent for every other workspace: busy dots and thinking
-  indicators froze the moment you switched. Drift streams `GET /global/event` instead
-  (every instance's events wrapped as `{ directory, payload }`, plus a 10s heartbeat)
-  and keeps session-keyed state (status, permissions, questions, todos) across
-  directory switches; only transcripts reset and rehydrate per workspace.
-- Status is event-sourced, so any gap (reconnect, missed idle) leaves a stale dot.
-  Hydration reconciles from `GET /session/status`: sessions absent from the map are
-  explicitly set back to idle.
-- `POST .../prompt_async` returns 204 even when the run later fails; failures arrive as
-  `session.error` events. Drift treats that event as terminal even if the following
-  idle event is missed: it clears current activity, sets the session idle, and retains
-  the error at the transcript bottom until the next prompt.
-- A session's active drain keeps its original model; steering a new prompt into a busy
-  session does not switch models mid-drain.
-- Model defaults from models.dev include non-chat models (video/image). Always filter on
-  `capabilities.toolcall` before offering or auto-picking a model.
-- Pending permissions only arrive as `permission.updated` events, and only for the
-  active directory's instance. Reload the UI (or switch workspace) and they're gone
-  from local state while the engine drain stays parked waiting: the run looks stuck
-  with no prompt, and revert bounces off the busy session. Drift refreshes
-  `GET /permission` (missing from the generated SDK, fetched raw) for every workspace
-  directory on connect plus a 10s tick, and replies route to the owning instance via
-  an explicit `directory` query.
-- `DELETE /session/:id/share` revokes the remote share but the session record keeps a
-  stale `share` property (200 response body included). Drift clears it locally after
-  unshare; the stale value resurfaces on rehydration until fixed upstream.
-- Solid store `set("sessions", id, info)` merges objects, it does not replace. Keys the
-  engine dropped (like `share` and `revert`) must be cleared explicitly with `undefined`;
-  all session upserts go through `putSession` in `src/engine/store.ts` for this reason.
-  A stale `revert` marker silently hides every message sent after a revert.

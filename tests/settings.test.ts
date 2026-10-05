@@ -58,7 +58,7 @@ test("selected language dictionaries translate settings without loading every lo
   expect(t("common.reset")).toBe("Restablecer")
   expect(t("drift.remote.title")).toBe("Remote Access")
   expect(t("drift.settings.prompts")).toBe("Prompts")
-  expect(t("drift.slash.spawn.review")).toBe("Review")
+  expect(t("drift.slash.spawn.required")).toBe("Say what the new thread should do after /spawn.")
   expect(t("drift.attachment.kind.pdf")).toBe("PDF")
   expect(reasoningLevelLabel("xhigh")).toBe("Muy alto")
   expect(reasoningLevelLabel("custom")).toBe("Custom")
@@ -69,16 +69,22 @@ test("selected language dictionaries translate settings without loading every lo
 
 test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"]')
-  expect(source).toContain('<PromptEditorSection view="prompts" />')
-  expect(source).toContain('<PromptEditorSection view="agents" />')
-  expect(source).toContain('"text-ink-faint": !familyModified()')
+  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"]')
+  expect(source).toContain("<BasePromptsSection />")
+  expect(source).toContain("<PromptEditorSection />")
   expect(source).toContain('"text-ink-faint": !agentPromptModified()')
   expect(source).toContain('"text-ink-faint": !agentBehaviorModified()')
   expect(source).toContain("disabled={props.disabled || !props.dirty}")
-  expect(source).toContain('t("drift.settings.prompts.astraDescription")')
-  expect(source).toContain('GPT-6 (Astra): {t("drift.settings.prompts.upstreamOriginal")}')
-  expect(source).toContain("{variant.original}")
+})
+
+test("model-family base prompts are edited and reset in the engine, never through the shell's family overrides", async () => {
+  const settings = await Bun.file("src/ui/settings.tsx").text()
+  const editor = await Bun.file("src/ui/settings-base-prompts.tsx").text()
+  expect(editor).toContain("engine.actions.saveBasePrompt(selected(), draft())")
+  expect(editor).toContain("engine.actions.resetBasePrompt(selected())")
+  expect(editor).not.toContain("readOnly")
+  expect(settings).not.toContain("`family:")
+  expect(settings).not.toContain("familyUnavailable")
 })
 
 test("settings search covers every category and finds feature descriptions", async () => {
@@ -111,24 +117,13 @@ test("settings search covers every category and finds feature descriptions", asy
   expect(settingsSearchResults("engine version")[0]?.section).toBe("About")
 })
 
-test("tool execution exposes optional Jev routing without its old footer", async () => {
+test("Settings offers no Jev tool routing: the native engine has none, so a toggle would configure nothing", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain("<ToolRoutingSetting />")
+  expect(source).not.toContain("ToolRoutingSetting")
+  expect(source).not.toContain("drift.settings.toolRouting")
   expect(source).not.toContain('t("drift.settings.shellTimeout.scope")')
-  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
-  expect(routing).toContain("checked={toolRouting().enabled}")
-  expect(routing).toContain("disabled={busy()}")
-})
-
-test("Jev routing reports the engine's last outcome instead of guessing from provider connections", async () => {
-  const routing = await Bun.file("src/ui/settings-tool-routing.tsx").text()
-  expect(routing).not.toContain("engine.state.connected")
-  expect(routing).toContain("loadToolRoutingStatus")
-  const english = (await import("../src/i18n/en")).drift as Record<string, string>
-  const outcomes = routing.match(/const outcomes = new Set\(\[([^\]]+)\]/)![1]!.match(/"[^"]+"/g)!.map((item) => JSON.parse(item))
-  for (const outcome of outcomes) expect(english[`drift.settings.toolRouting.outcome.${outcome}`]).toBeString()
-  const engine = await Bun.file("src-tauri/src/engine.rs").text()
-  expect(engine).toContain('.env("DRIFT_TOOL_ROUTING_STATUS"')
+  expect(await Bun.file("src/ui/settings-tool-routing.tsx").exists()).toBeFalse()
+  expect(await Bun.file("src/state/tool-routing.ts").exists()).toBeFalse()
 })
 
 test("agent overrides retain only values changed from upstream", async () => {
@@ -146,21 +141,17 @@ test("agent overrides retain only values changed from upstream", async () => {
   ).toEqual({ prompt: "Custom", mode: "subagent" })
 })
 
-test("prompt saves and resets publish a runtime reload for desktop and companion callers", async () => {
-  const commands = await Bun.file("src-tauri/src/commands.rs").text()
+test("agent overrides saved or reset reach the engine for desktop and companion callers", async () => {
+  const prompts = await Bun.file("src-tauri/src/prompts.rs").text()
   const remote = await Bun.file("src-tauri/src/remote.rs").text()
-  for (const [command, method] of [["prompt_save", "save_prompt"], ["prompt_reset", "reset_prompt"]]) {
-    const body = commands.slice(commands.indexOf(`pub(crate) fn ${command}(`)).split("\n}")[0]!
-    expect(body).toContain("app: tauri::AppHandle")
-    expect(body).toContain(`runtime.${method}(`)
-    expect(body).toContain("?;\n    publish_prompt_change(&app)")
-    expect(body.indexOf(`runtime.${method}(`)).toBeLessThan(body.indexOf("publish_prompt_change(&app)"))
-    expect(remote).toContain(`commands::${command}(\n            app.clone(),`)
+  for (const command of ["prompt_save", "prompt_reset"]) {
+    const body = prompts.slice(prompts.indexOf(`pub(crate) fn ${command}(`)).split("\n}")[0]!
+    expect(body).toContain("app: AppHandle")
+    expect(body.trimEnd().endsWith("crate::native::push_agent_overrides(&app, &store)")).toBeTrue()
+    expect(remote).toContain(`prompts::${command}(`)
   }
-  expect(commands).toContain("reload_engine_config(app).map_err")
-  expect(commands).toContain("Settings saved, but the engine reload failed.")
   const ui = await Bun.file("src/ui/settings.tsx").text()
-  expect(ui).toContain('if (props.view === "agents") await engine.actions.refreshAgents()')
+  expect(ui).toContain("await action()\n      await engine.actions.refreshAgents()")
   expect(ui).toContain('t("drift.settings.prompts.saved")')
   expect(ui).not.toContain("showRestartNotice")
 })
@@ -173,17 +164,12 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 
 /** Keys that deliberately fall back to English until locale-specific translations ship. */
 const pendingTranslation = new Set([
-  ...pendingKeys(
-    "drift.settings.toolRouting",
-    `
-      title description
-      outcome.routed outcome.no-key outcome.unauthorized outcome.insufficient-funds outcome.http-error
-      outcome.timeout outcome.network outcome.invalid-response outcome.uncertain outcome.no-context
-      outcome.too-few-groups outcome.catalog-too-large
-    `,
-  ),
+  ...pendingKeys("drift.thread", "openSubagent"),
+  ...pendingKeys("drift.settings.autoCompact", "title description"),
+  ...pendingKeys("drift.settings.prompts", "behaviorFields behaviorRefused"),
+  "drift.message.forkHere",
+  ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   "drift.markdown.linkFailed",
-  ...pendingKeys("drift.provider", "pasteCode enterCode copyCode openAgain copyLink linkCopied"),
   ...pendingKeys("drift.context", "window systemAndTools user assistant tool"),
   ...pendingKeys(
     "drift.usage",
@@ -199,6 +185,13 @@ const pendingTranslation = new Set([
   "drift.settings.code",
   ...pendingKeys("drift.settings.search", "empty placeholder"),
   ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
+  ...pendingKeys("drift.chat.spawned", "copy instruction"),
+  ...pendingKeys("drift.model", "smallContext unknownContext"),
+  ...pendingKeys("drift.mcp.transport", "stdio streamable_http sse"),
+  ...pendingKeys("drift.mcp.era", "stateless legacy"),
+  ...pendingKeys("drift.mcp.form", "transport cwd cwdDefault timeout timeoutNone timeoutInvalid"),
+  ...pendingKeys("drift.mcp.form", "app appHint clientId clientSecret clientSecretNone scopes scopesNone"),
+  ...pendingKeys("drift.mcp", "signIn signOut signInOpened status.needsSignIn"),
   ...pendingKeys(
     "drift.code",
     `
@@ -222,17 +215,17 @@ const pendingTranslation = new Set([
   ...pendingKeys(
     "drift.mcp",
     `
-      servers registry add edit definedIn approve reject revoke pendingApproval
-      invalidStatus rejectedStatus awaitingReport selectWorkspace saved removed approved rejected revoked
-      name nameRequired registrySearch registrySource registryLoadFailed registryUnavailable install
+      servers registry add edit engineDescription status.disconnected removed
+      name nameRequired registrySearch registrySource registryLoadFailed install
+      registry.filter registry.filter.all registry.filter.remote registry.filter.local registry.more registry.official registry.searchingOfficial
+      registry.empty registry.back registry.repository registry.website registry.runAs registry.required
+      registry.optional registry.secret registry.secretNote registry.installing registry.stars registry.needsKey
+      registry.note.remote registry.note.docker registry.note.latest registry.note.local
       installedLabel installed
-      form.nameInvalid form.type form.local form.remote form.enabled form.timeout form.command
-      form.executable form.argument form.addArgument form.removeArgument form.cwd form.environment
-      form.url form.headers form.oauth form.oauth.auto form.oauth.disabled form.oauth.configured
-      form.clientId form.clientSecret form.scope form.callbackPort form.redirectUri form.key form.value
-      form.addPair form.removePair form.commandRequired form.urlRequired form.urlInvalid
-      form.timeoutInvalid form.pairInvalid form.callbackPortInvalid form.redirectUriInvalid
-      toast.pending.title toast.pending.message toast.exact toast.openSettings toast.failed
+      form.nameInvalid form.type form.local form.remote form.command
+      form.executable form.argument form.addArgument form.removeArgument form.environment
+      form.url form.headers form.key form.value form.savedValue
+      form.addPair form.removePair form.commandRequired form.urlRequired form.urlInvalid form.pairInvalid
     `,
   ),
   ...pendingKeys(
@@ -260,7 +253,7 @@ const pendingTranslation = new Set([
     "drift.settings.prompts",
     `
       agentDescription agentPrompt agents behavior familyDescription inheritsFamily invalidJson
-      modelFamilies saved saveBeforeSwitch systemPrompt upstreamOriginal
+      modelFamilies saved saveBeforeSwitch systemPrompt
     `,
   ),
   "drift.settings.prompts",
@@ -269,21 +262,17 @@ const pendingTranslation = new Set([
     "drift.slash",
     `
       fork fork.active fork.active.description fork.all fork.all.description fork.invalid
-      spawn spawn.implement spawn.implement.description spawn.investigate spawn.investigate.description
-      spawn.required spawn.review spawn.review.description
+      spawn spawn.required
     `,
   ),
   ...pendingKeys(
     "drift.storage",
     `
-      actions analyze analyze.action analyze.description analyzing auto auto.description cleanup compact
-      compact.action compact.description compacting estimated free prune prune.action prune.available
+      actions compact compact.action compact.description compacting estimated free prune prune.action
       prune.description pruning refresh subtitle
-      rule.archived rule.archived.description rule.orphan rule.orphan.description rule.subagent
-      rule.subagent.description rule.superseded rule.superseded.description
       sessions sessions.archived sessions.archived.description sessions.subagent
       sessions.subagent.description sessions.total sessions.total.description
-      table.event table.event.hint table.message table.message.hint table.part table.part.hint
+      table.part table.part.hint table.blob table.blob.hint table.undo table.undo.hint table.output table.output.hint
     `,
   ),
   "drift.storage",
@@ -308,6 +297,8 @@ const invariantTranslation = new Set([
   "drift.attachment.kind.pdf",
   "drift.notification.threadError",
   "drift.settings.section",
+  "drift.settings.prompts.family.claude",
+  "drift.settings.prompts.family.gemini",
 ])
 
 type Catalog = { dict: Record<string, string>; drift: Record<string, string> }
@@ -315,6 +306,17 @@ const featureTranslations = (catalog: Catalog) =>
   Object.fromEntries(
     Object.entries({ ...catalog.dict, ...catalog.drift }).filter(([key]) => key.startsWith("drift.")),
   ) as Record<string, string>
+
+test("no locale keeps a key English does not have", async () => {
+  const { languages } = await import("../src/state/language")
+  const en: Catalog = await import("../src/i18n/en")
+  const english = new Set([...Object.keys(en.dict), ...Object.keys(en.drift)])
+  for (const language of languages.filter((language) => language.id !== "en")) {
+    const catalog: Catalog = await import(`../src/i18n/${language.id}.ts`)
+    const extra = [...Object.keys(catalog.dict), ...Object.keys(catalog.drift)].filter((key) => !english.has(key))
+    expect(extra, `${language.id} has keys en.ts dropped`).toEqual([])
+  }
+})
 
 test("Drift owns explicit app-specific translations for every locale", async () => {
   const { languages } = await import("../src/state/language")
@@ -437,15 +439,26 @@ test("code display defaults preserve source and diff structure", async () => {
   expect(codePreferenceBinding(16, 8, true, "dracula").wrap).toBe("wrap")
 })
 
-test("notification migration and global auto-accept stay explicit", async () => {
-  const { autoAcceptAllowed, notificationDefaults, soundDefaults } = await import("../src/state/prefs")
+test("notification defaults stay explicit and old webview auto-accept is forgotten only once the engine takes it", async () => {
+  const { handOverAutoAccept, notificationDefaults, soundDefaults } = await import("../src/state/prefs")
   expect(notificationDefaults(true)).toEqual({ agent: true, permission: true, error: true })
   expect(soundDefaults()).toEqual({ agent: "none", permission: "none", error: "none" })
-  expect(autoAcceptAllowed(true, [], "child")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["thread"], "thread")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["parent"], "child", "parent")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["linked"], "child", undefined, "linked")).toBeTrue()
-  expect(autoAcceptAllowed(false, ["other"], "child", "parent", "linked")).toBeFalse()
+  const kept = new Map([["drift.autoAccept.global", "true"], ["drift.autoAccept", JSON.stringify(["s1", 7, "s2"])]])
+  const storage = localStorage as Storage
+  const saved = { getItem: storage.getItem, setItem: storage.setItem, removeItem: storage.removeItem }
+  Object.assign(storage, { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => kept.set(key, value), removeItem: (key: string) => kept.delete(key) })
+  try {
+    await expect(handOverAutoAccept(async () => Promise.reject(new Error("engine down")))).rejects.toThrow("engine down")
+    expect(kept.size, "a failed hand-over forgets nothing").toBe(2)
+    const seen: unknown[] = []
+    await handOverAutoAccept(async (offered) => (seen.push(offered), { all: false, sessions: ["s2"] }))
+    expect(seen).toEqual([{ all: true, sessions: ["s1", "s2"] }])
+    expect([...kept.entries()], "only what the engine did not take is offered again").toEqual([["drift.autoAccept", JSON.stringify(["s2"])]])
+    await handOverAutoAccept(async () => ({ all: false, sessions: [] }))
+    expect(kept.size).toBe(0)
+  } finally {
+    Object.assign(storage, saved)
+  }
 })
 
 test("shell timeout preferences normalize and persist explicit no-timeout", async () => {
@@ -596,4 +609,18 @@ test("the About mascot stays light: preloaded from the nav, compiled off-thread,
   })
   expect(vertices).toBeGreaterThan(5_000)
   expect(vertices).toBeLessThan(12_000)
+})
+
+test("permission rules reorder within the list and grants read as what was approved", async () => {
+  const { loadDictionary } = await import("../src/state/i18n")
+  await loadDictionary("en")
+  const { moveRule, grantLabel } = await import("../src/ui/settings-permissions")
+  const rule = (pattern: string) => ({ kind: "bash", pattern, decision: "ask" as const })
+  const rules = [rule("a"), rule("b"), rule("c")]
+  expect(moveRule(rules, 2, -1).map((r) => r.pattern)).toEqual(["a", "c", "b"])
+  expect(moveRule(rules, 0, -1).map((r) => r.pattern)).toEqual(["a", "b", "c"], "the first stays first")
+  expect(moveRule(rules, 2, 1).map((r) => r.pattern)).toEqual(["a", "b", "c"])
+  expect(grantLabel({ grant: "exact", kind: "edit", target: "src/[id].tsx" })).toBe("edit: src/[id].tsx")
+  expect(grantLabel({ grant: "subcommand", prefix: "cargo test" })).toBe("bash: cargo test with any arguments")
+  expect(grantLabel({ grant: "pattern", kind: "read", pattern: "docs/**", decision: "allow" })).toBe("read: docs/**")
 })

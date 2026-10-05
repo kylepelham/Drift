@@ -1,7 +1,7 @@
 use crate::remote_auth::{self, Auth, PendingLink};
 use crate::store::{RemoteDevice, Store};
-use crate::{commands, config, editor, engine, file_preview, mcp, tool_routing, ui_state, voice};
-use axum::body::{Body, Bytes};
+use crate::{commands, config, editor, file_preview, prompts, ui_state, voice};
+use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Extension, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
 use axum::middleware::{self, Next};
@@ -10,7 +10,6 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
-use reqwest::redirect::Policy;
 use rust_embed::RustEmbed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -36,7 +35,8 @@ const DISCOVERY_PROBE: &[u8] = b"OPENCODE_COMPANION_DISCOVERY";
 const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
 const TLS_HANDSHAKE_RECORD: u8 = 0x16;
 const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const MAX_PROXY_BODY: usize = 32 * 1024 * 1024;
+/// What one request to the engine may carry (attachments ride in prompts).
+const MAX_ENGINE_BODY: usize = 32 * 1024 * 1024;
 const MAX_RPC_BODY: usize = 10 * 1024 * 1024;
 
 #[derive(RustEmbed)]
@@ -423,8 +423,8 @@ fn router(app: tauri::AppHandle) -> Router {
         .route("/auth/login", post(remote_auth::login))
         .route("/auth/logout", post(remote_auth::logout))
         .route("/auth/me", get(remote_auth::me))
-        .route("/engine", any(proxy_engine))
-        .route("/engine/{*path}", any(proxy_engine))
+        // Nested rather than routed by a `{*path}` capture, which the engine's own `Path` extractors would also see.
+        .nest_service("/engine", any(native_engine).layer(DefaultBodyLimit::max(MAX_ENGINE_BODY)).with_state(app.clone()))
         .route("/api/invoke", post(invoke_rpc))
         .route("/api/ui-state/events", get(ui_state_events))
         .fallback(static_asset)
@@ -570,7 +570,7 @@ async fn static_asset(uri: Uri) -> Response {
     let content =
         dev_asset(path).or_else(|| FrontendAssets::get(path).map(|asset| asset.data.into_owned()));
     let Some(content) = content.or_else(|| {
-        (!Path::new(path).extension().is_some())
+        Path::new(path).extension().is_none()
             .then(|| {
                 dev_asset("index.html").or_else(|| {
                     FrontendAssets::get("index.html").map(|asset| asset.data.into_owned())
@@ -616,123 +616,40 @@ fn static_path(path: &str) -> Option<&str> {
     Some(raw)
 }
 
-async fn proxy_engine(
+/// The native engine, served in this process under `/engine` (stripped before it gets here). The
+/// gateway has already signed the device in, so the engine's own token goes in here and never
+/// reaches a device; a socket is leased to the device's credentials, so signing the device out
+/// closes what it holds open.
+async fn native_engine(
     State(app): State<tauri::AppHandle>,
     Extension(mut auth): Extension<watch::Receiver<u64>>,
-    request: Request,
+    mut request: Request,
 ) -> Response {
-    let (parts, body) = request.into_parts();
-    if parts
-        .headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<usize>().ok())
-        .is_some_and(|length| length > MAX_PROXY_BODY)
-    {
-        return (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "engine request body is too large",
-        )
-            .into_response();
-    }
-    let (engine_url, password) = {
-        let engine = app.state::<engine::Engine>();
-        let url = engine.current_url();
-        (url, engine.password.clone())
+    let engine = app.state::<crate::native::Native>().engine().clone();
+    let Ok(bearer) = HeaderValue::from_str(&format!("Bearer {}", engine.token)) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     };
-    let Some(engine_url) = engine_url else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "embedded engine is starting",
-        )
-            .into_response();
-    };
-    let suffix = parts
-        .uri
-        .path()
-        .strip_prefix("/engine")
-        .unwrap_or(parts.uri.path());
-    let mut target = format!("{engine_url}{suffix}");
-    if let Some(query) = parts.uri.query() {
-        target.push('?');
-        target.push_str(query);
-    }
-    let method = match reqwest::Method::from_bytes(parts.method.as_str().as_bytes()) {
-        Ok(method) => method,
-        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
-    };
-    let mut size = 0usize;
-    let stream = body.into_data_stream().map(move |chunk| {
-        let chunk = chunk.map_err(std::io::Error::other)?;
-        size += chunk.len();
-        if size > MAX_PROXY_BODY {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "request body limit exceeded",
-            ));
-        }
-        Ok(chunk)
-    });
-    let client = match proxy_client() {
-        Ok(client) => client,
-        Err(error) => return (StatusCode::BAD_GATEWAY, error).into_response(),
-    };
-    let mut outgoing = client
-        .request(method, target)
-        .body(reqwest::Body::wrap_stream(stream))
-        .header(
-            header::AUTHORIZATION.as_str(),
-            format!(
-                "Basic {}",
-                engine::basic_authorization("opencode", &password)
-            ),
-        );
-    for (name, value) in &parts.headers {
-        if request_header_allowed(name, &parts.headers) {
-            outgoing = outgoing.header(name.as_str(), value.as_bytes());
-        }
+    request.headers_mut().insert(header::AUTHORIZATION, bearer);
+    request.headers_mut().remove(header::COOKIE);
+    let router = ENGINE_ROUTER.get_or_init(|| drift_engine::api::router(engine)).clone();
+    if request.headers().contains_key(header::UPGRADE) {
+        let lease = drift_engine::api::Lease::default();
+        request.extensions_mut().insert(lease.clone());
+        tokio::spawn(async move {
+            let _ = auth.changed().await;
+            lease.cancel();
+        });
+        return router.oneshot(request).await.into_response();
     }
     let response = tokio::select! {
-        changed = auth.changed() => {
-            let _ = changed;
-            return (StatusCode::UNAUTHORIZED, "remote access credentials changed").into_response();
-        }
-        response = outgoing.send() => match response {
-            Ok(response) => response,
-            Err(error) => return (StatusCode::BAD_GATEWAY, error.to_string()).into_response(),
-        }
+        _ = auth.changed() => return (StatusCode::UNAUTHORIZED, "remote access credentials changed").into_response(),
+        response = router.oneshot(request) => response.into_response(),
     };
-    let status =
-        StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-    let response_headers = response.headers().clone();
-    let stream = revoke_on_auth_change(response.bytes_stream(), auth)
-        .map(|chunk| chunk.map(Bytes::from).map_err(std::io::Error::other));
-    let mut proxied = Response::new(Body::from_stream(stream));
-    *proxied.status_mut() = status;
-    for (name, value) in &response_headers {
-        if response_header_allowed(name, &response_headers) {
-            proxied.headers_mut().append(name.clone(), value.clone());
-        }
-    }
-    proxied.headers_mut().insert(
-        HeaderName::from_static("x-accel-buffering"),
-        HeaderValue::from_static("no"),
-    );
-    proxied
+    let (parts, body) = response.into_parts();
+    Response::from_parts(parts, Body::from_stream(revoke_on_auth_change(body.into_data_stream(), auth)))
 }
 
-static PROXY_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-
-fn proxy_client() -> Result<&'static reqwest::Client, String> {
-    if let Some(client) = PROXY_CLIENT.get() {
-        return Ok(client);
-    }
-    let client = reqwest::Client::builder()
-        .redirect(Policy::none())
-        .build()
-        .map_err(|error| error.to_string())?;
-    Ok(PROXY_CLIENT.get_or_init(|| client))
-}
+static ENGINE_ROUTER: OnceLock<Router> = OnceLock::new();
 
 fn revoke_on_auth_change<S>(
     stream: S,
@@ -746,57 +663,6 @@ where
     })
 }
 
-fn request_header_allowed(name: &HeaderName, headers: &HeaderMap) -> bool {
-    !matches!(
-        name.as_str(),
-        "authorization"
-            | "cookie"
-            | "host"
-            | "origin"
-            | "referer"
-            | "connection"
-            | "proxy-connection"
-            | "keep-alive"
-            | "transfer-encoding"
-            | "upgrade"
-            | "te"
-            | "trailer"
-    ) && !connection_names(headers)
-        .iter()
-        .any(|item| item == name.as_str())
-}
-
-fn response_header_allowed(name: &HeaderName, headers: &HeaderMap) -> bool {
-    !matches!(
-        name.as_str(),
-        "connection"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "keep-alive"
-            | "transfer-encoding"
-            | "upgrade"
-            | "te"
-            | "trailer"
-            | "set-cookie"
-            | "access-control-allow-origin"
-    ) && !connection_names(headers)
-        .iter()
-        .any(|item| item == name.as_str())
-}
-
-fn connection_names(headers: &HeaderMap) -> Vec<String> {
-    headers
-        .get(header::CONNECTION)
-        .and_then(|value| value.to_str().ok())
-        .map(|value| {
-            value
-                .split(',')
-                .map(|item| item.trim().to_ascii_lowercase())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 #[derive(Deserialize)]
 struct RpcRequest {
     command: String,
@@ -806,7 +672,7 @@ struct RpcRequest {
 
 macro_rules! remote_commands {
     (
-        |$app:ident, $args:ident, $store:ident, $runtime:ident|;
+        |$app:ident, $args:ident, $store:ident|;
         $($name:literal => $handler:expr),+ $(,)?
     ) => {
         fn rpc_allowed(command: &str) -> bool {
@@ -819,7 +685,6 @@ macro_rules! remote_commands {
             $args: &Value,
         ) -> Result<Value, String> {
             let $store = || $app.state::<Store>();
-            let $runtime = || $app.state::<mcp::McpRuntime>();
             match command {
                 $($name => $handler,)+
                 _ => Err("command is not available remotely".into()),
@@ -854,8 +719,7 @@ async fn invoke_rpc(
 }
 
 remote_commands! {
-    |app, args, store, runtime|;
-        "restart_engine" => value(engine::restart_engine(app.clone())?),
+    |app, args, store|;
         "config_read" => value(config::config_read(app.state(), arg(args, "path")?)?),
         "pick_folder" => value(editor::pick_folder().await),
         "open_file" => value(editor::open_file(
@@ -877,13 +741,14 @@ remote_commands! {
             )
             .await?,
         ),
-        "provider_usage" => value(crate::usage_limits::provider_usage(arg(args, "provider")?).await?),
+        "provider_usage" => value(crate::usage_limits::provider_usage(app.state(), arg(args, "provider")?).await?),
         "store_workspaces" => value(commands::store_workspaces(store())?),
         "store_removed_workspaces" => {
             value(commands::store_removed_workspaces(store())?)
         },
         "store_add_workspace" => value(commands::store_add_workspace(
             store(),
+            app.state(),
             arg(args, "id")?,
             arg(args, "path")?,
             arg(args, "name")?,
@@ -900,13 +765,13 @@ remote_commands! {
             value(commands::store_touch_workspace(store(), arg(args, "id")?)?)
         },
         "store_remove_workspace" => {
-            value(commands::store_remove_workspace(store(), arg(args, "id")?)?)
+            value(commands::store_remove_workspace(store(), app.state(), arg(args, "id")?)?)
         },
         "store_expired_removed_workspaces" => value(
             commands::store_expired_removed_workspaces(store(), arg(args, "before")?)?,
         ),
         "store_forget_workspace" => {
-            value(commands::store_forget_workspace(store(), arg(args, "id")?)?)
+            value(commands::store_forget_workspace(store(), app.state(), arg(args, "id")?)?)
         },
         "store_archived" => value(commands::store_archived(store())?),
         "store_archive_session" => value(commands::store_archive_session(
@@ -922,98 +787,18 @@ remote_commands! {
             store(),
             arg(args, "before")?,
         )?),
-        "mcp_snapshot" => value(commands::mcp_snapshot(
-            runtime(),
-            store(),
-            arg(args, "directory")?,
-        )?),
-        "prompt_snapshot" => value(commands::prompt_snapshot(runtime(), store())?),
-        "prompt_save" => value(commands::prompt_save(
+        "prompt_snapshot" => value(prompts::prompt_snapshot(store())?),
+        "prompt_save" => value(prompts::prompt_save(
             app.clone(),
-            runtime(),
             store(),
             arg(args, "key")?,
             arg(args, "value")?,
             optional(args, "original")?,
         )?),
-        "prompt_reset" => value(commands::prompt_reset(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "key")?,
-        )?),
-        "mcp_save" => value(commands::mcp_save(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            optional(args, "previousName")?,
-            arg(args, "config")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_remove" => value(commands::mcp_remove(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_external_config" => value(commands::mcp_external_config(
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_external_save" => value(commands::mcp_external_save(
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            arg(args, "previousName")?,
-            arg(args, "fingerprint")?,
-            arg(args, "config")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_external_remove" => value(commands::mcp_external_remove(
-            runtime(),
-            store(),
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_approve" => value(commands::mcp_approve(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "directory")?,
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_reject" => value(commands::mcp_reject(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "directory")?,
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "mcp_revoke" => value(commands::mcp_revoke(
-            app.clone(),
-            runtime(),
-            store(),
-            arg(args, "directory")?,
-            arg(args, "name")?,
-            arg(args, "fingerprint")?,
-            arg(args, "generation")?,
-        )?),
-        "storage_stats" => value(commands::storage_stats(store()).await?),
-        "storage_analyze" => value(commands::storage_analyze(store()).await?),
-        "storage_prune" => {
-            value(commands::storage_prune(store(), arg(args, "rules")?).await?)
-        },
-        "storage_compact" => value(commands::storage_compact().await?),
+        "prompt_reset" => value(prompts::prompt_reset(app.clone(), store(), arg(args, "key")?)?),
+        "storage_stats" => value(commands::storage_stats(store(), app.state()).await?),
+        "storage_prune" => value(commands::storage_prune(app.state()).await?),
+        "storage_compact" => value(commands::storage_compact(app.state()).await?),
         "voice_supported" => value(voice::voice_supported()),
         "voice_acceleration" => value(voice::voice_acceleration()),
         "voice_models" => value(voice::voice_models(app.clone())?),
@@ -1047,9 +832,6 @@ remote_commands! {
         "shell_timeout_snapshot" => {
             value(ui_state::shell_timeout_snapshot(app.state())?)
         },
-        "tool_routing_snapshot" => value(tool_routing::tool_routing_snapshot(store())?),
-        "tool_routing_status" => value(tool_routing::tool_routing_status(app.state())),
-        "tool_routing_update" => value(tool_routing::tool_routing_update(app.clone(), app.state(), store(), arg(args, "policy")?)?),
         "shell_timeout_update" => value(ui_state::shell_timeout_update(
             app.clone(),
             app.state(),
@@ -1136,6 +918,27 @@ pub(crate) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reqwest::redirect::Policy;
+
+    /// The engine's routes read their own path parameters; the gateway's mount must add none of its own.
+    #[tokio::test]
+    async fn the_engine_mounted_under_the_gateway_sees_only_its_own_path_parameters() {
+        use axum::extract::Path;
+        let engine = || Router::new().route("/sessions/{id}/messages", get(|Path(id): Path<String>| async move { id }));
+        let ask = |router: Router| async move {
+            let request = Request::builder().uri("/engine/sessions/ses_1/messages?limit=5").body(Body::empty()).unwrap();
+            let response = router.oneshot(request).await.unwrap();
+            (response.status(), String::from_utf8(axum::body::to_bytes(response.into_body(), 1024).await.unwrap().to_vec()).unwrap())
+        };
+        let nested = Router::new().nest_service("/engine", any(move |request: Request| async move { engine().oneshot(request).await.unwrap() }));
+        assert_eq!(ask(nested).await, (StatusCode::OK, "ses_1".to_string()));
+        let captured = Router::new().route("/engine/{*path}", any(move |request: Request| async move {
+            let (mut parts, body) = request.into_parts();
+            parts.uri = parts.uri.path().trim_start_matches("/engine").parse().unwrap();
+            engine().oneshot(Request::from_parts(parts, body)).await.unwrap()
+        }));
+        assert_eq!(ask(captured).await.0, StatusCode::INTERNAL_SERVER_ERROR, "a capture route leaks its parameter, which is what broke history on the phone");
+    }
 
     #[test]
     fn disabled_status_has_no_listening_urls_or_code() {
@@ -1375,32 +1178,5 @@ mod tests {
         h2.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
         assert!(valid_host_origin(&h2, Some("192.168.1.20:41718")), "HTTP/2 sends the host as :authority");
         assert!(!valid_host_origin(&h2, Some("evil.example")));
-    }
-
-    #[test]
-    fn proxy_headers_strip_credentials_and_hop_by_hop_names() {
-        let mut headers = HeaderMap::new();
-        headers.insert(header::CONNECTION, HeaderValue::from_static("x-private"));
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_static("Bearer remote"),
-        );
-        headers.insert(
-            HeaderName::from_static("x-private"),
-            HeaderValue::from_static("no"),
-        );
-        headers.insert(
-            HeaderName::from_static("x-next-cursor"),
-            HeaderValue::from_static("yes"),
-        );
-        assert!(!request_header_allowed(&header::AUTHORIZATION, &headers));
-        assert!(!request_header_allowed(
-            &HeaderName::from_static("x-private"),
-            &headers
-        ));
-        assert!(response_header_allowed(
-            &HeaderName::from_static("x-next-cursor"),
-            &headers
-        ));
     }
 }

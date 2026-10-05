@@ -109,15 +109,27 @@ export const [customSound, setCustomSound] = persisted<CustomSound | null>("drif
 export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true)
 export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true)
 export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true)
-export const [autoAcceptGlobal, setAutoAcceptGlobal] = persisted<boolean>("drift.autoAccept.global", false)
+export type KeptAutoAccept = { all: boolean; sessions: string[] }
 
-export const [autoAcceptSessions, setAutoAcceptSessions] = persisted<string[]>("drift.autoAccept", [])
+function keptAutoAccept(): KeptAutoAccept {
+  try {
+    const all = localStorage.getItem("drift.autoAccept.global") === "true"
+    const listed: unknown = JSON.parse(localStorage.getItem("drift.autoAccept") ?? "[]")
+    return { all, sessions: Array.isArray(listed) ? listed.filter((id): id is string => typeof id === "string") : [] }
+  } catch {
+    return { all: false, sessions: [] }
+  }
+}
 
-export function toggleAutoAccept(sessionId: string) {
-  const current = autoAcceptSessions()
-  setAutoAcceptSessions(
-    current.includes(sessionId) ? current.filter((id) => id !== sessionId) : [...current, sessionId],
-  )
+/** Auto-accept this webview kept before the engine owned it. `hand` gives it to the engine and returns
+ * what the engine did not take; only what it took is forgotten, and a `hand` that throws forgets nothing. */
+export async function handOverAutoAccept(hand: (kept: KeptAutoAccept) => Promise<KeptAutoAccept>) {
+  const kept = keptAutoAccept()
+  if (!kept.all && !kept.sessions.length) return
+  const left = await hand(kept)
+  if (!left.all) localStorage.removeItem("drift.autoAccept.global")
+  if (left.sessions.length) localStorage.setItem("drift.autoAccept", JSON.stringify(left.sessions))
+  else localStorage.removeItem("drift.autoAccept")
 }
 
 export function setSystemNotification(kind: AttentionKind, enabled: boolean) {
@@ -128,27 +140,35 @@ export function setAlertSound(kind: AttentionKind, sound: AlertSound) {
   setAlertSounds({ ...soundDefaults(), ...alertSounds(), [kind]: sound })
 }
 
-export function autoAcceptAllowed(
-  global: boolean,
-  sessions: string[],
-  sessionId: string,
-  parentId?: string,
-  linkedParentId?: string,
-) {
-  if (global || sessions.includes(sessionId)) return true
-  return !!(parentId && sessions.includes(parentId)) || !!(linkedParentId && sessions.includes(linkedParentId))
-}
-
+/** Choices made in the composer for a session and not yet sent; an accepted send clears them. */
 type SessionPrefs = { model?: ModelRef | null; agent?: string; variant?: string | null }
 const [sessionPrefs, setSessionPrefs] = persisted<Record<string, SessionPrefs>>("drift.session.prefs", {})
 
-export function prefsFor(sessionId: string | null | undefined) {
+/** What the session runs as next by the engine's account; `{}` for a session it has not reported. */
+export type SessionChoice = { agent?: string; variant?: string | null; model?: ModelRef }
+
+/** An unsent edit, else what the session runs as, else the global default. */
+export function prefsFor(sessionId: string | null | undefined, saved: SessionChoice) {
   const own = (sessionId && sessionPrefs()[sessionId]) || {}
   return {
-    model: own.model !== undefined ? own.model : modelPref(),
-    agent: own.agent ?? agentPref(),
-    variant: own.variant !== undefined ? own.variant : variantPref(),
+    model: own.model !== undefined ? own.model : saved.model ?? modelPref(),
+    agent: own.agent ?? saved.agent ?? agentPref(),
+    variant: own.variant !== undefined ? own.variant : saved.variant !== undefined ? saved.variant : variantPref(),
   }
+}
+
+/** The level to send: null for the model's default, `undefined` (left out, so the session keeps its own) for one this model does not offer. */
+export function sendableVariant(pref: string | null | undefined, offered: readonly string[]) {
+  if (pref === null) return null
+  return pref && offered.includes(pref) ? pref : undefined
+}
+
+/** The session now runs as what was sent, so the composer goes back to showing the session's own choice. */
+export function clearEdits(sessionId: string) {
+  if (!sessionPrefs()[sessionId]) return
+  const next = { ...sessionPrefs() }
+  delete next[sessionId]
+  setSessionPrefs(next)
 }
 
 export function updatePrefs(sessionId: string | null | undefined, patch: SessionPrefs) {

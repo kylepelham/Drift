@@ -1,10 +1,12 @@
 import { createSignal } from "solid-js"
 import { isRemoteRuntime } from "../runtime"
+import { shellEvents } from "../shell"
 import { parseNavigationHash, pushRemoteSelection } from "./navigation"
 import { applyMirroredSession } from "./selection"
 import { persisted } from "./persist"
 import { publishMirrorSelection, publishMirrorWorkspaceOrder } from "./mirror"
 import { forgetCachedSessions } from "./session-cache"
+import type { ArchivePurge } from "../engine/actions"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
 
 const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
@@ -66,6 +68,8 @@ export function initWorkspaces() {
 }
 
 async function loadWorkspaces() {
+  // The opencode import can add workspaces after this first load.
+  void shellEvents()?.listen("workspaces-changed", () => void refreshWorkspaces())
   try {
     await refreshWorkspaces(true)
   } finally {
@@ -165,14 +169,34 @@ export async function restoreWorkspace(workspace: Workspace) {
   selectWorkspace(restored.id)
 }
 
-export async function archiveSession(sessionId: string, workspaceId: string) {
-  await driftStore.archiveSession(sessionId, workspaceId)
-  await refreshArchives()
+/** How the engine archives or restores a session; the engine is the authority, the sidebar record follows it. */
+export type ArchiveInEngine = (sessionId: string, archived: boolean) => Promise<void>
+
+let archiveQueue: Promise<unknown> = Promise.resolve()
+
+/** Archive, restore and the archive purge take turns, so a purge never runs while a restore is half done. */
+function inArchiveQueue<T>(work: () => Promise<T>): Promise<T> {
+  const run = archiveQueue.then(work, work)
+  archiveQueue = run.catch(() => undefined)
+  return run
 }
 
-export async function unarchiveSession(sessionId: string) {
-  await driftStore.unarchiveSession(sessionId)
-  await refreshArchives()
+/** The engine archives first, stopping the session; only then is it hidden and its seven days start. */
+export function archiveSession(sessionId: string, workspaceId: string, inEngine: ArchiveInEngine) {
+  return inArchiveQueue(async () => {
+    await inEngine(sessionId, true)
+    await driftStore.archiveSession(sessionId, workspaceId)
+    await refreshArchives()
+  })
+}
+
+/** The engine restores first, so a thread back in the sidebar is never one the engine still treats as archived. */
+export function unarchiveSession(sessionId: string, inEngine: ArchiveInEngine) {
+  return inArchiveQueue(async () => {
+    await inEngine(sessionId, false)
+    await driftStore.unarchiveSession(sessionId)
+    await refreshArchives()
+  })
 }
 
 const purgeAge = 7 * 24 * 60 * 60 * 1000
@@ -180,19 +204,23 @@ const purgeAge = 7 * 24 * 60 * 60 * 1000
 // Both purges are two-phase: the Drift record is the deletion tombstone and is only dropped once
 // the engine confirms every session is gone. A failed engine deletion keeps the tombstone, so the
 // purge resumes on the next startup, reconnect, or timer tick. `true` means nothing is pending.
-export async function purgeArchived(removeSession: (sessionId: string) => Promise<boolean>) {
-  const expired = await driftStore.expiredArchived(Date.now() - purgeAge)
-  let complete = true
-  for (const sessionId of expired) {
-    if (await removeSession(sessionId)) await driftStore.unarchiveSession(sessionId)
-    else complete = false
-  }
-  await refreshArchives()
-  return complete
+export function purgeArchived(removeSession: (sessionId: string) => Promise<ArchivePurge>) {
+  return inArchiveQueue(async () => {
+    const expired = await driftStore.expiredArchived(Date.now() - purgeAge)
+    let complete = true
+    for (const sessionId of expired) {
+      const purged = await removeSession(sessionId)
+      // Kept: restored in the engine though this record outlived it, so the record goes and the thread stays.
+      if (purged === "deleted" || purged === "kept") await driftStore.unarchiveSession(sessionId)
+      else complete = false
+    }
+    await refreshArchives()
+    return complete
+  })
 }
 
 export async function purgeRemovedWorkspaces(
-  removeSessions: (directory: string, eligible: () => boolean) => Promise<boolean>,
+  removeSessions: (workspaceId: string, eligible: () => boolean) => Promise<boolean>,
 ) {
   const expired = await driftStore.expiredRemovedWorkspaces(Date.now() - purgeAge)
   const canonical = (path: string) => path.replaceAll("\\", "/").toLowerCase()
@@ -204,7 +232,7 @@ export async function purgeRemovedWorkspaces(
       !removedWorkspaces().some(
         (current) => current.id === workspace.id && (current.removedAt ?? 0) > (workspace.removedAt ?? 0),
       )
-    if (!(await removeSessions(workspace.path, eligible))) {
+    if (!(await removeSessions(workspace.id, eligible))) {
       complete = false
       continue
     }
@@ -216,11 +244,11 @@ export async function purgeRemovedWorkspaces(
 }
 
 export async function purgeAll(engine: {
-  purgeSession: (sessionId: string) => Promise<boolean>
-  removeAllSessions: (directory: string, eligible: () => boolean) => Promise<boolean>
+  purgeArchivedSession: (sessionId: string) => Promise<ArchivePurge>
+  removeAllSessions: (workspaceId: string, eligible: () => boolean) => Promise<boolean>
 }) {
   const [archived, removed] = await Promise.all([
-    purgeArchived(engine.purgeSession).catch(() => false),
+    purgeArchived(engine.purgeArchivedSession).catch(() => false),
     purgeRemovedWorkspaces(engine.removeAllSessions).catch(() => false),
   ])
   return archived && removed

@@ -1,37 +1,33 @@
-import { createOpencodeClient, type OpencodeClient, type Permission, type Session } from "@opencode-ai/sdk/client"
-import { createOpencodeClient as createControlClient } from "@opencode-ai/sdk/v2/client"
-import { produce, type SetStoreFunction } from "solid-js/store"
+// Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
+import type { Permission, Session } from "./shapes"
+import { untrack } from "solid-js"
+import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { t } from "../state/i18n"
-import {
-  beginPermissionReply,
-  clearPermissionAttention,
-  failPermissionReply,
-  observePermission,
-  prunePermissionAttention,
-  type DriftPermission,
-} from "../state/permission-attention"
+import { handOverAutoAccept } from "../state/prefs"
 import { applyProviderCatalog } from "../state/provider-cache"
-import { sleep, type EngineTarget } from "./connection"
-import { applySessionSnapshot, purgeSession as purgeSessionState, pushNotice } from "./events"
-import type { MessageEntry } from "./store"
+import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
+import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
+import { EngineError, type Client, type PermissionGrant, type PermissionRule } from "./native/client"
+import type { components } from "./native/types"
 import {
-  askRevision,
-  bumpAskRevision,
   captureRevisions,
   compareMessages,
   interruptStaleTools,
   mergeTranscriptSnapshot,
-  normalizeDir,
   putSession,
-  recordLink,
-  sessionBusy,
-  sessionSnapshotLimit,
-  spawnLink,
+  putTasks,
+  savedChoice,
+  type AgentInfo,
+  type CommandInfo,
   type EngineState,
+  type McpServerConfig,
+  type McpServerStatus,
+  type MessageEntry,
   type ModelRef,
   type Notice,
-  type QuestionRequest,
 } from "./store"
+
+type NativeSession = components["schemas"]["Session"]
 
 export type PromptFile = {
   filename?: string
@@ -39,133 +35,104 @@ export type PromptFile = {
   url: string
   source?: { type: "file"; path: string; text: { value: string; start: number; end: number } }
 }
-export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string; files?: PromptFile[]; directory?: string }
+/** `variant` null asks for the model's default level; left out, the session keeps its own (as for a level the model does not offer). */
+export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string | null; files?: PromptFile[]; directory?: string }
 export type PromptSendResult = { ok: true } | { ok: false; error: string }
-export type PermissionResponse = "once" | "always" | "reject"
+/** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
+export type ArchivePurge = "deleted" | "kept" | "failed"
+/** `stop` refuses the call and ends the turn; `reject` refuses it and lets the turn go on. */
+export type PermissionResponse = "once" | "always" | "reject" | "stop"
 export type ProviderAuthResult = { ok: boolean; connected: boolean }
 export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 
-type PermissionRequest = {
-  id: string
-  sessionID: string
-  permission: string
-  patterns?: string[]
-  always?: string[]
-  metadata?: Record<string, unknown>
-  tool?: { messageID: string; callID: string }
+const pageSize = 100
+const sessionPageSize = 200
+/** Sign-in methods per provider, in the order the settings page lists them. */
+const authMethods: Record<string, { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" | "supergrok" }[]> = {
+  anthropic: [
+    { type: "oauth", label: "Claude Pro/Max", mode: "max" },
+    { type: "oauth", label: "Anthropic Console", mode: "console" },
+    { type: "api", label: "API key" },
+  ],
+  openai: [
+    { type: "oauth", label: "ChatGPT (Plus, Pro, Team)", mode: "chatgpt" },
+    { type: "api", label: "API key" },
+  ],
+  xai: [
+    { type: "oauth", label: "SuperGrok", mode: "supergrok" },
+    { type: "api", label: "API key" },
+  ],
 }
-
-function toPermission(request: PermissionRequest, directory: string): Permission {
-  return {
-    id: request.id,
-    type: request.permission,
-    pattern: request.patterns?.length ? [...request.patterns] : undefined,
-    sessionID: request.sessionID,
-    messageID: request.tool?.messageID ?? "",
-    callID: request.tool?.callID,
-    title: String(request.metadata?.title ?? request.permission),
-    metadata: { ...request.metadata, ...(request.always ? { always: request.always } : {}), directory },
-    time: { created: Date.now() },
-  }
-}
-
-const defaultAbortWait = { waitMs: 5000, pollMs: 100 }
 
 export function createActions(
-  requireClient: () => OpencodeClient,
+  requireClient: () => Client,
   state: EngineState,
   set: SetStoreFunction<EngineState>,
-  target: () => EngineTarget | undefined,
-  globalClient: () => OpencodeClient = requireClient,
-  abortWait: { waitMs: number; pollMs: number } = defaultAbortWait,
+  workspaces: () => WorkspaceIndex,
 ) {
-  const pageSize = 100
-  // The archive listing has no cursor, so it is fetched in one page with a ceiling high enough that
-  // no real workspace reaches it.
-  const archiveListLimit = "10000"
-  // A spawned thread is titled from the first few words of its task.
-  const titleWordCount = 6
-  const maxTitleChars = 64
-  const moveNoticeDurationMs = 8000
-  const askPollTimeoutMs = 8000
-  const permissionReplyTimeoutMs = 8000
-  let allSessionsRequest: { epoch: number; promise: Promise<void> } | undefined
   const transcriptRequests = new Map<string, Promise<boolean>>()
-  const permissionReplies = new Map<string, Promise<boolean>>()
-  const questionReplies = new Map<string, { body: string; promise: Promise<boolean> }>()
-  const queuedAskDirectories = new Map<string, string>()
-  const activeAskDirectories = new Set<string>()
-  let askRefresh: Promise<void> | undefined
+  const reconciliations = new Map<string, Promise<void>>()
+  const reconciliationWanted = new Set<string>()
+  /** Submission ids of prompts whose fate is unknown, by session and exact prompt, until the engine answers for sure. */
+  const unsettled = new Map<string, string>()
+  let noticeSequence = 0
 
-  // Writing `undefined` removes the key from the store. The non-null assertion is only there to
-  // satisfy the setter's value type, which does not model deletion - it is not a real value.
-  function clearSessionError(id: string) {
-    set("errors", id, undefined!)
+  function notice(input: Omit<Notice, "id" | "created" | "duration"> & { id?: string; created?: number; duration?: number }) {
+    pushNotice(set, {
+      id: input.id ?? `notice-${Date.now()}-${noticeSequence++}`,
+      created: input.created ?? Date.now(),
+      duration: input.duration ?? 5000,
+      ...input,
+    })
   }
 
-  function recordLinks(entries: { parts: { id: string }[] }[]) {
-    for (const entry of entries) {
-      for (const part of entry.parts as Parameters<typeof spawnLink>[0][]) {
-        const link = spawnLink(part)
-        if (!link) continue
-        recordLink(link)
-        set("links", link.child, link.parent)
-      }
-    }
+  function entries(messages: NativeMessageWithParts[], directory: string): MessageEntry[] {
+    return messages.map(({ parts, ...info }) => ({ info: adaptMessage(info, directory), parts: parts.map(adaptPart) }))
   }
 
   async function reloadSession(id: string) {
     const captured = captureRevisions(state)
     const existed = id in state.sessions
-    const result = await requireClient().session.messages({ path: { id }, query: { limit: pageSize } })
-    const entries = interruptStaleTools(
-      [...requireSdkData(result, "Could not load transcript")].sort(compareMessages),
-      state.liveTools,
-      t("drift.message.interrupted"),
-    )
-    // The session vanished while the transcript was in flight; applying would resurrect it.
+    const messages = await requireClient().messages(id, { limit: pageSize })
+    const directory = state.sessions[id]?.directory ?? ""
+    const loaded = interruptStaleTools(entries(messages, directory).sort(compareMessages), state.liveTools, t("drift.message.interrupted"))
     if (existed && !state.sessions[id]) return
-    set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], entries, id, captured, state.revisions))
+    set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], loaded, id, captured, state.revisions))
     set("loaded", id, true)
-    set("cursors", id, result.response?.headers?.get("x-next-cursor") ?? null)
-    recordLinks(entries)
+    set("cursors", id, messages.length === pageSize ? messages[0]!.id : null)
+    const [todos, tasks] = await Promise.all([requireClient().todos(id).catch(() => undefined), requireClient().tasks(id).catch(() => undefined)])
+    if (todos) set("todos", id, adaptTodos(todos))
+    if (tasks) putTasks(set, state, id, tasks)
   }
 
-  function reportTranscriptFailure(id: string, cause: unknown) {
-    notice({
-      id: `transcript-load-${id}`,
-      title: "Transcript load failed",
-      message: sdkErrorMessage(cause, "Could not reach the engine"),
-      variant: "error",
-    })
+  // A gap during an existing reload needs a newer snapshot, not that reload's stale response.
+  function reconcileSession(id: string) {
+    reconciliationWanted.add(id)
+    const active = reconciliations.get(id)
+    if (active) return active
+    const request = (async () => {
+      await transcriptRequests.get(id)
+      while (reconciliationWanted.delete(id)) await reloadSession(id)
+    })()
+      .catch((cause) => {
+        notice({ id: `transcript-load-${id}`, title: "Transcript load failed", message: errorMessage(cause), variant: "error" })
+      })
+      .finally(() => {
+        reconciliations.delete(id)
+        reconciliationWanted.delete(id)
+      })
+    reconciliations.set(id, request)
+    return request
   }
 
-  // Older pages come via the raw route because the generated SDK lacks the cursor param.
-  async function loadOlder(id: string) {
-    const cursor = state.cursors[id]
-    const base = target()
-    if (!cursor || !base) return false
-    const url =
-      withDirectory(`${base.url}/session/${id}/message`, state.directory) +
-      `&limit=${pageSize}&before=${encodeURIComponent(cursor)}`
-    const response = await engineFetch(url, { headers: base.headers })
-    if (!response) return false
-    const older = await readJson<MessageEntry[]>(response, [])
-    const sorted = interruptStaleTools(
-      [...older].sort(compareMessages),
-      state.liveTools,
-      t("drift.message.interrupted"),
-    )
-    set(
-      produce((draft) => {
-        const existing = new Set((draft.transcripts[id] ?? []).map((entry) => entry.info.id))
-        const added = sorted.filter((entry) => !existing.has(entry.info.id))
-        draft.transcripts[id] = [...added, ...(draft.transcripts[id] ?? [])]
-      }),
-    )
-    set("cursors", id, response.headers.get("x-next-cursor"))
-    recordLinks(sorted)
-    return sorted.length > 0
+  /** Stops one worker; the engine's `task.updated` reports how it ended. */
+  async function stopTask(taskId: string) {
+    try {
+      const task = await requireClient().stopTask(taskId)
+      putTasks(set, state, task.parentSessionId, [task])
+    } catch (cause) {
+      notice({ id: `task-stop-${taskId}`, title: t("drift.task.stopFailed"), message: errorMessage(cause), variant: "error" })
+    }
   }
 
   function openSession(id: string) {
@@ -176,7 +143,7 @@ export function createActions(
     request = reloadSession(id)
       .then(() => true)
       .catch((cause) => {
-        reportTranscriptFailure(id, cause)
+        notice({ id: `transcript-load-${id}`, title: "Transcript load failed", message: errorMessage(cause), variant: "error" })
         return false
       })
       .finally(() => {
@@ -186,79 +153,67 @@ export function createActions(
     return request
   }
 
-  async function loadSessions(directory: string) {
-    const captured = captureRevisions(state)
-    const epoch = state.sessionSnapshotEpoch
-    const result = await requireClient().session.list({ query: { directory } })
-    const sessions = result.data
-    if (result.error !== undefined || !sessions) return
-    // A reconnect while the request was in flight makes this listing stale; the fresh hydrate owns it.
-    if (state.sessionSnapshotEpoch !== epoch) return
-    const complete = sessions.length < sessionSnapshotLimit
-    applySessionSnapshot(set, { sessions, captured, ...(complete ? { scope: { directory } } : {}) })
+  async function loadOlder(id: string) {
+    const cursor = state.cursors[id]
+    if (!cursor) return false
+    const older = await requireClient().messages(id, { before: cursor, limit: pageSize })
+    const directory = state.sessions[id]?.directory ?? ""
+    const sorted = interruptStaleTools(entries(older, directory).sort(compareMessages), state.liveTools, t("drift.message.interrupted"))
+    set(
+      produce((draft) => {
+        const existing = new Set((draft.transcripts[id] ?? []).map((entry) => entry.info.id))
+        draft.transcripts[id] = [...sorted.filter((entry) => !existing.has(entry.info.id)), ...(draft.transcripts[id] ?? [])]
+      }),
+    )
+    set("cursors", id, older.length === pageSize ? older[0]!.id : null)
+    return sorted.length > 0
   }
 
-  // One DB query for every workspace. Avoids booting an OpenCode instance per project.
-  async function loadAllSessions() {
-    const base = target()
-    if (!base) return
-    const epoch = state.sessionSnapshotEpoch
-    if (allSessionsRequest?.epoch === epoch) return allSessionsRequest.promise
-    const request = { epoch, promise: Promise.resolve() }
-    request.promise = (async () => {
-      const captured = captureRevisions(state)
-      const query = new URLSearchParams({ archived: "true", limit: archiveListLimit })
-      const headers = {
-        ...base.headers,
-        ...(state.directory ? { "x-opencode-directory": encodeURIComponent(state.directory) } : {}),
-      }
-      const response = await engineFetch(`${base.url}/experimental/session?${query}`, { headers })
-      if (!response) return
-      const sessions = await readJson<Session[] | null>(response, null)
-      if (!sessions || state.sessionSnapshotEpoch !== epoch) return
-      const complete = sessions.length < Number(archiveListLimit)
-      applySessionSnapshot(set, { sessions, captured, ...(complete ? { scope: { all: true as const } } : {}) })
-      if (complete) set("sessionSnapshotAll", true)
-    })()
-    allSessionsRequest = request
-    try {
-      await request.promise
-    } finally {
-      if (allSessionsRequest === request) allSessionsRequest = undefined
-    }
-  }
-
-  // Drains in passes because the engine caps each listing at 100. False means the directory
-  // wasn't fully drained, so callers keep their bookkeeping and retry on a later purge.
-  // `eligible` is re-checked every pass so a workspace restored mid-drain stops the sweep.
-  async function removeAllSessions(directory: string, eligible: () => boolean = () => true): Promise<boolean> {
-    const attempted = new Set<string>()
+  /** Every page of a listing; a truncated snapshot would purge sessions it never saw. */
+  async function allPages(params: { workspace?: string; archived?: boolean }) {
+    const all: Session[] = []
+    const running: string[] = []
+    let before: string | undefined
     for (;;) {
-      if (!eligible()) return false
-      const result = await requireClient()
-        .session.list({ query: { directory } })
-        .catch(() => null)
-      if (!result || result.error !== undefined) return false
-      const sessions = result.data ?? []
-      if (!sessions.length) return true
-      // Every remaining session already survived a delete attempt: the drain is stuck.
-      if (sessions.every((session) => attempted.has(session.id))) return false
-      for (const session of sessions) {
-        attempted.add(session.id)
-        await requireClient()
-          .session.delete({ path: { id: session.id }, query: { directory } })
-          .catch(() => null)
-      }
+      const page = await requireClient().sessions({ ...params, before, limit: sessionPageSize })
+      all.push(...page.map((s) => adaptSession(s, workspaces())))
+      running.push(...page.filter((s) => s.running).map((s) => s.id))
+      if (page.length < sessionPageSize) return { sessions: all, running }
+      before = page[page.length - 1]!.id
     }
+  }
+
+  /** The engine says which sessions have a turn in flight; everything else listed is idle. */
+  function reconcileStatus(sessions: Session[], running: Set<string>, captured: Record<string, number>) {
+    const statuses = Object.fromEntries(sessions.map((s) => [s.id, running.has(s.id) ? { type: "busy" as const } : { type: "idle" as const }]))
+    applyStatusSnapshot(set, { sessions, statuses, captured })
+  }
+
+  // Loaders snapshot state untracked: effects call them, and they write what they read.
+  async function loadSessions(directory: string) {
+    const { workspace, captured, epoch } = untrack(() => ({ workspace: workspaces().id(directory), captured: captureRevisions(state), epoch: state.sessionSnapshotEpoch }))
+    if (!workspace) return
+    const { sessions, running } = await allPages({ workspace })
+    if (state.sessionSnapshotEpoch !== epoch) return
+    applySessionSnapshot(set, { sessions, captured, scope: { directory } })
+    reconcileStatus(sessions, new Set(running), captured)
+  }
+
+  async function loadAllSessions() {
+    const captured = untrack(() => captureRevisions(state))
+    const [live, archived] = await Promise.all([allPages({}), allPages({ archived: true })])
+    const sessions = [...live.sessions, ...archived.sessions]
+    applySessionSnapshot(set, { sessions, captured })
+    reconcileStatus(sessions, new Set(live.running), captured)
+    set("sessionSnapshotAll", true)
   }
 
   async function newSession(): Promise<(Session & { discard: () => Promise<void> }) | undefined> {
-    const client = requireClient()
-    const result = await client.session.create({ body: {} })
-    const session = result.data
-    if (!session) return
-    // A locally created session is known empty. Prime it before publishing metadata or returning
-    // to selection/send, without replacing any transcript already established by live events.
+    const workspaceId = workspaces().id(state.directory)
+    if (!workspaceId) return undefined
+    const created = await requireClient().createSession({ workspaceId })
+    const session = adaptSession(created, workspaces())
+    // A fresh session is known empty; mark it loaded so the first turn's events are not dropped.
     set(
       produce((draft) => {
         draft.transcripts[session.id] ??= []
@@ -266,870 +221,508 @@ export function createActions(
         draft.cursors[session.id] ??= null
       }),
     )
-    // putSession bumps the session revision so an in-flight snapshot listing that predates this
-    // creation cannot purge the new thread before its session.created event lands.
     putSession(set, session)
-    return {
-      ...session,
-      async discard() {
-        const result = await client.session.delete({ path: { id: session.id } }).catch(() => null)
-        if (!result || result.error !== undefined) return
-        forgetSession(session.id)
-      },
-    }
-  }
-
-  async function fork(id: string, mode: "active" | "full" = "active", messageID?: string): Promise<Session | undefined> {
-    const base = target()
-    if (!base) return
-    return forkAt(id, mode, messageID, base, state.directory)
-  }
-
-  async function forkAt(
-    id: string,
-    mode: "active" | "full",
-    messageID: string | undefined,
-    base: EngineTarget,
-    directory: string,
-  ) {
-    const response = await engineFetch(withDirectory(`${base.url}/session/${id}/fork`, directory), {
-      method: "POST",
-      headers: jsonHeaders(base),
-      body: JSON.stringify({ mode, ...(messageID ? { messageID } : {}) }),
-    })
-    if (!response) {
-      notice({ message: "The session could not be forked.", variant: "error" })
-      return
-    }
-    const session = await readJson<Session | undefined>(response, undefined)
-    if (session && normalizeDir(state.directory) === normalizeDir(directory)) putSession(set, session)
-    return session
-  }
-
-  async function spawn(id: string, task: string, options: PromptOptions): Promise<Session | undefined> {
-    const base = target()
-    if (!base) return
-    const directory = state.directory
-    const client = createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
-    const session = await forkAt(id, "active", undefined, base, directory)
-    if (!session) return
-    const title = task.trim().split(/\s+/).slice(0, titleWordCount).join(" ").slice(0, maxTitleChars) || "Spawned thread"
-    const renamed = await client.session.update({ path: { id: session.id }, body: { title } }).catch(() => null)
-    if (!renamed || renamed.error) {
-      await client.session.delete({ path: { id: session.id } }).catch(() => null)
-      forgetSession(session.id)
-      notice({ message: "The spawned thread could not be named.", variant: "error" })
-      return
-    }
-    const body = {
-      parts: [
-        {
-          type: "text" as const,
-          text: [
-            "This thread was spawned from another Drift conversation. Use the carried active context above.",
-            "Start by forming a concise plan for the task, then carry it out.",
-            `Task: ${task.trim()}`,
-          ].join("\n\n"),
-          metadata: { generated: true },
-        },
-      ],
-      model: options.model ?? undefined,
-      agent: options.agent,
-      ...(options.variant ? { variant: options.variant } : {}),
-    }
-    const prompted = await client.session.promptAsync({ path: { id: session.id }, body }).catch(() => null)
-    if (!prompted || prompted.error) {
-      await client.session.delete({ path: { id: session.id } }).catch(() => null)
-      forgetSession(session.id)
-      notice({ message: "The spawned thread could not be started.", variant: "error" })
-      return
-    }
-    const spawned = { ...session, title }
-    if (normalizeDir(state.directory) === normalizeDir(directory)) putSession(set, spawned)
-    const link = { child: session.id, parent: id }
-    recordLink(link)
-    set("links", link.child, link.parent)
-    return spawned
-  }
-
-  async function sessionsAt(directory: string): Promise<Session[] | null> {
-    const base = target()
-    if (!base) return null
-    const query = new URLSearchParams({ directory, archived: "true", limit: archiveListLimit })
-    const response = await engineFetch(`${base.url}/experimental/session?${query}`, { headers: base.headers })
-    return response ? readJson<Session[] | null>(response, null) : null
-  }
-
-  // Unlike the other raw routes this one reports why it failed, so it keeps the bare fetch: it has
-  // to tell "could not reach the engine" apart from "the engine rejected the move" and read the
-  // rejection body, which engineFetch deliberately collapses.
-  async function rebindSession(id: string, destination: string): Promise<string | null> {
-    const base = target()
-    if (!base) return "Engine is offline"
-    const response = await fetch(`${base.url}/experimental/control-plane/move-session`, {
-      method: "POST",
-      headers: jsonHeaders(base),
-      body: JSON.stringify({ sessionID: id, destination: { directory: destination }, moveChanges: false }),
-    }).catch(() => null)
-    if (!response) return "Could not reach the engine"
-    if (response.ok) return null
-    const body = (await response.json().catch(() => null)) as { data?: { message?: string } } | null
-    return body?.data?.message ?? `Engine rejected the move (${response.status})`
-  }
-
-  async function moveSessions(entries: Session[], destination: string): Promise<SessionMoveResult> {
-    const moving = entries.filter((session) => normalizeDir(session.directory) !== normalizeDir(destination))
-    if (!moving.length) return { ok: true, moved: [] }
-    for (const session of moving) {
-      if (!(await interrupt(session.id))) return { ok: false, moved: [], error: t("drift.move.sessionBusy") }
-    }
-
-    const completed: Session[] = []
-    for (const session of moving) {
-      const error = await rebindSession(session.id, destination)
-      if (error) {
-        const stillMoved: string[] = []
-        let rollbackError: string | undefined
-        for (const rollback of completed.reverse()) {
-          const failure = await rebindSession(rollback.id, rollback.directory)
-          if (failure) {
-            rollbackError ??= failure
-            stillMoved.push(rollback.id)
-            continue
-          }
-          putSession(set, rollback)
-        }
-        return {
-          ok: false,
-          moved: stillMoved,
-          error: rollbackError ? `${error}; rollback failed: ${rollbackError}` : error,
-        }
-      }
-      completed.push(session)
-      putSession(set, { ...session, directory: destination })
-    }
-
-    const refreshed = await sessionsAt(destination)
-    const ids = new Set(moving.map((session) => session.id))
-    for (const info of refreshed ?? []) if (ids.has(info.id)) putSession(set, info)
-    return { ok: true, moved: moving.map((session) => session.id) }
-  }
-
-  async function moveSession(id: string, destination: string): Promise<SessionMoveResult> {
-    const session = state.sessions[id]
-    if (!session) return { ok: false, moved: [], error: "Session is no longer available" }
-    const entries = await sessionsAt(session.directory)
-    if (!entries) return { ok: false, moved: [], error: "Could not load the session tree" }
-    return moveSessions(sessionTree(entries, id), destination)
-  }
-
-  async function moveWorkspaceSessions(source: string, destination: string): Promise<SessionMoveResult> {
-    const entries = await sessionsAt(source)
-    if (!entries) return { ok: false, moved: [], error: "Could not load sessions from this workspace" }
-    return moveSessions(entries, destination)
+    return { ...session, discard: () => purgeSession(session.id).then(() => undefined) }
   }
 
   async function send(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
-    clearSessionError(id)
-    const body = {
-      parts: [
-        ...(text.trim() ? [{ type: "text" as const, text }] : []),
-        ...(options.files ?? []).map((file) => ({ type: "file" as const, ...file })),
-      ],
-      model: options.model ?? undefined,
-      agent: options.agent,
-      ...(options.variant ? { variant: options.variant } : {}),
+    set("errors", id, undefined!)
+    const parts = [
+      ...(text.trim() ? [{ type: "text" as const, text }] : []),
+      ...(options.files ?? []).map((file) => ({ type: "file" as const, mime: file.mime, name: file.filename ?? "file", url: file.url })),
+    ]
+    if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty")
+    // Named only when they change what the session runs as next; an unchanged follow-up steers into the running turn.
+    const saved = savedChoice(state, id)
+    const prompt = {
+      parts,
+      model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
+      ...(options.variant !== undefined && options.variant !== (saved.variant ?? null) ? { variant: options.variant } : {}),
+      ...(options.agent && options.agent !== saved.agent ? { agent: options.agent } : {}),
     }
-    if (body.parts.length === 0) {
-      const error = "Prompt failed: the prompt is empty"
-      set("errors", id, error)
-      return { ok: false, error }
-    }
+    // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
+    const key = `${id}\n${JSON.stringify(prompt)}`
+    const submission = unsettled.get(key) ?? submissionId()
+    unsettled.set(key, submission)
     try {
-      const result = await sessionClient(id, options.directory).session.promptAsync({ path: { id }, body })
-      if (result.error !== undefined) {
-        const error = `Prompt failed: ${sdkErrorMessage(result.error, "engine rejected the request")}`
-        set("errors", id, error)
-        return { ok: false, error }
-      }
+      const receipt = await requireClient().submit(id, { submissionId: submission, ...prompt })
+      unsettled.delete(key)
+      putSession(set, adaptSession(receipt.session, workspaces()))
       return { ok: true }
     } catch (cause) {
-      const error = `Prompt failed: ${sdkErrorMessage(cause, "could not reach the engine")}`
-      set("errors", id, error)
-      return { ok: false, error }
+      if (definite(cause)) unsettled.delete(key)
+      return fail(id, `Prompt failed: ${errorMessage(cause)}`)
     }
   }
 
-  /**
-   * A client bound to the workspace that owns the session.
-   *
-   * The active client carries the selected workspace as its directory header, but a session being
-   * driven or steered can belong to another one. Addressing it with the active header routes the
-   * turn into the wrong workspace, or gets it rejected outright.
-   */
-  function sessionClient(id: string, directory = state.sessions[id]?.directory) {
-    const base = target()
-    if (!base || !directory) return requireClient()
-    return createOpencodeClient({ baseUrl: base.url, headers: base.headers, directory })
-  }
-
-  /**
-   * Sends a Drift-generated steering prompt into a session without user involvement. Used by the
-   * orchestrator driver; the generated marker keeps these turns from counting as fresh goals.
-   */
-  async function steer(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
-    clearSessionError(id)
-    const body = {
-      parts: [{ type: "text" as const, text, metadata: { generated: true } }],
-      model: options.model ?? undefined,
-      agent: options.agent,
-      ...(options.variant ? { variant: options.variant } : {}),
-    }
-    try {
-      const result = await sessionClient(id, options.directory).session.promptAsync({ path: { id }, body })
-      if (result.error !== undefined) {
-        return { ok: false, error: sdkErrorMessage(result.error, "engine rejected the request") }
-      }
-      return { ok: true }
-    } catch (cause) {
-      return { ok: false, error: sdkErrorMessage(cause, "could not reach the engine") }
-    }
-  }
-
-  /**
-   * Switches the model of an assistant attempt parked in retry backoff. The engine validates the
-   * exact session/message pairing and rejects attempts that resumed or finished, so a stale card
-   * can never restart a turn that moved on.
-   */
-  async function switchRetryModel(
-    id: string,
-    messageID: string,
-    model: ModelRef,
-    variant?: string,
-  ): Promise<PromptSendResult> {
-    const base = target()
-    const directory = state.sessions[id]?.directory
-    if (!base || !directory) return { ok: false, error: "The retrying session is no longer available" }
-    const response = await fetch(withDirectory(`${base.url}/experimental/session/${id}/retry-model`, directory), {
-      method: "PUT",
-      headers: jsonHeaders(base),
-      body: JSON.stringify({ messageID, ...model, ...(variant ? { variant } : {}) }),
-    }).catch(() => null)
-    if (!response) return { ok: false, error: "Could not reach the engine" }
-    if (response.ok) return { ok: true }
-    const body = (await response.json().catch(() => null)) as { data?: { message?: string } } | null
-    return { ok: false, error: body?.data?.message ?? `Engine rejected the model switch (${response.status})` }
+  function fail(id: string, error: string): PromptSendResult {
+    set("errors", id, error)
+    return { ok: false, error }
   }
 
   async function abort(id: string) {
-    await requireClient().session.abort({ path: { id } })
-  }
-
-  async function summarize(id: string, model: ModelRef | null) {
-    if (!model) return
-    await requireClient().session.summarize({ path: { id }, body: model })
-  }
-
-  async function share(id: string) {
-    const result = await requireClient().session.share({ path: { id } })
-    if (result.data) putSession(set, result.data)
-    return result.data?.share?.url
-  }
-
-  async function unshare(id: string) {
-    const result = await requireClient().session.unshare({ path: { id } })
-    if (result.data) putSession(set, { ...result.data, share: undefined })
-  }
-
-  function beginProviderSnapshot() {
-    const epoch = state.providerSnapshotEpoch + 1
-    set("providerSnapshotEpoch", epoch)
-    return epoch
-  }
-
-  // Provider catalog and credentials are engine-global. Without an active workspace there is no
-  // scoped client, so these flows fall back to a directory-less client instead of failing.
-  function providerClient() {
-    return state.directory ? requireClient() : globalClient()
-  }
-
-  async function refreshProvidersFor(client: OpencodeClient, directory: string, epoch: number) {
-    if (normalizeDir(state.directory) !== normalizeDir(directory) || providerClient() !== client) return null
-    const result = await client.provider.list().catch(() => null)
-    if (!result?.data) return null
-    if (
-      state.providerSnapshotEpoch !== epoch ||
-      normalizeDir(state.directory) !== normalizeDir(directory) ||
-      providerClient() !== client
-    )
-      return null
-    applyProviderCatalog(set, result.data)
-    return result.data.connected ?? []
-  }
-
-  async function refreshProviders() {
-    return refreshProvidersFor(providerClient(), state.directory, beginProviderSnapshot())
-  }
-
-  async function refreshAgents() {
-    const result = await requireClient().app.agents().catch(() => null)
-    if (!result?.data) return false
-    set("agents", result.data)
-    return true
-  }
-
-  function controlClient(directory = state.directory) {
-    const endpoint = target()
-    if (!endpoint) return null
-    return createControlClient({ baseUrl: endpoint.url, headers: endpoint.headers, directory })
-  }
-
-  async function reloadProviderInstances(directory = state.directory) {
-    const endpoint = target()
-    if (!endpoint) return false
-    const response = await engineFetch(withDirectory(`${endpoint.url}/provider/reload`, directory), {
-      method: "POST",
-      headers: endpoint.headers,
-    })
-    return response ? await readJson(response, false) : false
-  }
-
-  async function reloadProviders() {
-    const directory = state.directory
-    const client = providerClient()
-    const epoch = beginProviderSnapshot()
-    if (!(await reloadProviderInstances(directory))) return false
-    return (await refreshProvidersFor(client, directory, epoch)) !== null
-  }
-
-  async function syncProvider(
-    id: string,
-    changed: boolean,
-    client: OpencodeClient,
-    directory: string,
-    epoch: number,
-  ): Promise<ProviderAuthResult> {
-    if (!changed) return { ok: false, connected: state.connected.includes(id) }
-    const connected = await refreshProvidersFor(client, directory, epoch)
-    if (connected !== null) return { ok: true, connected: connected.includes(id) }
-    if (normalizeDir(state.directory) !== normalizeDir(directory)) {
-      return { ok: true, connected: state.connected.includes(id) }
-    }
-    try {
-      if (providerClient() !== client) return { ok: true, connected: state.connected.includes(id) }
-    } catch {
-      return { ok: true, connected: state.connected.includes(id) }
-    }
-    const refreshed = await refreshProvidersFor(client, directory, beginProviderSnapshot())
-    return { ok: true, connected: (refreshed ?? state.connected).includes(id) }
-  }
-
-  async function providerAuthMethods() {
-    const result = await providerClient().provider.auth().catch(() => null)
-    return result?.data ?? {}
-  }
-
-  async function providerAuthorize(id: string, method: number) {
-    const result = await providerClient().provider.oauth.authorize({ path: { id }, body: { method } })
-    return result.data ?? null
-  }
-
-  async function providerCallback(id: string, method: number, code?: string) {
-    const directory = state.directory
-    const client = providerClient()
-    const epoch = beginProviderSnapshot()
-    const result = await client
-      .provider.oauth.callback({ path: { id }, body: { method, ...(code ? { code } : {}) } })
-      .catch(() => null)
-    return syncProvider(id, result?.data === true, client, directory, epoch)
-  }
-
-  async function setProviderKey(id: string, key: string) {
-    const directory = state.directory
-    const client = providerClient()
-    const epoch = beginProviderSnapshot()
-    const result = await client
-      .auth.set({ path: { id }, body: { type: "api", key } })
-      .catch(() => null)
-    return syncProvider(id, result?.data === true, client, directory, epoch)
-  }
-
-  async function disconnectProvider(id: string) {
-    const directory = state.directory
-    const client = providerClient()
-    const epoch = beginProviderSnapshot()
-    const control = controlClient(directory)
-    if (!control) return { ok: false, connected: state.connected.includes(id) }
-    const result = await control.auth.remove({ providerID: id }).catch(() => null)
-    return syncProvider(id, result?.data === true, client, directory, epoch)
-  }
-
-  async function mcpInitialize(directory = state.directory) {
-    const result = await mcpClient(directory).config.get({ signal: AbortSignal.timeout(10_000) })
-    requireSdkData(result, "Could not load MCP configuration")
-  }
-
-  async function mcpStatus(directory = state.directory, signal?: AbortSignal) {
-    const timeout = AbortSignal.timeout(10_000)
-    const result = await mcpClient(directory).mcp.status({ signal: signal ? AbortSignal.any([signal, timeout]) : timeout })
-    return requireSdkData(result, "Could not load MCP status")
-  }
-
-  function mcpClient(directory: string) {
-    if (normalizeDir(state.directory) !== normalizeDir(directory)) throw new Error("The active MCP workspace changed")
-    return requireClient()
-  }
-
-  async function mcpConnect(name: string, directory = state.directory) {
-    const result = await mcpClient(directory).mcp.connect({ path: { name } })
-    if (requireSdkData(result, `Could not connect ${name}`) !== true) throw new Error(`Could not connect ${name}`)
-  }
-
-  async function mcpDisconnect(name: string, directory = state.directory) {
-    const result = await mcpClient(directory).mcp.disconnect({ path: { name } })
-    if (requireSdkData(result, `Could not disconnect ${name}`) !== true) throw new Error(`Could not disconnect ${name}`)
-  }
-
-  async function mcpAuthenticate(name: string, directory = state.directory) {
-    const result = await mcpClient(directory).mcp.auth.authenticate({ path: { name } })
-    requireSdkData(result, `Could not authenticate ${name}`)
-  }
-
-  async function findFiles(query: string) {
-    const result = await requireClient().find.files({ query: { query } }).catch(() => null)
-    return result?.data ?? []
-  }
-
-  async function runCommand(id: string, command: string, args: string) {
-    await requireClient().session.command({ path: { id }, body: { command, arguments: args } })
+    await requireClient().abort(id)
   }
 
   async function rename(id: string, title: string) {
-    await requireClient().session.update({ path: { id }, body: { title } })
+    const updated = await requireClient().updateSession(id, { title })
+    putSession(set, adaptSession(updated, workspaces()))
   }
 
-  async function remove(id: string) {
-    await requireClient().session.delete({ path: { id } })
-    forgetSession(id)
+  /** Archiving stops whatever the session is running, in the engine, before anything else hides it. */
+  async function setArchived(id: string, archived: boolean) {
+    const updated = await requireClient().updateSession(id, { archived })
+    putSession(set, adaptSession(updated, workspaces()))
   }
 
-  // Purge deletions must be confirmed before Drift drops its tombstone, so unlike `remove` this
-  // validates the SDK result. A 404 means the engine already lost the session (e.g. a previous
-  // purge deleted it before the tombstone was cleared), which counts as removed.
-  async function purgeSession(id: string): Promise<boolean> {
+  /// Permanent deletion; true only once the engine confirms the row is gone.
+  async function purgeSession(id: string) {
     try {
-      const result = await requireClient().session.delete({ path: { id } })
-      if (result.error !== undefined && result.response.status !== 404) return false
-      forgetSession(id)
+      await requireClient().deleteSession(id)
+      set(produce((draft) => purge(draft, id)))
       return true
-    } catch {
+    } catch (cause) {
+      if (cause instanceof EngineError && cause.status === 404) return true
       return false
     }
   }
 
-  function forgetSession(id: string) {
-    set(produce((draft) => purgeSessionState(draft, id)))
-  }
-
-  // Replied ids are filtered out of poll snapshots that raced the reply.
-  const answered = new Set<string>()
-
-  function askKey(kind: "permission" | "question", dir: string, id: string) {
-    return `${kind}\0${normalizeDir(dir)}\0${id}`
-  }
-
-  async function fetchAskSnapshot<T>(path: string, dir: string): Promise<{ ok: true; data: T[] } | { ok: false }> {
-    const base = target()
-    if (!base) return { ok: false }
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), askPollTimeoutMs)
+  /** The archive purge: the engine deletes only what is still archived, so a thread restored meanwhile is `kept`. */
+  async function purgeArchivedSession(id: string): Promise<ArchivePurge> {
     try {
-      const response = await fetch(withDirectory(`${base.url}${path}`, dir), {
-        headers: base.headers,
-        signal: controller.signal,
-      }).catch(() => null)
-      if (!response?.ok) return { ok: false }
-      const data = await response.json().catch(() => null)
-      return Array.isArray(data) ? { ok: true, data: data as T[] } : { ok: false }
-    } finally {
-      clearTimeout(timeout)
+      await requireClient().purgeArchivedSession(id)
+      set(produce((draft) => purge(draft, id)))
+      return "deleted"
+    } catch (cause) {
+      if (cause instanceof EngineError && cause.status === 404) return "deleted"
+      if (cause instanceof EngineError && cause.status === 409) return "kept"
+      return "failed"
     }
   }
 
-  function clearConfirmedAnswers(kind: "permission" | "question", dir: string, reported: Set<string>) {
-    const prefix = `${kind}\0${normalizeDir(dir)}\0`
-    for (const key of answered) {
-      if (!key.startsWith(prefix)) continue
-      if (!reported.has(key.slice(prefix.length))) answered.delete(key)
+  /** A removed workspace's purge: true once the engine holds none of its conversations, so its record can go. */
+  async function removeAllSessions(workspaceId: string, eligible: () => boolean) {
+    if (!eligible()) return false
+    try {
+      await requireClient().purgeWorkspace(workspaceId)
+      return true
+    } catch (cause) {
+      // Unknown to the engine means nothing of it is left; in use or busy waits for the next sweep.
+      return cause instanceof EngineError && cause.status === 404
     }
   }
 
-  function reconcilePermissions(dir: string, permissions: Permission[]) {
-    const reported = new Set(permissions.map((permission) => permission.id))
-    clearConfirmedAnswers("permission", dir, reported)
-    const normalized = normalizeDir(dir)
-    for (const permission of permissions) observePermission(permission, state)
-    set(
-      produce((draft) => {
-        for (const [sessionID, list] of Object.entries(draft.permissions)) {
-          draft.permissions[sessionID] = list.filter((permission) => {
-            if ((permission as DriftPermission).driftProtocol === "v2") return true
-            const directory = permission.metadata?.directory
-            return typeof directory !== "string" || normalizeDir(directory) !== normalized
-          })
-          if (!draft.permissions[sessionID]?.length) delete draft.permissions[sessionID]
-        }
-        for (const permission of permissions) {
-          if (answered.has(askKey("permission", dir, permission.id))) continue
-          const list = (draft.permissions[permission.sessionID] ??= [])
-          if (!list.some((current) => current.id === permission.id)) list.push(permission)
-        }
-      }),
-    )
-    prunePermissionAttention(new Set(Object.values(state.permissions).flat().map((permission) => permission.id)))
+  async function refreshProviders() {
+    const providers = await requireClient().providers().catch(() => undefined)
+    if (!providers) return false
+    applyProviderCatalog(set, {
+      all: providers.map(adaptProvider),
+      connected: providers.filter((p) => p.connected).map((p) => p.id),
+      default: {},
+    })
+    return true
   }
 
-  function reconcileQuestions(dir: string, questions: QuestionRequest[]) {
-    const reported = new Set(questions.map((question) => question.id))
-    clearConfirmedAnswers("question", dir, reported)
-    const normalized = normalizeDir(dir)
+  /// Pending asks of both kinds; a single fetch each, applied together so the UI never sees a gap.
+  async function refreshPermissions(_directories: string[] = []) {
+    const [permissions, questions] = await Promise.all([requireClient().permissions(), requireClient().questions()])
     set(
       produce((draft) => {
-        for (const [sessionID, list] of Object.entries(draft.questions)) {
-          draft.questions[sessionID] = list.filter(
-            (question) => !question.directory || normalizeDir(question.directory) !== normalized,
-          )
-          if (!draft.questions[sessionID]?.length) delete draft.questions[sessionID]
+        draft.permissions = {}
+        draft.questions = {}
+        for (const request of permissions) {
+          const directory = draft.sessions[request.sessionId]?.directory ?? ""
+          const permission: Permission = adaptPermission(request, directory)
+          ;(draft.permissions[request.sessionId] ??= []).push(permission)
         }
-        for (const question of questions) {
-          if (answered.has(askKey("question", dir, question.id))) continue
-          const list = (draft.questions[question.sessionID] ??= [])
-          if (!list.some((current) => current.id === question.id)) list.push(question)
-        }
+        for (const request of questions) (draft.questions[request.sessionId] ??= []).push(adaptQuestion(request))
       }),
     )
   }
 
-  async function refreshDirectoryAsks(dir: string) {
-    const permissionRevision = askRevision(state, "permission", dir)
-    const questionRevision = askRevision(state, "question", dir)
-    const [permissionResult, questionResult] = await Promise.all([
-      fetchAskSnapshot<PermissionRequest>("/permission", dir),
-      fetchAskSnapshot<QuestionRequest>("/question", dir),
-    ])
-    if (permissionResult.ok && askRevision(state, "permission", dir) === permissionRevision) {
-      reconcilePermissions(
-        dir,
-        permissionResult.data.map((request) => toPermission(request, dir)),
-      )
+  async function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
+    try {
+      if (answers) await requireClient().answerQuestion(requestID, answers)
+      else await requireClient().rejectQuestion(requestID)
+    } catch (cause) {
+      if (!(cause instanceof EngineError && cause.status === 404)) throw cause
     }
-    if (questionResult.ok && askRevision(state, "question", dir) === questionRevision) {
-      reconcileQuestions(
-        dir,
-        questionResult.data.map((request) => ({ ...request, directory: dir })),
-      )
-    }
+    set(produce((draft) => void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID))))
   }
 
-  async function drainAskRefresh() {
-    while (queuedAskDirectories.size) {
-      const next = queuedAskDirectories.entries().next().value as [string, string]
-      queuedAskDirectories.delete(next[0])
-      activeAskDirectories.add(next[0])
-      try {
-        await refreshDirectoryAsks(next[1])
-      } finally {
-        activeAskDirectories.delete(next[0])
+  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
+    try {
+      await requireClient().replyPermission(permissionID, { reply: response === "reject" ? "deny" : response })
+    } catch (cause) {
+      if (cause instanceof EngineError && cause.status === 404) {
+        set(produce((draft) => void (draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID))))
+        return
       }
+      throw cause
     }
   }
 
-  // The generated SDK lags the engine here; GET /permission and /question recover asks
-  // raised while we weren't listening. Polls are coalesced and directories are walked one
-  // at a time so idle workspaces do not stampede instance boots.
-  function refreshPermissions(directories: string[]) {
-    if (!target()) return Promise.resolve()
-    for (const dir of directories) {
-      const normalized = normalizeDir(dir)
-      if (!normalized || activeAskDirectories.has(normalized) || queuedAskDirectories.has(normalized)) continue
-      queuedAskDirectories.set(normalized, dir)
-    }
-    if (askRefresh) return askRefresh
-    let request!: Promise<void>
-    request = drainAskRefresh().finally(() => {
-      if (askRefresh === request) askRefresh = undefined
-    })
-    askRefresh = request
-    return request
+  async function setProviderKey(id: string, key: string): Promise<ProviderAuthResult> {
+    await requireClient().setProviderKey(id, key)
+    await refreshProviders()
+    return { ok: true, connected: state.connected.includes(id) }
   }
 
-  function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
-    const key = `${sessionID}\0${permissionID}`
-    const existing = permissionReplies.get(key)
-    if (existing) return existing
-    const reply = sendPermissionReply(sessionID, permissionID, response).finally(() => permissionReplies.delete(key))
-    permissionReplies.set(key, reply)
-    return reply
+  async function disconnectProvider(id: string): Promise<ProviderAuthResult> {
+    await requireClient().removeProviderCredentials(id)
+    await refreshProviders()
+    return { ok: true, connected: state.connected.includes(id) }
   }
 
-  async function sendPermissionReply(sessionID: string, permissionID: string, response: PermissionResponse) {
-    const permission = (state.permissions[sessionID] ?? []).find((p) => p.id === permissionID)
-    if (permission) beginPermissionReply(permission, response, Object.values(state.permissions).flat())
-    const dir = permission?.metadata?.directory as string | undefined
-    const failed = () => {
-      failPermissionReply(permissionID)
-      const message = "The request is still pending. Try again."
-      notice({ title: "Permission reply failed", message, variant: "error" })
-      return false
-    }
-    const answerDirectory = dir ?? state.directory
-    if (!(await postPermissionReply(permission, sessionID, permissionID, response, answerDirectory))) return failed()
-    answered.add(askKey("permission", answerDirectory, permissionID))
-    set(
-      produce((draft) => {
-        draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID)
-        bumpAskRevision(draft, "permission", answerDirectory)
-      }),
-    )
-    clearPermissionAttention(permissionID)
-    return true
+  async function providerAuthMethods(): Promise<Record<string, { type: "oauth" | "api"; label: string }[]>> {
+    return Object.fromEntries(Object.entries(authMethods).map(([id, methods]) => [id, methods.map(({ type, label }) => ({ type, label }))]))
   }
 
-  // False means unconfirmed, not necessarily unsaved: aborting a reply cannot undo server delivery.
-  function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
-    const key = `${sessionID}\0${requestID}`
-    const body = JSON.stringify(answers ? { answers } : {})
-    const existing = questionReplies.get(key)
-    if (existing) return existing.body === body ? existing.promise : Promise.resolve(false)
-    const promise = sendQuestionReply(sessionID, requestID, answers ? "reply" : "reject", body).finally(() =>
-      questionReplies.delete(key),
-    )
-    questionReplies.set(key, { body, promise })
-    return promise
+  // The state from startOAuth, needed by the callback for flows the engine completes itself.
+  const oauthStates = new Map<string, string>()
+
+  async function providerAuthorize(id: string, method: number) {
+    const mode = authMethods[id]?.[method]?.mode
+    if (!mode) throw new Error("this method has no sign-in flow")
+    const started = await requireClient().startOAuth(id, mode)
+    oauthStates.set(id, started.state)
+    // No instructions text: the settings panel words each step in the user's language, and shows a device code itself.
+    return { url: started.url, method: (started.method === "auto" ? "auto" : "code") as "code" | "auto", instructions: "", code: started.userCode ?? undefined }
   }
 
-  async function sendQuestionReply(sessionID: string, requestID: string, action: "reply" | "reject", body: string) {
-    const base = target()
-    if (!base) return false
-    const question = (state.questions[sessionID] ?? []).find((item) => item.id === requestID)
-    const dir = question?.directory ?? state.sessions[sessionID]?.directory ?? state.directory
-    const url = withDirectory(`${base.url}/question/${requestID}/${action}`, dir)
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), permissionReplyTimeoutMs)
+  async function providerCallback(id: string, _method: number, code?: string): Promise<ProviderAuthResult> {
+    const oauthState = oauthStates.get(id)
+    if (!code && !oauthState) return { ok: false, connected: false }
     try {
-      const response = await engineFetch(url, {
-        method: "POST",
-        headers: jsonHeaders(base),
-        body,
-        signal: controller.signal,
-      })
-      if (!response || controller.signal.aborted) return false
-      answered.add(askKey("question", dir, requestID))
-      set(
-        produce((draft) => {
-          draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter(
-            (item) => item.id !== requestID || normalizeDir(item.directory ?? dir) !== normalizeDir(dir),
-          )
-          bumpAskRevision(draft, "question", dir)
-        }),
-      )
-      return true
+      await requireClient().finishOAuth(id, code ?? "", oauthState)
+    } catch (cause) {
+      notice({ id: `oauth-${id}`, title: "Sign-in failed", message: errorMessage(cause), variant: "error", duration: 10_000 })
+      return { ok: false, connected: false }
     } finally {
-      clearTimeout(timeout)
+      oauthStates.delete(id)
     }
+    await refreshProviders()
+    return { ok: true, connected: state.connected.includes(id) }
   }
 
-  async function postPermissionReply(
-    permission: Permission | undefined,
-    sessionID: string,
-    permissionID: string,
-    response: PermissionResponse,
-    dir: string,
-  ) {
-    const base = target()
-    if (!base) return false
-    const v2 = (permission as DriftPermission | undefined)?.driftProtocol === "v2"
-    const path = v2
-      ? `/api/session/${sessionID}/permission/${permissionID}/reply`
-      : `/session/${sessionID}/permissions/${permissionID}`
-    const url = withDirectory(`${base.url}${path}`, dir)
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), permissionReplyTimeoutMs)
+  /** Copies finished history into a new conversation, through `atMessage` or else everything finished. The copy keeps compaction markers, so it sees the same context. */
+  async function fork(id: string, atMessage?: string) {
     try {
-      const result = await engineFetch(url, {
-        method: "POST",
-        headers: jsonHeaders(base),
-        body: JSON.stringify(v2 ? { reply: response } : { response }),
-        signal: controller.signal,
-      })
-      return result !== null
-    } finally {
-      clearTimeout(timeout)
+      const session = adaptSession(await requireClient().forkSession(id, atMessage), workspaces())
+      putSession(set, session)
+      return session
+    } catch (cause) {
+      notice({ id: `fork-${id}`, title: "Couldn't fork", message: errorMessage(cause), variant: "error", duration: 10_000 })
     }
   }
 
-  // Resolves true only when the session is confirmed idle after the abort settled.
-  async function interrupt(id: string): Promise<boolean> {
-    for (const permission of state.permissions[id] ?? [])
-      await replyPermission(id, permission.id, "reject").catch(() => {})
-    for (const question of state.questions[id] ?? []) await answerQuestion(id, question.id, null)
-    if (!sessionBusy(state, id)) return true
-    await requireClient().session.abort({ path: { id } }).catch(() => {})
-    for (let waited = 0; waited < abortWait.waitMs && sessionBusy(state, id); waited += abortWait.pollMs)
-      await sleep(abortWait.pollMs)
-    return !sessionBusy(state, id)
+  /** `/compact`: the engine summarises now with the compaction agent's model, so the composer's model does not apply. */
+  async function summarize(id: string, _model?: unknown) {
+    try {
+      await requireClient().compactSession(id)
+    } catch (cause) {
+      notice({ id: `compact-${id}`, title: "Couldn't compact", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    }
   }
 
+  /** Undoes back to a prompt, files included; the engine hides it and everything after it. */
   async function revert(id: string, messageID: string) {
-    await interrupt(id)
-    const result = await requireClient().session.revert({ path: { id }, body: { messageID } })
-    if (result.error) {
-      set("errors", id, "Revert failed: the engine rejected the request")
+    return applyUndo(id, () => requireClient().revertSession(id, messageID))
+  }
+
+  /** Redoes everything an undo hid, files included. */
+  async function unrevert(id: string) {
+    return applyUndo(id, () => requireClient().unrevertSession(id))
+  }
+
+  async function applyUndo(id: string, call: () => Promise<{ session: NativeSession; kept: string[]; unattributed: string[]; unrecorded: string[] }>) {
+    try {
+      const { session, kept, unattributed, unrecorded } = await call()
+      putSession(set, adaptSession(session, workspaces()))
+      // Files the user changed after the session did are never overwritten; say which.
+      if (kept.length) notice({ id: `revert-kept-${id}`, title: "Kept your changes", message: `Left as you changed them: ${kept.join(", ")}`, variant: "info", duration: 10_000 })
+      // A command's run shows what changed, not who changed it, so those files are never undone.
+      if (unattributed.length) notice({ id: `revert-unattributed-${id}`, title: "Left files changed during commands", message: `Changed while a command ran, so not undone: ${unattributed.join(", ")}`, variant: "info", duration: 10_000 })
+      // Imported from opencode without the versions undo needs (older edits, or files changed since).
+      if (unrecorded.length) notice({ id: `revert-unrecorded-${id}`, title: "Some imported edits were not undone", message: `No undo record, left as they are: ${unrecorded.join(", ")}`, variant: "info", duration: 10_000 })
+      return true
+    } catch (cause) {
+      notice({ id: `revert-${id}`, title: "Couldn't undo", message: errorMessage(cause), variant: "error", duration: 10_000 })
       return false
     }
-    clearSessionError(id)
-    if (result.data) putSession(set, result.data)
-    await reloadSession(id).catch((cause) => reportTranscriptFailure(id, cause))
-    return true
   }
 
-  async function unrevert(id: string) {
-    await interrupt(id)
-    const result = await requireClient().session.unrevert({ path: { id } })
-    if (!result.data) return false
-    putSession(set, result.data)
-    await reloadSession(id).catch((cause) => reportTranscriptFailure(id, cause))
-    return true
+  /** Moves a turn that is waiting to retry onto `model` at `variant` (the model's default when unset); it retries at once. */
+  async function switchRetryModel(id: string, _messageID: string, model: ModelRef, variant?: string): Promise<PromptSendResult> {
+    try {
+      await requireClient().switchRetryModel(id, { provider: model.providerID, model: model.modelID }, variant ?? null)
+      return { ok: true }
+    } catch (cause) {
+      return { ok: false, error: errorMessage(cause) }
+    }
   }
 
-  function notice(
-    input: Omit<Notice, "id" | "created" | "duration"> & { id?: string; created?: number; duration?: number },
-  ) {
-    pushNotice(set, {
-      id: input.id ?? crypto.randomUUID(),
-      duration: moveNoticeDurationMs,
-      ...input,
-      created: input.created ?? Date.now(),
+  async function engineSettings() {
+    return requireClient().settings()
+  }
+
+  async function setAutoCompact(autoCompact: boolean) {
+    return requireClient().putSettings({ autoCompact })
+  }
+
+  /** The engine answers this session's asks, and its subagents', except secrets and anything outside the workspace. */
+  async function setAutoAccept(id: string, autoAccept: boolean) {
+    const updated = await requireClient().updateSession(id, { autoAccept })
+    putSession(set, adaptSession(updated, workspaces()))
+  }
+
+  async function setAutoAcceptAll(autoAcceptAll: boolean) {
+    const settings = await requireClient().putSettings({ autoAcceptAll })
+    set("autoAcceptAll", !!settings.autoAcceptAll)
+  }
+
+  /** Settings the UI shows from the engine; auto-accept the webview once kept is handed over the first time. */
+  async function refreshEngineSettings() {
+    const settings = await requireClient().settings()
+    set("autoAcceptAll", !!settings.autoAcceptAll)
+    await handOverAutoAccept(async (kept) => {
+      if (kept.all && !settings.autoAcceptAll) await setAutoAcceptAll(true)
+      const left: string[] = []
+      for (const id of kept.sessions) {
+        // A session the engine no longer has is let go; any other failure is offered again next time.
+        const settled = await setAutoAccept(id, true).then(() => true, (cause) => cause instanceof EngineError && cause.status === 404)
+        if (!settled) left.push(id)
+      }
+      return { all: false, sessions: left }
     })
+  }
+
+  /** Moves a session with its subagents; the engine refuses while any of them is running. */
+  async function moveSession(id: string, destination: string): Promise<SessionMoveResult> {
+    const workspaceId = workspaces().id(destination)
+    if (!workspaceId) return { ok: false, moved: [], error: "That workspace is not registered with the engine" }
+    try {
+      return { ok: true, moved: (await requireClient().moveSession(id, workspaceId)).moved }
+    } catch (cause) {
+      return { ok: false, moved: [], error: errorMessage(cause) }
+    }
+  }
+
+  /** Sessions belong to the workspace, not its path, so re-pointing a folder moves nothing; a running turn must finish first. */
+  async function moveWorkspaceSessions(from: string, _to: string): Promise<SessionMoveResult> {
+    const workspace = workspaces().id(from)
+    if (!workspace) return { ok: true, moved: [] }
+    try {
+      const { running } = await allPages({ workspace })
+      if (running.length) return { ok: false, moved: [], error: "Stop the running threads in this workspace first; they keep the folder they started in." }
+      return { ok: true, moved: [] }
+    } catch (cause) {
+      return { ok: false, moved: [], error: errorMessage(cause) }
+    }
+  }
+
+  /** `/spawn <instruction>`: a new linked thread that starts at once with this conversation and the instruction. */
+  async function spawn(id: string, instruction: string) {
+    try {
+      const session = adaptSession(await requireClient().spawnThread(id, instruction), workspaces())
+      putSession(set, session)
+      return session
+    } catch (cause) {
+      notice({ id: `spawn-${id}`, title: "Couldn't spawn the thread", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    }
+  }
+
+  /** Paths in the current workspace for an @ mention; the engine ranks them and applies ignore rules. */
+  async function findFiles(text: string): Promise<string[]> {
+    const workspace = workspaces().id(state.directory)
+    return workspace ? requireClient().findFiles(workspace, text) : []
+  }
+
+  /** Agents and commands come from the workspace's drift.json and .drift/ directory. */
+  async function refreshAgents() {
+    const workspace = workspaces().id(state.directory)
+    if (!workspace) return
+    const config = await requireClient().workspaceConfig(workspace)
+    const agents: AgentInfo[] = config.agents.map((agent) => ({
+      name: agent.name,
+      description: agent.description,
+      mode: agent.kind === "subagent" || agent.kind === "all" ? agent.kind : "primary",
+      hidden: agent.kind === "action" || !!agent.hidden,
+      builtIn: agent.builtin,
+      tools: agent.tools ?? [],
+      permissions: agent.permissions ?? [],
+      ...(agent.variant ? { variant: agent.variant } : {}),
+      ...(agent.problem ? { problem: agent.problem } : {}),
+      ...(agent.prompt ? { prompt: agent.prompt } : {}),
+      ...(agent.steps ? { steps: agent.steps } : {}),
+      ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),
+    }))
+    // A skill's documented usage and choices fill the slash menu; an MCP prompt's arguments become its usage, filled word by word.
+    const commands: CommandInfo[] = config.commands.map((command) => {
+      const usage = command.usage ?? (command.arguments?.length ? command.arguments.map((argument) => `<${argument}>`).join(" ") : undefined)
+      return {
+        name: command.name,
+        description: command.description,
+        template: command.template,
+        ...(usage ? { usage } : {}),
+        ...(command.subcommands?.length ? { subcommands: command.subcommands.map((choice) => ({ name: choice.name, description: choice.description, ...(choice.usage ? { usage: choice.usage } : {}) })) } : {}),
+      }
+    })
+    // A config file that cannot be read stops every turn here until it is fixed; say so before the first send.
+    for (const problem of config.problems ?? []) notice({ id: `config-${workspace}`, title: "Couldn't read the workspace config", message: problem, variant: "error", duration: 15_000 })
+    for (const warning of config.warnings ?? []) notice({ id: `config-warning-${workspace}-${warning}`, title: "Part of the workspace config is ignored", message: warning, variant: "warning", duration: 10_000 })
+    // A broken agent refuses only its own turns; name it so the first refusal is no surprise.
+    for (const agent of agents.filter((agent) => agent.problem)) notice({ id: `agent-${workspace}-${agent.name}`, title: `The ${agent.name} agent can't run`, message: agent.problem!, variant: "warning", duration: 15_000 })
+    set("agents", agents)
+    set("commands", commands)
+  }
+
+  async function runCommand(id: string, command: string, args: string) {
+    set("errors", id, undefined!)
+    try {
+      await requireClient().runCommand(id, command, args)
+    } catch (cause) {
+      fail(id, `Command failed: ${errorMessage(cause)}`)
+    }
+  }
+
+  async function refreshMcp() {
+    const servers = await requireClient().mcpServers()
+    set("mcpServers", reconcile(Object.fromEntries(servers.map((server) => [server.name, server]))))
+  }
+
+  /** Runs one MCP change on the engine and records the state it reports back. */
+  async function mcpChange(change: () => Promise<McpServerStatus>) {
+    const server = await change()
+    set("mcpServers", server.name, reconcile(server))
+    return server
+  }
+
+  /** A workspace folder's "always" grants; a folder the engine has no workspace for has none. */
+  async function workspaceGrants(directory: string): Promise<PermissionGrant[]> {
+    const id = workspaces().id(directory)
+    return id ? requireClient().permissionGrants(id) : []
+  }
+
+  /** Takes back one grant, or every grant of the folder's workspace when `grant` is left out. */
+  async function revokeGrant(directory: string, grant?: PermissionGrant) {
+    const id = workspaces().id(directory)
+    if (!id) return
+    await (grant ? requireClient().revokePermissionGrant(id, grant) : requireClient().revokePermissionGrants(id))
+  }
+
+  /** `create`: adding a server, which the engine refuses rather than replace one of the same name; left out, `readOnlyTrusted` is the engine's default. */
+  function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean; directory?: string } = {}) {
+    const { directory, ...rest } = options
+    return mcpChange(() => requireClient().saveMcpServer(name, config, { ...rest, workspace: workspaceOf(directory) }))
+  }
+
+  /** The engine's id for the folder a stdio server should connect in, if it knows the folder. */
+  function workspaceOf(directory?: string) {
+    return directory ? workspaces().id(directory) : undefined
+  }
+
+  /** The engine renames in one step and refuses a name already taken, so no other server is ever replaced. */
+  async function mcpRename(from: string, to: string, directory?: string) {
+    const renamed = await requireClient().renameMcpServer(from, to, workspaceOf(directory))
+    set("mcpServers", produce((servers) => void delete servers[from]))
+    set("mcpServers", renamed.name, reconcile(renamed))
+    return renamed
+  }
+
+  async function mcpRemove(name: string) {
+    await requireClient().removeMcpServer(name)
+    set("mcpServers", produce((servers) => void delete servers[name]))
   }
 
   return {
     openSession,
+    reconcileSession,
     loadOlder,
     loadSessions,
     loadAllSessions,
-    removeAllSessions,
     newSession,
+    send,
+    abort,
+    stopTask,
+    rename,
+    setArchived,
+    purgeSession,
+    purgeArchivedSession,
+    refreshProviders,
+    reloadProviders: refreshProviders,
+    refreshPermissions,
+    replyPermission,
+    answerQuestion,
+    setProviderKey,
+    disconnectProvider,
+    providerAuthMethods,
+    providerAuthorize,
+    providerCallback,
+    notice,
+    refreshAgents,
+    findFiles,
+    steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
     fork,
     spawn,
     moveSession,
     moveWorkspaceSessions,
-    send,
-    steer,
+    removeAllSessions,
     switchRetryModel,
-    abort,
     summarize,
-    share,
-    unshare,
-    findFiles,
-    refreshProviders,
-    reloadProviders,
-    refreshAgents,
-    providerAuthMethods,
-    providerAuthorize,
-    providerCallback,
-    setProviderKey,
-    disconnectProvider,
-    reloadProviderInstances,
-    mcpInitialize,
-    mcpStatus,
-    mcpConnect,
-    mcpDisconnect,
-    mcpAuthenticate,
-    notice,
+    engineSettings,
+    setAutoCompact,
+    setAutoAccept,
+    setAutoAcceptAll,
+    refreshEngineSettings,
+    basePrompts: () => requireClient().basePrompts(),
+    saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
+    resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),
+    permissionRules: () => requireClient().permissionRules(),
+    savePermissionRules: (rules: PermissionRule[]) => requireClient().savePermissionRules(rules),
+    workspaceGrants,
+    revokeGrant,
     runCommand,
-    rename,
-    remove,
-    purgeSession,
-    refreshPermissions,
-    replyPermission,
-    answerQuestion,
     revert,
     unrevert,
+    refreshMcp,
+    mcpSave,
+    mcpRename,
+    mcpRemove,
+    mcpSetEnabled: (name: string, enabled: boolean, directory?: string) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled, workspaceOf(directory))),
+    mcpConnect: (name: string, directory?: string) => mcpChange(() => requireClient().connectMcpServer(name, workspaceOf(directory))),
+    mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),
+    /** The page to open in the browser; the server connects by itself once the user comes back. */
+    mcpSignIn: async (name: string) => (await requireClient().signInMcpServer(name)).url,
+    mcpSignOut: (name: string) => mcpChange(() => requireClient().signOutMcpServer(name)),
   }
 }
 
 export type EngineActions = ReturnType<typeof createActions>
 
-/**
- * Engine routes are per-directory: the server uses this parameter to pick which instance handles
- * the request. Every raw route below needs it, so it is applied in one place.
- */
-function withDirectory(url: string, directory: string) {
-  const joiner = url.includes("?") ? "&" : "?"
-  return `${url}${joiner}directory=${encodeURIComponent(directory)}`
+/** The engine answered and refused: the prompt was not admitted, so a resend may be a new submission. */
+function definite(cause: unknown) {
+  return cause instanceof EngineError && cause.status >= 400 && cause.status < 500
 }
 
-function jsonHeaders(base: EngineTarget) {
-  return { "content-type": "application/json", ...base.headers }
+/** A retried send with the same id gets the original receipt instead of a second turn. */
+function submissionId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`
 }
 
-/**
- * A request against a raw engine route. Resolves to the response only when the request completed
- * and the engine accepted it; a transport failure and a non-2xx both collapse to null, because
- * every caller treats them the same way.
- */
-async function engineFetch(url: string, init?: RequestInit): Promise<Response | null> {
-  const response = await fetch(url, init).catch(() => null)
-  return response?.ok ? response : null
+function purge(draft: EngineState, id: string) {
+  delete draft.sessions[id]
+  delete draft.transcripts[id]
+  delete draft.loaded[id]
+  delete draft.permissions[id]
+  delete draft.status[id]
+  delete draft.errors[id]
+  delete draft.cursors[id]
+  delete draft.tasks[id]
 }
 
-/** Reads a JSON body, falling back rather than throwing if the payload is absent or truncated. */
-async function readJson<T>(response: Response, fallback: T): Promise<T> {
-  return ((await response.json().catch(() => fallback)) ?? fallback) as T
-}
-
-export function requireSdkData<T>(result: { data?: T; error?: unknown }, fallback: string): T {
-  if (result.error !== undefined) throw new Error(sdkErrorMessage(result.error, fallback))
-  if (result.data === undefined) throw new Error(fallback)
-  return result.data
-}
-
-function sdkErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "string" && error.trim()) return error
-  if (error && typeof error === "object") {
-    const record = error as Record<string, unknown>
-    for (const key of ["message", "error", "data"]) {
-      const value = record[key]
-      if (typeof value === "string" && value.trim()) return value
-      if (value && typeof value === "object") {
-        const nested = sdkErrorMessage(value, "")
-        if (nested) return nested
-      }
-    }
-  }
-  return fallback
-}
-
-export function sessionTree(sessions: Session[], rootId: string) {
-  const byParent = new Map<string, Session[]>()
-  for (const session of sessions) {
-    if (!session.parentID) continue
-    const children = byParent.get(session.parentID) ?? []
-    children.push(session)
-    byParent.set(session.parentID, children)
-  }
-  const root = sessions.find((session) => session.id === rootId)
-  if (!root) return []
-  const result = [root]
-  const seen = new Set([root.id])
-  for (let index = 0; index < result.length; index++) {
-    for (const child of byParent.get(result[index].id) ?? []) {
-      if (seen.has(child.id)) continue
-      seen.add(child.id)
-      result.push(child)
-    }
-  }
-  return result
+export function errorMessage(cause: unknown) {
+  if (cause instanceof EngineError) return cause.message
+  if (cause instanceof Error) return cause.message
+  return String(cause)
 }

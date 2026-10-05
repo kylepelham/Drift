@@ -1,0 +1,57 @@
+[package]
+name = "drift-engine"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+axum = { workspace = true, features = ["ws"] }
+# Text files in prompts travel as data URLs; both crates are already in the tree through reqwest.
+base64 = "0.22"
+bytes = "1"
+futures-util = { workspace = true }
+getrandom = { workspace = true }
+# ripgrep's engine and gitignore-aware walker: search quality is the tool's whole value.
+globset = "0.4"
+grep = "0.4"
+htmd = "0.5"
+http = "1"
+# `retry-after` may be an HTTP date; already in the tree through hyper.
+httpdate = "1"
+ignore = "0.4"
+# Oversized returned images are scaled under provider limits; only the four sendable codecs.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+keyring = "4"
+percent-encoding = "2"
+# Bedrock's SigV4 (HMAC, SHA-256) and Vertex service-account JWTs (RS256); already in the tree through rustls.
+ring = "0.17"
+# Bedrock's event-stream frames carry CRC32 checksums; already in the tree through flate2.
+crc32fast = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream", "http2"] }
+# `auth`: MCP's OAuth (discovery, client registration, PKCE, refresh) rather than a hand-rolled client.
+rmcp = { version = "3", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest-tls-no-provider", "auth"] }
+# rmcp's credential store is an async trait; already in the tree through rmcp's auth.
+async-trait = "0.1"
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+# Unified diffs shown to the model and the user after edits.
+similar = "2"
+tokio = { workspace = true, features = ["process", "fs"] }
+tokio-util = "0.7"
+tower-http = { version = "0.6", features = ["cors"] }
+utoipa = { version = "6", features = ["axum_extras"] }
+utoipa-axum = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_System_JobObjects", "Win32_System_Registry", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_System_Diagnostics_ToolHelp"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+# reqwest is built without a bundled provider; tests install ring themselves.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+# A paused clock, for housekeeping that runs every few hours.
+tokio = { workspace = true, features = ["test-util"] }
+tokio-tungstenite = "0.30"

@@ -1,4 +1,4 @@
-import type { Part } from "@opencode-ai/sdk/client"
+import type { Part } from "./shapes"
 import type { MessageEntry } from "./store"
 
 export type BreakdownKey = "system" | "user" | "assistant" | "tool"

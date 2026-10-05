@@ -1,11 +1,13 @@
 import type { MessageEntry } from "../engine/store"
 
 type ClarificationItem = { header: string; question: string; answers: string[] }
-type ClarificationAnswer = { items: ClarificationItem[]; text: string; preview: string }
+export type ClarificationAnswer = { items: ClarificationItem[]; text: string; preview: string; spawned?: boolean }
 
 export function clarificationAnswer(entry: MessageEntry): ClarificationAnswer | undefined {
-  if (entry.info.role !== "user" || entry.parts.length !== 1) return
-  const part = entry.parts[0]
+  // Held worker results can ride along with an answer; they are not the user's words.
+  const visible = entry.parts.filter((part) => !(part.type === "text" && part.synthetic))
+  if (entry.info.role !== "user" || visible.length !== 1) return
+  const part = visible[0]
   if (part.type !== "text" || part.synthetic) return
   const metadata = part.metadata?.driftClarification
   if (metadata !== undefined) {

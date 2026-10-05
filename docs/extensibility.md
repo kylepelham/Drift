@@ -1,28 +1,17 @@
 # Extensibility
 
-## Two plugin surfaces
+## What can be extended
 
-1. Engine side: standard opencode plugins. Drift ships its own in `engine/opencode/`
-   (injected via `OPENCODE_CONFIG_DIR`, which the engine treats as an extra config dir:
-   it auto-discovers `plugin/*.ts`, reads its `opencode.json`, and installs
-   `@opencode-ai/plugin` there). That `opencode.json` also pins npm plugins Drift ships
-   by default, currently `@ex-machina/opencode-anthropic-auth@1.8.5` so Claude Pro/Max plan
-   sign-ins work out of the box (installed on demand into the opencode package cache).
-   Version 1.8.5 reports Claude Code 2.1.280 for Anthropic's model-access gate. The
-   plugin does not itself add new models to the provider catalog; Opus 5.5 availability
-   still depends on the account, provider catalog, and Anthropic's server-side access.
-    User plugins in `.opencode/` and global config work unchanged, but execute arbitrary
-    engine-process code and are therefore outside the MCP approval trust boundary. Prefer
-    a plugin for engine behavior. If an internal semantic cannot be expressed through the plugin API,
-    keep its minimal adaptation in `engine/overlays`; never edit the snapshot directly.
-    Drift's shipped `mcp-approval` plugin is configured by the native shell and must run
-    last over the merged MCP config. A minimal bootstrap overlay verifies its final-config
-    seal; this is intentionally separate from the vendored upstream tree.
-2. Drift side: UI/workflow hooks the engine cannot see. Modeled on claude-code's hook
-    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS).
-    The Drift plugin foundation is built; the remaining planned events are listed
-    below.
-
+1. The engine: agents, commands and skills as Markdown files (`~/.config/drift/{agents,commands,skills}`
+   for your own, `.drift/` in a project), `drift.json` settings (model, permission rules,
+   providers, formatters, checks, language servers, instruction files, skill paths), MCP
+   servers (see [mcp.md](mcp.md)), and per-family base prompts in Settings > Prompts. The engine
+   runs no JavaScript and loads no plugins; its only plugin seam is an internal `Hook` trait,
+   planned for M5 in `CHECKLIST.md`. Plugins written for opencode are named in the import
+   summary and not run.
+2. The interface: UI and workflow hooks the engine cannot see, modeled on claude-code's hook
+   taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS). The Drift
+   plugin foundation is built; the remaining planned events are listed below.
 ## Drift plugins
 
 Drift's platform config directory can list local JavaScript modules in `drift.json`:
@@ -103,16 +92,15 @@ Tab completes a command or subcommand in the composer without executing it. Ente
 highlighted choice or runs the completed command. Skill subcommand selections fill the draft first,
 leaving room to add a target. Arrow keys navigate the scrollable list; Escape dismisses it.
 
-The engine preserves a skill's `argument-hint` frontmatter as command usage. It discovers subcommands
-from explicit alternatives such as `[audit|polish]`, Markdown tables with `Command` and `Description`
-columns, and inline invocations such as `/my-skill audit [target]`. Fenced examples and unrelated
-commands are excluded. This metadata is exposed as optional `usage` and `subcommands` fields on the
-legacy command endpoint by `zz-skill-command-arguments.patch`; no skill needs to execute for its
-argument list to appear. Free-form hints such as `[target]` remain usage help, not invented choices.
-Command wrappers that explicitly call `skill({ name: "..." })` inherit that skill's completion
-metadata, even when the wrapper shadows the skill name or uses an alias. The wrapper's template,
-agent, model, and subtask settings remain authoritative. Ordinary same-name commands do not inherit
-unrelated skill choices. Argument choices use the same compact rows as `/fork`.
+The engine keeps a skill's `argument-hint` front matter as command usage. It finds subcommands in
+explicit alternatives such as `[audit|polish]`, Markdown tables with `Command` and `Description`
+columns, and inline invocations such as `/my-skill audit [target]` (`config::arguments`). Fenced
+examples and other skills' commands are skipped. The workspace config (`GET /workspaces/{id}/config`)
+returns them as each command's `usage` and `subcommands`, so no skill has to run for its argument
+list to appear. Free-form hints such as `[target]` stay usage help, not invented choices. A command
+whose template calls exactly one skill (`skill({ name: "..." })`) offers that skill's choices, even
+under another name; its own template, agent, model and subtask settings still apply. A same-name
+command that calls no skill inherits nothing. Argument choices use the same compact rows as `/fork`.
 Argument names and descriptions stay on one line with ellipses. The disclosure arrow expands
 the full details without selecting or running the command. At the end of the input, Right Arrow
 expands the highlighted argument and Left Arrow collapses it. Editing the draft resets expansion.
@@ -122,75 +110,42 @@ For example, `/impeccable` followed by Tab opens its documented actions, includi
 polish, layout, and the other installed skill commands. Skills without argument metadata still
 support completion and manually typed arguments.
 
-## Spawned threads (shipped)
+## Branches and subagents (shipped)
 
-The claude-code Task tool spawns subagents that die with their result. Drift adds a
-second primitive: `engine/opencode/plugin/spawn-thread.ts` registers a `spawn_thread`
-tool the model calls with a title, task, its own context summary, and optional verbatim
-excerpts (reasoning/CoT never crosses conversations; the model carries context as
-plain text by design). The tool creates a sibling session in the same workspace, seeds
-it with that carried context, and starts it on the parent's model. The new thread
-appears in the sidebar like any other chat; the tool card links to it. `/spawn <task>`
-creates the same kind of sibling directly from the last stable active context without
-interrupting or steering the source thread.
+A subagent works on the current goal; a branch pursues a different one. The engine keeps them
+apart (see "Subagents and branches" in `docs/engine-rewrite.md`).
 
-The same plugin provides `read_thread` for an explicitly requested peek at a thread created
-with `spawn_thread`. It takes the returned thread ID and makes one read-only snapshot.
-It never waits for completion, subscribes to updates, or sends another message. The tool's
-instructions prohibit repeated polling unless the user explicitly asks for it. Subagents
-remain the mechanism for delegated work whose result the parent needs to wait for.
+- Subagents come from the `task` tool. Their result returns to the parent's task card, which
+  opens the stored transcript. They show under the parent in the sidebar while running, waiting on
+  the user, or open, stop when the parent stops, and cannot delegate further.
+- Spawned threads come only from the user. `/spawn <instruction>` creates a new top-level
+  conversation at once with a copy of this one's finished messages and starts it on the
+  instruction, on the source's model and level. There is no drafting request and no review: the
+  new thread reads the copied conversation and works out what it needs. It records the source and
+  the last message copied, runs independently, and has its own permissions. The model is not
+  offered a tool to spawn.
+- `read_thread` gives a conversation a one-shot snapshot of a branch taken from it: status,
+  pending asks, todos and the latest reply. It refuses sessions that were not branched from the
+  caller.
 
-The snapshot includes runtime status, pending permissions/questions, todos, recent tool-call
-names/statuses, and the latest assistant text. Reasoning and tool-result bodies are excluded.
-It reads the latest 50 child messages, shows at most 20 todos and 10 tool calls, caps the reply
-at 4,000 characters, and bounds the entire result to 10,000 characters. API reads use the
-invoking tool's cancellation signal. Idle describes the runtime, not a guarantee the task
-succeeded; the latest assistant error is shown when present.
-
-Before reading the child, the plugin requires a completed `spawn_thread` receipt with that
-ID in the caller's history. It searches newest-to-oldest in 50-message pages using the
-engine's opaque `X-Next-Cursor`/`before` pagination, stopping at the first matching receipt.
-Older receipts remain reachable without loading the entire parent history into memory.
-Page failures or repeated cursors fail the lookup rather than granting access. This supports
-model-spawned threads even after restarting Drift.
-It does not support `/spawn` or arbitrary sessions: those UI-created links live in Drift's
-SQLite rather than the caller's transcript. The v1 SDK lacks pending permission/question
-methods, so those two reads use its internal authenticated HTTP client. Jev preserves
-`read_thread` as a core tool, and its card is a snapshot rather than a live child-progress row.
-
-Manual forks use the same stable active-context projection by default: completed
-compaction summary, retained tail, and completed turns after it. The in-flight turn and
-task/spawn session links are excluded. `/fork all` is the explicit slower operation that
-copies all completed history. The behavior is implemented by the isolated
-`engine/overlays/active-fork.patch`; the upstream snapshot remains untouched.
+Forks copy a conversation's finished history into a new, independent conversation. A turn still
+running is left out. The copy keeps compaction markers, so it continues from the same context;
+`/fork active` and `/fork all` are one operation (see "Fork and move" in `docs/engine-rewrite.md`).
 
 ## Prompt and agent editing
 
-`prompt-overrides.ts` uses OpenCode's public `experimental.chat.system.transform` hook.
-Builds generate `prompt-catalog.json` from the exact vendored model-family and built-in
-agent prompt sources. Drift changes only the host identity by default, preserves the
-upstream prompt for inspection, and replaces only the known base-prompt prefix so
-workspace instructions, skills, MCP instructions, and user system text remain intact.
-The Anthropic identity paragraph retains an OpenCode compatibility marker because the
-bundled OAuth transport removes that paragraph before adding its required Claude identity.
-API-key requests keep the paragraph and still identify the product as Drift.
+Settings > Prompts edits the base prompt each model family starts with: GPT and Codex, Claude,
+Gemini and other models, plus one for all models that a family's own replacement overrides.
+They are the engine's (`GET`, `PUT` and `DELETE /prompts`); a replacement takes effect at each
+conversation's next turn. The rules Drift always adds after the base prompt (tools and
+`<system-reminder>`, the worktree, the shape of answers) are shown read-only and never replaced.
 
-GPT-6 models use upstream's Astra template by default, including GPT-6 Codex models.
-Existing `family:gpt` overrides still apply to non-Codex GPT-6, and `family:codex` overrides
-still apply to GPT-6 Codex. No saved settings are migrated or merged. Reset removes the
-family override and restores each model's own default: Astra for GPT-6, the existing GPT
-or Codex template for older models. Settings exposes Astra's upstream original alongside
-the older family template; a saved family edit applies across both templates.
-
-Settings stores only user edits in Drift SQLite. Model-family edits are materialized to
-the plugin settings file; agent and subagent prompt/behavior edits are materialized as
-the highest-precedence Drift agent config. Reset removes that layer and reveals the
-generated Drift default or the user's underlying OpenCode agent config. Saving or resetting
-publishes a runtime configuration reload for both desktop and companion clients. Idle and
-new sessions use the new settings; active sessions retain their configuration until they
-finish. The agent catalog refreshes after saving. A failed publication reports that the
-settings were saved but need a retry or restart, rather than claiming they are live.
-
+Settings > Agents edits each agent's prompt, model, steps, tools, permission rules and default
+reasoning level. Drift keeps those edits in its store as `agent:<name>` overrides and hands them
+to the engine, which applies them from the agent's next turn; a field the engine would not
+apply is refused rather than stored. Reset removes the override and shows the agent as its
+file or the built-in defines it. Saving refreshes the agent list for both desktop and
+companion clients.
 ### Agent models
 
 In Settings > Agents, select a subagent type such as `explore`, `general`, or a custom
@@ -209,15 +164,30 @@ the whole Drift agent override and restores the underlying agent configuration i
 Prompt and behavior edits are preserved when changing the model. The picker and behavior
 JSON edit the same value; unavailable saved models remain visible by ID until changed.
 
-The engine applies the agent model to both foreground and background tasks, including
-resumed tasks. A pinned model does not inherit the parent's reasoning variant. Agent
-types with mode `all` share this configuration when invoked directly too. Spawned sibling
-threads continue to use the spawning session's model.
+Built-in primary agents are `build`, `plan` (read-only) and `orchestrator`, which is offered no
+tool that edits or runs commands and delegates every change to subagents; its replies end in a
+status block. The engine reads it (`session/drive.rs`) and, while it says `working`, writes the
+next prompt itself as a `nudge` part in the same turn, so the goal moves on with no client open.
+A reply without a valid block gets a reminder of the protocol instead. The turn ends on `done`,
+`blocked`, a failed reply, a Stop, or after 30 nudges since the user's own prompt; the user's next
+message starts a fresh 30. The app only shows a notice for how the turn ended. In the transcript
+the block is taken out of the reply's text and shown as a row like a tool's, on the user's side since
+the engine prompts on the user's behalf: the state (Working, Done, Blocked) and its headline; one still
+streaming in stays hidden, and copying a reply leaves it out. Another agent's reply never shows the
+row, and the prompt that leaves the orchestrator tells the model its protocol no longer applies.
 
-The hidden `title` and `compaction` agents expose the same model picker. Title defaults
-to OpenCode's automatic small-model selection, while compaction defaults to the current
-session model. Their picker includes connected text-generation models even when they do
-not support tool calls. The `summary` agent has no runtime call sites and remains unpinned.
+Built-in subagents are `general` (the default `task` type, full tools) and `explore` (read-only
+search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds another. All appear in
+Settings > Agents with their prompts and model pickers, never in the composer. A workspace agent
+with `mode: all`, or no `mode` at all (as opencode reads one), is both: in the composer and offered
+for delegation. `hidden: true` keeps one out of the composer; `disable: true` removes it. The engine runs a
+`task` subagent on its agent's pinned model, falling back to the parent's.
+Threads from `/spawn` start on the source conversation's model.
+
+The action agents `title` and `compaction` have the same model picker and prompt editor. Title
+defaults to the cheapest priced model from the conversation's provider, or the conversation's own
+model when that is free; compaction defaults to the conversation's model. Their picker lists text models. The composer never
+offers them as agents. Details: "Per-action models" in `docs/engine-rewrite.md`.
 
 ## Workflows (design open)
 

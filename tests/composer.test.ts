@@ -428,14 +428,6 @@ test("question drafts preserve single, multiple, and custom answers", async () =
   expect(selectQuestionCustom(single, false).selected).toEqual([])
 })
 
-test("auto-approved permissions never become the visible manual request", async () => {
-  const { firstManualPermission } = await import("../src/ui/composer")
-  const permission = (id: string, sessionID: string) => ({ id, sessionID }) as never
-  const permissions = [permission("auto", "s1"), permission("manual", "s2")]
-  expect(firstManualPermission(permissions, (item) => item.sessionID === "s1")?.id).toBe("manual")
-  expect(firstManualPermission([permissions[0]], () => true)).toBeUndefined()
-})
-
 test("queued questions retain focus while other requests arrive or reorder", async () => {
   const { focusedQuestion } = await import("../src/ui/composer")
   const question = (id: string) => ({ id }) as never

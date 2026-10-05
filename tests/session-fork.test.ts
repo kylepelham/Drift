@@ -40,12 +40,12 @@ function setup() {
   return { fork, selectSession, finish, click: buttons(tree)[0].props.onClick!, navigate: (id: string) => { selection = id } }
 }
 
-test("sidebar forks active context and ignores repeat clicks until the copy finishes", async () => {
+test("sidebar forks all finished history and ignores repeat clicks until the copy finishes", async () => {
   const view = setup()
   view.click()
   view.click()
   expect(view.fork).toHaveBeenCalledTimes(1)
-  expect(view.fork).toHaveBeenCalledWith("source", "active")
+  expect(view.fork).toHaveBeenCalledWith("source")
   view.finish({ id: "forked" })
   await new Promise<void>((resolve) => setTimeout(resolve, 0))
   expect(view.selectSession).toHaveBeenCalledWith("forked")

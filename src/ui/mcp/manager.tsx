@@ -1,43 +1,31 @@
-import type { McpStatus } from "@opencode-ai/sdk/client"
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
-import { registryConfig, type RegistryServer } from "../../mcp-registry"
-import { createRegistrySearch } from "../../state/mcp-registry-search"
-import {
-  exactMcpTarget,
-  mcpCoordinator,
-  mcpFingerprintId,
-  mcpSnapshotActionable,
-  type McpExactTarget,
-  type McpStoredExpectation,
-} from "../../state/mcp"
+import { createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
+import { useEngine } from "../../engine"
+import type { McpServerConfig, McpServerStatus } from "../../engine/store"
+import { registryInstallName, type RegistryServer } from "../../mcp-registry"
 import { t } from "../../state/i18n"
-import { backendInvoke } from "../../backend"
-import type { McpConfig, ObservedMcpServer, StoredMcpServer } from "../../state/store"
-import { IconCheck, IconKey, IconPlug, IconPlugOff, IconPlus, IconShieldCheck, IconSquarePen, IconTrash } from "../icons"
+import { activeWorkspace } from "../../state/workspaces"
+import { openExternal } from "../../shell"
+import { Toggle } from "../controls"
+import { IconPlug, IconPlugOff, IconPlus, IconSquarePen, IconTrash } from "../icons"
 import { McpEditor } from "./editor"
+import { McpRegistry } from "./registry"
 
-type Row = { name: string; stored?: StoredMcpServer; observed?: ObservedMcpServer; status?: McpStatus }
-/** `external` marks a server defined in the user's own config files rather than Drift's registry. */
-type EditorEntry = {
-  server?: StoredMcpServer
-  expected: McpStoredExpectation
-  external?: McpExactTarget
-  /** Every config file that defines this server; a save rewrites all of them. */
-  paths?: string[]
-}
-type RuntimeAction = "connect" | "disconnect" | "authenticate"
+type RuntimeAction = "connect" | "disconnect"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
+type EditorEntry = { server?: McpServerStatus }
 
-export function mcpRuntimeAction(status: McpStatus): RuntimeAction {
-  if (status.status === "connected") return "disconnect"
-  if (status.status === "needs_auth" || status.status === "needs_client_registration") return "authenticate"
-  return "connect"
+/** Connect and disconnect apply only to an enabled server whose definition this build can read. */
+export function mcpRuntimeAction(server: McpServerStatus): RuntimeAction | undefined {
+  if (server.unreadable) return undefined
+  if (server.state === "connected") return "disconnect"
+  if (server.state === "disconnected" || server.state === "failed") return "connect"
 }
 
-export function mcpRuntimeKeyAction(status: McpStatus, key: string): RuntimeAction | undefined {
-  if (key === "ArrowLeft") return status.status === "connected" ? "disconnect" : undefined
-  if (key === "ArrowRight") return status.status === "connected" ? undefined : mcpRuntimeAction(status)
-  if (key === "Enter") return mcpRuntimeAction(status)
+export function mcpRuntimeKeyAction(server: McpServerStatus, key: string): RuntimeAction | undefined {
+  const action = mcpRuntimeAction(server)
+  if (key === "ArrowLeft") return action === "disconnect" ? action : undefined
+  if (key === "ArrowRight") return action === "connect" ? action : undefined
+  if (key === "Enter") return action
 }
 
 export function nextMcpRowName(names: string[], current: string, key: RowKey) {
@@ -50,114 +38,97 @@ export function nextMcpRowName(names: string[], current: string, key: RowKey) {
 }
 
 export function McpManagement(props: { embedded?: boolean }) {
-  const coordinator = mcpCoordinator
+  const engine = useEngine()
   const [editor, setEditor] = createSignal<EditorEntry | null>(null)
   const [view, setView] = createSignal<"servers" | "registry">("servers")
   const [confirmRemove, setConfirmRemove] = createSignal("")
   const [message, setMessage] = createSignal("")
-  // Failures outside the coordinator's mutation path (external config lookup) surface here.
   const [failure, setFailure] = createSignal("")
+  const [busy, setBusy] = createSignal<string | null>(null)
+  const [loading, setLoading] = createSignal(false)
   const [selected, setSelected] = createSignal("")
   const rowElements = new Map<string, HTMLDivElement>()
-  const native = !!backendInvoke()
-  const loading = () => native && (coordinator.state.loading || (!coordinator.state.ready && !coordinator.state.error))
-  const locked = () => !native || !!coordinator.state.mutation || !mcpSnapshotActionable(coordinator.state)
-  const error = () => coordinator.state.error || coordinator.state.statusError || failure()
-  const rows = createMemo<Row[]>(() => {
-    const result = new Map<string, Row>()
-    for (const stored of coordinator.state.snapshot.servers) result.set(stored.name, { name: stored.name, stored })
-    for (const observed of coordinator.state.snapshot.observed) {
-      const row = result.get(observed.name) ?? { name: observed.name }
-      row.observed = observed
-      result.set(observed.name, row)
-    }
-    for (const [name, status] of Object.entries(coordinator.state.statuses)) {
-      const row = result.get(name) ?? { name }
-      row.status = status
-      result.set(name, row)
-    }
-    return [...result.values()].sort((a, b) => a.name.localeCompare(b.name))
-  })
-  const rowNames = createMemo(() => rows().map((row) => row.name))
-  const exact = (observed: ObservedMcpServer) => exactMcpTarget(coordinator.state.snapshot, observed)
+  const offline = () => engine.state.connection !== "online"
+  const here = () => activeWorkspace()?.path
+  const locked = () => offline() || !!busy()
+  const rowNames = createMemo(() => Object.keys(engine.state.mcpServers).sort((a, b) => a.localeCompare(b)))
   const moveRow = (key: RowKey, current = selected()) => {
-    const next = nextMcpRowName(
-      rows().map((row) => row.name),
-      current,
-      key,
-    )
+    const next = nextMcpRowName(rowNames(), current, key)
     if (!next) return
     setSelected(next)
     rowElements.get(next)?.focus()
   }
   createEffect(() => {
-    const names = new Set(rows().map((row) => row.name))
+    const names = new Set(rowNames())
     for (const name of rowElements.keys()) if (!names.has(name)) rowElements.delete(name)
-    if (!names.has(selected())) setSelected(rows()[0]?.name ?? "")
+    if (!names.has(selected())) setSelected(rowNames()[0] ?? "")
   })
-  onMount(() => {
-    void coordinator.refreshStatus().catch(() => undefined)
-    const timer = window.setInterval(() => void coordinator.refreshStatus().catch(() => undefined), 2_000)
-    onCleanup(() => window.clearInterval(timer))
-  })
-  const run = async (action: () => Promise<void>, success?: string) => {
+  const refresh = async () => {
+    setLoading(true)
+    setFailure("")
+    try {
+      await engine.actions.refreshMcp()
+    } catch (error) {
+      setFailure(errorText(error))
+    } finally {
+      setLoading(false)
+    }
+  }
+  onMount(() => void refresh())
+  /** One change at a time, owned by the row it acts on, so only that row shows it working. */
+  const run = async (name: string, action: () => Promise<unknown>, success?: string) => {
+    if (busy()) return false
+    setBusy(name)
     setMessage("")
     setFailure("")
     try {
       await action()
       if (success) setMessage(success)
       return true
-    } catch {
-      return false
-    }
-  }
-  const save = async (name: string, config: McpConfig, expected: McpStoredExpectation) => {
-    setMessage("")
-    setFailure("")
-    const external = editor()?.external
-    if (external) await coordinator.saveExternal(external, name, config)
-    else await coordinator.save(name, config, expected)
-    setMessage(t("drift.mcp.saved", { name }))
-    setEditor(null)
-  }
-  const remove = async (server: StoredMcpServer) => {
-    if (confirmRemove() !== server.name) return setConfirmRemove(server.name)
-    const expected = {
-      generation: coordinator.state.snapshot.generation,
-      previousName: server.name,
-      updatedAt: server.updatedAt,
-    }
-    if (await run(() => coordinator.remove(server.name, expected), t("drift.mcp.removed", { name: server.name })))
-      setConfirmRemove("")
-  }
-  const editExternal = async (target: McpExactTarget) => {
-    setMessage("")
-    setFailure("")
-    try {
-      const found = await coordinator.externalConfig(target)
-      setEditor({
-        server: { name: target.name, config: found.config, updatedAt: 0 },
-        expected: { generation: coordinator.state.snapshot.generation },
-        external: target,
-        paths: found.paths,
-      })
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error))
+      setFailure(errorText(error))
+      return false
+    } finally {
+      setBusy(null)
     }
   }
-  const removeExternal = async (target: McpExactTarget) => {
-    if (confirmRemove() !== target.name) return setConfirmRemove(target.name)
-    if (await run(() => coordinator.removeExternal(target), t("drift.mcp.removed", { name: target.name })))
-      setConfirmRemove("")
+  const save = async (name: string, config: McpServerConfig, readOnlyTrusted: boolean) => {
+    const previous = editor()?.server?.name
+    setMessage("")
+    setFailure("")
+    setBusy(name)
+    try {
+      // Renamed first, so the save that follows keeps its saved secrets; a retry after a failed save saves under the new name.
+      if (previous && previous !== name) setEditor({ server: await engine.actions.mcpRename(previous, name, here()) })
+      await engine.actions.mcpSave(name, config, { create: !previous, readOnlyTrusted, directory: here() })
+      setEditor(null)
+    } finally {
+      setBusy(null)
+    }
   }
-  const decide = (action: "approve" | "reject" | "revoke", target: McpExactTarget) =>
-    void run(
-      () => coordinator.decide(action, target),
-      t(
-        action === "approve" ? "drift.mcp.approved" : action === "reject" ? "drift.mcp.rejected" : "drift.mcp.revoked",
-        { name: target.name },
-      ),
-    )
+  const remove = async (name: string) => {
+    if (confirmRemove() !== name) return setConfirmRemove(name)
+    if (await run(name, () => engine.actions.mcpRemove(name), t("drift.mcp.removed", { name }))) setConfirmRemove("")
+  }
+  const runtime = (server: McpServerStatus, action: RuntimeAction) =>
+    void run(server.name, () => (action === "connect" ? engine.actions.mcpConnect(server.name, here()) : engine.actions.mcpDisconnect(server.name)))
+  const signIn = (name: string) =>
+    void run(name, async () => openExternal(await engine.actions.mcpSignIn(name)), t("drift.mcp.signInOpened", { name }))
+  const signOut = (name: string) => void run(name, () => engine.actions.mcpSignOut(name))
+  /** Installs and connects; a server that answers with a sign-in request has its sign-in page opened at once. */
+  const install = async (server: RegistryServer, config: McpServerConfig) => {
+    const name = registryInstallName(server)
+    const done = await run(name, async () => {
+      const status = await engine.actions.mcpSave(name, config, { create: true, directory: here() })
+      if (status.needsSignIn) openExternal(await engine.actions.mcpSignIn(name))
+      setMessage(t(status.needsSignIn ? "drift.mcp.signInOpened" : "drift.mcp.installed", { name: server.title ?? name }))
+    })
+    if (done) {
+      setView("servers")
+      setSelected(name)
+    }
+    return done
+  }
 
   return (
     <div class="space-y-3">
@@ -184,129 +155,80 @@ export function McpManagement(props: { embedded?: boolean }) {
           <button
             class="flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
             disabled={locked()}
-            onClick={() => setEditor({ expected: { generation: coordinator.state.snapshot.generation } })}
+            onClick={() => setEditor({})}
           >
             <IconPlus class="size-3.5" />
             {t("drift.mcp.add")}
           </button>
         </Show>
       </div>
-      <Show when={error() || message()}>
+      <Show when={failure() || message()}>
         <div
-          role={error() ? "alert" : "status"}
+          role={failure() ? "alert" : "status"}
           class="rounded-md border px-3 py-2 text-xs"
           classList={{
-            "border-danger/35 bg-danger/10 text-danger": !!error(),
-            "border-ok/35 bg-ok/10 text-ok": !error(),
+            "border-danger/35 bg-danger/10 text-danger": !!failure(),
+            "border-ok/35 bg-ok/10 text-ok": !failure(),
           }}
         >
-          {error() || message()}
-          <Show when={native && (coordinator.state.error || coordinator.state.statusError)}>
-            <button class="ml-3 rounded border border-current px-2 py-1 disabled:opacity-40"
-              disabled={coordinator.state.loading || !!coordinator.state.mutation}
-              onClick={() => void coordinator.refresh().catch(() => undefined)}>
+          {failure() || message()}
+          <Show when={failure()}>
+            <button
+              class="ml-3 rounded border border-current px-2 py-1 disabled:opacity-40"
+              disabled={loading() || !!busy()}
+              onClick={() => void refresh()}
+            >
               {t("drift.mcp.retry")}
             </button>
           </Show>
         </div>
       </Show>
-      <Show when={!coordinator.state.directory}>
-        <div class="text-xs text-ink-faint">{t("drift.mcp.selectWorkspace")}</div>
-      </Show>
       <Show when={view() === "servers"}>
         <Show when={loading()}>
           <div role="status" class="flex items-center gap-2 px-3 py-2 text-sm text-ink-muted">
             <span aria-hidden="true" class="size-3.5 shrink-0 rounded-full border-2 border-ink-faint/30 border-t-ink-muted motion-safe:animate-spin" />
-            {t(rows().length ? "drift.mcp.refreshing" : "drift.mcp.loading")}
+            {t(rowNames().length ? "drift.mcp.refreshing" : "drift.mcp.loading")}
           </div>
         </Show>
         <div aria-busy={loading()} classList={{ "space-y-1": !props.embedded, "border-y border-edge/80": props.embedded }}>
-          <Show when={loading() && !rows().length}>
-            <div aria-hidden="true" class="space-y-2 motion-safe:animate-pulse">
-              <For each={["w-32", "w-44", "w-28"]}>{(width) => (
-                <div class="rounded-lg border border-edge/60 px-3 py-4">
-                  <div class={`h-3 max-w-full rounded bg-ink-faint/15 ${width}`} />
-                  <div class="mt-2.5 h-2 w-20 rounded bg-ink-faint/10" />
-                </div>
-              )}</For>
-            </div>
-          </Show>
           <For each={rowNames()}>
-            {(name) => {
-              const row = () => rows().find((item) => item.name === name)!
-              return (
-                <ServerRow
-                  row={row()}
-                  selected={selected() === name}
-                  target={row().observed ? exact(row().observed!) : undefined}
-                  embedded={props.embedded}
-                  disabled={locked()}
-                  busy={coordinator.state.mutation === name}
-                  confirming={confirmRemove() === name}
-                  rowRef={(element) => rowElements.set(name, element)}
-                  onFocus={() => setSelected(name)}
-                  onNavigate={(key) => moveRow(key, name)}
-                  onEdit={() => {
-                    const stored = row().stored
-                    if (stored) {
-                      setEditor({
-                        server: stored,
-                        expected: {
-                          generation: coordinator.state.snapshot.generation,
-                          previousName: stored.name,
-                          updatedAt: stored.updatedAt,
-                        },
-                      })
-                      return
-                    }
-                    const observed = row().observed
-                    if (observed) void editExternal(exact(observed))
-                  }}
-                  onRemove={() => {
-                    const stored = row().stored
-                    if (stored) {
-                      void remove(stored)
-                      return
-                    }
-                    const observed = row().observed
-                    if (observed) void removeExternal(exact(observed))
-                  }}
-                  onDecision={decide}
-                  onRuntime={(action) => {
-                    const observed = row().observed
-                    if (observed) void run(() => coordinator.runtime(exact(observed), action))
-                  }}
-                />
-              )
-            }}
+            {(name) => (
+              <Show when={engine.state.mcpServers[name]}>
+                {(server) => (
+                  <ServerRow
+                    server={server()}
+                    selected={selected() === name}
+                    embedded={props.embedded}
+                    disabled={locked()}
+                    busy={busy() === name}
+                    confirming={confirmRemove() === name}
+                    rowRef={(element) => rowElements.set(name, element)}
+                    onFocus={() => setSelected(name)}
+                    onNavigate={(key) => moveRow(key, name)}
+                    onEdit={() => setEditor({ server: server() })}
+                    onRemove={() => void remove(name)}
+                    onEnabled={(enabled) => void run(name, () => engine.actions.mcpSetEnabled(name, enabled, here()))}
+                    onRuntime={(action) => runtime(server(), action)}
+                    onSignIn={() => signIn(name)}
+                    onSignOut={() => signOut(name)}
+                  />
+                )}
+              </Show>
+            )}
           </For>
-          <Show when={coordinator.state.ready && !coordinator.state.loading && !coordinator.state.error && !rows().length}>
+          <Show when={!loading() && !failure() && !rowNames().length}>
             <div class="px-3 py-5 text-sm text-ink-faint">{t("dialog.mcp.empty")}</div>
           </Show>
         </div>
       </Show>
       <Show when={view() === "registry"}>
-        <McpRegistry
-          embedded={props.embedded}
-          disabled={locked()}
-          installed={new Set(coordinator.state.snapshot.servers.map((item) => item.name))}
-          onInstall={(server) => {
-            const config = registryConfig(server)
-            if (!config) return setMessage(t("drift.mcp.registryUnavailable"))
-            void run(
-              () => coordinator.save(server.name, config, { generation: coordinator.state.snapshot.generation }),
-              t("drift.mcp.installed", { name: server.title ?? server.name }),
-            )
-          }}
-        />
+        <McpRegistry disabled={locked()} installed={new Set(rowNames())} onInstall={install} />
       </Show>
       <Show when={editor()}>
         {(entry) => (
           <McpEditor
-            server={entry().server}
-            expected={entry().expected}
-            paths={entry().paths}
-            pending={!!coordinator.state.mutation}
+            server={entry().server ? { name: entry().server!.name, config: entry().server!.config, readOnlyTrusted: entry().server!.readOnlyTrusted } : undefined}
+            pending={!!busy()}
             onClose={() => setEditor(null)}
             onSave={save}
           />
@@ -316,10 +238,15 @@ export function McpManagement(props: { embedded?: boolean }) {
   )
 }
 
+/** How the engine talks to a server: its transport, and once connected the protocol version it agreed to and whether that is stateless. */
+export function mcpProtocolLabel(server: Pick<McpServerStatus, "transport" | "protocol" | "era">) {
+  const parts = [t(`drift.mcp.transport.${server.transport}`), server.protocol, server.era && t(`drift.mcp.era.${server.era}`)]
+  return parts.filter(Boolean).join(" · ")
+}
+
 function ServerRow(props: {
-  row: Row
+  server: McpServerStatus
   selected: boolean
-  target?: McpExactTarget
   embedded?: boolean
   disabled: boolean
   busy: boolean
@@ -329,22 +256,19 @@ function ServerRow(props: {
   onNavigate: (key: RowKey) => void
   onEdit: () => void
   onRemove: () => void
-  onDecision: (action: "approve" | "reject" | "revoke", target: McpExactTarget) => void
+  onEnabled: (enabled: boolean) => void
   onRuntime: (action: RuntimeAction) => void
+  onSignIn: () => void
+  onSignOut: () => void
 }) {
-  const status = () => statusLabel(props.row, props.busy)
-  const keyboardAction = (key: string) => {
-    if (props.disabled || props.target?.decision !== "approved" || !props.row.status) return
-    const action = mcpRuntimeKeyAction(props.row.status, key)
-    if (action) props.onRuntime(action)
-    return action
-  }
+  const status = () => mcpStatusLabel(props.server, props.busy)
+  const runtime = () => mcpRuntimeAction(props.server)
   return (
     <div
       ref={props.rowRef}
-      data-mcp-row={props.row.name}
+      data-mcp-row={props.server.name}
       tabIndex={props.selected ? 0 : -1}
-      aria-label={props.row.name}
+      aria-label={props.server.name}
       class="px-3 py-2.5 outline-none hover:bg-raised/40 focus-visible:bg-raised/50"
       classList={{
         "rounded-lg border border-transparent hover:border-edge": !props.embedded,
@@ -362,190 +286,85 @@ function ServerRow(props: {
           props.onNavigate(event.key as RowKey)
           return
         }
-        if (keyboardAction(event.key)) event.preventDefault()
+        const action = props.disabled ? undefined : mcpRuntimeKeyAction(props.server, event.key)
+        if (!action) return
+        event.preventDefault()
+        props.onRuntime(action)
       }}
     >
       <div class="flex items-start gap-3">
         <div class="min-w-0 flex-1">
-          <div class="truncate text-sm font-medium text-ink">{props.row.name}</div>
+          <div class="truncate text-sm font-medium text-ink">{props.server.name}</div>
           <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
-            <Show when={props.row.observed}>
-              {(item) => (
-                <span class="font-mono text-ink-faint" title={item().fingerprint}>
-                  {mcpFingerprintId(item().fingerprint)}
-                </span>
-              )}
-            </Show>
             <span class={status().tone}>{status().text}</span>
+            <span class="text-ink-faint">{mcpProtocolLabel(props.server)}</span>
           </div>
         </div>
-        {/* Approval decisions lead and stay textual - they are the security-relevant choice.
-            Everything after them is a routine action, compacted to an icon with a tooltip. */}
         <div class="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-          <Show when={props.target?.decision === "pending" && props.target}>
-            {(target) => (
-              <>
-                <Action disabled={props.disabled} tone="warn" onClick={() => props.onDecision("approve", target())}>
-                  <IconShieldCheck class="size-3.5" />
-                  {t("drift.mcp.approve")}
-                </Action>
-                <Action disabled={props.disabled} onClick={() => props.onDecision("reject", target())}>
-                  {t("drift.mcp.reject")}
-                </Action>
-              </>
-            )}
-          </Show>
-          <Show when={props.target?.decision === "approved" || props.target?.decision === "rejected"}>
-            <Action disabled={props.disabled} onClick={() => props.onDecision("revoke", props.target!)}>
-              {t("drift.mcp.revoke")}
+          <Action
+            disabled={props.disabled}
+            tone="danger"
+            title={props.confirming ? t("drift.mcp.confirmRemove") : t("drift.mcp.remove")}
+            onClick={props.onRemove}
+          >
+            {/* The confirm step keeps its text: an icon cannot ask "are you sure". */}
+            {props.confirming ? t("drift.mcp.confirmRemove") : <IconTrash class="size-3.5" />}
+          </Action>
+          <Show when={props.server.needsSignIn}>
+            <Action disabled={props.disabled} title={t("drift.mcp.signIn")} onClick={props.onSignIn}>
+              {t("drift.mcp.signIn")}
             </Action>
           </Show>
-          <Show when={props.row.stored || props.target}>
-            <Action
-              disabled={props.disabled}
-              tone="danger"
-              title={props.confirming ? t("drift.mcp.confirmRemove") : t("drift.mcp.remove")}
-              onClick={props.onRemove}
-            >
-              {/* The confirm step keeps its text: an icon cannot ask "are you sure". */}
-              {props.confirming ? t("drift.mcp.confirmRemove") : <IconTrash class="size-3.5" />}
-            </Action>
-            <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
-              <IconSquarePen class="size-3.5" />
+          <Show when={props.server.signedIn}>
+            <Action disabled={props.disabled} title={t("drift.mcp.signOut")} onClick={props.onSignOut}>
+              {t("drift.mcp.signOut")}
             </Action>
           </Show>
-          <Show when={props.target?.decision === "approved" && props.row.status}>
-            <Runtime status={props.row.status!} disabled={props.disabled} onRun={props.onRuntime} />
-          </Show>
+          <Action disabled={props.disabled} title={t("common.edit")} onClick={props.onEdit}>
+            <IconSquarePen class="size-3.5" />
+          </Action>
+          {/* Always in its place so rows line up; greyed out while the server is off or connecting. */}
+          <Action
+            disabled={props.disabled || !runtime()}
+            title={t(runtime() === "disconnect" ? "common.disconnect" : "common.connect")}
+            onClick={() => {
+              const action = runtime()
+              if (action) props.onRuntime(action)
+            }}
+          >
+            {runtime() === "disconnect" ? <IconPlugOff class="size-3.5" /> : <IconPlug class="size-3.5" />}
+          </Action>
+          <Toggle
+            label={t("drift.mcp.enable", { name: props.server.name })}
+            checked={props.server.enabled}
+            disabled={props.disabled || props.server.unreadable}
+            onChange={() => props.onEnabled(!props.server.enabled)}
+          />
         </div>
       </div>
     </div>
   )
 }
 
-function Runtime(props: {
-  status: McpStatus
-  disabled: boolean
-  onRun: (action: RuntimeAction) => void
-}) {
-  const action = () => mcpRuntimeAction(props.status)
-  const label = () => t(action() === "authenticate" ? "drift.mcp.authenticate" : `common.${action()}`)
-  return (
-    <Action disabled={props.disabled} title={label()} onClick={() => props.onRun(action())}>
-      {action() === "disconnect" ? (
-        <IconPlugOff class="size-3.5" />
-      ) : action() === "authenticate" ? (
-        <IconKey class="size-3.5" />
-      ) : (
-        <IconPlug class="size-3.5" />
-      )}
-    </Action>
-  )
-}
-
-function statusLabel(row: Row, busy: boolean) {
+export function mcpStatusLabel(server: McpServerStatus, busy: boolean) {
   if (busy) return { text: t("common.loading"), tone: "text-ink-faint" }
-  if (row.observed?.decision === "invalid") return { text: t("drift.mcp.invalidStatus"), tone: "text-danger" }
-  if (row.observed?.decision === "pending") return { text: t("drift.mcp.pendingApproval"), tone: "text-warn" }
-  if (row.observed?.decision === "rejected") return { text: t("drift.mcp.rejectedStatus"), tone: "text-danger" }
-  if (!row.observed && row.stored) return { text: t("drift.mcp.awaitingReport"), tone: "text-ink-faint" }
-  if (!row.status)
-    return { text: row.observed?.decision === "approved" ? t("drift.mcp.awaitingReport") : "", tone: "text-ink-faint" }
-  if (row.status.status === "connected") return { text: t("mcp.status.connected"), tone: "text-ok" }
-  if (row.status.status === "failed")
-    return {
-      text: "error" in row.status && row.status.error ? String(row.status.error) : t("mcp.status.failed"),
-      tone: "text-danger",
-    }
-  if (row.status.status === "needs_auth") return { text: t("mcp.status.needs_auth"), tone: "text-warn" }
-  if (row.status.status === "needs_client_registration")
-    return { text: t("mcp.status.needs_client_registration"), tone: "text-warn" }
-  return { text: t("mcp.status.disabled"), tone: "text-ink-faint" }
+  switch (server.state) {
+    case "connected":
+      return { text: t("mcp.status.connected"), tone: "text-ok" }
+    case "connecting":
+      return { text: t("drift.mcp.status.connecting"), tone: "text-ink-faint" }
+    case "disconnected":
+      return { text: t("drift.mcp.status.disconnected"), tone: "text-ink-faint" }
+    case "failed":
+      if (server.needsSignIn) return { text: t("drift.mcp.status.needsSignIn"), tone: "text-warn" }
+      return { text: server.error || t("mcp.status.failed"), tone: "text-danger" }
+    case "disabled":
+      return { text: t("mcp.status.disabled"), tone: "text-ink-faint" }
+  }
 }
 
-function McpRegistry(props: {
-  installed: Set<string>
-  disabled: boolean
-  embedded?: boolean
-  onInstall: (server: RegistryServer) => void
-}) {
-  const [query, setQuery] = createSignal("")
-  const [servers, setServers] = createSignal<RegistryServer[]>([])
-  const [loading, setLoading] = createSignal(false)
-  const [error, setError] = createSignal("")
-  const registry = createRegistrySearch()
-  let request = 0
-  let disposed = false
-  const search = async () => {
-    const current = ++request
-    setLoading(true)
-    setError("")
-    try {
-      const result = await registry.search(query())
-      if (!disposed && current === request && !result.stale)
-        setServers(result.servers.filter((server) => registryConfig(server)))
-    } catch {
-      if (!disposed && current === request) setError(t("drift.mcp.registryLoadFailed"))
-    } finally {
-      if (!disposed && current === request) setLoading(false)
-    }
-  }
-  onMount(() => void search())
-  let timer: number | undefined
-  onCleanup(() => {
-    disposed = true
-    request++
-    window.clearTimeout(timer)
-    registry.dispose()
-  })
-  const schedule = (value: string) => {
-    setQuery(value)
-    window.clearTimeout(timer)
-    timer = window.setTimeout(() => void search(), 250)
-  }
-  return (
-    <div class="space-y-2">
-      <TextInput value={query()} onInput={schedule} label={t("drift.mcp.registrySearch")} />
-      <div class="text-[0.7rem] text-ink-faint">{t("drift.mcp.registrySource")}</div>
-      <Show when={error()}>{(value) => <div class="text-xs text-danger">{value()}</div>}</Show>
-      <div classList={{ "space-y-2": !props.embedded, "border-y border-edge/80": props.embedded }}>
-        <For each={servers()}>
-          {(server) => (
-            <div
-              class="px-3 py-2.5"
-              classList={{
-                "rounded-lg border border-edge bg-surface": !props.embedded,
-                "border-b border-edge/70": props.embedded,
-              }}
-            >
-              <div class="flex items-start gap-3">
-                <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm font-medium text-ink">{server.title ?? server.name}</div>
-                  <div class="text-[0.7rem] text-ink-faint">
-                    {server.name} · {server.version}
-                  </div>
-                  <div class="mt-1 text-xs text-ink-muted">{server.description}</div>
-                </div>
-                <Action
-                  disabled={props.disabled || props.installed.has(server.name)}
-                  onClick={() => props.onInstall(server)}
-                >
-                  {props.installed.has(server.name) ? <IconCheck class="size-3.5" /> : <IconPlus class="size-3.5" />}
-                  {t(props.installed.has(server.name) ? "drift.mcp.installedLabel" : "drift.mcp.install")}
-                </Action>
-              </div>
-            </div>
-          )}
-        </For>
-        <Show when={loading()}>
-          <div class="px-3 py-4 text-sm text-ink-faint">{t("common.loading")}</div>
-        </Show>
-        <Show when={!loading() && !error() && !servers().length}>
-          <div class="px-3 py-4 text-sm text-ink-faint">{t("palette.empty")}</div>
-        </Show>
-      </div>
-    </div>
-  )
+function errorText(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function Tab(props: {
@@ -570,21 +389,9 @@ function Tab(props: {
   )
 }
 
-function TextInput(props: { value: string; onInput: (value: string) => void; label: string }) {
-  return (
-    <input
-      aria-label={props.label}
-      class="h-9 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
-      placeholder={props.label}
-      value={props.value}
-      onInput={(event) => props.onInput(event.currentTarget.value)}
-    />
-  )
-}
-
 function Action(props: {
   disabled?: boolean
-  tone?: "warn" | "danger"
+  tone?: "danger"
   title?: string
   onClick: () => void
   children: JSX.Element
@@ -598,7 +405,6 @@ function Action(props: {
       class="flex items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-40"
       classList={{
         "border-edge text-ink-muted hover:text-ink": !props.tone,
-        "border-warn/40 text-warn hover:bg-warn/10": props.tone === "warn",
         "border-danger/40 text-danger hover:bg-danger/10": props.tone === "danger",
       }}
       onClick={(event) => {

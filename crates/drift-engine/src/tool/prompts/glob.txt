@@ -1,0 +1,6 @@
+Finds files by name pattern, fastest way to locate files in a codebase of any size.
+
+- Patterns are globs, read as ripgrep's `--glob`: `*.rs` matches at any depth, `src/*.rs` only directly in `src`, `src/**/*.test.ts` anywhere under it.
+- Respects `.gitignore`; includes dotfiles.
+- Returns up to 100 paths, most recently modified first.
+- For content search use `grep`; for an open-ended exploration run several `glob` and `grep` calls together.

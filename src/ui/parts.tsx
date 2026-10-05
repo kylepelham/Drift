@@ -1,4 +1,4 @@
-import type { FilePart, Part, ReasoningPart, ToolPart } from "@opencode-ai/sdk/client"
+import type { FilePart, Part, ReasoningPart, ToolPart } from "../engine/shapes"
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, untrack, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
@@ -8,16 +8,17 @@ import { showReasoning, toolErrorsExpanded } from "../state/prefs"
 import { agentLabel, t } from "../state/i18n"
 import { selectSession } from "../state/selection"
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
-import { codeTokens, Markdown, ProgressiveCodeView, type SyntaxToken } from "./markdown"
+import { codeTokens, Markdown, openWorkspaceFile, ProgressiveCodeView, type SyntaxToken } from "./markdown"
+import { classifyMarkdownLink } from "./markdown-links"
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code"
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
-import { permissionRequiresAttention } from "../state/permission-attention"
-import { childrenOf, type EngineState } from "../engine/store"
+import { childrenOf, taskActive, taskForCall, type EngineState } from "../engine/store"
 import { ToolDuration } from "./tool-duration"
 import { resolveAttachmentKind } from "../attachments"
 import { resolveFileLanguage } from "../syntax-language"
 import { citationFileGroups } from "./citation-files"
+import { splitOrchestratorStatus, type OrchestratorStatus } from "../state/orchestrator"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -39,7 +40,8 @@ const fontStyleItalic = 1
 const fontStyleBold = 2
 const fontStyleUnderline = 4
 
-export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number; thinking?: boolean }) {
+/** `orchestrated`: the orchestrator wrote the reply, so its status block shows as a row; from any other agent it is only hidden. */
+export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number; thinking?: boolean; orchestrated?: boolean }) {
   const engine = useEngine()
   return (
     <Switch>
@@ -47,17 +49,25 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
         {(part) => <PluginPartView part={part()} />}
       </Match>
       <Match when={visibleText(props.part)}>
-        {(part) => (
-          <Markdown
-            text={part().text}
-            directory={engine.state.sessions[part().sessionID]?.directory}
-            fileGroups={() => citationFileGroups(engine.state, part().sessionID, part().messageID, part().id)}
-            done={!!part().time?.end}
-            responseID={props.responseID}
-            live={props.live}
-            revision={props.revision}
-          />
-        )}
+        {(part) => {
+          const split = createMemo(() => splitOrchestratorStatus(part().text))
+          return (
+            <>
+              <Show when={split().prose}>
+                <Markdown
+                  text={split().prose}
+                  directory={engine.state.sessions[part().sessionID]?.directory}
+                  fileGroups={() => citationFileGroups(engine.state, part().sessionID, part().messageID, part().id)}
+                  done={!!part().time?.end}
+                  responseID={props.responseID}
+                  live={props.live}
+                  revision={props.revision}
+                />
+              </Show>
+              <Show when={props.orchestrated && split().status}>{(status) => <OrchestratorStatusRow status={status()} />}</Show>
+            </>
+          )
+        }}
       </Match>
       <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
         {(part) => <ReasoningView part={part()} revision={props.revision} />}
@@ -113,8 +123,35 @@ function ToolContextTarget(props: { part: ToolPart; children: JSX.Element }) {
 }
 
 function visibleText(part: Part) {
-  if (part.type !== "text" || part.synthetic || part.ignored || !part.text.trim()) return undefined
-  return part
+  if (part.type !== "text" || part.synthetic || part.ignored) return undefined
+  const split = splitOrchestratorStatus(part.text)
+  return split.prose.trim() || split.status ? part : undefined
+}
+
+const statusLabels = { working: "drift.orchestrator.state.working", done: "drift.orchestrator.state.done", blocked: "drift.orchestrator.state.blocked" } as const
+
+/** The orchestrator's end-of-reply status, as a row like a tool's rather than the JSON it wrote; on the
+ * user's side, since while it says Working the engine prompts again on the user's behalf. */
+function OrchestratorStatusRow(props: { status: OrchestratorStatus }) {
+  return (
+    <div class="flex min-h-8 min-w-0 items-center justify-end gap-2 px-1.5 text-sm">
+      <Switch>
+        <Match when={props.status.state === "done"}>
+          <IconCheck class="size-3.5 shrink-0 text-ok" />
+        </Match>
+        <Match when={props.status.state === "blocked"}>
+          <span class="size-1.5 shrink-0 rounded-full bg-warn" />
+        </Match>
+        <Match when={props.status.state === "working"}>
+          <IconArrowUpRight class="size-3.5 shrink-0 text-accent/70" />
+        </Match>
+      </Switch>
+      <span class="shrink-0 font-semibold text-ink">{t(statusLabels[props.status.state])}</span>
+      <Show when={props.status.headline}>
+        <span class="min-w-0 truncate text-[0.85rem] text-ink-faint" title={props.status.headline}>{props.status.headline}</span>
+      </Show>
+    </div>
+  )
 }
 
 export function partVisible(part: Part) {
@@ -135,10 +172,39 @@ export function partVisible(part: Part) {
   }
 }
 
-export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" | "url"> }) {
+export function FilePartView(props: { part: Pick<FilePart, "mime" | "filename" | "url" | "source">; directory?: string }) {
   const linkable = () => props.part.url.startsWith("data:") || props.part.url.startsWith("http")
   const resolved = () => resolveAttachmentKind(props.part)
   const kind = () => resolved().kind
+  const mention = () => (props.part.source?.type === "file" && props.directory ? props.part.source.path : undefined)
+  return (
+    <Show when={mention()} fallback={<AttachmentView part={props.part} linkable={linkable()} kind={kind()} />}>
+      {(path) => <MentionChip path={path()} directory={props.directory!} kind={kind()} />}
+    </Show>
+  )
+}
+
+/** An `@` mention: opens the file it names, as a file link in a reply would. */
+function MentionChip(props: { path: string; directory: string; kind: string }) {
+  const open = () => {
+    const link = classifyMarkdownLink(props.path, props.directory)
+    if (link.kind === "file") void openWorkspaceFile(link, props.directory)
+  }
+  return (
+    <button
+      type="button"
+      title={props.path}
+      class="inline-flex max-w-full items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-2 pl-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+      onClick={open}
+    >
+      <AttachmentFileLabel filename={props.path} kind={props.kind === "unsupported" ? "text" : props.kind} bare />
+    </button>
+  )
+}
+
+function AttachmentView(props: { part: Pick<FilePart, "mime" | "filename" | "url">; linkable: boolean; kind: string }) {
+  const linkable = () => props.linkable
+  const kind = () => props.kind
   return (
     <Switch
       fallback={
@@ -345,7 +411,7 @@ function argsPreview(input: Record<string, unknown> | undefined) {
 function awaitingPermission(state: EngineState, part: ToolPart) {
   return (
     (state.permissions[part.sessionID] ?? []).some(
-      (permission) => permission.callID === part.callID && permissionRequiresAttention(permission, state),
+      (permission) => permission.callID === part.callID,
     ) ||
     (state.questions[part.sessionID] ?? []).some((question) => !question.async && question.tool?.callID === part.callID)
   )
@@ -613,7 +679,7 @@ export function ToolView(props: { part: ToolPart }) {
           {(childId) => (
             <span
               role="button"
-              title={t("drift.thread.openSpawned")}
+              title={t(props.part.tool === "task" ? "drift.thread.openSubagent" : "drift.thread.openSpawned")}
               class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
               onClick={(event) => openSpawnedThread(event, childId(), selectSession)}
             >
@@ -638,12 +704,16 @@ export type DelegatedTaskStatus = "running" | "completed" | "error"
 
 export function delegatedTaskStatus(
   state: EngineState,
-  part: Pick<ToolPart, "id" | "tool" | "sessionID" | "state">,
+  part: Pick<ToolPart, "id" | "tool" | "sessionID" | "state"> & { callID?: string },
   childId: string,
 ): DelegatedTaskStatus {
   // This invocation's result stays terminal even when another call resumes the same child.
   if (part.state.status === "error") return "error"
   if (part.tool === "spawn_thread") return part.state.status === "completed" ? "completed" : "running"
+  // The engine's record outranks the call: a background call finishes at launch, its worker later.
+  const metadata = "metadata" in part.state ? (part.state.metadata as { taskId?: unknown } | undefined) : undefined
+  const task = taskForCall(state, part.sessionID, part.callID, metadata?.taskId)
+  if (task) return taskActive(task) ? "running" : task.state === "replied" ? "completed" : "error"
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
   return state.errors[childId] ? "error" : "running"
@@ -658,7 +728,8 @@ function delegatedTerminalState(
   const pattern = new RegExp(`^\\s*<task\\s+id=["']${escapeRegExp(childId)}["']\\s+state=["'](running|completed|error)["']`)
   const result = part.state.output.match(pattern)?.[1]
   if (result === "completed" || result === "error") return result
-  if (part.tool === "task" && result !== "running" && part.state.metadata?.background !== true) return "completed"
+  const background = part.state.metadata?.background === true || part.state.metadata?.mode === "background"
+  if (part.tool === "task" && result !== "running" && !background) return "completed"
 
   // Background calls finish their tool part before the work. Find their first later result,
   // never an earlier invocation's result or a later foreground call's output.
@@ -681,10 +752,13 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
   const engine = useEngine()
   const state = () => props.part.state
   const shellCommand = () => (state().input as { command?: string }).command ?? ""
-  const shellOutput = () =>
-    state().status === "completed"
-      ? (state() as { output: string }).output
-      : ((toolMeta(props.part)?.output as string | undefined) ?? "")
+  // While running, the output so far rides on the part's metadata; once ended, the saved result is the output.
+  const shellOutput = () => {
+    const current = state()
+    if (current.status === "completed") return current.output
+    if (current.status === "error") return current.error
+    return (toolMeta(props.part)?.output as string | undefined) ?? ""
+  }
   const written = () => {
     if (props.part.tool !== "write") return null
     const input = state().input as { content?: string; filePath?: string }
@@ -1020,7 +1094,8 @@ export function taskBody(part: ToolPart) {
   const input = part.state.input as { prompt?: string; task?: string }
   const output = part.state.status === "completed" ? (part.state as { output: string }).output : ""
   const result = output.match(/<task_result>\n?([\s\S]*?)\n?<\/task_result>/)?.[1] ?? output
-  return { prompt: input.prompt ?? input.task ?? "", result }
+  // The engine tells the model how to continue the subagent; the card shows the subagent's own words.
+  return { prompt: input.prompt ?? input.task ?? "", result: result.replace(/\n\n\(task_id: [^)]*\)$/, "") }
 }
 
 function GenericBody(props: { part: ToolPart }) {
@@ -1103,7 +1178,7 @@ export function diffHighlightKey(
   return `${theme}\0${language.value}\0${code}`
 }
 
-function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
+export function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
   const rows = createMemo(() => parseDiff(props.diff))
   const code = createMemo(() => rows().map((row) => row.text).join("\n"))
   const [language, setLanguage] = createSignal<{ filename: string; value: string }>()

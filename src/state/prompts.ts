@@ -1,10 +1,8 @@
 import { backendInvoke } from "../backend"
 
-export type PromptFamily = { id: string; original: string; default: string; variants?: PromptFamily[] }
-export type PromptCatalogAgent = { name: string; prompt: string }
-export type PromptCatalog = { version: number; families: PromptFamily[]; agents: PromptCatalogAgent[] }
+/** An agent's saved Settings override (`agent:<name>`); base prompts are the engine's own. */
 export type PromptOverride = { key: string; value: unknown; original?: unknown; updatedAt: number }
-export type PromptSnapshot = { catalog: PromptCatalog; overrides: PromptOverride[] }
+export type PromptSnapshot = { overrides: PromptOverride[] }
 
 export function loadPromptSnapshot() {
   const invoke = backendInvoke()
@@ -21,6 +19,29 @@ export async function resetPromptOverride(key: string) {
   const invoke = backendInvoke()
   if (!invoke) throw new Error("Prompt editing requires the Drift host backend")
   await invoke("prompt_reset", { key })
+}
+
+/** What the engine applies from the behavior editor; the prompt has its own editor. Anything else is refused. */
+export const agentBehaviorFields = ["model", "steps", "tools", "permissions", "variant"] as const
+
+/** The first field the engine would not apply as written, or nothing when every one is valid. */
+export function agentBehaviorIssue(behavior: Record<string, unknown>): string | undefined {
+  const unknown = Object.keys(behavior).find((key) => !(agentBehaviorFields as readonly string[]).includes(key))
+  if (unknown) return unknown
+  if ("model" in behavior && typeof behavior.model !== "string") return "model"
+  if ("variant" in behavior && typeof behavior.variant !== "string") return "variant"
+  const steps = behavior.steps
+  if (steps !== undefined && !(typeof steps === "number" && Number.isInteger(steps) && steps > 0)) return "steps"
+  const tools = behavior.tools
+  if (tools !== undefined && !(Array.isArray(tools) && tools.length > 0 && tools.every((tool) => typeof tool === "string"))) return "tools"
+  const permissions = behavior.permissions
+  if (permissions !== undefined && !(Array.isArray(permissions) && permissions.every((rule) => rule && typeof rule === "object" && typeof rule.kind === "string" && typeof rule.pattern === "string" && ["allow", "ask", "deny"].includes(rule.decision)))) return "permissions"
+}
+
+/** A stored override keeps only what the engine still applies, so saving never re-sends retired fields. */
+export function applicableOverride(value: Record<string, unknown>) {
+  const kept = new Set<string>(["prompt", ...agentBehaviorFields])
+  return Object.fromEntries(Object.entries(value).filter(([key]) => kept.has(key)))
 }
 
 export function agentOverrideValue(

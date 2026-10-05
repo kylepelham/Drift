@@ -252,14 +252,18 @@ test("release stamping updates every package version and is idempotent", () => {
     mkdirSync(path.join(temporary, "src-tauri"))
     writeFileSync(path.join(temporary, "package.json"), '{"version":"1.0.0"}\n')
     writeFileSync(path.join(temporary, "src-tauri/tauri.conf.json"), '{"version":"1.0.0"}\n')
-    writeFileSync(path.join(temporary, "src-tauri/Cargo.toml"), '[package]\nname = "drift"\nversion = "1.0.0"\n')
-    writeFileSync(path.join(temporary, "src-tauri/Cargo.lock"), '[[package]]\nname = "drift"\nversion = "1.0.0"\n')
+    writeFileSync(path.join(temporary, "Cargo.toml"), '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.0.0"\n')
+    const crates = ["drift", "drift-engine", "drift-engined", "drift-migrate"]
+    writeFileSync(path.join(temporary, "Cargo.lock"), crates.map((name) => `[[package]]\nname = "${name}"\nversion = "1.0.0"\n`).join("\n"))
 
     expect(stampReleaseVersion("v2.3.4", temporary)).toBe("2.3.4")
     expect(stampReleaseVersion("v2.3.4", temporary)).toBe("2.3.4")
-    for (const relative of ["package.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock"]) {
+    for (const relative of ["package.json", "src-tauri/tauri.conf.json", "Cargo.toml"]) {
       expect(readFileSync(path.join(temporary, relative), "utf8")).toContain("2.3.4")
     }
+    const lock = readFileSync(path.join(temporary, "Cargo.lock"), "utf8")
+    expect(lock).not.toContain("1.0.0")
+    expect(lock.match(/2\.3\.4/g), "the engine crates carry the app's version too").toHaveLength(crates.length)
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }

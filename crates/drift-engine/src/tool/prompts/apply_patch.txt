@@ -1,0 +1,20 @@
+Applies a patch to one or more files using the apply_patch format. This is the only way to create, change, move or delete files.
+
+*** Begin Patch
+*** Add File: path/to/new.txt
++first line
++second line
+*** Update File: path/to/existing.rs
+*** Move to: path/to/renamed.rs
+@@ fn nearby_context() {
+ unchanged line
+-removed line
++added line
+*** Delete File: path/to/old.txt
+*** End Patch
+
+- Every line inside an Update hunk starts with a space (kept), `-` (removed) or `+` (added). Copy kept and removed lines exactly from a `read`.
+- `@@` lines name a line of the file to search from; use them when the same text appears more than once.
+- `*** End of File` after a hunk anchors it to the end of the file.
+- `*** Move to:` goes directly under `*** Update File:`.
+- Hunks are matched exactly. On a miss nothing is written; read the region again and retry.

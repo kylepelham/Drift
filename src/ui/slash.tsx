@@ -1,5 +1,5 @@
 import type { Engine } from "../engine"
-import { previousUserMessage, resolveModel } from "../engine/store"
+import { previousUserMessage, resolveModel, savedChoice } from "../engine/store"
 import { emitThreadArchived } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { prefsFor } from "../state/prefs"
@@ -9,6 +9,7 @@ import { activeWorkspace, archiveSession } from "../state/workspaces"
 import { t } from "../state/i18n"
 import { openMcpServers } from "./mcp"
 import { restoreReverted } from "./revert"
+import { archiveFailed } from "./workspaces"
 
 export type SlashPreset = { value: string; label: string; description: string; usage?: string; execute?: boolean; literal?: boolean }
 export type SlashItem = {
@@ -38,19 +39,12 @@ const builtins: SlashItem[] = [
     description: "drift.slash.spawn",
     needsSession: true,
     requiredArgs: true,
-    usage: "<task>",
-    presets: [
-      { value: "Investigate ", label: "drift.slash.spawn.investigate", description: "drift.slash.spawn.investigate.description" },
-      { value: "Implement ", label: "drift.slash.spawn.implement", description: "drift.slash.spawn.implement.description" },
-      { value: "Review ", label: "drift.slash.spawn.review", description: "drift.slash.spawn.review.description" },
-    ],
+    usage: "<instruction>",
   },
   { name: "archive", description: "command.session.archive", needsSession: true },
   { name: "undo", description: "command.session.undo.description", needsSession: true },
   { name: "redo", description: "command.session.redo.description", needsSession: true },
   { name: "compact", description: "command.session.compact.description", needsSession: true },
-  { name: "share", description: "command.session.share.description", needsSession: true },
-  { name: "unshare", description: "command.session.unshare.description", needsSession: true },
   { name: "theme", description: "command.theme.cycle" },
   { name: "mcp", description: "drift.slash.mcp" },
 ]
@@ -109,7 +103,7 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
       engine.actions.notice({ message: t("drift.slash.fork.invalid"), variant: "warning" })
       return
     }
-    const session = await engine.actions.fork(current, mode === "all" ? "full" : "active")
+    const session = await engine.actions.fork(current)
     if (session && selectedSession() === current) selectSession(session.id)
     return
   }
@@ -118,30 +112,21 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
       engine.actions.notice({ message: t("drift.slash.spawn.required"), variant: "warning" })
       return
     }
-    const prefs = prefsFor(current)
-    await engine.actions.spawn(current, args, {
-      model: resolveModel(engine.state, prefs.model),
-      agent: prefs.agent,
-      variant: prefs.variant ?? undefined,
-    })
+    const session = await engine.actions.spawn(current, args.trim())
+    if (session && selectedSession() === current) selectSession(session.id)
     return
   }
   if (item.name === "archive" && current) {
     const workspace = activeWorkspace()
     if (!workspace) return
     selectSession(null)
-    emitThreadArchived(current)
-    return archiveSession(current, workspace.id)
+    return archiveSession(current, workspace.id, engine.actions.setArchived)
+      .then(() => emitThreadArchived(current))
+      .catch((cause: unknown) => archiveFailed(engine, cause))
   }
   if (item.name === "compact" && current) {
-    return engine.actions.summarize(current, resolveModel(engine.state, prefsFor(current).model))
+    return engine.actions.summarize(current, resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model))
   }
-  if (item.name === "share" && current) {
-    const url = await engine.actions.share(current)
-    if (url) await navigator.clipboard.writeText(url)
-    return
-  }
-  if (item.name === "unshare" && current) return engine.actions.unshare(current)
   if (item.name === "undo" && current) {
     const marker = engine.state.sessions[current]?.revert?.messageID
     const target = previousUserMessage(engine.state.transcripts[current] ?? [], marker)

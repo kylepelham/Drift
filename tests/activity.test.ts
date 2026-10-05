@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { Event } from "@opencode-ai/sdk/client"
+import type { Event } from "../src/engine/shapes"
 import { reduce } from "../src/engine/events"
 import { createEngineState } from "../src/engine/store"
 
@@ -286,6 +286,10 @@ test("taskBody extracts prompt and task_result for task cards", async () => {
     prompt: "spin off",
     result: "Spawned thread ok",
   })
+  expect(taskBody(part("task", { prompt: "find" }, "in parser.rs\n\n(task_id: task_1; pass it to task to continue this subagent's conversation)"))).toEqual({
+    prompt: "find",
+    result: "in parser.rs",
+  })
   expect(taskBody(part("bash", {}, "x"))).toBeNull()
 })
 
@@ -302,6 +306,17 @@ test("compaction-only user messages retain their delimiter part", async () => {
     parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: true }],
   } as never
   expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"])
+})
+
+test("a compaction draws one marker: the summary row, or the prompt's divider only while there is none", async () => {
+  const { boundaryCompactions } = await import("../src/ui/message")
+  const entry = {
+    info: { id: "m1", role: "user", sessionID: "s1" },
+    parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: false }],
+  } as never
+  expect(boundaryCompactions(entry, true, false)).toEqual([])
+  expect(boundaryCompactions(entry, true, true).length).toBe(1)
+  expect(boundaryCompactions(entry, false, false).length).toBe(1)
 })
 
 test("loaded stale tool states become interrupted without mutating live or completed parts", async () => {
@@ -470,6 +485,15 @@ test("compaction boundary merges into its adjacent summary", async () => {
   expect(mergeCompactionEntries([boundary] as never).map((entry) => entry.info.id)).toEqual(["u1"])
 })
 
+test("a spawned thread's copied messages are the ones older than the thread", async () => {
+  const { copiedCount } = await import("../src/ui/chat")
+  const entry = (id: string, created: number) => ({ info: { id, time: { created } }, parts: [] })
+  const transcript = [entry("copied-prompt", 10), entry("copied-reply", 20), entry("instruction", 100), entry("reply", 120)]
+  expect(copiedCount(transcript as never, 100)).toBe(2)
+  expect(copiedCount(transcript as never, 5)).toBe(0)
+  expect(copiedCount(transcript.slice(0, 2) as never, 100)).toBe(2)
+})
+
 test("successful compaction clears a transient session error", () => {
   const [state, set] = createEngineState()
   set("errors", "s1", "Your input exceeds the context window")
@@ -491,275 +515,6 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
   const metrics = { scale: 1.5, viewportWidth: 1200, viewportHeight: 900 }
   expect(fixedMenuPosition(300, 225, 200, 100, metrics)).toEqual({ left: 200, top: 150, viewportHeight: 600 })
   expect(fixedMenuPosition(1170, 870, 200, 100, metrics)).toEqual({ left: 592, top: 492, viewportHeight: 600 })
-})
-
-test("provider setup works through the global client before any workspace exists", async () => {
-  const { createActions } = await import("../src/engine/actions")
-  const [state, set] = createEngineState()
-  const requests: string[] = []
-  let connected: string[] = []
-  let failProviderList = false
-  const client = {
-    auth: {
-      set: async () => {
-        connected = ["opencode"]
-        failProviderList = true
-        return { data: true }
-      },
-    },
-    provider: {
-      auth: async () => ({ data: { opencode: [{ type: "api", label: "API key" }] } }),
-      list: async () => {
-        if (failProviderList) {
-          failProviderList = false
-          throw new Error("transient provider failure")
-        }
-        return {
-          data: {
-            all: [{ id: "opencode", name: "OpenCode", models: {} }],
-            connected,
-            default: {},
-          },
-        }
-      },
-    },
-  }
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = input instanceof Request ? input : new Request(input, init)
-    const url = new URL(request.url)
-    requests.push(`${request.method} ${url.pathname}${url.search}`)
-    if (request.method === "DELETE") connected = []
-    return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
-  }) as typeof fetch
-
-  try {
-    const actions = createActions(
-      (() => {
-        throw new Error("engine offline")
-      }) as never,
-      state,
-      set,
-      () => ({ url: "http://engine.test" }),
-      () => client as never,
-    )
-    expect(await actions.providerAuthMethods()).toEqual({ opencode: [{ type: "api", label: "API key" }] })
-    expect(await actions.refreshProviders()).toEqual([])
-    expect(state.providers[0]?.id).toBe("opencode")
-    expect(await actions.setProviderKey("opencode", "test-key")).toEqual({ ok: true, connected: true })
-    expect(state.connected).toEqual(["opencode"])
-    expect(await actions.disconnectProvider("opencode")).toEqual({ ok: true, connected: false })
-    expect(state.connected).toEqual([])
-    expect(requests).toEqual(["DELETE /auth/opencode"])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
-test("provider credentials refresh provider state without disposing active instances", async () => {
-  const { createActions } = await import("../src/engine/actions")
-  const [state, set] = createEngineState()
-  set("directory", "C:\\repo")
-  const requests: string[] = []
-  const providerLists = [["opencode"], []]
-  const client = {
-    auth: {
-      set: async () => ({ data: true }),
-    },
-    provider: {
-      list: async () => ({
-        data: { all: [], connected: providerLists.shift() ?? [], default: {} },
-      }),
-    },
-  }
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const request = input instanceof Request ? input : new Request(input, init)
-    const url = new URL(request.url)
-    requests.push(`${request.method} ${url.pathname}${url.search}`)
-    return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
-  }) as typeof fetch
-
-  try {
-    const actions = createActions(
-      () => client as never,
-      state,
-      set,
-      () => ({ url: "http://engine.test" }),
-    )
-    expect(await actions.setProviderKey("opencode", "test-key")).toEqual({ ok: true, connected: true })
-    expect(state.connected).toEqual(["opencode"])
-    expect(await actions.disconnectProvider("opencode")).toEqual({ ok: true, connected: false })
-    expect(state.connected).toEqual([])
-    expect(await actions.reloadProviders()).toBe(true)
-    expect(requests).toEqual([
-      "DELETE /auth/opencode",
-      "POST /provider/reload?directory=C%3A%5Crepo",
-    ])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
-test("provider refresh does not publish a stale workspace result after switching directories", async () => {
-  const { createActions } = await import("../src/engine/actions")
-  const [state, set] = createEngineState()
-  set("directory", "C:\\first")
-  set("connected", ["existing"])
-  let release!: () => void
-  let started!: () => void
-  const pending = new Promise<void>((resolve) => (release = resolve))
-  const requested = new Promise<void>((resolve) => (started = resolve))
-  const client = {
-    provider: {
-      list: async () => ({ data: { all: [], connected: ["stale"], default: {} } }),
-    },
-  }
-  const originalFetch = globalThis.fetch
-  globalThis.fetch = (async () => {
-    started()
-    await pending
-    return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
-  }) as typeof fetch
-
-  try {
-    const actions = createActions(
-      () => client as never,
-      state,
-      set,
-      () => ({ url: "http://engine.test" }),
-    )
-    const refresh = actions.reloadProviders()
-    await requested
-    set("directory", "C:\\second")
-    release()
-
-    expect(await refresh).toBeFalse()
-    expect(state.connected).toEqual(["existing"])
-  } finally {
-    globalThis.fetch = originalFetch
-  }
-})
-
-test("a newer provider refresh supersedes an older request in the same workspace", async () => {
-  const { createActions } = await import("../src/engine/actions")
-  const [state, set] = createEngineState()
-  set("directory", "C:\\repo")
-  let release!: () => void
-  const pending = new Promise<void>((resolve) => (release = resolve))
-  let calls = 0
-  const client = {
-    provider: {
-      list: async () => {
-        calls += 1
-        if (calls === 1) {
-          await pending
-          return { data: { all: [], connected: ["old"], default: {} } }
-        }
-        return { data: { all: [], connected: ["new"], default: {} } }
-      },
-    },
-  }
-  const actions = createActions(
-    () => client as never,
-    state,
-    set,
-    () => ({ url: "http://engine.test" }),
-  )
-
-  const older = actions.refreshProviders()
-  expect(await actions.refreshProviders()).toEqual(["new"])
-  release()
-  expect(await older).toBeNull()
-  expect(state.connected).toEqual(["new"])
-})
-
-test("embedded engine connections use the shell password with the opencode user", async () => {
-  const previous = (globalThis as { __TAURI__?: unknown }).__TAURI__
-  ;(globalThis as { __TAURI__?: unknown }).__TAURI__ = {
-    core: { invoke: async () => ({ url: "http://127.0.0.1:4321", error: null, password: "sidecar-secret" }) },
-  }
-  try {
-    const { resolveEngine } = await import("../src/engine/connection")
-    expect(await resolveEngine()).toEqual({
-      url: "http://127.0.0.1:4321",
-      headers: { Authorization: `Basic ${btoa("opencode:sidecar-secret")}` },
-    })
-  } finally {
-    ;(globalThis as { __TAURI__?: unknown }).__TAURI__ = previous
-  }
-})
-
-test("MCP engine actions propagate transport and SDK failures", async () => {
-  const { createActions } = await import("../src/engine/actions")
-  const [state, set] = createEngineState()
-  const client = {
-    config: { get: async () => ({ error: { message: "config rejected" } }) },
-    mcp: {
-      status: async (): Promise<unknown> => ({ error: { message: "status rejected" } }),
-      connect: async () => ({ error: { message: "connect rejected" } }),
-      disconnect: async () => ({ data: false }),
-      auth: { authenticate: async () => ({ error: { data: { message: "auth rejected" } } }) },
-    },
-  }
-  const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
-  await expect(actions.mcpInitialize()).rejects.toThrow("config rejected")
-  await expect(actions.mcpStatus()).rejects.toThrow("status rejected")
-  await expect(actions.mcpConnect("docs")).rejects.toThrow("connect rejected")
-  await expect(actions.mcpDisconnect("docs")).rejects.toThrow("Could not disconnect docs")
-  await expect(actions.mcpAuthenticate("docs")).rejects.toThrow("auth rejected")
-  client.mcp.status = async () => { throw new Error("network down") }
-  await expect(actions.mcpStatus()).rejects.toThrow("network down")
-})
-
-test("MCP initialization reads config without querying connections and status accepts cancellation", async () => {
-  const { createActions } = await import("../src/engine/actions")
-  const [state, set] = createEngineState()
-  let configSignal!: AbortSignal
-  let statusSignal!: AbortSignal
-  let statusCalls = 0
-  let releaseStatus: (() => void) | undefined
-  const client = {
-    config: { get: async ({ signal }: { signal: AbortSignal }) => {
-      configSignal = signal
-      return { data: {} }
-    } },
-    mcp: { status: async ({ signal }: { signal: AbortSignal }) => {
-      statusCalls++
-      statusSignal = signal
-      return new Promise<{ data: {} }>((resolve, reject) => {
-        const abort = () => reject(signal.reason)
-        releaseStatus = () => {
-          signal.removeEventListener("abort", abort)
-          resolve({ data: {} })
-        }
-        signal.addEventListener("abort", abort, { once: true })
-        if (signal.aborted) abort()
-      })
-    } },
-  }
-  const actions = createActions(() => client as never, state, set, () => ({ url: "http://engine.test" }))
-  await actions.mcpInitialize()
-  expect(configSignal).toBeInstanceOf(AbortSignal)
-  expect(statusCalls).toBe(0)
-  const controller = new AbortController()
-  const pending = actions.mcpStatus("", controller.signal)
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error("MCP status did not cancel promptly")), 1_000)
-  })
-  const reason = new Error("MCP status cancelled")
-  const result = Promise.race([pending, timeout])
-  try {
-    expect(statusCalls).toBe(1)
-    expect(statusSignal.aborted).toBeFalse()
-    controller.abort(reason)
-    expect(statusSignal.aborted).toBeTrue()
-    await expect(result).rejects.toBe(reason)
-  } finally {
-    clearTimeout(timer)
-    releaseStatus?.()
-  }
 })
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {
@@ -1035,6 +790,17 @@ test("context usage skips a trailing zero-token assistant message", async () => 
   ] as never)
   expect(contextStats(state, "s1")?.count).toBe(50_000)
   expect(contextStats(state, "s1")?.percent).toBe(50)
+
+  const summary = { ...assistant("s", 0), info: { ...assistant("s", 0).info, summary: true } }
+  set("transcripts", "s1", [assistant("a1", 90_000), summary] as never)
+  expect(contextStats(state, "s1")).toBeNull()
+  set("transcripts", "s1", [assistant("a1", 90_000), summary, assistant("a3", 12_000)] as never)
+  expect(contextStats(state, "s1")?.count).toBe(12_000)
+
+  // Cost is the messages' own, a compaction summary's included; native sessions carry none of their own.
+  const costing = (entry: ReturnType<typeof assistant>, cost: number) => ({ ...entry, info: { ...entry.info, cost } })
+  set("transcripts", "s1", [costing(assistant("a1", 90_000), 0.5), costing(summary, 0.25), costing(assistant("a3", 12_000), 0.125)] as never)
+  expect(contextStats(state, "s1")?.cost).toBe(0.875)
 })
 
 test("GPT-6 context meter retains catalog input headroom past the old OAuth threshold", async () => {
@@ -1057,6 +823,20 @@ test("GPT-6 context meter retains catalog input headroom past the old OAuth thre
       context: 1_050_000, count, untilCompaction: 902_000 - count,
     })
   }
+})
+
+test("the meter keeps a quarter of a small window for the reply when the output limit is unknown", async () => {
+  const { replyRoom } = await import("../src/engine/store")
+  const { modelDetail } = await import("../src/ui/composer")
+  expect(replyRoom(0, 4_096)).toBe(1_024)
+  expect(replyRoom(0, 0)).toBe(32_000)
+  expect(replyRoom(64_000, 200_000)).toBe(32_000)
+  expect(replyRoom(32_768, 32_768)).toBe(16_384)
+  expect(replyRoom(8_192, 0)).toBe(8_192)
+  expect(modelDetail("ollama", { id: "llama", limit: { context: 4_096 } })).toContain("too small")
+  expect(modelDetail("openai", { id: "gpt", limit: { context: 200_000 } })).toBeUndefined()
+  expect(modelDetail("ollama", { id: "cold", limit: { context: 0 } })).toContain("unknown")
+  expect(modelDetail("openai", { id: "gpt", limit: { context: 0 } })).toBeUndefined()
 })
 
 test("activity counts distinct tool parts and tracks the running tool", () => {
@@ -1103,14 +883,17 @@ test("current ask events update immediately and retain their workspace directory
   reduce(
     set,
     {
-      type: "permission.asked",
+      type: "permission.updated",
       properties: {
         id: "perm-1",
         sessionID: "s1",
-        permission: "bash",
-        patterns: ["git status"],
-        metadata: { title: "Run command" },
-        tool: { messageID: "m1", callID: "c1" },
+        type: "bash",
+        pattern: ["git status"],
+        title: "Run command",
+        messageID: "m1",
+        callID: "c1",
+        metadata: {},
+        time: { created: 1 },
       },
     } as never,
     "C:/repo",

@@ -1,0 +1,19 @@
+[package]
+name = "drift-migrate"
+version.workspace = true
+edition = "2021"
+
+[dependencies]
+drift-engine = { path = "../drift-engine" }
+# `blob`: an oversized part is streamed off disk rather than loaded whole.
+rusqlite = { workspace = true, features = ["blob"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Imported ids carry a short hash of the opencode id, so a rerun mints the same ones; already in the tree.
+sha2 = "0.10"
+# The engine's undo history is written through its async git calls; already in the tree.
+tokio = { workspace = true, features = ["rt", "process"] }
+
+[dev-dependencies]
+# The engine's HTTP client is built without a bundled provider; tests install ring themselves.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }

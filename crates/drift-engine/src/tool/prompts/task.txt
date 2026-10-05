@@ -1,0 +1,10 @@
+Hands a self-contained job to a subagent and returns its final reply. The subagent works in the same workspace with its own fresh conversation and its agent's tools minus `task`, `task_output`, `task_stop` and `read_thread`; it does not see this chat.
+
+- Use it for work you can describe completely up front and whose result you can use without watching it happen: a broad search, a review of a diff, a change in a part of the codebase you do not need to keep in your own context.
+- Put everything it needs in `prompt`: the goal, constraints, and exactly what to return. Ask for a compact result; you only get its last message back.
+- Say whether it should change code or only research and report, and how it should check its work (the tests or command to run).
+- Once you have handed a job off, do not do the same work yourself; wait for its result and build on it.
+- Issue several `task` calls together when the jobs are independent.
+- To ask a finished subagent a follow-up, pass its `task_id`: it continues with everything it already found, so you need not repeat the context.
+- The user sees a subtask row while it runs but not its transcript.
+- With `run_in_background: true` the call returns at once with a task id and you keep working. The result arrives in this conversation as a `<task-result>` when the subagent finishes, even if your turn has ended by then. Do not sleep or poll for it; call `task_output` only when you cannot continue without the result, and `task_stop` to cancel one you no longer need.

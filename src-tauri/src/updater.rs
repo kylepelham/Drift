@@ -51,9 +51,7 @@ pub(crate) async fn install_update(app: tauri::AppHandle) -> Result<(), String> 
         .download(|_, _| {}, || {})
         .await
         .map_err(|e| e.to_string())?;
-    crate::engine::stop_engine_child(&app);
     if let Err(error) = update.install(bytes) {
-        crate::engine::respawn_engine(&app);
         return Err(error.to_string());
     }
     app.restart();

@@ -58,7 +58,8 @@ fn store_roundtrip() {
         .expired_removed_workspaces(now() - 1000)
         .unwrap()
         .is_empty());
-    store.forget_workspace(&expired[0].id).unwrap();
+    assert!(store.forget_workspace(&expired[0].id).unwrap(), "the row went");
+    assert!(!store.forget_workspace(&expired[0].id).unwrap(), "already forgotten");
     assert!(store.workspaces().unwrap().is_empty());
     assert!(store.removed_workspaces().unwrap().is_empty());
     assert!(
@@ -276,49 +277,34 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
 }
 
 #[test]
-fn mcp_decisions_are_global_and_survive_definition_changes() {
-    let dir = test_dir("mcp-store");
+fn an_imported_project_without_a_name_is_named_by_its_folder_as_adding_one_does() {
+    let dir = test_dir("import-names");
+    let source = dir.join("opencode.db");
+    let conn = Connection::open(&source).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
+         CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
+         INSERT INTO project VALUES('a', 'C:/Users/Kyle/Desktop/C++/Drift', NULL, 1);
+         INSERT INTO project VALUES('b', 'D:\\Games\\AddOns\\', '', 1);
+         INSERT INTO project VALUES('c', 'E:', NULL, 1);
+         INSERT INTO project VALUES('d', 'S:/named', 'Given', 1);
+         INSERT INTO session VALUES('s1', 'a', 2), ('s2', 'b', 2), ('s3', 'c', 2), ('s4', 'd', 2);",
+    )
+    .unwrap();
+    drop(conn);
     let store = open_at(&dir.join("drift.db")).unwrap();
-    let first = serde_json::json!({ "type": "local", "command": ["one"] });
-    let second = serde_json::json!({ "type": "local", "command": ["two"] });
-
-    assert_eq!(store.save_mcp_server("server", None, &first).unwrap(), 1);
-    assert_eq!(
-        store
-            .decide_mcp(
-                "server",
-                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "approved"
-            )
-            .unwrap(),
-        2
-    );
-    store.save_mcp_server("server", None, &second).unwrap();
-    store.save_mcp_server("server", None, &first).unwrap();
-    let state = store.mcp_state().unwrap();
-    assert_eq!(state.decisions.len(), 1);
-    assert_eq!(state.decisions[0].decision, "approved");
-
-    store
-        .decide_mcp(
-            "server",
-            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "rejected",
-        )
-        .unwrap();
-    assert_eq!(store.mcp_state().unwrap().decisions.len(), 2);
-    store
-        .revoke_mcp("sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
-        .unwrap();
-    assert_eq!(store.mcp_state().unwrap().decisions[0].decision, "rejected");
-    std::fs::remove_dir_all(dir).ok();
+    assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 4);
+    let mut names: Vec<String> = store.workspaces().unwrap().into_iter().map(|workspace| workspace.name).collect();
+    names.sort();
+    assert_eq!(names, ["AddOns", "Drift", "E:", "Given"]);
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
 fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
     let dir = test_dir("remote-legacy");
     {
-        let conn = Connection::open(dir.join(DATABASE_FILE)).unwrap();
+        let conn = Connection::open(dir.join("drift.db")).unwrap();
         conn.execute_batch(
             "CREATE TABLE remote_access(id INTEGER PRIMARY KEY CHECK(id = 1), enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)), token TEXT NOT NULL) STRICT;
              INSERT INTO remote_access(id, enabled, token) VALUES(1, 1, 'old-shared-key');",
@@ -329,7 +315,7 @@ fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
     assert!(store.remote_access_enabled().unwrap());
     store.save_remote_access(false).unwrap();
     assert!(!store.remote_access_enabled().unwrap());
-    let kept: String = store.0.lock().unwrap().query_row("SELECT token FROM remote_access", [], |row| row.get(0)).unwrap();
+    let kept: String = store.0.lock().query_row("SELECT token FROM remote_access", [], |row| row.get(0)).unwrap();
     assert_eq!(kept, "old-shared-key");
     let device = RemoteDevice {
         id: "d1".into(),

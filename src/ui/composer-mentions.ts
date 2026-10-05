@@ -111,7 +111,7 @@ export function mentionFiles(text: string, paths: string[], root: string) {
   const directory = root.replaceAll("\\", "/").replace(/\/+$/, "")
   return paths.flatMap((path) => {
     const value = "@" + path
-    const start = text.indexOf(value)
+    const start = mentionAt(text, value)
     if (start < 0 || !directory) return []
     const absolute = `${directory}/${path}`
     return [
@@ -123,4 +123,10 @@ export function mentionFiles(text: string, paths: string[], root: string) {
       },
     ]
   })
+}
+
+/** Where `value` appears as a whole mention: `@src/db` is not inside `@src/db.ts`, though a sentence may end right after one. */
+function mentionAt(text: string, value: string) {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  return text.search(new RegExp(`${escaped}(?=$|[\\s,;:!?)\\]}"'\`]|\\.(?:$|\\s))`))
 }

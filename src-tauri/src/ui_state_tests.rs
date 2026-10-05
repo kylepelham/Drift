@@ -181,7 +181,6 @@ fn shell_timeout_is_insert_only_then_mutable_and_persistent() {
         timeout_ms: Some(300_000),
     };
     authority.update(&store, five.clone()).unwrap();
-    drop(authority);
     assert_eq!(
         ShellTimeoutAuthority::load(&store)
             .unwrap()

@@ -5,15 +5,8 @@ if (!("localStorage" in globalThis))
     value: { getItem: () => null, setItem: () => undefined },
   })
 
-const {
-  isGeneratedUserEntry,
-  ORCHESTRATOR_AGENT,
-  orchestratorGate,
-  orchestratorMaxRounds,
-  parseOrchestratorStatus,
-  PROCEED_PROMPT,
-  STATUS_REMINDER_PROMPT,
-} = await import("../src/state/orchestrator")
+const { nudgesSincePrompt, ORCHESTRATOR_AGENT, ORCHESTRATOR_MAX_ROUNDS, orchestratorNotice, parseOrchestratorStatus } =
+  await import("../src/state/orchestrator")
 
 const block = (body: string) => `<orchestrator_status>\n${body}\n</orchestrator_status>`
 
@@ -41,137 +34,85 @@ test("status parsing is strict, takes the last block, and fails closed on anythi
   expect(parseOrchestratorStatus(undefined)).toBeUndefined()
 })
 
-const eligible = {
+const clean = {
   previousStatus: "busy",
   status: "idle",
-  goalAgent: ORCHESTRATOR_AGENT,
+  agent: ORCHESTRATOR_AGENT,
   parentID: undefined,
-  pendingAsks: 0,
-  lastMessage: { role: "assistant", completed: true, errored: false },
-  rounds: 0,
+  lastMessage: { role: "assistant", completed: true, errored: false, text: block('{"state":"done","headline":"all green"}') },
+  rounds: 3,
 }
 
-test("the driver only acts on clean turn completions of orchestrator sessions", () => {
-  expect(orchestratorGate(eligible)).toBeNull()
-  expect(orchestratorGate({ ...eligible, previousStatus: "retry" })).toBeNull()
-  expect(orchestratorGate({ ...eligible, goalAgent: "build" })).toBe("not an orchestrator session")
-  expect(orchestratorGate({ ...eligible, goalAgent: undefined })).toBe("not an orchestrator session")
-  expect(orchestratorGate({ ...eligible, status: "busy" })).toBe("not idle")
-  expect(orchestratorGate({ ...eligible, previousStatus: "idle" })).toBe("not a turn completion")
-  expect(orchestratorGate({ ...eligible, parentID: "parent" })).toBe("subagent")
-  expect(orchestratorGate({ ...eligible, pendingAsks: 1 })).toBe("awaiting permission or question")
-  expect(orchestratorGate({ ...eligible, lastMessage: undefined })).toBe("no final message")
-  expect(orchestratorGate({ ...eligible, lastMessage: { role: "user", completed: true, errored: false } })).toBe(
-    "no assistant reply",
-  )
-  expect(orchestratorGate({ ...eligible, lastMessage: { role: "assistant", completed: false, errored: false } })).toBe(
-    "reply not completed",
-  )
-  expect(orchestratorGate({ ...eligible, lastMessage: { role: "assistant", completed: true, errored: true } })).toBe(
-    "reply errored",
-  )
-  expect(orchestratorGate({ ...eligible, rounds: orchestratorMaxRounds })).toBe("round limit reached")
+test("a driven turn's ending becomes one notice, and only for a clean orchestrator turn", () => {
+  expect(orchestratorNotice(clean)).toEqual({ title: "Orchestrator finished", message: "all green", variant: "success" })
+  const said = (text: string, rounds = clean.rounds) => orchestratorNotice({ ...clean, rounds, lastMessage: { ...clean.lastMessage, text } })
+  expect(said(block('{"state":"blocked"}'))?.title).toBe("Orchestrator blocked")
+  // Still working only means the round limit when the nudges reached it; a Stop or a refused nudge says nothing.
+  expect(said(block('{"state":"working"}'), ORCHESTRATOR_MAX_ROUNDS)?.title).toBe("Orchestrator paused")
+  expect(said("no block", ORCHESTRATOR_MAX_ROUNDS)?.title).toBe("Orchestrator paused")
+  expect(said(block('{"state":"working"}'))).toBeNull()
+  expect(orchestratorNotice({ ...clean, previousStatus: "retry" })).not.toBeNull()
+  expect(orchestratorNotice({ ...clean, agent: "build" })).toBeNull()
+  expect(orchestratorNotice({ ...clean, parentID: "parent" })).toBeNull()
+  expect(orchestratorNotice({ ...clean, status: "busy" })).toBeNull()
+  expect(orchestratorNotice({ ...clean, previousStatus: "idle" })).toBeNull()
+  expect(orchestratorNotice({ ...clean, lastMessage: undefined })).toBeNull()
+  expect(orchestratorNotice({ ...clean, lastMessage: { ...clean.lastMessage, errored: true } })).toBeNull()
+  expect(orchestratorNotice({ ...clean, lastMessage: { ...clean.lastMessage, completed: false } })).toBeNull()
 })
 
-test("driver prompts push forward without re-summarizing, and enforce the protocol", () => {
-  expect(PROCEED_PROMPT).toContain("Proceed toward the goal")
-  expect(PROCEED_PROMPT).toContain("Do not re-summarize completed work")
-  expect(STATUS_REMINDER_PROMPT).toContain("<orchestrator_status>")
-  expect(STATUS_REMINDER_PROMPT).toContain("Proceed toward the goal")
+test("rounds are counted as the engine counts them, against the engine's limit", async () => {
+  const user = (...parts: Array<{ type: string; synthetic?: boolean; metadata?: Record<string, unknown> }>) => ({ info: { role: "user" }, parts })
+  const reply = { info: { role: "assistant" }, parts: [{ type: "text" }] }
+  const nudge = user({ type: "text", metadata: { generated: true } })
+  const entries = [user({ type: "text" }), reply, nudge, reply, user({ type: "text", synthetic: true }), reply, nudge, reply]
+  expect(nudgesSincePrompt(entries)).toBe(2)
+  expect(nudgesSincePrompt([...entries, user({ type: "file" }), reply, nudge, reply])).toBe(1)
+  expect(nudgesSincePrompt([...entries, user({ type: "text", metadata: { driftClarification: {} } }), reply, nudge])).toBe(3)
+  const drive = await Bun.file("crates/drift-engine/src/session/drive.rs").text()
+  expect(drive).toContain(`pub const MAX_ROUNDS: usize = ${ORCHESTRATOR_MAX_ROUNDS};`)
 })
 
-test("generated steering prompts never count as a fresh goal", () => {
-  expect(isGeneratedUserEntry([{ type: "text", metadata: { generated: true } }])).toBeTrue()
-  expect(isGeneratedUserEntry([{ type: "text" }])).toBeFalse()
-  expect(isGeneratedUserEntry([{ type: "text", metadata: { generated: true } }, { type: "text" }])).toBeFalse()
-  expect(isGeneratedUserEntry([{ type: "file" }])).toBeFalse()
-})
-
-test("steer sends a generated prompt through the session's own agent", async () => {
-  const { createActions } = await import("../src/engine/actions")
-  const { createEngineState } = await import("../src/engine/store")
-  const [state, set] = createEngineState()
-  let body: unknown
-  const client = {
-    session: {
-      promptAsync: async (input: { body: unknown }) => {
-        body = input.body
-        return { data: {} }
-      },
-    },
-  }
-  const actions = createActions(() => client as never, state, set, () => undefined)
-  expect(await actions.steer("ses", PROCEED_PROMPT, { model: null, agent: ORCHESTRATOR_AGENT })).toEqual({ ok: true })
-  expect(body).toMatchObject({
-    parts: [{ type: "text", text: PROCEED_PROMPT, metadata: { generated: true } }],
-    agent: ORCHESTRATOR_AGENT,
-  })
-
-  const failing = {
-    session: { promptAsync: async () => ({ error: { data: { message: "engine rejected the request" } } }) },
-  }
-  const failingActions = createActions(() => failing as never, state, set, () => undefined)
-  expect(await failingActions.steer("ses", PROCEED_PROMPT, { model: null, agent: ORCHESTRATOR_AGENT })).toMatchObject({
-    ok: false,
-  })
-})
-
-test("steering a session outside the active workspace addresses that session's workspace", async () => {
-  const { createActions } = await import("../src/engine/actions")
-  const { createEngineState } = await import("../src/engine/store")
-  const [state, set] = createEngineState()
-  // The driver can steer any orchestrator session, including one the sidebar is not showing.
-  set("directory", "C:/active")
-  set("sessions", { ses: { id: "ses", directory: "C:/other", time: { created: 1, updated: 1 } } } as never)
-
-  const requested: { url: string; directory: string | null }[] = []
-  const original = globalThis.fetch
-  globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const request = input as Request
-    requested.push({ url: request.url, directory: request.headers.get("x-opencode-directory") })
-    return new Response("{}", { status: 200, headers: { "content-type": "application/json" } })
-  }) as typeof fetch
-  try {
-    const actions = createActions(() => ({}) as never, state, set, () => ({ url: "http://engine.test" }))
-    expect(await actions.steer("ses", PROCEED_PROMPT, { model: null, agent: ORCHESTRATOR_AGENT })).toEqual({ ok: true })
-  } finally {
-    globalThis.fetch = original
-  }
-
-  // A POST carries the workspace as a header rather than a query parameter.
-  expect(requested).toHaveLength(1)
-  expect(requested[0].url).toBe("http://engine.test/session/ses/prompt_async")
-  expect(decodeURIComponent(requested[0].directory ?? "")).toBe("C:/other")
-})
-
-test("the orchestrator agent is defined with delegation-only tools and the status protocol", async () => {
-  const config = JSON.parse(await Bun.file("engine/opencode/opencode.json").text()) as {
-    agent?: Record<string, { mode?: string; prompt?: string; tools?: Record<string, boolean> }>
-  }
-  const agent = config.agent?.[ORCHESTRATOR_AGENT]
-  expect(agent).toBeDefined()
-  expect(agent!.mode).toBe("primary")
-  // Implementation tools are denied so all substantial work flows through subagents.
-  expect(agent!.tools).toMatchObject({ edit: false, write: false, apply_patch: false, bash: false })
-  expect(agent!.prompt).toContain("<orchestrator_status>")
-  expect(agent!.prompt).toContain('"working"')
-  expect(agent!.prompt).toContain("Never ask the user whether to continue")
-  expect(agent!.prompt).toContain("Never claim done without verification evidence")
-})
-
-test("the driver is wired into the app and reacts to status transitions", async () => {
+test("the engine drives the orchestrator; the app only reports how a turn ended", async () => {
   const app = await Bun.file("src/app.tsx").text()
   expect(app).toContain("<OrchestratorBinding />")
-  // Driving escapes the status effect's tracking scope.
-  expect(app).toContain("queueMicrotask(() => void drive(id, before))")
-  // done and blocked stop the loop with a user-visible notice instead of another prompt.
-  expect(app).toMatch(/state === "done"[\s\S]*?variant: "success"/)
-  expect(app).toMatch(/state === "blocked"[\s\S]*?variant: "warning"/)
+  expect(app).not.toContain("actions.steer(")
+  const drive = await Bun.file("crates/drift-engine/src/session/drive.rs").text()
+  expect(drive).toContain("Proceed toward the goal")
 })
 
-test("async questions do not pause independent orchestrator rounds or mark tools as awaiting permission", async () => {
-  const app = await Bun.file("src/app.tsx").text()
+test("nudges show as Drift's own prompts, not the user's", async () => {
+  const { adaptPart } = await import("../src/engine/native/adapt")
+  const part = adaptPart({ id: "p", sessionId: "s", messageId: "m", type: "nudge", text: "Proceed toward the goal." } as never)
+  expect(part).toMatchObject({ type: "text", text: "Proceed toward the goal.", metadata: { generated: true } })
+})
+
+test("async questions do not mark tools as awaiting permission", async () => {
   const parts = await Bun.file("src/ui/parts.tsx").text()
-  expect(app).toContain("pendingAsks: (state.permissions[id]?.length ?? 0) + (state.questions[id]?.filter((question) => !question.async).length ?? 0)")
   expect(parts).toContain("(question) => !question.async && question.tool?.callID === part.callID")
+})
+
+test("the orchestrator agent is a native built-in with delegation-only tools and the status protocol", async () => {
+  const builtins = await Bun.file("crates/drift-engine/src/config/mod.rs").text()
+  const defined = builtins.split("\n").find((line) => line.includes(`agent("${ORCHESTRATOR_AGENT}",`))
+  expect(defined).toBeDefined()
+  expect(defined).toContain("AgentKind::Primary")
+  // An allowlist without the implementation tools, so all substantial work flows through subagents.
+  for (const tool of ['"edit"', '"write"', '"apply_patch"', '"bash"']) expect(defined).not.toContain(tool)
+  expect(defined).toContain('"task"')
+  const prompt = await Bun.file("crates/drift-engine/src/config/prompts/orchestrator.txt").text()
+  expect(prompt).toContain("<orchestrator_status>")
+  expect(prompt).toContain('"working"')
+  expect(prompt).toContain("Never ask the user whether to continue")
+  expect(prompt).toContain("Never claim done without verification evidence")
+})
+
+test("a reply shows its prose with the status block taken out, even one still streaming in", async () => {
+  const { splitOrchestratorStatus } = await import("../src/state/orchestrator")
+  const done = splitOrchestratorStatus('All four steps passed.\n<orchestrator_status>{"state":"done","headline":"Checklist verified"}</orchestrator_status>')
+  expect(done).toEqual({ prose: "All four steps passed.", status: { state: "done", headline: "Checklist verified" } })
+  expect(splitOrchestratorStatus('Dispatching the draft.\n<orchestrator_status>{"state":"work')).toEqual({ prose: "Dispatching the draft.", status: undefined })
+  expect(splitOrchestratorStatus("No block at all").prose).toBe("No block at all")
+  const midway = splitOrchestratorStatus('<orchestrator_status>{"state":"done"}</orchestrator_status> but then more')
+  expect(midway, "a block that is not last is hidden but states nothing").toEqual({ prose: " but then more", status: undefined })
 })

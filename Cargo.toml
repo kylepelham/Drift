@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["crates/drift-engine", "crates/drift-engined", "crates/drift-migrate", "src-tauri"]
+
+# Every crate carries the app's version, so the engine reports what the shell is; the release stamp sets it.
+[workspace.package]
+version = "2.0.0"
+
+[workspace.dependencies]
+axum = "0.8"
+futures-util = "0.3"
+getrandom = "0.3"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+
+# Backtraces keep file and line; dropping full debug info cuts a rebuild of the engine tests by about a third.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.release]
+panic = "abort"
+incremental = true
+opt-level = "s"
+strip = true

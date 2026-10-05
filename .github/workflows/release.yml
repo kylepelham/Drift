@@ -98,19 +98,14 @@ jobs:
 
       - uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
         with:
-          workspaces: src-tauri
+          workspaces: .
 
       - name: Install dependencies
         run: |
           bun install --frozen-lockfile
-          bun install --frozen-lockfile --ignore-scripts --cwd engine/upstream
-          bun install --frozen-lockfile --cwd engine/opencode
 
       - name: Stamp release version
         run: bun scripts/release-policy.ts stamp "$env:GITHUB_REF_NAME"
-
-      - name: Build engine
-        run: bun run build:engine
 
       # Provides glslc for the GPU sidecar's shaders. Installed directly so the release build gains
       # no third-party action, and deliberately uncached: a release builds its binaries from
@@ -140,7 +135,7 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ needs.tag-policy.outputs.version }}"
-          $bundle = "src-tauri/target/release/bundle/nsis"
+          $bundle = "target/release/bundle/nsis"
           $sigFile = Get-ChildItem "$bundle/*.sig" | Select-Object -First 1
           $exeFile = Get-ChildItem "$bundle/*-setup.exe" | Select-Object -First 1
           if (-not $sigFile -or -not $exeFile) {
@@ -169,7 +164,7 @@ jobs:
       - name: Stage release artifacts
         shell: pwsh
         run: |
-          $bundle = "src-tauri/target/release/bundle/nsis"
+          $bundle = "target/release/bundle/nsis"
           New-Item -ItemType Directory -Path release-artifacts | Out-Null
           Copy-Item "$bundle/*-setup.exe", "$bundle/*.sig", "$bundle/latest.json" release-artifacts
           Move-Item release-notes.md release-artifacts

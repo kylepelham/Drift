@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import type { Part } from "@opencode-ai/sdk/client"
+import type { Part } from "../src/engine/shapes"
 import type { EngineState, MessageEntry } from "../src/engine/store"
 import { citationFileGroups } from "../src/ui/citation-files"
 import { resolveMarkdownCitation } from "../src/ui/markdown-links"

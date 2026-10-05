@@ -1,5 +1,4 @@
 import type {
-  Agent,
   Command,
   Message,
   Model,
@@ -9,13 +8,34 @@ import type {
   SessionStatus,
   Todo,
   ToolPart,
-} from "@opencode-ai/sdk/client"
+} from "./shapes"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
-import type { Connection } from "./connection"
+import type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord } from "./native/client"
+export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }
+export type Connection = "idle" | "connecting" | "online" | "offline"
 
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
 export type ProviderInfo = { id: string; name: string; models: Record<string, ModelInfo> }
 export type ModelRef = { providerID: string; modelID: string }
+/** An agent as the engine resolved it for the workspace, Settings overrides applied. */
+export type AgentInfo = {
+  name: string
+  description: string
+  mode: "primary" | "subagent" | "all"
+  /** Engine actions (titles, compaction) and agents marked `hidden`: never picked in the composer. */
+  hidden: boolean
+  builtIn: boolean
+  prompt?: string
+  model?: ModelRef
+  /** Tool names it may use; empty means every tool. */
+  tools: string[]
+  /** Its own step limit, in place of the workspace's. */
+  steps?: number
+  permissions?: import("./native/client").PermissionRule[]
+  variant?: string
+  /** Why the engine refuses to run it (a broken file or override); other agents are unaffected. */
+  problem?: string
+}
 export type CommandInfo = Command & {
   usage?: string
   subcommands?: { name: string; description: string; usage?: string }[]
@@ -122,10 +142,14 @@ export type EngineState = {
   questions: Record<string, QuestionRequest[]>
   askRevisions: Record<string, number>
   todos: Record<string, Todo[]>
+  /** Workers each session launched, keyed by the launching session, oldest first. */
+  tasks: Record<string, TaskRecord[]>
   providers: ProviderInfo[]
+  /** The engine's MCP servers by name: the only place their definition and state live. */
+  mcpServers: Record<string, McpServerStatus>
   connected: string[]
   defaultModels: Record<string, string>
-  agents: Agent[]
+  agents: AgentInfo[]
   commands: CommandInfo[]
   errors: Record<string, string>
   sessionModels: Record<string, ModelRef & { messageId?: string }>
@@ -136,9 +160,13 @@ export type EngineState = {
   cursors: Record<string, string | null>
   revisions: Record<string, number>
   version: string
+  nativeVersion: string
+  nativeOnline: boolean
   startupError: string
   engineError: string
   engineRestarting: boolean
+  /** Every session answers its own asks (Settings), as the engine has it. */
+  autoAcceptAll: boolean
 }
 
 let storedLinks: Record<string, string> | undefined
@@ -181,7 +209,9 @@ export function createEngineState() {
     questions: {},
     askRevisions: {},
     todos: {},
+    tasks: {},
     providers: [],
+    mcpServers: {},
     connected: [],
     defaultModels: {},
     agents: [],
@@ -195,10 +225,21 @@ export function createEngineState() {
     startupError: "",
     engineError: "",
     engineRestarting: false,
+    autoAcceptAll: false,
     cursors: {},
     revisions: {},
     version: "",
+    nativeVersion: "",
+    nativeOnline: false,
   })
+}
+
+/** The engine knows which thread spawned which; that beats links inferred from tool parts. */
+function linkSpawned(links: Record<string, string>, info: Session) {
+  const parent = (info as Session & { spawnedFrom?: string }).spawnedFrom
+  if (!parent) return
+  links[info.id] = parent
+  recordLink({ child: info.id, parent })
 }
 
 // Store sets merge; optional keys the engine dropped (revert, share) must clear explicitly.
@@ -206,6 +247,7 @@ export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
   set(
     produce((draft) => {
       draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+      linkSpawned(draft.links, info)
       const model = (info as Session & { model?: { id: string; providerID: string } }).model
       if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
       bumpRevision(draft, sessionRevisionKey(info.id))
@@ -218,6 +260,12 @@ export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]
     "sessions",
     produce((sessions) => {
       for (const info of infos) sessions[info.id] = { revert: undefined, share: undefined, ...info }
+    }),
+  )
+  set(
+    "links",
+    produce((links) => {
+      for (const info of infos) linkSpawned(links, info)
     }),
   )
   set(
@@ -248,6 +296,10 @@ export function statusRevisionKey(sessionID: string) {
 
 export function messageRevisionKey(sessionID: string, messageID: string) {
   return `message\0${sessionID}\0${messageID}`
+}
+
+export function removedPartKey(sessionID: string, messageID: string, partID: string) {
+  return `${messageRevisionKey(sessionID, messageID)}\0removed\0${partID}`
 }
 
 export function bumpRevision(draft: EngineState, key: string) {
@@ -281,7 +333,8 @@ export function mergeTranscriptSnapshot(
   const advanced = (messageID: string) => revisionAdvanced(revisions, captured, messageRevisionKey(sessionID, messageID))
   const liveById = new Map((live ?? []).map((entry) => [entry.info.id, entry]))
   const snapshotIds = new Set(snapshot.map((entry) => entry.info.id))
-  const merged = snapshot.flatMap((entry) => {
+  const merged = snapshot.flatMap((snapshotEntry) => {
+    const entry = withoutRemovedParts(snapshotEntry, sessionID, revisions)
     const current = liveById.get(entry.info.id)
     if (!advanced(entry.info.id)) {
       // Reuse the live object when the content is unchanged: transcript rows are referentially
@@ -289,10 +342,36 @@ export function mergeTranscriptSnapshot(
       // (a full-transcript flash on each reconnect hydration).
       return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry]
     }
-    return current ? [current] : []
+    return current ? [withSnapshotParts(current, entry)] : []
   })
   for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry)
   return merged.sort(compareMessages)
+}
+
+function withoutRemovedParts(entry: MessageEntry, sessionID: string, revisions: Record<string, number>): MessageEntry {
+  const parts = entry.parts.filter((part) => !revisions[removedPartKey(sessionID, entry.info.id, part.id)])
+  return parts.length === entry.parts.length ? entry : { ...entry, parts }
+}
+
+// Repair missing parts and shorter prefixes without replacing newer live metadata.
+function withSnapshotParts(current: MessageEntry, snapshot: MessageEntry): MessageEntry {
+  const byId = new Map(snapshot.parts.map((part) => [part.id, part]))
+  let changed = false
+  const parts = current.parts.map((part) => {
+    if (part.type !== "text" && part.type !== "reasoning") return part
+    const incoming = byId.get(part.id)
+    if (incoming?.type !== part.type || incoming.text.length <= part.text.length || !incoming.text.startsWith(part.text)) return part
+    changed = true
+    return { ...part, text: incoming.text }
+  })
+  const present = new Set(parts.map((part) => part.id))
+  for (const part of snapshot.parts) {
+    if (present.has(part.id)) continue
+    present.add(part.id)
+    parts.push(part)
+    changed = true
+  }
+  return changed ? { ...current, parts: parts.sort((a, b) => a.id.localeCompare(b.id)) } : current
 }
 
 export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo | undefined {
@@ -307,17 +386,30 @@ function tokenCount(tokens: TokenUsage) {
 }
 
 // Ceiling on how much of the context window is set aside for the model's own reply, and the slice
-// of that reserved for compaction headroom. Both mirror the engine's session/overflow.ts - changing
-// one here without changing it there desynchronizes the meter from actual compaction.
+// of that reserved for compaction headroom. The reply cap mirrors MAX_REPLY_TOKENS in
+// crates/drift-engine/src/llm/catalog.rs; change both or the meter drifts from real compaction.
 const maxOutputTokens = 32000
 const compactionReserveTokens = 20000
 const percentScale = 100
 
-// Mirrors the engine's session/overflow.ts so the meter predicts the same compaction point.
+/** Mirrors the engine's `Model::reply_room`: the output limit, else a quarter of a known window; never over half a known window or the cap. */
+export function replyRoom(output: number, context: number) {
+  const room = output || (context ? Math.floor(context / 4) : maxOutputTokens)
+  return Math.min(room, context ? Math.floor(context / 2) : room, maxOutputTokens)
+}
+
+/** Below this window the system prompt and tool schemas leave little room for work; mirrors `SMALL_CONTEXT`. */
+export const smallContextTokens = 16_384
+
+// Mirrors the engine's `overflowing` (session/compaction.rs) so the meter predicts the same compaction point.
 // Limits come from the model the next prompt would use; token counts from the last reply.
 export function contextStats(state: EngineState, sessionId: string, modelRef?: ModelRef | null) {
   const entries = state.transcripts[sessionId] ?? []
-  const last = [...entries].reverse().find((entry) => {
+  // Usage from before the latest compaction no longer describes what the model sees.
+  const newestFirst = [...entries].reverse()
+  const summaryAt = newestFirst.findIndex((entry) => !!(entry.info as { summary?: boolean }).summary)
+  const sinceSummary = summaryAt < 0 ? newestFirst : newestFirst.slice(0, summaryAt)
+  const last = sinceSummary.find((entry) => {
     if (entry.info.role !== "assistant" || !("tokens" in entry.info)) return false
     return tokenCount(entry.info.tokens as TokenUsage) > 0
   })
@@ -329,15 +421,18 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
   const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number }
   const context = limits.context ?? 0
   if (!context || !count) return null
-  const maxOutput = Math.min(limits.output || 0, maxOutputTokens) || maxOutputTokens
+  const maxOutput = replyRoom(limits.output ?? 0, context)
   const reserved = Math.min(compactionReserveTokens, maxOutput)
-  const usable = limits.input ? Math.max(0, limits.input - reserved) : Math.max(0, context - maxOutput)
+  // Mirrors `Model::compaction_point`: an input cap counts only when it is below the window.
+  const capped = !!limits.input && limits.input < context
+  const usable = capped ? Math.max(0, (limits.input ?? 0) - reserved) : Math.max(0, context - maxOutput)
   return {
     count,
     context,
     percent: Math.min(percentScale, Math.round((count / context) * percentScale)),
     untilCompaction: Math.max(0, usable - count),
-    cost: (state.sessions[sessionId] as { cost?: number } | undefined)?.cost ?? 0,
+    // The engine keeps cost per message (replies and compaction summaries), not per session.
+    cost: entries.reduce((sum, entry) => sum + ((entry.info as { cost?: number }).cost ?? 0), 0),
   }
 }
 
@@ -347,6 +442,46 @@ export function spawnLink(part: Part): { child: string; parent: string } | undef
   const meta = (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as { sessionId?: string }
   if (!meta?.sessionId) return
   return { child: meta.sessionId, parent: part.sessionID }
+}
+
+export function taskActive(task: Pick<TaskRecord, "state">) {
+  return task.state === "queued" || task.state === "running"
+}
+
+// A task only moves forward (queued, running, ended, held, delivered), so the further one is the newer.
+function taskProgress(task: TaskRecord) {
+  const stage = task.state === "queued" ? 0 : task.state === "running" ? 1 : 2
+  return stage + (task.held ? 1 : 0) + (task.delivered ? 2 : 0)
+}
+
+/** Folds task records in; an older copy (a snapshot that raced an event) never replaces a newer one. */
+export function mergeTasks(current: readonly TaskRecord[] | undefined, incoming: readonly TaskRecord[]) {
+  const byId = new Map((current ?? []).map((task) => [task.id, task]))
+  for (const task of incoming) {
+    const known = byId.get(task.id)
+    if (!known || taskProgress(task) >= taskProgress(known)) byId.set(task.id, task)
+  }
+  return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+}
+
+export function putTasks(set: SetStoreFunction<EngineState>, state: EngineState, parentId: string, tasks: readonly TaskRecord[]) {
+  set("tasks", parentId, mergeTasks(state.tasks[parentId], tasks))
+}
+
+/** The task a `task` tool call launched, when the engine has reported it. */
+export function taskForCall(state: EngineState, sessionId: string, callId: string | undefined, taskId: unknown) {
+  const tasks = state.tasks[sessionId] ?? []
+  return tasks.find((task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId))
+}
+
+type SavedSession = Session & { agent?: string; variant?: string | null; model?: { providerID: string; id: string } }
+
+/** The model, agent and reasoning level the engine saved on a session: what its newest prompt chose. */
+export function savedChoice(state: EngineState, id: string | null | undefined): { agent?: string; variant?: string | null; model?: ModelRef } {
+  const session = id ? (state.sessions[id] as SavedSession | undefined) : undefined
+  if (!session) return {}
+  const model = session.model ? { model: { providerID: session.model.providerID, modelID: session.model.id } } : {}
+  return { agent: session.agent, variant: session.variant ?? null, ...model }
 }
 
 export function sessionBusy(state: EngineState, id: string) {

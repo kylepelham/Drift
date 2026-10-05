@@ -24,19 +24,16 @@ with the **Desktop development with C++** workload, and the
 git clone https://github.com/kylepelham/Drift.git
 cd Drift
 bun install
-bun install --ignore-scripts --cwd engine/upstream
-bun install --cwd engine/opencode
-bun run build:engine
 ```
 
-Start the engine and Vite UI with:
+Start a headless engine and the Vite UI with:
 
 ```bash
 bun run dev
 ```
 
-For the native development window, leave `bun run dev` running and execute
-`bunx tauri dev` in a second terminal.
+For the native development window, run `bun run dev:shell` instead. It uses its own
+identifier and data folder, so it never touches an installed Drift.
 
 ## Architecture boundaries
 
@@ -47,11 +44,10 @@ important boundaries are:
   endpoints directly.
 - `src/engine/` owns engine transport, hydration, events, and engine-derived state.
 - `src/state/` owns Drift application state and native-store facades.
-- Drift-specific persistence belongs in the Tauri-owned SQLite store, not OpenCode's
-  storage.
-- `engine/upstream/` is a pristine OpenCode snapshot. Never edit it directly.
-- Internal OpenCode adaptations belong in small patches under `engine/overlays/` only
-  when a public engine API or plugin cannot express the behavior.
+- Drift-specific persistence belongs in the shell's own tables in `drift.db`, not the
+  engine's.
+- Engine behavior belongs in `crates/drift-engine`. After changing its API, regenerate the
+  UI's client with `bun run gen:engine`; its types are never written by hand.
 
 Prefer the smallest correct change. Match established UI patterns, keep unrelated
 cleanup out of the pull request, and add comments only where the reason is not evident
@@ -63,60 +59,29 @@ Run the checks relevant to your change before opening a pull request. The standa
 is:
 
 ```bash
-bun run typecheck
-bun run test
-cargo test --manifest-path src-tauri/Cargo.toml
+bun run gates
 ```
+
+It runs typecheck, the bun tests, the generated-client check, clippy and every Rust test,
+and prints only what failed.
 
 Also run:
 
-- `bun run test:engine` for engine overlays or Drift-shipped OpenCode extensions.
-- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` for Rust changes.
-- `bun run build:native` when changing packaging, native integration, generated
-  extensions, or release behavior.
+- `cargo fmt --check` for Rust changes.
+- `bun run bench:engine` when changing how the engine starts, builds prompts, or streams.
+- `bun run build:native` when changing packaging, native integration, or release behavior.
 
 Tests should cover observable behavior and regressions rather than implementation
 details. Keep fixtures free of real API keys, tokens, personal data, and proprietary
 source.
-
-## Updating OpenCode
-
-The scheduled `OpenCode update` workflow opens one review pull request when upstream
-`dev` advances and can also be run manually. It uses a dedicated remote ref, records the
-imported SHA in `engine/upstream.commit`, dispatches CI for the generated branch, and never
-merges automatically. The marker keeps later updates reliable regardless of the PR merge
-strategy.
-
-A local update uses:
-
-```bash
-git fetch --no-tags https://github.com/sst/opencode.git +dev:refs/remotes/opencode-update/dev
-current="$(tr -d '\r\n' < engine/upstream.commit)"
-latest="$(git rev-parse refs/remotes/opencode-update/dev)"
-git rm -r --quiet engine/upstream
-git read-tree --prefix=engine/upstream/ -u "refs/remotes/opencode-update/dev^{tree}"
-printf '%s\n' "$latest" > engine/upstream.commit
-git add engine/upstream.commit
-git commit -m "chore: update vendored OpenCode to ${latest:0:10}"
-git update-ref -d refs/remotes/opencode-update/dev
-bun install --ignore-scripts --cwd engine/upstream
-bun run test:engine
-bun run build:engine
-```
-
-Do not merge, subtree-merge, or retain the temporary upstream ref: doing so makes OpenCode's
-history reachable from Drift's commit graph. OpenCode also has many `v*` release tags, so
-always fetch with `--no-tags`. If an overlay no longer applies, refresh that isolated patch
-against the updated source instead of resolving the change inside `engine/upstream/`. The
-full runbook is in [docs/engine.md](docs/engine.md).
 
 ## Releases
 
 Releases are maintainer-only. A release tag must match `vMAJOR.MINOR.PATCH` exactly, point
 to a commit contained in `origin/master`, and be strictly newer than every other stable
 GitHub release or repository tag. Prerelease and build suffixes are not supported. Before
-building release artifacts, the workflow checks the tag policy and runs frozen installs, typechecking, root
-and engine tests, the engine build, Rust tests, and an unsigned production package build
+building release artifacts, the workflow checks the tag policy and runs frozen installs, typechecking, the
+frontend tests, Rust tests, and an unsigned production package build
 on the exact tag commit. The release build job has read-only repository access, and only the
 separate publication job has contents write access.
 
@@ -149,8 +114,8 @@ git push origin v1.2.3
 - Include validation commands and their results.
 - Include before/after images for visible UI changes when practical.
 - Update documentation when behavior, configuration, or architecture changes.
-- Do not commit build output, local databases, credentials, or generated sidecar
-  binaries.
+- Do not commit build output, local databases, credentials, or the speech recognizer
+  binaries `bun run build:whisper` produces.
 
 Use concise, imperative commit subjects. Maintainers may squash commits when merging.
 

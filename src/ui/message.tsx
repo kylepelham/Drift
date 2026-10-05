@@ -1,4 +1,4 @@
-import type { AssistantMessage, Part, ToolPart, UserMessage } from "@opencode-ai/sdk/client"
+import type { AssistantMessage, Part, ToolPart, UserMessage } from "../engine/shapes"
 import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { createStore, reconcile, unwrap } from "solid-js/store"
 import { useEngine } from "../engine"
@@ -7,16 +7,18 @@ import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engin
 import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { agentLabel, t } from "../state/i18n"
+import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
-import { IconCheck, IconCopy, IconUndo } from "./icons"
+import { selectedSession, selectSession } from "../state/selection"
+import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
 import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
 import { TextShimmer } from "./text-shimmer"
-import { clarificationAnswer } from "./clarification-answer"
+import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer"
 import { citationFileGroups } from "./citation-files"
 
-export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean }) {
+export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean; spawned?: boolean }) {
   onMount(() =>
     emitMessageRendered({
       sessionId: props.entry.info.sessionID,
@@ -26,12 +28,18 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean; grou
   )
   const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
   return (
-    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} thinking={props.thinking} />}>
+    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} thinking={props.thinking} spawned={props.spawned} />}>
       <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} />}>
         <CompactionSummary entry={props.entry} footer={props.footer} thinking={props.thinking} />
       </Show>
     </Show>
   )
+}
+
+/** A turn that paused itself says why; a plain stop reads as interrupted. */
+function interruptionText(error: NonNullable<AssistantMessage["error"]>) {
+  const reason = (error.data as { message?: string } | undefined)?.message
+  return reason && reason !== "Interrupted" ? reason : t("drift.message.interrupted")
 }
 
 export function messageVisible(entry: MessageEntry) {
@@ -74,15 +82,22 @@ export function compactionParts(entry: MessageEntry) {
   return entry.parts.filter((part) => part.type === "compaction")
 }
 
-function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
+/** The collapsible summary row is a compaction's one marker; the prompt's divider stands in only before that row exists, or when summaries are not collapsible. */
+export function boundaryCompactions(entry: MessageEntry, collapsible: boolean, starting: boolean) {
+  return collapsible && !starting ? [] : compactionParts(entry)
+}
+
+function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: boolean }) {
   const engine = useEngine()
   const info = () => props.entry.info as UserMessage
-  const clarification = createMemo(() => clarificationAnswer(props.entry))
+  const answered = createMemo(() => clarificationAnswer(props.entry))
+  // A spawned thread's instruction folds like an answer: a label, a preview, the full text on open.
+  const clarification = createMemo(() => answered() ?? (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined))
   const text = () => clarification()?.text ?? messageText(props.entry)
   // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
   const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   const files = () => props.entry.parts.filter((part) => part.type === "file")
-  const compactions = () => compactionParts(props.entry)
+  const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking)
   const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID
   const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
   const revert = async () => {
@@ -100,7 +115,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
             <div class="group flex flex-col items-end gap-1.5">
               <Show when={files().length > 0}>
                 <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
-                  <For each={files()}>{(file) => <FilePartView part={file} />}</For>
+                  <For each={files()}>{(file) => <FilePartView part={file} directory={engine.state.sessions[info().sessionID]?.directory} />}</For>
                 </div>
               </Show>
               <Show when={text()}>
@@ -136,8 +151,10 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
         <div class="group flex min-w-0 items-start justify-end gap-1.5">
           <details class="group/answer min-w-0 max-w-[85%] text-xs">
             <summary data-find-ignore class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden">
-              <IconCheck class="size-3.5 shrink-0 text-ink-faint" />
-              <span class="shrink-0">{t("drift.question.answered")}</span>
+              <Show when={answer().spawned} fallback={<IconCheck class="size-3.5 shrink-0 text-ink-faint" />}>
+                <IconBranch class="size-3.5 shrink-0 text-ink-faint" />
+              </Show>
+              <span class="shrink-0">{answer().spawned ? t("drift.chat.spawned.instruction") : t("drift.question.answered")}</span>
               <Show when={answer().preview}>
                 <span class="min-w-0 truncate text-ink">{answer().preview}</span>
               </Show>
@@ -170,6 +187,10 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean }) {
       )}
     </Show>
   )
+}
+
+function spawnedInstruction(text: string): ClarificationAnswer {
+  return { text, preview: text.replace(/\s+/g, " ").trim(), items: [], spawned: true }
 }
 
 export function largeUserText(text: string) {
@@ -308,6 +329,12 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
   const [groups, setGroups] = createSignal<PartGroupSlot[]>([])
   createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)))
   const visible = () => groups().length > 0 || !!info().error || (!!props.footer && !!info().time.completed)
+  /** A new conversation with this conversation's history through this reply, opened only if the user is still here. */
+  const forkHere = async () => {
+    const source = info().sessionID
+    const forked = await engine.actions.fork(source, info().id)
+    if (forked && selectedSession() === source) selectSession(forked.id)
+  }
   const liveTextPartID = () => {
     if (info().time.completed || !sessionBusy(engine.state, info().sessionID)) return undefined
     return [...props.entry.parts]
@@ -330,6 +357,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                     revision={group.revision?.()}
                     responseID={`${info().id}:${single().part.id}`}
                     live={single().part.id === liveTextPartID()}
+                    orchestrated={info().mode === ORCHESTRATOR_AGENT}
                   />
                 )}
               </Match>
@@ -343,7 +371,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
               fallback={
                 <div class="flex items-center gap-3 py-1 text-xs text-ink-faint" role="status">
                   <div class="h-px flex-1 bg-edge" />
-                  {t("drift.message.interrupted")}
+                  {interruptionText(error())}
                   <div class="h-px flex-1 bg-edge" />
                 </div>
               }
@@ -368,9 +396,16 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
             <button
               title={t("drift.message.copyResponse")}
               class="rounded p-0.5 hover:bg-raised hover:text-ink"
-              onClick={() => void navigator.clipboard.writeText(messageText(props.entry))}
+              onClick={() => void navigator.clipboard.writeText(splitOrchestratorStatus(messageText(props.entry)).prose)}
             >
               <IconCopy class="size-3.5" />
+            </button>
+            <button
+              title={t("drift.message.forkHere")}
+              class="rounded p-0.5 hover:bg-raised hover:text-ink"
+              onClick={() => void forkHere()}
+            >
+              <IconBranch class="size-3.5" />
             </button>
           </div>
         </Show>

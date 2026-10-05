@@ -1,4 +1,4 @@
-import type { ToolPart } from "@opencode-ai/sdk/client"
+import type { ToolPart } from "../engine/shapes"
 import { createSignal, For, Show } from "solid-js"
 import { toolContextActions, type ToolContextAction } from "../tool-actions"
 import { fixedMenuPosition } from "../state/zoom"

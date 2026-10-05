@@ -1,54 +1,55 @@
-//! Thin Tauri command wrappers over Store and McpRuntime.
+//! Thin Tauri command wrappers over Store.
 //!
 //! Each exists only to adapt an error type into the String the frontend receives.
 
-use crate::engine::{reload_engine_config, reload_engine_mcp};
-use crate::mcp;
 use crate::session_search::{self, SessionMatch};
-use crate::storage::{self, PruneResult, PruneRules, RuleEstimate, StorageStats};
+use crate::storage::{self, PruneResult, StorageStats};
 use crate::store::{ArchivedSession, Store, Workspace};
-use serde_json::Value;
 use tauri::State;
 
 /// Sessions whose transcript contains `query`. Runs off the UI thread: the scan touches the
 /// engine database, which the engine may be writing to at the same time.
 #[tauri::command]
-pub(crate) async fn session_search(query: String, directory: String) -> Result<Vec<SessionMatch>, String> {
-    tauri::async_runtime::spawn_blocking(move || session_search::search(&query, &directory))
+pub(crate) async fn session_search(native: State<'_, crate::native::Native>, query: String, directory: String) -> Result<Vec<SessionMatch>, String> {
+    let database = native.engine().data_dir.join("drift.db");
+    tauri::async_runtime::spawn_blocking(move || session_search::search(&database, &query, &directory))
         .await
         .map_err(|error| error.to_string())?
 }
 
-/// Fast, sampled overview of what is using space in the session database.
+fn storage_location(native: &crate::native::Native) -> storage::Location {
+    storage::Location { data_dir: native.engine().data_dir.clone() }
+}
+
+/// Fast, sampled overview of what is using space: the database and the engine's folders.
 #[tauri::command]
-pub(crate) async fn storage_stats(store: State<'_, Store>) -> Result<StorageStats, String> {
+pub(crate) async fn storage_stats(store: State<'_, Store>, native: State<'_, crate::native::Native>) -> Result<StorageStats, String> {
     let archived = storage::archived_ids(&store);
-    tauri::async_runtime::spawn_blocking(move || storage::stats(&archived))
+    let location = storage_location(&native);
+    tauri::async_runtime::spawn_blocking(move || storage::stats(&location, &archived))
         .await
         .map_err(|error| error.to_string())?
 }
 
-/// Exact reclaimable space per rule. Scans the event table, so callers should show progress.
+/// The engine's housekeeping now: undo history and images nothing refers to, shell output past its week.
 #[tauri::command]
-pub(crate) async fn storage_analyze(store: State<'_, Store>) -> Result<Vec<RuleEstimate>, String> {
-    let archived = storage::archived_ids(&store);
-    tauri::async_runtime::spawn_blocking(move || storage::analyze(&archived))
+pub(crate) async fn storage_prune(native: State<'_, crate::native::Native>) -> Result<PruneResult, String> {
+    let location = storage_location(&native);
+    let before = storage::total_bytes(&location);
+    let images = native.engine().clean_up().await;
+    tauri::async_runtime::spawn_blocking(move || storage::cleaned(&location, before, images))
         .await
         .map_err(|error| error.to_string())?
 }
 
+/// Gives the database's free pages back to the disk; refused while a conversation runs.
 #[tauri::command]
-pub(crate) async fn storage_prune(store: State<'_, Store>, rules: PruneRules) -> Result<PruneResult, String> {
-    let archived = storage::archived_ids(&store);
-    tauri::async_runtime::spawn_blocking(move || storage::prune(rules, &archived))
-        .await
-        .map_err(|error| error.to_string())?
-}
-
-/// Releases free pages back to the filesystem. Fails while the engine holds the database.
-#[tauri::command]
-pub(crate) async fn storage_compact() -> Result<PruneResult, String> {
-    tauri::async_runtime::spawn_blocking(storage::compact)
+pub(crate) async fn storage_compact(native: State<'_, crate::native::Native>) -> Result<PruneResult, String> {
+    if native.engine().turns.any_running() {
+        return Err("a conversation is running; compact once it finishes".into());
+    }
+    let location = storage_location(&native);
+    tauri::async_runtime::spawn_blocking(move || storage::compact(&location))
         .await
         .map_err(|error| error.to_string())?
 }
@@ -66,14 +67,17 @@ pub(crate) fn store_removed_workspaces(store: State<Store>) -> Result<Vec<Worksp
 #[tauri::command]
 pub(crate) fn store_add_workspace(
     store: State<Store>,
+    importer: State<crate::opencode_import::Importer>,
     id: String,
     path: String,
     name: String,
     icon: String,
 ) -> Result<Workspace, String> {
-    store
+    let workspace = store
         .add_workspace(&id, &path, &name, &icon)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    importer.request();
+    Ok(workspace)
 }
 
 #[tauri::command]
@@ -95,7 +99,8 @@ pub(crate) fn store_touch_workspace(store: State<Store>, id: String) -> Result<(
 }
 
 #[tauri::command]
-pub(crate) fn store_remove_workspace(store: State<Store>, id: String) -> Result<(), String> {
+pub(crate) fn store_remove_workspace(store: State<Store>, native: State<crate::native::Native>, id: String) -> Result<(), String> {
+    native.engine().stop_workspace_mcp(&id);
     store.remove_workspace(&id).map_err(|e| e.to_string())
 }
 
@@ -109,9 +114,17 @@ pub(crate) fn store_expired_removed_workspaces(
         .map_err(|e| e.to_string())
 }
 
+/// The engine's records of a removed workspace (its kept permission grants and trusted commands),
+/// then the shell's. Engine first, so a failure in between leaves the row to retry from.
 #[tauri::command]
-pub(crate) fn store_forget_workspace(store: State<Store>, id: String) -> Result<(), String> {
-    store.forget_workspace(&id).map_err(|e| e.to_string())
+pub(crate) fn store_forget_workspace(store: State<Store>, native: State<crate::native::Native>, id: String) -> Result<(), String> {
+    let removed = store.removed_workspaces().map_err(|e| e.to_string())?.iter().any(|workspace| workspace.id == id);
+    if !removed {
+        return Ok(());
+    }
+    native.engine().forget_workspace(&id).map_err(|e| e.to_string())?;
+    store.forget_workspace(&id).map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -140,174 +153,4 @@ pub(crate) fn store_unarchive_session(store: State<Store>, session_id: String) -
 #[tauri::command]
 pub(crate) fn store_expired_archived(store: State<Store>, before: i64) -> Result<Vec<String>, String> {
     store.expired_archived(before).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub(crate) fn mcp_snapshot(
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    directory: String,
-) -> Result<mcp::McpSnapshot, String> {
-    runtime.snapshot(&store, &directory)
-}
-
-#[tauri::command]
-pub(crate) fn prompt_snapshot(
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-) -> Result<mcp::PromptSnapshot, String> {
-    runtime.prompt_snapshot(&store)
-}
-
-#[tauri::command]
-pub(crate) fn prompt_save(
-    app: tauri::AppHandle,
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    key: String,
-    value: Value,
-    original: Option<Value>,
-) -> Result<(), String> {
-    runtime.save_prompt(&store, &key, value, original)?;
-    publish_prompt_change(&app)
-}
-
-#[tauri::command]
-pub(crate) fn prompt_reset(
-    app: tauri::AppHandle,
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    key: String,
-) -> Result<(), String> {
-    runtime.reset_prompt(&store, &key)?;
-    publish_prompt_change(&app)
-}
-
-fn publish_prompt_change(app: &tauri::AppHandle) -> Result<(), String> {
-    reload_engine_config(app).map_err(|error| {
-        format!("Settings saved, but the engine reload failed. Retry Save or restart Drift: {error}")
-    })
-}
-
-#[tauri::command]
-pub(crate) fn mcp_save(
-    app: tauri::AppHandle,
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    name: String,
-    previous_name: Option<String>,
-    config: Value,
-    generation: i64,
-) -> Result<(), String> {
-    runtime.save(
-        &store,
-        &name,
-        previous_name.as_deref(),
-        config,
-        generation,
-        || reload_engine_mcp(&app),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn mcp_remove(
-    app: tauri::AppHandle,
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    name: String,
-    generation: i64,
-) -> Result<(), String> {
-    runtime.remove(&store, &name, generation, || reload_engine_mcp(&app))
-}
-
-#[tauri::command]
-pub(crate) fn mcp_external_config(
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    name: String,
-    fingerprint: String,
-    generation: i64,
-) -> Result<mcp::ExternalMcpConfig, String> {
-    runtime.external_config(&store, &name, &fingerprint, generation)
-}
-
-#[tauri::command]
-pub(crate) fn mcp_external_save(
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    name: String,
-    previous_name: String,
-    fingerprint: String,
-    config: Value,
-    generation: i64,
-) -> Result<(), String> {
-    runtime.external_save(&store, &name, &previous_name, &fingerprint, config, generation)
-}
-
-#[tauri::command]
-pub(crate) fn mcp_external_remove(
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    name: String,
-    fingerprint: String,
-    generation: i64,
-) -> Result<(), String> {
-    runtime.external_remove(&store, &name, &fingerprint, generation)
-}
-
-#[tauri::command]
-pub(crate) fn mcp_approve(
-    app: tauri::AppHandle,
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    directory: String,
-    name: String,
-    fingerprint: String,
-    generation: i64,
-) -> Result<(), String> {
-    runtime.decide(
-        &store,
-        &directory,
-        &name,
-        &fingerprint,
-        generation,
-        mcp::McpDecision::Approved,
-        || reload_engine_mcp(&app),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn mcp_reject(
-    app: tauri::AppHandle,
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    directory: String,
-    name: String,
-    fingerprint: String,
-    generation: i64,
-) -> Result<(), String> {
-    runtime.decide(
-        &store,
-        &directory,
-        &name,
-        &fingerprint,
-        generation,
-        mcp::McpDecision::Rejected,
-        || reload_engine_mcp(&app),
-    )
-}
-
-#[tauri::command]
-pub(crate) fn mcp_revoke(
-    app: tauri::AppHandle,
-    runtime: State<mcp::McpRuntime>,
-    store: State<Store>,
-    directory: String,
-    name: String,
-    fingerprint: String,
-    generation: i64,
-) -> Result<(), String> {
-    runtime.revoke(&store, &directory, &name, &fingerprint, generation, || {
-        reload_engine_mcp(&app)
-    })
 }

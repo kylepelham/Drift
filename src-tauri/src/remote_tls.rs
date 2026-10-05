@@ -134,8 +134,8 @@ fn create_pair(directory: &Path) -> Result<(String, String), String> {
     let key = KeyPair::generate().map_err(|error| error.to_string())?;
     let ca = ca_params(OffsetDateTime::now_utc()).self_signed(&key).map_err(|error| error.to_string())?;
     let (ca_pem, key_pem) = (ca.pem(), key.serialize_pem());
-    crate::mcp::write_raw(&directory.join(CA_KEY_FILE), key_pem.as_bytes())?;
-    crate::mcp::write_raw(&directory.join(CA_FILE), ca_pem.as_bytes())?;
+    drift_engine::platform::private_file::write(&directory.join(CA_KEY_FILE), key_pem.as_bytes()).map_err(|error| error.to_string())?;
+    drift_engine::platform::private_file::write(&directory.join(CA_FILE), ca_pem.as_bytes()).map_err(|error| error.to_string())?;
     Ok((ca_pem, key_pem))
 }
 

@@ -55,7 +55,7 @@ fn a_device_links_only_after_its_code_is_entered_on_the_desktop() {
     assert!(!serde_json::to_string(&pending).unwrap().contains(&code));
     assert!(matches!(auth.poll(&handle, &store).unwrap(), Poll::Pending));
     assert!(auth.approve("WRONG123").is_err());
-    let typed = format!("{}-{}", &code[..4].to_lowercase(), &code[4..]);
+    let typed = format!("{}-{}", code[..4].to_lowercase(), &code[4..]);
     assert_eq!(auth.approve(&typed).unwrap(), "Android Chrome");
     assert!(auth.approve(&code).is_err(), "a code approves once");
     assert!(auth.pending().is_empty());

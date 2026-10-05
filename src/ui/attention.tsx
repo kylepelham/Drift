@@ -1,4 +1,6 @@
-import type { Permission } from "@opencode-ai/sdk/client"
+import type { Permission } from "../engine/shapes"
+import type { PermissionGrant } from "../engine/native/client"
+import type { components } from "../engine/native/types"
 import { createSignal, For, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PermissionResponse } from "../engine/actions"
@@ -15,12 +17,16 @@ import { selectedSession } from "../state/selection"
 import { t } from "../state/i18n"
 import { IconCheck } from "./icons"
 import { Chevron } from "./controls"
+import { DiffPanel, parseDiff } from "./parts"
 import { RevertDock } from "./revert-dock"
+import { grantLabel } from "./settings-permissions"
+import { TaskDock } from "./task-dock"
 
 export function AttentionStrip() {
   return (
     <>
       <TodoStrip />
+      <TaskDock />
       <RevertDock />
     </>
   )
@@ -107,28 +113,64 @@ function ThreadAttribution(props: { thread?: ThreadLink }) {
   )
 }
 
+type AskReason = components["schemas"]["Reason"]
+
+/** Why the engine asks about a shell line no rule decided, as the card says it. */
+const REASONS = {
+  outside: "drift.permission.reason.outside",
+  unresolved: "drift.permission.reason.unresolved",
+  secret: "drift.permission.reason.secret",
+  searches: "drift.permission.reason.searches",
+  beyondUndo: "drift.permission.reason.beyondUndo",
+  moves: "drift.permission.reason.moves",
+  hidden: "drift.permission.reason.hidden",
+} as const satisfies Record<AskReason, string>
+
 export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
   const engine = useEngine()
-  const reply = (response: PermissionResponse) =>
-    void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
+  const reply = (response: PermissionResponse) => void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
+  const diff = () => (props.permission.metadata as { diff?: unknown } | undefined)?.diff
+  const filename = () => [props.permission.pattern].flat()[0] ?? ""
+  const alwaysCovers = () => {
+    const grants = (props.permission.metadata as { always?: PermissionGrant[] } | undefined)?.always ?? []
+    return grants.length ? t("drift.permission.alwaysCovers", { what: grants.map(grantLabel).join("; ") }) : undefined
+  }
+  const reason = () => (props.permission.metadata as { reason?: AskReason } | undefined)?.reason
+  const target = () => [props.permission.pattern].flat().filter(Boolean).join(", ")
+  // A call with no description of its own is titled with its target; that is shown once, below.
+  const title = () => (props.permission.title === target() ? "" : props.permission.title)
   return (
     <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-surface px-3 py-2.5">
       <div class="mb-2 flex items-start justify-between gap-3">
         <div class="min-w-0 text-sm">
           <span class="text-warn">{t("notification.permission.title")}</span>{" "}
-          <span class="text-ink">{props.permission.title}</span>
-          <Show when={props.permission.pattern}>
-            <code class="ml-2 rounded bg-raised px-1.5 py-0.5 font-mono text-xs text-ink-muted">
-              {[props.permission.pattern].flat().join(", ")}
-            </code>
-          </Show>
+          <span class="text-ink">{title()}</span>
         </div>
         <ThreadAttribution thread={props.thread} />
       </div>
-      <div class="flex gap-2">
+      <Show when={target()}>
+        <pre class="mb-2 max-h-32 overflow-auto rounded bg-raised px-2 py-1 font-mono text-xs whitespace-pre-wrap break-all text-ink-muted">{target()}</pre>
+      </Show>
+      <Show when={reason()}>
+        {(why) => <div class="mb-2 text-xs text-ink-faint">{t(REASONS[why()])}</div>}
+      </Show>
+      <Show when={typeof diff() === "string" && (diff() as string)}>
+        {(change) => (
+          <div class="mb-2" aria-label={t("drift.permission.change")}>
+            <Show
+              when={parseDiff(change()).length}
+              fallback={<pre class="transcript-tool-output max-h-80 overflow-auto rounded-lg border border-edge p-2 font-mono text-xs whitespace-pre text-ink-muted">{change()}</pre>}
+            >
+              <DiffPanel diff={change()} filename={filename()} />
+            </Show>
+          </div>
+        )}
+      </Show>
+      <div class="flex flex-wrap items-center gap-2">
         <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
-        <ActionButton label={t("command.permissions.autoaccept.enable")} onClick={() => reply("always")} />
+        <ActionButton label={t("drift.permission.always")} title={alwaysCovers()} onClick={() => reply("always")} />
         <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
+        <ActionButton label={t("drift.permission.stop")} title={t("drift.permission.stopHint")} danger onClick={() => reply("stop")} />
       </div>
     </div>
   )
@@ -393,9 +435,10 @@ function ChoiceMark(props: { checked: boolean; multiple: boolean }) {
   )
 }
 
-function ActionButton(props: { label: string; danger?: boolean; onClick: () => void }) {
+function ActionButton(props: { label: string; danger?: boolean; title?: string; onClick: () => void }) {
   return (
     <button
+      title={props.title}
       class="rounded-md border px-2.5 py-1 text-xs transition-colors"
       classList={{
         "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": !props.danger,

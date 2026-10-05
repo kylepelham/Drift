@@ -1,0 +1,308 @@
+use std::sync::Arc;
+
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::Json;
+use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
+
+use super::error::ApiError;
+use crate::event::Event;
+use crate::session::revert::Undone;
+use crate::session::tasks::TaskRecord;
+use crate::session::turn::{Prompt, Receipt};
+use crate::session::types::{MessageWithParts, ModelRef, Session, Visibility};
+use crate::store::{NewSession, Purge, SessionFilter};
+use crate::Engine;
+
+const DEFAULT_LIMIT: usize = 50;
+const MAX_LIMIT: usize = 200;
+
+#[derive(Deserialize, IntoParams)]
+pub struct ListQuery {
+    /// Restrict to one workspace; omit for every workspace.
+    pub workspace: Option<String>,
+    /// Archived sessions instead of live ones.
+    #[serde(default)]
+    pub archived: bool,
+    /// Page: sessions updated before this session id.
+    pub before: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NewSessionBody {
+    pub workspace_id: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub model: Option<ModelRef>,
+    /// `build` unless the workspace defines others; see the workspace config.
+    #[serde(default)]
+    pub agent: Option<String>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchSession {
+    pub title: Option<String>,
+    pub model: Option<ModelRef>,
+    pub agent: Option<String>,
+    pub archived: Option<bool>,
+    /// Answer this session's asks, and its subagents', except secrets and anything outside the workspace.
+    #[serde(default)]
+    pub auto_accept: Option<bool>,
+}
+
+#[derive(Deserialize, IntoParams)]
+pub struct MessagesQuery {
+    /// Page: messages before this message id.
+    pub before: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct Aborted {
+    pub aborted: bool,
+}
+
+#[utoipa::path(get, path = "/sessions", operation_id = "listSessions", params(ListQuery), responses((status = 200, body = Vec<Session>)))]
+pub async fn list(State(engine): State<Arc<Engine>>, Query(query): Query<ListQuery>) -> Result<Json<Vec<Session>>, ApiError> {
+    let mut sessions = engine.store.sessions(SessionFilter {
+        workspace_id: query.workspace.as_deref(),
+        archived: query.archived,
+        before: query.before.as_deref(),
+        limit: query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT),
+    })?;
+    for session in &mut sessions {
+        session.running = engine.turns.is_running(&session.id);
+    }
+    Ok(Json(sessions))
+}
+
+#[utoipa::path(post, path = "/sessions", operation_id = "createSession", request_body = NewSessionBody, responses((status = 201, body = Session)))]
+pub async fn create(State(engine): State<Arc<Engine>>, Json(body): Json<NewSessionBody>) -> Result<(StatusCode, Json<Session>), ApiError> {
+    let workspace = engine.store.workspace(&body.workspace_id)?.ok_or_else(|| ApiError::not_found("workspace"))?;
+    let config = body.agent.is_none().then(|| engine.workspace_config(&crate::tool::canonical(std::path::Path::new(&workspace.path))));
+    let session = engine.store.create_session(NewSession {
+        workspace_id: &body.workspace_id,
+        parent_id: None,
+        visibility: Visibility::Sibling,
+        title: &body.title,
+        agent: body.agent.as_deref().or_else(|| config.as_ref().map(|config| config.default_agent())).unwrap_or("build"),
+        model: body.model.as_ref(),
+    })?;
+    engine.hub.publish(Event::SessionCreated { session: session.clone() });
+    Ok((StatusCode::CREATED, Json(session)))
+}
+
+#[utoipa::path(get, path = "/sessions/{id}", operation_id = "getSession", responses((status = 200, body = Session), (status = 404)))]
+pub async fn get(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Session>, ApiError> {
+    let mut session = engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    session.running = engine.turns.is_running(&id);
+    Ok(Json(session))
+}
+
+#[utoipa::path(patch, path = "/sessions/{id}", operation_id = "updateSession", request_body = PatchSession, responses((status = 200, body = Session), (status = 404)))]
+pub async fn update(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<PatchSession>) -> Result<Json<Session>, ApiError> {
+    let mut session = engine
+        .store
+        .update_session(&id, body.title.as_deref(), body.model.as_ref(), body.agent.as_deref())?
+        .ok_or_else(|| ApiError::not_found("session"))?;
+    if let Some(archived) = body.archived {
+        if archived {
+            engine.abort(&id);
+            engine.permissions.forget_session(&id);
+        }
+        session = engine.store.set_session_archived(&id, archived)?.ok_or_else(|| ApiError::not_found("session"))?;
+    }
+    if let Some(on) = body.auto_accept {
+        session = engine.set_session_auto_accept(&id, on)?.ok_or_else(|| ApiError::not_found("session"))?;
+    }
+    engine.hub.publish(Event::SessionUpdated { session: session.clone() });
+    // A model or agent chosen now may be what an owed result was waiting for.
+    engine.retry_deliveries(Some(&id));
+    Ok(Json(session))
+}
+
+#[utoipa::path(get, path = "/sessions/{id}/messages", operation_id = "listMessages", params(MessagesQuery), responses((status = 200, body = Vec<MessageWithParts>), (status = 404)))]
+pub async fn messages(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+    Query(query): Query<MessagesQuery>,
+) -> Result<Json<Vec<MessageWithParts>>, ApiError> {
+    engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
+    Ok(Json(engine.store.messages(&id, query.before.as_deref(), limit)?))
+}
+
+/// Admits the prompt into the running turn, which switches to any model, agent or level it names from its next request, or starts a turn.
+#[utoipa::path(post, path = "/sessions/{id}/turns", operation_id = "submitTurn", request_body = Prompt, responses((status = 202, body = Receipt), (status = 409), (status = 404)))]
+pub async fn submit(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(prompt): Json<Prompt>) -> Result<(StatusCode, Json<Receipt>), ApiError> {
+    // Worker results, answers and tool calls are the engine's to write, never a client's to claim.
+    if prompt.parts.iter().any(crate::session::types::Part::is_engine_origin) {
+        return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", "a prompt carries text and files only"));
+    }
+    Ok((StatusCode::ACCEPTED, Json(engine.submit(&id, prompt).await?)))
+}
+
+#[utoipa::path(post, path = "/sessions/{id}/abort", operation_id = "abortTurn", responses((status = 200, body = Aborted)))]
+pub async fn abort(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Json<Aborted> {
+    Json(Aborted { aborted: engine.abort(&id) })
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct RetryModelBody {
+    pub model: ModelRef,
+    /// The variant to retry at, by name: absent keeps the turn's, null asks for the model's default.
+    #[serde(default, deserialize_with = "crate::session::turn::present")]
+    #[schema(value_type = Option<String>, nullable = true)]
+    pub variant: Option<Option<String>>,
+}
+
+/// Moves a turn that is waiting to retry onto another model; it retries at once and the session keeps
+/// the model. 409 when nothing is waiting to retry; 400 or 401 when the model cannot be used.
+#[utoipa::path(post, path = "/sessions/{id}/retry", operation_id = "switchRetryModel", request_body = RetryModelBody, responses((status = 204), (status = 400), (status = 401), (status = 409)))]
+pub async fn switch_retry_model(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<RetryModelBody>) -> Result<StatusCode, ApiError> {
+    engine.switch_retry_model(&id, &body.model, body.variant).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RevertBody {
+    /// The prompt to go back to; it and everything after it are hidden.
+    pub message_id: String,
+}
+
+/// Undoes the conversation back to a prompt, and the files its turns and subagents changed. Files
+/// changed by someone else since are kept and listed. Again while undone moves the point.
+#[utoipa::path(post, path = "/sessions/{id}/revert", operation_id = "revertSession", request_body = RevertBody, responses((status = 200, body = Undone), (status = 400), (status = 404), (status = 409)))]
+pub async fn revert(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<RevertBody>) -> Result<Json<Undone>, ApiError> {
+    Ok(Json(engine.revert(&id, &body.message_id).await?))
+}
+
+/// Redoes everything an undo hid, files included, keeping any changed since.
+#[utoipa::path(post, path = "/sessions/{id}/unrevert", operation_id = "unrevertSession", responses((status = 200, body = Undone), (status = 404), (status = 409)))]
+pub async fn unrevert(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Undone>, ApiError> {
+    Ok(Json(engine.unrevert(&id).await?))
+}
+
+/// Summarises the older history now. Runs as the session's job: 409 while a turn runs, Stop cancels it.
+#[utoipa::path(post, path = "/sessions/{id}/compact", operation_id = "compactSession", responses((status = 202), (status = 404), (status = 409)))]
+pub async fn compact(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+    engine.start_compaction(&id)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+#[utoipa::path(get, path = "/sessions/{id}/todos", operation_id = "listTodos", responses((status = 200, body = Vec<crate::session::types::Todo>), (status = 404)))]
+pub async fn todos(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Vec<crate::session::types::Todo>>, ApiError> {
+    engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    Ok(Json(engine.store.todos(&id)?))
+}
+
+/// Every worker the session launched, oldest first, finished ones included.
+#[utoipa::path(get, path = "/sessions/{id}/tasks", operation_id = "listTasks", responses((status = 200, body = Vec<TaskRecord>), (status = 404)))]
+pub async fn tasks(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Vec<TaskRecord>>, ApiError> {
+    engine.store.session(&id)?.ok_or_else(|| ApiError::not_found("session"))?;
+    Ok(Json(engine.store.tasks_of(&id)?))
+}
+
+#[utoipa::path(get, path = "/tasks/{id}", operation_id = "getTask", responses((status = 200, body = TaskRecord), (status = 404)))]
+pub async fn task(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<TaskRecord>, ApiError> {
+    Ok(Json(engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?))
+}
+
+/// Stops one worker and nothing else: a queued one never starts, a running one stops as its turn would.
+#[utoipa::path(post, path = "/tasks/{id}/abort", operation_id = "abortTask", responses((status = 200, body = TaskRecord), (status = 404)))]
+pub async fn abort_task(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<TaskRecord>, ApiError> {
+    engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?;
+    Ok(Json(engine.stop_task(&id)?))
+}
+
+#[derive(Deserialize, IntoParams)]
+pub struct DeleteQuery {
+    /// Only while the session is still archived: the archive purge, which a restore must always win against. 409 if it is not.
+    #[serde(default)]
+    pub archived: bool,
+}
+
+/// Permanent removal, for archived sessions past their retention. Live turns are aborted first.
+#[utoipa::path(delete, path = "/sessions/{id}", operation_id = "deleteSession", params(DeleteQuery), responses((status = 204), (status = 404), (status = 409)))]
+pub async fn delete(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Query(query): Query<DeleteQuery>) -> Result<StatusCode, ApiError> {
+    if query.archived {
+        match engine.store.purge_archived(&id)? {
+            Purge::Deleted => {}
+            Purge::Active => return Err(ApiError::new(StatusCode::CONFLICT, "active", "the session was restored; it is kept")),
+            Purge::Missing => return Err(ApiError::not_found("session")),
+        }
+    }
+    engine.abort(&id);
+    engine.permissions.forget_session(&id);
+    engine.questions.forget_session(&id);
+    if !query.archived && !engine.store.delete_session(&id)? {
+        return Err(ApiError::not_found("session"));
+    }
+    engine.hub.publish(Event::SessionDeleted { session_id: id });
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct CommandBody {
+    pub name: String,
+    #[serde(default)]
+    pub arguments: String,
+    #[serde(default)]
+    pub model: Option<ModelRef>,
+}
+
+/// Expands a workspace command's template, or has an MCP server fill its prompt, and submits it as a turn.
+#[utoipa::path(post, path = "/sessions/{id}/command", operation_id = "runCommand", request_body = CommandBody, responses((status = 202, body = Receipt), (status = 404), (status = 502)))]
+pub async fn command(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<CommandBody>) -> Result<(StatusCode, Json<Receipt>), ApiError> {
+    Ok((StatusCode::ACCEPTED, Json(engine.execute_command(&id, &body.name, &body.arguments, body.model).await?)))
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct SpawnBody {
+    /// What the new thread should do; it starts with a copy of this conversation and works out what it needs.
+    pub instruction: String,
+}
+
+/// Spawns a thread from this conversation and starts it at once. It runs on its own from then on.
+#[utoipa::path(post, path = "/sessions/{id}/spawn", operation_id = "spawnThread", request_body = SpawnBody, responses((status = 201, body = Session), (status = 400), (status = 404)))]
+pub async fn spawn(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<SpawnBody>) -> Result<(StatusCode, Json<Session>), ApiError> {
+    Ok((StatusCode::CREATED, Json(engine.spawn(&id, &body.instruction).await?)))
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkBody {
+    /// Copy through this message; default is the last finished one, leaving out a turn in flight.
+    #[serde(default)]
+    pub at_message: Option<String>,
+}
+
+/// Copies finished history into a new, independent conversation.
+#[utoipa::path(post, path = "/sessions/{id}/fork", operation_id = "forkSession", request_body = ForkBody, responses((status = 201, body = Session), (status = 400), (status = 404)))]
+pub async fn fork(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<ForkBody>) -> Result<(StatusCode, Json<Session>), ApiError> {
+    Ok((StatusCode::CREATED, Json(engine.fork(&id, body.at_message.as_deref())?)))
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveBody {
+    pub workspace_id: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct Moved {
+    /// The session and the subagents that moved with it.
+    pub moved: Vec<String>,
+}
+
+/// Moves a session and its subagents to another workspace. 409 while any of them is running.
+#[utoipa::path(post, path = "/sessions/{id}/move", operation_id = "moveSession", request_body = MoveBody, responses((status = 200, body = Moved), (status = 404), (status = 409)))]
+pub async fn move_session(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<MoveBody>) -> Result<Json<Moved>, ApiError> {
+    Ok(Json(Moved { moved: engine.move_session(&id, &body.workspace_id)? }))
+}

@@ -1,0 +1,16 @@
+Runs a command in {shell} from the workspace root and returns its combined output.
+
+- Use it for builds, tests, git and package managers. Use `read`, `glob` and `grep` for looking at files; they are faster and need no permission.
+- Quote paths that contain spaces. In one command, {chain}; run independent commands as separate calls.
+- To run in a subdirectory, pass `workdir` rather than starting with `cd`.
+- Commands and their child processes are stopped after the user's time limit, or after `timeout` milliseconds when you pass one. Pass a larger `timeout` for a build or test run you expect to be long. Never start long-lived servers or watchers here.
+- Output over 32 KB keeps only its first and last 16 KB; the result then names a file holding all of it, which you can `read` or `grep`.
+- Give a short `description` of what the command does; it is shown to the user while it runs.
+
+Git:
+- Commit, push, amend or open a pull request only when the user asks for it.
+- Before committing, look at `git status`, `git diff` and `git log --oneline -10`. Stage only the files you meant to change, by name, and never stage secrets.
+- Write the message in the repository's own style, as the log shows it.
+- Never change git config, skip hooks (`--no-verify`), force-push, use interactive flags (`-i`) or make empty commits unless the user asks.
+- If a hook rejects a commit, fix the cause and make a new commit; do not amend the one that failed.
+- Before opening a pull request, check the branch, its remote and every commit since the base branch, not only the last; with `gh`, give the user the pull request's URL.

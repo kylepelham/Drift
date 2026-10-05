@@ -1,20 +1,19 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
-import { modelInfo, resolveModel, sessionBusy, type QuestionRequest } from "../engine/store"
+import { modelInfo, resolveModel, savedChoice, sessionBusy, type QuestionRequest } from "../engine/store"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
 import {
-  autoAcceptGlobal,
-  autoAcceptSessions,
+  clearEdits,
   modelVisible,
   orderedModelProviderIds,
   prefsFor,
   seedPrefs,
-  toggleAutoAccept,
+  sendableVariant,
   updatePrefs,
 } from "../state/prefs"
 import { onKeybind } from "../state/keybinds"
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n"
-import type { Permission } from "@opencode-ai/sdk/client"
+import type { Permission } from "../engine/shapes"
 import {
   canNavigateComposerHistory,
   clearComposerDraft,
@@ -33,9 +32,8 @@ import { selectedSession, selectSession } from "../state/selection"
 import { formatModelContext, lmStudioModelReady } from "../state/lm-studio"
 import { shellInvoke } from "../shell"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
-import { normalizeDir } from "../engine/store"
+import { normalizeDir, smallContextTokens } from "../engine/store"
 import { localAsks, resolveAsk } from "../state/asks"
-import { permissionRequiresAttention, permissionShouldAutoReply } from "../state/permission-attention"
 import { AttentionStrip, PermissionCard, QuestionCard } from "./attention"
 import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons"
 import { dictationEnabled, dictationModel } from "../state/voice"
@@ -79,8 +77,15 @@ const maxComposerHeightPx = 200
 // The OS clipboard is written after the browser finishes its own copy, so ours lands last and wins.
 const clipboardRepublishDelayMs = 100
 
-export function firstManualPermission(permissions: Permission[], autoAccepted: (permission: Permission) => boolean) {
-  return permissions.find((permission) => !autoAccepted(permission))
+const localProviders = ["ollama", "lmstudio"]
+
+/** The picker's line under a model: a small or unknown window is warned about, and LM Studio shows its loaded window. */
+export function modelDetail(providerID: string, model: { id: string; limit: { context: number } }) {
+  const context = model.limit.context
+  if (context > 0 && context < smallContextTokens) return t("drift.model.smallContext", { size: formatModelContext(context) })
+  // A local model not yet loaded runs at whatever window its server picks, and compaction cannot plan for it.
+  if (context === 0 && localProviders.includes(providerID)) return t("drift.model.unknownContext")
+  return providerID === "lmstudio" ? `${model.id} | ${formatModelContext(context)} context` : undefined
 }
 
 export function focusedQuestion(questions: QuestionRequest[], requestID?: string) {
@@ -341,15 +346,12 @@ export function Composer() {
         .filter((model) =>
           provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall,
         )
-        .sort((a, b) => a.name.localeCompare(b.name))
+        .sort((a, b) => (b.release_date ?? "").localeCompare(a.release_date ?? "") || a.name.localeCompare(b.name))
         .map((model) => ({
           id: `${provider.id}/${model.id}`,
           label: model.name,
           group: provider.name,
-          detail:
-            provider.id === "lmstudio"
-              ? `${model.id} | ${formatModelContext(model.limit.context)} context`
-              : undefined,
+          detail: modelDetail(provider.id, model),
           providerID: provider.id,
           family: model.family,
           releaseDate: model.release_date,
@@ -363,11 +365,11 @@ export function Composer() {
 
   const agentItems = createMemo<PickerItem[]>(() =>
     engine.state.agents
-      .filter((agent) => agent.mode !== "subagent" && !(agent as { hidden?: boolean }).hidden)
+      .filter((agent) => agent.mode !== "subagent" && !agent.hidden)
       .map((agent) => ({ id: agent.name, label: agentLabel(agent.name), hint: agent.description })),
   )
 
-  const prefs = () => prefsFor(selectedSession())
+  const prefs = () => prefsFor(selectedSession(), savedChoice(engine.state, selectedSession()))
   const model = () => resolveModel(engine.state, prefs().model)
   const modelId = () => {
     const ref = model()
@@ -392,12 +394,10 @@ export function Composer() {
       online,
       draft: composerDraft,
       prepare(existing) {
-        const selectedPrefs = prefsFor(existing)
+        const selectedPrefs = prefsFor(existing, savedChoice(engine.state, existing))
         const selectedModel = resolveModel(engine.state, selectedPrefs.model)
         const selectedVariants = Object.keys(modelInfo(engine.state, selectedModel)?.variants ?? {})
-        const selectedVariant =
-          selectedPrefs.variant && selectedVariants.includes(selectedPrefs.variant) ? selectedPrefs.variant : undefined
-        return { selectedPrefs, selectedModel, selectedVariant }
+        return { selectedPrefs, selectedModel, selectedVariant: sendableVariant(selectedPrefs.variant, selectedVariants) }
       },
       transform: transformComposerSubmit,
       newSession: engine.actions.newSession,
@@ -425,12 +425,14 @@ export function Composer() {
           ...attachments.files,
         ]
         const prompt = [text, attachments.text].filter(Boolean).join("\n\n")
-        return engine.actions.send(id, prompt, {
+        const result = await engine.actions.send(id, prompt, {
           model: prepared.selectedModel,
           agent: prepared.selectedPrefs.agent,
           variant: prepared.selectedVariant,
           files,
         })
+        if (result.ok) clearEdits(id)
+        return result
       },
       admitted(key, snapshot, historyDraft) {
         stopDictation()
@@ -533,30 +535,22 @@ export function Composer() {
     setTimeout(() => void invoke("clipboard_write_text", { text }).catch(() => undefined), clipboardRepublishDelayMs)
   }
 
-  const autoAcceptOn = () => {
+  // The engine answers auto-accepted asks itself, with no window open; this only shows and switches it.
+  const sessionAutoAccept = () => !!engine.state.sessions[selectedSession() ?? ""]?.autoAccept
+  const autoAcceptOn = () => engine.state.autoAcceptAll || sessionAutoAccept()
+  const toggleAutoAccept = () => {
     const id = selectedSession()
-    return autoAcceptGlobal() || (!!id && autoAcceptSessions().includes(id))
+    if (id && !engine.state.autoAcceptAll) void engine.actions.setAutoAccept(id, !sessionAutoAccept())
   }
 
   onMount(() => {
     if (dictationEnabled()) void refreshVoiceModels()
-    return onKeybind("autoAccept", () => {
-      if (autoAcceptGlobal()) return
-      const id = selectedSession()
-      if (id) toggleAutoAccept(id)
-    })
-  })
-
-  createEffect(() => {
-    for (const permission of Object.values(engine.state.permissions).flat()) {
-      if (!permissionShouldAutoReply(permission, engine.state)) continue
-      untrack(() => void engine.actions.replyPermission(permission.sessionID, permission.id, "once"))
-    }
+    return onKeybind("autoAccept", toggleAutoAccept)
   })
 
   const permissions = () => Object.values(engine.state.permissions).flat()
   const questions = () => Object.values(engine.state.questions).flat()
-  const pendingPermission = () => firstManualPermission(permissions(), (permission) => !permissionRequiresAttention(permission, engine.state))
+  const pendingPermission = (): Permission | undefined => permissions()[0]
   const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID())
   const pendingAsk = () => localAsks()[0]
 
@@ -794,10 +788,10 @@ export function Composer() {
             <Show when={autoAcceptOn()}>
               <button
                 class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
-                title={autoAcceptGlobal() ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
+                title={engine.state.autoAcceptAll ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
                 aria-label={t("command.permissions.autoaccept.disable")}
-                disabled={autoAcceptGlobal()}
-                onClick={() => toggleAutoAccept(selectedSession()!)}
+                disabled={engine.state.autoAcceptAll}
+                onClick={toggleAutoAccept}
               >
                 <IconShieldCheck class="size-3.5" />
               </button>

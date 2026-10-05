@@ -118,7 +118,7 @@ test("the context meter shows usage limits and the breakdown, and remote access 
   expect(await Bun.file("src/ui/header.tsx").text()).toContain("<ContextMeter sessionId=")
   expect(await Bun.file("src/ui/debug.tsx").text()).toContain("<ContextSection sessionId=")
   const remote = await Bun.file("src-tauri/src/remote.rs").text()
-  expect(remote).toContain('"provider_usage" => value(crate::usage_limits::provider_usage(arg(args, "provider")?).await?)')
+  expect(remote).toContain('"provider_usage" => value(crate::usage_limits::provider_usage(app.state(), arg(args, "provider")?).await?)')
   expect(await Bun.file("src-tauri/src/main.rs").text()).toContain("usage_limits::provider_usage,")
 })
 
@@ -130,7 +130,7 @@ test("settings lists usage for every linked provider and forced refresh skips th
   await refreshUsage("zai-coding-plan", Date.now(), true)
   expect(invoke.mock.calls.length).toBe(calls + 1)
   const settings = await Bun.file("src/ui/settings.tsx").text()
-  expect(settings).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"]')
+  expect(settings).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"]')
   expect(settings).toContain("<UsageLimitsSection />")
   const section = await Bun.file("src/ui/settings-usage.tsx").text()
   expect(section).toContain("engine.state.connected.includes(provider.id)")

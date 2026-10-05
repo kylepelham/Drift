@@ -35,19 +35,12 @@ fn subscription_endpoints_require_the_matching_credential_kind() {
 }
 
 #[test]
-fn credentials_are_read_from_the_engine_auth_store() {
-    let auth = json!({
-        "openai": { "type": "oauth", "access": "a", "refresh": "r", "expires": 5, "accountId": "id" },
-        "zai-coding-plan": { "type": "api", "key": "k" },
-        "broken": { "type": "oauth" },
-    });
-    assert_eq!(
-        credential(&auth, "openai"),
-        Some(Credential::OAuth { access: "a".into(), expires: 5, account_id: Some("id".into()), enterprise: false })
-    );
-    assert_eq!(credential(&auth, "zai-coding-plan"), Some(Credential::Api { key: "k".into() }));
-    assert_eq!(credential(&auth, "broken"), None);
-    assert_eq!(credential(&auth, "missing"), None);
+fn credentials_come_from_the_engines_store() {
+    use drift_engine::llm::Credential as Engine;
+    let signed_in = Engine::OAuth { access: "a".into(), refresh: "r".into(), expires_at: 5, account: Some("id".into()) };
+    assert_eq!(from_engine(signed_in), Some(Credential::OAuth { access: "a".into(), expires: 5, account_id: Some("id".into()), enterprise: false }));
+    assert_eq!(from_engine(Engine::ApiKey { key: "k".into() }), Some(Credential::Api { key: "k".into() }));
+    assert_eq!(from_engine(Engine::Ambient { source: "profile".into() }), None, "a cloud route has no plan to report");
 }
 
 #[test]

@@ -1,17 +1,17 @@
 import { createEffect, createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
-import { useEngine } from "../engine"
+import { useEngine, type Engine } from "../engine"
 import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache"
 import { TextShimmer } from "./text-shimmer"
 import { createDismissOnOutside } from "./dismiss"
 import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
-import { childrenOf, normalizeDir, sessionBusy, sessionsFor } from "../engine/store"
+import { normalizeDir, sessionBusy, sessionsFor } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
 import { Chevron } from "./controls"
-import { permissionRequiresAttention } from "../state/permission-attention"
+import { sidebarWorkers } from "../state/permission-attention"
 import { dragReorder } from "./drag-reorder"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import {
@@ -66,9 +66,12 @@ export function WorkspaceGroup(props: {
     if (current.length || authoritative()) return current
     return cachedSessions(props.workspace.path)
   })
-  const children = (parentId: string) => childrenOf(engine.state, parentId).filter((child) => sessionBusy(engine.state, child.id))
+  const children = (parentId: string) => sidebarWorkers(engine.state, parentId, selectedSession())
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
+  // Rows are keyed by id; row objects are rebuilt on every session update and would remount the DOM.
+  const visibleIds = createMemo(() => visibleSessions().map((session) => session.id), [], { equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) })
+  const rowFor = (id: string) => visibleSessions().find((session) => session.id === id)
   const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))
   const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
@@ -135,17 +138,17 @@ export function WorkspaceGroup(props: {
       </div>
       <Show when={!collapsed()}>
         <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
-          <For each={visibleSessions()}>
-            {(session) => (
+          <For each={visibleIds()}>
+            {(id) => (
               <>
                 <ThreadItem
-                  sessionId={session.id}
-                  title={session.title}
-                  updated={session.updated}
+                  sessionId={id}
+                  title={rowFor(id)?.title ?? ""}
+                  updated={rowFor(id)?.updated ?? 0}
                   workspace={props.workspace}
                   onMenu={props.onSessionMenu}
                 />
-                <For each={children(session.id)}>
+                <For each={children(id)}>
                   {(child) => (
                     <ChildThreadItem
                       sessionId={child.id}
@@ -244,7 +247,7 @@ function ThreadItem(props: {
             selectWorkspace(props.workspace.id)
             const selection = selectedSession()
             void engine.actions
-              .fork(props.sessionId, "active")
+              .fork(props.sessionId)
               .then(
                 (session) =>
                   session &&
@@ -261,8 +264,9 @@ function ThreadItem(props: {
           title={t("command.session.archive")}
           onClick={() => {
             if (selectedSession() === props.sessionId) selectSession(null)
-            void archiveSession(props.sessionId, props.workspace.id)
-            emitThreadArchived(props.sessionId)
+            void archiveSession(props.sessionId, props.workspace.id, engine.actions.setArchived)
+              .then(() => emitThreadArchived(props.sessionId))
+              .catch((cause: unknown) => archiveFailed(engine, cause))
           }}
         >
           <IconArchive />
@@ -272,12 +276,14 @@ function ThreadItem(props: {
   )
 }
 
+/** The engine refused to archive or restore; the thread stays where it was. */
+export function archiveFailed(engine: Engine, cause: unknown) {
+  engine.actions.notice({ title: t("command.session.archive"), message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
+}
+
 function StatusDot(props: { sessionId: string }) {
   const engine = useEngine()
-  const permissions = () =>
-    (engine.state.permissions[props.sessionId] ?? []).filter((permission) =>
-      permissionRequiresAttention(permission, engine.state),
-    )
+  const permissions = () => engine.state.permissions[props.sessionId] ?? []
   const attention = () =>
     permissions().length > 0 || (engine.state.questions[props.sessionId]?.length ?? 0) > 0
   const attentionTitle = () =>

@@ -1,0 +1,10 @@
+The conversation so far is about to be replaced by your summary, because it no longer fits in context. Do not continue the task and do not call tools. Write the summary another coding agent will continue from; it will see your summary and the most recent messages, nothing else.
+
+Cover, in this order:
+1. Goal: what the user wants, in their terms, including constraints and preferences they stated.
+2. State: what has been done, decisions made and why, and what is verified versus assumed.
+3. Files: paths created, changed or important to the work, with one line on each.
+4. Open work: what remains, in order, and anything blocked or waiting on the user.
+5. Details: exact names, commands, error messages and values that would be costly to rediscover.
+
+Be complete about facts and brief in wording. Leave out pleasantries and anything already superseded.

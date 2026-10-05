@@ -1,4 +1,4 @@
-import type { AssistantMessage, Part, SessionStatus } from "@opencode-ai/sdk/client"
+import type { AssistantMessage, Part, SessionStatus } from "../engine/shapes"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
 import {
@@ -6,6 +6,7 @@ import {
   messageRevisionKey,
   messageText,
   modelInfo,
+  savedChoice,
   type EngineState,
   type MessageEntry,
   type ModelRef,
@@ -14,6 +15,7 @@ import { codeFontSize } from "../state/code"
 import { t } from "../state/i18n"
 import { selectedSession } from "../state/selection"
 import { activeWorkspace } from "../state/workspaces"
+import { Chevron } from "./controls"
 import { IconArrowDown } from "./icons"
 import {
   assistantFlowContinues,
@@ -61,7 +63,8 @@ const maxRetryMessageChars = 80
 
 export function Chat() {
   const engine = useEngine()
-  const entries = createMemo(() => {
+  const [shownCopies, setShownCopies] = createSignal<ReadonlySet<string>>(new Set())
+  const allEntries = createMemo(() => {
     const id = selectedSession()
     if (!id) return []
     const revertedAt = engine.state.sessions[id]?.revert?.messageID
@@ -80,6 +83,35 @@ export function Chat() {
       .sort(compareMessages)
     return mergeCompactionEntries(sorted)
   })
+  const spawnedCopy = createMemo(() => {
+    const id = selectedSession()
+    const session = id ? engine.state.sessions[id] : undefined
+    const source = id ? engine.state.links[id] : undefined
+    if (!id || !session || !source) return undefined
+    const copied = copiedCount(allEntries(), session.time.created)
+    if (!copied) return undefined
+    const list = allEntries()
+    const shown = shownCopies().has(id)
+    return {
+      id,
+      copied,
+      ownID: list[copied]?.info.id,
+      headerID: shown ? list[0].info.id : list[copied]?.info.id,
+      copiedIDs: new Set(shown ? list.slice(0, copied).map((entry) => entry.info.id) : []),
+      source: engine.state.sessions[source]?.title ?? "",
+      shown,
+    }
+  })
+  const entries = createMemo(() => {
+    const copy = spawnedCopy()
+    return copy?.ownID && !copy.shown ? allEntries().slice(copy.copied) : allEntries()
+  })
+  const toggleCopy = (id: string) =>
+    setShownCopies((shown) => {
+      const next = new Set(shown)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
   const sessionError = createMemo(() => {
     const id = selectedSession()
     if (!id) return null
@@ -478,6 +510,10 @@ export function Chat() {
                   terminalError={!nextEntries().get(entry.info.id) && !!sessionError()}
                   found={findHighlight() === entry.info.id}
                   measure={measureRow}
+                  copy={spawnedCopy()?.headerID === entry.info.id ? spawnedCopy() : undefined}
+                  copied={!!spawnedCopy()?.copiedIDs.has(entry.info.id)}
+                  instruction={spawnedCopy()?.ownID === entry.info.id}
+                  toggleCopy={toggleCopy}
                 />
               )}
             </For>
@@ -670,6 +706,12 @@ export function transcriptRevision(entry?: { parts: RevisionPart[] }) {
   return revision
 }
 
+/** A spawned thread starts with a copy of its source; copied messages keep their times, so they are older than the thread. */
+export function copiedCount(entries: MessageEntry[], threadCreated: number) {
+  const own = entries.findIndex((entry) => entry.info.time.created >= threadCreated)
+  return own < 0 ? entries.length : own
+}
+
 export function mergeCompactionEntries(entries: MessageEntry[]) {
   return entries.filter((entry, index) => {
     const next = entries[index + 1]
@@ -799,6 +841,10 @@ function Row(props: {
   terminalError: boolean
   found: boolean
   measure: (element: HTMLDivElement) => void
+  copy?: { id: string; source: string; shown: boolean }
+  copied: boolean
+  instruction: boolean
+  toggleCopy: (id: string) => void
 }) {
   const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
   // Assistant rows remount during virtualization and session switches; replaying an entrance
@@ -820,12 +866,32 @@ function Row(props: {
         "search-hit": props.found,
       }}
     >
-      <MessageView
-        entry={props.entry}
-        footer={props.next?.info.role !== "assistant"}
-        groups={props.groups}
-        thinking={compactionShimmer()}
-      />
+      <Show when={props.copy}>
+        {(copy) => (
+          <button
+            type="button"
+            class="mb-4 flex w-full items-center gap-3 py-1 text-xs text-ink-faint transition-colors select-none hover:text-ink-muted"
+            aria-expanded={copy().shown}
+            onClick={() => props.toggleCopy(copy().id)}
+          >
+            <div class="h-px flex-1 bg-edge" />
+            <span class="flex min-w-0 items-center gap-1.5">
+              <Chevron open={copy().shown} />
+              <span class="truncate">{t("drift.chat.spawned.copy", { title: copy().source })}</span>
+            </span>
+            <div class="h-px flex-1 bg-edge" />
+          </button>
+        )}
+      </Show>
+      <div classList={{ "border-l-2 border-edge pl-3": props.copied }}>
+        <MessageView
+          entry={props.entry}
+          footer={props.next?.info.role !== "assistant"}
+          groups={props.groups}
+          thinking={compactionShimmer()}
+          spawned={props.instruction}
+        />
+      </div>
       <Show when={props.thinking && !compactionShimmer()}>
         <div class="timeline-thinking select-none" role="status" aria-live="polite">
           <TextShimmer text={t("drift.chat.thinking")} />
@@ -876,7 +942,7 @@ function SessionRetry(props: {
     if (submitting()) return
     const [providerID, ...rest] = id.split("/")
     const model = { providerID, modelID: rest.join("/") }
-    const preferredVariant = prefsFor(props.sessionID).variant
+    const preferredVariant = prefsFor(props.sessionID, savedChoice(engine.state, props.sessionID)).variant
     const variants = Object.keys(modelInfo(engine.state, model)?.variants ?? {})
     const variant = preferredVariant && variants.includes(preferredVariant) ? preferredVariant : undefined
     setSubmitting(true)

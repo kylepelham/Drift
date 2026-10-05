@@ -1,157 +1,58 @@
-# MCP approval backend
+# MCP
 
-Drift-owned MCP definitions and execution decisions are global. They live in Drift's
-native SQLite store and are not attached to a workspace or session. Workspace directory
-is used only to locate the effective OpenCode report produced for that directory.
+The engine runs MCP servers itself (`crates/drift-engine/src/mcp`, on `rmcp`). Settings > MCP
+manages them; every change goes through the engine's `/mcp` routes, so the desktop window and
+a remote device see the same servers.
 
-## Trust boundary
+## Servers
 
-The Tauri shell materializes a generated OpenCode config under Drift's application data
-directory. It references the read-only bundled `mcp-approval` plugin, a generation-matched
-policy, and Drift-owned definitions. The vendored OpenCode tree remains unchanged; the
-small `mcp-approval-guard.patch` overlay makes the plugin's final-config seal mandatory
-before instance initialization when `DRIFT_MCP_APPROVAL_REQUIRED=1`.
+- Each server is a row in `drift.db` (`mcp_config`): its name, its definition, whether it is
+  on, and whether read-only agents may use its tools. A project's files can never add one.
+- Transports: stdio (a command with arguments, environment variables and an optional working
+  folder), streamable HTTP, and the deprecated HTTP with server-sent events. A remote server
+  that answers in the 2026-07-28 stateless protocol is found by probing; the handshake is the
+  fallback. Each row shows the transport and, once connected, the protocol version and mode.
+- Environment variable and header values are secrets. They go into the engine and never come
+  out: the API and its events carry the names only, and a save that sends a name without a
+  value keeps the saved one.
+- A remote server that asks for OAuth is signed in from its row; the token is kept in the
+  operating system's credential store and renewed by the engine. A pre-registered OAuth app
+  (client id, secret, scopes) can be set in the server's edit sheet.
+- The row's switch turns a server on or off. The plug button connects or disconnects one
+  that is on without changing its setting, and stays in place, greyed out, while the server
+  is off. Saving a changed definition reconnects it.
+- A stdio server runs once per workspace, in that folder (unless it sets its own working folder),
+  with the folder as its root; it starts the first time a workspace needs it and keeps running
+  while any window or device has that workspace open. It stops when the workspace is removed, or
+  5 minutes after its last use once no window shows the workspace. Connecting from the manager starts it in
+  the active workspace, so open a workspace first. Disconnecting stops it everywhere until you
+  connect it again. A remote server has one connection for all workspaces.
 
-The plugin receives OpenCode's final merged and substituted config. It immediately
-replaces every MCP entry with the untyped `{ "enabled": false }`, computes canonical
-SHA-256 fingerprints for valid local and remote definitions, writes a secret-free report,
-and restores only exact approved fingerprints. The fingerprint covers the server name and
-every effective definition field except top-level `enabled`, including command arguments,
-URL, headers, environment, OAuth, timeout, cwd, and unknown effective fields. It does not
-include directory, so an identical definition is approved everywhere.
+## Tools, prompts and permissions
 
-Missing, malformed, stale, or unwritable policy/report state leaves all definitions
-disabled. Schema-valid typed definitions that fail Drift's stricter transport policy are
-reported as invalid and remain disabled without hiding valid definitions from the same
-merged config. The overlay also rejects a missing, mutable, or replaced gate, any MCP mutation
-after the approval hook, and all runtime `MCP.add()` calls in required mode. The sidecar is
-authenticated with a random password and binds explicitly to `127.0.0.1`. Server auth
-captures that password at listener-layer startup; bootstrap then removes it before config
-substitution, and the plugin removes it again before stdio MCP children can inherit it.
+- A server's tools reach the model as `<server>_<tool>`, in characters every provider takes,
+  and keep their names for the rest of the conversation once given.
+- A call runs without asking unless a rule for permission kind `mcp` (pattern
+  `<server>/<tool>`) says ask or deny; a tool a rule denies outright is never offered.
+- Read-only agents (plan, explore) may use a server's read-only tools only when the server is
+  trusted: the switch "Plan and Explore may use its read-only tools" in its edit sheet, on for
+  a new server. A server's own read-only mark is its claim; the trust is the user's. A call is
+  trusted only while its connection was opened from the definition saved now.
+- A server's prompts appear as slash commands named `<server>:<prompt>`, their arguments
+  filled word by word.
+- Instructions a server sends when it connects go into the system prompt, but only for a turn
+  that is offered that server's tools.
 
-OpenCode project and user plugins execute arbitrary code in the engine process. They are
-outside this trust boundary: the approval gate prevents accidental or API-level MCP
-bypass, not hostile code that can spawn processes or modify policy files directly.
+## Registry
 
-## Decisions
+The Registry tab lists GitHub's curated MCP servers, most popular first, with ranked search
+and the official registry's matches appended. Installing one fills an install sheet for its
+remote URL or its npx, uvx or docker command, asks for any value it needs first, and connects
+it; a server that asks for sign-in has its sign-in page opened at once.
 
-SQLite stores decisions by immutable fingerprint. Editing or removing a server does not
-delete old decisions: returning to an old exact definition restores its approval or
-rejection. Rejection keeps execution disabled and lets clients suppress repeated prompts.
-Revocation deletes only the exact fingerprint decision.
+## Coming from Drift 1.3
 
-Approve, reject, and revoke require the current generation and an exact name/fingerprint
-match. Drift uses the report for the requested directory when present; a stale, malformed,
-or unreadable report is an error, not a reason to fall back. Only a missing report uses
-configured definitions from Drift's registry and candidate config files across tracked
-workspaces and global roots. This fallback keeps the first definition per name, with
-registry entries first, and looks up decisions by fingerprint. It does not reproduce
-OpenCode's config merging or variable substitution.
-
-Approve/reject require `decision: "pending"`; revoke requires an approved or rejected entry.
-There is no name-only approval. The plugin still validates and fingerprints the effective
-definition, so a fallback approval cannot authorize a different merged or substituted definition.
-
-## Reload protocol
-
-Registry mutations, approval decisions, and detected external config changes share one
-serialized protocol:
-
-1. Atomically publish an empty next-generation policy and clear reports.
-2. Call `POST /global/mcp/reload` to invalidate global and per-instance config caches, then
-   close cached MCP clients and reap their stdio children without disposing engine instances.
-3. Commit the SQLite mutation or generation advance.
-4. Atomically replace generated config, then publish matching durable decisions.
-5. Mark the generation materialized and remove any fail-closed sentinel last. Subsequent
-   config/MCP access rebuilds the invalidated state and reruns the approval hook to write a fresh report.
-
-The reload invalidates state rather than eagerly reconnecting every server. Closing MCP
-connections can interrupt in-flight MCP calls, but does not dispose the sessions themselves.
-Skill changes still call `POST /global/dispose`; neither path restarts the sidecar process.
-External-editor saves/removals rewrite the matching config files first; the watcher then
-performs the generation advance and reload above.
-
-Generated files use same-directory temporary files and atomic replacement. Windows uses
-`MoveFileExW` with replace-existing and write-through flags; the destination is never
-deleted first. When the database has not changed, file recovery rematerializes its current
-state. A failed post-commit materialization restores the previous registry data under a
-fresh generation and rematerializes it. If recovery itself fails, Drift attempts every
-fail-closed step: write the independently checked `mcp-fail-closed.json` sentinel, invalidate
-the policy, clear reports, and invoke the same MCP-reload callback to stop active clients.
-This is not a separate instance-disposal path. Incomplete shutdown is reported as an error;
-successful materialization removes the sentinel last.
-
-The live watcher hashes a bounded, deterministic set of config files, files below relevant
-`.opencode/plugin` and `.opencode/plugins` directories, and `{file:...}` references found
-in config text even when those references point outside watched roots. Parseable config files
-are compared by canonical `mcp` and `plugin` content, so whitespace, comments, and unrelated
-settings alone do not trigger MCP reloads. Other watched files and configs that cannot be
-parsed within the size bound retain file signatures. A changed signature triggers the
-serialized protocol above.
-
-## Native API
-
-`mcp_snapshot(directory)` returns `{ generation, directory, servers, observed }`.
-`servers` are Drift-owned global definitions; `observed` contains only
-`name`, `type`, `fingerprint`, and `decision` from the effective-config report or the configured
-fallback described above.
-
-All writes use the snapshot generation:
-
-- `mcp_save(name, config, generation, previousName?)`
-- `mcp_remove(name, generation)`
-- `mcp_approve(directory, name, fingerprint, generation)`
-- `mcp_reject(directory, name, fingerprint, generation)`
-- `mcp_revoke(directory, name, fingerprint, generation)`
-
-After a successful registry/decision write or the `mcp-config-changed` event, refresh runtime
-metadata/status and fetch a new snapshot; do not dispose the instance to refresh MCPs.
-External-editor writes rely on the watcher to complete the reload. Browser-only development
-deliberately throws for all MCP registry operations because it cannot enforce the native policy boundary.
-
-## Runtime recovery
-
-An approved, enabled MCP connection that emits `client.onclose` is re-established with
-exponential backoff from 500 ms to a 30 second cap. Retries continue until the transport
-recovers, authentication becomes necessary, the user disconnects it, or the engine instance
-is disposed. Explicit disconnect increments the connection generation before closing the
-client, so that close event cannot revive a deliberately disabled server.
-
-Ordinary MCP tool, prompt, and resource errors do not enter this recovery path. They remain
-request failures while the client stays connected. OpenCode's existing one-shot expired HTTP
-session recovery also remains active beneath this transport-close recovery.
-
-While MCP management is visible, Drift refreshes runtime statuses every two seconds without
-invalidating the exact-definition snapshot. Concurrent polls share one request, outside the
-definition/mutation queue; workspace or configuration changes abort stale status requests.
-Startup waits for config bootstrap and its approval hook before reading definitions, not for
-every MCP transport to connect. Runtime status follows in the background, with a ten-second
-request timeout and a separate error/Retry state that does not lock valid definitions.
-Config bootstrap requests also have a ten-second timeout. These request limits do not change
-the engine's per-server connection or tool-execution timeouts. The workspace's core hydration
-does not wait for the MCP-dependent command catalog or the engine version check.
-Initial definition loading shows a status message
-and skeleton rows. Same-workspace refreshes and reconnects retain known definitions with
-actions disabled until the snapshot is validated. Failed refreshes retain those rows and
-offer Retry, rather than implying the configuration was deleted. Workspace switches still
-clear the previous workspace's rows immediately. The empty state requires a successful,
-settled snapshot. The standalone `/mcp` dialog initially focuses
-the Servers tab. Up/Down and Home/End move through servers, Left disconnects, Right connects
-or authenticates, and Enter runs the selected server's primary runtime action.
-
-## Validation
-
-An open editor can use a newer shared MCP generation when only other servers changed.
-External editors still require the same workspace, name, transport, fingerprint, and approval
-decision; stored editors require the same server revision and an available destination name.
-These checks run again inside the operation queue, and native generation/file checks remain
-in place. Runtime and approval actions retain their captured-generation checks.
-
-Drift preserves unknown fields while validating the complete current local and remote
-schema when saving. OpenCode validates external config before plugin hooks; files that fail
-that base schema surface an engine configuration error. After OpenCode merges valid external
-config, Drift applies stricter checks to local
-command/cwd/environment, remote URL/headers/OAuth, and shared enabled/timeout fields.
-Remote URLs may use HTTP or HTTPS. Other URL schemes remain invalid. Invalid effective
-transports remain disabled and produce a secret-free invalid observation alongside valid servers.
-Configuration objects are size-bounded and reject unsafe object-property names.
+Drift 1.3 ran MCP servers through opencode with an approval step. On first launch the importer
+brings those servers over, and opencode's own, once each: a server stays on only if it was
+enabled in opencode and approved in Drift's old approval step, matched by the exact
+fingerprint that step recorded, so nothing that was never allowed starts by itself.
