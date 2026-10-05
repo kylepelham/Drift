@@ -13,8 +13,6 @@
     "gen:engine": "bun scripts/gen-engine-client.ts",
     "bench:engine": "bun scripts/bench-engine.ts",
     "build:native": "bun scripts/release-policy.ts stamp-dev && tauri build --no-bundle",
-    "db:audit": "bun scripts/db-maintenance.ts --audit",
-    "db:prune": "bun scripts/db-maintenance.ts --prune",
     "package": "bun scripts/release-policy.ts stamp-dev && tauri build",
     "gates": "bun scripts/gates.ts",
     "test": "bun test --parallel=8 tests",

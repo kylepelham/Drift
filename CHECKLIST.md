@@ -204,7 +204,7 @@ change the plan there when a decision changes.
 - [x] Model-family base prompts chosen from the catalog entry (Codex/GPT, Claude, Gemini, default), Drift's own text; the shared worktree, `<system-reminder>` and final-answer rules in each (`shared.txt`, kept under any replacement)
 - [x] Delete the shell MCP runtime and Jev routing (with the legacy sidecar manager, the config watcher and `engine_db`; agent overrides now `prompts.rs`, the old approval fingerprint lives in the import, the orchestrator agent is a native built-in) (`mcp.rs`, `mcp_external.rs`, `tool_routing.rs`, their commands, remote gateway entries and watcher hook); the UI no longer calls any of them
 - [ ] i18n sweep: drop keys the native UI no longer uses from every locale (done so far: `drift.mcp.description`, `drift.mcp.authenticate`, `drift.settings.prompts.astraDescription`)
-- [ ] `DRIFT_*` env vars and `drift` data paths
+- [x] `DRIFT_*` env vars and `drift` data paths (the engine reads only `DRIFT_*` of its own; config in `~/.config/drift`, the app's data in its app data folder, `drift-engined` defaults to `~/.local/share/drift`; opencode names remain only where Drift reads opencode's data or speaks its protocols: the importer, the companion discovery probe, the ChatGPT sign-in originator)
 - [x] Delete `engine/*`, `@opencode-ai/sdk`, overlays, `build-engine.ts`, `build-extensions.ts` (with the sidecar binary, the opencode update workflow and its CI steps; sounds moved to `src/assets/audio`, opencode's license to `licenses/`; `bun run dev` runs the native engine only)
 - [x] Remote gateway collapses into the engine router (in process; the event socket closes when its device is signed out)
 - [ ] Docs rewritten for the new engine

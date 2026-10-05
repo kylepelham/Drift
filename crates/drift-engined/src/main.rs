@@ -13,9 +13,15 @@ struct Args {
     file_credentials: bool,
 }
 
+/// Where a headless engine keeps its data unless told: `$XDG_DATA_HOME/drift`, else `~/.local/share/drift`.
+fn default_data_dir() -> PathBuf {
+    let home = || drift_engine::config::home().map(|home| home.join(".local").join("share"));
+    std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(home).unwrap_or_else(std::env::temp_dir).join("drift")
+}
+
 fn parse() -> Result<Args, String> {
     let mut args = Args {
-        data_dir: std::env::temp_dir().join("drift-engined"),
+        data_dir: default_data_dir(),
         port: 0,
         openapi: false,
         file_credentials: false,
