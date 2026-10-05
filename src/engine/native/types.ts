@@ -1148,6 +1148,10 @@ export interface components {
             requestId: string;
             /** @enum {string} */
             type: "question.reply";
+        } | {
+            directory?: string | null;
+            /** @enum {string} */
+            type: "workspace.open";
         };
         Instruction: {
             name: string;

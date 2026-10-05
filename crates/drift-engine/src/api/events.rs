@@ -114,7 +114,23 @@ impl Client {
     }
 }
 
+/// Numbers each socket, so what it says it has open is its own and ends with it.
+static SOCKETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Forgets the workspace a socket had open once it closes, however it closes.
+struct Opened {
+    engine: Arc<Engine>,
+    socket: u64,
+}
+
+impl Drop for Opened {
+    fn drop(&mut self) {
+        self.engine.mcp.set_open(self.socket, None);
+    }
+}
+
 async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>, lease: tokio_util::sync::CancellationToken) {
+    let opened = Opened { engine: engine.clone(), socket: SOCKETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) };
     let attached = engine.hub.attach(cursor);
     let mut rx = attached.rx;
     let mut client = Client {
@@ -145,7 +161,7 @@ async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>, lease:
             },
             incoming = client.socket.recv() => match incoming {
                 Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return,
-                Some(Ok(Message::Text(text))) => handle(&engine, &text, &results),
+                Some(Ok(Message::Text(text))) => handle(&engine, opened.socket, &text, &results),
                 Some(Ok(_)) => {}
             },
         }
@@ -165,9 +181,12 @@ pub enum Incoming {
     /// Answers absent means the user declined. Its outcome comes back as `question.result`.
     #[serde(rename = "question.reply", rename_all = "camelCase")]
     QuestionReply { request_id: String, answers: Option<Vec<Vec<String>>> },
+    /// The workspace folder this client shows now, or none: its stdio MCP servers keep running while any client has it open.
+    #[serde(rename = "workspace.open", rename_all = "camelCase")]
+    WorkspaceOpen { directory: Option<String> },
 }
 
-fn handle(engine: &Arc<Engine>, text: &str, results: &mpsc::UnboundedSender<Control>) {
+fn handle(engine: &Arc<Engine>, socket: u64, text: &str, results: &mpsc::UnboundedSender<Control>) {
     let Ok(incoming) = serde_json::from_str::<Incoming>(text) else { return };
     match incoming {
         Incoming::PermissionReply { request_id, body } => {
@@ -180,6 +199,9 @@ fn handle(engine: &Arc<Engine>, text: &str, results: &mpsc::UnboundedSender<Cont
                 let error = engine.answer_question(&request_id, answers).await.err().map(|error| super::questions::answer_error(error).body);
                 let _ = results.send(Control::QuestionResult { request_id, ok: error.is_none(), error });
             });
+        }
+        Incoming::WorkspaceOpen { directory } => {
+            engine.mcp.set_open(socket, directory.map(|directory| crate::tool::canonical(std::path::Path::new(&directory))));
         }
     }
 }

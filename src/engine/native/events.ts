@@ -1,5 +1,5 @@
 // The event socket: tracks the last applied seq, resumes from it, and asks for a hydrate when it cannot.
-import type { Envelope, Frame, Target } from "./client"
+import type { Envelope, Frame, Incoming, Target } from "./client"
 
 export type EventHandlers = {
   /** Replace local state from HTTP. Events arriving meanwhile are held and applied after it resolves. */
@@ -10,7 +10,12 @@ export type EventHandlers = {
   resumed?(): void
 }
 
-export type EventStream = { close(): void; cursor(): number | undefined }
+export type EventStream = {
+  close(): void
+  cursor(): number | undefined
+  /** The workspace folder this client shows, said again on every reconnect: the engine keeps its MCP servers running while any client has it open. */
+  setOpenWorkspace(directory: string | null): void
+}
 
 const initialBackoffMs = 500
 const maxBackoffMs = 10_000
@@ -28,6 +33,11 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
   let wanted: number | undefined
   // Bumped when the engine instance changes; a hydrate from an older generation must not land.
   let generation = 0
+  let openWorkspace: string | null = null
+
+  const send = (message: Incoming) => {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
+  }
 
   const applyEvent = (envelope: Envelope) => {
     if (cursor !== undefined && envelope.seq <= cursor) return
@@ -101,6 +111,7 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
     socket = new WebSocket(`${base}/events?token=${target.token}${resume}`)
     socket.onopen = () => {
       backoff = initialBackoffMs
+      send({ type: "workspace.open", directory: openWorkspace })
       handlers.online?.(true)
     }
     socket.onmessage = (message) => apply(JSON.parse(String(message.data)) as Frame)
@@ -121,5 +132,9 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
       socket?.close()
     },
     cursor: () => cursor,
+    setOpenWorkspace(directory) {
+      openWorkspace = directory
+      send({ type: "workspace.open", directory })
+    },
   }
 }

@@ -468,8 +468,8 @@ const PROBE_WAIT: Duration = Duration::from_secs(10);
 pub const READY_WAIT: Duration = Duration::from_secs(2);
 /// Why a stdio server cannot connect with no workspace to run in.
 pub const NEEDS_WORKSPACE: &str = "a stdio server runs in a workspace; open one and connect it there";
-/// How long a workspace's stdio server may go unused before it stops; the next turn there starts it again.
-pub const IDLE: Duration = Duration::from_secs(10 * 60);
+/// How long a stdio server of a workspace no client has open may go unused before it stops; the next use starts it again.
+pub const IDLE: Duration = Duration::from_secs(5 * 60);
 /// How often idle servers are looked for.
 const IDLE_SWEEP: Duration = Duration::from_secs(60);
 /// How long a read-only call cut off by a lost connection waits for the reconnect before giving up.
@@ -586,6 +586,8 @@ pub struct Servers {
     settled: tokio::sync::Notify,
     /// Where remote servers' sign-ins are kept; none in a bare test registry.
     sign_ins: Option<Arc<crate::llm::credentials::Credentials>>,
+    /// The workspace each connected client (window or device) has open, by socket; their servers never stop for idleness.
+    open: Mutex<HashMap<u64, PathBuf>>,
 }
 
 enum Watch {
@@ -792,9 +794,23 @@ impl Servers {
         }
     }
 
-    /// Stops each workspace's connection no turn, call or workspace has used for `limit`; a remote server's shared one stays.
+    /// What workspace a client's socket has open now, or none; it is forgotten when the socket closes.
+    pub fn set_open(&self, socket: u64, workspace: Option<PathBuf>) {
+        let mut open = self.open.lock().unwrap();
+        match workspace {
+            Some(workspace) => open.insert(socket, workspace),
+            None => open.remove(&socket),
+        };
+    }
+
+    pub(crate) fn is_open(&self, workspace: &Path) -> bool {
+        self.open.lock().unwrap().values().any(|open| open == workspace)
+    }
+
+    /// Stops each workspace's connection that no client has open and nothing has used for `limit`,
+    /// as opencode keeps a project's servers while the project is open; a remote server's shared one stays.
     pub fn stop_idle(&self, limit: Duration, store: &Store, hub: &Hub) {
-        let idle: Vec<Key> = self.lock().servers.iter().filter(|(key, slot)| key.workspace.is_some() && slot.idle_for(limit)).map(|(key, _)| key.clone()).collect();
+        let idle: Vec<Key> = self.lock().servers.iter().filter(|(key, slot)| key.workspace.as_deref().is_some_and(|workspace| !self.is_open(workspace)) && slot.idle_for(limit)).map(|(key, _)| key.clone()).collect();
         for key in idle {
             self.stop(&key, store, hub);
         }

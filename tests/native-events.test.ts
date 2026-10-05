@@ -8,6 +8,7 @@ type Socket = { send(text: string): void; close(): void }
 function fakeEngine() {
   const cursors: (string | null)[] = []
   const sockets: Socket[] = []
+  const received: unknown[] = []
   const server = Bun.serve<{ cursor: string | null }, {}>({
     port: 0,
     fetch(request, server) {
@@ -20,12 +21,15 @@ function fakeEngine() {
         cursors.push(ws.data.cursor)
         sockets.push(ws)
       },
-      message() {},
+      message(_, text) {
+        received.push(JSON.parse(String(text)))
+      },
     },
   })
   return {
     target: { url: `http://127.0.0.1:${server.port}`, token: "t" },
     cursors,
+    received,
     latest: () => sockets[sockets.length - 1],
     send: (frame: Frame) => sockets[sockets.length - 1].send(JSON.stringify(frame)),
     hello: (seq: number, instance = "one") => sockets[sockets.length - 1].send(JSON.stringify({ type: "hello", version: "0", instance, seq })),
@@ -253,4 +257,21 @@ test("closing during hydration drops the held events", async () => {
   finish()
   await new Promise((resolve) => setTimeout(resolve, 30))
   expect(seen).toEqual([])
+})
+
+test("the open workspace is told to the engine at once, on each change and again after a reconnect", async () => {
+  const engine = fakeEngine()
+  const stream = connectEvents(engine.target, { hydrate: () => {}, event: () => {} })
+  stops.push(engine.stop, stream.close)
+  stream.setOpenWorkspace("C:/one")
+  await until(() => engine.cursors.length === 1)
+  await until(() => engine.received.length === 1)
+  expect(engine.received[0]).toEqual({ type: "workspace.open", directory: "C:/one" })
+  stream.setOpenWorkspace("C:/two")
+  await until(() => engine.received.length === 2)
+  expect(engine.received[1]).toEqual({ type: "workspace.open", directory: "C:/two" })
+  engine.latest().close()
+  await until(() => engine.cursors.length === 2)
+  await until(() => engine.received.length === 3)
+  expect(engine.received[2], "a new socket starts with nothing open").toEqual({ type: "workspace.open", directory: "C:/two" })
 })

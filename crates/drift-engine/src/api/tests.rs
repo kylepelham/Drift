@@ -672,3 +672,29 @@ async fn a_socket_a_host_leases_closes_when_the_lease_is_cancelled() {
     .await;
     assert!(ended.is_ok(), "the socket closed once the host took the lease back");
 }
+#[tokio::test]
+async fn a_workspace_a_client_has_open_keeps_its_mcp_servers_until_its_socket_closes() {
+    use futures_util::SinkExt;
+    let h = harness().await;
+    let dir = h._dir.0.join("open-ws");
+    std::fs::create_dir_all(&dir).unwrap();
+    let here = crate::tool::canonical(&dir);
+    let mut socket = h.ws("").await;
+    socket.send(Message::Text(json!({ "type": "workspace.open", "directory": dir }).to_string().into())).await.unwrap();
+    for _ in 0..100 {
+        if h.engine.mcp.is_open(&here) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(h.engine.mcp.is_open(&here), "the socket's workspace is open");
+    socket.send(Message::Close(None)).await.unwrap();
+    drop(socket);
+    for _ in 0..100 {
+        if !h.engine.mcp.is_open(&here) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(!h.engine.mcp.is_open(&here), "and no longer once the socket closes");
+}

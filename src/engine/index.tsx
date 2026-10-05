@@ -110,6 +110,7 @@ export function EngineProvider(props: ParentProps) {
         if (state.connection === "offline") set("connection", "online")
       },
     })
+    events.setOpenWorkspace(directory)
   }
 
   async function start() {
@@ -143,6 +144,7 @@ export function EngineProvider(props: ParentProps) {
   function applyDirectory(path: string | null) {
     directory = path
     set("directory", path ?? "")
+    events?.setOpenWorkspace(path)
     if (!path) return
     if (client && state.connection === "online") {
       if (!listed.has(path)) {

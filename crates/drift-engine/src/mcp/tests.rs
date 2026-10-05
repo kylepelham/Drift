@@ -1055,7 +1055,7 @@ async fn a_stdio_server_runs_in_each_workspace_that_uses_it_and_is_told_it_as_it
     }
 }
 #[tokio::test]
-async fn a_workspace_never_borrows_another_place_s_stdio_connection_and_one_left_idle_or_removed_stops() {
+async fn a_workspace_never_borrows_another_place_s_stdio_connection_and_one_closed_and_idle_or_removed_stops() {
     let engine = engine();
     saved(&engine, "echo", &echo_config()).await;
     assert_eq!(engine.connect_mcp("echo").await, Err(NEEDS_WORKSPACE.into()), "no shared stdio connection, where Drift runs");
@@ -1066,8 +1066,13 @@ async fn a_workspace_never_borrows_another_place_s_stdio_connection_and_one_left
     engine.mcp.stop_idle(std::time::Duration::from_secs(60), &engine.store, &engine.hub);
     assert!(!engine.mcp.tools(&engine.store, Some(&here())).is_empty(), "just used, so kept");
     tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    engine.mcp.set_open(7, Some(here()));
     engine.mcp.stop_idle(std::time::Duration::from_millis(100), &engine.store, &engine.hub);
-    assert!(engine.mcp.tools(&engine.store, Some(&here())).is_empty(), "left idle, it stopped");
+    assert!(!engine.mcp.tools(&engine.store, Some(&here())).is_empty(), "a workspace a client has open keeps its servers however long unused");
+    engine.mcp.set_open(7, None);
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    engine.mcp.stop_idle(std::time::Duration::from_millis(100), &engine.store, &engine.hub);
+    assert!(engine.mcp.tools(&engine.store, Some(&here())).is_empty(), "closed everywhere and left idle, it stopped");
     assert_eq!(engine.mcp.status_of(engine.store.mcp_server("echo").unwrap().unwrap()).state, State::Disconnected);
     engine.start_workspace_mcp(&here());
     until("started again by the next use", || engine.mcp.lock().live(&Key::of("echo", Some(&here()))).is_some()).await;
