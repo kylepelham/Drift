@@ -129,7 +129,7 @@ change the plan there when a decision changes.
 - [x] MCP manager, registry installs and approval prompts on the native `/mcp` authority only; editor limited to fields the engine runs
 - [x] Agent Settings apply what they show: overrides carry prompt, model, steps and tools (applied natively), any other field refused; editor projects the native agent
 - [x] Model-family prompt editor states it is not applied and is read-only (no native family prompts)
-- [ ] Native base-prompt override (global or per model family) so the Prompts editor can save again
+- [x] Native base-prompt override (global or per model family) so the Prompts editor can save again (`/prompts`; a family's own wins over All models; the shared rules always follow)
 - [ ] Permission rules editor in Settings: list, add, reorder and delete the global rules (kind, pattern, allow/ask/deny), and the workspace's "always" grants with a way to revoke them
 - [x] Archive and restore (sidebar, `/archive`, Archive dialog) archive in the engine first, with its Stop, then update the shell record
 - [x] Bounded fork reachable (Fork from here on a finished reply); a resent prompt keeps its submission id until the engine answers for sure

@@ -577,3 +577,45 @@ async fn tasks_are_listed_read_and_stopped_and_background_can_be_turned_off() {
     assert_eq!((kept["autoCompact"].as_bool(), kept["backgroundTasks"].as_bool()), (Some(false), Some(false)), "left out, it stays");
 }
 
+
+#[tokio::test]
+async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_rules_stay() {
+    use crate::llm::scripted::Scripted;
+    use crate::llm::{Chunk, Provider, StopReason};
+    let h = harness().await;
+    let provider = Scripted::default();
+    let reply = || vec![Chunk::TextStart, Chunk::TextDelta("ok".into()), Chunk::BlockStop, Chunk::Stop(StopReason::EndTurn)];
+    provider.push(reply()).push(reply()).push(reply());
+    *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider.clone()));
+    h.put("/providers/anthropic/key").json(&json!({ "key": "k" })).send().await.unwrap();
+    let (_, session_id) = session_with_model(&h).await;
+    let listed: Value = h.get("/prompts").send().await.unwrap().json().await.unwrap();
+    let ids: Vec<&str> = listed["prompts"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["all", "codex", "claude", "gemini", "default"]);
+    assert!(listed["prompts"][2]["default"].as_str().unwrap().starts_with("You are Drift") && listed["shared"].as_str().unwrap().contains("<system-reminder>"));
+    let turn = |text: &'static str| {
+        let h = &h;
+        let session_id = session_id.clone();
+        async move {
+            h.post(&format!("/sessions/{session_id}/turns")).json(&json!({ "parts": [{ "type": "text", "text": text }] })).send().await.unwrap();
+            for _ in 0..200 {
+                if !h.engine.turns.is_running(&session_id) { break }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }
+    };
+    let system = |n: usize| provider.requests.lock().unwrap()[n].system.clone();
+    assert_eq!(h.put("/prompts/all").json(&json!({ "text": "Every model works my way." })).send().await.unwrap().status(), 200);
+    turn("one").await;
+    assert!(system(0).starts_with("Every model works my way.\n\n# Tools") && system(0).contains("<system-reminder>"), "{}", system(0));
+    h.put("/prompts/claude").json(&json!({ "text": "Claude works this way." })).send().await.unwrap();
+    turn("two").await;
+    assert!(system(1).starts_with("Claude works this way."), "a family's own wins over the one for every model");
+    let reset: Value = h.delete("/prompts/claude").send().await.unwrap().json().await.unwrap();
+    assert!(reset["prompts"][2].get("custom").is_none());
+    h.delete("/prompts/all").send().await.unwrap();
+    turn("three").await;
+    assert!(system(2).starts_with("You are Drift"), "reset, Drift's own is back");
+    assert_eq!(h.put("/prompts/claude").json(&json!({ "text": "  " })).send().await.unwrap().status(), 400);
+    assert_eq!(h.put("/prompts/nope").json(&json!({ "text": "x" })).send().await.unwrap().status(), 404);
+}

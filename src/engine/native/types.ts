@@ -181,6 +181,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/prompts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listBasePrompts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/prompts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces base prompt `id` from the next turn on; the shared rules still follow it. */
+        put: operations["saveBasePrompt"];
+        post?: never;
+        /** Goes back to Drift's text for `id` (or, for a family, to the `all` replacement when there is one). */
+        delete: operations["resetBasePrompt"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers": {
         parameters: {
             query?: never;
@@ -792,6 +826,19 @@ export interface components {
              */
             writes?: string[];
         };
+        BasePrompt: {
+            /** @description The user's replacement, when there is one. */
+            custom?: string | null;
+            /** @description Drift's text; empty for `all`, which has none of its own. */
+            default: string;
+            /** @description `all` (every model, unless its family has its own) or a family: `codex`, `claude`, `gemini`, `default`. */
+            id: string;
+        };
+        BasePrompts: {
+            prompts: components["schemas"]["BasePrompt"][];
+            /** @description Follows every base prompt, Drift's or the user's, and cannot be replaced: tools, `<system-reminder>`, the worktree, the answer's shape. */
+            shared: string;
+        };
         /** @description A check is a command over files with the given extensions; `$FILE` runs it once per written file, without it once per call. */
         CheckConfig: boolean | {
             command: string[];
@@ -1288,6 +1335,9 @@ export interface components {
             submissionId?: string | null;
             /** @description The model's reasoning level by variant name: absent keeps the session's, null asks for the model's default. */
             variant?: string | null;
+        };
+        PromptBody: {
+            text: string;
         };
         /**
          * @description Which base prompt a model gets, the one written for how its family works; decided here and nowhere else.
@@ -1969,6 +2019,89 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listBasePrompts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BasePrompts"];
+                };
+            };
+        };
+    };
+    saveBasePrompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PromptBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BasePrompts"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    resetBasePrompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BasePrompts"];
+                };
             };
             404: {
                 headers: {

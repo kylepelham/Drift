@@ -7,6 +7,7 @@ mod events;
 mod health;
 mod mcp;
 mod permissions;
+mod prompts;
 mod providers;
 mod questions;
 mod sessions;
@@ -51,6 +52,8 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::revert))
         .routes(routes!(sessions::unrevert))
         .routes(routes!(settings::get, settings::put))
+        .routes(routes!(prompts::list))
+        .routes(routes!(prompts::save, prompts::reset))
         .routes(routes!(providers::list))
         .routes(routes!(providers::set_key))
         .routes(routes!(providers::remove))

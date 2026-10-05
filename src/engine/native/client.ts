@@ -88,6 +88,9 @@ export function createClient(target: Target) {
     unrevertSession: (id: string) => request<Json<"unrevertSession", 200>>("POST", `/sessions/${id}/unrevert`),
     settings: () => request<Json<"getSettings", 200>>("GET", "/settings"),
     putSettings: (body: components["schemas"]["EngineSettings"]) => request<Json<"putSettings", 200>>("PUT", "/settings", body),
+    basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),
+    saveBasePrompt: (id: string, text: string) => request<Json<"saveBasePrompt", 200>>("PUT", `/prompts/${id}`, { text }),
+    resetBasePrompt: (id: string) => request<Json<"resetBasePrompt", 200>>("DELETE", `/prompts/${id}`),
     session: (id: string) => request<Json<"getSession", 200>>("GET", `/sessions/${id}`),
     updateSession: (id: string, body: components["schemas"]["PatchSession"]) =>
       request<Json<"updateSession", 200>>("PATCH", `/sessions/${id}`, body),

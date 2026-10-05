@@ -70,20 +70,21 @@ test("selected language dictionaries translate settings without loading every lo
 test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
   expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents"]')
-  expect(source).toContain('<PromptEditorSection view="prompts" />')
-  expect(source).toContain('<PromptEditorSection view="agents" />')
+  expect(source).toContain("<BasePromptsSection />")
+  expect(source).toContain("<PromptEditorSection />")
   expect(source).toContain('"text-ink-faint": !agentPromptModified()')
   expect(source).toContain('"text-ink-faint": !agentBehaviorModified()')
   expect(source).toContain("disabled={props.disabled || !props.dirty}")
-  expect(source).toContain('GPT-6 (Astra): {t("drift.settings.prompts.upstreamOriginal")}')
-  expect(source).toContain("{variant.original}")
 })
 
-test("model-family prompts say they are not applied and cannot be saved", async () => {
-  const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain('t("drift.settings.prompts.familyUnavailable")')
-  expect(source).not.toContain("savePromptOverride(`family:")
-  expect(source).toMatch(/<textarea\s+readOnly\s+aria-label=\{t\("drift\.settings\.prompts\.systemPrompt"\)\}/)
+test("model-family base prompts are edited and reset in the engine, never through the shell's family overrides", async () => {
+  const settings = await Bun.file("src/ui/settings.tsx").text()
+  const editor = await Bun.file("src/ui/settings-base-prompts.tsx").text()
+  expect(editor).toContain("engine.actions.saveBasePrompt(selected(), draft())")
+  expect(editor).toContain("engine.actions.resetBasePrompt(selected())")
+  expect(editor).not.toContain("readOnly")
+  expect(settings).not.toContain("`family:")
+  expect(settings).not.toContain("familyUnavailable")
 })
 
 test("settings search covers every category and finds feature descriptions", async () => {
@@ -154,7 +155,7 @@ test("prompt saves and resets publish a runtime reload for desktop and companion
   expect(commands).toContain("reload_engine_config(app).map_err")
   expect(commands).toContain("Settings saved, but the engine reload failed.")
   const ui = await Bun.file("src/ui/settings.tsx").text()
-  expect(ui).toContain('if (props.view === "agents") await engine.actions.refreshAgents()')
+  expect(ui).toContain("await action()\n      await engine.actions.refreshAgents()")
   expect(ui).toContain('t("drift.settings.prompts.saved")')
   expect(ui).not.toContain("showRestartNotice")
 })
@@ -169,7 +170,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 const pendingTranslation = new Set([
   ...pendingKeys("drift.thread", "openSubagent"),
   ...pendingKeys("drift.settings.autoCompact", "title description"),
-  ...pendingKeys("drift.settings.prompts", "behaviorFields behaviorRefused familyUnavailable"),
+  ...pendingKeys("drift.settings.prompts", "behaviorFields behaviorRefused"),
   "drift.message.forkHere",
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   "drift.markdown.linkFailed",
@@ -256,7 +257,7 @@ const pendingTranslation = new Set([
     "drift.settings.prompts",
     `
       agentDescription agentPrompt agents behavior familyDescription inheritsFamily invalidJson
-      modelFamilies saved saveBeforeSwitch systemPrompt upstreamOriginal
+      modelFamilies saved saveBeforeSwitch systemPrompt
     `,
   ),
   "drift.settings.prompts",
@@ -300,6 +301,8 @@ const invariantTranslation = new Set([
   "drift.attachment.kind.pdf",
   "drift.notification.threadError",
   "drift.settings.section",
+  "drift.settings.prompts.family.claude",
+  "drift.settings.prompts.family.gemini",
 ])
 
 type Catalog = { dict: Record<string, string>; drift: Record<string, string> }

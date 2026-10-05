@@ -142,6 +142,7 @@ import { Toggle } from "./controls"
 import { ProviderIcon } from "./provider-icon"
 import { authorizationPrompt } from "../engine/provider-auth"
 import { Picker } from "./picker"
+import { BasePromptsSection } from "./settings-base-prompts"
 import { Chevron } from "./controls"
 import { playAlertSound, soundOptions } from "./sounds"
 
@@ -279,8 +280,8 @@ const settingsSearchDefinitions = {
   ],
   Prompts: [
     { title: "drift.settings.prompts.modelFamilies", description: "drift.settings.prompts.familyDescription" },
-    { title: "drift.settings.prompts.systemPrompt" },
-    { title: "drift.settings.prompts.upstreamOriginal" },
+    { title: "drift.settings.prompts.systemPrompt", description: "drift.settings.prompts.allDescription" },
+    { title: "drift.settings.prompts.sharedRules", description: "drift.settings.prompts.sharedDescription" },
   ],
   Agents: [
     { title: "drift.settings.prompts.agents", description: "drift.settings.prompts.agentDescription" },
@@ -538,10 +539,10 @@ function SettingsModal(props: { onClose: () => void }) {
                     <KeybindsSection />
                   </Match>
                   <Match when={section() === "Prompts"}>
-                    <PromptEditorSection view="prompts" />
+                    <BasePromptsSection />
                   </Match>
                   <Match when={section() === "Agents"}>
-                    <PromptEditorSection view="agents" />
+                    <PromptEditorSection />
                   </Match>
                   <Match when={section() === "Storage"}>
                     <StorageSection />
@@ -1537,11 +1538,9 @@ function KeybindsSection() {
   )
 }
 
-function PromptEditorSection(props: { view: "prompts" | "agents" }) {
+function PromptEditorSection() {
   const engine = useEngine()
   const [snapshot, setSnapshot] = createSignal<PromptSnapshot | null>(null)
-  const [familyID, setFamilyID] = createSignal("gpt")
-  const [familyPrompt, setFamilyPrompt] = createSignal("")
   const [agentName, setAgentName] = createSignal("build")
   const [agentPrompt, setAgentPrompt] = createSignal("")
   const [agentBehavior, setAgentBehavior] = createSignal("{}")
@@ -1551,7 +1550,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
   const [error, setError] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   const override = (key: string) => snapshot()?.overrides.find((item) => item.key === key)
-  const familyOverridden = () => !!override(`family:${familyID()}`)
   const agentOverridden = () => !!override(`agent:${agentName()}`)
   const agentDirty = () => agentPrompt() !== agentPromptBaseline() || agentBehavior() !== agentBehaviorBaseline()
   const agentOverrideFields = () => {
@@ -1594,12 +1592,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
 
   onMount(() => void load())
 
-  createEffect(() => {
-    const family = snapshot()?.catalog.families.find((item) => item.id === familyID())
-    const value = override(`family:${familyID()}`)?.value
-    setFamilyPrompt(typeof value === "string" ? value : (family?.default ?? ""))
-  })
-
   // Splits a resolved agent config into the two editors: the prompt gets its own textarea, every
   // other field is edited as raw JSON. Both editors reset their baseline so nothing reads as dirty.
   function loadAgentEditors(config: ReturnType<typeof agentConfig>) {
@@ -1628,7 +1620,7 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
     setShowSavedNotice(false)
     try {
       await action()
-      if (props.view === "agents") await engine.actions.refreshAgents()
+      await engine.actions.refreshAgents()
       clean()
       await load()
       setShowSavedNotice(true)
@@ -1680,11 +1672,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
     })
   }
 
-  /** Clears a family override saved before the engine stopped reading them. */
-  function resetFamily() {
-    void mutate(() => resetPromptOverride(`family:${familyID()}`), () => undefined)
-  }
-
   function resetAgent() {
     const key = `agent:${agentName()}`
     if (override(key)) {
@@ -1706,64 +1693,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
           </Show>
         }
       >
-        {(data) => (
-          <>
-            <Show when={props.view === "prompts"}>
-              <SettingsGroup title={t("drift.settings.prompts.modelFamilies")}>
-              <div class="space-y-3 py-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="text-xs text-ink-faint">{t("drift.settings.prompts.familyDescription")}</div>
-                  <Picker
-                    label={t("drift.settings.prompts.modelFamilies")}
-                    items={data().catalog.families.map((family) => ({ id: family.id, label: familyLabel(family.id) }))}
-                    selected={familyID()}
-                    floating bordered chevronAtEnd placement="below" width="11rem"
-                    onPick={setFamilyID}
-                  />
-                </div>
-                {/* The engine sends one base prompt to every model; until it reads family prompts, editing one would change nothing. */}
-                <p role="note" class="rounded-md border border-warn/35 bg-warn/10 px-3 py-2 text-xs text-warn">
-                  {t("drift.settings.prompts.familyUnavailable")}
-                </p>
-                <textarea
-                  readOnly
-                  aria-label={t("drift.settings.prompts.systemPrompt")}
-                  class="h-64 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed text-ink-faint outline-none"
-                  spellcheck={false}
-                  value={familyPrompt()}
-                />
-                <details class="text-xs text-ink-faint">
-                  <summary class="cursor-pointer select-none">{t("drift.settings.prompts.upstreamOriginal")}</summary>
-                  <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-bg/40 p-3 font-mono text-[0.68rem] leading-relaxed">
-                    {data().catalog.families.find((item) => item.id === familyID())?.original}
-                  </pre>
-                </details>
-                <For each={data().catalog.families.find((item) => item.id === familyID())?.variants}>
-                  {(variant) => (
-                    <details class="text-xs text-ink-faint">
-                      <summary class="cursor-pointer select-none">GPT-6 (Astra): {t("drift.settings.prompts.upstreamOriginal")}</summary>
-                      <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-bg/40 p-3 font-mono text-[0.68rem] leading-relaxed">
-                        {variant.original}
-                      </pre>
-                    </details>
-                  )}
-                </For>
-                <Show when={familyOverridden()}>
-                  <div class="flex justify-end">
-                    <button
-                      class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-                      disabled={saving()}
-                      onClick={resetFamily}
-                    >
-                      {t("common.reset")}
-                    </button>
-                  </div>
-                </Show>
-              </div>
-              </SettingsGroup>
-            </Show>
-
-            <Show when={props.view === "agents"}>
               <SettingsGroup title={t("drift.settings.prompts.agents")}>
               <div class="space-y-3 py-3">
                 <div class="flex items-center justify-between gap-3">
@@ -1832,9 +1761,6 @@ function PromptEditorSection(props: { view: "prompts" | "agents" }) {
                 />
               </div>
               </SettingsGroup>
-            </Show>
-          </>
-        )}
       </Show>
       <Show when={showSavedNotice()}>
         <div class="text-xs text-accent">{t("drift.settings.prompts.saved")}</div>
@@ -1871,21 +1797,6 @@ function PromptActions(props: {
       </button>
     </div>
   )
-}
-
-function familyLabel(id: string) {
-  const labels: Record<string, string> = {
-    meta: "Meta Muse",
-    beast: "GPT-4 / o1 / o3",
-    codex: "GPT Codex",
-    gpt: "GPT",
-    gemini: "Gemini",
-    anthropic: "Claude",
-    trinity: "Trinity",
-    kimi: "Kimi",
-    default: "Default",
-  }
-  return labels[id] ?? id
 }
 
 /** The agent as the engine runs it, in the fields Settings can change: nothing shown here goes unapplied. */

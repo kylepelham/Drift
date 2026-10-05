@@ -636,6 +636,9 @@ export function createActions(
     summarize,
     engineSettings,
     setAutoCompact,
+    basePrompts: () => requireClient().basePrompts(),
+    saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
+    resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),
     share: async (..._args: unknown[]): Promise<string | undefined> => {
       unavailable("Sharing")
       return undefined

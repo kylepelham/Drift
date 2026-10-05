@@ -9,6 +9,24 @@ use crate::llm::catalog::PromptFamily;
 /// The rules every family's prompt keeps, whatever replaces the rest: tools, `<system-reminder>`, the worktree, the answer's shape.
 const SHARED: &str = include_str!("prompts/shared.txt");
 
+pub fn shared_rules() -> &'static str {
+    SHARED.trim()
+}
+
+/// The id of the user's replacement for every model's base prompt; a family's own replacement wins over it.
+pub const ALL_MODELS: &str = "all";
+
+/// Where the user's replacement for base prompt `id` (`all` or a family) is kept.
+pub fn custom_key(id: &str) -> String {
+    format!("basePrompt:{id}")
+}
+
+/// What a turn on a `family` model starts with: the user's text for that family, else theirs for every model, else Drift's.
+pub fn base_for(store: &crate::store::Store, family: PromptFamily) -> std::borrow::Cow<'static, str> {
+    let custom = |id: &str| store.setting::<String>(&custom_key(id)).ok().flatten().filter(|text| !text.trim().is_empty());
+    custom(family.as_str()).or_else(|| custom(ALL_MODELS)).map_or(family_prompt(family).into(), Into::into)
+}
+
 /// Who the model is and how it works, written for its family (`Model::prompt`).
 pub fn family_prompt(family: PromptFamily) -> &'static str {
     match family {
