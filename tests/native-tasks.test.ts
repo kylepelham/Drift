@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import type { ToolPart } from "../src/engine/shapes"
 import { createActions } from "../src/engine/actions"
 import type { Client, TaskRecord } from "../src/engine/native/client"
-import { createEngineState, mergeTasks, putTasks } from "../src/engine/store"
+import { createEngineState, mergeTasks, putTasks, taskForWorker, taskTiming } from "../src/engine/store"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", { value: { getItem: () => null, setItem: () => undefined } })
@@ -85,6 +85,34 @@ test("a running foreground call is matched to its task by call id before its met
   const running = { ...receipt("f"), state: { status: "running", input: {}, time: { start: 1 } } } as ToolPart
   putTasks(set, state, "parent", [task("f", { mode: "foreground", state: "running" })])
   expect(delegatedTaskStatus(state, running, "worker_f")).toBe("running")
+})
+
+test("a background call is marked as one, by its record or before that by what it asked", async () => {
+  const { backgroundRun } = await import("../src/ui/parts")
+  const [state, set] = createEngineState()
+  const launched = { ...receipt("a"), state: { status: "running", input: { run_in_background: true }, time: { start: 1 } } } as ToolPart
+  expect(backgroundRun(state, launched)).toEqual({ task: undefined })
+  expect(backgroundRun(state, receipt("a"))).toEqual({ task: undefined })
+  putTasks(set, state, "parent", [task("a")])
+  expect(backgroundRun(state, receipt("a"))?.task?.id).toBe("a")
+  // Background turned off in Settings runs it in the foreground whatever the call asked; the record says so.
+  putTasks(set, state, "parent", [task("f", { mode: "foreground" })])
+  expect(backgroundRun(state, { ...receipt("f"), state: { ...receipt("f").state, input: { run_in_background: true } } } as ToolPart)).toBeNull()
+  expect(backgroundRun(state, { ...receipt("x"), tool: "read" })).toBeNull()
+})
+
+test("a background row times its worker, not the instant its launch returned", () => {
+  expect(taskTiming(task("a", { createdAt: 1_000 }))).toEqual({ status: "running", time: { start: 1_000, end: undefined } })
+  expect(taskTiming(task("a", { createdAt: 1_000, state: "replied", finishedAt: 61_000 }))).toEqual({ status: "completed", time: { start: 1_000, end: 61_000 } })
+})
+
+test("a worker's sidebar row finds its newest task through its parent", () => {
+  const [state, set] = createEngineState()
+  set("sessions", "worker_a", { id: "worker_a", parentID: "parent" } as never)
+  expect(taskForWorker(state, "worker_a")).toBeUndefined()
+  putTasks(set, state, "parent", [task("a", { mode: "foreground", createdAt: 1 }), task("b", { sessionId: "worker_a", createdAt: 2 })])
+  expect(taskForWorker(state, "worker_a")?.mode).toBe("background")
+  expect(taskForWorker(state, "unknown")).toBeUndefined()
 })
 
 test("the dock lists background workers while any is going or owed, and never foreground ones", async () => {

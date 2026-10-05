@@ -13,8 +13,9 @@ import { classifyMarkdownLink } from "./markdown-links"
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code"
 import { TextShimmer } from "./text-shimmer"
 import { openToolContextMenu } from "./tool-context-menu"
-import { childrenOf, taskActive, taskForCall, type EngineState } from "../engine/store"
+import { childrenOf, taskActive, taskForCall, taskTiming, type EngineState } from "../engine/store"
 import { ToolDuration } from "./tool-duration"
+import { BackgroundTag } from "./task-dock"
 import { resolveAttachmentKind } from "../attachments"
 import { resolveFileLanguage } from "../syntax-language"
 import { citationFileGroups } from "./citation-files"
@@ -565,6 +566,12 @@ export function ToolView(props: { part: ToolPart }) {
     const childId = spawnedId()
     return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null
   })
+  const background = createMemo(() => backgroundRun(engine.state, props.part))
+  // A background launch returns at once; its time is the worker's own.
+  const timing = () => {
+    const task = background()?.task
+    return task ? taskTiming(task) : state()
+  }
   const active = () => {
     if (awaitingPermission(engine.state, props.part)) return false
     if (delegated()) return delegatedStatus() === "running"
@@ -612,7 +619,7 @@ export function ToolView(props: { part: ToolPart }) {
     <div class="flex min-w-0 max-w-full flex-col gap-1 text-sm">
       <button
         class="flex min-h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
-        classList={{ "delegate-tool border-accent/35": delegated() }}
+        classList={{ "delegate-tool border-accent/35": delegated(), "delegate-tool-background": !!background() }}
         onClick={activate}
       >
         <Show when={error()}>
@@ -641,6 +648,9 @@ export function ToolView(props: { part: ToolPart }) {
           }
         >
           <TextShimmer text={title()} class="shrink-0 font-semibold" />
+        </Show>
+        <Show when={background()}>
+          <BackgroundTag />
         </Show>
         <Show when={info().subtitle && !(props.part.tool === "bash" && expanded())}>
           <span
@@ -674,7 +684,7 @@ export function ToolView(props: { part: ToolPart }) {
         <Show when={awaitingPermission(engine.state, props.part)}>
           <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
         </Show>
-        <ToolDuration state={state()} maxMs={timeout()?.timedOut ? timeout()?.timeoutMs : undefined} />
+        <ToolDuration state={timing()} maxMs={timeout()?.timedOut ? timeout()?.timeoutMs : undefined} />
         <Show when={spawnedId()}>
           {(childId) => (
             <span
@@ -701,6 +711,16 @@ export function ToolView(props: { part: ToolPart }) {
 }
 
 export type DelegatedTaskStatus = "running" | "completed" | "error"
+
+/** A `task` call whose worker runs in the background: the engine's record, or before it arrives, what the call says. */
+export function backgroundRun(state: EngineState, part: Pick<ToolPart, "tool" | "sessionID" | "state"> & { callID?: string }) {
+  if (part.tool !== "task") return null
+  const metadata = "metadata" in part.state ? (part.state.metadata as { taskId?: unknown; background?: unknown; mode?: unknown } | undefined) : undefined
+  const task = taskForCall(state, part.sessionID, part.callID, metadata?.taskId)
+  if (task) return task.mode === "background" ? { task } : null
+  const asked = (part.state.input as { run_in_background?: unknown } | undefined)?.run_in_background === true
+  return asked || metadata?.background === true || metadata?.mode === "background" ? { task: undefined } : null
+}
 
 export function delegatedTaskStatus(
   state: EngineState,

@@ -468,6 +468,7 @@ export const drift = {
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "Prekinuto",
   "drift.task.title": "Zadaci u pozadini",
+  "drift.task.background": "u pozadini",
   "drift.task.progress": "{{done}} od {{total}} završeno",
   "drift.task.state.queued": "čeka na mjesto",
   "drift.task.state.running": "radi",

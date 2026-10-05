@@ -468,6 +468,7 @@ export const drift = {
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "Перервано",
   "drift.task.title": "Фонові завдання",
+  "drift.task.background": "фонова",
   "drift.task.progress": "Завершено {{done}} з {{total}}",
   "drift.task.state.queued": "чекає на вільне місце",
   "drift.task.state.running": "виконується",

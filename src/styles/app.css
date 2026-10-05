@@ -1233,6 +1233,10 @@ html[dir="rtl"] .context-meter-popover {
   padding-inline-start: 0.5rem;
 }
 
+.delegate-tool-background {
+  border-inline-start-style: dashed;
+}
+
 html[dir="rtl"] .delegate-tool-icon {
   transform: scaleX(-1);
 }

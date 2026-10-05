@@ -438,6 +438,7 @@ export const drift = {
   "drift.message.duration.seconds": "{{seconds}} s",
   "drift.message.interrupted": "Przerwano",
   "drift.task.title": "Zadania w tle",
+  "drift.task.background": "w tle",
   "drift.task.progress": "Ukończono {{done}} z {{total}}",
   "drift.task.state.queued": "czeka na miejsce",
   "drift.task.state.running": "działa",

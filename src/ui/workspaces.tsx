@@ -5,12 +5,13 @@ import { TextShimmer } from "./text-shimmer"
 import { createDismissOnOutside } from "./dismiss"
 import { emitThreadArchived } from "../plugins"
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
-import { normalizeDir, sessionBusy, sessionsFor } from "../engine/store"
+import { normalizeDir, sessionBusy, sessionsFor, taskForWorker } from "../engine/store"
 import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
 import { Chevron } from "./controls"
+import { BackgroundTag } from "./task-dock"
 import { sidebarWorkers } from "../state/permission-attention"
 import { dragReorder } from "./drag-reorder"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
@@ -311,7 +312,9 @@ function ChildThreadItem(props: {
   workspace: Workspace
   onMenu: (state: SessionMenuState) => void
 }) {
+  const engine = useEngine()
   const active = () => selectedSession() === props.sessionId
+  const background = () => taskForWorker(engine.state, props.sessionId)?.mode === "background"
   return (
     <div
       data-sidebar-navigation
@@ -326,11 +329,14 @@ function ChildThreadItem(props: {
         props.onMenu({ x: event.clientX, y: event.clientY, sessionId: props.sessionId, workspaceId: props.workspace.id })
       }}
     >
-      <span class="text-[0.7rem] text-ink-faint">&#8627;</span>
+      <span class="text-[0.7rem]" classList={{ "text-accent/70": background(), "text-ink-faint": !background() }}>&#8627;</span>
       <StatusDot sessionId={props.sessionId} />
       <span class="min-w-0 flex-1 truncate text-[0.75rem]" classList={{ "text-ink": active(), "text-ink-faint": !active() }}>
         {props.title || t("drift.thread.untitled")}
       </span>
+      <Show when={background()}>
+        <BackgroundTag />
+      </Show>
     </div>
   )
 }

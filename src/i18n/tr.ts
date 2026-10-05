@@ -469,6 +469,7 @@ export const drift = {
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "Kesintiye uğradı",
   "drift.task.title": "Arka plan görevleri",
+  "drift.task.background": "arka plan",
   "drift.task.progress": "{{total}} görevin {{done}} tanesi bitti",
   "drift.task.state.queued": "yer bekliyor",
   "drift.task.state.running": "çalışıyor",

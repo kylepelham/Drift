@@ -470,6 +470,7 @@ export const drift = {
   "drift.message.duration.seconds": "{{seconds}} s",
   "drift.message.interrupted": "Avbrutt",
   "drift.task.title": "Bakgrunnsoppgaver",
+  "drift.task.background": "bakgrunn",
   "drift.task.progress": "{{done}} av {{total}} ferdige",
   "drift.task.state.queued": "venter på en plass",
   "drift.task.state.running": "kjører",

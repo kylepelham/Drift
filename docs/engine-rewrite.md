@@ -830,6 +830,9 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   background workers while any is queued, running or not yet delivered, each with its state, the
   running worker's current tool, Stop (`POST /tasks/{id}/abort`) and a link to its transcript.
   Foreground workers are not listed there; their row in the transcript already waits for them.
+  A background worker keeps the subagent look but is marked in both places: its transcript row's
+  accent edge is dashed and its sidebar row's arrow is accent, each with a dashed "background"
+  tag. Its row times the worker (launch to end, from the record), not the launch call's instant.
 
 Initial async mode is selected at launch. Foreground-to-background promotion and
 adding to a running background task (opencode's `waitForPromotion` and

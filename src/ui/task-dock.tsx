@@ -6,6 +6,15 @@ import { selectedSession, selectSession } from "../state/selection"
 import { Chevron } from "./controls"
 import { IconArrowUpRight } from "./icons"
 
+/** Marks a subagent that runs in the background; the dashed edge matches its row in the chat. */
+export function BackgroundTag() {
+  return (
+    <span class="shrink-0 rounded border border-dashed border-accent/45 px-1 text-[0.65rem] leading-4 text-accent/80">
+      {t("drift.task.background")}
+    </span>
+  )
+}
+
 /** Background workers worth showing: all of them while any is still going or owed to the conversation. */
 export function dockTasks(tasks: readonly TaskRecord[] | undefined) {
   const background = (tasks ?? []).filter((task) => task.mode === "background")

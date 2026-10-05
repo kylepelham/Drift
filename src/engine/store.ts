@@ -474,6 +474,17 @@ export function taskForCall(state: EngineState, sessionId: string, callId: strin
   return tasks.find((task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId))
 }
 
+/** The newest task that ran in a worker's session; tasks are kept oldest first. */
+export function taskForWorker(state: EngineState, sessionId: string) {
+  const parentId = state.sessions[sessionId]?.parentID
+  return parentId ? (state.tasks[parentId] ?? []).filter((task) => task.sessionId === sessionId).at(-1) : undefined
+}
+
+/** A task's own run as tool timing: from launch until it ended, not the launching call's instant. */
+export function taskTiming(task: Pick<TaskRecord, "state" | "createdAt" | "finishedAt">) {
+  return { status: taskActive(task) ? "running" : "completed", time: { start: task.createdAt, end: task.finishedAt ?? undefined } }
+}
+
 type SavedSession = Session & { agent?: string; variant?: string | null; model?: { providerID: string; id: string } }
 
 /** The model, agent and reasoning level the engine saved on a session: what its newest prompt chose. */

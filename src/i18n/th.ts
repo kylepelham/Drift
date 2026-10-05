@@ -468,6 +468,7 @@ export const drift = {
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "ถูกขัดจังหวะ",
   "drift.task.title": "งานเบื้องหลัง",
+  "drift.task.background": "เบื้องหลัง",
   "drift.task.progress": "เสร็จ {{done}} จาก {{total}}",
   "drift.task.state.queued": "รอคิว",
   "drift.task.state.running": "กำลังทำงาน",

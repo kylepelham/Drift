@@ -467,6 +467,7 @@ export const drift = {
   "drift.message.duration.seconds": "{{seconds}}s",
   "drift.message.interrupted": "已中断",
   "drift.task.title": "后台任务",
+  "drift.task.background": "后台",
   "drift.task.progress": "已完成 {{done}} 个（共 {{total}} 个）",
   "drift.task.state.queued": "等待空位",
   "drift.task.state.running": "运行中",
