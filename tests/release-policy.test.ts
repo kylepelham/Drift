@@ -253,11 +253,11 @@ test("release stamping updates every package version and is idempotent", () => {
     writeFileSync(path.join(temporary, "package.json"), '{"version":"1.0.0"}\n')
     writeFileSync(path.join(temporary, "src-tauri/tauri.conf.json"), '{"version":"1.0.0"}\n')
     writeFileSync(path.join(temporary, "src-tauri/Cargo.toml"), '[package]\nname = "drift"\nversion = "1.0.0"\n')
-    writeFileSync(path.join(temporary, "src-tauri/Cargo.lock"), '[[package]]\nname = "drift"\nversion = "1.0.0"\n')
+    writeFileSync(path.join(temporary, "Cargo.lock"), '[[package]]\nname = "drift"\nversion = "1.0.0"\n')
 
     expect(stampReleaseVersion("v2.3.4", temporary)).toBe("2.3.4")
     expect(stampReleaseVersion("v2.3.4", temporary)).toBe("2.3.4")
-    for (const relative of ["package.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "src-tauri/Cargo.lock"]) {
+    for (const relative of ["package.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml", "Cargo.lock"]) {
       expect(readFileSync(path.join(temporary, relative), "utf8")).toContain("2.3.4")
     }
   } finally {

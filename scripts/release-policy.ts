@@ -231,7 +231,8 @@ export function stampReleaseVersion(tag: string, root = path.resolve(import.meta
     cargoManifest,
   ))
 
-  const cargoLock = path.join(root, "src-tauri/Cargo.lock")
+  // The shell is one member of the Cargo workspace, whose lock file is at the root.
+  const cargoLock = path.join(root, "Cargo.lock")
   writeFileSync(cargoLock, replaceRequired(
     readFileSync(cargoLock, "utf8"),
     /(^\[\[package\]\]\r?\nname = "drift"\r?\nversion = ")[^"]+("$)/m,
