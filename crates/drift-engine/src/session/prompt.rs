@@ -144,7 +144,6 @@ fn agent_prompt(config: &Config, agent: &str) -> Option<String> {
     Some(format!("<system-reminder>\n{}\n</system-reminder>", found.prompt))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

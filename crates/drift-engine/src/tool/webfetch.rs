@@ -186,7 +186,6 @@ fn strip_tags(html: &str) -> String {
     out.split('\n').map(str::trim).filter(|l| !l.is_empty()).collect::<Vec<_>>().join("\n")
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::super::tests::Sandbox;
