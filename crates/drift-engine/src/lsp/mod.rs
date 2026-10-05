@@ -114,15 +114,20 @@ pub struct Found {
 }
 
 /// Running servers by the folder they are rooted at and their name.
-type Running = Arc<Mutex<HashMap<(PathBuf, String), Arc<Client>>>>;
+type Running = Arc<Mutex<HashMap<Slot, Arc<Client>>>>;
 
 /// The servers running for each project root; dropping it (the engine stopping) ends them all.
 #[derive(Default)]
 pub struct Servers {
     running: Running,
-    failed: Mutex<HashMap<String, Instant>>,
+    /// One lock per root and server, held across a start, so reads in parallel start one server, not one each.
+    starting: Mutex<HashMap<Slot, Arc<tokio::sync::Mutex<()>>>>,
+    /// A start that failed, by root and server: a server missing at one root may be installed in another's `node_modules`.
+    failed: Mutex<HashMap<Slot, Instant>>,
     reaping: std::sync::atomic::AtomicBool,
 }
+
+type Slot = (PathBuf, String);
 
 impl Servers {
     /// What the servers that handle `files` report about them within [`WAIT`]; files with no errors are left out.
@@ -159,12 +164,18 @@ impl Servers {
 
     /// The running server for `spec` at `root`, started now if it is not running and did not fail to start lately.
     async fn client(&self, workspace: &Path, root: &Path, spec: &Spec) -> Option<Arc<Client>> {
-        let slot = (root.to_path_buf(), spec.name.clone());
-        if let Some(client) = self.running.lock().unwrap().get(&slot).filter(|client| client.alive()) {
-            return Some(client.clone());
+        let slot: Slot = (root.to_path_buf(), spec.name.clone());
+        let running = || self.running.lock().unwrap().get(&slot).filter(|client| client.alive()).cloned();
+        if let Some(client) = running() {
+            return Some(client);
         }
-        let tried = self.failed.lock().unwrap().get(&spec.name).is_some_and(|at| at.elapsed() < RETRY);
-        if tried {
+        let gate = self.starting.lock().unwrap().entry(slot.clone()).or_default().clone();
+        let _starting = gate.lock().await;
+        // Another caller may have started it, or failed to, while this one waited.
+        if let Some(client) = running() {
+            return Some(client);
+        }
+        if self.failed.lock().unwrap().get(&slot).is_some_and(|at| at.elapsed() < RETRY) {
             return None;
         }
         let started = match table::installed(&spec.commands, root, workspace) {
@@ -178,7 +189,7 @@ impl Servers {
                 Some(client)
             }
             Err(_) => {
-                self.failed.lock().unwrap().insert(spec.name.clone(), Instant::now());
+                self.failed.lock().unwrap().insert(slot, Instant::now());
                 None
             }
         }

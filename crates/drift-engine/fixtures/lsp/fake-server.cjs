@@ -2,6 +2,9 @@
 // `pull` publishes nothing and answers textDocument/diagnostic instead, registering it after initialize.
 const mute = process.argv[2] === "mute"
 const pull = process.argv[2] === "pull"
+// `--count=<file>` adds a line to that file each time a server starts.
+const count = process.argv.find((arg) => arg.startsWith("--count="))?.slice("--count=".length)
+if (count) require("fs").appendFileSync(count, "started\n")
 let buffer = Buffer.alloc(0)
 let configured = false
 const texts = new Map()

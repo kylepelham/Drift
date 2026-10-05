@@ -176,3 +176,42 @@ async fn a_server_that_is_asked_rather_than_publishing_still_reports() {
     drop(servers);
     std::fs::remove_dir_all(dir).ok();
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reads_in_parallel_start_one_server() {
+    let dir = workspace("parallel");
+    let count = dir.join("starts.log");
+    let servers = Arc::new(Servers::default());
+    let config = Arc::new(fake(&[&format!("--count={}", count.display())]));
+    // As a step's reads do: each warms from its own task, all at once.
+    let warms: Vec<_> = (0..5)
+        .map(|n| {
+            let (servers, config, dir) = (servers.clone(), config.clone(), dir.clone());
+            let file = dir.join(format!("f{n}.fake"));
+            std::fs::write(&file, "fine").unwrap();
+            tokio::spawn(async move { servers.warm(&dir, &file, &config).await })
+        })
+        .collect();
+    for warm in warms {
+        warm.await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let started = std::fs::read_to_string(&count).unwrap_or_default().lines().count();
+    assert_eq!(started, 1, "five reads at once, one server");
+    drop(servers);
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[tokio::test]
+async fn a_server_that_failed_at_one_root_is_still_tried_at_another() {
+    let dir = workspace("cooldown");
+    let (scripts, web) = (dir.join("scripts"), dir.join("web"));
+    let servers = Servers::default();
+    let missing = BTreeMap::from([("fake".to_string(), LspConfig::Custom { command: vec!["definitely-missing-language-server".into()], extensions: vec![".fake".into()], language: None })]);
+    let spec = &resolve(&missing)[0];
+    assert!(servers.client(&dir, &scripts, spec).await.is_none());
+    assert!(servers.client(&dir, &web, spec).await.is_none());
+    let failed = servers.failed.lock().unwrap();
+    assert!(failed.contains_key(&(scripts.clone(), "fake".to_string())) && failed.contains_key(&(web.clone(), "fake".to_string())), "each root tried for itself");
+    drop(failed);
+    std::fs::remove_dir_all(dir).ok();
+}
