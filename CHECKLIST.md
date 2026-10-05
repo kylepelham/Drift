@@ -190,6 +190,7 @@ change the plan there when a decision changes.
 - [x] Import shown while it runs (sidebar progress); an interrupted conversation is finished by the next run; opencode's `AGENTS.md`, agents, commands and skills copied to `~/.config/drift` (home agents and commands now read from there directly); a workspace's conversation list loads once per connection, not on every switch
 - [ ] Before cutover: confirm no live install has pending V2 `session_input` work (only visible messages are imported)
 - [ ] Show `opencodeImportReport` somewhere in Settings (logged only for now)
+- [ ] Usage limits (`usage_limits.rs`) read the engine's credential store, not opencode's `auth.json`, which goes stale after cutover
 - [ ] LSP diagnostics after edits (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table (rust-analyzer, typescript-language-server, pyright, gopls, ...) used only when on PATH; `drift.json` can add, replace or disable one, as with formatters
   - Started lazily per workspace on the first edit of a matching file, adopted into a process tree, shut down when the workspace goes idle or the engine stops
