@@ -38,6 +38,41 @@ pub enum ToolProfile {
     ApplyPatch,
 }
 
+/// Which base prompt a model gets, the one written for how its family works; decided here and nowhere else.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptFamily {
+    /// OpenAI's GPT-5 generation: exactly the models that edit with `apply_patch`.
+    Codex,
+    Claude,
+    Gemini,
+    #[default]
+    Default,
+}
+
+impl PromptFamily {
+    pub const ALL: [PromptFamily; 4] = [Self::Codex, Self::Claude, Self::Gemini, Self::Default];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Codex => "codex",
+            Self::Claude => "claude",
+            Self::Gemini => "gemini",
+            Self::Default => "default",
+        }
+    }
+}
+
+/// From the tool profile (so the prompt and the edit tool always agree) and models.dev's `family`, never the id.
+fn prompt_for(profile: ToolProfile, family: &str) -> PromptFamily {
+    match (profile, family) {
+        (ToolProfile::ApplyPatch, _) => PromptFamily::Codex,
+        (_, family) if family.starts_with("claude") => PromptFamily::Claude,
+        (_, family) if family.starts_with("gemini") => PromptFamily::Gemini,
+        _ => PromptFamily::Default,
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Limit {
     pub context: u64,
@@ -89,6 +124,8 @@ pub struct Model {
     pub cost: Cost,
     #[serde(default = "default_profile")]
     pub profile: ToolProfile,
+    #[serde(default)]
+    pub prompt: PromptFamily,
     /// The reasoning levels the model offers, weakest first; empty when it has none to choose.
     #[serde(default)]
     pub variants: Vec<Variant>,
@@ -319,6 +356,7 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
         limit: Limit { context: listed.context, output: listed.output, input: 0 },
         cost: Cost::default(),
         profile: ToolProfile::Edit,
+        prompt: PromptFamily::Default,
         variants: Vec::new(),
         mode: None,
     }
@@ -378,6 +416,9 @@ struct RawModel {
     cost: Option<Cost>,
     #[serde(default)]
     profile: Option<ToolProfile>,
+    /// Already derived, as a cached catalog stores it.
+    #[serde(default)]
+    prompt: Option<PromptFamily>,
     /// models.dev's description of how the model's reasoning is set.
     #[serde(default)]
     reasoning_options: Option<Vec<serde_json::Value>>,
@@ -457,6 +498,7 @@ impl RawProvider {
 fn model_of(model: RawModel, provider_id: &str) -> Model {
     let family = model.family.unwrap_or_default();
     let profile = model.profile.unwrap_or_else(|| profile_for(provider_id, &family));
+    let prompt = model.prompt.unwrap_or_else(|| prompt_for(profile, &family));
     let limit = model.limit.unwrap_or_default();
     let reasoning = model.reasoning.unwrap_or(false);
     let attachment = model.attachment.unwrap_or(false);
@@ -479,6 +521,7 @@ fn model_of(model: RawModel, provider_id: &str) -> Model {
         limit,
         cost: model.cost.unwrap_or_default(),
         profile,
+        prompt,
         variants,
         mode: model.mode,
     }
@@ -650,6 +693,21 @@ mod tests {
         let older = Model { release_date: "2024-12-11".into(), ..model("google", "gemini-2.5-flash") };
         assert_eq!(sampling(&older), Sampling::default(), "1.5 and 2.0 keep their own");
         assert_eq!(sampling(&model("anthropic", "claude-sonnet-4-5")), Sampling::default());
+    }
+
+    #[test]
+    fn each_model_gets_its_familys_prompt_from_the_catalog_never_its_id() {
+        let catalog = Catalog::bundled();
+        let family = |provider: &str, model: &str| catalog.model(provider, model).unwrap().prompt;
+        assert_eq!(family("openai", "gpt-5.5"), PromptFamily::Codex);
+        assert_eq!(family("openai", "gpt-5.3-codex"), PromptFamily::Codex);
+        assert_eq!(family("anthropic", "claude-opus-5-5"), PromptFamily::Claude);
+        assert_eq!(family("anthropic", "claude-opus-5-5-fast"), PromptFamily::Claude, "a mode keeps its base's prompt");
+        assert_eq!(family("google", "gemini-2.5-pro"), PromptFamily::Gemini);
+        let bedrock = catalog.providers["amazon-bedrock"].models.values().next().unwrap();
+        assert_eq!(bedrock.prompt, PromptFamily::Claude, "Claude on another route is still Claude");
+        assert_eq!(prompt_for(ToolProfile::Edit, "gpt-4o"), PromptFamily::Default, "a model that edits with search and replace is not given the apply_patch prompt");
+        assert_eq!(prompt_for(ToolProfile::Edit, "grok"), PromptFamily::Default);
     }
 
     #[test]

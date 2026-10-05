@@ -828,14 +828,9 @@ these async criteria are new pending M3 work.
   M4 lines in `CHECKLIST.md`.
 - `drift-migrate`: sessions, messages, parts, todos, credentials to keyring,
   `opencode.json` to `drift.json` with a report of unmapped keys.
-- Model-family base prompts. One Drift prompt for every model leaves Codex-family models off the
-  prompt they are tuned to. The engine picks a base prompt per family from the catalog entry (a
-  `prompt` field beside `profile`, decided in `llm::catalog`, never from a model id substring):
-  a Codex/GPT recipe, a Claude recipe, a Gemini recipe and the current one as the default. Each is
-  Drift's own text, written for Drift's tools and platform, not an upstream copy with the
-  identity swapped. The shared rules (worktree hygiene, `<system-reminder>`, final-answer shape)
-  stay in every recipe. The Settings base-prompt override (global or per family, CHECKLIST) edits
-  these same recipes.
+- Model-family base prompts (done; see "Each model gets the base prompt written for its family"
+  below). The Settings base-prompt override (global or per family, CHECKLIST) edits these same
+  recipes.
 - Rename env vars and paths. Delete `engine/*`, `@opencode-ai/sdk`, overlays, build scripts.
 - Remote gateway collapses into the engine router; device auth and TLS stay in `src-tauri`.
 - Docs rewritten. Perf numbers against the M0 baseline published in release notes.
@@ -2007,10 +2002,16 @@ the target to beat; the native engine only has a cold start until M1 gives it a 
   it is still archived, in one statement, and is 409 `active` otherwise: a thread restored in the
   engine whose shell record outlived the restore is kept, and the record is dropped. Archive,
   restore and the purge also take turns in the UI, so a purge never runs mid-restore.
-- Model-family system prompts are not a native feature yet (planned at M4): the engine sends one
-  Drift base prompt (`session/prompts/system.txt`) to every model, plus the agent's prompt. It tells
-  the model not to revert changes it did not make in a dirty worktree, what `<system-reminder>`
-  blocks are, and how to shape a final answer. Its environment section
+- Each model gets the base prompt written for its family (`Model::prompt`, decided in
+  `llm::catalog` from the tool profile and models.dev's `family`, never the id): `codex` (exactly
+  the models that edit with `apply_patch`: keep going to the end, a sentence before a group of
+  calls, edit only with `apply_patch`), `claude` (do what was asked and no more, prefer editing to
+  new files, no speculative handling, a todo list for long work), `gemini` (confirm before
+  assuming, small verified steps, no narrated tool calls) and `default`, the one prompt every model
+  had before. All are Drift's own text in `session/prompts/`. `shared.txt` follows each, whatever
+  replaces the family's part: it tells the model not to revert changes it did not make in a dirty
+  worktree, what `<system-reminder>` blocks are, and how to shape a final answer. The agent's
+  prompt follows as before. The environment section
   gives the working directory, whether it is a git repository, platform, date and the model's
   catalog name, and the scratch directory (`tool::scratch_dir`: `Drift` in the system temp
   directory, made when the engine opens), where reading, writing, editing and patching ask

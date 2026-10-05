@@ -152,6 +152,7 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         limit: Limit { context, output: 0, input: 0 },
         cost: Default::default(),
         profile: ToolProfile::Edit,
+        prompt: Default::default(),
         variants: Vec::new(),
         mode: None,
     })

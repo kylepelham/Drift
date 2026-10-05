@@ -1119,6 +1119,7 @@ export interface components {
             /** @description Whether it reads PDFs sent whole. */
             pdf?: boolean;
             profile?: components["schemas"]["ToolProfile"];
+            prompt?: components["schemas"]["PromptFamily"];
             reasoning?: boolean;
             release_date?: string;
             temperature?: boolean;
@@ -1288,6 +1289,11 @@ export interface components {
             /** @description The model's reasoning level by variant name: absent keeps the session's, null asks for the model's default. */
             variant?: string | null;
         };
+        /**
+         * @description Which base prompt a model gets, the one written for how its family works; decided here and nowhere else.
+         * @enum {string}
+         */
+        PromptFamily: "codex" | "claude" | "gemini" | "default";
         /** @description A catalog provider plus whether the engine can currently talk to it. */
         ProviderStatus: {
             connected: boolean;

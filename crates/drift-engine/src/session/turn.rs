@@ -955,6 +955,7 @@ impl Engine {
         // A server's instructions come only with its tools, so an agent without them is not told about it.
         let servers: Vec<(String, String)> = plan.mcp_servers.iter().filter(|(server, _)| tools.iter().any(|(_, tool)| tool.server() == Some(server.as_str()))).cloned().collect();
         let setting = prompt::Setting {
+            base: prompt::family_prompt(plan.model.prompt),
             workspace: &plan.workspace,
             config: &plan.config,
             agent: agent.as_ref(),

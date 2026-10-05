@@ -201,7 +201,7 @@ change the plan there when a decision changes.
   - After a writing call (and after formatters), report the touched files' errors within a short wait, bounded in count and size, appended to the call's result and kept in its metadata
   - A server that is missing, crashes or answers late never fails or delays the call beyond the wait; the result just carries no diagnostics
   - No model-facing `lsp` tool for now; revisit once diagnostics prove useful
-- [ ] Model-family base prompts chosen from the catalog entry (Codex/GPT, Claude, Gemini, default), Drift's own text; the shared worktree, `<system-reminder>` and final-answer rules in each
+- [x] Model-family base prompts chosen from the catalog entry (Codex/GPT, Claude, Gemini, default), Drift's own text; the shared worktree, `<system-reminder>` and final-answer rules in each (`shared.txt`, kept under any replacement)
 - [ ] Delete the shell MCP runtime and Jev routing (`mcp.rs`, `mcp_external.rs`, `tool_routing.rs`, their commands, remote gateway entries and watcher hook); the UI no longer calls any of them
 - [ ] i18n sweep: drop keys the native UI no longer uses from every locale (done so far: `drift.mcp.description`, `drift.mcp.authenticate`, `drift.settings.prompts.astraDescription`)
 - [ ] `DRIFT_*` env vars and `drift` data paths

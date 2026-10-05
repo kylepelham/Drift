@@ -4,11 +4,25 @@ use std::path::Path;
 
 use super::types::{MessageWithParts, Part, PartRow, Role};
 use crate::config::{Agent, AgentKind, Config};
+use crate::llm::catalog::PromptFamily;
 
-const IDENTITY: &str = include_str!("prompts/system.txt");
+/// The rules every family's prompt keeps, whatever replaces the rest: tools, `<system-reminder>`, the worktree, the answer's shape.
+const SHARED: &str = include_str!("prompts/shared.txt");
+
+/// Who the model is and how it works, written for its family (`Model::prompt`).
+pub fn family_prompt(family: PromptFamily) -> &'static str {
+    match family {
+        PromptFamily::Codex => include_str!("prompts/codex.txt"),
+        PromptFamily::Claude => include_str!("prompts/claude.txt"),
+        PromptFamily::Gemini => include_str!("prompts/gemini.txt"),
+        PromptFamily::Default => include_str!("prompts/default.txt"),
+    }
+}
 
 /// What a turn's system prompt is built from.
 pub struct Setting<'a> {
+    /// The model family's prompt, or the user's replacement for it; the shared rules follow it either way.
+    pub base: &'a str,
     pub workspace: &'a Path,
     pub config: &'a Config,
     pub agent: Option<&'a Agent>,
@@ -21,8 +35,8 @@ pub struct Setting<'a> {
 }
 
 pub fn system(setting: &Setting) -> String {
-    let Setting { workspace, config, agent, delegates, model, servers } = *setting;
-    let mut prompt = IDENTITY.trim().to_string();
+    let Setting { base, workspace, config, agent, delegates, model, servers } = *setting;
+    let mut prompt = format!("{}\n\n{}", base.trim(), SHARED.trim());
     // A primary agent's prompt rides on its turns' prompts instead (`remind_agents`), so the system prompt stays the same across a switch.
     if let Some(agent) = agent.filter(|a| !a.prompt.is_empty() && a.kind != AgentKind::Primary) {
         prompt.push_str(&format!("\n\n{}", agent.prompt));
@@ -148,7 +162,7 @@ mod tests {
         std::fs::write(workspace.join("AGENTS.md"), "agent rules").unwrap();
         let config = Config::load_with_home(&workspace, None);
         let servers = [("web-test".to_string(), "Start a session first.".to_string())];
-        let setting = |agent: &str, delegates: bool| Setting { workspace: &workspace, config: &config, agent: config.agent(agent), delegates, model: "Claude Opus", servers: &servers };
+        let setting = |agent: &str, delegates: bool| Setting { base: family_prompt(PromptFamily::Claude), workspace: &workspace, config: &config, agent: config.agent(agent), delegates, model: "Claude Opus", servers: &servers };
         let prompt = system(&setting("plan", false));
         assert!(prompt.starts_with("You are Drift"));
         assert!(!prompt.contains("# Plan mode"), "a primary agent's prompt rides on its prompts, not here");
@@ -171,8 +185,26 @@ mod tests {
     }
 
     #[test]
+    fn every_family_has_its_own_prompt_and_all_keep_the_shared_rules() {
+        let config = Config::default();
+        let workspace = std::env::temp_dir();
+        let built = |family| system(&Setting { base: family_prompt(family), workspace: &workspace, config: &config, agent: None, delegates: false, model: "m", servers: &[] });
+        let prompts: Vec<String> = PromptFamily::ALL.into_iter().map(built).collect();
+        for (family, prompt) in PromptFamily::ALL.into_iter().zip(&prompts) {
+            assert!(prompt.starts_with("You are Drift"), "{family:?}");
+            for rule in ["`<system-reminder>` blocks", "Never revert them unless asked", "Reference code as `path:line`", "Do not paste large files you wrote"] {
+                assert!(prompt.contains(rule), "{family:?} keeps `{rule}`");
+            }
+        }
+        assert_eq!(prompts.iter().collect::<std::collections::HashSet<_>>().len(), 4, "each family reads differently");
+        assert!(prompts[0].contains("`apply_patch`") && !prompts[0].contains("`edit` requires"), "Codex edits with the tool it is offered");
+        let replaced = system(&Setting { base: "You are my agent.", workspace: &workspace, config: &config, agent: None, delegates: false, model: "m", servers: &[] });
+        assert!(replaced.starts_with("You are my agent.\n\n# Tools") && replaced.contains("`<system-reminder>` blocks"), "a replacement keeps the shared rules");
+    }
+
+    #[test]
     fn bundled_prompts_hold_only_their_own_text() {
-        assert!(IDENTITY.trim_end().ends_with("Do not paste large files you wrote; name their paths."), "the base prompt ends with its Output section");
+        assert!(SHARED.trim_end().ends_with("Do not paste large files you wrote; name their paths."), "the shared rules end with the Output section");
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut checked = 0;
         for dir in ["session/prompts", "tool/prompts", "config/prompts"] {
