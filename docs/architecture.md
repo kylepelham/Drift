@@ -1,59 +1,54 @@
 # Architecture
 
-This page describes the opencode-backed build that ships from `main`. On
-`next/1.4.0-engine` the sidecar is being replaced by an in-process Rust engine; see
-`docs/engine-rewrite.md` for the target architecture. The `src/` layering below holds
-in both worlds.
-
 Drift is three layers with strict one-way flow:
 
 ```
-engine/upstream (pristine opencode source snapshot)
-        | temporary engine/overlays during build/test
-        | bun run build:engine
-drift-engine.exe (embedded sidecar, HTTP + SSE)
+crates/drift-engine (Rust, linked into the shell; HTTP + one WebSocket on loopback)
         ^                |
-   actions (REST)   events (SSE)
+   actions (HTTP)   events (WebSocket, seq/cursor/resync)
         |                v
 src/engine  -> engine store (solid-js store, single source of engine truth)
         |
 src/ui      -> components read the store, call actions. Never fetch.
 src/state   -> app-level state: theme, selection, prefs, workspaces (Drift store-backed)
-src-tauri   -> shell: spawns the sidecar, exposes engine_url, owns Drift's SQLite (docs/store.md)
+src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs/store.md)
 ```
 
 ## Layers
 
-- `src/engine/connection.ts` resolves where the engine lives: Tauri `engine_url` command
-  when running in the shell, `VITE_ENGINE_URL` + basic-auth env vars in browser dev.
-- `src/engine/sse.ts` is a minimal SSE reader over fetch. We own reconnect behaviour in
-  `index.tsx` (`pump`); the SDK's built-in SSE client proved flaky so we bypass it.
+- `src/engine/native/target.ts` resolves where the engine lives: the shell's
+  `native_engine_status` (URL and token) in the window, the gateway's `/engine` on a remote
+  device, `VITE_NATIVE_ENGINE_URL` and `VITE_NATIVE_ENGINE_TOKEN` in the browser dev loop.
+- `src/engine/native/client.ts` is the typed HTTP client; its types are generated from the
+  engine's OpenAPI document (`bun run gen:engine`).
+- `src/engine/native/events.ts` keeps the event socket: it reconnects with its cursor,
+  hydrates again on `resync`, and hands frames to the reducer.
+- `src/engine/native/adapt.ts` maps the engine's sessions, messages and parts onto the shapes
+  the views render (`src/engine/shapes.ts`).
 - `src/engine/store.ts` holds the state shape plus pure helpers (`visibleSessions`,
   `resolveModel`, `sessionBusy`). No IO.
 - `src/engine/events.ts` is the reducer: one function per event type, applied with
   `produce` for fine-grained solid updates.
-- `src/engine/actions.ts` is the only place REST calls happen.
+- `src/engine/actions.ts` is the only place engine calls happen.
 - `src/engine/index.tsx` glues it together: provider, hydration, event pump.
 
 ## Rules that keep this sane
 
-- UI components never import from `@opencode-ai/sdk` except types via the engine layer.
+- UI components never call the engine; they read the store and call actions.
 - Engine layer never imports UI.
 - Anything persistent and Drift-specific (workspace names, icons, archive state,
-  attachments) belongs to the shell's SQLite store, not the engine.
-- Never edit `engine/upstream` directly. Internal adaptations that cannot use a public
-  plugin/API belong in `engine/overlays`; tooling applies and reverses them atomically.
+  attachments) belongs to the shell's tables in `drift.db`, not the engine's.
 - Transcripts are only loaded for sessions the user opened (`loaded` map); events for
   unloaded sessions only touch cheap state (status, sessions list).
 
 ## Workspaces
 
-Workspaces are directories with a stored name and icon (docs/store.md). The active
-workspace drives REST calls: the client carries its directory (header on writes, query
-on reads). Live events come from the engine's global stream, which covers every
-instance, so busy dots, thinking indicators, and pending asks stay accurate for all
-workspaces at once. Switching workspaces (`EngineProvider.setDirectory`) resets only
-transcript state and rehydrates the new directory; session-keyed state persists.
+Workspaces are directories with a stored name and icon (docs/store.md). The engine keeps its
+own workspace row for each, and `WorkspaceIndex` maps a folder to the engine's workspace id,
+which every session call carries. One event stream covers every workspace, so busy dots,
+thinking indicators, and pending asks stay accurate for all of them at once. Switching
+workspaces (`EngineProvider.setDirectory`) loads that workspace's conversation list once per
+connection; session-keyed state persists.
 
 The sidebar keeps workspace row geometry fixed while revealing actions, so hover never
 moves the thread list. Its 192-480px width is pointer and keyboard resizable and stored
@@ -193,7 +188,7 @@ selection or drag that starts inside a dialog remains open when released outside
 
 Settings persist the selected interface locale, appearance overrides, per-event system
 notification and sound choices, custom sound data, and global permission auto-accept.
-Built-in sounds are Vite-managed URLs from the vendored OpenCode MIT sound catalog;
+Built-in sounds are Vite-managed URLs from OpenCode's MIT sound catalog, kept in `src/assets/audio`;
 audio bytes load only when played and require no asset-copy build step. Custom audio is
 stored locally as a capped data URL. Drift owns its English and 17 localized catalogs;
 only the selected non-English catalog loads as a cached Vite chunk. Custom CSS
@@ -274,21 +269,11 @@ against a separately installed copy: the badge advertised the released version w
 running executable and About kept reporting the older local build. Debug builds stay
 excluded as before, and About names the running kind so the two are never confused.
 
-Installing stops the engine sidecar between download and install, waiting for it to exit
-rather than only signalling it, because Windows keeps the executable locked until the
-process is gone. The plugin exits this process without firing `RunEvent::Exit`, so the
-sidecar would otherwise survive and hold `drift-engine.exe` locked while NSIS tried to
-replace it. An install that fails, most often a declined elevation prompt, leaves the app
-running, so the sidecar is started again from the parameters it was first launched with.
+Installing an update exits the app once the installer is downloaded; the engine runs in the
+app's process, so nothing else holds the executable. An install that fails, most often a
+declined elevation prompt, leaves the app running.
 
 ## Known constraints
 
-- REST calls are scoped to the per-directory instance; the event stream is global.
-  Sessions are grouped by their `directory` field (`sessionsFor`) so cross-instance
-  events never leak into the wrong workspace list.
-- The engine resolves a directory to its project root (git root). A directory that
-  becomes a git repo becomes a new project; sessions created before that stay with the
-  old project.
-- The `/provider` response is richer than the SDK's stale type; `ProviderInfo` in
-  store.ts models what the server actually returns (models keyed by id, with
-  `capabilities.toolcall`). One cast at the hydration boundary.
+- Sessions are grouped by their engine workspace, so a conversation never lands in another
+  workspace's list.

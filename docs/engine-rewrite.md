@@ -1,6 +1,6 @@
 # Engine rewrite
 
-Drift is replacing the vendored opencode engine with its own engine written in Rust.
+Drift replaced the opencode engine it used to bundle with its own engine written in Rust.
 This document is the plan of record for branch `next/1.4.0-engine`. Keep it current:
 when a decision changes, change it here first. Milestone status lives in `CHECKLIST.md`.
 
@@ -60,9 +60,8 @@ src-tauri/                 depends on drift-engine; remote.rs stops proxying
 tests/conformance/         bun test, black-box over HTTP and WS with recorded providers
 ```
 
-One crate until compile times force a split. On this branch `engine/upstream`,
-`engine/overlays`, `engine/opencode`, `scripts/build-engine.ts` and
-`scripts/build-extensions.ts` are deleted once M1 passes.
+One crate until compile times force a split. The vendored opencode tree, its overlays, plugins
+and build scripts were deleted at M4.
 
 ## API
 
@@ -842,8 +841,7 @@ shell runs it on a background thread (`src-tauri/src/opencode_import.rs`) at sta
 after a workspace is added. Each run reads every `opencode*.db` in opencode's data directory,
 `opencode.db` first. It never writes them, and reads each inside one read transaction, so a
 running opencode does not tear a conversation. Before the conversations it adds workspace rows for
-opencode projects that had sessions (`Store::import_opencode_workspaces`, moved here from the
-legacy sidecar's start) and tells the UI with `workspaces-changed`.
+opencode projects that had sessions (`Store::import_opencode_workspaces`) and tells the UI with `workspaces-changed`.
 
 - **Progress.** The shell emits `opencode-import` `{done, total}` for every conversation it
   finishes, and the sidebar shows "Importing from opencode" with a bar until the last is in.
@@ -976,8 +974,7 @@ legacy sidecar's start) and tells the UI with `workspaces-changed`.
   builds keep line tables only, which cuts that rebuild by about a third.
 - `bun run gen:engine` regenerates `src/engine/native/types.ts` from the engine's OpenAPI
   (`drift-engined --openapi`); `bun scripts/gen-engine-client.ts --check` fails when it is stale.
-- `bun run dev` starts the legacy sidecar (port 4196), `drift-engined`, and Vite; the
-  browser reaches the native engine through `VITE_NATIVE_ENGINE_URL` and
+- `bun run dev` starts `drift-engined` and Vite; the browser reaches the engine through `VITE_NATIVE_ENGINE_URL` and
   `VITE_NATIVE_ENGINE_TOKEN`.
 - `bun run dev:shell` (with `bun run dev` already running) launches the desktop build as
   "Drift Dev" under the identifier `dev.drift.app.dev` (`src-tauri/dev.conf.json`). The

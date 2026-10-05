@@ -25,13 +25,11 @@
 
 ---
 
-Drift packages the [OpenCode](https://github.com/sst/opencode) agent engine as a
-managed sidecar and gives it a native-feeling desktop home. One app handles the engine
-lifecycle, project navigation, persistent thread metadata, updates, and Windows
-integration while remaining compatible with OpenCode providers, agents, MCP servers,
-plugins, and configuration.
+Drift is a desktop coding agent with its own engine, written in Rust and linked into the app.
+One process handles the agent loop, providers, tools, MCP servers, permissions, project
+navigation, persistent thread history, updates, and Windows integration.
 
-**One installer. No separate Node runtime. No CLI bootstrap. No local server to manage.**
+**One installer. No separate runtime. No CLI bootstrap. No local server to manage.**
 
 > [!IMPORTANT]
 > Drift is an agent, not a sandbox. It can read files, modify code, and run commands with
@@ -41,20 +39,21 @@ plugins, and configuration.
 
 | | |
 | --- | --- |
-| **Projects at a glance** | Organize threads under workspace folders, rename and personalize workspaces, and archive or restore work without losing engine sessions. |
-| **The full OpenCode engine** | Use build and plan agents, custom agents, provider OAuth, MCP servers, permissions, project instructions, and plugins without installing OpenCode separately. |
+| **Projects at a glance** | Organize threads under workspace folders, rename and personalize workspaces, and archive or restore work without losing history. |
+| **A native agent engine** | Build, plan and orchestrator agents, custom agents and commands, skills, subagents in the foreground or background, permissions, project instructions, and undo for every edit, in one Rust engine. |
 | **Long-session performance** | Navigate virtualized transcripts with thousands of messages, streamed reasoning, syntax-highlighted tools, and persistent tool disclosure state. |
 | **Context control** | Fork stable context or complete history, undo and redo turns, steer an active session, or spawn an independent sibling thread. |
-| **Provider flexibility** | Connect Anthropic, OpenAI, GitHub Copilot, Google, OpenRouter, and the other providers supported by OpenCode; choose model, agent, and thinking settings per thread. |
-| **Deep configuration** | Inspect and override model-family system prompts, built-in agent behavior, permissions, and project instructions. |
-| **Guarded MCP management** | Review exact MCP server definitions before enabling them. Changed definitions require a new decision and invalid policy state fails closed. |
+| **Provider flexibility** | Connect Anthropic and OpenAI (keys, or your Claude and ChatGPT subscriptions), xAI (SuperGrok), Google, Vertex, Amazon Bedrock, Z.ai, OpenRouter, LM Studio, Ollama, or any OpenAI-compatible server; choose model, mode (fast, ultrafast, flex) and thinking level per thread. |
+| **Deep configuration** | Edit each model family's base prompt, built-in agent behavior, permission rules, language servers, formatters, checks, and project instructions. |
+| **MCP management** | Add stdio, streamable HTTP or SSE servers by hand or from a registry of popular ones, sign in with OAuth, and choose per server whether read-only agents may use its tools. |
+| **Errors after every edit** | Language servers on your PATH (rust-analyzer, TypeScript, Pyright, gopls, clangd) report what an edit broke straight back to the agent. |
 | **A workspace you can tune** | Use the command palette, rebind shortcuts, select from eight themes, customize fonts and CSS, and choose from 18 interface languages. |
 | **Desktop behavior** | Open files in your editor, receive configurable notifications, use native folder dialogs, and install authenticated updates from GitHub Releases. |
-| **Trusted-LAN remote control** | Opt in to the complete Drift interface from a phone or browser while the engine remains private on loopback. |
+| **Trusted-LAN remote control** | Opt in to the complete Drift interface from a phone or browser while the engine stays private on loopback. |
 
-Drift and the OpenCode CLI can use the same projects and canonical engine storage at the
-same time. Drift-specific workspace names, icons, archive state, preferences, and MCP
-decisions stay in Drift's own SQLite database.
+Coming from opencode? On first launch Drift imports your opencode conversations, sign-ins,
+MCP servers, instructions, agents, commands and skills once, in the background, and shows
+what it brought over and what it left out.
 
 ## Install
 
@@ -74,20 +73,18 @@ See Drift's [privacy policy](PRIVACY.md) for details about network connections a
 
 ```text
 SolidJS interface
-     | REST + server-sent events
+     | HTTP + one WebSocket, on loopback
      v
-Bundled OpenCode sidecar  -------->  model providers, MCP servers, project tools
-     ^
-     | lifecycle + random loopback credentials
+Drift engine (Rust, in process)  -->  model providers, MCP servers, language servers, project tools
      |
-Tauri shell  --------------------->  SQLite, updates, native Windows APIs
+Tauri shell  --------------------->  SQLite (drift.db), updates, native Windows APIs
 ```
 
-The sidecar listens only on `127.0.0.1` and receives a random Basic-auth credential on
-each launch. Model requests and relevant context are sent to whichever provider you
-configure. OpenCode and Drift plugins execute code in the engine process, so install
+The engine listens only on `127.0.0.1` and requires a random token generated on each launch.
+Model requests and relevant context go to whichever provider you configure. Drift plugins
+run in the interface, from files you place in Drift's own config folder, so install
 third-party plugins only when you trust their source. See the
-[architecture](docs/architecture.md), [MCP trust boundary](docs/mcp.md), and
+[architecture](docs/architecture.md), [engine](docs/engine.md), [MCP](docs/mcp.md), and
 [security policy](SECURITY.md) for details.
 
 Optional [Remote Access](docs/remote.md) adds a Tauri-owned HTTPS gateway on port `41718` and
@@ -105,26 +102,23 @@ Drift's native target is Windows x64. Development requires:
   with **Desktop development with C++**
 - [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
 
-Clone the repository and bootstrap the app plus the vendored engine:
+Clone the repository and install the frontend's dependencies:
 
 ```bash
 git clone https://github.com/kylepelham/Drift.git
 cd Drift
 bun install
-bun install --ignore-scripts --cwd engine/upstream
-bun install --cwd engine/opencode
-bun run build:engine
 ```
 
-Start the engine and browser UI:
+Start a headless engine and the browser UI:
 
 ```bash
 bun run dev
 ```
 
-The UI is served at `http://localhost:5180` against the engine on port `4096`. To use the
-native shell during development, leave that command running and start `bunx tauri dev`
-in a second terminal.
+The UI is served at `http://localhost:5180` against a headless engine (`drift-engined`) on a
+scratch data folder. For the native window instead, run `bun run dev:shell`; it keeps its data
+apart from an installed Drift.
 
 ### Quality checks
 
@@ -133,7 +127,7 @@ bun run gates
 ```
 
 That runs typecheck, the bun tests, the generated-client check, clippy and every Rust test.
-Use `bun run test:engine` after changing engine overlays or extensions.
+`bun run bench:engine` measures engine start, prompt overhead and prompt size.
 
 ### Build targets
 
@@ -147,25 +141,25 @@ bun run package       # Windows NSIS installer
 | Path | Purpose |
 | --- | --- |
 | `src/` | SolidJS frontend, engine client/store, application state, and UI |
-| `src-tauri/` | Tauri shell, sidecar lifecycle, native commands, and Drift SQLite store |
-| `engine/upstream/` | Pristine OpenCode source snapshot; never edit directly |
-| `engine/overlays/` | Minimal, reversible patches for internal engine integration points |
-| `engine/opencode/` | Drift-shipped OpenCode plugins and configuration |
-| `scripts/` | Development, extension, and engine build tooling |
-| `tests/` | Focused frontend and integration tests |
+| `crates/drift-engine/` | The engine: API, sessions, providers, tools, edits, MCP, language servers, config, permissions, storage |
+| `crates/drift-engined/` | Headless engine binary for the browser dev loop, conformance tests and remote hosts |
+| `crates/drift-migrate/` | One-time importer from opencode's storage and config |
+| `src-tauri/` | Tauri shell: window, updater, remote access, Drift's own store, links the engine |
+| `scripts/` | Development, release, benchmark, and client generation tooling |
+| `tests/` | Frontend, integration, and engine conformance tests |
 | `docs/` | Architecture and subsystem documentation |
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing the vendored engine or opening a
-substantial pull request.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a substantial pull request.
 
 ## Documentation
 
 | Guide | Covers |
 | --- | --- |
 | [Architecture](docs/architecture.md) | Layer boundaries, state flow, workspaces, transcripts, and tool rendering |
-| [Engine integration](docs/engine.md) | Sidecar lifecycle, API surface, overlays, updates, and engine gotchas |
-| [Extensibility](docs/extensibility.md) | OpenCode plugins, Drift hooks, tool renderers, and spawned threads |
-| [MCP approvals](docs/mcp.md) | MCP trust boundary, exact-definition decisions, reloads, and recovery |
+| [Engine](docs/engine.md) | How the app hosts the engine, its API and events, data locations, and usage limits |
+| [Engine design](docs/engine-rewrite.md) | Every engine decision in detail, with milestones and baselines |
+| [Extensibility](docs/extensibility.md) | Drift plugins, hooks, tool renderers, slash commands, and spawned threads |
+| [MCP](docs/mcp.md) | Servers, transports, sign-in, read-only trust, and the registry |
 | [Drift store](docs/store.md) | SQLite schema, persistence, archive behavior, and workspace lifecycle |
 | [Theming](docs/theming.md) | Design tokens, built-in themes, fonts, and custom CSS |
 | [Voice](docs/voice.md) | Dictation engine choice, capture and socket lifecycle, and settings |
@@ -184,9 +178,9 @@ not a public issue. General support guidance is in [SUPPORT.md](SUPPORT.md).
 
 ## OpenCode
 
-Drift is an independent desktop client built around OpenCode. It bundles a compiled copy
-of OpenCode under its MIT license and ships that license with the app at
-`licenses/opencode-LICENSE.txt`.
+Drift began as a desktop client around [OpenCode](https://github.com/sst/opencode) and now
+runs its own engine. Parts of its behavior follow OpenCode's, and it imports OpenCode's data
+once, so OpenCode's MIT license ships with the app at `licenses/opencode-LICENSE.txt`.
 
 ## License
 

@@ -1,28 +1,17 @@
 # Extensibility
 
-## Two plugin surfaces
+## What can be extended
 
-1. Engine side: standard opencode plugins. Drift ships its own in `engine/opencode/`
-   (injected via `OPENCODE_CONFIG_DIR`, which the engine treats as an extra config dir:
-   it auto-discovers `plugin/*.ts`, reads its `opencode.json`, and installs
-   `@opencode-ai/plugin` there). That `opencode.json` also pins npm plugins Drift ships
-   by default, currently `@ex-machina/opencode-anthropic-auth@1.8.5` so Claude Pro/Max plan
-   sign-ins work out of the box (installed on demand into the opencode package cache).
-   Version 1.8.5 reports Claude Code 2.1.280 for Anthropic's model-access gate. The
-   plugin does not itself add new models to the provider catalog; Opus 5.5 availability
-   still depends on the account, provider catalog, and Anthropic's server-side access.
-    User plugins in `.opencode/` and global config work unchanged, but execute arbitrary
-    engine-process code and are therefore outside the MCP approval trust boundary. Prefer
-    a plugin for engine behavior. If an internal semantic cannot be expressed through the plugin API,
-    keep its minimal adaptation in `engine/overlays`; never edit the snapshot directly.
-    Drift's shipped `mcp-approval` plugin is configured by the native shell and must run
-    last over the merged MCP config. A minimal bootstrap overlay verifies its final-config
-    seal; this is intentionally separate from the vendored upstream tree.
-2. Drift side: UI/workflow hooks the engine cannot see. Modeled on claude-code's hook
-    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS).
-    The Drift plugin foundation is built; the remaining planned events are listed
-    below.
-
+1. The engine: agents, commands and skills as Markdown files (`~/.config/drift/{agents,commands,skills}`
+   for your own, `.drift/` in a project), `drift.json` settings (model, permission rules,
+   providers, formatters, checks, language servers, instruction files, skill paths), MCP
+   servers (see [mcp.md](mcp.md)), and per-family base prompts in Settings > Prompts. The engine
+   runs no JavaScript and loads no plugins; its only plugin seam is an internal `Hook` trait,
+   planned for M5 in `CHECKLIST.md`. Plugins written for opencode are named in the import
+   summary and not run.
+2. The interface: UI and workflow hooks the engine cannot see, modeled on claude-code's hook
+   taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS). The Drift
+   plugin foundation is built; the remaining planned events are listed below.
 ## Drift plugins
 
 Drift's platform config directory can list local JavaScript modules in `drift.json`:
@@ -145,31 +134,18 @@ running is left out. The copy keeps compaction markers, so it continues from the
 
 ## Prompt and agent editing
 
-`prompt-overrides.ts` uses OpenCode's public `experimental.chat.system.transform` hook.
-Builds generate `prompt-catalog.json` from the exact vendored model-family and built-in
-agent prompt sources. Drift changes only the host identity by default, preserves the
-upstream prompt for inspection, and replaces only the known base-prompt prefix so
-workspace instructions, skills, MCP instructions, and user system text remain intact.
-The Anthropic identity paragraph retains an OpenCode compatibility marker because the
-bundled OAuth transport removes that paragraph before adding its required Claude identity.
-API-key requests keep the paragraph and still identify the product as Drift.
+Settings > Prompts edits the base prompt each model family starts with: GPT and Codex, Claude,
+Gemini and other models, plus one for all models that a family's own replacement overrides.
+They are the engine's (`GET`, `PUT` and `DELETE /prompts`); a replacement takes effect at each
+conversation's next turn. The rules Drift always adds after the base prompt (tools and
+`<system-reminder>`, the worktree, the shape of answers) are shown read-only and never replaced.
 
-GPT-6 models use upstream's Astra template by default, including GPT-6 Codex models.
-Existing `family:gpt` overrides still apply to non-Codex GPT-6, and `family:codex` overrides
-still apply to GPT-6 Codex. No saved settings are migrated or merged. Reset removes the
-family override and restores each model's own default: Astra for GPT-6, the existing GPT
-or Codex template for older models. Settings exposes Astra's upstream original alongside
-the older family template; a saved family edit applies across both templates.
-
-Settings stores only user edits in Drift SQLite. Model-family edits are materialized to
-the plugin settings file; agent and subagent prompt/behavior edits are materialized as
-the highest-precedence Drift agent config. Reset removes that layer and reveals the
-generated Drift default or the user's underlying OpenCode agent config. Saving or resetting
-publishes a runtime configuration reload for both desktop and companion clients. Idle and
-new sessions use the new settings; active sessions retain their configuration until they
-finish. The agent catalog refreshes after saving. A failed publication reports that the
-settings were saved but need a retry or restart, rather than claiming they are live.
-
+Settings > Agents edits each agent's prompt, model, steps, tools, permission rules and default
+reasoning level. Drift keeps those edits in its store as `agent:<name>` overrides and hands them
+to the engine, which applies them from the agent's next turn; a field the engine would not
+apply is refused rather than stored. Reset removes the override and shows the agent as its
+file or the built-in defines it. Saving refreshes the agent list for both desktop and
+companion clients.
 ### Agent models
 
 In Settings > Agents, select a subagent type such as `explore`, `general`, or a custom
@@ -187,6 +163,10 @@ masks any lower-precedence agent model and restores task model inheritance. Rese
 the whole Drift agent override and restores the underlying agent configuration instead.
 Prompt and behavior edits are preserved when changing the model. The picker and behavior
 JSON edit the same value; unavailable saved models remain visible by ID until changed.
+
+Built-in primary agents are `build`, `plan` (read-only) and `orchestrator`, which is offered no
+tool that edits or runs commands and delegates every change to subagents; its replies end in a
+status block the app's driver reads to keep it going until the goal is done or blocked.
 
 Built-in subagents are `general` (the default `task` type, full tools) and `explore` (read-only
 search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds another. All appear in

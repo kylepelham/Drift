@@ -1,6 +1,6 @@
 # Remote Access
 
-Remote Access serves Drift's complete SolidJS interface to your phone, tablet, or another computer on the same network. The remote UI uses the same Drift engine, event stream, Drift SQLite data, workspaces, archives, MCP policy, prompts, storage tools, provider state, and voice sidecars as the desktop app.
+Remote Access serves Drift's complete SolidJS interface to your phone, tablet, or another computer on the same network. The remote UI uses the same Drift engine, event stream, Drift SQLite data, workspaces, archives, MCP policy, prompts, storage tools, provider state, and voice transcription as the desktop app.
 
 Remote Access is off by default. Traffic is always encrypted with HTTPS, and only devices you approve can connect.
 
@@ -104,17 +104,16 @@ Upgrading from the shared access key: the old `?token=` URL and its cookie no lo
 
    ```bash
    bun install
-   bun install --cwd engine/opencode
    bun run typecheck
    bun run test
    bun run build
    cargo test --manifest-path src-tauri/Cargo.toml
    ```
 
-2. Build the required sidecars if they are not already present, then run Drift natively.
+2. Run Drift natively with `bun run dev:shell`.
 3. Enable **Settings > Remote Access**. Open the shown address on another device (or scan the QR code) and continue past the certificate warning.
 4. Enter the device's code on the desktop. Confirm the device opens `/companion` and the full workspace/session UI hydrates, and that it appears under **Devices**.
-5. Start a prompt on one device and confirm transcript/tool/SSE updates appear on both. Exercise permission and question replies, attachments, undo/redo, model selection, settings, storage, prompts, and MCP management.
+5. Start a prompt on one device and confirm transcript and tool updates appear on both. Exercise permission and question replies, attachments, undo/redo, model selection, settings, storage, prompts, and MCP management.
 6. Set a password, sign in from a private browser window, then change the password and confirm that window is signed out while the linked device is not.
 7. Download and install the certificate on a device, verify its fingerprint, and confirm the warning is gone.
 8. Visit `http://<address>:41718` and confirm the redirect to HTTPS.
@@ -122,4 +121,4 @@ Upgrading from the shared access key: the old `?token=` URL and its cookie no lo
 10. Send the UDP discovery probe from another device and confirm the response advertises the HTTPS address and fingerprint.
 11. Disable Remote Access and confirm HTTPS access and discovery stop immediately.
 
-Physical-device checks should cover Android Back behavior, display cutouts/safe areas, the software keyboard while composing, file selection, coarse-pointer menus, sleep/resume SSE recovery, and a `1280x800` tablet viewport.
+Physical-device checks should cover Android Back behavior, display cutouts/safe areas, the software keyboard while composing, file selection, coarse-pointer menus, sleep/resume event stream recovery, and a `1280x800` tablet viewport.
