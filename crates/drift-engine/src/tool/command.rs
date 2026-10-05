@@ -168,7 +168,8 @@ pub fn files_read(dialect: Dialect, line: &str) -> Vec<String> {
     let mut files = Vec::new();
     for segment in segments.iter().filter(|s| !s.words.is_empty()) {
         let words = canonical_words(dialect, &segment.words);
-        let first = words[0].to_ascii_lowercase();
+        // `B=x` alone runs nothing once its assignment is set aside.
+        let Some(first) = words.first().map(|word| word.to_ascii_lowercase()) else { continue };
         let program = first.rsplit(['/', '\\']).next().unwrap_or(&first).trim_end_matches(".exe").to_string();
         if MOVES.contains(&program.as_str()) {
             return Vec::new();
@@ -526,6 +527,8 @@ mod tests {
         assert!(files_read(Dialect::Bash, "sed -i 's/a/b/' a.rs").is_empty() && !reads_only(Dialect::Bash, "sed -i 's/a/b/' a.rs"));
         assert!(files_read(Dialect::Bash, "sed -n 'w out' a.rs").is_empty(), "a sed script that writes is not a read");
         assert!(files_read(Dialect::Bash, "cat a.rs > b.rs").is_empty(), "a line that writes is not a read");
+        assert_eq!(files_read(Dialect::Bash, r#"B="C:/build"; find "$B" -maxdepth 6; cat a.rs"#), ["a.rs"], "an assignment on its own runs nothing and is passed over");
+        assert!(files_read(Dialect::Bash, "FOO=1").is_empty());
         assert!(files_read(Dialect::Bash, "grep fn a.rs").is_empty(), "matches are not the file");
         assert!(reads_only(Dialect::Bash, "sed -n 1,200p a.rs"));
         assert!(files_read(Dialect::Bash, "cat a.rs | grep fn").is_empty(), "piped, the file was shown only through grep");

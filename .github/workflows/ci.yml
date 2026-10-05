@@ -92,6 +92,8 @@ jobs:
         run: node -e 0
 
       - name: Native unit tests
+        # A hung test fails here with its log, instead of holding the runner until a cancel that keeps none.
+        timeout-minutes: 20
         run: cargo test --workspace
 
       - name: Native lint
