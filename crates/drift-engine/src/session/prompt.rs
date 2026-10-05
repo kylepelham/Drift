@@ -94,6 +94,7 @@ pub fn system(setting: &Setting) -> String {
     }
     prompt
 }
+const LEFT_ORCHESTRATOR: &str = "<system-reminder>\nThe conversation has switched from the orchestrator agent to the {agent} agent. The orchestrator's protocol no longer applies: do not end replies with an <orchestrator_status> block, even though earlier replies did.\n</system-reminder>";
 const LEFT_READ_ONLY: &str = "<system-reminder>\nThe conversation has switched from the {from} agent to the {agent} agent. The {from} agent's read-only limits no longer apply: you may now change files and run commands with the tools you have. Carry out the plan agreed above.\n</system-reminder>";
 
 /// In the request only, over what the model sees (the compaction view): the prompt that starts each
@@ -137,6 +138,9 @@ fn reminders(config: &Config, agent: &str, before: Option<&str>) -> Vec<String> 
     let read_only = |name: &str| config.agent(name).is_some_and(|found| found.read_only);
     if let Some(from) = before.filter(|from| *from != agent && read_only(from) && !read_only(agent)) {
         out.push(LEFT_READ_ONLY.replace("{from}", from).replace("{agent}", agent));
+    }
+    if before.is_some_and(|from| from == super::drive::AGENT && agent != super::drive::AGENT) {
+        out.push(LEFT_ORCHESTRATOR.replace("{agent}", agent));
     }
     if before != Some(agent) {
         out.extend(agent_prompt(config, agent));
@@ -257,6 +261,11 @@ mod tests {
         assert!(texts(&transcript[0]).contains("# Plan mode"), "the planning turn's prompt keeps plan's reminder");
         assert!(texts(&transcript[2]).contains("switched from the plan agent to the build agent") && !texts(&transcript[2]).contains("# Plan mode"));
         assert!(texts(&transcript[4]).is_empty(), "build after build: nothing");
+
+        let mut left = numbered(vec![message(Role::User, Some("orchestrator")), message(Role::Assistant, Some("orchestrator")), message(Role::User, Some("plan")), message(Role::Assistant, Some("plan")), message(Role::User, Some("build"))]);
+        remind_agents(&config, "build", &mut left);
+        assert!(texts(&left[2]).contains("<orchestrator_status> block"), "leaving the orchestrator ends its protocol");
+        assert!(!texts(&left[4]).contains("orchestrator"), "said once, where it was left");
 
         let mut run = numbered(vec![message(Role::User, Some("plan")), message(Role::Assistant, Some("plan")), message(Role::User, Some("plan")), message(Role::Assistant, Some("plan"))]);
         remind_agents(&config, "plan", &mut run);

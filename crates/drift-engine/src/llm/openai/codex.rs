@@ -1,24 +1,24 @@
-//! What a ChatGPT sign-in can use: the Codex backend takes only some models, with its own limits, at no per-token cost.
+//! What a ChatGPT sign-in can use: the Codex backend takes only some models, with its own limits. They keep their API
+//! prices, so a turn shows what the plan saves.
 
-use crate::llm::catalog::{Cost, Limit, ProviderInfo};
+use crate::llm::catalog::{Limit, ProviderInfo};
 
 /// Accepted although their version alone would not be.
 const ALLOWED: [&str; 6] = ["gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-6-sol", "gpt-6-luna"];
 /// Refused although their version alone would be.
 const REFUSED: [&str; 2] = ["gpt-5.5-pro", "gpt-5.6"];
 
-/// Keeps the models the backend takes, priced at nothing, with the 400k window and 272k prompt it gives the 5.5 and 5.6 lines.
+/// Keeps the models the backend takes, with the 400k window and 272k prompt it gives the 5.5 and 5.6 lines.
 pub fn shape(provider: &mut ProviderInfo) {
     provider.models.retain(|id, _| accepted(id));
     for model in provider.models.values_mut() {
-        model.cost = Cost::default();
         if model.id.contains("gpt-5.5") || model.id.contains("gpt-5.6") {
             model.limit = Limit { context: 400_000, output: 128_000, input: 272_000 };
         }
     }
 }
 
-/// The model small jobs (titles) use under a ChatGPT sign-in, where nothing is priced to choose by: it spends least of the plan.
+/// The model small jobs (titles) use under a ChatGPT sign-in: it spends least of the plan, whatever the API prices say.
 const SMALL: &str = "gpt-5.4-mini";
 
 /// `SMALL` when the conversation runs on an OpenAI model through a ChatGPT sign-in and the backend offers it.
@@ -66,7 +66,7 @@ mod tests {
         let mut provider = crate::llm::catalog::Catalog::bundled().providers["openai"].clone();
         shape(&mut provider);
         assert!(provider.models.keys().all(|id| accepted(id)) && !provider.models.is_empty());
-        assert!(provider.models.values().all(|model| model.cost == Cost::default()));
+        assert!(provider.models.values().any(|model| model.cost.input > 0.0), "API prices are kept");
         if let Some(model) = provider.models.get("gpt-5.5") {
             assert_eq!(model.limit, Limit { context: 400_000, output: 128_000, input: 272_000 });
         }

@@ -40,7 +40,8 @@ const fontStyleItalic = 1
 const fontStyleBold = 2
 const fontStyleUnderline = 4
 
-export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number; thinking?: boolean }) {
+/** `orchestrated`: the orchestrator wrote the reply, so its status block shows as a row; from any other agent it is only hidden. */
+export function PartView(props: { part: Part; responseID?: string; live?: boolean; revision?: number; thinking?: boolean; orchestrated?: boolean }) {
   const engine = useEngine()
   return (
     <Switch>
@@ -63,7 +64,7 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
                   revision={props.revision}
                 />
               </Show>
-              <Show when={split().status}>{(status) => <OrchestratorStatusRow status={status()} />}</Show>
+              <Show when={props.orchestrated && split().status}>{(status) => <OrchestratorStatusRow status={status()} />}</Show>
             </>
           )
         }}
@@ -129,10 +130,11 @@ function visibleText(part: Part) {
 
 const statusLabels = { working: "drift.orchestrator.state.working", done: "drift.orchestrator.state.done", blocked: "drift.orchestrator.state.blocked" } as const
 
-/** The orchestrator's end-of-reply status, as a row like a tool's rather than the JSON it wrote. */
+/** The orchestrator's end-of-reply status, as a row like a tool's rather than the JSON it wrote; on the
+ * user's side, since while it says Working the engine prompts again on the user's behalf. */
 function OrchestratorStatusRow(props: { status: OrchestratorStatus }) {
   return (
-    <div class="flex min-h-8 min-w-0 items-center gap-2 px-1.5 text-sm">
+    <div class="flex min-h-8 min-w-0 items-center justify-end gap-2 px-1.5 text-sm">
       <Switch>
         <Match when={props.status.state === "done"}>
           <IconCheck class="size-3.5 shrink-0 text-ok" />

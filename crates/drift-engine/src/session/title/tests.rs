@@ -58,7 +58,7 @@ fn a_chatgpt_sign_in_titles_on_the_backends_mini_model_never_an_api_only_one() {
     let mut catalog = crate::llm::catalog::Catalog::bundled();
     codex::shape(catalog.providers.get_mut("openai").unwrap());
     let like = ModelRef { provider: "openai".into(), model: "gpt-5.5".into() };
-    assert_eq!(catalog.small_model(&like), None, "nothing is priced to choose by");
+    assert!(catalog.small_model(&like).is_some_and(|by_price| by_price.model != "gpt-5.4-mini"), "the API prices would choose another");
     let signed_in = crate::llm::Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: 0, account: None };
     let chosen = codex::small_model(&catalog, &like, &signed_in).expect("the mini model the backend takes");
     assert_eq!(chosen.model, "gpt-5.4-mini");

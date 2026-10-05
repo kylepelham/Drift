@@ -106,10 +106,9 @@ impl Engine {
         let chosen = match (plan.config.agent_model(action), fallback) {
             (Some(pinned), _) => pinned,
             (None, Fallback::Conversation) => plan.model_ref.clone(),
-            (None, Fallback::Small) => plan
-                .catalog
-                .small_model(&plan.model_ref)
-                .or_else(|| crate::llm::openai::codex::small_model(&plan.catalog, &plan.model_ref, &plan.credential))
+            // A ChatGPT sign-in pays in plan usage, not by the API prices the catalog shows, so its own pick wins.
+            (None, Fallback::Small) => crate::llm::openai::codex::small_model(&plan.catalog, &plan.model_ref, &plan.credential)
+                .or_else(|| plan.catalog.small_model(&plan.model_ref))
                 .unwrap_or_else(|| plan.model_ref.clone()),
         };
         let own = chosen == plan.model_ref;

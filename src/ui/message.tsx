@@ -7,7 +7,7 @@ import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engin
 import { emitMessageRendered } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
 import { agentLabel, t } from "../state/i18n"
-import { splitOrchestratorStatus } from "../state/orchestrator"
+import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons"
@@ -357,6 +357,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                     revision={group.revision?.()}
                     responseID={`${info().id}:${single().part.id}`}
                     live={single().part.id === liveTextPartID()}
+                    orchestrated={info().mode === ORCHESTRATOR_AGENT}
                   />
                 )}
               </Match>
