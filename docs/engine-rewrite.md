@@ -310,23 +310,34 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   (`Store::complete_summary`). If that write fails the summary is marked failed, no completion is
   published, and the error returns to the caller (counted against automatic compaction).
 - **Tail**: whole turns from the end, at most 2 turns and `tail_budget` estimated tokens (4 chars a
-  token): a quarter of the conversation's model's compaction point, held between 2k and 8k, as
-  opencode does. A fixed 15k let a 32k local model (compacting at 24k, about 4.6k of system prompt
-  and tools) land back over its point after one step. The tail starts at a user message so tool calls stay with their results, and never reaching the
-  first message: there is always something to summarise. When even the last turn is over budget
+  token): a quarter of the conversation's model's compaction point, held between 2k and 15k.
+  opencode uses the same quarter with an 8k ceiling; Drift keeps the 15k it always kept for large
+  windows, so long Claude sessions summarise no more of their recent history than before. A fixed
+  15k let a 32k local model (compacting at 24k, about 4.6k of system prompt and tools) land back
+  over its point after one step. The tail starts at a user message so tool calls stay with their
+  results, and never reaches the first message: there is always something to summarise. When even the last turn is over budget
   (one prompt and hundreds of calls, the usual agent run), its newest steps are kept from a reply
   onwards (`split_turn`), as opencode does, and the rest of that turn is summarised. The turn's
   prompt then rides verbatim beside the summary in the opening user turn ("The request still being
   worked on, as the user wrote it"), so the user's words never survive only as the summary retells
   them. The request window loads that one prompt beside the tail (`Store::prompt_before`), not the
   turn between them, and a later compaction carries it into the next summary's input.
-- **Summary request**: the `compaction` agent's model and prompt (per-action models above), the
-  previous summary and the history before the tail, one text-only request. Images and PDFs go as a
-  one-line mention and each tool result is cut to 2,000 characters (`lean`), as opencode sends
-  them. On the conversation's own model the request opens with the conversation's system prompt,
-  tools and cache key (`Plan::frame`), so the provider can serve that prefix from its cache; the
-  cut results end the shared prefix there. Another model gets no system prompt. If the provider
-  says it is too long, the oldest fifth of its turns is dropped with a note, up to three times.
+- **Summary request**, by the `compaction` agent's model and prompt (per-action models above), one
+  of two shapes:
+  - *Cached*: on the conversation's own model, when its last reply finished within five minutes
+    (Anthropic's default cache lifetime, the shortest common one), and not after an overflow. The
+    request is exactly the turn's next step (`Engine::step_request`: same system prompt, tools,
+    reminders, reasoning, tool choice and cache key, all of which providers key their cache on) with
+    the instructions as the last user message, so the whole history is read at the cached price,
+    about a tenth of normal input. Calling a tool stays possible on the wire, since changing
+    `tool_choice` would clear Anthropic's message cache, but a reply that calls one is refused.
+    The summary then covers the kept tail too.
+  - *Lean*: otherwise, or when the cached reply is unusable or too long. The previous summary and
+    the history before the tail, no system prompt, images and PDFs as a one-line mention and each
+    tool result cut to 2,000 characters, as opencode sends them. If the provider says it is too
+    long, the oldest fifth of its turns is dropped with a note, up to three times.
+  Either way a provider fault is retried as a turn's is, and each retry is published as
+  `session.retry` so the UI shows it rather than sitting on "compacting".
 - **Triggers**
   - Automatic, before each request in a turn: when the last finished reply since the latest summary
     used at least `context - reply room` tokens (`Model::reply_room`: the output limit, else a

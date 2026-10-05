@@ -86,7 +86,7 @@ change the plan there when a decision changes.
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, subagent pins
-- [x] Compaction with recovery: automatic (meter threshold, Settings off switch, stops after 3 failures), overflow compact-and-retry, `/compact`; summary plus 2-turn/15k tail, nothing deleted
+- [x] Compaction with recovery: automatic (meter threshold, Settings off switch, stops after 3 failures), overflow compact-and-retry, `/compact`; summary plus a 2-turn tail of a quarter of the compaction point (2k to 15k), nothing deleted
 - [x] Retry with model switch: `session.retry` drives the retry notice, `POST /sessions/{id}/retry` switches a waiting turn's model at once
 - [x] Revert (undo/redo with files, across subagents; the next prompt commits it). Diff: per-call diffs in tool metadata; no session diff endpoint until something consumes one
 - [x] Shell timeout: Settings value pushed to the engine, model `timeout` wins, badge metadata while running and on expiry
@@ -211,8 +211,8 @@ change the plan there when a decision changes.
 - [x] Review after cutover:
   - [x] Imported opencode permission patterns kept in written order and reversed per kind (opencode's last match wins, drift.json's first)
   - [x] Orchestrator driven by the engine (`session/drive.rs`, `nudge` parts, 30 per user prompt counted from the transcript); the app only shows how a turn ended
-  - [x] Compaction tail a quarter of the model's compaction point, 2k to 8k (a 32k local model no longer compacts every step)
-  - [x] Summary requests send files by mention and tool results cut to 2,000 characters, open with the conversation's system prompt, tools and cache key on its own model; one-shots retry provider faults with a turn's backoff
+  - [x] Compaction tail a quarter of the model's compaction point, 2k to 15k (a 32k local model no longer compacts every step; large windows keep the 15k they had)
+  - [x] Summary on the conversation's own model with a warm cache is the turn's next request plus the instructions (`step_request`), read at the cached price; otherwise lean (files by mention, tool results cut to 2,000 characters); one-shots retry provider faults with a turn's backoff, a compaction's shown as `session.retry`
   - [x] The system prompt's date is the local one (`platform::clock`)
   - [x] Tool descriptions match the tools (edit/write one-line result, webfetch's 64 KB bound and saved file, read's image limits, task's missing delegation tools), pinned by a test; webfetch's own 100k cut dropped so the saved file holds the whole page
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k

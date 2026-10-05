@@ -342,11 +342,6 @@ impl Plan {
         self.offer.tool(name)
     }
 
-    /// The system prompt and tools this plan's requests open with.
-    pub(super) fn frame(&self) -> (String, Vec<llm::ToolSpec>) {
-        (self.offer.system.clone(), self.offer.specs())
-    }
-
     /// What the variant asks of the model now planned; a name this model does not offer asks nothing.
     fn reasoning(&self) -> Option<Reasoning> {
         reasoning_in(&self.model.variants, self.variant.as_deref())
@@ -842,6 +837,42 @@ impl Engine {
         }
     }
 
+    /// A step's request on the request window, as every step of a turn builds it, so one built
+    /// elsewhere (a summary on the conversation's own model) reads the same cached prefix. `closing`
+    /// is a last user instruction; it forbids tool calls. Also returns the newest prompt it includes.
+    pub(super) fn step_request(&self, plan: &Plan, mut transcript: Vec<MessageWithParts>, started: Option<&str>, closing: Option<String>) -> (Request, Option<String>) {
+        super::branch::frame_spawned(&plan.session, &mut transcript);
+        let lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
+        super::convert::drop_earlier_reasoning(&mut transcript, started);
+        let answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
+        let provider = plan.model_ref.provider.as_str();
+        let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning().or_else(|| catalog::default_reasoning(provider, &plan.model)));
+        let sampling = catalog::sampling(&plan.model);
+        let target = super::convert::OnCatalog { model: &plan.model_ref, catalog: &plan.catalog };
+        let mut messages = compaction::request_messages(&transcript, &target, &lead);
+        let no_tool_calls = closing.is_some();
+        if let Some(text) = closing {
+            super::convert::push(&mut messages, llm::Role::User, vec![llm::Block::Text(text)]);
+        }
+        let request = Request {
+            model: plan.model.wire(&plan.model_ref.model).to_string(),
+            system: plan.offer.system.clone(),
+            messages: llm::prepare_files(messages, &plan.model, |hash| self.store.blob(hash).ok().flatten()),
+            tools: plan.offer.specs(),
+            max_tokens,
+            reasoning,
+            temperature: sampling.temperature,
+            cache_key: Some(plan.session.id.clone()),
+            no_tool_calls,
+            verbosity: catalog::verbosity(provider, &plan.model),
+            show_thinking: catalog::shows_thinking(provider, &plan.model),
+            top_p: sampling.top_p,
+            top_k: sampling.top_k,
+            mode: plan.model.mode.clone(),
+        };
+        (request, answered)
+    }
+
     /// One run of model steps; returns the newest prompt the last request included.
     async fn run_steps(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken, started: Option<&str>) -> Option<String> {
         let mut attempts = 0;
@@ -859,35 +890,10 @@ impl Engine {
             if wrapping.is_none() && steps + 1 >= limits.steps {
                 wrapping = Some(WrapUp::Steps(limits.steps));
             }
-            let Some(mut transcript) = self.transcript_for_step(plan, abort).await else { break };
-            super::branch::frame_spawned(&plan.session, &mut transcript);
-            let lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
-            super::convert::drop_earlier_reasoning(&mut transcript, started);
-            answered = transcript.iter().rev().find(|m| m.info.role == Role::User).map(|m| m.info.id.clone());
-            let provider = plan.model_ref.provider.as_str();
-            let (max_tokens, reasoning) = budgets(&plan.model, plan.reasoning().or_else(|| catalog::default_reasoning(provider, &plan.model)));
-            let sampling = catalog::sampling(&plan.model);
-            let target = super::convert::OnCatalog { model: &plan.model_ref, catalog: &plan.catalog };
-            let mut messages = compaction::request_messages(&transcript, &target, &lead);
-            if let Some(wrap_up) = wrapping {
-                super::convert::push(&mut messages, llm::Role::User, vec![llm::Block::Text(wrap_up.instruction())]);
-            }
-            let request = Request {
-                model: plan.model.wire(&plan.model_ref.model).to_string(),
-                system: plan.offer.system.clone(),
-                messages: llm::prepare_files(messages, &plan.model, |hash| self.store.blob(hash).ok().flatten()),
-                tools: plan.offer.specs(),
-                max_tokens,
-                reasoning,
-                temperature: sampling.temperature,
-                cache_key: Some(plan.session.id.clone()),
-                no_tool_calls: wrapping.is_some(),
-                verbosity: catalog::verbosity(provider, &plan.model),
-                show_thinking: catalog::shows_thinking(provider, &plan.model),
-                top_p: sampling.top_p,
-                top_k: sampling.top_k,
-                mode: plan.model.mode.clone(),
-            };
+            let Some(transcript) = self.transcript_for_step(plan, abort).await else { break };
+            let wrap_up = wrapping.map(|wrap_up| wrap_up.instruction());
+            let request;
+            (request, answered) = self.step_request(plan, transcript, started, wrap_up);
             let Ok(message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });
             match self.step(plan, message, &request, abort).await {
@@ -1822,6 +1828,10 @@ impl Retry {
     }
 
     /// Worth waiting for: attempts remain and the provider did not ask for longer than we will wait.
+    pub(super) fn message(&self) -> &str {
+        &self.message
+    }
+
     pub(super) fn allowed(&self, retries: u32) -> bool {
         retries < MAX_RETRIES && self.after.is_none_or(|after| after <= MAX_REQUESTED_WAIT)
     }

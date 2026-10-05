@@ -7,7 +7,8 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::convert;
-use super::oneshot::{Action, Fallback, OneShot};
+use super::oneshot::{Action, Failure, Fallback, OneShot, Resolved};
+use super::turn::Plan;
 use super::turn::TurnError;
 use super::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, Role};
 use crate::event::Event;
@@ -18,13 +19,15 @@ use crate::Engine;
 
 /// The recent history kept verbatim: at most this many turns, within [`tail_budget`] estimated tokens.
 const TAIL_TURNS: usize = 2;
-/// A quarter of what the conversation's model may use before compacting, kept within these bounds,
-/// as opencode does: a small local model must not compact again on the very next step.
+/// A quarter of what the conversation's model may use before compacting, kept within these bounds:
+/// a small local model must not compact again on the very next step. opencode stops at 8k; Drift
+/// keeps the 15k it always kept for large windows.
 const TAIL_MIN_TOKENS: u64 = 2_000;
-const TAIL_MAX_TOKENS: u64 = 8_000;
+const TAIL_MAX_TOKENS: u64 = 15_000;
 /// Each tool result the summary request carries is cut to this many characters; images and PDFs are named only.
 const SUMMARY_TOOL_CHARS: usize = 2_000;
 const SUMMARY_MAX_TOKENS: u32 = 8_192;
+const CACHE_WARM_MS: i64 = 5 * 60 * 1000;
 const SUMMARY_TIMEOUT: Duration = Duration::from_secs(300);
 /// A summary request that is itself too long drops the oldest fifth of its turns, this many times at most.
 const TRIM_ATTEMPTS: usize = 3;
@@ -185,7 +188,7 @@ impl Engine {
             None => summary.clone(),
         });
         let outcome = tokio::select! {
-            outcome = self.summarise(session_id, &action, &instructions, previous.as_deref(), head) => outcome,
+            outcome = self.summarise(session_id, &action, &instructions, &transcript, trigger, previous.as_deref(), head) => outcome,
             () = abort.cancelled() => Err("aborted".to_string()),
         };
         self.close_compaction(&mut summary, outcome, abort.is_cancelled())
@@ -225,13 +228,33 @@ impl Engine {
         Err(error)
     }
 
-    /// One summary request; when it is itself too long, the oldest turns are dropped and it is retried.
-    /// On the conversation's own model it opens with the conversation's system prompt and tools, so
-    /// the provider can serve that prefix from its cache.
-    async fn summarise(&self, session_id: &str, action: &Action, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts]) -> Result<String, String> {
-        let resolved = &action.resolved;
-        let (system, tools) = action.frame.clone().unwrap_or_else(|| (String::new(), self.tool_specs(resolved.model.profile)));
-        let cache_key = action.frame.is_some().then(|| session_id.to_string());
+    /// The summary. On the conversation's own model with its cache still warm, the request is the
+    /// conversation's next one with the instructions after it, so its whole history is read at the
+    /// cached price. Otherwise, or when that reply is unusable or too long, a lean request on the
+    /// history before the tail.
+    #[allow(clippy::too_many_arguments)]
+    async fn summarise(&self, session_id: &str, action: &Action, instructions: &str, window: &[MessageWithParts], trigger: Trigger, previous: Option<&str>, head: &[&MessageWithParts]) -> Result<String, String> {
+        if let Some(plan) = action.own.as_ref().filter(|_| trigger != Trigger::Overflow && warm(window)) {
+            match self.summarise_cached(session_id, plan, instructions, window.to_vec()).await {
+                Err(failure) if failure.retry_another_way() => {}
+                done => return done.map_err(|failure| failure.message()),
+            }
+        }
+        self.summarise_lean(session_id, &action.resolved, instructions, previous, head).await
+    }
+
+    /// Exactly the request the turn's next step would send (same frame, reasoning and tool choice,
+    /// which providers key their cache on), with the instructions as the last user message.
+    async fn summarise_cached(&self, session_id: &str, plan: &Plan, instructions: &str, window: Vec<MessageWithParts>) -> Result<String, Failure> {
+        let started = self.turns.began(session_id).or_else(|| self.store.newest_prompt(session_id).ok().flatten());
+        let (mut request, _) = self.step_request(plan, window, started.as_deref(), None);
+        convert::push(&mut request.messages, llm::Role::User, vec![Block::Text(instructions.into())]);
+        self.send(&plan.provider, &plan.credential, &request, SUMMARY_TIMEOUT, Some(session_id)).await
+    }
+
+    /// The history before the tail with files by mention and tool results cut, no system prompt;
+    /// when it is itself too long, the oldest turns are dropped and it is asked again.
+    async fn summarise_lean(&self, session_id: &str, resolved: &Resolved, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts]) -> Result<String, String> {
         let starts = turn_starts(head);
         let mut dropped = 0;
         for attempt in 0..=TRIM_ATTEMPTS {
@@ -249,7 +272,7 @@ impl Engine {
             }
             lean(&mut messages);
             convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
-            let shot = OneShot { system: system.clone(), messages, tools: tools.clone(), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, cache_key: cache_key.clone() };
+            let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, shown_in: Some(session_id.into()) };
             match self.complete(resolved, shot).await {
                 Err(error) if attempt < TRIM_ATTEMPTS && llm::mentions_context_overflow(&error) && dropped < starts.len() => {
                     dropped += (starts.len() / 5).max(1);
@@ -274,6 +297,13 @@ fn lean(messages: &mut [ChatMessage]) {
             _ => {}
         }
     }
+}
+
+/// Whether the conversation's last reply is recent enough that the provider still holds its prompt
+/// cache (five minutes is Anthropic's default and the shortest common one).
+fn warm(window: &[MessageWithParts]) -> bool {
+    let last = window.iter().rev().find(|m| m.info.role == Role::Assistant && !m.info.summary);
+    last.and_then(|m| m.info.finished_at).is_some_and(|at| id::now_ms() - at < CACHE_WARM_MS)
 }
 
 /// How much recent history stays verbatim, in estimated tokens, for the model that will read it.

@@ -1,15 +1,15 @@
 //! Requests the engine makes for itself, outside any turn: titles and compaction summaries.
 
-use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::StreamExt;
 
-use super::turn::{Prompt, TurnError};
+use super::turn::{Plan, Prompt, TurnError};
 use super::types::ModelRef;
+use crate::config::Config;
+use crate::event::{Event, SessionStatus};
 use crate::llm::catalog::Model;
 use crate::llm::{ChatMessage, Chunk, Credential, Provider, Request, StopReason, ToolSpec};
-use crate::config::Config;
 use crate::Engine;
 
 /// A model ready to call: catalog entry, wire adapter and a usable credential.
@@ -28,8 +28,8 @@ pub(crate) struct OneShot {
     pub max_tokens: u32,
     /// For each attempt; a provider fault is retried as a turn's is.
     pub timeout: Duration,
-    /// The conversation's, when the request opens as its turns do, so the provider can reuse their cached prefix.
-    pub cache_key: Option<String>,
+    /// The session whose user is waiting on this request and sees its retries, as a turn's; none for a background title.
+    pub shown_in: Option<String>,
 }
 
 /// An action's model, with what it needs to know of the conversation it acts on.
@@ -38,14 +38,36 @@ pub(crate) struct Action {
     pub config: Config,
     /// The conversation's own model, which reads whatever the action leaves behind.
     pub conversation: Model,
-    /// The conversation's system prompt and tools, when the action runs on the conversation's model.
-    pub frame: Option<(String, Vec<ToolSpec>)>,
+    /// The conversation's plan, when the action runs on its model, so a request can be built as its turns build theirs.
+    pub own: Option<Plan>,
 }
 
-/// Why a one-shot failed: a provider fault worth retrying, or anything else.
-enum Failure {
+/// Why a one-shot failed.
+pub(super) enum Failure {
+    /// The provider refused or failed, after any retries.
     Provider(crate::llm::Error),
+    /// The model answered, but not with a usable text reply.
     Reply(String),
+    Late,
+}
+
+impl Failure {
+    pub(super) fn message(&self) -> String {
+        match self {
+            Self::Provider(error) => error.to_string(),
+            Self::Reply(why) => why.clone(),
+            Self::Late => "the model took too long to answer".into(),
+        }
+    }
+
+    /// Worth asking again another way: the reply was unusable, or the request was too long.
+    pub(super) fn retry_another_way(&self) -> bool {
+        match self {
+            Self::Reply(_) => true,
+            Self::Provider(error) => crate::llm::mentions_context_overflow(&error.to_string()),
+            Self::Late => false,
+        }
+    }
 }
 
 /// Thinking room a reasoning model without a token budget gets on top of a one-shot answer.
@@ -75,14 +97,12 @@ impl Engine {
                 .unwrap_or_else(|| plan.model_ref.clone()),
         };
         let own = chosen == plan.model_ref;
-        let frame = own.then(|| plan.frame());
-        let conversation = plan.model.clone();
         let resolved = if own {
-            Resolved { model_ref: plan.model_ref, model: plan.model, provider: plan.provider, credential: plan.credential }
+            Resolved { model_ref: plan.model_ref.clone(), model: plan.model.clone(), provider: plan.provider.clone(), credential: plan.credential.clone() }
         } else {
             self.resolve(&chosen).await?
         };
-        Ok(Action { resolved, config: Arc::unwrap_or_clone(plan.config), conversation, frame })
+        Ok(Action { resolved, config: (*plan.config).clone(), conversation: plan.model.clone(), own: own.then_some(plan) })
     }
     /// Everything needed to call `model_ref`, with an expired subscription token refreshed.
     pub(crate) async fn resolve(&self, model_ref: &ModelRef) -> Result<Resolved, TurnError> {
@@ -126,7 +146,7 @@ impl Engine {
             max_tokens,
             reasoning,
             temperature: None,
-            cache_key: shot.cache_key,
+            cache_key: None,
             no_tool_calls: true,
             verbosity: None,
             show_thinking: false,
@@ -134,20 +154,30 @@ impl Engine {
             top_k: None,
             mode: resolved.model.mode.clone(),
         };
+        self.send(&resolved.provider, &resolved.credential, &request, shot.timeout, shot.shown_in.as_deref()).await.map_err(|failure| failure.message())
+    }
+
+    /// The text of a reply to `request`. A provider fault (overload, rate limit, dropped connection)
+    /// is retried with a turn's backoff and limits, announced in `shown_in` as a turn announces its own.
+    pub(super) async fn send(&self, provider: &Provider, credential: &Credential, request: &Request, timeout: Duration, shown_in: Option<&str>) -> Result<String, Failure> {
         let mut retries = 0;
         loop {
-            let attempt = tokio::time::timeout(shot.timeout, collect_text(&resolved.provider, &request, &resolved.credential)).await;
-            let error = match attempt.map_err(|_| "the model took too long to answer".to_string())? {
+            let attempt = tokio::time::timeout(timeout, collect_text(provider, request, credential)).await.map_err(|_| Failure::Late)?;
+            let error = match attempt {
                 Ok(text) => return Ok(text),
-                Err(Failure::Reply(why)) => return Err(why),
                 Err(Failure::Provider(error)) => error,
+                Err(other) => return Err(other),
             };
-            match super::turn::Retry::from(&error).filter(|retry| retry.allowed(retries)) {
-                Some(retry) => {
-                    retries += 1;
-                    tokio::time::sleep(retry.delay(retries)).await;
-                }
-                None => return Err(error.to_string()),
+            let Some(retry) = super::turn::Retry::from(&error).filter(|retry| retry.allowed(retries)) else { return Err(Failure::Provider(error)) };
+            retries += 1;
+            let delay = retry.delay(retries);
+            if let Some(session_id) = shown_in {
+                let next_at = crate::id::now_ms() + i64::try_from(delay.as_millis()).unwrap_or(i64::MAX);
+                self.hub.publish(Event::SessionRetry { session_id: session_id.into(), attempt: retries, message: retry.message().into(), next_at });
+            }
+            tokio::time::sleep(delay).await;
+            if let Some(session_id) = shown_in {
+                self.hub.publish(Event::SessionStatusChanged { session_id: session_id.into(), status: SessionStatus::Running });
             }
         }
     }
