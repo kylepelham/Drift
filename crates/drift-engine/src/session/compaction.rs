@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::convert;
-use super::oneshot::{Action, Failure, Fallback, OneShot, Resolved};
+use super::oneshot::{Action, Answer, Failure, Fallback, OneShot, Resolved};
 use super::turn::Plan;
 use super::turn::TurnError;
 use super::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, Role};
@@ -187,10 +187,14 @@ impl Engine {
             Some(request) => format!("{summary}\n\nThe request still being worked on, as the user wrote it:\n\n{request}"),
             None => summary.clone(),
         });
+        let mut spent = Spent::default();
         let outcome = tokio::select! {
-            outcome = self.summarise(session_id, &action, &instructions, &transcript, trigger, previous.as_deref(), head) => outcome,
+            outcome = self.summarise(session_id, &action, &instructions, &transcript, trigger, previous.as_deref(), head, &mut spent) => outcome,
             () = abort.cancelled() => Err("aborted".to_string()),
         };
+        // Charged like any reply, the attempts that came back unusable included.
+        summary.usage = spent.usage;
+        summary.cost = spent.cost;
         self.close_compaction(&mut summary, outcome, abort.is_cancelled())
     }
 
@@ -233,19 +237,24 @@ impl Engine {
     /// cached price. Otherwise, or when that reply is unusable or too long, a lean request on the
     /// history before the tail.
     #[allow(clippy::too_many_arguments)]
-    async fn summarise(&self, session_id: &str, action: &Action, instructions: &str, window: &[MessageWithParts], trigger: Trigger, previous: Option<&str>, head: &[&MessageWithParts]) -> Result<String, String> {
+    async fn summarise(&self, session_id: &str, action: &Action, instructions: &str, window: &[MessageWithParts], trigger: Trigger, previous: Option<&str>, head: &[&MessageWithParts], spent: &mut Spent) -> Result<String, String> {
         if let Some(plan) = action.own.as_ref().filter(|_| trigger != Trigger::Overflow && warm(window)) {
             match self.summarise_cached(session_id, plan, instructions, window.to_vec()).await {
-                Err(failure) if failure.retry_another_way() => {}
-                done => return done.map_err(|failure| failure.message()),
+                Ok(answer) => return Ok(spent.take(&plan.model, answer)),
+                Err(failure) => {
+                    spent.add(&plan.model, failure.usage());
+                    if !failure.retry_another_way() {
+                        return Err(failure.message());
+                    }
+                }
             }
         }
-        self.summarise_lean(session_id, &action.resolved, instructions, previous, head).await
+        self.summarise_lean(session_id, &action.resolved, instructions, previous, head, spent).await
     }
 
     /// Exactly the request the turn's next step would send (same frame, reasoning and tool choice,
     /// which providers key their cache on), with the instructions as the last user message.
-    async fn summarise_cached(&self, session_id: &str, plan: &Plan, instructions: &str, window: Vec<MessageWithParts>) -> Result<String, Failure> {
+    async fn summarise_cached(&self, session_id: &str, plan: &Plan, instructions: &str, window: Vec<MessageWithParts>) -> Result<Answer, Failure> {
         let started = self.turns.began(session_id).or_else(|| self.store.newest_prompt(session_id).ok().flatten());
         let (mut request, _) = self.step_request(plan, window, started.as_deref(), None);
         convert::push(&mut request.messages, llm::Role::User, vec![Block::Text(instructions.into())]);
@@ -254,7 +263,7 @@ impl Engine {
 
     /// The history before the tail with files by mention and tool results cut, no system prompt;
     /// when it is itself too long, the oldest turns are dropped and it is asked again.
-    async fn summarise_lean(&self, session_id: &str, resolved: &Resolved, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts]) -> Result<String, String> {
+    async fn summarise_lean(&self, session_id: &str, resolved: &Resolved, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts], spent: &mut Spent) -> Result<String, String> {
         let starts = turn_starts(head);
         let mut dropped = 0;
         for attempt in 0..=TRIM_ATTEMPTS {
@@ -273,14 +282,41 @@ impl Engine {
             lean(&mut messages);
             convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
             let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, shown_in: Some(session_id.into()) };
-            match self.complete(resolved, shot).await {
-                Err(error) if attempt < TRIM_ATTEMPTS && llm::mentions_context_overflow(&error) && dropped < starts.len() => {
-                    dropped += (starts.len() / 5).max(1);
-                }
-                other => return other,
+            let failure = match self.complete(resolved, shot).await {
+                Ok(answer) => return Ok(spent.take(&resolved.model, answer)),
+                Err(failure) => failure,
+            };
+            spent.add(&resolved.model, failure.usage());
+            let error = failure.message();
+            if attempt == TRIM_ATTEMPTS || !llm::mentions_context_overflow(&error) || dropped >= starts.len() {
+                return Err(error);
             }
+            dropped += (starts.len() / 5).max(1);
         }
         Err("the conversation is too long to summarise".into())
+    }
+}
+
+/// What a compaction's requests used and cost, each priced on the model it ran on.
+#[derive(Default)]
+struct Spent {
+    usage: crate::session::types::Usage,
+    cost: f64,
+}
+
+impl Spent {
+    fn add(&mut self, model: &Model, usage: crate::session::types::Usage) {
+        self.cost += super::turn::cost(model, usage);
+        self.usage.input += usage.input;
+        self.usage.output += usage.output;
+        self.usage.cache_read += usage.cache_read;
+        self.usage.cache_write += usage.cache_write;
+    }
+
+    /// Counts a reply's usage and hands back its text.
+    fn take(&mut self, model: &Model, answer: Answer) -> String {
+        self.add(model, answer.usage);
+        answer.text
     }
 }
 

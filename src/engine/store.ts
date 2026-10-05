@@ -428,7 +428,8 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
     context,
     percent: Math.min(percentScale, Math.round((count / context) * percentScale)),
     untilCompaction: Math.max(0, usable - count),
-    cost: (state.sessions[sessionId] as { cost?: number } | undefined)?.cost ?? 0,
+    // The engine keeps cost per message (replies and compaction summaries), not per session.
+    cost: entries.reduce((sum, entry) => sum + ((entry.info as { cost?: number }).cost ?? 0), 0),
   }
 }
 

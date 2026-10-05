@@ -223,6 +223,9 @@ change the plan there when a decision changes.
   - [x] The system prompt lists only skills and subagents the agent may use
   - [x] Long-prompt pricing from models.dev's context tiers
   - [x] `read` errors on an offset past the end and says when a file is empty
+  - [x] One language server per root however many reads ask at once; a failed start's cooldown is per root
+  - [x] `disable` never removes the engine's action agents; with `build` disabled new sessions take the first conversational agent
+  - [x] Compaction summaries charged like replies (failed attempts included); the UI's cost total sums message costs
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
 ## M5: hook seam
@@ -231,6 +234,7 @@ change the plan there when a decision changes.
 - [ ] Prompt overrides as an internal hook
 - [ ] Background task controls: move a running foreground task to the background; add a follow-up to a running background task
 - [ ] Measure `edit` miss rates per model family before considering any fuzzy fallback
+- [ ] Charge titles somewhere visible (they have no message of their own)
 - [ ] MCP resource templates as a tool (`mcp/resources.rs` lists and reads resources only)
 - [ ] A plan file the plan agent may write (opencode allows `.opencode/plans/*.md`), so a plan survives compaction
 - [ ] Only if the UI or headless use wants them: user-run `!command` turns, `@agent` mention parts, `format: json_schema` structured output, project references

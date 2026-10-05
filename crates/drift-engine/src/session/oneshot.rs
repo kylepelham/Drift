@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 
 use super::turn::{Plan, Prompt, TurnError};
-use super::types::ModelRef;
+use super::types::{ModelRef, Usage};
 use crate::config::Config;
 use crate::event::{Event, SessionStatus};
 use crate::llm::catalog::Model;
@@ -42,28 +42,42 @@ pub(crate) struct Action {
     pub own: Option<Plan>,
 }
 
+/// A reply's text and the tokens it used, which are paid for.
+pub(crate) struct Answer {
+    pub text: String,
+    pub usage: Usage,
+}
+
 /// Why a one-shot failed.
-pub(super) enum Failure {
+pub(crate) enum Failure {
     /// The provider refused or failed, after any retries.
     Provider(crate::llm::Error),
-    /// The model answered, but not with a usable text reply.
-    Reply(String),
+    /// The model answered, but not with a usable text reply; what it used is still paid for.
+    Reply(String, Usage),
     Late,
 }
 
 impl Failure {
-    pub(super) fn message(&self) -> String {
+    pub(crate) fn message(&self) -> String {
         match self {
             Self::Provider(error) => error.to_string(),
-            Self::Reply(why) => why.clone(),
+            Self::Reply(why, _) => why.clone(),
             Self::Late => "the model took too long to answer".into(),
+        }
+    }
+
+    /// The tokens a reply used before it was refused; none when no reply came.
+    pub(crate) fn usage(&self) -> Usage {
+        match self {
+            Self::Reply(_, usage) => *usage,
+            _ => Usage::default(),
         }
     }
 
     /// Worth asking again another way: the reply was unusable, or the request was too long.
     pub(super) fn retry_another_way(&self) -> bool {
         match self {
-            Self::Reply(_) => true,
+            Self::Reply(..) => true,
             Self::Provider(error) => crate::llm::mentions_context_overflow(&error.to_string()),
             Self::Late => false,
         }
@@ -121,10 +135,10 @@ impl Engine {
         Ok(Resolved { model_ref: model_ref.clone(), model, provider, credential })
     }
 
-    /// The reply's text. The request forbids tool calls; a reply that makes one anyway is refused, never run.
+    /// The reply and what it used. The request forbids tool calls; a reply that makes one anyway is refused, never run.
     /// A reasoning model runs at its weakest level, with room to think on top of the answer's own.
     /// A provider fault (overload, rate limit, dropped connection) is retried with a turn's backoff.
-    pub(crate) async fn complete(&self, resolved: &Resolved, shot: OneShot) -> Result<String, String> {
+    pub(crate) async fn complete(&self, resolved: &Resolved, shot: OneShot) -> Result<Answer, Failure> {
         let mut reasoning = resolved.model.variants.first().map(|variant| variant.reasoning.clone());
         let thinking = match &reasoning {
             Some(crate::llm::catalog::Reasoning::Budget { tokens }) => *tokens,
@@ -154,17 +168,17 @@ impl Engine {
             top_k: None,
             mode: resolved.model.mode.clone(),
         };
-        self.send(&resolved.provider, &resolved.credential, &request, shot.timeout, shot.shown_in.as_deref()).await.map_err(|failure| failure.message())
+        self.send(&resolved.provider, &resolved.credential, &request, shot.timeout, shot.shown_in.as_deref()).await
     }
 
-    /// The text of a reply to `request`. A provider fault (overload, rate limit, dropped connection)
+    /// The reply to `request` and what it used. A provider fault (overload, rate limit, dropped connection)
     /// is retried with a turn's backoff and limits, announced in `shown_in` as a turn announces its own.
-    pub(super) async fn send(&self, provider: &Provider, credential: &Credential, request: &Request, timeout: Duration, shown_in: Option<&str>) -> Result<String, Failure> {
+    pub(super) async fn send(&self, provider: &Provider, credential: &Credential, request: &Request, timeout: Duration, shown_in: Option<&str>) -> Result<Answer, Failure> {
         let mut retries = 0;
         loop {
             let attempt = tokio::time::timeout(timeout, collect_text(provider, request, credential)).await.map_err(|_| Failure::Late)?;
             let error = match attempt {
-                Ok(text) => return Ok(text),
+                Ok(answer) => return Ok(answer),
                 Err(Failure::Provider(error)) => error,
                 Err(other) => return Err(other),
             };
@@ -194,20 +208,22 @@ pub(super) fn refuse_signin_elsewhere(provider: &str, credential: &Credential, a
     }
 }
 
-async fn collect_text(provider: &Provider, request: &Request, credential: &Credential) -> Result<String, Failure> {
+async fn collect_text(provider: &Provider, request: &Request, credential: &Credential) -> Result<Answer, Failure> {
     let mut chunks = provider.stream(request, credential).await.map_err(Failure::Provider)?;
     let mut text = String::new();
+    let mut usage = Usage::default();
     let mut stopped = None;
     let mut called_tool = false;
     while let Some(chunk) = chunks.next().await {
         match chunk.map_err(Failure::Provider)? {
             Chunk::TextDelta(delta) => text.push_str(&delta),
+            Chunk::Usage(reported) => usage.merge(reported),
             Chunk::Stop(reason) => stopped = Some(reason),
             Chunk::ToolUseStart { .. } => called_tool = true,
             _ => {}
         }
     }
-    let failed = |why: &str| Err(Failure::Reply(why.into()));
+    let failed = |why: &str| Err(Failure::Reply(why.into(), usage));
     match stopped {
         Some(StopReason::EndTurn) if !called_tool => {},
         Some(StopReason::MaxTokens) => return failed("the model hit its output limit; the incomplete reply was discarded"),
@@ -219,5 +235,5 @@ async fn collect_text(provider: &Provider, request: &Request, credential: &Crede
     if text.trim().is_empty() {
         return failed("the model returned no text");
     }
-    Ok(text)
+    Ok(Answer { text, usage })
 }

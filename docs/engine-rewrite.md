@@ -344,6 +344,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
     the history before the tail, no system prompt, images and PDFs as a one-line mention and each
     tool result cut to 2,000 characters, as opencode sends them. If the provider says it is too
     long, the oldest fifth of its turns is dropped with a note, up to three times.
+  The summary message is charged like a reply: its `usage` and `cost` are what its requests used,
+  each priced on its model (a cached reply refused before the lean one is paid for too), so a
+  long conversation's compaction no longer shows as free. The UI's cost total sums the messages'
+  costs, since a session carries none of its own. Titles are still not charged: they have no message.
   Either way a provider fault is retried as a turn's is, and each retry is published as
   `session.retry` so the UI shows it rather than sitting on "compacting".
 - **Triggers**

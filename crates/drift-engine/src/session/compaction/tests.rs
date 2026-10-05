@@ -389,7 +389,9 @@ async fn a_warm_summary_on_the_conversations_model_is_its_next_request_with_the_
     let all = requests(&h);
     let (last_turn, summary) = (&all[all.len() - 3], all.last().unwrap());
     assert_eq!(all.len(), 6, "the overloaded summary request was sent again");
-    assert_eq!(texts(h.engine.store.transcript(&h.session.id).unwrap().last().unwrap()), "SUMMARY");
+    let stored = h.engine.store.transcript(&h.session.id).unwrap().last().unwrap().clone();
+    assert_eq!(texts(&stored), "SUMMARY");
+    assert!(stored.info.usage == Usage { input: 10, output: 3, cache_read: 0, cache_write: 0 } && stored.info.cost > 0.0, "the summary is charged like a reply: {:?} {}", stored.info.usage, stored.info.cost);
     assert_eq!(summary.messages[..last_turn.messages.len()], last_turn.messages[..], "the conversation's own messages, uncut, so its cached prefix is read");
     let last_line = big.lines().last().unwrap();
     assert!(mentions(summary, "do not call tools") && summary.messages.iter().flat_map(|m| &m.blocks).any(|b| matches!(b, Block::ToolResult { content, .. } if content.contains(last_line))), "the read's result is whole");
@@ -434,12 +436,16 @@ async fn a_warm_summary_that_calls_a_tool_is_asked_again_the_lean_way() {
         h.provider.push(text(reply));
         turn(&h, ask).await;
     }
-    h.provider.push(crate::session::turn::tests::tool_call("read", r#"{"path":"x"}"#)).push(text("SUMMARY"));
+    let mut calls = vec![Chunk::Usage(Usage { input: 1_000, ..Usage::default() })];
+    calls.extend(crate::session::turn::tests::tool_call("read", r#"{"path":"x"}"#));
+    h.provider.push(calls).push(text("SUMMARY"));
     h.engine.start_compaction(&h.session.id).unwrap();
     until_idle(&h).await;
     let all = requests(&h);
     assert!(!all[all.len() - 2].system.is_empty() && all.last().unwrap().system.is_empty(), "the cached request first, then the lean one");
-    assert_eq!(texts(h.engine.store.transcript(&h.session.id).unwrap().last().unwrap()), "SUMMARY");
+    let stored = h.engine.store.transcript(&h.session.id).unwrap().last().unwrap().clone();
+    assert_eq!(texts(&stored), "SUMMARY");
+    assert_eq!(stored.info.usage.input, 1_010, "the refused cached reply is paid for too");
 }
 
 /// A one-pixel image prompt part and a file whose read is far over the summary's cut.

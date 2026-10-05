@@ -796,6 +796,11 @@ test("context usage skips a trailing zero-token assistant message", async () => 
   expect(contextStats(state, "s1")).toBeNull()
   set("transcripts", "s1", [assistant("a1", 90_000), summary, assistant("a3", 12_000)] as never)
   expect(contextStats(state, "s1")?.count).toBe(12_000)
+
+  // Cost is the messages' own, a compaction summary's included; native sessions carry none of their own.
+  const costing = (entry: ReturnType<typeof assistant>, cost: number) => ({ ...entry, info: { ...entry.info, cost } })
+  set("transcripts", "s1", [costing(assistant("a1", 90_000), 0.5), costing(summary, 0.25), costing(assistant("a3", 12_000), 0.125)] as never)
+  expect(contextStats(state, "s1")?.cost).toBe(0.875)
 })
 
 test("GPT-6 context meter retains catalog input headroom past the old OAuth threshold", async () => {
