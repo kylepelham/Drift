@@ -368,11 +368,21 @@ struct Slot {
     /// Cancelled by disable and remove: tools made from it refuse, and calls under way end.
     closed: CancellationToken,
     published: tokio::sync::Notify,
+    /// When a turn, a call or the workspace last used it; a workspace's connection idle for `IDLE` stops.
+    used: Mutex<Option<Instant>>,
 }
 
 impl Slot {
     fn current(&self) -> Option<Arc<Live>> {
         self.current.lock().unwrap().clone()
+    }
+
+    fn touch(&self) {
+        *self.used.lock().unwrap() = Some(Instant::now());
+    }
+
+    fn idle_for(&self, limit: Duration) -> bool {
+        self.used.lock().unwrap().is_none_or(|used| used.elapsed() >= limit)
     }
 
     fn publish(&self, live: Arc<Live>) {
@@ -381,6 +391,7 @@ impl Slot {
         served.push(Arc::downgrade(&live));
         drop(served);
         *self.current.lock().unwrap() = Some(live);
+        self.touch();
         self.published.notify_waiters();
     }
 
@@ -407,6 +418,7 @@ impl Slot {
 
     /// The client a tool opened as `pinned` calls now: the current one when it serves the same definition.
     fn client_for(&self, pinned: &Arc<Live>) -> Arc<Live> {
+        self.touch();
         self.current().filter(|current| current.hash == pinned.hash && current.is_open()).unwrap_or_else(|| pinned.clone())
     }
 
@@ -454,6 +466,12 @@ const RELIST_BACKOFF: Duration = Duration::from_secs(30);
 const PROBE_WAIT: Duration = Duration::from_secs(10);
 /// How long a turn being planned waits for connects already under way, so its tools are not briefly missing.
 pub const READY_WAIT: Duration = Duration::from_secs(2);
+/// Why a stdio server cannot connect with no workspace to run in.
+pub const NEEDS_WORKSPACE: &str = "a stdio server runs in a workspace; open one and connect it there";
+/// How long a workspace's stdio server may go unused before it stops; the next turn there starts it again.
+pub const IDLE: Duration = Duration::from_secs(10 * 60);
+/// How often idle servers are looked for.
+const IDLE_SWEEP: Duration = Duration::from_secs(60);
 /// How long a read-only call cut off by a lost connection waits for the reconnect before giving up.
 #[cfg(not(test))]
 const REPLACEMENT_WAIT: Duration = Duration::from_secs(10);
@@ -470,7 +488,7 @@ struct Attempt {
 
 /// One connection of a server: a remote server has one, shared (`workspace` none); a stdio server
 /// has one per workspace that used it, run in that workspace and naming it as the server's root, as
-/// opencode runs one per project. A stdio server connected with no workspace runs where Drift does.
+/// opencode runs one per project, and never a shared one.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct Key {
     pub server: String,
@@ -511,18 +529,24 @@ impl Slots {
         self.servers.get(key).and_then(|slot| slot.current())
     }
 
-    /// Every connection of `server` this registry knows of, live, connecting or not.
+    /// Every connection of `server` this registry holds: live, kept for a reconnect, connecting or failed.
     fn keys_of(&self, server: &str) -> Vec<Key> {
-        let mut keys: Vec<Key> = self.servers.keys().chain(self.attempts.keys()).chain(self.transient.keys()).chain(self.generation.keys()).filter(|key| key.server == server).cloned().collect();
+        let mut keys: Vec<Key> = self.servers.keys().chain(self.attempts.keys()).chain(self.transient.keys()).filter(|key| key.server == server).cloned().collect();
         keys.sort();
         keys.dedup();
         keys
     }
 
-    /// The server's live connection for `workspace`: its own there, else the shared one.
+    /// The server's live connection for `workspace`: its own there, else a remote server's shared one;
+    /// a stdio server is never used from anywhere but the workspace it runs in. Finding it counts as a use.
     fn live_for(&self, server: &str, workspace: Option<&Path>) -> Option<(Key, Arc<Live>)> {
         let own = workspace.map(|workspace| Key::of(server, Some(workspace)));
-        own.into_iter().chain([Key::shared(server)]).find_map(|key| Some((key.clone(), self.live(&key)?)))
+        own.into_iter().chain([Key::shared(server)]).find_map(|key| {
+            let slot = self.servers.get(&key)?;
+            let live = slot.current().filter(|live| key.workspace.is_some() || live.transport != Transport::Stdio)?;
+            slot.touch();
+            Some((key, live))
+        })
     }
 
     /// Each server's live connection for `workspace`, by name.
@@ -647,6 +671,9 @@ impl Servers {
     fn begin(&self, key: &Key, store: &Store, start: Start) -> Result<(ServerRow, Attempt), String> {
         let mut slots = self.lock();
         let row = store.mcp_server(&key.server).map_err(|e| e.to_string())?.ok_or("no such server")?;
+        if row.config.is_remote() != key.workspace.is_none() {
+            return Err(if key.workspace.is_none() { NEEDS_WORKSPACE } else { "a remote server has one shared connection" }.into());
+        }
         let generation = slots.generation_of(key);
         if matches!(start, Start::Reconnect(expected) if expected != generation) {
             return Err("server definition changed".into());
@@ -738,6 +765,39 @@ impl Servers {
         let was_live = !lives.is_empty();
         self.retire(name, store, hub, lives).await;
         was_live
+    }
+
+    /// Ends one connection (a workspace removed or left idle); the next turn there starts it again. A
+    /// running turn keeps the client it holds until it lets go, and a connect under way is left alone.
+    fn stop(&self, key: &Key, store: &Store, hub: &Hub) {
+        let mut slots = self.lock();
+        if slots.attempts.contains_key(key) {
+            return;
+        }
+        *slots.generation.entry(key.clone()).or_default() += 1;
+        slots.transient.remove(key);
+        let live = slots.servers.remove(key).and_then(|slot| slot.take());
+        drop(slots);
+        drop(live);
+        if let Ok(Some(row)) = store.mcp_server(&key.server) {
+            hub.publish(Event::McpUpdated { server: self.status_of(row) });
+        }
+    }
+
+    /// Stops every connection running in `workspace`.
+    pub fn stop_workspace(&self, workspace: &Path, store: &Store, hub: &Hub) {
+        let keys: Vec<Key> = self.lock().servers.keys().filter(|key| key.workspace.as_deref() == Some(workspace)).cloned().collect();
+        for key in keys {
+            self.stop(&key, store, hub);
+        }
+    }
+
+    /// Stops each workspace's connection no turn, call or workspace has used for `limit`; a remote server's shared one stays.
+    pub fn stop_idle(&self, limit: Duration, store: &Store, hub: &Hub) {
+        let idle: Vec<Key> = self.lock().servers.iter().filter(|(key, slot)| key.workspace.is_some() && slot.idle_for(limit)).map(|(key, _)| key.clone()).collect();
+        for key in idle {
+            self.stop(&key, store, hub);
+        }
     }
 
     /// Closes connections nothing else holds; one a running turn still holds closes when that turn lets go.
@@ -1094,14 +1154,14 @@ fn after_loss(lived: Duration, carried: Duration) -> Duration {
 }
 
 impl crate::Engine {
-    /// Connects a server's shared connection, offers its tools to later turns, and watches it for as long as its definition stands.
+    /// [`Self::connect_mcp_in`] with no workspace: a remote server's connection, or a stdio server's wherever it runs.
     pub async fn connect_mcp(self: &Arc<Self>, name: &str) -> Result<(), String> {
         self.connect_mcp_in(name, None).await
     }
 
     /// The user's connect (Connect, a save, an enable): a remote server's shared connection; a stdio
-    /// server's for `workspace` (the active one) and for every other workspace it ran in, all at once.
-    /// A stdio server never connected anywhere and given no workspace connects shared, where Drift runs.
+    /// server's for `workspace` (the active one) and for every other workspace it runs in, all at once.
+    /// A stdio server running nowhere and given no workspace is refused with [`NEEDS_WORKSPACE`].
     pub async fn connect_mcp_in(self: &Arc<Self>, name: &str, workspace: Option<&Path>) -> Result<(), String> {
         let stdio = self.store.mcp_server(name).ok().flatten().is_some_and(|row| !row.config.is_remote());
         if !stdio {
@@ -1113,7 +1173,7 @@ impl crate::Engine {
         keys.sort();
         keys.dedup();
         if keys.is_empty() {
-            keys.push(Key::shared(name));
+            return Err(NEEDS_WORKSPACE.into());
         }
         let connected = futures_util::future::join_all(keys.iter().map(|key| self.connect_mcp_at(key, Start::User, FIRST_RETRY))).await;
         connected.into_iter().find(Result::is_err).unwrap_or(Ok(()))
@@ -1155,6 +1215,25 @@ impl crate::Engine {
         let Ok(rows) = self.store.mcp_servers() else { return };
         for row in rows.into_iter().filter(|row| row.enabled && !row.config.is_remote()) {
             self.begin_mcp(Key::of(&row.name, Some(workspace)));
+        }
+    }
+
+    /// Stops the stdio servers running in a workspace the user removed; using it again starts them again.
+    pub fn stop_workspace_mcp(&self, workspace_id: &str) {
+        if let Ok(Some(workspace)) = self.store.workspace(workspace_id) {
+            self.mcp.stop_workspace(&crate::tool::canonical(Path::new(&workspace.path)), &self.store, &self.hub);
+        }
+    }
+
+    /// Every `IDLE_SWEEP`, stops workspace connections left unused for `IDLE`, until the engine is gone.
+    pub async fn stop_idle_mcp(self: Arc<Self>) {
+        let engine = Arc::downgrade(&self);
+        drop(self);
+        let mut every = tokio::time::interval(IDLE_SWEEP);
+        loop {
+            every.tick().await;
+            let Some(engine) = engine.upgrade() else { return };
+            engine.mcp.stop_idle(IDLE, &engine.store, &engine.hub);
         }
     }
 

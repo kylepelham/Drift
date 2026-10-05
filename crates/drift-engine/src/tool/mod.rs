@@ -491,13 +491,13 @@ impl Registry {
 }
 
 impl crate::Engine {
-    /// Every tool a turn starting now could be offered: the built-ins for the profile, then every connected server's (their shared connections).
-    pub fn offered_tools(&self, profile: ToolProfile) -> Vec<Arc<dyn Tool>> {
-        self.tools.offered(profile).into_iter().chain(self.mcp.tools(&self.store, None)).collect()
+    /// Every tool a turn starting now in `workspace` could be offered: the built-ins for the profile, then every server's connected there.
+    pub fn offered_tools(&self, profile: ToolProfile, workspace: Option<&std::path::Path>) -> Vec<Arc<dyn Tool>> {
+        self.tools.offered(profile).into_iter().chain(self.mcp.tools(&self.store, workspace)).collect()
     }
 
-    pub fn tool_specs(&self, profile: ToolProfile) -> Vec<ToolSpec> {
-        self.offered_tools(profile).iter().map(|tool| tool.spec()).collect()
+    pub fn tool_specs(&self, profile: ToolProfile, workspace: Option<&std::path::Path>) -> Vec<ToolSpec> {
+        self.offered_tools(profile, workspace).iter().map(|tool| tool.spec()).collect()
     }
 }
 

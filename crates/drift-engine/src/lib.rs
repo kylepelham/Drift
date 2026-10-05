@@ -213,8 +213,9 @@ impl Engine {
     }
 
     /// Drops what the engine keeps for a workspace the shell has forgotten: its "always" grants
-    /// (stored and cached) and the project commands it trusts.
+    /// (stored and cached), the project commands it trusts, and the MCP servers running in it.
     pub fn forget_workspace(&self, workspace_id: &str) -> rusqlite::Result<()> {
+        self.stop_workspace_mcp(workspace_id);
         self.store.remove_setting(&grants_key(workspace_id))?;
         self.store.remove_setting(&session::trust::key(workspace_id))?;
         self.permissions.forget_workspace(workspace_id);
@@ -438,6 +439,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
     let _ = engine.runtime.set(tokio::runtime::Handle::current());
     let starting = engine.clone();
     tokio::spawn(engine.clone().watch_local());
+    tokio::spawn(engine.clone().stop_idle_mcp());
     tokio::spawn(async move {
         starting.connect_all_mcp();
         starting.refresh_catalog().await;

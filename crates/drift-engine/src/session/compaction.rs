@@ -281,7 +281,7 @@ impl Engine {
             }
             lean(&mut messages);
             convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
-            let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, shown_in: Some(session_id.into()) };
+            let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile, None), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, shown_in: Some(session_id.into()) };
             let failure = match self.complete(resolved, shot).await {
                 Ok(answer) => return Ok(spent.take(&resolved.model, answer)),
                 Err(failure) => failure,

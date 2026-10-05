@@ -1748,7 +1748,7 @@ async fn a_read_only_agent_never_calls_an_untrusted_servers_mcp_tool_even_one_it
     let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
     h.engine.store.save_mcp_server("echo", &config).unwrap();
     h.engine.store.set_mcp_read_only_trusted("echo", false).unwrap();
-    h.engine.connect_mcp("echo").await.unwrap();
+    h.engine.connect_mcp_in("echo", Some(&crate::tool::canonical(&h._dir.join("ws")))).await.unwrap();
     h.engine.store.update_session(&h.session.id, None, None, Some("plan")).unwrap();
     h.provider.push(tool_call("echo_echo", r#"{"text": "hi"}"#)).push(text("noted"));
     h.engine.submit(&h.session.id, prompt("echo")).await.await_ok();
@@ -1766,7 +1766,7 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
     let config = crate::mcp::ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
     h.engine.store.save_mcp_server("echo", &config).unwrap();
-    h.engine.connect_mcp("echo").await.unwrap();
+    h.engine.connect_mcp_in("echo", Some(&crate::tool::canonical(&h._dir.join("ws")))).await.unwrap();
     let mut wide = Vec::new();
     image::RgbImage::new(2600, 20).write_to(&mut std::io::Cursor::new(&mut wide), image::ImageFormat::Png).unwrap();
     std::fs::write(h._dir.join("ws/shot.png"), wide).unwrap();
@@ -2597,7 +2597,7 @@ async fn a_turn_keeps_the_tools_it_started_with_and_a_change_reaches_the_next_on
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
     let config = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: Default::default(), cwd: None, timeout_seconds: None };
     h.engine.store.save_mcp_server("echo", &config).unwrap();
-    h.engine.connect_mcp("echo").await.unwrap();
+    h.engine.connect_mcp_in("echo", Some(&crate::tool::canonical(&h._dir.join("ws")))).await.unwrap();
     h.provider.push_slow(Duration::from_millis(500), tool_call("echo_echo", r#"{"text": "still here"}"#)).push(text("done"));
     h.engine.submit(&h.session.id, prompt("echo")).await.await_ok();
     // The server goes away while the turn is still streaming its first reply.

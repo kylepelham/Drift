@@ -423,19 +423,30 @@ async fn mcp_servers_connect_as_soon_as_they_are_saved_and_their_tools_reach_the
     let h = harness().await;
     let mut socket = h.ws("").await;
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/mcp/echo-server.cjs");
-    let saved: Value = h.put("/mcp/echo").json(&json!({ "type": "stdio", "command": "node", "args": [script] })).send().await.unwrap().json().await.unwrap();
+    let dir = h._dir.0.join("ws");
+    std::fs::create_dir_all(&dir).unwrap();
+    let ws = h.engine.store.add_workspace(&dir.to_string_lossy(), "ws", "").unwrap();
+    let here = crate::tool::canonical(&dir);
+    let saved: Value = h.put(&format!("/mcp/echo?workspace={}", ws.id)).json(&json!({ "type": "stdio", "command": "node", "args": [script] })).send().await.unwrap().json().await.unwrap();
     assert_eq!(saved["state"], "connected", "nothing to approve");
     assert_eq!(saved["tools"][0]["name"], "echo");
     assert!(saved.get("hash").is_none() && saved.get("approved").is_none());
     assert_eq!(until(&mut socket, "mcp.updated").await["server"]["name"], "echo");
-    let names: Vec<String> = h.engine.tool_specs(ToolProfile::Edit).into_iter().map(|s| s.name).collect();
+    let names: Vec<String> = h.engine.tool_specs(ToolProfile::Edit, Some(&here)).into_iter().map(|s| s.name).collect();
     assert!(names.contains(&"echo_shout".to_string()));
+    assert!(!h.engine.tool_specs(ToolProfile::Edit, None).iter().any(|s| s.name == "echo_shout"), "a stdio server serves only the workspace it runs in");
+    h.engine.mcp.disconnect("echo", &h.engine.store, &h.engine.hub).await;
+    let back: Value = h.post("/mcp/echo/connect").send().await.unwrap().json().await.unwrap();
+    assert_eq!(back["state"], "connected", "with no workspace named, it connects again where it ran");
+    h.put("/mcp/fresh").json(&json!({ "type": "stdio", "command": "node", "args": [script] })).send().await.unwrap();
+    assert_eq!(h.post("/mcp/fresh/connect").send().await.unwrap().status(), 409, "a stdio server running nowhere needs a workspace");
+    h.delete("/mcp/fresh").send().await.unwrap();
 
     let listed: Value = h.get("/mcp").send().await.unwrap().json().await.unwrap();
     assert_eq!(listed[0]["state"], "connected");
     let off: Value = h.put("/mcp/echo/enabled").json(&json!({ "enabled": false })).send().await.unwrap().json().await.unwrap();
     assert_eq!(off["state"], "disabled");
-    assert!(!h.engine.tool_specs(ToolProfile::Edit).iter().any(|s| s.name == "echo_shout"));
+    assert!(!h.engine.tool_specs(ToolProfile::Edit, Some(&here)).iter().any(|s| s.name == "echo_shout"));
     assert_eq!(h.delete("/mcp/echo").send().await.unwrap().status(), 204);
     assert_eq!(h.put("/mcp/bad name").json(&json!({ "type": "stdio", "command": "x" })).send().await.unwrap().status(), 400);
 }

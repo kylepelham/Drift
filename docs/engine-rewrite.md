@@ -1636,12 +1636,17 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   per project: its connection is keyed by server and workspace (`mcp::Key`), started when a turn
   is planned there or the workspace's config is read (`Engine::start_workspace_mcp`), run in that
   folder unless the server sets its own `cwd`, and told that folder as its one root. Remote servers
-  have one shared connection. The startup sweep starts remote servers only. A turn uses its
-  workspace's connection, else the shared one. The server's row reports one state across its
-  connections. Connect, save, rename and enable take the active workspace (`?workspace=<id>`) and
-  start the server there and in every workspace it already runs in; with no workspace and no prior
-  connection it runs shared, where Drift runs. A user's disconnect ends every connection and holds
-  the server: no turn or workspace starts it again until the user connects it.
+  have one shared connection; a stdio server never has one, and a workspace never borrows another
+  place's stdio connection, so a turn planned while its own is still starting goes without that
+  server rather than run it in the wrong folder. The startup sweep starts remote servers only. The
+  server's row reports one state across its connections. Connect, save, rename and enable take the
+  active workspace (`?workspace=<id>`) and start the server there and in every workspace it already
+  runs in; a stdio server running nowhere and given no workspace is refused (409 `workspace` on
+  Connect; a save or enable just waits for a workspace). A user's disconnect ends every connection
+  and holds the server: no turn or workspace starts it again until the user connects it. A
+  workspace's connection stops when the workspace is removed, and when no turn, call or config read
+  there has used it for 10 minutes (`mcp::IDLE`, swept each minute); the next use starts it again.
+  A turn still holding the client keeps it until the turn ends.
 - **MCP tools in running turns.** A server has one slot from enable to disable or remove, and every
   tool object made from it holds that slot and the client it was planned with. A call uses the
   slot's current client when it serves the same definition (same config hash), so a running turn

@@ -99,7 +99,8 @@ pub(crate) fn store_touch_workspace(store: State<Store>, id: String) -> Result<(
 }
 
 #[tauri::command]
-pub(crate) fn store_remove_workspace(store: State<Store>, id: String) -> Result<(), String> {
+pub(crate) fn store_remove_workspace(store: State<Store>, native: State<crate::native::Native>, id: String) -> Result<(), String> {
+    native.engine().stop_workspace_mcp(&id);
     store.remove_workspace(&id).map_err(|e| e.to_string())
 }
 

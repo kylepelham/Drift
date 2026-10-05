@@ -28,8 +28,8 @@ async fn a_server_this_build_cannot_read_is_listed_failed_and_the_rest_still_con
     assert_eq!(statuses.iter().map(|s| (s.server.name.as_str(), s.state)).collect::<Vec<_>>(), [("echo", State::Disconnected), ("newer", State::Failed)]);
     assert!(statuses[1].unreadable && !statuses[0].unreadable);
     assert!(statuses[1].error.as_deref().is_some_and(|e| e.contains("could not be read")), "{:?}", statuses[1].error);
-    engine.mcp.connect(&Key::shared("echo"), &engine.store, &hub, Start::User).await.unwrap();
-    assert!(engine.mcp.tools(&engine.store, None).iter().any(|t| t.spec().name == "echo_echo"), "the readable server works");
+    engine.mcp.connect(&Key::of("echo", Some(&here())), &engine.store, &hub, Start::User).await.unwrap();
+    assert!(engine.mcp.tools(&engine.store, Some(&here())).iter().any(|t| t.spec().name == "echo_echo"), "the readable server works");
     engine.mcp.disconnect("echo", &engine.store, &hub).await;
 }
 
@@ -46,13 +46,13 @@ async fn a_variant_switch_keeps_the_turns_admitted_mcp_catalog() {
     let workspace = engine.store.add_workspace(&dir.to_string_lossy(), "ws", "").unwrap();
     let session = engine.store.create_session(crate::store::NewSession { workspace_id: &workspace.id, parent_id: None, visibility: Visibility::Sibling, title: "Test", agent: "build", model: Some(&model()) }).unwrap();
     saved(&engine, "first", &echo_config()).await;
-    engine.connect_mcp("first").await.unwrap();
+    engine.connect_mcp_in("first", Some(&here())).await.unwrap();
     let provider = crate::llm::scripted::Scripted::default();
     *engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider.clone()));
     provider.push_paused(vec![Chunk::TextStart, Chunk::TextDelta("working".into())], std::time::Duration::from_millis(1000), [vec![Chunk::BlockStop], tool_call("read", r#"{"path":"a.txt"}"#)].concat()).push(text("done"));
     engine.submit(&session.id, prompt("start")).await.unwrap();
     saved(&engine, "later", &echo_config()).await;
-    engine.connect_mcp("later").await.unwrap();
+    engine.connect_mcp_in("later", Some(&here())).await.unwrap();
     engine.submit(&session.id, crate::session::turn::Prompt { variant: Some(Some("high".into())), ..prompt("switch level") }).await.unwrap();
     for _ in 0..1000 {
         if !engine.turns.is_running(&session.id) { break; }
@@ -73,17 +73,17 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     let hub = Hub::new(32);
     let saved = engine.store.save_mcp_server("echo", &echo_config()).unwrap();
     assert_eq!(engine.mcp.status_of(saved.clone()).state, State::Disconnected, "nothing to approve: it is ready to connect");
-    engine.mcp.connect(&Key::shared("echo"), &engine.store, &hub, Start::User).await.unwrap();
+    engine.mcp.connect(&Key::of("echo", Some(&here())), &engine.store, &hub, Start::User).await.unwrap();
     let status = engine.mcp.status_of(saved.clone());
     assert_eq!(status.state, State::Connected);
     assert_eq!(status.tools.iter().map(|t| (t.name.as_str(), t.read_only)).collect::<Vec<_>>(), [("echo", true), ("shout", false)]);
 
-    let tools = engine.mcp.tools(&engine.store, None);
+    let tools = engine.mcp.tools(&engine.store, Some(&here()));
     let names: Vec<String> = tools.iter().map(|t| t.spec().name).collect();
     assert_eq!(names, ["echo_echo", "echo_shout"]);
     let ctx = Context {
         agent: "build".into(),
-        workspace: std::env::temp_dir(),
+        workspace: here(),
         session_id: "s".into(),
         message_id: "m".into(),
         call_id: "c".into(),
@@ -120,13 +120,18 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
 
     assert!(engine.mcp.disconnect("echo", &engine.store, &hub).await);
     assert_eq!(engine.mcp.status_of(saved).state, State::Disconnected);
-    assert!(engine.mcp.tools(&engine.store, None).is_empty());
+    assert!(engine.mcp.tools(&engine.store, Some(&here())).is_empty());
+}
+
+/// The workspace the tests' stdio servers run in.
+fn here() -> std::path::PathBuf {
+    crate::tool::canonical(&std::env::temp_dir())
 }
 
 fn context(engine: &Arc<crate::Engine>) -> Context {
     Context {
         agent: "build".into(),
-        workspace: std::env::temp_dir(),
+        workspace: here(),
         session_id: "s".into(),
         message_id: "m".into(),
         call_id: "c".into(),
@@ -154,7 +159,7 @@ async fn until<F: Fn() -> bool>(what: &str, done: F) {
 }
 
 fn find(engine: &crate::Engine, name: &str) -> Option<Arc<dyn crate::tool::Tool>> {
-    engine.offered_tools(crate::llm::catalog::ToolProfile::Edit).into_iter().find(|t| t.spec().name == name)
+    engine.offered_tools(crate::llm::catalog::ToolProfile::Edit, Some(&here())).into_iter().find(|t| t.spec().name == name)
 }
 
 fn tool(engine: &crate::Engine, name: &str) -> Arc<dyn crate::tool::Tool> {
@@ -165,7 +170,7 @@ fn tool(engine: &crate::Engine, name: &str) -> Arc<dyn crate::tool::Tool> {
 async fn a_server_that_exits_by_itself_is_reconnected_and_its_tools_come_back() {
     let engine = engine();
     let row = saved(&engine, "echo", &echo_config()).await;
-    engine.connect_mcp(&row.name).await.unwrap();
+    engine.connect_mcp_in(&row.name, Some(&here())).await.unwrap();
     let ctx = context(&engine);
     assert!(tool(&engine, "echo_shout").run(&ctx, json!({ "text": "crash" })).await.is_err());
     until("it noticed", || engine.mcp.status_of(row.clone()).state != State::Connected).await;
@@ -177,7 +182,7 @@ async fn a_server_that_exits_by_itself_is_reconnected_and_its_tools_come_back() 
 async fn an_ordinary_tool_failure_is_not_a_lost_connection() {
     let engine = engine();
     let row = saved(&engine, "echo", &echo_config()).await;
-    engine.connect_mcp(&row.name).await.unwrap();
+    engine.connect_mcp_in(&row.name, Some(&here())).await.unwrap();
     let mut events = engine.hub.attach(None).rx;
     let ctx = context(&engine);
     assert_eq!(tool(&engine, "echo_shout").run(&ctx, json!({ "text": "fail" })).await.unwrap_err().0, "asked to fail");
@@ -192,7 +197,7 @@ async fn an_ordinary_tool_failure_is_not_a_lost_connection() {
 async fn a_deliberate_disconnect_ends_reconnecting() {
     let engine = engine();
     let row = saved(&engine, "echo", &echo_config()).await;
-    engine.connect_mcp(&row.name).await.unwrap();
+    engine.connect_mcp_in(&row.name, Some(&here())).await.unwrap();
     let _ = tool(&engine, "echo_shout").run(&context(&engine), json!({ "text": "crash" })).await;
     until("it noticed", || engine.mcp.status_of(row.clone()).state != State::Connected).await;
     engine.mcp.disconnect("echo", &engine.store, &engine.hub).await;
@@ -209,7 +214,7 @@ async fn a_turn_waits_briefly_for_a_server_still_connecting() {
     saved(&engine, "quick", &slow("600")).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("quick").await }
+        async move { engine.connect_mcp_in("quick", Some(&here())).await }
     });
     until("connecting", || engine.mcp.connecting()).await;
     engine.mcp.wait_ready(READY_WAIT).await;
@@ -219,7 +224,7 @@ async fn a_turn_waits_briefly_for_a_server_still_connecting() {
     saved(&engine, "stuck", &slow("5000")).await;
     let _connecting = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("stuck").await }
+        async move { engine.connect_mcp_in("stuck", Some(&here())).await }
     });
     until("connecting", || engine.mcp.connecting()).await;
     let started = std::time::Instant::now();
@@ -235,7 +240,7 @@ async fn a_bad_command_reports_failed() {
     let hub = Hub::new(8);
     let config = ServerConfig::Stdio { command: "definitely-not-a-program".into(), args: vec![], env: Default::default(), cwd: None, timeout_seconds: None };
     let row = engine.store.save_mcp_server("broken", &config).unwrap();
-    assert!(engine.mcp.connect(&Key::shared("broken"), &engine.store, &hub, Start::User).await.is_err());
+    assert!(engine.mcp.connect(&Key::of("broken", Some(&here())), &engine.store, &hub, Start::User).await.is_err());
     let status = engine.mcp.status_of(row);
     assert_eq!(status.state, State::Failed);
     assert!(status.error.unwrap().contains("definitely-not-a-program was not found on PATH"));
@@ -252,7 +257,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let connecting = tokio::spawn({
         let engine = engine.clone();
         let hub = Hub::new(8);
-        async move { engine.mcp.connect(&Key::shared("probe"), &engine.store, &hub, Start::User).await.map(|_| ()) }
+        async move { engine.mcp.connect(&Key::of("probe", Some(&here())), &engine.store, &hub, Start::User).await.map(|_| ()) }
     });
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let replaced = ServerConfig::Stdio { command: "node".into(), args: vec![script.into()], env: [("TOOL_NAME".to_string(), "new_tool".to_string())].into(), cwd: None, timeout_seconds: None };
@@ -262,7 +267,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
     let status = engine.mcp.status_of(row);
     assert_ne!(status.state, State::Connected);
     assert!(status.tools.is_empty(), "no tools from the discarded connection");
-    assert!(engine.mcp.tools(&engine.store, None).is_empty());
+    assert!(engine.mcp.tools(&engine.store, Some(&here())).is_empty());
 }
 
 /// A slow server that records its pid and a grandchild's in a file, so a test can see them die.
@@ -314,7 +319,7 @@ async fn a_server_that_never_finishes_starting_times_out_and_its_process_tree_di
     let row = saved_legacy(&engine, "mute", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("mute").await }
+        async move { engine.connect_mcp_in("mute", Some(&here())).await }
     });
     let pids = pids_in(&file).await;
     let failed = connecting.await.unwrap().unwrap_err();
@@ -332,7 +337,7 @@ async fn a_server_that_never_lists_its_tools_times_out() {
     saved_legacy(&engine, "quiet", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("quiet").await }
+        async move { engine.connect_mcp_in("quiet", Some(&here())).await }
     });
     let pids = pids_in(&file).await;
     let failed = connecting.await.unwrap().unwrap_err();
@@ -347,7 +352,7 @@ async fn disconnecting_cancels_a_connect_in_flight_and_kills_what_it_started() {
     let row = saved_legacy(&engine, "slow", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("slow").await }
+        async move { engine.connect_mcp_in("slow", Some(&here())).await }
     });
     let pids = pids_in(&file).await;
     engine.mcp.disconnect("slow", &engine.store, &engine.hub).await;
@@ -364,7 +369,7 @@ async fn a_connect_dropped_midway_settles_and_kills_what_it_started() {
     let row = saved_legacy(&engine, "dropped", &config).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("dropped").await }
+        async move { engine.connect_mcp_in("dropped", Some(&here())).await }
     });
     let pids = pids_in(&file).await;
     assert!(engine.mcp.connecting());
@@ -385,7 +390,7 @@ async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
     let row = saved(&engine, "slow", &slow).await;
     let connecting = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("slow").await }
+        async move { engine.connect_mcp_in("slow", Some(&here())).await }
     });
     until("connecting", || engine.mcp.connecting()).await;
     engine.connect_all_mcp();
@@ -402,7 +407,7 @@ async fn a_workspaces_servers_connect_at_once_and_a_dead_one_holds_up_no_other()
     let started = std::time::Instant::now();
     engine.connect_all_mcp();
     assert!(!engine.mcp.connecting(), "the startup sweep starts remote servers only; stdio ones start per workspace");
-    engine.start_workspace_mcp(&std::env::temp_dir());
+    engine.start_workspace_mcp(&here());
     assert!(engine.mcp.connecting(), "every connect has begun before the sweep returns");
     until("echo connects", || engine.mcp.status_of(fine.clone()).state == State::Connected).await;
     assert!(started.elapsed() < STEP_LIMIT, "echo did not wait for the server that never answers: {:?}", started.elapsed());
@@ -416,13 +421,13 @@ async fn a_newer_connect_supersedes_one_in_flight() {
     saved_legacy(&engine, "twice", &config).await;
     let first = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("twice").await }
+        async move { engine.connect_mcp_in("twice", Some(&here())).await }
     });
     let pids = pids_in(&file).await;
     std::fs::remove_file(&file).unwrap();
     let _second = tokio::spawn({
         let engine = engine.clone();
-        async move { engine.connect_mcp("twice").await }
+        async move { engine.connect_mcp_in("twice", Some(&here())).await }
     });
     let ended = tokio::time::timeout(std::time::Duration::from_secs(1), first).await.expect("the first ends at once");
     assert!(ended.unwrap().is_err());
@@ -443,9 +448,9 @@ async fn resources_are_listed_and_read_and_prompts_become_commands() {
     let engine = engine();
     let ServerConfig::Stdio { command, args, .. } = echo_config() else { unreachable!() };
     saved(&engine, "notes", &ServerConfig::Stdio { command, args, env: [("RICH".to_string(), "1".to_string())].into(), cwd: None, timeout_seconds: None }).await;
-    engine.connect_mcp("notes").await.unwrap();
+    engine.connect_mcp_in("notes", Some(&here())).await.unwrap();
     let ctx = context(&engine);
-    let names: Vec<String> = engine.mcp.tools(&engine.store, None).iter().map(|t| t.spec().name).collect();
+    let names: Vec<String> = engine.mcp.tools(&engine.store, Some(&here())).iter().map(|t| t.spec().name).collect();
     assert!(names.contains(&"mcp_resources".to_string()) && names.contains(&"mcp_read_resource".to_string()), "{names:?}");
     let listed = tool(&engine, "mcp_resources").run(&ctx, json!({})).await.unwrap().output;
     assert!(listed.contains("notes note://readme readme (text/plain): The notes"), "{listed}");
@@ -454,9 +459,9 @@ async fn resources_are_listed_and_read_and_prompts_become_commands() {
     let shot = read.run(&ctx, json!({ "server": "notes", "uri": "note://shot" })).await.unwrap();
     assert_eq!(crate::tool::image::returned(&shot.metadata)[0].mime, "image/png", "an image resource comes back to look at");
 
-    let commands = engine.mcp.prompt_commands(None);
+    let commands = engine.mcp.prompt_commands(Some(&here()));
     assert_eq!((commands[0].name.as_str(), commands[0].arguments.clone()), ("notes:review", vec!["file".to_string(), "focus".to_string()]));
-    let filled = engine.mcp.get_prompt("notes", None, "review", commands[0].named_arguments("src/a.rs error handling")).await.unwrap();
+    let filled = engine.mcp.get_prompt("notes", Some(&here()), "review", commands[0].named_arguments("src/a.rs error handling")).await.unwrap();
     assert_eq!(filled, "Review src/a.rs for error handling", "one word each, the last taking the rest");
 }
 
@@ -468,7 +473,7 @@ async fn a_stdio_server_runs_where_it_is_told_and_a_call_past_its_timeout_fails(
     std::fs::create_dir_all(&dir).unwrap();
     let config = ServerConfig::Stdio { command, args, env: Default::default(), cwd: Some(dir.to_string_lossy().into_owned()), timeout_seconds: Some(1) };
     let row = saved(&engine, "echo", &config).await;
-    engine.connect_mcp("echo").await.unwrap();
+    engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
     let ctx = context(&engine);
     let shout = tool(&engine, "echo_shout");
     let cwd = shout.run(&ctx, json!({ "text": "cwd" })).await.unwrap().output;
@@ -487,7 +492,7 @@ async fn a_server_on_the_older_sse_transport_connects_and_answers() {
     let base = legacy_sse_server().await;
     let engine = engine();
     let row = saved(&engine, "legacy", &ServerConfig::Sse { url: format!("{base}/sse"), headers: Default::default(), oauth: None, timeout_seconds: None }).await;
-    engine.connect_mcp("legacy").await.unwrap();
+    engine.connect_mcp_in("legacy", Some(&here())).await.unwrap();
     let out = tool(&engine, "legacy_echo").run(&context(&engine), json!({ "text": "over sse" })).await.unwrap();
     assert_eq!(out.output, "over sse");
     assert_eq!(engine.mcp.status_of(row).transport, Transport::Sse);
@@ -541,7 +546,7 @@ async fn a_server_that_needs_a_sign_in_says_so_then_connects_once_signed_in() {
     let engine = engine();
     let row = saved(&engine, "secure", &ServerConfig::Http { url: format!("{base}/mcp"), headers: Default::default(), oauth: None, timeout_seconds: None }).await;
     assert!(seen.lock().unwrap().is_empty());
-    let _ = engine.connect_mcp("secure").await;
+    let _ = engine.connect_mcp_in("secure", Some(&here())).await;
     let before = engine.mcp.status_of(row.clone());
     assert!(before.needs_sign_in && !before.signed_in, "{before:?}");
 
@@ -603,7 +608,7 @@ async fn a_server_on_the_older_sse_transport_signs_in_and_sends_its_token() {
     let (base, _) = oauth_mcp_server(None).await;
     let engine = engine();
     let row = saved(&engine, "legacy", &ServerConfig::Sse { url: format!("{base}/sse"), headers: Default::default(), oauth: None, timeout_seconds: None }).await;
-    let _ = engine.connect_mcp("legacy").await;
+    let _ = engine.connect_mcp_in("legacy", Some(&here())).await;
     let before = engine.mcp.status_of(row.clone());
     assert!(before.needs_sign_in, "a 401 on the stream asks for a sign-in: {before:?}");
     browse(&engine.sign_in_mcp("legacy").await.unwrap()).await;
@@ -740,10 +745,10 @@ async fn a_v2_server_is_found_by_its_probe_and_spoken_to_without_a_handshake() {
     let engine = engine();
     let (config, log) = era_echo("v2");
     let row = saved(&engine, "modern", &config).await;
-    engine.connect_mcp("modern").await.unwrap();
+    engine.connect_mcp_in("modern", Some(&here())).await.unwrap();
     let status = engine.mcp.status_of(row);
     assert_eq!((status.protocol.as_deref(), status.era), (Some("2026-07-28"), Some(Era::Stateless)));
-    assert!(engine.mcp.instructions(None).iter().any(|(server, text)| server == "modern" && text.contains("Echo repeats")), "instructions come with discovery");
+    assert!(engine.mcp.instructions(Some(&here())).iter().any(|(server, text)| server == "modern" && text.contains("Echo repeats")), "instructions come with discovery");
     // The fixture refuses any request without its protocol version in _meta, so a working call proves rmcp sends it.
     assert_eq!(tool(&engine, "modern_echo").run(&context(&engine), json!({ "text": "hi" })).await.unwrap().output, "hi");
     let methods = calls(&log);
@@ -757,7 +762,7 @@ async fn an_older_server_refusing_the_probe_gets_the_handshake_instead() {
         let engine = engine();
         let (config, log) = era_echo(era);
         let row = saved(&engine, "old", &config).await;
-        engine.connect_mcp("old").await.unwrap();
+        engine.connect_mcp_in("old", Some(&here())).await.unwrap();
         let status = engine.mcp.status_of(row);
         assert_eq!((status.protocol.as_deref(), status.era), (Some("2025-06-18"), Some(Era::Legacy)), "{era}");
         assert_eq!(tool(&engine, "old_shout").run(&context(&engine), json!({ "text": "hi" })).await.unwrap().output, "HI");
@@ -772,7 +777,7 @@ async fn a_slow_starting_v2_server_answers_the_probe_and_is_never_sent_the_hands
     let ServerConfig::Stdio { env, .. } = &mut config else { unreachable!() };
     env.insert("START_DELAY_MS".into(), "800".into());
     let row = saved(&engine, "pulling", &config).await;
-    engine.connect_mcp("pulling").await.unwrap();
+    engine.connect_mcp_in("pulling", Some(&here())).await.unwrap();
     assert_eq!(engine.mcp.status_of(row).era, Some(Era::Stateless));
     assert!(!calls(&log).iter().any(|m| m == "initialize"), "a late answer to the probe is not talked over: {:?}", calls(&log));
 }
@@ -792,11 +797,11 @@ async fn the_era_found_is_kept_so_a_reconnect_skips_the_probe_until_a_save() {
     let engine = engine();
     let (config, log) = era_echo("ignore");
     let row = saved(&engine, "quiet", &config).await;
-    engine.connect_mcp("quiet").await.unwrap();
+    engine.connect_mcp_in("quiet", Some(&here())).await.unwrap();
     assert_eq!(engine.store.mcp_server("quiet").unwrap().unwrap().era, Some(Era::Legacy), "found after the probe went unanswered");
     engine.mcp.disconnect("quiet", &engine.store, &engine.hub).await;
     let again = std::time::Instant::now();
-    engine.connect_mcp("quiet").await.unwrap();
+    engine.connect_mcp_in("quiet", Some(&here())).await.unwrap();
     assert!(again.elapsed() < PROBE_WAIT / 2, "the reconnect did not wait on a probe: {:?}", again.elapsed());
     assert_eq!(calls(&log).iter().filter(|m| *m == "server/discover").count(), 1);
     assert_eq!(engine.store.save_mcp_server("quiet", &row.config).unwrap().era, None, "a save forgets it");
@@ -808,7 +813,7 @@ async fn a_kept_era_the_server_no_longer_speaks_is_probed_again() {
     let (config, log) = era_echo("v2");
     saved(&engine, "moved", &config).await;
     engine.store.set_mcp_era("moved", &config, Some(Era::Legacy)).unwrap();
-    engine.connect_mcp("moved").await.unwrap();
+    engine.connect_mcp_in("moved", Some(&here())).await.unwrap();
     assert_eq!(calls(&log)[..2], ["initialize", "server/discover"], "the kept era first, then the probe");
     assert_eq!(engine.store.mcp_server("moved").unwrap().unwrap().era, Some(Era::Stateless));
 }
@@ -820,7 +825,7 @@ async fn a_tool_list_past_its_ttl_is_listed_again_when_a_turn_is_planned() {
     let ServerConfig::Stdio { env, .. } = &mut config else { unreachable!() };
     env.extend([("TOOLS_TTL_MS".to_string(), "100".to_string()), ("LATE_TOOL".to_string(), "1".to_string())]);
     let row = saved(&engine, "modern", &config).await;
-    engine.connect_mcp("modern").await.unwrap();
+    engine.connect_mcp_in("modern", Some(&here())).await.unwrap();
     engine.mcp.refresh_stale(&engine.store, &engine.hub).await;
     assert!(find(&engine, "modern_late").is_none(), "still fresh: not asked again");
     let echo = tool(&engine, "modern_echo");
@@ -835,7 +840,7 @@ async fn a_tool_list_past_its_ttl_is_listed_again_when_a_turn_is_planned() {
 
     let (legacy, legacy_log) = era_echo("legacy");
     saved(&engine, "old", &legacy).await;
-    engine.connect_mcp("old").await.unwrap();
+    engine.connect_mcp_in("old", Some(&here())).await.unwrap();
     engine.mcp.refresh_stale(&engine.store, &engine.hub).await;
     assert_eq!(calls(&legacy_log).iter().filter(|m| *m == "tools/list").count(), 1, "a list with no ttlMs is not asked again");
 }
@@ -895,7 +900,7 @@ async fn a_v2_server_over_http_gets_one_post_per_request_with_its_headers_and_no
     let engine = engine();
     let (url, seen) = v2_http_server().await;
     let row = saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), oauth: None, timeout_seconds: None }).await;
-    engine.connect_mcp("remote").await.unwrap();
+    engine.connect_mcp_in("remote", Some(&here())).await.unwrap();
     assert_eq!(engine.mcp.status_of(row).era, Some(Era::Stateless));
     let out = tool(&engine, "remote_echo").run(&context(&engine), json!({ "text": "hi", "region": "eu-west" })).await.unwrap();
     assert_eq!(out.output, "echo: hi");
@@ -912,7 +917,7 @@ async fn a_failed_post_to_a_stateless_server_is_asked_again_only_when_read_only(
     let engine = engine();
     let (url, _) = v2_http_server().await;
     saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), oauth: None, timeout_seconds: None }).await;
-    engine.connect_mcp("remote").await.unwrap();
+    engine.connect_mcp_in("remote", Some(&here())).await.unwrap();
     let started = std::time::Instant::now();
     assert_eq!(tool(&engine, "remote_flaky").run(&context(&engine), json!({ "text": "again" })).await.unwrap().output, "flaky: again");
     assert!(started.elapsed() < REPLACEMENT_WAIT, "asked again on the same client, not after waiting for a reconnect");
@@ -925,7 +930,7 @@ async fn a_server_asking_for_input_is_declined_and_the_call_fails_rather_than_ha
     let engine = engine();
     let (url, seen) = v2_http_server().await;
     saved(&engine, "remote", &ServerConfig::Http { url, headers: Default::default(), oauth: None, timeout_seconds: None }).await;
-    engine.connect_mcp("remote").await.unwrap();
+    engine.connect_mcp_in("remote", Some(&here())).await.unwrap();
     let failed = tokio::time::timeout(std::time::Duration::from_secs(10), tool(&engine, "remote_echo").run(&context(&engine), json!({ "text": "ask" }))).await.expect("it ends").unwrap_err().0;
     assert!(failed.contains("kept asking for input"), "{failed}");
     let retries = seen.lock().unwrap().iter().filter(|s| s.rpc == "tools/call").count();
@@ -941,7 +946,7 @@ async fn a_running_turns_tool_follows_a_reconnect_but_never_replays_a_call_that_
     let engine = engine();
     let (config, log) = logged_echo();
     let row = saved(&engine, "echo", &config).await;
-    engine.connect_mcp("echo").await.unwrap();
+    engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
     let (ctx, shout) = (context(&engine), tool(&engine, "echo_shout"));
     let lost = shout.run(&ctx, json!({ "text": "crash" })).await.unwrap_err().0;
     assert!(lost.contains("may or may not have taken effect") && lost.contains("not retried"), "{lost}");
@@ -956,7 +961,7 @@ async fn a_read_only_call_cut_off_by_a_lost_connection_is_asked_again_once() {
     let engine = engine();
     let (config, log) = logged_echo();
     saved(&engine, "echo", &config).await;
-    engine.connect_mcp("echo").await.unwrap();
+    engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
     let out = tool(&engine, "echo_echo").run(&context(&engine), json!({ "text": "crash-once" })).await.unwrap();
     assert_eq!(out.output, "crash-once", "answered by the reconnected server");
     assert_eq!(calls(&log), ["echo crash-once", "echo crash-once"]);
@@ -968,7 +973,7 @@ async fn a_captured_tool_is_not_run_on_a_reconnected_server_that_redefined_it() 
     let (ServerConfig::Stdio { command, args, mut env, .. }, log) = logged_echo() else { unreachable!() };
     env.insert("REDEFINE_AFTER_CRASH".into(), "1".into());
     saved(&engine, "echo", &ServerConfig::Stdio { command, args, env, cwd: None, timeout_seconds: None }).await;
-    engine.connect_mcp("echo").await.unwrap();
+    engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
     let echo = tool(&engine, "echo_echo");
     let refused = echo.run(&context(&engine), json!({ "text": "crash-once" })).await.unwrap_err().0;
     assert!(refused.contains("changed its echo tool"), "{refused}");
@@ -980,7 +985,7 @@ async fn disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabl
     let engine = engine();
     let (config, log) = logged_echo();
     saved(&engine, "echo", &config).await;
-    engine.connect_mcp("echo").await.unwrap();
+    engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
     let (echo, shout) = (tool(&engine, "echo_echo"), tool(&engine, "echo_shout"));
     let hanging = tokio::spawn({
         let (engine, shout) = (engine.clone(), shout.clone());
@@ -994,7 +999,7 @@ async fn disabling_ends_calls_under_way_and_refuses_captured_tools_until_reenabl
     assert!(echo.run(&ctx, json!({ "text": "hi" })).await.unwrap_err().0.contains("disabled or removed"), "a captured tool refuses");
 
     engine.store.set_mcp_enabled("echo", true).unwrap();
-    engine.connect_mcp("echo").await.unwrap();
+    engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
     assert_eq!(tool(&engine, "echo_echo").run(&ctx, json!({ "text": "back" })).await.unwrap().output, "back");
     assert!(echo.run(&ctx, json!({ "text": "hi" })).await.is_err(), "re-enabling does not revive tools captured before the disable");
 }
@@ -1004,7 +1009,7 @@ async fn a_save_leaves_running_turns_on_the_client_they_were_given() {
     let engine = engine();
     let (config, _log) = logged_echo();
     saved(&engine, "echo", &config).await;
-    engine.connect_mcp("echo").await.unwrap();
+    engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
     let echo = tool(&engine, "echo_echo");
     let ServerConfig::Stdio { command, args, mut env, .. } = config else { unreachable!() };
     env.insert("CHANGED".into(), "1".into());
@@ -1048,4 +1053,24 @@ async fn a_stdio_server_runs_in_each_workspace_that_uses_it_and_is_told_it_as_it
     for dir in [one, two] {
         std::fs::remove_dir_all(dir).ok();
     }
+}
+#[tokio::test]
+async fn a_workspace_never_borrows_another_place_s_stdio_connection_and_one_left_idle_or_removed_stops() {
+    let engine = engine();
+    saved(&engine, "echo", &echo_config()).await;
+    assert_eq!(engine.connect_mcp("echo").await, Err(NEEDS_WORKSPACE.into()), "no shared stdio connection, where Drift runs");
+    engine.connect_mcp_in("echo", Some(&here())).await.unwrap();
+    let elsewhere = crate::tool::canonical(&std::env::temp_dir().join(format!("drift-mcp-other-{}", crate::random_hex(3))));
+    assert!(engine.mcp.tools(&engine.store, Some(&elsewhere)).is_empty(), "another workspace waits for its own");
+    assert!(engine.mcp.tools(&engine.store, None).is_empty());
+    engine.mcp.stop_idle(std::time::Duration::from_secs(60), &engine.store, &engine.hub);
+    assert!(!engine.mcp.tools(&engine.store, Some(&here())).is_empty(), "just used, so kept");
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    engine.mcp.stop_idle(std::time::Duration::from_millis(100), &engine.store, &engine.hub);
+    assert!(engine.mcp.tools(&engine.store, Some(&here())).is_empty(), "left idle, it stopped");
+    assert_eq!(engine.mcp.status_of(engine.store.mcp_server("echo").unwrap().unwrap()).state, State::Disconnected);
+    engine.start_workspace_mcp(&here());
+    until("started again by the next use", || engine.mcp.lock().live(&Key::of("echo", Some(&here()))).is_some()).await;
+    engine.mcp.stop_workspace(&here(), &engine.store, &engine.hub);
+    assert!(engine.mcp.lock().live(&Key::of("echo", Some(&here()))).is_none(), "a removed workspace's servers stop");
 }

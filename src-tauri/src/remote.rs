@@ -773,7 +773,7 @@ remote_commands! {
             value(commands::store_touch_workspace(store(), arg(args, "id")?)?)
         },
         "store_remove_workspace" => {
-            value(commands::store_remove_workspace(store(), arg(args, "id")?)?)
+            value(commands::store_remove_workspace(store(), app.state(), arg(args, "id")?)?)
         },
         "store_expired_removed_workspaces" => value(
             commands::store_expired_removed_workspaces(store(), arg(args, "before")?)?,
