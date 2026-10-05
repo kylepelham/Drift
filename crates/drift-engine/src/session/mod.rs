@@ -8,6 +8,7 @@ pub(crate) mod command;
 pub mod clarify;
 pub mod compaction;
 mod convert;
+pub mod drive;
 mod early;
 mod oneshot;
 pub mod prompt;

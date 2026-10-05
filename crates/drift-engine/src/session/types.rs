@@ -221,6 +221,10 @@ pub enum Part {
         request_id: String,
         items: Vec<Clarified>,
     },
+    /// A prompt the engine wrote to keep an orchestrator working toward the user's goal.
+    Nudge {
+        text: String,
+    },
     /// The boundary of a compaction; its summary is the assistant message that follows.
     #[serde(rename_all = "camelCase")]
     Compaction {

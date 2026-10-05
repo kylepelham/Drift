@@ -166,7 +166,11 @@ JSON edit the same value; unavailable saved models remain visible by ID until ch
 
 Built-in primary agents are `build`, `plan` (read-only) and `orchestrator`, which is offered no
 tool that edits or runs commands and delegates every change to subagents; its replies end in a
-status block the app's driver reads to keep it going until the goal is done or blocked.
+status block. The engine reads it (`session/drive.rs`) and, while it says `working`, writes the
+next prompt itself as a `nudge` part in the same turn, so the goal moves on with no client open.
+A reply without a valid block gets a reminder of the protocol instead. The turn ends on `done`,
+`blocked`, a failed reply, a Stop, or after 30 nudges since the user's own prompt; the user's next
+message starts a fresh 30. The app only shows a notice for how the turn ended.
 
 Built-in subagents are `general` (the default `task` type, full tools) and `explore` (read-only
 search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds another. All appear in

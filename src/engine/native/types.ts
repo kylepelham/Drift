@@ -1328,6 +1328,10 @@ export interface components {
             /** @enum {string} */
             type: "clarification";
         } | {
+            text: string;
+            /** @enum {string} */
+            type: "nudge";
+        } | {
             auto: boolean;
             /** @description First message the model still sees verbatim after the summary; `None` keeps nothing. */
             tailFrom?: string | null;

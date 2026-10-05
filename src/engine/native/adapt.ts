@@ -112,6 +112,9 @@ export function adaptPart(row: NativePartRow): Part {
     // Delivered by the engine, not typed by the user: kept out of the user's bubble and the composer history.
     case "task_result":
       return { ...base, type: "text", text: `Background task "${row.description}" ${row.outcome}:\n\n${row.text}`, synthetic: true }
+    // The engine's own prompt to a working orchestrator: shown, but marked as Drift's, never the user's goal.
+    case "nudge":
+      return { ...base, type: "text", text: row.text, metadata: { generated: true } }
     // Rendered as an Answered row; the text is what the model read.
     case "clarification": {
       const items = row.items.map((item) => ({ header: item.header, question: item.question, answers: item.answers }))

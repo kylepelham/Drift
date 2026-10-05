@@ -1,25 +1,10 @@
 /**
- * The orchestrator driver: deterministic supervision for sessions running the `orchestrator`
- * agent. The agent must end every turn with a structured status block; this module parses it and
- * the driver acts on it - `working` auto-proceeds, `done` stops, `blocked` surfaces to the user.
- * A missing or malformed block gets a protocol reminder. No model ever judges another model.
+ * Notices for sessions running the `orchestrator` agent. The engine drives the agent itself
+ * (`crates/drift-engine/src/session/drive.rs`): it keeps a turn going while the agent's status
+ * block says `working`. The UI only reports how a driven turn ended.
  */
 
 export const ORCHESTRATOR_AGENT = "orchestrator"
-
-/** Driver turns allowed per user goal; each covers a full dispatch/verify batch. */
-export const orchestratorMaxRounds = 30
-
-export const PROCEED_PROMPT = [
-  "Proceed toward the goal.",
-  "Dispatch the next tasks now and verify results as they land.",
-  "Do not re-summarize completed work.",
-].join(" ")
-
-export const STATUS_REMINDER_PROMPT = [
-  "Your last reply did not end with a valid <orchestrator_status> block, so your state is unknown.",
-  "Proceed toward the goal, and end every reply with the mandatory status block.",
-].join(" ")
 
 export type OrchestratorState = "working" | "done" | "blocked"
 export type OrchestratorStatus = { state: OrchestratorState; headline?: string }
@@ -49,35 +34,35 @@ export function parseOrchestratorStatus(text: string | undefined): OrchestratorS
   }
 }
 
-export type OrchestratorGateInput = {
-  /** The status the session just left; only busy/retry -> idle edges are turn completions. */
+export type OrchestratorEndInput = {
+  /** The status the session just left; only busy/retry -> idle edges are turn endings. */
   previousStatus?: string
   status: string
-  goalAgent?: string
-  /** Subagent sessions are the orchestrator's workers, driven by the engine, never by us. */
+  agent?: string
+  /** Subagent sessions are the orchestrator's workers and never driven. */
   parentID?: string
-  pendingAsks: number
-  lastMessage?: { role: string; completed: boolean; errored: boolean }
-  rounds: number
+  lastMessage?: { role: string; completed: boolean; errored: boolean; text: string }
 }
 
-/** Pure eligibility check; returns the blocking reason or null when the driver may act. */
-export function orchestratorGate(input: OrchestratorGateInput): string | null {
-  if (input.goalAgent !== ORCHESTRATOR_AGENT) return "not an orchestrator session"
-  if (input.status !== "idle") return "not idle"
-  if (input.previousStatus !== "busy" && input.previousStatus !== "retry") return "not a turn completion"
-  if (input.parentID) return "subagent"
-  if (input.pendingAsks > 0) return "awaiting permission or question"
-  if (!input.lastMessage) return "no final message"
-  if (input.lastMessage.role !== "assistant") return "no assistant reply"
-  if (!input.lastMessage.completed) return "reply not completed"
-  if (input.lastMessage.errored) return "reply errored"
-  if (input.rounds >= orchestratorMaxRounds) return "round limit reached"
-  return null
-}
+export type OrchestratorNotice = { title: string; message: string; variant: "success" | "warning" }
 
-/** A user message written by Drift itself (proceed, reminders) never counts as a fresh goal. */
-export function isGeneratedUserEntry(parts: Array<{ type: string; metadata?: Record<string, unknown> }>) {
-  const text = parts.filter((part) => part.type === "text")
-  return text.length > 0 && text.every((part) => part.metadata?.generated === true)
+/**
+ * How a driven turn ended, as a notice; null when there is nothing to say. The engine ends a
+ * clean turn that still says `working` (or has no valid status) only at its round limit.
+ */
+export function orchestratorNotice(input: OrchestratorEndInput): OrchestratorNotice | null {
+  if (input.agent !== ORCHESTRATOR_AGENT || input.parentID || input.status !== "idle") return null
+  if (input.previousStatus !== "busy" && input.previousStatus !== "retry") return null
+  const last = input.lastMessage
+  if (!last || last.role !== "assistant" || !last.completed || last.errored) return null
+  const status = parseOrchestratorStatus(last.text)
+  if (status?.state === "done")
+    return { title: "Orchestrator finished", message: status.headline ?? "The goal was reported complete.", variant: "success" }
+  if (status?.state === "blocked")
+    return { title: "Orchestrator blocked", message: status.headline ?? "The orchestrator needs your input to continue.", variant: "warning" }
+  return {
+    title: "Orchestrator paused",
+    message: "The round limit was reached for this goal. Send a message to keep going.",
+    variant: "warning",
+  }
 }

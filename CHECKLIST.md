@@ -208,6 +208,9 @@ change the plan there when a decision changes.
 - [x] Delete `engine/*`, `@opencode-ai/sdk`, overlays, `build-engine.ts`, `build-extensions.ts` (with the sidecar binary, the opencode update workflow and its CI steps; sounds moved to `src/assets/audio`, opencode's license to `licenses/`; `bun run dev` runs the native engine only)
 - [x] Remote gateway collapses into the engine router (in process; the event socket closes when its device is signed out)
 - [x] Docs rewritten for the new engine (README, `docs/engine.md`, architecture, MCP, extensibility, store, remote, CONTRIBUTING; research and comparison docs kept as history)
+- [x] Review after cutover:
+  - [x] Imported opencode permission patterns kept in written order and reversed per kind (opencode's last match wins, drift.json's first)
+  - [x] Orchestrator driven by the engine (`session/drive.rs`, `nudge` parts, 30 per user prompt counted from the transcript); the app only shows how a turn ended
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
 ## M5: hook seam

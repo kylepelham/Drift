@@ -753,7 +753,7 @@ impl Engine {
         }
         loop {
             let answered = self.run_steps(&mut plan, &abort, started.as_deref()).await;
-            if abort.is_cancelled() || !self.steered_after(&plan.session.id, answered.as_deref()) {
+            if abort.is_cancelled() || !self.carries_on(&plan, answered.as_deref(), &abort) {
                 break;
             }
         }
@@ -803,16 +803,38 @@ impl Engine {
         config
     }
 
-    /// Under the steering lock: whether a prompt arrived after the last one this turn answered. If
-    /// none did, the turn stops taking prompts in the same breath, so none can land unanswered.
-    fn steered_after(&self, session_id: &str, answered: Option<&str>) -> bool {
+    /// Under the steering lock: whether a prompt arrived after the last one this turn answered, or
+    /// the orchestrator driver sent one now. If neither, the turn stops taking prompts in the same
+    /// breath, so none can land unanswered.
+    fn carries_on(&self, plan: &Plan, answered: Option<&str>, abort: &CancellationToken) -> bool {
+        let session_id = plan.session.id.as_str();
         let mut steering = self.turns.steering.lock().unwrap();
         let newest = self.store.newest_prompt(session_id).ok().flatten();
         let steered = matches!((newest.as_deref(), answered), (Some(newest), Some(answered)) if newest > answered);
-        if !steered {
-            steering.remove(session_id);
+        if steered || self.nudge(plan, abort) {
+            return true;
         }
-        steered
+        steering.remove(session_id);
+        false
+    }
+
+    /// Sends the orchestrator's next prompt when its last reply says it is still working; false when the turn should end.
+    fn nudge(&self, plan: &Plan, abort: &CancellationToken) -> bool {
+        let session_id = plan.session.id.as_str();
+        if plan.turn_only || plan.session.agent != super::drive::AGENT {
+            return false;
+        }
+        let Ok(Some(reply)) = self.store.last_reply(session_id) else { return false };
+        let rounds = self.store.nudges_since_prompt(session_id).unwrap_or(usize::MAX);
+        let Some(text) = super::drive::next(&plan.session, &reply, rounds) else { return false };
+        let pick = Pick { model: &plan.model_ref, variant: None, agent: None, sticky: true };
+        match self.admit_fenced(session_id, pick, vec![Part::Nudge { text: text.into() }], None, Some(abort), None) {
+            Ok(admitted) => {
+                self.announce(session_id, admitted);
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     /// One run of model steps; returns the newest prompt the last request included.

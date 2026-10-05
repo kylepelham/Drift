@@ -315,7 +315,7 @@ fn estimate(messages: &[&MessageWithParts]) -> usize {
         .iter()
         .flat_map(|m| m.parts.iter())
         .map(|row| match &row.part {
-            Part::Text { text } | Part::Reasoning { text, .. } | Part::TaskResult { text, .. } => text.len(),
+            Part::Text { text } | Part::Nudge { text } | Part::Reasoning { text, .. } | Part::TaskResult { text, .. } => text.len(),
             Part::ToolCall { input, output, .. } => input.to_string().len() + output.as_ref().map_or(0, String::len),
             Part::File { url, .. } => url.len(),
             Part::Clarification { request_id, items } => super::convert::clarification_text(request_id, items).len(),

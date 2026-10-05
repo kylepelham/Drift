@@ -201,6 +201,18 @@ impl Store {
             .optional()
     }
 
+    /// Nudges the engine sent since the user's newest prompt of their own (one with text or a file).
+    pub fn nudges_since_prompt(&self, session_id: &str) -> rusqlite::Result<usize> {
+        self.lock()
+            .prepare_cached(
+                "SELECT COUNT(DISTINCT m.id) FROM message m JOIN part p ON p.message_id = m.id
+                 WHERE m.session_id = ?1 AND m.role = 'user' AND json_extract(p.json, '$.type') = 'nudge'
+                 AND m.id > COALESCE((SELECT MAX(u.id) FROM message u JOIN part q ON q.message_id = u.id
+                     WHERE u.session_id = ?1 AND u.role = 'user' AND json_extract(q.json, '$.type') IN ('text', 'file')), '')",
+            )?
+            .query_row([session_id], |row| row.get(0))
+    }
+
     /// The session's newest assistant message, without loading the rest of the conversation.
     pub fn last_reply(&self, session_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
         let conn = self.lock();

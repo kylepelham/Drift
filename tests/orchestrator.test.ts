@@ -5,15 +5,7 @@ if (!("localStorage" in globalThis))
     value: { getItem: () => null, setItem: () => undefined },
   })
 
-const {
-  isGeneratedUserEntry,
-  ORCHESTRATOR_AGENT,
-  orchestratorGate,
-  orchestratorMaxRounds,
-  parseOrchestratorStatus,
-  PROCEED_PROMPT,
-  STATUS_REMINDER_PROMPT,
-} = await import("../src/state/orchestrator")
+const { ORCHESTRATOR_AGENT, orchestratorNotice, parseOrchestratorStatus } = await import("../src/state/orchestrator")
 
 const block = (body: string) => `<orchestrator_status>\n${body}\n</orchestrator_status>`
 
@@ -41,50 +33,49 @@ test("status parsing is strict, takes the last block, and fails closed on anythi
   expect(parseOrchestratorStatus(undefined)).toBeUndefined()
 })
 
-const eligible = {
+
+const clean = {
   previousStatus: "busy",
   status: "idle",
-  goalAgent: ORCHESTRATOR_AGENT,
+  agent: ORCHESTRATOR_AGENT,
   parentID: undefined,
-  pendingAsks: 0,
-  lastMessage: { role: "assistant", completed: true, errored: false },
-  rounds: 0,
+  lastMessage: { role: "assistant", completed: true, errored: false, text: block('{"state":"done","headline":"all green"}') },
 }
 
-test("the driver only acts on clean turn completions of orchestrator sessions", () => {
-  expect(orchestratorGate(eligible)).toBeNull()
-  expect(orchestratorGate({ ...eligible, previousStatus: "retry" })).toBeNull()
-  expect(orchestratorGate({ ...eligible, goalAgent: "build" })).toBe("not an orchestrator session")
-  expect(orchestratorGate({ ...eligible, goalAgent: undefined })).toBe("not an orchestrator session")
-  expect(orchestratorGate({ ...eligible, status: "busy" })).toBe("not idle")
-  expect(orchestratorGate({ ...eligible, previousStatus: "idle" })).toBe("not a turn completion")
-  expect(orchestratorGate({ ...eligible, parentID: "parent" })).toBe("subagent")
-  expect(orchestratorGate({ ...eligible, pendingAsks: 1 })).toBe("awaiting permission or question")
-  expect(orchestratorGate({ ...eligible, lastMessage: undefined })).toBe("no final message")
-  expect(orchestratorGate({ ...eligible, lastMessage: { role: "user", completed: true, errored: false } })).toBe(
-    "no assistant reply",
-  )
-  expect(orchestratorGate({ ...eligible, lastMessage: { role: "assistant", completed: false, errored: false } })).toBe(
-    "reply not completed",
-  )
-  expect(orchestratorGate({ ...eligible, lastMessage: { role: "assistant", completed: true, errored: true } })).toBe(
-    "reply errored",
-  )
-  expect(orchestratorGate({ ...eligible, rounds: orchestratorMaxRounds })).toBe("round limit reached")
+test("a driven turn's ending becomes one notice, and only for a clean orchestrator turn", () => {
+  expect(orchestratorNotice(clean)).toEqual({ title: "Orchestrator finished", message: "all green", variant: "success" })
+  const said = (text: string) => orchestratorNotice({ ...clean, lastMessage: { ...clean.lastMessage, text } })
+  expect(said(block('{"state":"blocked"}'))?.title).toBe("Orchestrator blocked")
+  // The engine only ends a clean turn that still says working at its round limit.
+  expect(said(block('{"state":"working"}'))?.title).toBe("Orchestrator paused")
+  expect(said("no block")?.title).toBe("Orchestrator paused")
+  expect(orchestratorNotice({ ...clean, previousStatus: "retry" })).not.toBeNull()
+  expect(orchestratorNotice({ ...clean, agent: "build" })).toBeNull()
+  expect(orchestratorNotice({ ...clean, parentID: "parent" })).toBeNull()
+  expect(orchestratorNotice({ ...clean, status: "busy" })).toBeNull()
+  expect(orchestratorNotice({ ...clean, previousStatus: "idle" })).toBeNull()
+  expect(orchestratorNotice({ ...clean, lastMessage: undefined })).toBeNull()
+  expect(orchestratorNotice({ ...clean, lastMessage: { ...clean.lastMessage, errored: true } })).toBeNull()
+  expect(orchestratorNotice({ ...clean, lastMessage: { ...clean.lastMessage, completed: false } })).toBeNull()
 })
 
-test("driver prompts push forward without re-summarizing, and enforce the protocol", () => {
-  expect(PROCEED_PROMPT).toContain("Proceed toward the goal")
-  expect(PROCEED_PROMPT).toContain("Do not re-summarize completed work")
-  expect(STATUS_REMINDER_PROMPT).toContain("<orchestrator_status>")
-  expect(STATUS_REMINDER_PROMPT).toContain("Proceed toward the goal")
+test("the engine drives the orchestrator; the app only reports how a turn ended", async () => {
+  const app = await Bun.file("src/app.tsx").text()
+  expect(app).toContain("<OrchestratorBinding />")
+  expect(app).not.toContain("actions.steer(")
+  const drive = await Bun.file("crates/drift-engine/src/session/drive.rs").text()
+  expect(drive).toContain("Proceed toward the goal")
 })
 
-test("generated steering prompts never count as a fresh goal", () => {
-  expect(isGeneratedUserEntry([{ type: "text", metadata: { generated: true } }])).toBeTrue()
-  expect(isGeneratedUserEntry([{ type: "text" }])).toBeFalse()
-  expect(isGeneratedUserEntry([{ type: "text", metadata: { generated: true } }, { type: "text" }])).toBeFalse()
-  expect(isGeneratedUserEntry([{ type: "file" }])).toBeFalse()
+test("nudges show as Drift's own prompts, not the user's", async () => {
+  const { adaptPart } = await import("../src/engine/native/adapt")
+  const part = adaptPart({ id: "p", sessionId: "s", messageId: "m", type: "nudge", text: "Proceed toward the goal." } as never)
+  expect(part).toMatchObject({ type: "text", text: "Proceed toward the goal.", metadata: { generated: true } })
+})
+
+test("async questions do not mark tools as awaiting permission", async () => {
+  const parts = await Bun.file("src/ui/parts.tsx").text()
+  expect(parts).toContain("(question) => !question.async && question.tool?.callID === part.callID")
 })
 
 test("the orchestrator agent is a native built-in with delegation-only tools and the status protocol", async () => {
@@ -100,21 +91,4 @@ test("the orchestrator agent is a native built-in with delegation-only tools and
   expect(prompt).toContain('"working"')
   expect(prompt).toContain("Never ask the user whether to continue")
   expect(prompt).toContain("Never claim done without verification evidence")
-})
-
-test("the driver is wired into the app and reacts to status transitions", async () => {
-  const app = await Bun.file("src/app.tsx").text()
-  expect(app).toContain("<OrchestratorBinding />")
-  // Driving escapes the status effect's tracking scope.
-  expect(app).toContain("queueMicrotask(() => void drive(id, before))")
-  // done and blocked stop the loop with a user-visible notice instead of another prompt.
-  expect(app).toMatch(/state === "done"[\s\S]*?variant: "success"/)
-  expect(app).toMatch(/state === "blocked"[\s\S]*?variant: "warning"/)
-})
-
-test("async questions do not pause independent orchestrator rounds or mark tools as awaiting permission", async () => {
-  const app = await Bun.file("src/app.tsx").text()
-  const parts = await Bun.file("src/ui/parts.tsx").text()
-  expect(app).toContain("pendingAsks: (state.permissions[id]?.length ?? 0) + (state.questions[id]?.filter((question) => !question.async).length ?? 0)")
-  expect(parts).toContain("(question) => !question.async && question.tool?.callID === part.callID")
 })

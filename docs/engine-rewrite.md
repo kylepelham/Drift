@@ -524,8 +524,14 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   `seq`; clients that reply over HTTP ignore it.
 - Pending questions live in the engine process: a restart drops unanswered cards, never a saved
   answer. Deleting a session drops its async questions.
-- A prompt sent through the API carries text and files only: `task_result`, `clarification`, tool and
-  other engine parts are refused with 400, so a client cannot forge a worker result or an answer.
+- A prompt sent through the API carries text and files only: `task_result`, `clarification`, `nudge`,
+  tool and other engine parts are refused with 400, so a client cannot forge a worker result or an answer.
+- The orchestrator is driven by the engine (`session/drive.rs`). When a top-level orchestrator
+  turn's last reply is clean and its final `<orchestrator_status>` says `working` (or there is none),
+  `carries_on` admits a `nudge` prompt under the steering lock and the turn goes on, as for a steered
+  prompt. `done`, `blocked`, a failed or cut-off reply, a Stop, a command's turn-only agent, or
+  `drive::MAX_ROUNDS` (30) nudges since the user's newest text or file prompt
+  (`Store::nudges_since_prompt`) end it. The count lives in the transcript, so a restart keeps it.
 - A stored part this build cannot parse (imported by `drift-migrate`, or written by a newer Drift)
   loads as `unknown` with its stored JSON in `raw` (`Part::from_stored`), instead of failing the
   whole conversation's read. It is never sent to a model, counts nothing toward compaction, and is
