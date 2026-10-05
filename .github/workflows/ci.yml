@@ -87,6 +87,10 @@ jobs:
         with:
           workspaces: .
 
+      # A fresh runner scans node.exe on its first launch; doing that here keeps it out of the MCP tests' start limit.
+      - name: Warm node for the MCP and LSP fixtures
+        run: node -e 0
+
       - name: Native unit tests
         run: cargo test --workspace
 

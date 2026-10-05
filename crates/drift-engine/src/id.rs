@@ -13,11 +13,14 @@ pub fn new(prefix: &str) -> String {
 /// The next point in id order, for rows that must sort against ids without being one.
 pub fn stamp() -> i64 {
     let now = (now_ms() as u64) << COUNTER_BITS;
-    let stamp = LAST
-        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(if now > last { now } else { last + 1 }))
-        .map(|last| if now > last { now } else { last + 1 })
-        .unwrap_or(now);
-    stamp as i64
+    let mut last = LAST.load(Ordering::SeqCst);
+    loop {
+        let next = if now > last { now } else { last + 1 };
+        match LAST.compare_exchange_weak(last, next, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return next as i64,
+            Err(seen) => last = seen,
+        }
+    }
 }
 
 /// The point in id order an id was made at.
