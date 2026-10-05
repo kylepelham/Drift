@@ -2672,3 +2672,14 @@ async fn other_agents_are_never_driven() {
     until_idle(&h).await;
     assert!(nudges(&h).is_empty());
 }
+#[test]
+fn a_request_with_a_long_prompt_costs_its_tier_counting_cached_input() {
+    let mut model = crate::llm::catalog::Catalog::bundled().model("anthropic", "claude-sonnet-4-5").unwrap().clone();
+    model.cost = serde_json::from_str(r#"{ "input": 3, "output": 15, "cache_read": 0.3, "context_over_200k": { "input": 6, "output": 22.5, "cache_read": 0.6 } }"#).unwrap();
+    let short = cost(&model, Usage { input: 1_000_000, output: 0, cache_read: 0, cache_write: 0 });
+    assert!((short - 6.0).abs() < 1e-9, "a million fresh tokens in one prompt is over 200k: {short}");
+    let cached = cost(&model, Usage { input: 10_000, output: 1_000_000, cache_read: 250_000, cache_write: 0 });
+    assert!((cached - (0.06 + 22.5 + 0.15)).abs() < 1e-9, "cached input counts toward the prompt's length: {cached}");
+    let small = cost(&model, Usage { input: 100_000, output: 0, cache_read: 0, cache_write: 0 });
+    assert!((small - 0.3).abs() < 1e-9, "{small}");
+}

@@ -89,16 +89,91 @@ fn is_zero(value: &u64) -> bool {
 /// Of the reply room, what is kept below an input cap; the UI's meter uses the same (`compactionReserveTokens`).
 const INPUT_RESERVE: u64 = 20_000;
 
+/// Prices per million tokens. A long prompt can cost more: `tiers` are models.dev's context tiers and
+/// its `context_over_200k`, and the largest one a request's prompt passes prices the whole request.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(from = "RawPrices")]
 pub struct Cost {
-    #[serde(default)]
     pub input: f64,
-    #[serde(default)]
     pub output: f64,
-    #[serde(default)]
     pub cache_read: f64,
-    #[serde(default)]
     pub cache_write: f64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tiers: Vec<CostTier>,
+}
+
+/// The prices for a request whose prompt is longer than `above` tokens.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct CostTier {
+    pub above: u64,
+    pub input: f64,
+    pub output: f64,
+    pub cache_read: f64,
+    pub cache_write: f64,
+}
+
+impl Cost {
+    /// The `(input, output, cache_read, cache_write)` prices for a request with a prompt of `prompt` tokens.
+    pub fn at(&self, prompt: u64) -> (f64, f64, f64, f64) {
+        let tier = self.tiers.iter().filter(|tier| prompt > tier.above).max_by_key(|tier| tier.above);
+        tier.map_or((self.input, self.output, self.cache_read, self.cache_write), |tier| (tier.input, tier.output, tier.cache_read, tier.cache_write))
+    }
+}
+
+/// Prices as models.dev gives them (`tiers` of `{ tier: { type, size } }`, `context_over_200k`) or as a cached catalog stores them.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct RawPrices {
+    input: f64,
+    output: f64,
+    cache_read: f64,
+    cache_write: f64,
+    tiers: Vec<RawTier>,
+    context_over_200k: Option<RawTier>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct RawTier {
+    above: Option<u64>,
+    tier: Option<TierSize>,
+    input: Option<f64>,
+    output: Option<f64>,
+    cache_read: Option<f64>,
+    cache_write: Option<f64>,
+}
+
+#[derive(Deserialize)]
+struct TierSize {
+    #[serde(rename = "type", default)]
+    kind: Option<String>,
+    size: u64,
+}
+
+impl From<RawPrices> for Cost {
+    fn from(raw: RawPrices) -> Self {
+        let (input, output, cache_read, cache_write) = (raw.input, raw.output, raw.cache_read, raw.cache_write);
+        // A price a tier leaves out is the base one.
+        let tier = |above: u64, given: RawTier| CostTier {
+            above,
+            input: given.input.unwrap_or(input),
+            output: given.output.unwrap_or(output),
+            cache_read: given.cache_read.unwrap_or(cache_read),
+            cache_write: given.cache_write.unwrap_or(cache_write),
+        };
+        let mut tiers: Vec<CostTier> = Vec::new();
+        for given in raw.tiers {
+            let above = given.above.or(given.tier.as_ref().filter(|size| size.kind.as_deref().is_none_or(|kind| kind == "context")).map(|size| size.size));
+            if let Some(above) = above {
+                tiers.push(tier(above, given));
+            }
+        }
+        if let Some(over) = raw.context_over_200k.filter(|_| !tiers.iter().any(|tier| tier.above == 200_000)) {
+            tiers.push(tier(200_000, over));
+        }
+        tiers.sort_by_key(|tier| tier.above);
+        Self { input, output, cache_read, cache_write, tiers }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -532,11 +607,14 @@ fn moded(key: &str, base: &Model, name: &str, mode: RawMode) -> Model {
     let mut title = name.chars();
     let title: String = title.next().map(|first| first.to_uppercase().chain(title).collect()).unwrap_or_default();
     let given = mode.cost.unwrap_or(RawCost { input: None, output: None, cache_read: None, cache_write: None });
+    // A mode that prices itself has no long-prompt tiers models.dev gives; one that does not keeps the base's.
+    let priced = given.input.is_some() || given.output.is_some() || given.cache_read.is_some() || given.cache_write.is_some();
     let cost = Cost {
         input: given.input.unwrap_or(base.cost.input),
         output: given.output.unwrap_or(base.cost.output),
         cache_read: given.cache_read.unwrap_or(base.cost.cache_read),
         cache_write: given.cache_write.unwrap_or(base.cost.cache_write),
+        tiers: if priced { Vec::new() } else { base.cost.tiers.clone() },
     };
     let wire = mode.provider.unwrap_or_default();
     Model {
@@ -643,6 +721,20 @@ fn profile_for(provider: &str, family: &str) -> ToolProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_prompts_are_priced_at_the_largest_tier_they_pass() {
+        let raw = r#"{ "input": 2.5, "output": 15, "cache_read": 0.25, "tiers": [{ "input": 5, "output": 22.5, "cache_read": 0.5, "tier": { "type": "context", "size": 272000 } }], "context_over_200k": { "input": 4, "output": 20 } }"#;
+        let cost: Cost = serde_json::from_str(raw).unwrap();
+        assert_eq!(cost.tiers.iter().map(|tier| tier.above).collect::<Vec<_>>(), [200_000, 272_000], "models.dev's over-200k becomes a tier");
+        assert_eq!(cost.at(150_000), (2.5, 15.0, 0.25, 0.0));
+        assert_eq!(cost.at(250_000), (4.0, 20.0, 0.25, 0.0), "a price the tier leaves out is the base one");
+        assert_eq!(cost.at(300_000), (5.0, 22.5, 0.5, 0.0));
+        let stored: Cost = serde_json::from_str(&serde_json::to_string(&cost).unwrap()).unwrap();
+        assert_eq!(stored, cost, "a cached catalog reads back the same tiers");
+        let bundled = Catalog::bundled();
+        assert!(bundled.providers.values().flat_map(|p| p.models.values()).any(|model| !model.cost.tiers.is_empty()), "the snapshot carries tiers");
+    }
 
     #[test]
     fn bundled_snapshot_has_anthropic_models_with_costs() {

@@ -1229,6 +1229,11 @@ Settled after the first external review of M1; each has a regression test.
   listed budget wins over an effort, because Claude's effort means adaptive thinking, which only
   the newest models accept and they list no budget. Elsewhere the effort wins. A toggle-only model,
   or one with no options, has no variants and no picker.
+- **Long-prompt prices.** models.dev's context `tiers` and `context_over_200k` become
+  `Cost::tiers` (`above`, then the four prices; one left out is the base price). A request is
+  priced at the largest tier its prompt passes, the prompt counting cached input too, as opencode
+  prices it (`Cost::at`), so long sessions on Gemini Pro, Sonnet 1M or GPT long context are not
+  under-reported. A mode that sets its own prices drops the base's tiers.
 - **Modes (fast, ultrafast, flex, pro).** models.dev's `experimental.modes` become entries of their
   own, as opencode lists them: `claude-opus-5-5-fast` "Claude Opus 5.5 Fast", `gpt-6-astra-ultrafast`
   "GPT-6 Astra Ultrafast". Each is the base model at the mode's prices (a price the mode leaves out

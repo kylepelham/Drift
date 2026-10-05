@@ -1980,10 +1980,10 @@ fn budgets(model: &Model, requested: Option<Reasoning>) -> (u32, Option<Reasonin
 }
 
 /// Prices are per million tokens.
+/// What a request cost, at the prices for its prompt's length (all of its input, cached or not).
 fn cost(model: &Model, usage: Usage) -> f64 {
-    let c = &model.cost;
-    (usage.input as f64 * c.input + usage.output as f64 * c.output + usage.cache_read as f64 * c.cache_read + usage.cache_write as f64 * c.cache_write)
-        / 1_000_000.0
+    let (input, output, cache_read, cache_write) = model.cost.at(usage.input + usage.cache_read + usage.cache_write);
+    (usage.input as f64 * input + usage.output as f64 * output + usage.cache_read as f64 * cache_read + usage.cache_write as f64 * cache_write) / 1_000_000.0
 }
 
 /// What the model is told about a call the user refused.

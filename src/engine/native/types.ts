@@ -945,15 +945,33 @@ export interface components {
             /** @enum {string} */
             type: "question.result";
         };
+        /**
+         * @description Prices per million tokens. A long prompt can cost more: `tiers` are models.dev's context tiers and
+         *     its `context_over_200k`, and the largest one a request's prompt passes prices the whole request.
+         */
         Cost: {
             /** Format: double */
-            cache_read?: number;
+            cache_read: number;
             /** Format: double */
-            cache_write?: number;
+            cache_write: number;
             /** Format: double */
-            input?: number;
+            input: number;
             /** Format: double */
-            output?: number;
+            output: number;
+            tiers?: components["schemas"]["CostTier"][];
+        };
+        /** @description The prices for a request whose prompt is longer than `above` tokens. */
+        CostTier: {
+            /** Format: int64 */
+            above: number;
+            /** Format: double */
+            cache_read: number;
+            /** Format: double */
+            cache_write: number;
+            /** Format: double */
+            input: number;
+            /** Format: double */
+            output: number;
         };
         /** @enum {string} */
         Decision: "allow" | "deny" | "ask";
