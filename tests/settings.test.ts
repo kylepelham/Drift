@@ -307,6 +307,17 @@ const featureTranslations = (catalog: Catalog) =>
     Object.entries({ ...catalog.dict, ...catalog.drift }).filter(([key]) => key.startsWith("drift.")),
   ) as Record<string, string>
 
+test("no locale keeps a key English does not have", async () => {
+  const { languages } = await import("../src/state/language")
+  const en: Catalog = await import("../src/i18n/en")
+  const english = new Set([...Object.keys(en.dict), ...Object.keys(en.drift)])
+  for (const language of languages.filter((language) => language.id !== "en")) {
+    const catalog: Catalog = await import(`../src/i18n/${language.id}.ts`)
+    const extra = [...Object.keys(catalog.dict), ...Object.keys(catalog.drift)].filter((key) => !english.has(key))
+    expect(extra, `${language.id} has keys en.ts dropped`).toEqual([])
+  }
+})
+
 test("Drift owns explicit app-specific translations for every locale", async () => {
   const { languages } = await import("../src/state/language")
   const english = featureTranslations(await import("../src/i18n/en"))
