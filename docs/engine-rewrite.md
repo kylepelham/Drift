@@ -1,7 +1,7 @@
 # Engine rewrite
 
 Drift replaced the opencode engine it used to bundle with its own engine written in Rust.
-This document is the plan of record for branch `next/1.4.0-engine`. Keep it current:
+This document is the plan of record for branch `v2.0`. Keep it current:
 when a decision changes, change it here first. Milestone status lives in `CHECKLIST.md`.
 
 ## Why

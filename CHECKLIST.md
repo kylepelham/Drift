@@ -1,6 +1,6 @@
 # Checklist
 
-Current state of the engine rewrite on `next/1.4.0-engine`. The plan and every
+Current state of the engine rewrite on `v2.0`. The plan and every
 decision behind it are in `docs/engine-rewrite.md`. Tick items here as they land;
 change the plan there when a decision changes.
 
