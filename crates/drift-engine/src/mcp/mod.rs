@@ -453,8 +453,9 @@ const MAX_RETRY: Duration = Duration::from_secs(30);
 /// How long a server gets to answer `initialize`, and then again to answer `tools/list`.
 #[cfg(not(test))]
 const STEP_LIMIT: Duration = Duration::from_secs(30);
+// Room for a cold `node` on a fresh CI runner, still short enough for the timeout tests.
 #[cfg(test)]
-const STEP_LIMIT: Duration = Duration::from_millis(1500);
+const STEP_LIMIT: Duration = Duration::from_secs(5);
 /// A connection that held this long starts its reconnects from the first wait again.
 #[cfg(not(test))]
 const STABLE: Duration = Duration::from_secs(60);
