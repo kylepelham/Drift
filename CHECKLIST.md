@@ -208,7 +208,7 @@ change the plan there when a decision changes.
 - [ ] Delete `engine/*`, `@opencode-ai/sdk`, overlays, `build-engine.ts`, `build-extensions.ts`
 - [x] Remote gateway collapses into the engine router (in process; the event socket closes when its device is signed out)
 - [ ] Docs rewritten for the new engine
-- [ ] Perf numbers versus M0 baseline in release notes
+- [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
 ## M5: hook seam
 

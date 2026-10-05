@@ -1937,17 +1937,19 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
 
 ## Baselines
 
-Medians of five runs on the development machine, recorded at M0. The opencode numbers are
-the target to beat; the native engine only has a cold start until M1 gives it a turn loop.
+Medians of five runs on the development machine (`bun run bench:engine`, release build, a stub
+OpenAI-compatible provider that answers at once, so only engine time is measured). The opencode
+numbers were recorded at M0 and are the target the native engine had to beat; the M4 column is the
+native engine at cutover, with a user provider and the default family's base prompt.
 
-| Measure | opencode 1.18.33 | native (M0) |
-|---|---|---|
-| Cold start, process spawn to first event frame | 1012 ms | 26 ms |
-| Prompt accepted to provider request sent | 1066 ms | |
-| Provider response to text event delivered | 49 ms | |
-| System prompt per turn | 12,089 chars | |
-| Tool schemas per turn | 25,369 chars | |
-| Approximate tokens per turn (chars / 4) | 9,365 | |
+| Measure | opencode 1.18.33 (M0) | native (M0) | native (M4) |
+|---|---|---|---|
+| Cold start, process spawn to first event frame | 1012 ms | 26 ms | 32 ms |
+| Prompt accepted to provider request sent | 1066 ms | | 4 ms |
+| Provider response to text event delivered | 49 ms | | under 1 ms |
+| System prompt per turn | 12,089 chars | | 3,549 chars |
+| Tool schemas per turn | 25,369 chars | | 14,705 chars |
+| Approximate tokens per turn (chars / 4) | 9,365 | | 4,564 |
 
 ## Testing
 
