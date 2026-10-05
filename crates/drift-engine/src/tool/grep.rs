@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use globset::GlobBuilder;
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
@@ -8,7 +7,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use super::sensitive::is_sensitive;
-use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
+use super::{display, required_str, Ask, Context, FileGlob, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
 const MAX_MATCHES: usize = 200;
@@ -125,10 +124,8 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, s
         .line_terminator(Some(b'\n'))
         .build(pattern)
         .map_err(|e| ToolError(format!("invalid regex: {e}")))?;
-    let include = include
-        .map(|glob| GlobBuilder::new(glob).literal_separator(false).build().map(|g| g.compile_matcher()))
-        .transpose()
-        .map_err(|e| ToolError(format!("invalid include glob: {e}")))?;
+    let base = if root.is_file() { root.parent().unwrap_or(root) } else { root };
+    let include = include.map(|glob| FileGlob::new(base, glob)).transpose().map_err(|e| ToolError(format!("invalid include glob: {e}")))?;
     let first = First::default();
     let (total, withheld) = (AtomicUsize::new(0), AtomicUsize::new(0));
     let restricted = AtomicUsize::new(0);
@@ -144,8 +141,7 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, s
             if !entry.file_type().is_some_and(|t| t.is_file()) {
                 return WalkState::Continue;
             }
-            let relative = entry.path().strip_prefix(root).unwrap_or(entry.path());
-            if include.as_ref().is_some_and(|glob| !glob.is_match(relative) && !glob.is_match(entry.file_name())) {
+            if include.as_ref().is_some_and(|glob| !glob.matches(entry.path())) {
                 return WalkState::Continue;
             }
             if entry.path() != root && is_sensitive(entry.path()) {

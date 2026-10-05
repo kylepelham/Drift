@@ -212,6 +212,24 @@ pub fn walker(root: &Path) -> ignore::WalkBuilder {
     builder
 }
 
+/// A file glob as ripgrep's `--glob` reads it, which is how opencode runs both `glob` and `grep`'s
+/// `include`: without a `/` it matches a file name at any depth (`*.ts`), with one it matches from
+/// the root (`src/*.ts`), and `**` crosses directories.
+pub struct FileGlob(ignore::overrides::Override);
+
+impl FileGlob {
+    pub fn new(root: &Path, pattern: &str) -> Result<Self, String> {
+        let mut builder = ignore::overrides::OverrideBuilder::new(root);
+        builder.add(pattern.trim_start_matches("./")).map_err(|e| e.to_string())?;
+        builder.build().map(Self).map_err(|e| e.to_string())
+    }
+
+    /// Whether a file under the root matches.
+    pub fn matches(&self, path: &Path) -> bool {
+        self.0.matched(path, false).is_whitelist()
+    }
+}
+
 /// Resolves through the deepest existing ancestor, so a file that does not exist yet still lands where it will.
 pub fn canonical(path: &Path) -> PathBuf {
     let mut lexical = PathBuf::new();

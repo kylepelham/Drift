@@ -1,10 +1,10 @@
 use std::path::Path;
 use std::time::SystemTime;
 
-use globset::GlobBuilder;
 use serde_json::{json, Value};
+use tokio_util::sync::CancellationToken;
 
-use super::{display, required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
+use super::{display, required_str, Ask, Context, FileGlob, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 
 const MAX_RESULTS: usize = 100;
@@ -43,8 +43,8 @@ impl Tool for Glob {
         Box::pin(async move {
             let pattern = required_str(&input, "pattern")?.to_string();
             let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
-            let workspace = ctx.workspace.clone();
-            let (found, total) = tokio::task::spawn_blocking(move || find(&root, &pattern)).await.map_err(|e| ToolError(e.to_string()))??;
+            let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
+            let (found, total) = tokio::task::spawn_blocking(move || find(&root, &pattern, &stop)).await.map_err(|e| ToolError(e.to_string()))??;
             let truncated = total > found.len();
             let mut lines: Vec<String> = found.iter().map(|(path, _)| display(path, &workspace)).collect();
             if truncated {
@@ -58,21 +58,16 @@ impl Tool for Glob {
 
 type Found = Vec<(std::path::PathBuf, SystemTime)>;
 
-/// The newest [`MAX_RESULTS`] matches of the whole walk, newest first, and how many matched in all.
-fn find(root: &Path, pattern: &str) -> Result<(Found, usize), ToolError> {
-    let glob = GlobBuilder::new(pattern.trim_start_matches("./"))
-        .literal_separator(true)
-        .build()
-        .map_err(|e| ToolError(format!("invalid glob: {e}")))?
-        .compile_matcher();
+/// The newest [`MAX_RESULTS`] matches of the whole walk, newest first, and how many matched in all. A Stop ends the walk.
+fn find(root: &Path, pattern: &str, stop: &CancellationToken) -> Result<(Found, usize), ToolError> {
+    let glob = FileGlob::new(root, pattern).map_err(|e| ToolError(format!("invalid glob: {e}")))?;
     let mut found: Found = Vec::new();
     let mut total = 0;
     for entry in super::walk(root).flatten() {
-        if !entry.file_type().is_some_and(|t| t.is_file()) {
-            continue;
+        if stop.is_cancelled() {
+            return Err(ToolError("stopped".into()));
         }
-        let relative = entry.path().strip_prefix(root).unwrap_or(entry.path());
-        if !glob.is_match(relative) {
+        if !entry.file_type().is_some_and(|t| t.is_file()) || !glob.matches(entry.path()) {
             continue;
         }
         total += 1;
@@ -144,6 +139,47 @@ mod tests {
         assert_eq!(none.output, "No files matched");
     }
 
+    #[tokio::test]
+    async fn patterns_read_as_ripgreps_glob_reads_them_in_both_tools() {
+        let sandbox = Sandbox::new("glob-rg");
+        sandbox.file("top.ts", "needle");
+        sandbox.file("src/a.ts", "needle");
+        sandbox.file("src/deep/b.ts", "needle");
+        sandbox.file("src/c.rs", "needle");
+        let listed = |pattern: &'static str| {
+            let ctx = &sandbox.ctx;
+            async move {
+                let mut lines: Vec<String> = Glob.run(ctx, json!({ "pattern": pattern })).await.unwrap().output.lines().map(String::from).collect();
+                lines.sort();
+                lines
+            }
+        };
+        let searched = |include: &'static str| {
+            let ctx = &sandbox.ctx;
+            async move {
+                let out = super::super::grep::Grep.run(ctx, json!({ "pattern": "needle", "include": include })).await.unwrap().output;
+                let mut files: Vec<String> = out.lines().filter_map(|line| line.split_once(':').map(|(file, _)| file.to_string())).collect();
+                files.sort();
+                files
+            }
+        };
+        assert_eq!(listed("*.ts").await, ["src/a.ts", "src/deep/b.ts", "top.ts"], "a name pattern matches at any depth");
+        assert_eq!(listed("src/*.ts").await, ["src/a.ts"], "a pattern with a slash is anchored and * stays in one folder");
+        assert_eq!(listed("src/**/*.ts").await, ["src/a.ts", "src/deep/b.ts"]);
+        for pattern in ["*.ts", "src/*.ts", "src/**/*.ts"] {
+            assert_eq!(searched(pattern).await, listed(pattern).await, "grep's include agrees with glob for {pattern}");
+        }
+    }
+
+    #[test]
+    fn a_stop_ends_the_walk() {
+        let sandbox = Sandbox::new("glob-stop");
+        sandbox.file("a.txt", "");
+        let stop = CancellationToken::new();
+        stop.cancel();
+        assert!(find(&sandbox.ctx.workspace, "*.txt", &stop).is_err());
+    }
+
     #[test]
     fn mention_search_ranks_names_before_paths_and_skips_ignored_and_git() {
         let sandbox = Sandbox::new("mention-search");
@@ -172,7 +208,7 @@ mod tests {
         }
         let newest = sandbox.file("zzz/newest.txt", "");
         std::fs::File::options().write(true).open(&newest).unwrap().set_modified(old + std::time::Duration::from_secs(60)).unwrap();
-        let (found, total) = find(&sandbox.ctx.workspace, "**/*.txt").unwrap();
+        let (found, total) = find(&sandbox.ctx.workspace, "**/*.txt", &CancellationToken::new()).unwrap();
         assert_eq!((found.len(), total), (MAX_RESULTS, MAX_RESULTS + 21));
         assert_eq!(found[0].0, newest, "the newest file wherever the walk meets it");
     }

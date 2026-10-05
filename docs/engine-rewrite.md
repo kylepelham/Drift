@@ -1315,6 +1315,9 @@ Settled after the first external review of M1; each has a regression test.
     prefix, name substring, path substring, then letters in order.
 - `glob` and `grep` never descend into `.git`, `.hg`, `.svn` or `.jj`, and `grep` stops a
   file at its first NUL byte, so binaries produce no matches.
+- `glob`'s pattern and `grep`'s `include` are one matcher (`tool::FileGlob`, the `ignore` crate's
+  overrides, which is ripgrep's `--glob`, as opencode runs both): `*.ts` matches at any depth,
+  `src/*.ts` only directly in `src`, `**` crosses folders. A Stop ends either walk.
 - `read` loads a file whole up to 10 MB. Past that (a log, generated output) it reads the page
   in 64 KB buffers from the start, on a blocking thread that checks Stop between buffers. Each
   line keeps at most 8004 bytes, even while skipping to an offset, so a newline-free file never
