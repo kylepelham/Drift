@@ -22,8 +22,9 @@ a remote device see the same servers.
   that is on without changing its setting, and stays in place, greyed out, while the server
   is off. Saving a changed definition reconnects it.
 - A stdio server runs once per workspace, in that folder (unless it sets its own working folder),
-  with the folder as its root; it starts the first time a workspace needs it, and stops when the
-  workspace is removed or has not used it for 10 minutes. Connecting from the manager starts it in
+  with the folder as its root; it starts the first time a workspace needs it and keeps running
+  while any window or device has that workspace open. It stops when the workspace is removed, or
+  5 minutes after its last use once no window shows the workspace. Connecting from the manager starts it in
   the active workspace, so open a workspace first. Disconnecting stops it everywhere until you
   connect it again. A remote server has one connection for all workspaces.
 

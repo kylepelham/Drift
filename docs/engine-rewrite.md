@@ -95,7 +95,7 @@ WS     /events?cursor=
 
 Server to client over the socket: `session.*`, `message.*`, `part.delta`,
 `permission.asked`, `question.asked`, `todo.updated`, `mcp.*`. Client to server:
-`permission.reply`, `question.reply`. M3 adds typed worker lifecycle/progress events
+`permission.reply`, `question.reply`, `workspace.open` (the folder the client shows, or null). M3 adds typed worker lifecycle/progress events
 and generated completion inputs, separate from conversation creation.
 Every event carries a monotonic `seq`. The first
 frame is `hello` with the engine's random `instance` id and current `seq`. Reconnecting
@@ -285,10 +285,10 @@ Every job the engine does can run on its own model, chosen under Settings > Agen
   built-in and workspace definitions, so Settings wins. Overrides for unknown agents are ignored.
 - A workspace `.drift/agents/<action>.md` customises that action; it never turns it into an agent
   that can hold a conversation. `task` refuses action agents as `subagent_type`.
-- Actions are one request each (`session::oneshot`), text only. Tools stay defined so a history
-  with tool calls stays valid, but the request forbids calling them (`Request::no_tool_calls`:
-  Anthropic, Bedrock and Vertex Claude `tool_choice: {type: none}`, Responses and Chat Completions
-  `tool_choice: "none"`, Gemini `functionCallingConfig.mode: NONE`). A reply that still makes a
+- Actions are one request each (`session::oneshot`), text only. Tools stay defined, the
+  workspace's MCP tools included, so a history with tool calls stays valid, but the request forbids
+  calling them (`Request::no_tool_calls`: Anthropic, Bedrock and Vertex Claude
+  `tool_choice: {type: none}`, Responses and Chat Completions `tool_choice: "none"`, Gemini `functionCallingConfig.mode: NONE`). A reply that still makes a
   call, or ends any way but a clean end of turn, is refused and nothing it said is used. A provider
   fault (overload, rate limit, a dropped connection) is retried with a turn's backoff and limits
   (`turn::Retry`), so a 529 during a turn does not fail its compaction outright and count toward
@@ -1643,10 +1643,15 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   active workspace (`?workspace=<id>`) and start the server there and in every workspace it already
   runs in; a stdio server running nowhere and given no workspace is refused (409 `workspace` on
   Connect; a save or enable just waits for a workspace). A user's disconnect ends every connection
-  and holds the server: no turn or workspace starts it again until the user connects it. A
-  workspace's connection stops when the workspace is removed, and when no turn, call or config read
-  there has used it for 10 minutes (`mcp::IDLE`, swept each minute); the next use starts it again.
-  A turn still holding the client keeps it until the turn ends.
+  and holds the server: no turn or workspace starts it again until the user connects it. As opencode
+  keeps a project's servers while the project is open, a workspace's connection runs for as long as
+  any client has the workspace open: each socket says which folder its window or device shows
+  (`workspace.open`, sent again on every reconnect) and the claim ends with the socket
+  (`Servers::set_open`). A workspace no client has open keeps its servers while turns, calls or
+  config reads there use them and stops them 5 minutes after the last use (`mcp::IDLE`, swept each
+  minute), so a browser or database session a server holds survives any pause in an open
+  workspace. Removing a workspace stops its servers at once. The next use starts them again. A turn
+  still holding the client keeps it until the turn ends.
 - **MCP tools in running turns.** A server has one slot from enable to disable or remove, and every
   tool object made from it holds that slot and the client it was planned with. A call uses the
   slot's current client when it serves the same definition (same config hash), so a running turn
@@ -1911,7 +1916,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     and every word stays inside the workspace and names no secret file: no variable or `~`, no
     path resolving outside (a drive-relative `C:x` included), a glob judged by the folder before
     its first wildcard, with `--flag=value` and `rev:path` judged by their path parts
-    (`bash::why_it_asks`). A redirection is judged by the file it names, glued to its operator or
+    (`bash::why_it_asks`). The program and git's subcommand are read from the canonical command, as
+    it runs: `FOO=1 git push` is a push, `LC_ALL=C grep -r` a search, PowerShell's `sls` is
+    `Select-String`; every written word but the program is judged as a path, so an assignment such
+    as `GIT_DIR=../other` asks too. A redirection is judged by the file it names, glued to its operator or
     not (`>~/.bashrc`, `2>../err`, `<>rw`, `</etc/passwd`; `command::redirect_target`), stream
     sinks such as `/dev/null` and `$null` excepted, and every target in `Ask::writes` is judged
     the same way. Any word that names something on disk is judged where it resolves, so
@@ -1962,8 +1970,9 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     (`https://host/*`); for a path outside the workspace, its whole folder (`Grant::Folder`, the
     folder itself for a search of one), unless the path may hold secrets or the folder is a drive
     root, the home folder or any folder holding it (`C:\Users` or `/home` would cover every
-    user's home), or a hidden folder in home or below (`~/.ssh`, `~/.aws`, where tools keep their
-    sign-ins). Secret files, guarded workspace files and lines that hide what they
+    user's home), or a folder in home where tools keep their sign-ins, or below it: hidden folders
+    (`~/.ssh`, `~/.aws`), Windows' `AppData` (gcloud, GitHub CLI) and macOS's `Library`. Secret
+    files, guarded workspace files and lines that hide what they
     run or redirect stay exact. Each request carries `always`, the grants that answer would make,
     and the card shows them on the button's tooltip. The card's button reads "Always
     allow in this workspace". `GET /workspaces/{id}/permission-grants` lists them (each tagged

@@ -243,6 +243,10 @@ change the plan there when a decision changes.
   - [x] Tools that declare no permission kinds are hidden by a rule denying their own name
   - [x] `git clean`, `git reset --hard` and `git push` ask; the docs say plainly what undo does not keep
   - [x] 809 opencode leftovers dropped from every locale, with a test against new ones
+  - [x] A shell line's program and git subcommand are read past `NAME=value` prefixes and aliases (`FOO=1 git push` asks)
+  - [x] A lean compaction request keeps the workspace's MCP tools defined
+  - [x] A workspace's stdio MCP servers run while any window or device has it open (`workspace.open` on the socket); unopened, they stop 5 minutes after their last use
+  - [x] "Always" never widens over `AppData` or `Library`
 - [x] Perf numbers versus M0 baseline (Baselines in `docs/engine-rewrite.md`; `bench:engine` now runs a native turn): cold start 32 ms vs 1012, prompt to provider 4 ms vs 1066, about 4.6k tokens per turn vs 9.4k
 
 ## M5: hook seam
