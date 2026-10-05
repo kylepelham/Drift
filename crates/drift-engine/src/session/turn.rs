@@ -1188,6 +1188,10 @@ impl Engine {
     fn finish(&self, message: &mut Message) -> rusqlite::Result<()> {
         message.finished_at = Some(id::now_ms());
         let saved = self.store.save_message(message).and_then(|()| self.store.touch_session(&message.session_id));
+        // The sidebar orders by last activity, so a reply landing moves its conversation up.
+        if let (Ok(()), Ok(Some(session))) = (&saved, self.store.session(&message.session_id)) {
+            self.hub.publish(Event::SessionUpdated { session });
+        }
         if let Err(error) = &saved {
             message.status = MessageStatus::Error;
             message.error = Some(format!("response was not persisted ({error})"));

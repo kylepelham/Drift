@@ -2746,3 +2746,21 @@ async fn a_subscription_turn_is_priced_at_the_api_rates_it_saves() {
     let reply = h.engine.store.transcript(&h.session.id).unwrap().pop().unwrap().info;
     assert!(reply.cost > 0.0, "a signed-in turn shows what the API would have charged: {}", reply.cost);
 }
+
+#[tokio::test]
+async fn a_finished_reply_tells_the_ui_its_conversation_moved_up() {
+    let h = harness().await;
+    let mut rx = h.engine.hub.attach(None).rx;
+    h.provider.push(text("done"));
+    h.engine.submit(&h.session.id, prompt("go")).await.await_ok();
+    until_idle(&h).await;
+    let (mut replying, mut moved) = (false, false);
+    while let Ok(envelope) = rx.try_recv() {
+        match envelope.event {
+            crate::event::Event::MessageCreated { message } if message.role == Role::Assistant => replying = true,
+            crate::event::Event::SessionUpdated { .. } if replying => moved = true,
+            _ => {}
+        }
+    }
+    assert!(moved, "a session.updated follows the reply, not only the prompt");
+}
