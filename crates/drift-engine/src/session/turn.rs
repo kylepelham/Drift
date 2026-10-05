@@ -1536,7 +1536,19 @@ impl Engine {
         if !formatted.is_empty() {
             text = format!("{text}\n\n{}", reformatted_note(&formatted));
         }
-        (text, with_formatted(metadata, formatted))
+        // After the formatters, so the servers see the files as they stay; Stop ends the wait.
+        let found = tokio::select! {
+            found = self.lsp.report(&scope.plan.workspace, &files, &config.lsp) => found,
+            () = scope.abort.cancelled() => Vec::new(),
+        };
+        if let Some(note) = crate::lsp::note(&found, &scope.plan.workspace) {
+            text = format!("{text}\n\n{note}");
+        }
+        let mut metadata = with_formatted(metadata, formatted);
+        if !found.is_empty() {
+            metadata["diagnostics"] = crate::lsp::metadata(&found, &scope.plan.workspace);
+        }
+        (text, metadata)
     }
 
     /// Runs the workspace's formatters over whatever a mutating tool reported writing; names the files they changed.

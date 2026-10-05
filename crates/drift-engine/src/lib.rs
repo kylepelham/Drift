@@ -6,6 +6,7 @@ pub mod edit;
 pub mod event;
 pub mod id;
 pub mod llm;
+pub mod lsp;
 pub mod mcp;
 pub mod permission;
 pub mod platform;
@@ -101,6 +102,8 @@ pub struct Engine {
     local_models: std::sync::Mutex<std::collections::BTreeMap<String, Vec<llm::catalog::Model>>>,
     /// Ollama models' own windows, asked once per installed build.
     local_shown: llm::local::Shown,
+    /// Language servers per workspace, started on the first write to a file one handles.
+    pub lsp: lsp::Servers,
 }
 
 /// Where a workspace's "always" permission grants are kept.
@@ -150,6 +153,7 @@ impl Engine {
             runtime: Default::default(),
             local_models: Default::default(),
             local_shown: Default::default(),
+            lsp: Default::default(),
         }))
     }
 

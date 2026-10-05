@@ -39,6 +39,8 @@ pub struct File {
     pub formatters: BTreeMap<String, FormatterConfig>,
     /// Checks run after a write, by name; `false` turns off one an earlier file set.
     pub checks: BTreeMap<String, CheckConfig>,
+    /// Language servers by name: `false` turns one off; a command adds or replaces one, from the user's own file only.
+    pub lsp: BTreeMap<String, LspConfig>,
     /// Turn limits; each field set here replaces the one before it.
     pub limits: LimitsFile,
     /// Time limits per provider route (`ollama`, `anthropic`, ...), for slow local models or gateways.
@@ -133,6 +135,20 @@ pub enum FormatterConfig {
 pub enum CheckConfig {
     Enabled(bool),
     Custom { command: Vec<String>, extensions: Vec<String> },
+}
+
+/// A language server Drift starts to hear the errors an edit left: `false` turns a built-in off; a
+/// command over stdio and the extensions it handles add one (`language` names their LSP language id).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum LspConfig {
+    Enabled(bool),
+    Custom {
+        command: Vec<String>,
+        extensions: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -372,6 +388,7 @@ pub struct Config {
     pub instructions: Vec<Instruction>,
     pub formatters: BTreeMap<String, FormatterConfig>,
     pub checks: BTreeMap<String, CheckConfig>,
+    pub lsp: BTreeMap<String, LspConfig>,
     /// Formatters and checks whose command the project's own drift.json sets, as `formatter:<name>` or `check:<name>`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub project_commands: std::collections::BTreeSet<String>,
@@ -558,6 +575,7 @@ impl Config {
         }
         self.formatters.extend(file.formatters);
         self.checks.extend(file.checks);
+        self.apply_lsp(file.lsp, project);
         self.timeouts.extend(file.timeouts);
         let limits = file.limits;
         self.limits.steps = limits.steps.unwrap_or(self.limits.steps).max(1);
@@ -575,6 +593,19 @@ impl Config {
             }
         }
         self.skill_paths.extend(file.skill_paths.iter().map(resolve));
+    }
+
+    /// A language server starts on its own when a file it handles is written, so a project's file
+    /// (committed by others) may turn one off but never name a program to run; that is noted, not applied.
+    fn apply_lsp(&mut self, servers: BTreeMap<String, LspConfig>, project: bool) {
+        for (name, server) in servers {
+            match server {
+                LspConfig::Custom { .. } if project => self.warnings.push(format!("lsp {name}: a project's drift.json can only turn a language server off; set its command in ~/.config/drift/drift.json")),
+                server => {
+                    self.lsp.insert(name, server);
+                }
+            }
+        }
     }
 
     /// A file named after an action customises that action; otherwise `mode` decides, then the agent it replaces.

@@ -906,6 +906,9 @@ export interface components {
             };
             instructions: components["schemas"]["Instruction"][];
             limits: components["schemas"]["Limits"];
+            lsp: {
+                [key: string]: components["schemas"]["LspConfig"];
+            };
             model?: components["schemas"]["ModelRef"] | null;
             permissions: components["schemas"]["Rule"][];
             /** @description Config files that could not be read; a turn refuses to start rather than run without their rules. */
@@ -1148,6 +1151,15 @@ export interface components {
              * @description Model steps (requests) one turn may take.
              */
             steps: number;
+        };
+        /**
+         * @description A language server Drift starts to hear the errors an edit left: `false` turns a built-in off; a
+         *     command over stdio and the extensions it handles add one (`language` names their LSP language id).
+         */
+        LspConfig: boolean | {
+            command: string[];
+            extensions: string[];
+            language?: string | null;
         };
         Message: {
             /** @description The agent the session ran as when this was written. */
