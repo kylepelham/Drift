@@ -1368,8 +1368,15 @@ Settled after the first external review of M1; each has a regression test.
   its descendants exited. A query failure retains the writer reservation, logs and retries rather
   than recording while writers may remain. Fixer changes are then recorded or restored before
   releasing the reservation.
-- A mutating call refuses to run if its snapshot cannot be taken or its start cannot be
-  recorded, and says so in its result. A result whose save fails is published as an error,
+- A file tool refuses to run if its files cannot be recorded first, or if its start cannot be
+  recorded, and says so in its result. A whole-tree capture (a writing shell line, a writing MCP
+  tool) that cannot be taken does not stop its call: tree changes are only observed, never undone,
+  so the call runs and its result says what it changed was not recorded. A workspace over
+  `MAX_TREE_FILES` (50,000 files, counted by the size walk before git runs) is never captured
+  whole: a drive or a home folder would keep `git add` busy for minutes. The verdict holds while
+  the engine runs. Stop ends a capture in progress and kills its git; the `index.lock` a killed
+  git leaves is cleared by the next capture, which holds the only lock on that index. A result
+  whose save fails is published as an error,
   never as a success the store lacks; a message whose terminal save fails stops the turn.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
   process group. Dropping the run future has the same effect as an explicit abort.

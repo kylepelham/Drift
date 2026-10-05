@@ -13,6 +13,8 @@ pub(super) enum Capture {
     /// afterwards is only observed: the user, an editor or another session may have made any of it
     /// while the call ran, and nothing here can tell them apart.
     Tree(Tree),
+    /// A whole tree that could not be taken, and why; tree changes are never undone, so the call still runs.
+    Unrecorded(String),
 }
 
 /// What a writing call changed, and the files it may have changed that are too large to record.
@@ -39,7 +41,7 @@ pub(super) struct Lost {
 impl Engine {
     pub(super) async fn capture_before(&self, workspace: &Path, touched: Option<Vec<PathBuf>>) -> Result<Capture, String> {
         let Some(paths) = touched else {
-            return self.snapshots.take(workspace).await.map(Capture::Tree).map_err(|e| e.to_string());
+            return Ok(self.snapshots.take(workspace).await.map_or_else(|e| Capture::Unrecorded(e.to_string()), Capture::Tree));
         };
         let mut before = Vec::new();
         for path in paths {
@@ -55,7 +57,7 @@ impl Engine {
     pub(super) async fn record_call(&self, workspace: &Path, capture: Capture) -> Result<Recorded, Lost> {
         let before = match &capture {
             Capture::Paths(paths) => Some(paths.clone()),
-            Capture::Tree(_) => None,
+            Capture::Tree(_) | Capture::Unrecorded(_) => None,
         };
         // Stamped where this call's writes have finished, not where its message began: two workers can start in one order and write in the other.
         let at = crate::id::new("chg");
@@ -84,6 +86,7 @@ impl Engine {
     /// Only paths whose content actually changed; an untouched file is never part of an undo.
     async fn capture_after(&self, workspace: &Path, capture: Capture) -> Result<Recorded, String> {
         match capture {
+            Capture::Unrecorded(reason) => Err(reason),
             Capture::Tree(before) => {
                 let after = self.snapshots.take(workspace).await.map_err(|e| e.to_string())?;
                 let diff = self.snapshots.changes_between(workspace, &before, &after).await.map_err(|e| e.to_string())?;

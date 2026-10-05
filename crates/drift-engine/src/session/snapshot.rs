@@ -1,7 +1,7 @@
 //! File history in a shadow git dir, kept out of the workspace: what each writing call changed, as
 //! blobs, so an undo can put back exactly those files and nothing else.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -16,6 +16,9 @@ pub struct Snapshots {
     locks: Mutex<HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>>,
     /// Each bound workspace directory's shadow repo, named for its owner rather than its path.
     owners: Mutex<HashMap<PathBuf, PathBuf>>,
+    /// Workspaces found to hold more than `max_tree_files`; not walked again while the engine runs.
+    too_many: Mutex<HashSet<PathBuf>>,
+    max_tree_files: usize,
 }
 
 /// One path a call changed: its content before and after as shadow blobs, `None` for no file.
@@ -52,6 +55,8 @@ pub struct TreeChanges {
 /// Files past this size are never copied into the store: a write to one is refused, since it could not
 /// be undone, and whole-tree captures leave them out.
 pub const MAX_RECORDED_BYTES: u64 = 10 * 1024 * 1024;
+/// A whole-tree capture of more files than this (a drive, a home folder) is not taken: the first would run for minutes.
+pub const MAX_TREE_FILES: usize = 50_000;
 /// The shadow repo stores bytes exactly as they are on disk, whatever the workspace's
 /// `.gitattributes` say: no line ending conversion, filters, keyword expansion or re-encoding. This
 /// file outranks every in-tree attributes file.
@@ -64,6 +69,7 @@ const KEEP_REF: &str = "refs/drift/keep";
 pub enum Error {
     NoGit,
     TooLarge(String),
+    TooManyFiles,
     Failed(String),
 }
 
@@ -72,6 +78,7 @@ impl std::fmt::Display for Error {
         match self {
             Self::NoGit => write!(f, "git is not installed"),
             Self::TooLarge(path) => write!(f, "{path} is larger than {} MB, too large to keep for undo", MAX_RECORDED_BYTES / 1024 / 1024),
+            Self::TooManyFiles => write!(f, "the workspace holds more than {MAX_TREE_FILES} files, too many to record"),
             Self::Failed(message) => write!(f, "git: {message}"),
         }
     }
@@ -79,10 +86,10 @@ impl std::fmt::Display for Error {
 
 impl Snapshots {
     pub fn new(data_dir: &Path) -> Self {
-        Self { root: data_dir.join("snapshots"), locks: Mutex::default(), owners: Mutex::default() }
+        Self { root: data_dir.join("snapshots"), locks: Mutex::default(), owners: Mutex::default(), too_many: Mutex::default(), max_tree_files: MAX_TREE_FILES }
     }
 
-    fn lock_for(&self, workspace: &Path) -> Arc<tokio::sync::Mutex<()>> {
+    pub(super) fn lock_for(&self, workspace: &Path) -> Arc<tokio::sync::Mutex<()>> {
         self.locks.lock().unwrap().entry(self.git_dir(workspace)).or_default().clone()
     }
 
@@ -161,7 +168,8 @@ impl Snapshots {
             .env("GIT_TERMINAL_PROMPT", "0")
             .stdin(if piped { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
         #[cfg(windows)]
         command.creation_flags(0x0800_0000);
         command
@@ -189,9 +197,14 @@ impl Snapshots {
     /// Records the whole tree as it is now (the workspace's ignore rules apply). Serialised per
     /// workspace: concurrent sessions and subagents share this index.
     pub async fn take(&self, workspace: &Path) -> Result<Tree, Error> {
+        if self.too_many.lock().unwrap().contains(workspace) {
+            return Err(Error::TooManyFiles);
+        }
         self.ensure(workspace).await?;
         let lock = self.lock_for(workspace);
         let _held = lock.lock().await;
+        // Every index write in this process holds the lock, so a lock file now is a stopped capture's.
+        let _ = tokio::fs::remove_file(self.git_dir(workspace).join("index.lock")).await;
         self.store_raw_bytes(workspace).await?;
         let oversized = self.leave_out_large_files(workspace).await?;
         // A file git cannot index (an unusual name, a locked file) must not stop every other file
@@ -221,8 +234,12 @@ impl Snapshots {
     /// new ones being added, and any already indexed from when they were small are dropped from the
     /// index. The workspace's `.gitignore` is never touched. Returns what was left out.
     async fn leave_out_large_files(&self, workspace: &Path) -> Result<Vec<(String, Stamp)>, Error> {
-        let root = workspace.to_path_buf();
-        let large = tokio::task::spawn_blocking(move || large_files(&root)).await.map_err(|e| Error::Failed(e.to_string()))?;
+        let (root, limit) = (workspace.to_path_buf(), self.max_tree_files);
+        let walked = tokio::task::spawn_blocking(move || large_files(&root, limit)).await.map_err(|e| Error::Failed(e.to_string()))?;
+        let Some(large) = walked else {
+            self.too_many.lock().unwrap().insert(workspace.to_path_buf());
+            return Err(Error::TooManyFiles);
+        };
         let info = self.git_dir(workspace).join("info");
         tokio::fs::create_dir_all(&info).await.map_err(|e| Error::Failed(e.to_string()))?;
         let lines: String = large.iter().map(|(path, _)| format!("/{}\n", escape_pattern(path))).collect();
@@ -323,19 +340,22 @@ impl Snapshots {
 
 /// Workspace files over the limit, relative with `/`, found the way git would (ignore rules apply,
 /// in a directory that is not a git repository too).
-fn large_files(root: &Path) -> Vec<(String, Stamp)> {
-    ignore::WalkBuilder::new(root)
-        .hidden(false)
-        .require_git(false)
-        .filter_entry(|entry| entry.file_name() != ".git")
-        .build()
-        .flatten()
-        .filter_map(|entry| {
-            let meta = entry.metadata().ok().filter(|m| m.is_file() && m.len() > MAX_RECORDED_BYTES)?;
-            let path = entry.path().strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
-            Some((path, (meta.len(), meta.modified().ok())))
-        })
-        .collect()
+/// Files over the size limit, or `None` once the walk passes `limit` files.
+fn large_files(root: &Path, limit: usize) -> Option<Vec<(String, Stamp)>> {
+    let mut files = 0;
+    let mut large = Vec::new();
+    for entry in ignore::WalkBuilder::new(root).hidden(false).require_git(false).filter_entry(|entry| entry.file_name() != ".git").build().flatten() {
+        let Some(meta) = entry.metadata().ok().filter(std::fs::Metadata::is_file) else { continue };
+        files += 1;
+        if files > limit {
+            return None;
+        }
+        if meta.len() > MAX_RECORDED_BYTES {
+            let Ok(path) = entry.path().strip_prefix(root) else { continue };
+            large.push((path.to_string_lossy().replace('\\', "/"), (meta.len(), meta.modified().ok())));
+        }
+    }
+    Some(large)
 }
 
 /// An exclude pattern matching exactly this path.
@@ -405,6 +425,32 @@ mod tests {
         let command = snapshots.command(&workspace, &["add", "-A", "--", "."], false);
         assert_eq!(command.as_std().get_current_dir(), Some(workspace.as_path()), "`.` must mean the workspace, not where the app was started");
         std::fs::remove_dir_all(base).ok();
+    }
+
+    #[tokio::test]
+    async fn a_workspace_with_too_many_files_is_not_captured_and_not_walked_again() {
+        let (base, workspace) = dirs();
+        let mut snapshots = Snapshots::new(&base.join("data"));
+        snapshots.max_tree_files = 3;
+        for name in ["a", "b", "c", "d"] {
+            std::fs::write(workspace.join(name), name).unwrap();
+        }
+        assert_eq!(snapshots.take(&workspace).await, Err(Error::TooManyFiles));
+        assert!(snapshots.git(&workspace, &["count-objects"]).await.unwrap().starts_with("0 objects"), "git never ran over the tree");
+        std::fs::remove_file(workspace.join("d")).unwrap();
+        assert_eq!(snapshots.take(&workspace).await, Err(Error::TooManyFiles), "the verdict lasts while the engine runs");
+    }
+
+    #[tokio::test]
+    async fn a_capture_stopped_part_way_does_not_block_the_next() {
+        let (base, workspace) = dirs();
+        let snapshots = Snapshots::new(&base.join("data"));
+        std::fs::write(workspace.join("a.txt"), "a\n").unwrap();
+        let before = snapshots.take(&workspace).await.unwrap();
+        std::fs::write(snapshots.git_dir(&workspace).join("index.lock"), "").unwrap();
+        std::fs::write(workspace.join("a.txt"), "changed\n").unwrap();
+        let after = snapshots.take(&workspace).await.unwrap();
+        assert_ne!(before.id, after.id, "the change was captured despite the stopped capture's lock file");
     }
 
     #[tokio::test]
@@ -546,7 +592,7 @@ mod tests {
         }
         let started = std::time::Instant::now();
         let root = workspace.clone();
-        tokio::task::spawn_blocking(move || large_files(&root)).await.unwrap();
+        tokio::task::spawn_blocking(move || large_files(&root, MAX_TREE_FILES)).await.unwrap();
         time("size walk alone", started);
         std::fs::remove_dir_all(base).ok();
     }

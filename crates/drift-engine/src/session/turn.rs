@@ -1504,7 +1504,14 @@ impl Engine {
         let chained = scope.tree.lock().unwrap().take().filter(|_| touches.is_none());
         let captured = match chained {
             Some(tree) => Ok(super::changes::Capture::Tree(tree)),
-            None => self.capture_before(&scope.plan.workspace, touches).await,
+            // Stop ends a slow capture too; its git goes with it.
+            None => tokio::select! {
+                captured = self.capture_before(&scope.plan.workspace, touches) => captured,
+                () = scope.abort.cancelled() => {
+                    self.settle(row, ToolStatus::Error, None, "Aborted while recording the files first.".into(), None);
+                    return Err(Outcome::Aborted);
+                }
+            },
         };
         match captured {
             Ok(capture) => Ok(Some(capture)),

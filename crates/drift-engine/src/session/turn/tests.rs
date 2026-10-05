@@ -986,6 +986,50 @@ async fn a_write_is_refused_when_its_files_cannot_be_recorded() {
 }
 
 #[tokio::test]
+async fn a_command_whose_tree_cannot_be_captured_still_runs_and_says_so() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    // A file where the snapshot directory must go makes every capture fail, as a whole drive would.
+    std::fs::write(h._dir.join("data/snapshots"), "not a directory").unwrap();
+    h.provider.push(tool_call("bash", &json!({ "command": "touch made.txt" }).to_string())).push(text("noted"));
+    h.engine.submit(&h.session.id, prompt("write")).await.await_ok();
+    until_idle(&h).await;
+    assert!(h._dir.join("ws/made.txt").exists(), "a shell's tree is only observed, so a missing record does not stop it");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, metadata, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done);
+    assert!(output.as_deref().unwrap().contains("could not record what this command changed"), "{output:?}");
+    assert!(metadata.as_ref().unwrap()["historyError"].is_string());
+}
+
+#[tokio::test]
+async fn stop_ends_a_capture_that_has_not_finished() {
+    let h = harness().await;
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Allow }] });
+    let workspace = h._dir.join("ws");
+    h.engine.snapshots.bind(&h.session.workspace_id, &workspace);
+    // Another capture of this workspace holding its index stands in for one that takes minutes.
+    let lock = h.engine.snapshots.lock_for(&workspace);
+    let held = lock.lock().await;
+    h.provider.push(tool_call("bash", &json!({ "command": "touch made.txt" }).to_string())).push(text("unused"));
+    h.engine.submit(&h.session.id, prompt("write")).await.await_ok();
+    for _ in 0..400 {
+        if h.engine.store.transcript(&h.session.id).unwrap().iter().flat_map(|m| &m.parts).any(|row| matches!(row.part, Part::ToolCall { .. })) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(h.engine.abort(&h.session.id));
+    until_idle(&h).await;
+    drop(held);
+    assert!(!h._dir.join("ws/made.txt").exists());
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Error, Some("Aborted while recording the files first.")));
+}
+
+#[tokio::test]
 async fn a_call_that_cannot_be_recorded_does_not_run() {
     let h = harness().await;
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "edit".into(), pattern: "*".into(), decision: Decision::Allow }] });
