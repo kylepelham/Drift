@@ -97,7 +97,7 @@ impl Engine {
             max_tokens = shot.max_tokens.min(limit);
         }
         let request = Request {
-            model: resolved.model_ref.model.clone(),
+            model: resolved.model.wire(&resolved.model_ref.model).to_string(),
             system: shot.system,
             messages: crate::llm::prepare_files(shot.messages, &resolved.model, |hash| self.store.blob(hash).ok().flatten()),
             tools: shot.tools,
@@ -110,6 +110,7 @@ impl Engine {
             show_thinking: false,
             top_p: None,
             top_k: None,
+            mode: resolved.model.mode.clone(),
         };
         tokio::time::timeout(shot.timeout, collect_text(&resolved.provider, &request, &resolved.credential))
             .await

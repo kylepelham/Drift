@@ -845,7 +845,7 @@ impl Engine {
                 super::convert::push(&mut messages, llm::Role::User, vec![llm::Block::Text(wrap_up.instruction())]);
             }
             let request = Request {
-                model: plan.model_ref.model.clone(),
+                model: plan.model.wire(&plan.model_ref.model).to_string(),
                 system: plan.offer.system.clone(),
                 messages: llm::prepare_files(messages, &plan.model, |hash| self.store.blob(hash).ok().flatten()),
                 tools: plan.offer.specs(),
@@ -858,6 +858,7 @@ impl Engine {
                 show_thinking: catalog::shows_thinking(provider, &plan.model),
                 top_p: sampling.top_p,
                 top_k: sampling.top_k,
+                mode: plan.model.mode.clone(),
             };
             let Ok(message) = self.store.create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent) else { break };
             self.hub.publish(Event::MessageCreated { message: message.clone() });

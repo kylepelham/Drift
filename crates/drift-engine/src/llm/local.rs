@@ -153,6 +153,7 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         cost: Default::default(),
         profile: ToolProfile::Edit,
         variants: Vec::new(),
+        mode: None,
     })
 }
 

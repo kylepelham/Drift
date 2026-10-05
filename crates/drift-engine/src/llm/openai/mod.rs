@@ -60,7 +60,7 @@ impl OpenAi {
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
-        let response = super::http::send(http.json(&body(request, subscription)), &self.timeouts).await?;
+        let response = super::http::send(super::mode_headers(http, request, Vec::new()).json(&body(request, subscription)), &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
             let headers = response.headers().clone();
@@ -123,6 +123,7 @@ fn body(request: &Request, subscription: bool) -> Value {
             body["temperature"] = json!(temperature);
         }
     }
+    super::apply_mode(&mut body, request);
     body
 }
 
@@ -359,6 +360,7 @@ mod tests {
             show_thinking: false,
             top_p: None,
             top_k: None,
+            mode: None,
         }
     }
 

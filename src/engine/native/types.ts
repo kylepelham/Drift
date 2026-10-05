@@ -1110,6 +1110,7 @@ export interface components {
             family?: string;
             id: string;
             limit?: components["schemas"]["Limit"];
+            mode?: components["schemas"]["ModelMode"] | null;
             name: string;
             /** @description Whether it reads PDFs sent whole. */
             pdf?: boolean;
@@ -1119,6 +1120,20 @@ export interface components {
             temperature?: boolean;
             /** @description The reasoning levels the model offers, weakest first; empty when it has none to choose. */
             variants?: components["schemas"]["Variant"][];
+        };
+        /**
+         * @description A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
+         *     model `<id>-<mode>` as opencode lists it: the base model's id on the wire, with these fields and headers.
+         */
+        ModelMode: {
+            /** @description The model it runs, as the provider names it. */
+            base: string;
+            /** @description Request body fields (`speed`, `service_tier`, `reasoning.mode`), laid over the adapter's own. */
+            body?: Record<string, never>;
+            headers?: {
+                [key: string]: string;
+            };
+            name: string;
         };
         ModelRef: {
             model: string;

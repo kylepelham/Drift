@@ -289,6 +289,7 @@ mod tests {
             show_thinking: false,
             top_p: None,
             top_k: None,
+            mode: None,
         }
     }
 

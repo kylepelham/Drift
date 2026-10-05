@@ -55,6 +55,7 @@ impl Compat {
         if self.claude_breakpoints && is_claude(&request.model) {
             mark_breakpoints(&mut body);
         }
+        super::apply_mode(&mut body, request);
         body
     }
 
@@ -65,7 +66,8 @@ impl Compat {
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
         let body = self.shaped(request);
-        let sending = self.client.post(format!("{}/chat/completions", self.base_url)).bearer_auth(key).header("accept", "text/event-stream").json(&body);
+        let http = self.client.post(format!("{}/chat/completions", self.base_url)).bearer_auth(key).header("accept", "text/event-stream");
+        let sending = super::mode_headers(http, request, Vec::new()).json(&body);
         let response = super::http::send(sending, &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
@@ -423,6 +425,7 @@ mod tests {
             show_thinking: false,
             top_p: None,
             top_k: None,
+            mode: None,
         }
     }
 

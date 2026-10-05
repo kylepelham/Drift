@@ -42,16 +42,15 @@ impl Anthropic {
         let subscription = matches!(credential, Credential::OAuth { .. });
         let url = format!("{}/v1/messages{}", self.base_url, if subscription { "?beta=true" } else { "" });
         let http = self.client.post(url).header("anthropic-version", API_VERSION).header("accept", "text/event-stream");
-        let http = match credential {
-            Credential::ApiKey { key } if interleaves(request) => http.header("x-api-key", key).header("anthropic-beta", INTERLEAVED_THINKING),
-            Credential::ApiKey { key } => http.header("x-api-key", key),
+        let (http, betas) = match credential {
+            Credential::ApiKey { key } => (http.header("x-api-key", key), if interleaves(request) { vec![INTERLEAVED_THINKING] } else { Vec::new() }),
             Credential::OAuth { access, .. } => {
                 claude_code::transform(&mut body);
-                http.bearer_auth(access).header("anthropic-beta", claude_code::BETAS).header("user-agent", claude_code::user_agent())
+                (http.bearer_auth(access).header("user-agent", claude_code::user_agent()), claude_code::BETAS.split(',').collect())
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
-        stream_from(http.json(&body), &self.timeouts, subscription).await
+        stream_from(super::mode_headers(http, request, betas).json(&body), &self.timeouts, subscription).await
     }
 }
 
@@ -147,6 +146,7 @@ fn body(request: &Request) -> Value {
             }
         }
     }
+    super::apply_mode(&mut body, request);
     body
 }
 
@@ -346,6 +346,7 @@ mod tests {
             show_thinking: false,
             top_p: None,
             top_k: None,
+            mode: None,
         }
     }
 

@@ -1194,6 +1194,16 @@ Settled after the first external review of M1; each has a regression test.
   listed budget wins over an effort, because Claude's effort means adaptive thinking, which only
   the newest models accept and they list no budget. Elsewhere the effort wins. A toggle-only model,
   or one with no options, has no variants and no picker.
+- **Modes (fast, ultrafast, flex, pro).** models.dev's `experimental.modes` become entries of their
+  own, as opencode lists them: `claude-opus-5-5-fast` "Claude Opus 5.5 Fast", `gpt-6-astra-ultrafast`
+  "GPT-6 Astra Ultrafast". Each is the base model at the mode's prices (a price the mode leaves out
+  is the base's) with a `mode` (`ModelMode`): the base id sent on the wire (`Model::wire`), and the
+  body fields and headers to send. Every adapter lays the fields over its own body, objects merged
+  key by key (`speed: "fast"` on Claude, `service_tier: "priority"` or `"ultrafast"` on OpenAI,
+  `reasoning.mode: "pro"` beside the effort), and a mode's `anthropic-beta` joins the route's own in
+  one header, subscription betas included. Small jobs (titles) never pick a mode: `flex` is cheap
+  because it is slow. The bundled snapshot carries the modes, and the cache file was renamed
+  (`models-2.json`) so a cache an older build wrote, which dropped them, is not read.
 - A prompt names its variant; the engine looks the name up on the model each request, so a model
   without it asks for nothing rather than failing. The session keeps the last variant a prompt
   chose (`session.variant`, written in the admission transaction alongside the model): a prompt

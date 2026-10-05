@@ -66,6 +66,7 @@ pub(crate) fn request() -> Request {
         show_thinking: false,
         top_p: None,
         top_k: None,
+        mode: None,
     }
 }
 
@@ -144,6 +145,42 @@ async fn subscription_tokens_send_the_claude_code_shape_and_unprefix_tool_names(
     assert_eq!(seen.body["system"][1]["text"], "You are a Claude agent, built on Anthropic's Claude Agent SDK.");
     assert_eq!(seen.body["system"][2]["text"], "sys");
     assert_eq!(seen.body["tools"][0]["name"], "mcp_Read");
+}
+
+#[tokio::test]
+async fn a_fast_entry_sends_its_base_model_with_the_modes_field_and_beta_beside_the_routes_own() {
+    let catalog = crate::llm::catalog::Catalog::bundled();
+    let fast = catalog.model("anthropic", "claude-opus-5-5-fast").unwrap();
+    let (fake, url) = fake(200, "event: message_stop\ndata: {}\n\n").await;
+    let mut request = request();
+    request.model = fast.wire("claude-opus-5-5-fast").into();
+    request.mode = fast.mode.clone();
+    Anthropic::new(&url).stream(&request, &Credential::ApiKey { key: "k".into() }).await.unwrap().collect::<Vec<_>>().await;
+    {
+        let seen = fake.seen.lock().unwrap();
+        let seen = seen.as_ref().unwrap();
+        assert_eq!((seen.body["model"].as_str(), seen.body["speed"].as_str()), (Some("claude-opus-5-5"), Some("fast")));
+        assert_eq!(seen.headers["anthropic-beta"], "fast-mode-2026-02-01");
+    }
+    let credential = Credential::OAuth { access: "tok".into(), refresh: String::new(), expires_at: 0, account: None };
+    Anthropic::new(&url).stream(&request, &credential).await.unwrap().collect::<Vec<_>>().await;
+    let seen = fake.seen.lock().unwrap();
+    let betas = seen.as_ref().unwrap().headers.get_all("anthropic-beta").iter().map(|value| value.to_str().unwrap().to_string()).collect::<Vec<_>>();
+    assert_eq!(betas, ["oauth-2025-04-20,interleaved-thinking-2025-05-14,fast-mode-2026-02-01"], "one header, the subscription's betas kept");
+}
+
+#[test]
+fn a_modes_body_fields_merge_into_the_adapters_own() {
+    let mut body = serde_json::json!({ "reasoning": { "effort": "high", "summary": "auto" } });
+    let mut request = request();
+    request.mode = Some(crate::llm::catalog::ModelMode {
+        name: "pro".into(),
+        base: "gpt-6-sol".into(),
+        body: serde_json::json!({ "reasoning": { "mode": "pro" }, "service_tier": "priority" }).as_object().unwrap().clone(),
+        headers: Default::default(),
+    });
+    super::apply_mode(&mut body, &request);
+    assert_eq!(body, serde_json::json!({ "reasoning": { "effort": "high", "summary": "auto", "mode": "pro" }, "service_tier": "priority" }));
 }
 
 /// A server that accepts connections and never answers.

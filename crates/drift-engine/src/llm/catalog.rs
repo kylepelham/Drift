@@ -11,7 +11,9 @@ use crate::session::types::ModelRef;
 
 const SNAPSHOT: &str = include_str!("../../data/models.json");
 const SOURCE_URL: &str = "https://models.dev/api.json";
-const CACHE_FILE: &str = "models.json";
+/// Renamed whenever the entries made from models.dev change, so a cache an older build wrote is not read.
+const CACHE_FILE: &str = "models-2.json";
+const OLDER_CACHES: [&str; 1] = ["models.json"];
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const SMALL_MODEL_MIN_CONTEXT: u64 = 16_000;
 pub const PROVIDERS: [&str; 11] = [
@@ -90,6 +92,24 @@ pub struct Model {
     /// The reasoning levels the model offers, weakest first; empty when it has none to choose.
     #[serde(default)]
     pub variants: Vec<Variant>,
+    /// Set on an entry that runs another model a different way (`<id>-fast`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<ModelMode>,
+}
+
+/// A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
+/// model `<id>-<mode>` as opencode lists it: the base model's id on the wire, with these fields and headers.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct ModelMode {
+    pub name: String,
+    /// The model it runs, as the provider names it.
+    pub base: String,
+    /// Request body fields (`speed`, `service_tier`, `reasoning.mode`), laid over the adapter's own.
+    #[serde(default)]
+    #[schema(value_type = Object)]
+    pub body: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
 }
 
 fn default_profile() -> ToolProfile {
@@ -102,6 +122,11 @@ pub const MAX_REPLY_TOKENS: u64 = 32_000;
 pub const SMALL_CONTEXT: u64 = 16_384;
 
 impl Model {
+    /// The id the provider is sent for the entry listed under `key`: a mode's base model, else the entry itself.
+    pub fn wire<'a>(&'a self, key: &'a str) -> &'a str {
+        self.mode.as_ref().map_or(key, |mode| mode.base.as_str())
+    }
+
     /// Room kept for the reply, and the most a request asks for: the model's output limit when known,
     /// else a quarter of its window (a small local model's whole window would otherwise go to a reply
     /// it can never give), never more than half a known window (an output limit as large as the window
@@ -178,7 +203,8 @@ impl Catalog {
         let chosen = provider
             .models
             .values()
-            .filter(|m| m.cost.input > 0.0 && m.limit.context >= SMALL_MODEL_MIN_CONTEXT)
+            // A mode trades price for speed or speed for price (`flex` is slow); small jobs take the plain model.
+            .filter(|m| m.mode.is_none() && m.cost.input > 0.0 && m.limit.context >= SMALL_MODEL_MIN_CONTEXT)
             .min_by(|a, b| price(a).total_cmp(&price(b)).then_with(|| b.release_date.cmp(&a.release_date)))?;
         Some(ModelRef { provider: like.provider.clone(), model: chosen.id.clone() })
     }
@@ -205,6 +231,9 @@ impl Catalog {
         let catalog = Self::parse(&text)?;
         let json = serde_json::to_string(&catalog.providers).map_err(|e| e.to_string())?;
         std::fs::write(cache_path(data_dir), json).map_err(|e| e.to_string())?;
+        for older in OLDER_CACHES {
+            let _ = std::fs::remove_file(data_dir.join(older));
+        }
         Ok(catalog)
     }
 
@@ -284,6 +313,7 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
         cost: Cost::default(),
         profile: ToolProfile::Edit,
         variants: Vec::new(),
+        mode: None,
     }
 }
 
@@ -347,6 +377,11 @@ struct RawModel {
     /// Already derived, as a cached catalog stores it.
     #[serde(default)]
     variants: Option<Vec<Variant>>,
+    #[serde(default)]
+    experimental: Option<RawExperimental>,
+    /// Already derived, as a cached catalog stores it.
+    #[serde(default)]
+    mode: Option<ModelMode>,
 }
 
 #[derive(Deserialize)]
@@ -355,51 +390,111 @@ struct Modalities {
     input: Vec<String>,
 }
 
+#[derive(Default, Deserialize)]
+struct RawExperimental {
+    #[serde(default)]
+    modes: BTreeMap<String, RawMode>,
+}
+
+#[derive(Deserialize)]
+struct RawMode {
+    #[serde(default)]
+    cost: Option<RawCost>,
+    #[serde(default)]
+    provider: Option<RawModeWire>,
+}
+
+/// A mode's prices, each one given replacing the base model's.
+#[derive(Deserialize)]
+struct RawCost {
+    input: Option<f64>,
+    output: Option<f64>,
+    cache_read: Option<f64>,
+    cache_write: Option<f64>,
+}
+
+#[derive(Default, Deserialize)]
+struct RawModeWire {
+    #[serde(default)]
+    body: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    headers: BTreeMap<String, String>,
+}
+
 /// Routes whose wire carries a PDF whole, for a model models.dev says takes attachments but gives no modalities for.
 const PDF_ROUTES: [&str; 6] = ["anthropic", "openai", "google", "google-vertex", "google-vertex-anthropic", "amazon-bedrock"];
 
 impl RawProvider {
     fn into_info(self, provider_id: &str) -> ProviderInfo {
-        let models = self
+        let mut models = BTreeMap::new();
+        let listed = self
             .models
             .into_iter()
             .filter(|(_, model)| model.tool_call.unwrap_or(true) && !matches!(model.status.as_deref(), Some("deprecated" | "retired")))
-            .filter(|(_, model)| speaks(provider_id, &model.id))
-            .map(|(key, model)| {
-                let family = model.family.unwrap_or_default();
-                let profile = model.profile.unwrap_or_else(|| profile_for(provider_id, &family));
-                let limit = model.limit.unwrap_or_default();
-                let reasoning = model.reasoning.unwrap_or(false);
-                let attachment = model.attachment.unwrap_or(false);
-                let listed_pdf = model.modalities.as_ref().map(|m| m.input.iter().any(|kind| kind == "pdf"));
-                let pdf = model.pdf.or(listed_pdf).unwrap_or(attachment && PDF_ROUTES.contains(&provider_id));
-                let variants = match model.variants {
-                    Some(variants) => variants,
-                    None if reasoning => variants_for(provider_id, &model.id, limit.output, model.reasoning_options.as_deref().unwrap_or_default()),
-                    None => Vec::new(),
-                };
-                (
-                    key,
-                    Model {
-                        id: model.id,
-                        name: model.name,
-                        family,
-                        reasoning,
-                        attachment,
-                        pdf,
-                        temperature: model.temperature.unwrap_or(false),
-                        release_date: model.release_date.unwrap_or_default(),
-                        limit,
-                        cost: model.cost.unwrap_or_default(),
-                        profile,
-                        variants,
-                    },
-                )
-            })
-            .collect();
+            .filter(|(_, model)| speaks(provider_id, &model.id));
+        for (key, mut raw) in listed {
+            let modes = raw.experimental.take().unwrap_or_default().modes;
+            let base = model_of(raw, provider_id);
+            // A model models.dev lists under the same id wins over a mode's entry.
+            for (name, mode) in modes {
+                models.entry(format!("{key}-{name}")).or_insert_with(|| moded(&key, &base, &name, mode));
+            }
+            models.insert(key, base);
+        }
         // The native routes' endpoints are ours; only the user's drift.json re-points them.
         let api = self.api.filter(|_| !matches!(provider_id, "anthropic" | "openai" | "google" | "amazon-bedrock" | "google-vertex" | "google-vertex-anthropic"));
         ProviderInfo { id: self.id, name: self.name, env: self.env.unwrap_or_default(), api, models }
+    }
+}
+
+fn model_of(model: RawModel, provider_id: &str) -> Model {
+    let family = model.family.unwrap_or_default();
+    let profile = model.profile.unwrap_or_else(|| profile_for(provider_id, &family));
+    let limit = model.limit.unwrap_or_default();
+    let reasoning = model.reasoning.unwrap_or(false);
+    let attachment = model.attachment.unwrap_or(false);
+    let listed_pdf = model.modalities.as_ref().map(|m| m.input.iter().any(|kind| kind == "pdf"));
+    let pdf = model.pdf.or(listed_pdf).unwrap_or(attachment && PDF_ROUTES.contains(&provider_id));
+    let variants = match model.variants {
+        Some(variants) => variants,
+        None if reasoning => variants_for(provider_id, &model.id, limit.output, model.reasoning_options.as_deref().unwrap_or_default()),
+        None => Vec::new(),
+    };
+    Model {
+        id: model.id,
+        name: model.name,
+        family,
+        reasoning,
+        attachment,
+        pdf,
+        temperature: model.temperature.unwrap_or(false),
+        release_date: model.release_date.unwrap_or_default(),
+        limit,
+        cost: model.cost.unwrap_or_default(),
+        profile,
+        variants,
+        mode: model.mode,
+    }
+}
+
+/// `base` run in a mode: "Claude Opus 5.5 Fast", at the mode's prices where it gives them.
+fn moded(key: &str, base: &Model, name: &str, mode: RawMode) -> Model {
+    let mut title = name.chars();
+    let title: String = title.next().map(|first| first.to_uppercase().chain(title).collect()).unwrap_or_default();
+    let given = mode.cost.unwrap_or(RawCost { input: None, output: None, cache_read: None, cache_write: None });
+    let cost = Cost {
+        input: given.input.unwrap_or(base.cost.input),
+        output: given.output.unwrap_or(base.cost.output),
+        cache_read: given.cache_read.unwrap_or(base.cost.cache_read),
+        cache_write: given.cache_write.unwrap_or(base.cost.cache_write),
+    };
+    let wire = mode.provider.unwrap_or_default();
+    Model {
+        id: format!("{}-{name}", base.id),
+        name: format!("{} {title}", base.name),
+        cost,
+        mode: Some(ModelMode { name: name.into(), base: key.into(), body: wire.body, headers: wire.headers }),
+        ..base.clone()
     }
 }
 
@@ -584,6 +679,34 @@ mod tests {
         assert_eq!(names("anthropic", "claude-opus-5-5"), ["low", "medium", "high", "xhigh", "max"]);
         assert_eq!(names("anthropic", "claude-sonnet-4-5"), ["high", "max"]);
         assert!(names("google", "gemini-3.8-flash").contains(&"high".to_string()));
+    }
+
+    #[test]
+    fn each_models_dev_mode_is_its_own_entry_at_its_own_price_and_survives_the_cache() {
+        let raw = r#"{"openai":{"id":"openai","name":"OpenAI","models":{"gpt-6-astra":{"id":"gpt-6-astra","name":"GPT-6 Astra","family":"gpt","release_date":"2026-08-01","cost":{"input":5,"output":25,"cache_read":0.5},
+            "experimental":{"modes":{"ultrafast":{"cost":{"input":60,"output":300},"provider":{"body":{"service_tier":"ultrafast"}}},"fast":{"provider":{"body":{"service_tier":"priority"}}}}}}}}}"#;
+        let catalog = Catalog::parse(raw).unwrap();
+        let ultrafast = catalog.model("openai", "gpt-6-astra-ultrafast").unwrap();
+        assert_eq!((ultrafast.id.as_str(), ultrafast.name.as_str()), ("gpt-6-astra-ultrafast", "GPT-6 Astra Ultrafast"));
+        assert_eq!((ultrafast.cost.input, ultrafast.cost.output, ultrafast.cost.cache_read), (60.0, 300.0, 0.5), "a price the mode leaves out is the base model's");
+        assert_eq!(ultrafast.wire("gpt-6-astra-ultrafast"), "gpt-6-astra");
+        assert_eq!(ultrafast.mode.as_ref().unwrap().body["service_tier"], "ultrafast");
+        assert_eq!((ultrafast.profile, ultrafast.release_date.as_str()), (ToolProfile::ApplyPatch, "2026-08-01"), "everything else is the base model's");
+        assert_eq!(catalog.model("openai", "gpt-6-astra-fast").unwrap().cost.input, 5.0);
+        let base = catalog.model("openai", "gpt-6-astra").unwrap();
+        assert!(base.mode.is_none() && base.wire("gpt-6-astra") == "gpt-6-astra");
+        let cached = Catalog::parse(&serde_json::to_string(&catalog.providers).unwrap()).unwrap();
+        assert_eq!(cached, catalog, "the cache stores the entries already made");
+    }
+
+    #[test]
+    fn small_jobs_never_take_a_mode_and_the_snapshot_lists_fast_and_ultrafast() {
+        let catalog = Catalog::bundled();
+        assert_eq!(catalog.model("anthropic", "claude-opus-5-5-fast").unwrap().name, "Claude Opus 5.5 Fast");
+        assert!(catalog.model("openai", "gpt-6-astra-ultrafast").is_some());
+        assert!(catalog.model("openai", "gpt-5.5-fast").is_some());
+        let small = catalog.small_model(&ModelRef { provider: "openai".into(), model: "gpt-5.5".into() }).unwrap();
+        assert!(catalog.model("openai", &small.model).unwrap().mode.is_none(), "{small:?} is a mode; flex is slow");
     }
 
     #[test]

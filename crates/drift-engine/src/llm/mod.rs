@@ -188,6 +188,44 @@ pub struct Request {
     /// Sampling the model is tuned for (`catalog::sampling`), beside `temperature`.
     pub top_p: Option<f64>,
     pub top_k: Option<u32>,
+    /// The catalog mode the chosen entry runs `model` in (fast, ultrafast, flex, pro).
+    pub mode: Option<catalog::ModelMode>,
+}
+
+/// Lays the mode's body fields over the adapter's body, objects merged key by key (`reasoning.mode` beside `reasoning.effort`).
+pub(crate) fn apply_mode(body: &mut serde_json::Value, request: &Request) {
+    fn merge(into: &mut serde_json::Value, value: &serde_json::Value) {
+        match (into, value) {
+            (serde_json::Value::Object(into), serde_json::Value::Object(value)) => {
+                for (key, value) in value {
+                    merge(into.entry(key.clone()).or_insert(serde_json::Value::Null), value);
+                }
+            }
+            (into, value) => *into = value.clone(),
+        }
+    }
+    for (key, value) in request.mode.iter().flat_map(|mode| &mode.body) {
+        merge(&mut body[key.as_str()], value);
+    }
+}
+
+/// The route's `anthropic-beta` list with any the mode adds, as one header, and the mode's other headers as given.
+pub(crate) fn mode_headers<'a>(mut http: reqwest::RequestBuilder, request: &'a Request, mut betas: Vec<&'a str>) -> reqwest::RequestBuilder {
+    for (name, value) in request.mode.iter().flat_map(|mode| &mode.headers) {
+        if name.eq_ignore_ascii_case("anthropic-beta") {
+            for beta in value.split(',').map(str::trim).filter(|beta| !beta.is_empty()) {
+                if !betas.contains(&beta) {
+                    betas.push(beta);
+                }
+            }
+        } else {
+            http = http.header(name, value);
+        }
+    }
+    if !betas.is_empty() {
+        http = http.header("anthropic-beta", betas.join(","));
+    }
+    http
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
