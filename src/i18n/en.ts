@@ -20,6 +20,7 @@ export const dict = {
   "session.revertDock.collapse": "Collapse rolled back messages",
   "session.revertDock.expand": "Expand rolled back messages",
   "session.revertDock.restore": "Restore message",
+  "common.requestFailed": "Request failed",
   "common.attachment": "attachment",
   "common.cancel": "Cancel",
   "common.close": "Close",
