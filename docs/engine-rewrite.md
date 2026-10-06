@@ -1421,7 +1421,9 @@ Settled after the first external review of M1; each has a regression test.
   one retry line for the run instead of a box per attempt: an attempt with nothing to show that a
   later attempt followed is hidden, the reply being retried shows the line instead of its error box,
   and the line stays up ("Retrying - attempt #n") while the next attempt runs, until it shows output
-  or fails too (`failedAttempt`, `retryInFlight`). If the retries run out, the last error shows once.
+  or fails too (`failedAttempt`, `retryInFlight`). If the retries run out, the last error shows once,
+  and only until the session goes on: once anything follows a failed reply (a retry, a new prompt), its
+  error box goes, and an attempt that showed nothing goes whole. A stop's "Interrupted" divider stays.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
   process group. Dropping the run future has the same effect as an explicit abort.
 - The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);

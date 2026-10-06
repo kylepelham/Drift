@@ -747,8 +747,8 @@ function timelineParts(entry: MessageEntry, groups?: PartGroup[]) {
 
 function timelineRowVisible(entry: MessageEntry, groups: PartGroup[] | undefined, next: MessageEntry | undefined, active?: string) {
   if (entry.info.role === "user") return true
-  // An attempt the engine has since tried again says nothing the retry line does not.
-  if (failedAttempt(entry) && next?.info.role === "assistant") return false
+  // A failure the session has moved past (a retry, or a new prompt) is no longer news.
+  if (failedAttempt(entry) && next) return false
   const info = entry.info as AssistantMessage
   return !!groups?.length || !!info.summary || !!info.error || entry.info.id === active ||
     (!!info.time.completed && next?.info.role !== "assistant")
@@ -914,7 +914,7 @@ function Row(props: {
       <div classList={{ "border-l-2 border-edge pl-3": props.copied }}>
         <MessageView
           entry={props.entry}
-          retrying={!!props.retry}
+          hideError={!!props.retry || !!props.next}
           footer={props.next?.info.role !== "assistant"}
           groups={props.groups}
           thinking={compactionShimmer()}

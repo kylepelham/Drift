@@ -983,3 +983,14 @@ test("failed attempts the engine retried collapse into one retry line that stays
   const answered = [...(entries as never[]).slice(0, 3), { info: { id: "a3", role: "assistant", parentID: "u1", time: { created: 4 } }, parts: [{ id: "p", type: "text", text: "hello", sessionID: "s", messageID: "a3" }] }] as never
   expect(retryInFlight(answered, "a3"), "once the attempt shows output, the line goes").toBeUndefined()
 })
+
+test("a failure stops showing once the session goes on, by a retry or a new prompt", async () => {
+  const { failedAttempt } = await import("../src/ui/chat")
+  const failed = { info: { id: "a1", role: "assistant", parentID: "u1", time: { created: 2, completed: 2 }, error: { name: "APIError", data: { message: "Overloaded" } } }, parts: [] }
+  const stopped = { ...failed, info: { ...failed.info, error: { name: "MessageAbortedError" } } }
+  expect(failedAttempt(failed as never)).toBeTrue()
+  expect(failedAttempt(stopped as never), "a stop is kept as its divider").toBeFalse()
+  const source = await Bun.file("src/ui/chat.tsx").text()
+  expect(source).toContain("if (failedAttempt(entry) && next) return false")
+  expect(source).toContain("hideError={!!props.retry || !!props.next}")
+})
