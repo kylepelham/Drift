@@ -535,6 +535,8 @@ export const drift = {
   "drift.settings.sound.audioFileRequired": "Odaberite zvučnu datoteku.",
   "drift.settings.sound.maxSize": "Zvučne datoteke moraju imati 1 MB ili manje.",
   "drift.shell.copyOutput": "Kopiraj izlaz shella",
+  "drift.shell.omitted": "{{size}} izostavljeno",
+  "drift.shell.openFull": "Otvori cijeli izlaz",
   "drift.shell.output": "Izlaz shella",
   "drift.shortcuts.autoAccept": "Uključi/isključi automatsko prihvatanje dozvola",
   "drift.shortcuts.zoomIn": "Uvećaj",

@@ -1,6 +1,7 @@
 import type { AssistantMessage, Part, SessionStatus } from "../engine/shapes"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
 import { useEngine } from "../engine"
+import { errorText } from "../engine/error"
 import {
   compareMessages,
   messageRevisionKey,
@@ -25,6 +26,7 @@ import {
   messageVisible,
   type PartGroup,
 } from "./message"
+import { partVisible } from "./parts"
 import { TextShimmer } from "./text-shimmer"
 import { DriftLogo } from "./logo"
 import { clarificationAnswer } from "./clarification-answer"
@@ -129,7 +131,8 @@ export function Chat() {
   const retry = createMemo(() => {
     const id = selectedSession()
     const status = id ? engine.state.status[id] : undefined
-    return status?.type === "retry" ? status : undefined
+    if (status?.type === "retry") return status
+    return status?.type === "busy" ? retryInFlight(entries(), thinking()?.messageID) : undefined
   })
   const timelineSource = createMemo(() => timelineEntries(entries(), thinking()?.messageID))
   const assistantGroups = createMemo(() => groupAssistantEntries(timelineSource()))
@@ -744,9 +747,33 @@ function timelineParts(entry: MessageEntry, groups?: PartGroup[]) {
 
 function timelineRowVisible(entry: MessageEntry, groups: PartGroup[] | undefined, next: MessageEntry | undefined, active?: string) {
   if (entry.info.role === "user") return true
+  // An attempt the engine has since tried again says nothing the retry line does not.
+  if (failedAttempt(entry) && next?.info.role === "assistant") return false
   const info = entry.info as AssistantMessage
   return !!groups?.length || !!info.summary || !!info.error || entry.info.id === active ||
     (!!info.time.completed && next?.info.role !== "assistant")
+}
+
+/** A reply that failed before showing anything: what the engine retries. */
+export function failedAttempt(entry: MessageEntry) {
+  if (entry.info.role !== "assistant") return false
+  const error = (entry.info as AssistantMessage).error
+  return !!error && error.name !== "MessageAbortedError" && !entry.parts.some(partVisible)
+}
+
+/**
+ * While the attempt after a run of failed ones is in flight, the retry line stays where it was
+ * ("Retrying - attempt #n") instead of vanishing until that attempt fails too or shows output.
+ */
+export function retryInFlight(entries: MessageEntry[], running?: string): Extract<SessionStatus, { type: "retry" }> | undefined {
+  const index = entries.findIndex((entry) => entry.info.id === running)
+  const current = entries[index]
+  if (!current || current.info.role !== "assistant" || current.parts.some(partVisible)) return undefined
+  let attempt = 0
+  while (index - attempt - 1 >= 0 && failedAttempt(entries[index - attempt - 1])) attempt += 1
+  if (attempt === 0) return undefined
+  const last = entries[index - 1].info as AssistantMessage
+  return { type: "retry", attempt, message: errorText(last.error), next: 0 }
 }
 
 export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
@@ -776,7 +803,8 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
       (entry.info as { error?: { name?: string } }).error &&
       (entry.info as { error?: { name?: string } }).error?.name !== "MessageAbortedError",
   )
-  if (status === "busy" && error) return null
+  // After a failure the turn is over, unless another attempt is already under way.
+  if (status === "busy" && error && !(unfinished && !(unfinished.info as { error?: unknown }).error)) return null
   const heading = assistants
     .flatMap((entry) => entry.parts)
     .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
@@ -886,6 +914,7 @@ function Row(props: {
       <div classList={{ "border-l-2 border-edge pl-3": props.copied }}>
         <MessageView
           entry={props.entry}
+          retrying={!!props.retry}
           footer={props.next?.info.role !== "assistant"}
           groups={props.groups}
           thinking={compactionShimmer()}

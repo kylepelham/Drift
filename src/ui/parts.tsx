@@ -19,6 +19,8 @@ import { BackgroundTag } from "./task-dock"
 import { resolveAttachmentKind } from "../attachments"
 import { resolveFileLanguage } from "../syntax-language"
 import { citationFileGroups } from "./citation-files"
+import { formatBytes } from "../state/storage"
+import { openFile } from "../tool-actions"
 import { splitOrchestratorStatus, type OrchestratorStatus } from "../state/orchestrator"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
@@ -826,6 +828,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
           <ShellOutput
             command={shellCommand()}
             output={shell().output}
+            file={toolMeta(props.part)?.outputFile as string | undefined}
             running={state().status === "pending" || state().status === "running"}
           />
           <For each={shell().notes}>
@@ -869,6 +872,13 @@ export function splitNotes(output: string, notes: unknown): { output: string; no
     shown.unshift(note)
   }
   return { output: rest, notes: shown }
+}
+
+/** The line the engine puts where it cut a long output's middle out (`tool::spool`), and how much it cut. */
+export function splitOmitted(text: string): { head: string; omitted: number; tail: string } | null {
+  const found = /\n\n\.\.\. (\d+) bytes omitted; [^\n]* \.\.\.\n\n/.exec(text)
+  if (!found) return null
+  return { head: text.slice(0, found.index), omitted: Number(found[1]), tail: text.slice(found.index + found[0].length) }
 }
 
 export function shellTranscript(command: string, output: string) {
@@ -1027,7 +1037,32 @@ export function createFrameCoalescer<T>(
   }
 }
 
-function ShellOutput(props: { command: string; output: string; running: boolean }) {
+/** Where the engine cut a long output, a divider; its saved whole opens from the link. */
+function omittedDivider(omitted: number, file?: string) {
+  const divider = document.createElement("span")
+  divider.className = "my-2 flex items-center gap-2 text-xs text-ink-faint select-none"
+  const rule = () => {
+    const line = document.createElement("span")
+    line.className = "h-px flex-1 bg-edge"
+    return line
+  }
+  const label = document.createElement("span")
+  label.textContent = t("drift.shell.omitted", { size: formatBytes(omitted) })
+  divider.append(rule(), label)
+  if (file) {
+    const open = document.createElement("button")
+    open.type = "button"
+    open.className = "text-accent hover:underline"
+    open.textContent = t("drift.shell.openFull")
+    open.title = file
+    open.onclick = () => void openFile(file).catch(() => undefined)
+    divider.append(open)
+  }
+  divider.append(rule())
+  return divider
+}
+
+function ShellOutput(props: { command: string; output: string; running: boolean; file?: string }) {
   const [copied, setCopied] = createSignal(false)
   const [renderRevision, setRenderRevision] = createSignal(0)
   let viewport!: HTMLPreElement
@@ -1045,9 +1080,11 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
       if (!mounted) return
       if (update.replace) {
         const segments = shellReplaceSegments(command, update.text)
-        outputNode = document.createTextNode(segments.output)
+        const cut = splitOmitted(segments.output)
+        outputNode = document.createTextNode(cut ? cut.tail : segments.output)
+        const shown: Node[] = cut ? [document.createTextNode(cut.head), omittedDivider(cut.omitted, props.file), outputNode] : [outputNode]
         if (segments.command === null) {
-          viewport.replaceChildren(outputNode)
+          viewport.replaceChildren(...shown)
         } else {
           const prompt = document.createElement("span")
           prompt.className = "text-accent select-none"
@@ -1057,7 +1094,7 @@ function ShellOutput(props: { command: string; output: string; running: boolean 
           name.textContent = segments.command
           const trailing = document.createElement("span")
           trailing.className = "text-ink-muted"
-          trailing.append(outputNode)
+          trailing.append(...shown)
           viewport.replaceChildren(prompt, name, trailing)
         }
       } else if (update.text) {

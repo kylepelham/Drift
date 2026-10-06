@@ -966,3 +966,20 @@ test("a new active status clears stale fallback errors", () => {
   reduce(set, { type: "session.status", properties: { sessionID: "s1", status: { type: "busy" } } } as never)
   expect(state.errors.s1).toBeUndefined()
 })
+
+test("failed attempts the engine retried collapse into one retry line that stays up while the next attempt runs", async () => {
+  const { failedAttempt, retryInFlight, thinkingState } = await import("../src/ui/chat")
+  const failed = (id: string, created: number) => ({ info: { id, role: "assistant", parentID: "u1", time: { created, completed: created }, error: { name: "APIError", data: { message: "overloaded_error: Overloaded" } } }, parts: [] })
+  const entries = [
+    { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
+    failed("a1", 2),
+    failed("a2", 3),
+    { info: { id: "a3", role: "assistant", parentID: "u1", time: { created: 4 } }, parts: [] },
+  ] as never
+  expect(failedAttempt((entries as never[])[1])).toBeTrue()
+  const thinking = thinkingState(entries, "busy")
+  expect(thinking?.messageID, "the attempt in flight still shows activity").toBe("a3")
+  expect(retryInFlight(entries, thinking?.messageID)).toEqual({ type: "retry", attempt: 2, message: "overloaded_error: Overloaded", next: 0 })
+  const answered = [...(entries as never[]).slice(0, 3), { info: { id: "a3", role: "assistant", parentID: "u1", time: { created: 4 } }, parts: [{ id: "p", type: "text", text: "hello", sessionID: "s", messageID: "a3" }] }] as never
+  expect(retryInFlight(answered, "a3"), "once the attempt shows output, the line goes").toBeUndefined()
+})

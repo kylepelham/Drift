@@ -1412,6 +1412,16 @@ Settled after the first external review of M1; each has a regression test.
   takes those notes off the end of a shell's output and shows them under the shell box
   (`splitNotes`). opencode wrapped the same kind of note in a `<shell_metadata>` block that its UI
   printed as part of the output.
+- A shell's output never sits whole in memory: the engine keeps its first and last 16 KB (`tool::spool`)
+  and writes the rest to `tool-output/` (at most 64 MB per call, kept a week); while it runs, the UI is
+  sent only its last 4 KB every half second, and afterwards the stored result, about 33 KB at most. The
+  line marking the cut is for the model; the UI shows it as a divider naming the size left out, with
+  a link that opens the saved file (`splitOmitted`).
+- Each failed attempt the engine retries stays in the transcript as an errored reply. The UI shows
+  one retry line for the run instead of a box per attempt: an attempt with nothing to show that a
+  later attempt followed is hidden, the reply being retried shows the line instead of its error box,
+  and the line stays up ("Retrying - attempt #n") while the next attempt runs, until it shows output
+  or fails too (`failedAttempt`, `retryInFlight`). If the retries run out, the last error shows once.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
   process group. Dropping the run future has the same effect as an explicit abort.
 - The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);

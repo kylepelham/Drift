@@ -537,6 +537,8 @@ export const drift = {
   "drift.settings.sound.audioFileRequired": "Velg en lydfil.",
   "drift.settings.sound.maxSize": "Lydfiler må være 1 MB eller mindre.",
   "drift.shell.copyOutput": "Kopier shell-utdata",
+  "drift.shell.omitted": "{{size}} utelatt",
+  "drift.shell.openFull": "Åpne hele utdataene",
   "drift.shell.output": "Shell-utdata",
   "drift.shortcuts.autoAccept": "Veksle automatisk godkjenning av tillatelser",
   "drift.shortcuts.zoomIn": "Zoom inn",

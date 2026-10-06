@@ -648,3 +648,10 @@ test("notes Drift adds after a shell's output come off it, to show under the cal
   expect(splitNotes("plain output", undefined), "a call from before notes were listed").toEqual({ output: "plain output", notes: [] })
   expect(splitNotes("printed exit code 1 itself", ["exit code 1"]), "only a note Drift added, after a blank line").toEqual({ output: "printed exit code 1 itself", notes: [] })
 })
+
+test("the line where the engine cut a long output comes out, with how much it cut", async () => {
+  const { splitOmitted } = await import("../src/ui/parts")
+  const text = "1\n2\n3\n\n... 1256127 bytes omitted; the whole output is in C:\Users\me\tool-output\s\call.log ...\n\n197661\n200000"
+  expect(splitOmitted(text)).toEqual({ head: "1\n2\n3", omitted: 1256127, tail: "197661\n200000" })
+  expect(splitOmitted("short output\n... not a cut ...")).toBeNull()
+})

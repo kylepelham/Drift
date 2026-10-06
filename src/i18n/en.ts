@@ -784,6 +784,8 @@ export const drift = {
   "drift.settings.responseAnimation.speed.value": "{{speed}} characters/sec",
   "drift.settings.typography": "Typography",
   "drift.shell.copyOutput": "Copy shell output",
+  "drift.shell.omitted": "{{size}} omitted",
+  "drift.shell.openFull": "Open full output",
   "drift.shell.output": "Shell output",
   "drift.search.archived": "Archived",
   "drift.search.clear": "Clear search",

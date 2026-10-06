@@ -18,7 +18,8 @@ import { TextShimmer } from "./text-shimmer"
 import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer"
 import { citationFileGroups } from "./citation-files"
 
-export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean; spawned?: boolean }) {
+/** `retrying`: the engine is trying this failed reply again, and the retry line under it says why, so its own error box is left out. */
+export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean; spawned?: boolean; retrying?: boolean }) {
   onMount(() =>
     emitMessageRendered({
       sessionId: props.entry.info.sessionID,
@@ -29,7 +30,7 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean; grou
   const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
   return (
     <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} thinking={props.thinking} spawned={props.spawned} />}>
-      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} />}>
+      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} retrying={props.retrying} />}>
         <CompactionSummary entry={props.entry} footer={props.footer} thinking={props.thinking} />
       </Show>
     </Show>
@@ -322,7 +323,7 @@ export function updatePartGroupSlots(
   return next
 }
 
-function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[] }) {
+function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; retrying?: boolean }) {
   const engine = useEngine()
   const info = () => props.entry.info as AssistantMessage
   const slots = new Map<string, PartGroupSlot>()
@@ -364,7 +365,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
             </Switch>
           )}
         </For>
-        <Show when={info().error}>
+        <Show when={!props.retrying && info().error}>
           {(error) => (
             <Show
               when={error().name !== "MessageAbortedError"}

@@ -503,6 +503,8 @@ export const drift = {
   "drift.settings.sound.audioFileRequired": "音声ファイルを選択してください。",
   "drift.settings.sound.maxSize": "音声ファイルは1 MB以下にしてください。",
   "drift.shell.copyOutput": "シェル出力をコピー",
+  "drift.shell.omitted": "{{size}} を省略",
+  "drift.shell.openFull": "全出力を開く",
   "drift.shell.output": "シェル出力",
   "drift.shortcuts.autoAccept": "権限の自動承認を切り替え",
   "drift.shortcuts.zoomIn": "拡大",

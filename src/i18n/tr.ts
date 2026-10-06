@@ -536,6 +536,8 @@ export const drift = {
   "drift.settings.sound.audioFileRequired": "Bir ses dosyası seçin.",
   "drift.settings.sound.maxSize": "Ses dosyaları en fazla 1 MB olabilir.",
   "drift.shell.copyOutput": "Kabuk çıktısını kopyala",
+  "drift.shell.omitted": "{{size}} atlandı",
+  "drift.shell.openFull": "Tüm çıktıyı aç",
   "drift.shell.output": "Kabuk çıktısı",
   "drift.shortcuts.autoAccept": "İzinleri otomatik kabul etmeyi aç/kapat",
   "drift.shortcuts.zoomIn": "Yakınlaştır",

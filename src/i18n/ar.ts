@@ -501,6 +501,8 @@ export const drift = {
   "drift.settings.sound.audioFileRequired": "اختر ملفًا صوتيًا.",
   "drift.settings.sound.maxSize": "يجب ألا يتجاوز حجم الملفات الصوتية 1 MB.",
   "drift.shell.copyOutput": "نسخ مخرجات Shell",
+  "drift.shell.omitted": "تم حذف {{size}}",
+  "drift.shell.openFull": "فتح المخرجات كاملة",
   "drift.shell.output": "مخرجات Shell",
   "drift.shortcuts.autoAccept": "تبديل القبول التلقائي للأذونات",
   "drift.shortcuts.zoomIn": "تكبير",

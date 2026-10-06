@@ -505,6 +505,8 @@ export const drift = {
   "drift.settings.sound.audioFileRequired": "Wybierz plik dźwiękowy.",
   "drift.settings.sound.maxSize": "Pliki dźwiękowe nie mogą przekraczać 1 MB.",
   "drift.shell.copyOutput": "Kopiuj dane wyjściowe powłoki",
+  "drift.shell.omitted": "Pominięto {{size}}",
+  "drift.shell.openFull": "Otwórz pełne wyjście",
   "drift.shell.output": "Dane wyjściowe powłoki",
   "drift.shortcuts.autoAccept": "Przełącz automatyczne akceptowanie uprawnień",
   "drift.shortcuts.zoomIn": "Powiększ",

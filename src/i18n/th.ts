@@ -535,6 +535,8 @@ export const drift = {
   "drift.settings.sound.audioFileRequired": "เลือกไฟล์เสียง",
   "drift.settings.sound.maxSize": "ไฟล์เสียงต้องมีขนาดไม่เกิน 1 MB",
   "drift.shell.copyOutput": "คัดลอกผลลัพธ์เชลล์",
+  "drift.shell.omitted": "ละไว้ {{size}}",
+  "drift.shell.openFull": "เปิดเอาต์พุตทั้งหมด",
   "drift.shell.output": "ผลลัพธ์เชลล์",
   "drift.shortcuts.autoAccept": "สลับการยอมรับสิทธิ์อัตโนมัติ",
   "drift.shortcuts.zoomIn": "ซูมเข้า",

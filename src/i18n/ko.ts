@@ -502,6 +502,8 @@ export const drift = {
   "drift.settings.sound.audioFileRequired": "오디오 파일을 선택하세요.",
   "drift.settings.sound.maxSize": "오디오 파일은 1 MB 이하여야 합니다.",
   "drift.shell.copyOutput": "셸 출력 복사",
+  "drift.shell.omitted": "{{size}} 생략됨",
+  "drift.shell.openFull": "전체 출력 열기",
   "drift.shell.output": "셸 출력",
   "drift.shortcuts.autoAccept": "권한 자동 승인 전환",
   "drift.shortcuts.zoomIn": "확대",
