@@ -365,6 +365,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "Supprimer ?",
   "drift.permission.always": "Toujours autoriser dans cet espace de travail",
   "drift.mcp.enable": "Activer {{name}}",
+  "drift.prompt.tooLarge": "Échec de l'envoi : les pièces jointes font {{size}}, plus que les {{limit}} qu'un message peut contenir. Envoyez moins de fichiers ou des fichiers plus petits.",
   "drift.mcp.status.offHere": "désactivé dans cet espace de travail",
   "drift.mcp.scope.chosen": "activé pour cet espace de travail seulement",
   "drift.mcp.scope.elsewhere": "activé dans d'autres espaces de travail",

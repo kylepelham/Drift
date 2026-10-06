@@ -364,6 +364,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "Usunąć?",
   "drift.permission.always": "Zawsze zezwalaj w tym obszarze roboczym",
   "drift.mcp.enable": "Włącz {{name}}",
+  "drift.prompt.tooLarge": "Nie udało się wysłać: załączniki zajmują {{size}}, więcej niż {{limit}}, które mieści jedna wiadomość. Wyślij mniej lub mniejsze pliki.",
   "drift.mcp.status.offHere": "wyłączony w tym obszarze roboczym",
   "drift.mcp.scope.chosen": "włączony tylko w tym obszarze roboczym",
   "drift.mcp.scope.elsewhere": "włączony w innych obszarach roboczych",

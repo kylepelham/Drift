@@ -249,6 +249,22 @@ async fn session_with_model(h: &Harness) -> (String, String) {
 }
 
 #[tokio::test]
+async fn a_prompt_carrying_a_screenshot_past_axums_default_limit_is_admitted() {
+    let h = harness().await;
+    assert_eq!(h.put("/providers/anthropic/key").json(&json!({ "key": "sk-test" })).send().await.unwrap().status(), 204);
+    let (_, session_id) = session_with_model(&h).await;
+    // A 2.5 MB screenshot is 3.4 MB once encoded; axum's own 2 MB default refused it mid-upload.
+    use base64::Engine as _;
+    let data = format!("data:text/plain;base64,{}", base64::engine::general_purpose::STANDARD.encode(vec![b'x'; 2_525_283]));
+    let prompt = json!({ "parts": [{ "type": "text", "text": "look" }, { "type": "file", "mime": "text/plain", "name": "shot.txt", "url": data }] });
+    let status = h.post(&format!("/sessions/{session_id}/turns")).json(&prompt).send().await.unwrap().status();
+    assert_eq!(status, 202);
+    let too_big = vec![b' '; super::MAX_REQUEST_BYTES + 1];
+    let status = h.post(&format!("/sessions/{session_id}/turns")).header("content-type", "application/json").body(too_big).send().await.map(|response| response.status());
+    assert!(status.is_err() || status.unwrap() == 413, "past the limit it is still refused");
+}
+
+#[tokio::test]
 async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
     use crate::llm::scripted::Scripted;
     use crate::llm::{Chunk, Provider, StopReason};

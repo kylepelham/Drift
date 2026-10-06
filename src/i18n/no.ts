@@ -396,6 +396,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "Fjern?",
   "drift.permission.always": "Tillat alltid i dette arbeidsområdet",
   "drift.mcp.enable": "Aktiver {{name}}",
+  "drift.prompt.tooLarge": "Sending mislyktes: vedleggene er på {{size}}, mer enn de {{limit}} én melding kan bære. Send færre eller mindre filer.",
   "drift.mcp.status.offHere": "av i dette arbeidsområdet",
   "drift.mcp.scope.chosen": "på bare for dette arbeidsområdet",
   "drift.mcp.scope.elsewhere": "på i andre arbeidsområder",

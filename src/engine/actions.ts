@@ -7,7 +7,8 @@ import { handOverAutoAccept } from "../state/prefs"
 import { applyProviderCatalog } from "../state/provider-cache"
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
 import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
-import { EngineError, type Client, type PermissionGrant, type PermissionRule } from "./native/client"
+import { EngineError, maxRequestBytes, type Client, type PermissionGrant, type PermissionRule } from "./native/client"
+import { formatAttachmentBytes } from "../attachments"
 import type { components } from "./native/types"
 import {
   captureRevisions,
@@ -242,6 +243,8 @@ export function createActions(
     }
     // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
     const key = `${id}\n${JSON.stringify(prompt)}`
+    // Attachments are base64 text, so the request's length in characters is its size in bytes.
+    if (key.length > maxRequestBytes) return fail(id, t("drift.prompt.tooLarge", { size: formatAttachmentBytes(key.length), limit: formatAttachmentBytes(maxRequestBytes) }))
     const submission = unsettled.get(key) ?? submissionId()
     unsettled.set(key, submission)
     try {

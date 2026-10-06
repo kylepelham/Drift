@@ -362,6 +362,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "削除しますか？",
   "drift.permission.always": "このワークスペースで常に許可",
   "drift.mcp.enable": "{{name}}を有効化",
+  "drift.prompt.tooLarge": "送信できませんでした: 添付ファイルの合計が {{size}} で、1 回のプロンプトの上限 {{limit}} を超えています。ファイルを減らすか小さくしてください。",
   "drift.mcp.status.offHere": "このワークスペースではオフ",
   "drift.mcp.scope.chosen": "このワークスペースだけでオン",
   "drift.mcp.scope.elsewhere": "ほかのワークスペースでオン",

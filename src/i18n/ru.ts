@@ -398,6 +398,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "Удалить?",
   "drift.permission.always": "Всегда разрешать в этом рабочем пространстве",
   "drift.mcp.enable": "Включить {{name}}",
+  "drift.prompt.tooLarge": "Не удалось отправить: вложения занимают {{size}}, больше {{limit}}, которые вмещает одно сообщение. Отправьте меньше файлов или файлы поменьше.",
   "drift.mcp.status.offHere": "выключен в этом рабочем пространстве",
   "drift.mcp.scope.chosen": "включён только для этого рабочего пространства",
   "drift.mcp.scope.elsewhere": "включён в других рабочих пространствах",

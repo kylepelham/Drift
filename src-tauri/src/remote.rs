@@ -36,7 +36,7 @@ const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
 const TLS_HANDSHAKE_RECORD: u8 = 0x16;
 const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// What one request to the engine may carry (attachments ride in prompts).
-const MAX_ENGINE_BODY: usize = 32 * 1024 * 1024;
+const MAX_ENGINE_BODY: usize = drift_engine::api::MAX_REQUEST_BYTES;
 const MAX_RPC_BODY: usize = 10 * 1024 * 1024;
 
 #[derive(RustEmbed)]

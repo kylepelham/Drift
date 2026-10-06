@@ -394,6 +394,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "Ukloniti?",
   "drift.permission.always": "Uvijek dozvoli u ovom radnom prostoru",
   "drift.mcp.enable": "Omogući {{name}}",
+  "drift.prompt.tooLarge": "Slanje nije uspjelo: prilozi zauzimaju {{size}}, više od {{limit}} koliko jedna poruka može nositi. Pošaljite manje ili manjih datoteka.",
   "drift.mcp.status.offHere": "isključen u ovom radnom prostoru",
   "drift.mcp.scope.chosen": "uključen samo za ovaj radni prostor",
   "drift.mcp.scope.elsewhere": "uključen u drugim radnim prostorima",

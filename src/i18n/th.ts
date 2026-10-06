@@ -394,6 +394,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "ลบหรือไม่?",
   "drift.permission.always": "อนุญาตเสมอในพื้นที่ทำงานนี้",
   "drift.mcp.enable": "เปิดใช้ {{name}}",
+  "drift.prompt.tooLarge": "ส่งไม่สำเร็จ: ไฟล์แนบรวม {{size}} เกิน {{limit}} ที่ข้อความเดียวรองรับได้ ส่งไฟล์ให้น้อยลงหรือเล็กลง",
   "drift.mcp.status.offHere": "ปิดในพื้นที่ทำงานนี้",
   "drift.mcp.scope.chosen": "เปิดเฉพาะพื้นที่ทำงานนี้",
   "drift.mcp.scope.elsewhere": "เปิดในพื้นที่ทำงานอื่น",

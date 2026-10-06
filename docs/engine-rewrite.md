@@ -93,6 +93,11 @@ GET    /find/files?q=
 WS     /events?cursor=
 ```
 
+A request body may be up to 64 MB (`api::MAX_REQUEST_BYTES`; axum's own default is 2 MB): a prompt
+carries its attachments as base64, so a 2.5 MB screenshot is a 3.4 MB request. The composer checks
+a prompt's size against the same limit before sending and names it, since a browser sees a request
+cut off mid-upload only as a failed fetch.
+
 Server to client over the socket: `session.*`, `message.*`, `part.delta`,
 `permission.asked`, `question.asked`, `todo.updated`, `mcp.*`. Client to server:
 `permission.reply`, `question.reply`, `workspace.open` (the folder the client shows, or null). M3 adds typed worker lifecycle/progress events

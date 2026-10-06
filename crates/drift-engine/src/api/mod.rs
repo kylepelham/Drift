@@ -82,10 +82,14 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(events::get))
 }
 
+/// The largest request the engine reads: prompts carry attachments as base64 (a 40 MB video is 53 MB); axum's default is 2 MB.
+pub const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
+
 pub fn router(engine: Arc<Engine>) -> Router {
     let (router, openapi) = documented().split_for_parts();
     router
         .route("/openapi.json", get(move || async move { Json(openapi) }))
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_REQUEST_BYTES))
         .layer(axum::middleware::from_fn_with_state(engine.clone(), auth::require_token))
         // Outside auth so browser preflights, which carry no token, are answered.
         .layer(cors::layer())

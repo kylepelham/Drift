@@ -83,7 +83,7 @@ Remote Access is for your own network. It is not an Internet-facing service.
 - The engine never listens beyond `127.0.0.1`. The gateway serves its router in process (`native_engine`): after the device is signed in, it removes the device's cookies, adds the engine's random token itself, so no device ever holds it, and strips the `/engine` prefix. The event WebSocket carries a `Lease` the gateway cancels when the device's credentials change, so a signed-out device's socket closes at once, and an HTTP response still streaming is cut the same way.
 - Everything except the sign-in routes (`/auth/options`, `/auth/link`, `/auth/link/{id}`, `/auth/login`, `/auth/certificate`) requires a device session. Signed-out navigations to `/` or `/companion` get the sign-in page; other requests get 401.
 - Management commands (enable, link, revoke, password) are desktop-only Tauri commands and are not in the remote RPC allowlist.
-- A request to the engine carries at most 32 MB (attachments ride in prompts); other routes at most 10 MB. Same-origin `https` requests are expected.
+- A request to the engine carries at most 64 MB (`drift_engine::api::MAX_REQUEST_BYTES`, the same limit the desktop window has; attachments ride in prompts as base64); other routes at most 10 MB. Same-origin `https` requests are expected.
 - Host/Origin checks run before authentication. The host comes from HTTP/2's `:authority` or HTTP/1.1's `Host` header; browsers negotiate HTTP/2, so checking `Host` alone rejects every browser request.
 - `no-referrer`, `nosniff`, frame restrictions, `no-store`, and a restrictive Permissions Policy are applied at the gateway.
 

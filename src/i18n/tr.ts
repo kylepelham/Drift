@@ -395,6 +395,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "Kaldırılsın mı?",
   "drift.permission.always": "Bu çalışma alanında her zaman izin ver",
   "drift.mcp.enable": "{{name}} etkinleştir",
+  "drift.prompt.tooLarge": "Gönderilemedi: ekler {{size}} tutuyor, bir istemin taşıyabileceği {{limit}} sınırını aşıyor. Daha az veya daha küçük dosya gönderin.",
   "drift.mcp.status.offHere": "bu çalışma alanında kapalı",
   "drift.mcp.scope.chosen": "yalnızca bu çalışma alanında açık",
   "drift.mcp.scope.elsewhere": "diğer çalışma alanlarında açık",

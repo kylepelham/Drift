@@ -393,6 +393,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "确认移除？",
   "drift.permission.always": "在此工作区中始终允许",
   "drift.mcp.enable": "启用 {{name}}",
+  "drift.prompt.tooLarge": "发送失败：附件共 {{size}}，超过单条提示可携带的 {{limit}}。请减少文件数量或使用更小的文件。",
   "drift.mcp.status.offHere": "在此工作区中已关闭",
   "drift.mcp.scope.chosen": "仅在此工作区中开启",
   "drift.mcp.scope.elsewhere": "在其他工作区中开启",

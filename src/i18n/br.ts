@@ -362,6 +362,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "Remover?",
   "drift.permission.always": "Sempre permitir neste espaço de trabalho",
   "drift.mcp.enable": "Habilitar {{name}}",
+  "drift.prompt.tooLarge": "Falha ao enviar: os anexos somam {{size}}, mais que os {{limit}} que um prompt comporta. Envie menos arquivos ou arquivos menores.",
   "drift.mcp.status.offHere": "desligado neste espaço de trabalho",
   "drift.mcp.scope.chosen": "ligado só neste espaço de trabalho",
   "drift.mcp.scope.elsewhere": "ligado em outros espaços de trabalho",

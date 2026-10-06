@@ -548,6 +548,7 @@ export const drift = {
   "drift.markdown.copyCode": "Copy code",
   "drift.permission.always": "Always allow in this workspace",
   "drift.mcp.enable": "Enable {{name}}",
+  "drift.prompt.tooLarge": "Prompt failed: its attachments come to {{size}}, more than the {{limit}} one prompt can carry. Send fewer or smaller files.",
   "drift.mcp.status.offHere": "off in this workspace",
   "drift.mcp.scope.chosen": "on for this workspace only",
   "drift.mcp.scope.elsewhere": "on in other workspaces",

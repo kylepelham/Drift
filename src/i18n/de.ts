@@ -363,6 +363,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "Entfernen?",
   "drift.permission.always": "In diesem Arbeitsbereich immer erlauben",
   "drift.mcp.enable": "{{name}} aktivieren",
+  "drift.prompt.tooLarge": "Senden fehlgeschlagen: Die Anhänge sind {{size}} groß, mehr als die {{limit}}, die ein Prompt tragen kann. Sende weniger oder kleinere Dateien.",
   "drift.mcp.status.offHere": "in diesem Arbeitsbereich aus",
   "drift.mcp.scope.chosen": "nur für diesen Arbeitsbereich an",
   "drift.mcp.scope.elsewhere": "in anderen Arbeitsbereichen an",

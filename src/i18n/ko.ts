@@ -361,6 +361,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "제거할까요?",
   "drift.permission.always": "이 작업 공간에서 항상 허용",
   "drift.mcp.enable": "{{name}} 활성화",
+  "drift.prompt.tooLarge": "보내지 못했습니다: 첨부 파일이 {{size}}로, 한 프롬프트에 담을 수 있는 {{limit}}보다 큽니다. 파일 수를 줄이거나 더 작은 파일을 보내세요.",
   "drift.mcp.status.offHere": "이 작업 공간에서 꺼짐",
   "drift.mcp.scope.chosen": "이 작업 공간에서만 켜짐",
   "drift.mcp.scope.elsewhere": "다른 작업 공간에서 켜짐",

@@ -360,6 +360,7 @@ export const drift = {
   "drift.mcp.confirmRemove": "إزالة؟",
   "drift.permission.always": "السماح دائمًا في مساحة العمل هذه",
   "drift.mcp.enable": "تمكين {{name}}",
+  "drift.prompt.tooLarge": "تعذّر الإرسال: حجم المرفقات {{size}}، وهو أكثر من {{limit}} التي تتسع لها الرسالة الواحدة. أرسل ملفات أقل أو أصغر.",
   "drift.mcp.status.offHere": "متوقف في مساحة العمل هذه",
   "drift.mcp.scope.chosen": "مفعّل لمساحة العمل هذه فقط",
   "drift.mcp.scope.elsewhere": "مفعّل في مساحات عمل أخرى",

@@ -486,3 +486,17 @@ test("a folder's always-grants are read and revoked through its engine workspace
   await h.actions.revokeGrant("C:/elsewhere")
   expect(calls).toEqual([["list", "w1"], ["revoke", "w1", grant], ["revokeAll", "w1"]])
 })
+test("a prompt too large for the engine is refused with its size before it is sent", async () => {
+  const { maxRequestBytes } = await import("../src/engine/native/client")
+  const engine = await Bun.file("crates/drift-engine/src/api/mod.rs").text()
+  expect(engine).toContain(`pub const MAX_REQUEST_BYTES: usize = ${maxRequestBytes / 1024 / 1024} * 1024 * 1024;`)
+  const h = harness()
+  // A 2.5 MB screenshot, which the engine's old 2 MB default refused, goes through.
+  const shot = { mime: "image/png", filename: "shot.png", url: `data:image/png;base64,${"A".repeat(3_400_000)}` }
+  expect(await h.actions.send("ses_1", "look", { model: null, agent: "build", files: [shot] as never })).toEqual({ ok: true })
+  const huge = { ...shot, url: `data:image/png;base64,${"A".repeat(maxRequestBytes)}` }
+  const result = await h.actions.send("ses_1", "look", { model: null, agent: "build", files: [huge] as never })
+  expect(result.ok).toBe(false)
+  expect((result as { error: string }).error).toBe("Prompt failed: its attachments come to 65 MB, more than the 64 MB one prompt can carry. Send fewer or smaller files.")
+  expect(h.calls.filter((call) => call.method === "submit")).toHaveLength(1)
+})
