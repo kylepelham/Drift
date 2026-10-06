@@ -4,7 +4,7 @@ members = ["crates/drift-engine", "crates/drift-engined", "crates/drift-migrate"
 
 # Every crate carries the app's version, so the engine reports what the shell is; the release stamp sets it.
 [workspace.package]
-version = "2.0.1"
+version = "2.0.2"
 
 [workspace.dependencies]
 axum = "0.8"
