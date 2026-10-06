@@ -1000,6 +1000,8 @@ async fn a_command_whose_tree_cannot_be_captured_still_runs_and_says_so() {
     assert_eq!(*status, ToolStatus::Done);
     assert!(output.as_deref().unwrap().contains("could not record what this command changed"), "{output:?}");
     assert!(metadata.as_ref().unwrap()["historyError"].is_string());
+    let note = metadata.as_ref().unwrap()["historyError"].as_str().unwrap();
+    assert_eq!(metadata.as_ref().unwrap()["notes"], json!([note]), "listed apart, so the UI shows it under the call");
 }
 
 #[tokio::test]

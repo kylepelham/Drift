@@ -19,6 +19,20 @@ pub struct Snapshots {
     /// Workspaces found to hold more than `max_tree_files`; not walked again while the engine runs.
     too_many: Mutex<HashSet<PathBuf>>,
     max_tree_files: usize,
+    /// The git repository each workspace is the top of, if any, looked up once per run.
+    sources: Mutex<HashMap<PathBuf, Option<Source>>>,
+}
+
+/// A git repository a workspace is the top of. A whole-tree capture there starts from its index and
+/// reads its objects, as opencode's does, so files git has already hashed are not hashed again and a
+/// repository of any size is captured.
+#[derive(Clone, Debug)]
+struct Source {
+    index: PathBuf,
+    /// Its object stores, lent to tree commands only (`GIT_ALTERNATE_OBJECT_DIRECTORIES`): a blob
+    /// recorded for undo is always written to the shadow store itself, never left in the repository,
+    /// whose own gc could drop it.
+    objects: std::ffi::OsString,
 }
 
 /// One path a call changed: its content before and after as shadow blobs, `None` for no file.
@@ -56,6 +70,7 @@ pub struct TreeChanges {
 /// be undone, and whole-tree captures leave them out.
 pub const MAX_RECORDED_BYTES: u64 = 10 * 1024 * 1024;
 /// A whole-tree capture of more files than this (a drive, a home folder) is not taken: the first would run for minutes.
+/// A git repository's own top folder has no limit, since its capture starts from the repository's index.
 pub const MAX_TREE_FILES: usize = 50_000;
 /// The shadow repo stores bytes exactly as they are on disk, whatever the workspace's
 /// `.gitattributes` say: no line ending conversion, filters, keyword expansion or re-encoding. This
@@ -86,7 +101,7 @@ impl std::fmt::Display for Error {
 
 impl Snapshots {
     pub fn new(data_dir: &Path) -> Self {
-        Self { root: data_dir.join("snapshots"), locks: Mutex::default(), owners: Mutex::default(), too_many: Mutex::default(), max_tree_files: MAX_TREE_FILES }
+        Self { root: data_dir.join("snapshots"), locks: Mutex::default(), owners: Mutex::default(), too_many: Mutex::default(), max_tree_files: MAX_TREE_FILES, sources: Mutex::default() }
     }
 
     pub(super) fn lock_for(&self, workspace: &Path) -> Arc<tokio::sync::Mutex<()>> {
@@ -141,8 +156,17 @@ impl Snapshots {
     }
 
     async fn run(&self, workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>, Error> {
+        self.run_with(workspace, args, input, None).await
+    }
+
+    /// `run`, with a repository's objects readable for a tree command.
+    async fn run_with(&self, workspace: &Path, args: &[&str], input: Option<&[u8]>, source: Option<&Source>) -> Result<Vec<u8>, Error> {
         use tokio::io::AsyncWriteExt;
-        let mut child = self.command(workspace, args, input.is_some()).spawn().map_err(|_| Error::NoGit)?;
+        let mut command = self.command(workspace, args, input.is_some());
+        if let Some(source) = source {
+            command.env("GIT_ALTERNATE_OBJECT_DIRECTORIES", &source.objects);
+        }
+        let mut child = command.spawn().map_err(|_| Error::NoGit)?;
         if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
             stdin.write_all(input).await.map_err(|e| Error::Failed(e.to_string()))?;
         }
@@ -197,7 +221,8 @@ impl Snapshots {
     /// Records the whole tree as it is now (the workspace's ignore rules apply). Serialised per
     /// workspace: concurrent sessions and subagents share this index.
     pub async fn take(&self, workspace: &Path) -> Result<Tree, Error> {
-        if self.too_many.lock().unwrap().contains(workspace) {
+        let source = self.source(workspace).await;
+        if source.is_none() && self.too_many.lock().unwrap().contains(workspace) {
             return Err(Error::TooManyFiles);
         }
         self.ensure(workspace).await?;
@@ -206,12 +231,73 @@ impl Snapshots {
         // Every index write in this process holds the lock, so a lock file now is a stopped capture's.
         let _ = tokio::fs::remove_file(self.git_dir(workspace).join("index.lock")).await;
         self.store_raw_bytes(workspace).await?;
-        let oversized = self.leave_out_large_files(workspace).await?;
+        let oversized = match &source {
+            Some(source) => {
+                self.seed(workspace, source).await;
+                self.leave_out_large_changes(workspace, source).await?
+            }
+            None => self.leave_out_large_files(workspace).await?,
+        };
         // A file git cannot index (an unusual name, a locked file) must not stop every other file
         // being recorded; `--ignore-errors` still exits non-zero, so only the tree write decides.
-        let _ = self.git(workspace, &["add", "-A", "--ignore-errors", "--", "."]).await;
-        let id = self.git(workspace, &["write-tree"]).await?;
+        let _ = self.run_with(workspace, &["add", "-A", "--ignore-errors", "--", "."], None, source.as_ref()).await;
+        // A seeded tree may name blobs only the repository holds; its ids are compared, never read.
+        let write: &[&str] = if source.is_some() { &["write-tree", "--missing-ok"] } else { &["write-tree"] };
+        let id = String::from_utf8_lossy(&self.run_with(workspace, write, None, source.as_ref()).await?).trim().to_string();
         Ok(Tree { id, oversized })
+    }
+
+    /// The repository `workspace` is the top of, found once per run; none for a plain folder (a
+    /// drive, a home folder) or a folder inside a repository, whose index lists paths from elsewhere.
+    async fn source(&self, workspace: &Path) -> Option<Source> {
+        if let Some(known) = self.sources.lock().unwrap().get(workspace) {
+            return known.clone();
+        }
+        let found = find_source(workspace).await;
+        self.sources.lock().unwrap().insert(workspace.to_path_buf(), found.clone());
+        found
+    }
+
+    /// Starts the shadow index from the repository's, once per shadow repo. An index this git cannot
+    /// read (a split index whose shared part stays behind) is dropped, and git builds its own.
+    async fn seed(&self, workspace: &Path, source: &Source) {
+        let git_dir = self.git_dir(workspace);
+        let marker = git_dir.join("drift-seeded");
+        if marker.exists() {
+            return;
+        }
+        let index = git_dir.join("index");
+        if tokio::fs::copy(&source.index, &index).await.is_err() {
+            return;
+        }
+        if self.run_with(workspace, &["ls-files", "-z", "--", ":(literal)drift-seed-probe"], None, Some(source)).await.is_err() {
+            let _ = tokio::fs::remove_file(&index).await;
+        }
+        let _ = tokio::fs::write(marker, "").await;
+    }
+
+    /// `leave_out_large_files` for a repository, without walking it: git names what changed and what
+    /// is untracked (its index holds the rest), and only those, with the files already left out, are sized.
+    async fn leave_out_large_changes(&self, workspace: &Path, source: &Source) -> Result<Vec<(String, Stamp)>, Error> {
+        let modified = self.run_with(workspace, &["diff-files", "--name-only", "-z"], None, Some(source)).await?;
+        let untracked = self.run_with(workspace, &["ls-files", "--others", "--exclude-standard", "-z"], None, Some(source)).await?;
+        let excluded = tokio::fs::read_to_string(self.git_dir(workspace).join("info").join("exclude")).await.unwrap_or_default();
+        let listed = [modified, untracked].map(|raw| String::from_utf8_lossy(&raw).into_owned());
+        let mut candidates: Vec<String> = listed.iter().flat_map(|text| text.split('\0')).filter(|path| !path.is_empty()).map(str::to_string).collect();
+        candidates.extend(excluded.lines().filter_map(|line| line.strip_prefix('/')).map(unescape_pattern));
+        candidates.sort();
+        candidates.dedup();
+        let root = workspace.to_path_buf();
+        let sized = move || -> Vec<(String, Stamp)> {
+            let large = |path: String| {
+                let meta = std::fs::metadata(root.join(&path)).ok().filter(|m| m.is_file() && m.len() > MAX_RECORDED_BYTES)?;
+                Some((path, (meta.len(), meta.modified().ok())))
+            };
+            candidates.into_iter().filter_map(large).collect()
+        };
+        let large = tokio::task::spawn_blocking(sized).await.map_err(|e| Error::Failed(e.to_string()))?;
+        self.exclude(workspace, &large).await?;
+        Ok(large)
     }
 
     /// Makes sure the shadow repo stores bytes exactly, repos made before this rule included. When the
@@ -240,6 +326,12 @@ impl Snapshots {
             self.too_many.lock().unwrap().insert(workspace.to_path_buf());
             return Err(Error::TooManyFiles);
         };
+        self.exclude(workspace, &large).await?;
+        Ok(large)
+    }
+
+    /// Keeps `large` out of the shadow index from now on, and drops any already in it.
+    async fn exclude(&self, workspace: &Path, large: &[(String, Stamp)]) -> Result<(), Error> {
         let info = self.git_dir(workspace).join("info");
         tokio::fs::create_dir_all(&info).await.map_err(|e| Error::Failed(e.to_string()))?;
         let lines: String = large.iter().map(|(path, _)| format!("/{}\n", escape_pattern(path))).collect();
@@ -248,7 +340,7 @@ impl Snapshots {
             let paths: String = large.iter().map(|(path, _)| format!("{path}\0")).collect();
             self.run(workspace, &["update-index", "--force-remove", "-z", "--stdin"], Some(paths.as_bytes())).await?;
         }
-        Ok(large)
+        Ok(())
     }
 
     /// Drops every stored object no call's recorded change refers to (and that is older than the
@@ -326,9 +418,11 @@ impl Snapshots {
 
     /// Every path that differs between two trees, with its blob on each side.
     pub async fn changes_between(&self, workspace: &Path, before: &Tree, after: &Tree) -> Result<TreeChanges, Error> {
-        let raw = self.git_bytes(workspace, &["diff-tree", "-r", "--no-renames", "-z", &before.id, &after.id]).await?;
+        let source = self.source(workspace).await;
+        let raw = self.run_with(workspace, &["diff-tree", "-r", "--no-renames", "-z", &before.id, &after.id], None, source.as_ref()).await?;
         let oversized = |path: &str| before.oversized.iter().chain(&after.oversized).any(|(large, _)| large == path);
         let (unrecordable, changes): (Vec<FileChange>, Vec<FileChange>) = parse_raw_diff(&raw).into_iter().partition(|change| oversized(&change.path));
+        let changes = if source.is_some() { unconverted_changes(workspace, changes).await } else { changes };
         let mut unrecorded: Vec<String> = unrecordable.into_iter().map(|change| change.path).collect();
         let untouched = |entry: &(String, Stamp)| before.oversized.contains(entry) && after.oversized.contains(entry);
         unrecorded.extend(before.oversized.iter().chain(&after.oversized).filter(|entry| !untouched(entry)).map(|(path, _)| path.clone()));
@@ -356,6 +450,65 @@ fn large_files(root: &Path, limit: usize) -> Option<Vec<(String, Stamp)>> {
         }
     }
     Some(large)
+}
+
+/// The repository `workspace` is the top of, with its index and object stores; `None` otherwise.
+async fn find_source(workspace: &Path) -> Option<Source> {
+    let output = plain_git(workspace, &["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir"], None).await?;
+    let text = String::from_utf8_lossy(&output);
+    let [top, git_dir, common] = text.lines().collect::<Vec<_>>()[..] else { return None };
+    if crate::tool::canonical(Path::new(top)) != crate::tool::canonical(workspace) {
+        return None;
+    }
+    let objects = PathBuf::from(common).join("objects");
+    let chained = std::fs::read_to_string(objects.join("info").join("alternates")).unwrap_or_default();
+    let more = chained.lines().map(str::trim).filter(|line| !line.is_empty()).map(|line| objects.join(line));
+    let stores: Vec<PathBuf> = std::iter::once(objects.clone()).chain(more).filter(|dir| dir.is_dir()).collect();
+    let index = PathBuf::from(git_dir).join("index");
+    if stores.is_empty() || !index.is_file() {
+        return None;
+    }
+    Some(Source { index, objects: std::env::join_paths(stores).ok()? })
+}
+
+/// Git in the workspace's own repository, never the shadow one; `None` when it fails.
+async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Option<Vec<u8>> {
+    use tokio::io::AsyncWriteExt;
+    let mut command = Command::new("git");
+    let stdin = if input.is_some() { Stdio::piped() } else { Stdio::null() };
+    command.current_dir(workspace).args(args).env("GIT_TERMINAL_PROMPT", "0").stdin(stdin).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000);
+    let mut child = command.spawn().ok()?;
+    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+        stdin.write_all(input).await.ok()?;
+    }
+    let output = child.wait_with_output().await.ok()?;
+    output.status.success().then_some(output.stdout)
+}
+
+/// Drops changes whose file the repository, hashing it through its own filters, still holds as the
+/// before blob: only its timestamp moved, since a seeded entry is the converted content and a fresh one raw.
+async fn unconverted_changes(workspace: &Path, changes: Vec<FileChange>) -> Vec<FileChange> {
+    let modified: Vec<&FileChange> = changes.iter().filter(|change| change.before.is_some() && change.after.is_some()).collect();
+    if modified.is_empty() {
+        return changes;
+    }
+    let paths: String = modified.iter().map(|change| format!("{}\n", change.path)).collect();
+    let Some(hashed) = plain_git(workspace, &["hash-object", "--stdin-paths"], Some(paths.as_bytes())).await else { return changes };
+    let hashed = String::from_utf8_lossy(&hashed);
+    let same: HashSet<String> = modified.iter().zip(hashed.lines()).filter(|(change, id)| change.before.as_deref() == Some(id.trim())).map(|(change, _)| change.path.clone()).collect();
+    changes.into_iter().filter(|change| !same.contains(&change.path)).collect()
+}
+
+/// The path an exclude pattern written by `escape_pattern` matches.
+fn unescape_pattern(pattern: &str) -> String {
+    let mut out = String::new();
+    let mut chars = pattern.chars();
+    while let Some(c) = chars.next() {
+        out.push(if c == '\\' { chars.next().unwrap_or(c) } else { c });
+    }
+    out
 }
 
 /// An exclude pattern matching exactly this path.
@@ -424,6 +577,51 @@ mod tests {
         let snapshots = Snapshots::new(&base.join("data"));
         let command = snapshots.command(&workspace, &["add", "-A", "--", "."], false);
         assert_eq!(command.as_std().get_current_dir(), Some(workspace.as_path()), "`.` must mean the workspace, not where the app was started");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    /// Git in the test repository itself, as its user would run it.
+    fn repo_git(workspace: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git").current_dir(workspace).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    #[tokio::test]
+    async fn a_repository_is_captured_from_its_own_index_whatever_its_size_and_conversions() {
+        let (base, workspace) = dirs();
+        let workspace = crate::tool::canonical(&workspace);
+        repo_git(&workspace, &["init", "-q"]);
+        for (key, value) in [("core.autocrlf", "true"), ("user.email", "dev@example.com"), ("user.name", "Dev")] {
+            repo_git(&workspace, &["config", key, value]);
+        }
+        std::fs::write(workspace.join(".gitattributes"), "* text=auto\n").unwrap();
+        for name in ["a", "b", "c", "d", "e"] {
+            std::fs::write(workspace.join(format!("{name}.txt")), format!("{name} one\r\n{name} two\r\n")).unwrap();
+        }
+        repo_git(&workspace, &["add", "-A"]);
+        repo_git(&workspace, &["commit", "-qm", "start"]);
+        // As in a repository used for a while: its index is newer than its files, so git trusts their timestamps.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        repo_git(&workspace, &["update-index", "--refresh"]);
+        let mut snapshots = Snapshots::new(&base.join("data"));
+        snapshots.max_tree_files = 3;
+        let before = snapshots.take(&workspace).await.expect("a repository has no file limit");
+        let counted = snapshots.git(&workspace, &["count-objects"]).await.unwrap();
+        assert!(counted.starts_with("0 objects"), "the repository's files were not copied in: {counted}");
+
+        std::fs::write(workspace.join("a.txt"), "a changed\r\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        // Same bytes, new timestamp: its seeded id is the converted content, so only the repository can tell.
+        std::fs::write(workspace.join("b.txt"), "b one\r\nb two\r\n").unwrap();
+        std::fs::write(workspace.join("new.txt"), "n\r\n").unwrap();
+        let after = snapshots.take(&workspace).await.unwrap();
+        let mut changed: Vec<String> = snapshots.changes_between(&workspace, &before, &after).await.unwrap().changes.into_iter().map(|change| change.path).collect();
+        changed.sort();
+        assert_eq!(changed, ["a.txt", "new.txt"]);
+
+        let kept = snapshots.record(&workspace, "c.txt").await.unwrap().unwrap();
+        assert!(stored(&snapshots, &workspace, &kept), "a blob kept for undo lives in the shadow store, not only in the repository");
         std::fs::remove_dir_all(base).ok();
     }
 

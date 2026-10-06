@@ -612,7 +612,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   capture of 5,000 1 KB files takes 2.1 s; an unchanged one about 90 ms, of which the size walk is
   13 ms. This repository (7,161 tracked files) takes about 190 ms unchanged, 70 ms of it the size
   walk. Git's stat cache already makes an unchanged capture cheap, and `core.untrackedCache`
-  measured no better. Within one step, a whole-tree call (a writing shell line, a writing MCP tool)
+  measured no better. A git repository's first capture, seeded from its index, takes 0.45 s for
+  this repository and 0.40 s for opencode's 6,302 files, where an unseeded one hashes everything
+  (about 2 s per 5,000 files). Seeding is only as good as the repository's own index: in a fresh
+  clone whose index is no newer than its files, every entry is racily clean and gets hashed again
+  (3.7 s for that clone before its first `git status`). Within one step, a whole-tree call (a writing shell line, a writing MCP tool)
   starts from the tree the step's previous whole-tree call ended on, so a run of n such calls takes
   n + 1 captures, not 2n. That reuse is safe only because a tree capture's changes are all
   observed, never undone: anything edited in the gap lands, still observed, in the next call's
@@ -1379,13 +1383,35 @@ Settled after the first external review of M1; each has a regression test.
 - A file tool refuses to run if its files cannot be recorded first, or if its start cannot be
   recorded, and says so in its result. A whole-tree capture (a writing shell line, a writing MCP
   tool) that cannot be taken does not stop its call: tree changes are only observed, never undone,
-  so the call runs and its result says what it changed was not recorded. A workspace over
+  so the call runs and its result says what it changed was not recorded. A plain folder over
   `MAX_TREE_FILES` (50,000 files, counted by the size walk before git runs) is never captured
-  whole: a drive or a home folder would keep `git add` busy for minutes. The verdict holds while
-  the engine runs. Stop ends a capture in progress and kills its git; the `index.lock` a killed
+  whole: a drive or a home folder would keep `git add` busy for minutes. Nothing undoable is lost
+  there, only the list of files a command changed, so its calls say nothing about it
+  (`Capture::Skipped`). The verdict holds while the engine runs.
+- A workspace that is a git repository's top folder has no limit, as in opencode: its shadow
+  index starts as a copy of the repository's (`Snapshots::seed`, once per shadow repo), and tree
+  commands read the repository's objects through `GIT_ALTERNATE_OBJECT_DIRECTORIES`, so files git
+  has already hashed are neither hashed nor stored again, and `write-tree --missing-ok` lets a tree
+  name them. Large files are found from what git lists as changed or untracked, plus those already
+  left out, never by walking the tree. Blobs recorded for undo (`record`, file tools) are written
+  without the alternates, so they always live in the shadow store, where the repository's own gc
+  cannot drop them. A seeded entry holds the repository's converted content (line endings, filters)
+  while a rehashed one is raw, so a file whose timestamp moved but whose content did not would read
+  as changed; such changes are checked by hashing the file through the repository itself and
+  dropped when it still matches (`unconverted_changes`). A folder inside a repository is captured
+  as a plain folder, since the repository's index lists paths from elsewhere. opencode, by
+  contrast, takes no snapshots outside a git repository at all, so it cannot undo even a file
+  edit there.
+- Stop ends a capture in progress and kills its git; the `index.lock` a killed
   git leaves is cleared by the next capture, which holds the only lock on that index. A result
   whose save fails is published as an error,
   never as a success the store lacks; a message whose terminal save fails stops the turn.
+- What Drift says about a call, rather than what the call printed (a shell's exit code, a timeout,
+  a stop, lingering background processes, a record that failed, formatters, diagnostics, checks),
+  is added after the output for the model and listed in `metadata.notes` (`tool::add_note`). The UI
+  takes those notes off the end of a shell's output and shows them under the shell box
+  (`splitNotes`). opencode wrapped the same kind of note in a `<shell_metadata>` block that its UI
+  printed as part of the output.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
   process group. Dropping the run future has the same effect as an explicit abort.
 - The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);

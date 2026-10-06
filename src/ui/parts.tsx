@@ -7,7 +7,7 @@ import { openLightbox } from "./lightbox"
 import { showReasoning, toolErrorsExpanded } from "../state/prefs"
 import { agentLabel, t } from "../state/i18n"
 import { selectSession } from "../state/selection"
-import { IconArrowUpRight, IconBranch, IconCheck, IconCopy } from "./icons"
+import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconInfo } from "./icons"
 import { codeTokens, Markdown, openWorkspaceFile, ProgressiveCodeView, type SyntaxToken } from "./markdown"
 import { classifyMarkdownLink } from "./markdown-links"
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code"
@@ -779,6 +779,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
     if (current.status === "error") return current.error
     return (toolMeta(props.part)?.output as string | undefined) ?? ""
   }
+  const shell = createMemo(() => splitNotes(shellOutput() ?? "", toolMeta(props.part)?.notes))
   const written = () => {
     if (props.part.tool !== "write") return null
     const input = state().input as { content?: string; filePath?: string }
@@ -824,9 +825,17 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
         <Match when={props.part.tool === "bash"}>
           <ShellOutput
             command={shellCommand()}
-            output={shellOutput()}
+            output={shell().output}
             running={state().status === "pending" || state().status === "running"}
           />
+          <For each={shell().notes}>
+            {(note) => (
+              <div class="mt-1 flex items-start gap-1.5 px-1 text-xs text-ink-faint">
+                <IconInfo class="mt-0.5 size-3 shrink-0" />
+                <span class="min-w-0 whitespace-pre-wrap">{note}</span>
+              </div>
+            )}
+          </For>
         </Match>
         <Match when={written()}>
           {(file) => (
@@ -845,6 +854,21 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
       </Show>
     </>
   )
+}
+
+/** A call's output without the notes Drift added after it (`metadata.notes`, in order), and those
+ * notes, which show under the call instead of inside what it printed. Older calls have none. */
+export function splitNotes(output: string, notes: unknown): { output: string; notes: string[] } {
+  const listed = Array.isArray(notes) ? notes.filter((note): note is string => typeof note === "string") : []
+  let rest = output
+  const shown: string[] = []
+  for (const note of [...listed].reverse()) {
+    if (rest === note) rest = ""
+    else if (rest.endsWith(`\n\n${note}`)) rest = rest.slice(0, rest.length - note.length - 2)
+    else break
+    shown.unshift(note)
+  }
+  return { output: rest, notes: shown }
 }
 
 export function shellTranscript(command: string, output: string) {

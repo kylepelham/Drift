@@ -284,30 +284,32 @@ fn take(read: std::io::Result<usize>, buffer: &[u8], spool: &mut Spool) -> bool 
 }
 
 fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>) -> Output {
-    let text = spooled.text.trim_end().to_string();
+    let mut text = spooled.text.trim().to_string();
     let mut metadata = json!({ "shellTimeoutMs": limit.map(|d| d.as_millis() as u64), "outputBytes": spooled.total });
     if let Some(file) = &spooled.file {
         metadata["outputFile"] = json!(file.to_string_lossy());
     }
-    let note = match ended {
+    let notes: Vec<String> = match ended {
         Ended::Exited { code, lingering } => {
             metadata["exit"] = json!(code);
-            let lingered = if lingering { "\n\nBackground processes still held the output open when the command finished; they were stopped. Run long-lived processes outside Drift." } else { "" };
-            let failed = if code == 0 { String::new() } else { format!("\n\nexit code {code}") };
-            format!("{lingered}{failed}")
+            let lingered = lingering.then(|| "Background processes still held the output open when the command finished; they were stopped. Run long-lived processes outside Drift.".to_string());
+            lingered.into_iter().chain((code != 0).then(|| format!("exit code {code}"))).collect()
         }
         Ended::TimedOut => {
             metadata["timedOut"] = json!(true);
             let seconds = limit.map_or(0, |d| d.as_secs());
-            format!("\n\nThe command and its child processes were stopped after {seconds} s. If it needs longer and is not waiting for input, run it again with a larger `timeout` in milliseconds.")
+            vec![format!("The command and its child processes were stopped after {seconds} s. If it needs longer and is not waiting for input, run it again with a larger `timeout` in milliseconds.")]
         }
         Ended::Stopped => {
             metadata["stopped"] = json!(true);
-            "\n\nThe user stopped the command and its child processes.".into()
+            vec!["The user stopped the command and its child processes.".into()]
         }
-        Ended::Failed(error) => format!("\n\n{error}"),
+        Ended::Failed(error) => vec![error],
     };
-    Output { title, output: format!("{text}{note}").trim_start().into(), metadata }
+    for note in &notes {
+        super::add_note(&mut text, &mut metadata, note);
+    }
+    Output { title, output: text, metadata }
 }
 
 const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-location"];
@@ -528,6 +530,7 @@ mod tests {
         let out = bash.run(&sandbox.ctx, json!({ "command": list, "description": "list files" })).await.unwrap();
         assert!(out.output.contains("hello.txt"), "{}", out.output);
         assert!(out.output.ends_with("exit code 3"));
+        assert_eq!(out.metadata["notes"], json!(["exit code 3"]), "said by Drift, not printed by the command");
         assert_eq!(out.title, "list files");
         assert_eq!(out.metadata["exit"], 3);
     }

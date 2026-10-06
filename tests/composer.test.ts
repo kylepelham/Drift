@@ -639,3 +639,12 @@ test("permission cards use an opaque surface like the other composer cards", asy
   expect(card).not.toContain("bg-warn/10")
   expect(card).toContain('class="text-warn"')
 })
+
+test("notes Drift adds after a shell's output come off it, to show under the call", async () => {
+  const { splitNotes } = await import("../src/ui/parts")
+  const notes = ["exit code 1", "Drift could not record what this command changed (git: boom); undo cannot put it back."]
+  expect(splitNotes(`built\nfailed\n\n${notes[0]}\n\n${notes[1]}`, notes)).toEqual({ output: "built\nfailed", notes })
+  expect(splitNotes("exit code 2", ["exit code 2"]), "a command that printed nothing").toEqual({ output: "", notes: ["exit code 2"] })
+  expect(splitNotes("plain output", undefined), "a call from before notes were listed").toEqual({ output: "plain output", notes: [] })
+  expect(splitNotes("printed exit code 1 itself", ["exit code 1"]), "only a note Drift added, after a blank line").toEqual({ output: "printed exit code 1 itself", notes: [] })
+})

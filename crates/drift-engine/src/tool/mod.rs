@@ -284,6 +284,22 @@ impl Output {
     }
 }
 
+/// Adds something Drift says about a call, rather than something the call printed: after its output,
+/// where the model reads it, and in `metadata.notes`, so the UI can show it under the call instead.
+pub fn add_note(output: &mut String, metadata: &mut Value, note: &str) {
+    if !output.is_empty() {
+        output.push_str("\n\n");
+    }
+    output.push_str(note);
+    if !metadata.is_object() {
+        *metadata = Value::Object(Default::default());
+    }
+    match metadata.get_mut("notes").and_then(Value::as_array_mut) {
+        Some(notes) => notes.push(Value::from(note)),
+        None => metadata["notes"] = Value::from(vec![note]),
+    }
+}
+
 /// Anything that goes back to the model as an error result. Text is written for the model.
 #[derive(Debug, PartialEq)]
 pub struct ToolError(pub String);

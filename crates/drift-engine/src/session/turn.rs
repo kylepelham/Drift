@@ -1344,10 +1344,12 @@ impl Engine {
         let found = checks_note(reports, workspace, |label, said| self.turns.repeated(&scope.plan.session.id, label, said));
         let notes: Vec<String> = [found, changed_note(&changed), elsewhere_note(&elsewhere), lost].into_iter().flatten().collect();
         let Part::ToolCall { output, metadata, .. } = &mut row.part else { return };
-        if !notes.is_empty() {
-            *output = Some(format!("{}\n\n{}", output.take().unwrap_or_default(), notes.join("\n\n")));
-        }
+        let mut text = output.take().unwrap_or_default();
         let mut meta = metadata.take().unwrap_or_else(|| json!({}));
+        for note in &notes {
+            crate::tool::add_note(&mut text, &mut meta, note);
+        }
+        *output = Some(text);
         meta["checks"] = checks_metadata(reports, workspace);
         if !changed.is_empty() {
             meta["checkChanged"] = json!(changed);
@@ -1471,10 +1473,13 @@ impl Engine {
             meta = merge(meta, Some(json!({ "resultFile": file.to_string_lossy() }))).unwrap_or_default();
         }
         // After formatting, and on failure too: a failed or stopped command may still have written.
-        let (status, text, changes) = match capture {
+        let (status, mut text, changes) = match capture {
             Some(capture) => self.history_of(scope, capture, status, text).await,
             None => (status, text, None),
         };
+        if let Some(note) = changes.as_ref().and_then(|history| history["historyError"].as_str()) {
+            crate::tool::add_note(&mut text, &mut meta, note);
+        }
         // A result this call hands over is acknowledged in the write that saves it, if the call holds its claim.
         let claimant = Claimant::call(&scope.plan.session.id, &call_id);
         let delivers = meta.get("delivers").and_then(serde_json::Value::as_str).filter(|task| self.workers.holds(task, &claimant)).map(str::to_owned);
@@ -1555,8 +1560,9 @@ impl Engine {
             }
             Err(lost) => {
                 let status = if lost.put_back { ToolStatus::Error } else { status };
+                // The caller adds `historyError` after the output as a note.
                 let history = json!({ "changes": [], "owner": owner, "unrecorded": lost.unrecorded, "historyError": lost.note });
-                (status, format!("{text}\n\n{}", lost.note), Some(history))
+                (status, text, Some(history))
             }
         }
     }
@@ -1600,8 +1606,9 @@ impl Engine {
         let overrides = config.only_allowed(|line| allowed.contains(line)).0;
         let local: Vec<PathBuf> = programs.into_iter().filter(|program| allowed.contains(&program.line)).map(|program| program.path).collect();
         let formatted = self.format_written(scope.plan, &metadata, &overrides, &local).await;
+        let mut metadata = metadata;
         if !formatted.is_empty() {
-            text = format!("{text}\n\n{}", reformatted_note(&formatted));
+            crate::tool::add_note(&mut text, &mut metadata, &reformatted_note(&formatted));
         }
         // After the formatters, so the servers see the files as they stay; Stop ends the wait.
         let found = tokio::select! {
@@ -1609,7 +1616,7 @@ impl Engine {
             () = scope.abort.cancelled() => Vec::new(),
         };
         if let Some(note) = crate::lsp::note(&found, &scope.plan.workspace) {
-            text = format!("{text}\n\n{note}");
+            crate::tool::add_note(&mut text, &mut metadata, &note);
         }
         let mut metadata = with_formatted(metadata, formatted);
         if !found.is_empty() {
