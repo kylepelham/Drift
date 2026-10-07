@@ -165,6 +165,32 @@ pub async fn configure_plugin(State(engine): State<Arc<Engine>>, Json(body): Jso
     engine.configure_plugin(&body.path, body.config).await.map(Json).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error))
 }
 
+/// The skill packs installed from a registry.
+#[utoipa::path(get, path = "/skills/packs", operation_id = "listSkillPacks", responses((status = 200, body = Vec<crate::config::skills::Pack>)))]
+pub async fn skill_packs() -> Json<Vec<crate::config::skills::Pack>> {
+    Json(crate::config::skills::list())
+}
+
+/// Installs a skill pack: its archive is fetched over https and the asked folders are unpacked under the user's skills.
+#[utoipa::path(post, path = "/skills/packs", operation_id = "installSkillPack", request_body = crate::config::skills::InstallPack, responses((status = 200, body = Vec<crate::config::skills::Pack>)))]
+pub async fn install_skill_pack(State(engine): State<Arc<Engine>>, Json(body): Json<crate::config::skills::InstallPack>) -> Result<Json<Vec<crate::config::skills::Pack>>, ApiError> {
+    crate::config::skills::install(&engine.http, body).await.map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "pack", error))?;
+    Ok(Json(crate::config::skills::list()))
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct PackId {
+    pub id: String,
+}
+
+/// Removes a skill pack and every skill it brought.
+#[utoipa::path(delete, path = "/skills/packs", operation_id = "removeSkillPack", params(PackId), responses((status = 200, body = Vec<crate::config::skills::Pack>)))]
+pub async fn remove_skill_pack(axum::extract::Query(query): axum::extract::Query<PackId>) -> Result<Json<Vec<crate::config::skills::Pack>>, ApiError> {
+    crate::config::skills::remove(&query.id).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "pack", error))?;
+    Ok(Json(crate::config::skills::list()))
+}
+
 /// Switches one plugin on or off; off, it stays listed and runs nothing.
 #[utoipa::path(put, path = "/plugins/enabled", operation_id = "setPluginEnabled", request_body = PluginEnabled, responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
 pub async fn set_plugin_enabled(State(engine): State<Arc<Engine>>, Json(body): Json<PluginEnabled>) -> Result<Json<Vec<crate::hook::PluginInfo>>, ApiError> {

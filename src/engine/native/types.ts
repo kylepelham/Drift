@@ -726,6 +726,25 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills/packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The skill packs installed from a registry. */
+        get: operations["listSkillPacks"];
+        put?: never;
+        /** Installs a skill pack: its archive is fetched over https and the asked folders are unpacked under the user's skills. */
+        post: operations["installSkillPack"];
+        /** Removes a skill pack and every skill it brought. */
+        delete: operations["removeSkillPack"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tasks/{id}": {
         parameters: {
             query?: never;
@@ -1275,6 +1294,18 @@ export interface components {
             sha256: string;
             url: string;
         };
+        /** @description What a registry entry of kind `skills` needs to be installed. */
+        InstallPack: {
+            /** @description A `.tar.gz` over https, as GitHub's codeload serves one. */
+            archive: string;
+            /** @description Becomes the folder name: letters, digits, `-` and `_` only. */
+            id: string;
+            image?: string | null;
+            name: string;
+            source?: string | null;
+            /** @description Folders inside the archive to keep (after its top-level folder); empty keeps everything. */
+            subdirs?: string[];
+        };
         Instruction: {
             name: string;
             text: string;
@@ -1434,6 +1465,18 @@ export interface components {
         Option_: {
             description?: string;
             label: string;
+        };
+        /** @description An installed pack as the API reports it. */
+        Pack: {
+            archive: string;
+            id: string;
+            image?: string | null;
+            /** Format: int64 */
+            installedAt: number;
+            name: string;
+            /** @description The skills it brought, by folder name. */
+            skills: string[];
+            source?: string | null;
         };
         Part: {
             text: string;
@@ -3411,6 +3454,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineSettings"];
+                };
+            };
+        };
+    };
+    listSkillPacks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pack"][];
+                };
+            };
+        };
+    };
+    installSkillPack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallPack"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pack"][];
+                };
+            };
+        };
+    };
+    removeSkillPack: {
+        parameters: {
+            query: {
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pack"][];
                 };
             };
         };

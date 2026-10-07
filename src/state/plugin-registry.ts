@@ -4,6 +4,11 @@ import type { components } from "../engine/native/types"
 export type RegistryPlugin = {
   /** The registry it came from; unset for Drift's own. */
   sourceName?: string
+  /** A WebAssembly component (the default), or a pack of Markdown skills unpacked from an archive. */
+  kind?: "wasm" | "skills"
+  /** For a skills pack: the tar.gz to fetch and the folders inside it to keep. */
+  archive?: string
+  subdirs?: string[]
   id: string
   name: string
   description: string
@@ -31,7 +36,7 @@ export type ConfigField = {
 export type Registry = { version: number; plugins: RegistryPlugin[] }
 
 export const registryUrl = "https://raw.githubusercontent.com/kylepelham/Drift-Plugins/main/registry.json"
-export const registryCategories = ["safety", "quality", "workflow", "context", "notify"] as const
+export const registryCategories = ["safety", "quality", "workflow", "context", "notify", "skills"] as const
 
 const CACHE_MS = 10 * 60 * 1000
 const cached = new Map<string, { at: number; registry: Registry }>()
@@ -69,6 +74,8 @@ export async function loadRegistries(sources: { name: string; url: string }[], f
 
 /** The drift.json entry an installed registry plugin has. */
 export const installedPath = (id: string) => `plugins/${id}.wasm`
+
+export const isSkillPack = (plugin: Pick<RegistryPlugin, "kind">) => plugin.kind === "skills"
 
 /** Whether a plugin matches a search: name, description, category, hooks. */
 export function matchesRegistryQuery(plugin: RegistryPlugin, query: string) {

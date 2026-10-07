@@ -42,6 +42,9 @@ tokio-util = "0.7"
 tower-http = { version = "0.6", features = ["cors"] }
 utoipa = { version = "6", features = ["axum_extras"] }
 utoipa-axum = "0.3"
+# Skill packs arrive as tar.gz archives from GitHub; both crates are already in the tree.
+flate2 = "1"
+tar = "0.4"
 # Plugins are WebAssembly components; compiled code is cached on disk so each loads once.
 wasmtime = { version = "48", optional = true, default-features = false, features = ["cranelift", "component-model", "cache", "runtime", "std", "async", "parallel-compilation"] }
 wasmtime-wasi = { version = "48", optional = true, default-features = false, features = ["p2"] }

@@ -60,6 +60,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::install_plugin))
         .routes(routes!(settings::remove_plugin))
         .routes(routes!(settings::configure_plugin))
+        .routes(routes!(settings::skill_packs, settings::install_skill_pack, settings::remove_skill_pack))
         .routes(routes!(prompts::list))
         .routes(routes!(prompts::save, prompts::reset))
         .routes(routes!(providers::list))

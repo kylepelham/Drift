@@ -7,6 +7,7 @@ export type Target = { url: string; token: string }
 export const maxRequestBytes = 64 * 1024 * 1024
 export type Workspace = components["schemas"]["Workspace"]
 export type PluginInfo = components["schemas"]["PluginInfo"]
+export type SkillPack = components["schemas"]["Pack"]
 export type NewWorkspace = components["schemas"]["NewWorkspace"]
 export type Health = components["schemas"]["Health"]
 export type Frame = components["schemas"]["Frame"]
@@ -103,6 +104,9 @@ export function createClient(target: Target) {
     setPluginEnabled: (path: string, enabled: boolean) => request<Json<"setPluginEnabled", 200>>("PUT", "/plugins/enabled", { path, enabled }),
     installPlugin: (body: components["schemas"]["Install"]) => request<Json<"installPlugin", 200>>("POST", "/plugins/install", body),
     removePlugin: (path: string) => request<Json<"removePlugin", 200>>("DELETE", `/plugins?${new URLSearchParams({ path })}`),
+    skillPacks: () => request<Json<"listSkillPacks", 200>>("GET", "/skills/packs"),
+    installSkillPack: (body: components["schemas"]["InstallPack"]) => request<Json<"installSkillPack", 200>>("POST", "/skills/packs", body),
+    removeSkillPack: (id: string) => request<Json<"removeSkillPack", 200>>("DELETE", `/skills/packs?${new URLSearchParams({ id })}`),
     configurePlugin: (path: string, config: unknown) => request<Json<"configurePlugin", 200>>("PUT", "/plugins/config", { path, config }),
     tools: (workspaceId?: string) => request<Json<"listTools", 200>>("GET", `/tools${workspaceId ? `?${new URLSearchParams({ workspace: workspaceId })}` : ""}`),
     saveBasePrompt: (id: string, text: string) => request<Json<"saveBasePrompt", 200>>("PUT", `/prompts/${id}`, { text }),
