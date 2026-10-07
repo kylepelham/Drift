@@ -632,6 +632,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   wrote: anything changed since is kept, never overwritten, and listed (`kept`, shown as a notice).
   No other file is read or rewritten. Calling revert again moves the point: back undoes the range
   in between, forward redoes it, with the same check.
+- `{ keepFiles: true }` (Shift-click on a prompt's undo button) moves only the conversation and
+  leaves every file as it is, to get back to earlier context without losing work. The marker then
+  records where the files stand (`Revert::files`: as the conversation left them, or put back to
+  before another prompt by an earlier undo); a later ordinary undo and a redo move the files from
+  there, so they never undo a range twice. When the next prompt commits it, the dropped turns'
+  changes stay on disk.
 - An undo or redo is all or nothing. Each file goes through the staged writer; if one cannot be
   written (on Windows, a program holding it open without delete sharing is enough), the files this
   call already changed are put back, newest first, to what they held before it, the conversation is

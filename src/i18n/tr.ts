@@ -595,6 +595,7 @@ export const drift = {
   "drift.task.held": "Durdur sonrası bekletiliyor; sonraki mesajınızla gelir",
   "drift.task.owed": "henüz teslim edilmedi: {{reason}}",
   "drift.message.revertHere": "Buraya geri dön",
+  "drift.message.revertKeepFiles": "Dosyaları olduğu gibi bırakmak için Shift ile tıklayın",
   "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{total}} içinde {{enabled}}",

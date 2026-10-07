@@ -174,13 +174,17 @@ pub async fn switch_retry_model(State(engine): State<Arc<Engine>>, Path(id): Pat
 pub struct RevertBody {
     /// The prompt to go back to; it and everything after it are hidden.
     pub message_id: String,
+    /// Move only the conversation: every file stays as it is now.
+    #[serde(default)]
+    pub keep_files: bool,
 }
 
 /// Undoes the conversation back to a prompt, and the files its turns and subagents changed. Files
 /// changed by someone else since are kept and listed. Again while undone moves the point.
 #[utoipa::path(post, path = "/sessions/{id}/revert", operation_id = "revertSession", request_body = RevertBody, responses((status = 200, body = Undone), (status = 400), (status = 404), (status = 409)))]
 pub async fn revert(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<RevertBody>) -> Result<Json<Undone>, ApiError> {
-    Ok(Json(engine.revert(&id, &body.message_id).await?))
+    let undone = if body.keep_files { engine.revert_keeping_files(&id, &body.message_id).await } else { engine.revert(&id, &body.message_id).await };
+    Ok(Json(undone?))
 }
 
 /// Redoes everything an undo hid, files included, keeping any changed since.

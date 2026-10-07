@@ -560,6 +560,7 @@ export const drift = {
   "drift.task.held": "محتجزة بعد الإيقاف؛ تصل مع رسالتك التالية",
   "drift.task.owed": "لم تُسلَّم بعد: {{reason}}",
   "drift.message.revertHere": "التراجع إلى هنا",
+  "drift.message.revertKeepFiles": "انقر مع Shift لإبقاء الملفات كما هي",
   "drift.message.tokenCounts": "{{input}} إدخال / {{output}} إخراج",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} من {{total}}",

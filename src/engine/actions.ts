@@ -428,9 +428,9 @@ export function createActions(
     }
   }
 
-  /** Undoes back to a prompt, files included; the engine hides it and everything after it. */
-  async function revert(id: string, messageID: string) {
-    return applyUndo(id, () => requireClient().revertSession(id, messageID))
+  /** Undoes back to a prompt, files included unless `keepFiles`; the engine hides it and everything after it. */
+  async function revert(id: string, messageID: string, keepFiles = false) {
+    return applyUndo(id, () => requireClient().revertSession(id, messageID, keepFiles))
   }
 
   /** Redoes everything an undo hid, files included. */

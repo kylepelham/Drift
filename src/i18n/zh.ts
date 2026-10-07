@@ -593,6 +593,7 @@ export const drift = {
   "drift.task.held": "停止后已暂留；随你的下一条消息送达",
   "drift.task.owed": "尚未交付：{{reason}}",
   "drift.message.revertHere": "还原到此处",
+  "drift.message.revertKeepFiles": "按住 Shift 点击可保持文件不变",
   "drift.message.tokenCounts": "输入 {{input}} / 输出 {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} / {{total}}",

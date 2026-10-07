@@ -60,6 +60,39 @@ pub struct Revert {
     /// Files the last undo or redo left alone because someone changed them after the session did.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kept: Vec<String>,
+    /// Where the files stand when an undo kept them; absent means put back to `message_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<FilesAt>,
+}
+
+/// The files of an undo that did not put them back to its own point.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum FilesAt {
+    /// As the whole conversation left them.
+    Current,
+    /// Put back to before this prompt.
+    Before(String),
+}
+
+impl Revert {
+    pub fn new(message_id: &str, kept: Vec<String>, files_from: Option<&str>) -> Self {
+        let files = match files_from {
+            Some(from) if from == message_id => None,
+            Some(from) => Some(FilesAt::Before(from.into())),
+            None => Some(FilesAt::Current),
+        };
+        Self { message_id: message_id.into(), kept, files }
+    }
+
+    /// The prompt whose turns and later ones are undone on disk; none when the files are as the conversation left them.
+    pub fn files_from(&self) -> Option<&str> {
+        match &self.files {
+            None => Some(&self.message_id),
+            Some(FilesAt::Current) => None,
+            Some(FilesAt::Before(from)) => Some(from),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

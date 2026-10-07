@@ -102,10 +102,11 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
   const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking)
   const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID
   const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-  const revert = async () => {
+  // Shift keeps every file as it is: only the conversation goes back.
+  const revert = async (keepFiles: boolean) => {
     const restored = draftFromMessage(props.entry)
     if (clarification()) restored.text = text()
-    if (await engine.actions.revert(info().sessionID, info().id))
+    if (await engine.actions.revert(info().sessionID, info().id, keepFiles))
       setComposerDraft(composerScope(info().sessionID), restored)
   }
   return (
@@ -133,7 +134,8 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
               </Show>
               <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
                 <span>{agentLabel(info().agent)} · {model()} · {time()}</span>
-                <button title={t("drift.message.revertHere")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
+                <button title={`${t("drift.message.revertHere")}
+${t("drift.message.revertKeepFiles")}`} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={(event) => void revert(event.shiftKey)}>
                   <IconUndo class="size-3.5" />
                 </button>
                 <button
@@ -179,7 +181,8 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
             </div>
           </details>
           <div class="flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-            <button title={t("drift.message.revertHere")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
+            <button title={`${t("drift.message.revertHere")}
+${t("drift.message.revertKeepFiles")}`} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={(event) => void revert(event.shiftKey)}>
               <IconUndo class="size-3.5" />
             </button>
             <button title={t("drift.message.copy")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void navigator.clipboard.writeText(text())}>

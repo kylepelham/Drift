@@ -1271,6 +1271,11 @@ export interface components {
             /** @enum {string} */
             type: "plugin.notice";
         };
+        /** @description The files of an undo that did not put them back to its own point. */
+        FilesAt: "current" | {
+            /** @description Put back to before this prompt. */
+            before: string;
+        };
         ForkBody: {
             /** @description Copy through this message; default is the last finished one, leaving out a turn in flight. */
             atMessage?: string | null;
@@ -1727,11 +1732,14 @@ export interface components {
         };
         /** @description An undo in progress: the user message it went back to, hidden with everything after it. */
         Revert: {
+            files?: components["schemas"]["FilesAt"] | null;
             /** @description Files the last undo or redo left alone because someone changed them after the session did. */
             kept?: string[];
             messageId: string;
         };
         RevertBody: {
+            /** @description Move only the conversation: every file stays as it is now. */
+            keepFiles?: boolean;
             /** @description The prompt to go back to; it and everything after it are hidden. */
             messageId: string;
         };

@@ -565,6 +565,7 @@ export const drift = {
   "drift.task.held": "retenue après l'arrêt ; arrive avec votre prochain message",
   "drift.task.owed": "pas encore remise : {{reason}}",
   "drift.message.revertHere": "Revenir ici",
+  "drift.message.revertKeepFiles": "Maj+clic pour garder les fichiers tels quels",
   "drift.message.tokenCounts": "{{input}} en entrée / {{output}} en sortie",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} sur {{total}}",

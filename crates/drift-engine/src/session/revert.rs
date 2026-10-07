@@ -123,7 +123,12 @@ impl Engine {
     /// Hides `message_id`, a prompt, with everything after it, and undoes what those turns changed.
     /// Called again while undone it moves the point either way, and the files follow.
     pub async fn revert(&self, session_id: &str, message_id: &str) -> Result<Undone, RevertError> {
-        self.exclusively(session_id, self.revert_claimed(session_id, message_id)).await
+        self.exclusively(session_id, self.revert_claimed(session_id, message_id, false)).await
+    }
+
+    /// As [`Self::revert`], but only the conversation moves: every file stays as it is now.
+    pub async fn revert_keeping_files(&self, session_id: &str, message_id: &str) -> Result<Undone, RevertError> {
+        self.exclusively(session_id, self.revert_claimed(session_id, message_id, true)).await
     }
 
     /// Brings back everything an undo hid, and redoes what those turns changed.
@@ -147,25 +152,33 @@ impl Engine {
         result
     }
 
-    async fn revert_claimed(&self, session_id: &str, message_id: &str) -> Result<Undone, RevertError> {
+    async fn revert_claimed(&self, session_id: &str, message_id: &str, keep_files: bool) -> Result<Undone, RevertError> {
         let session = self.store.session(session_id)?.ok_or(RevertError::NoSession)?;
         if !self.store.transcript(session_id)?.iter().any(|m| m.info.id == message_id && is_prompt(m)) {
             return Err(RevertError::NotAPrompt);
         }
-        let shifted = match session.revert.as_ref().map(|r| r.message_id.as_str()) {
+        // The files move from where they stand, which an earlier undo that kept them may have left elsewhere.
+        let files = session.revert.as_ref().and_then(Revert::files_from);
+        if keep_files {
+            return self.mark_or_put_back(session_id, Some(&Revert::new(message_id, Vec::new(), files)), Shifted::default()).await;
+        }
+        let shifted = match files {
             None => self.shift(&session, message_id, None, Direction::Back).await?,
             Some(current) if message_id < current => self.shift(&session, message_id, Some(current), Direction::Back).await?,
             Some(current) if message_id > current => self.shift(&session, current, Some(message_id), Direction::Forward).await?,
             Some(_) => Shifted::default(),
         };
-        let revert = Revert { message_id: message_id.into(), kept: shifted.kept.clone() };
+        let revert = Revert::new(message_id, shifted.kept.clone(), Some(message_id));
         self.mark_or_put_back(session_id, Some(&revert), shifted).await
     }
 
     async fn unrevert_claimed(&self, session_id: &str) -> Result<Undone, RevertError> {
         let session = self.store.session(session_id)?.ok_or(RevertError::NoSession)?;
         let Some(revert) = &session.revert else { return Ok(Undone { session, kept: Vec::new(), unattributed: Vec::new(), unrecorded: Vec::new() }) };
-        let shifted = self.shift(&session, &revert.message_id, None, Direction::Forward).await?;
+        let shifted = match revert.files_from() {
+            Some(from) => self.shift(&session, from, None, Direction::Forward).await?,
+            None => Shifted::default(),
+        };
         self.mark_or_put_back(session_id, None, shifted).await
     }
 

@@ -60,6 +60,29 @@ async fn undo_redo_and_moving_the_point_keep_files_and_history_in_step() {
 }
 
 #[tokio::test]
+async fn an_undo_that_keeps_files_moves_only_the_conversation_and_a_later_one_starts_from_where_they_stand() {
+    let h = harness().await;
+    let (first, second) = two_writing_turns(&h).await;
+    let kept = h.engine.revert_keeping_files(&h.session.id, &first).await.unwrap();
+    assert_eq!(kept.session.revert.as_ref().unwrap().message_id, first, "the conversation goes back");
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("two"), Some("bee")), "the files stay");
+
+    h.engine.revert(&h.session.id, &second).await.unwrap();
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt")), (Some("one"), None), "an ordinary undo puts back from where the files stood");
+    h.engine.revert_keeping_files(&h.session.id, &first).await.unwrap();
+    assert_eq!(read(&h, "a.txt").as_deref(), Some("one"), "still kept as they are");
+    h.engine.unrevert(&h.session.id).await.unwrap();
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("two"), Some("bee")), "redo returns the files the earlier undo put back");
+
+    h.engine.revert_keeping_files(&h.session.id, &second).await.unwrap();
+    h.provider.push(text("carried on"));
+    turn(&h, "again").await;
+    let prompts = h.engine.store.transcript(&h.session.id).unwrap().iter().filter(|m| m.info.role == Role::User).count();
+    assert_eq!(prompts, 2, "the next prompt commits the undo");
+    assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()), (Some("two"), Some("bee")), "and the dropped turns' files stay");
+}
+
+#[tokio::test]
 async fn an_undo_whose_write_fails_once_begun_leaves_the_file_whole_and_can_be_tried_again() {
     use crate::tool::stage::tests::{inject, leftovers, Fault};
     let h = harness().await;
@@ -195,7 +218,7 @@ async fn rollback_keeps_competing_writers_out_until_the_marker_failure_is_repair
     tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(!competing.is_finished(), "undo still holds the files while its marker is uncommitted");
     refuse_marker(&h);
-    let marker = Revert { message_id: second, kept: Vec::new() };
+    let marker = Revert::new(&second, Vec::new(), Some(&second));
     assert!(h.engine.mark_or_put_back(&h.session.id, Some(&marker), shifted).await.is_err());
     tokio::time::timeout(Duration::from_secs(5), competing).await.unwrap().unwrap();
     assert_eq!(read(&h, "a.txt").as_deref(), Some("another session"), "rollback completed before the competing writer ran");

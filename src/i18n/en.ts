@@ -732,6 +732,7 @@ export const drift = {
   "drift.task.held": "held after Stop; arrives with your next message",
   "drift.task.owed": "not handed over yet: {{reason}}",
   "drift.message.revertHere": "Revert to here",
+  "drift.message.revertKeepFiles": "Shift-click to keep the files as they are",
   "drift.message.tokenCounts": "{{input}} in / {{output}} out",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.lmStudio.apiToken": "API token (only when server authentication is enabled)",

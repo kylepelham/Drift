@@ -594,6 +594,7 @@ export const drift = {
   "drift.task.held": "zadržano nakon zaustavljanja; stiže s vašom sljedećom porukom",
   "drift.task.owed": "još nije predano: {{reason}}",
   "drift.message.revertHere": "Vrati do ovdje",
+  "drift.message.revertKeepFiles": "Shift+klik da datoteke ostanu kakve jesu",
   "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} od {{total}}",

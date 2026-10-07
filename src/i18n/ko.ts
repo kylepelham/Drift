@@ -561,6 +561,7 @@ export const drift = {
   "drift.task.held": "중지 후 보류됨. 다음 메시지와 함께 전달됩니다",
   "drift.task.owed": "아직 전달되지 않음: {{reason}}",
   "drift.message.revertHere": "여기로 되돌리기",
+  "drift.message.revertKeepFiles": "Shift+클릭하면 파일은 그대로 둡니다",
   "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} 토큰/초",
   "drift.model.enabledCount": "{{total}}개 중 {{enabled}}개",

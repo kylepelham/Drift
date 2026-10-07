@@ -95,7 +95,7 @@ export function createClient(target: Target) {
     compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),
     switchRetryModel: (id: string, model: components["schemas"]["ModelRef"], variant: string | null) =>
       request<void>("POST", `/sessions/${id}/retry`, { model, variant }),
-    revertSession: (id: string, messageId: string) => request<Json<"revertSession", 200>>("POST", `/sessions/${id}/revert`, { messageId }),
+    revertSession: (id: string, messageId: string, keepFiles = false) => request<Json<"revertSession", 200>>("POST", `/sessions/${id}/revert`, { messageId, keepFiles }),
     unrevertSession: (id: string) => request<Json<"unrevertSession", 200>>("POST", `/sessions/${id}/unrevert`),
     settings: () => request<Json<"getSettings", 200>>("GET", "/settings"),
     putSettings: (body: components["schemas"]["EngineSettings"]) => request<Json<"putSettings", 200>>("PUT", "/settings", body),

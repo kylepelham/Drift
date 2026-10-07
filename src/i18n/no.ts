@@ -596,6 +596,7 @@ export const drift = {
   "drift.task.held": "holdt tilbake etter Stopp; kommer med din neste melding",
   "drift.task.owed": "ikke levert ennå: {{reason}}",
   "drift.message.revertHere": "Tilbakestill hit",
+  "drift.message.revertKeepFiles": "Shift-klikk for å beholde filene som de er",
   "drift.message.tokenCounts": "{{input}} inn / {{output}} ut",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} av {{total}}",

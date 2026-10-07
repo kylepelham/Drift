@@ -392,14 +392,19 @@ test("a removed workspace's purge completes only once the engine holds none of i
 })
 
 test("undo and redo apply the engine's session and report refusals", async () => {
+  const asked: boolean[] = []
   const h = harness({
-    revertSession: (id: string, messageId: string) =>
-      id === "ses_busy"
+    revertSession: (id: string, messageId: string, keepFiles = false) => {
+      asked.push(keepFiles)
+      return id === "ses_busy"
         ? Promise.reject(new EngineError(409, `/sessions/${id}/revert`, "busy", "stop the running turn first"))
-        : Promise.resolve({ session: { ...session(id), revert: { messageId } }, kept: [], unattributed: [], unrecorded: [] }),
+        : Promise.resolve({ session: { ...session(id), revert: { messageId } }, kept: [], unattributed: [], unrecorded: [] })
+    },
     unrevertSession: (id: string) => Promise.resolve({ session: session(id), kept: ["src/app.ts"], unattributed: ["dist/out.js"], unrecorded: ["C:/repo/old.rs"] }),
   } as Partial<Client>)
   expect(await h.actions.revert("ses_1", "msg_2")).toBeTrue()
+  expect(await h.actions.revert("ses_1", "msg_2", true)).toBeTrue()
+  expect(asked.slice(0, 2), "Shift asks the engine to leave the files").toEqual([false, true])
   expect((h.state.sessions.ses_1 as { revert?: { messageID: string } }).revert?.messageID).toBe("msg_2")
   expect(h.state.notices.length).toBe(0)
   expect(await h.actions.unrevert("ses_1")).toBeTrue()

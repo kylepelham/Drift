@@ -594,6 +594,7 @@ export const drift = {
   "drift.task.held": "відкладено після зупинки; надійде з вашим наступним повідомленням",
   "drift.task.owed": "ще не передано: {{reason}}",
   "drift.message.revertHere": "Повернутися сюди",
+  "drift.message.revertKeepFiles": "Shift+клік залишає файли як є",
   "drift.message.tokenCounts": "{{input}} вх. / {{output}} вих.",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} з {{total}}",

@@ -594,6 +594,7 @@ export const drift = {
   "drift.task.held": "ถูกพักไว้หลังหยุด จะมาพร้อมข้อความถัดไปของคุณ",
   "drift.task.owed": "ยังไม่ได้ส่งมอบ: {{reason}}",
   "drift.message.revertHere": "ย้อนกลับมาที่นี่",
+  "drift.message.revertKeepFiles": "กด Shift ค้างแล้วคลิกเพื่อคงไฟล์ไว้ตามเดิม",
   "drift.message.tokenCounts": "เข้า {{input}} / ออก {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{enabled}} จาก {{total}}",

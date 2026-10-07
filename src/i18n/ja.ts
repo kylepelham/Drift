@@ -562,6 +562,7 @@ export const drift = {
   "drift.task.held": "停止により保留中。次のメッセージと一緒に届きます",
   "drift.task.owed": "まだ渡されていません: {{reason}}",
   "drift.message.revertHere": "ここまで戻す",
+  "drift.message.revertKeepFiles": "Shift+クリックでファイルはそのまま残します",
   "drift.message.tokenCounts": "入力 {{input}} / 出力 {{output}}",
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.model.enabledCount": "{{total}}件中{{enabled}}件",
