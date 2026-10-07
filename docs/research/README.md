@@ -1,10 +1,24 @@
 # Drift engine replacement research
 
-Research snapshot: 2026-09-29. The goal is to replace the embedded OpenCode core
+The 2.0.2 research pass (2026-10-06) compared Drift at `4eb75f8023` with Claude Code 2.1.85,
+Claude Desktop 2.19675 and its 2.26454 update. Five reports came out of it, listed first in the
+table below. Two bugs it found are real and scheduled for 2.1.1: a stale whole-file `write` can
+overwrite an outside edit, and imported skills' invocation flags are ignored. What Drift adopts is
+decided in "After 2.0.2" in [engine-rewrite.md](../engine-rewrite.md) and in `CHECKLIST.md`; the
+reports are evidence, not the plan.
+
+The committed reports leave out bundle offsets and binary addresses. The full versions, the probes
+and the IDA database are kept locally in `docs/research/private/`, which is not committed.
+
+The following index records the original 2026-09-29 investigation and its
+implementation-era checkpoints. For current implementation state, use
+`CHECKLIST.md` and `docs/engine-rewrite.md`, not their historical status claims.
+
+Original research snapshot: 2026-09-29. The goal was to replace the embedded OpenCode core
 with Drift-owned execution and deep support for Anthropic, OpenAI and xAI, while
 preserving subscription sign-ins, direct keys, gateways and local endpoints.
 Research documents and reproducible inspection tools exist. No replacement engine
-or provider login flow has been implemented by this investigation.
+or provider login flow was implemented by the original investigation itself.
 
 The plan of record is [engine-rewrite.md](../engine-rewrite.md), with implementation
 state in `CHECKLIST.md`. It now includes the requested M3 async-worker additions.
@@ -80,6 +94,11 @@ failures, and records the user's disable-versus-reconnect decision.
 
 | Report | What it establishes |
 | --- | --- |
+| [Capability gating](claude-capability-gating-2.26454.md) | Current desktop/runtime source evidence for offer/prompt/discovery/execution gates and limits; small controllable capability groups, context/lifetime contracts and baseline-preserving rollout requirements for Drift. |
+| [Host-native versatility](drift-versatility-2.0.2.md) | User direction and optional-worktree inheritance; traced computer/terminal contracts and verified stdin/media/effect limits; task coverage across apps, assets, games, training and RE without replacing existing CLI/MCP strengths. |
+| [Claude Desktop 2.19675](claude-desktop-2.19675.md) | Actual installed desktop archive and IDA evidence for native VM boundaries; traced live-browser verification, lazy task worktrees, PR monitoring and side replies, excluding already-covered Drift capabilities and opaque remote review. |
+| [Agent quality pass](claude-agent-quality-2.0.2.md) | Reproduced stale overwrite and missing evidence/verification feedback; measured unused schema and output bytes; prioritized correctness, completion evidence, task state and request reduction over blanket extra inference. |
+| [2.0.2 gap pass](claude-gaps-2.0.2.md) | Reproduced ignored skill invocation metadata and wrong post-compaction context attribution; verified restore/discovery gaps and separated implemented work from optional Claude behavior. |
 | [Binary evidence](binary-evidence.md) | PE layout, two identical readable source bundles, hashes, byte ranges, reproducible binary scan and full-source structural index. |
 | [Execution](claude-execution.md) | Main agent loop, streaming and batch schedulers, hooks/permissions, aborts, retries/fallback, transcript persistence and subagent ownership. |
 | [Async workers](claude-async-workers.md) | Full ordinary Agent and forked-skill routing, background lifecycle and version/gate limits; M3 job, result-delivery and cancellation contract. |

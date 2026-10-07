@@ -1065,7 +1065,66 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   the registries itself.
 - Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`): refuses history
   rewrites, notes failed commands, runs the configured test command on `@guard test` and continues
-  the turn with the failures; `hook::wasm::tests` builds and runs it.
+  the turn with the failures; `hook::wasm::tests` builds it into `target/plugins` and runs it.
+
+### After 2.0.2
+
+Decided with Kyle after the 2.0.2 research pass (`docs/research/claude-gaps-2.0.2.md`,
+`claude-agent-quality-2.0.2.md`, `claude-desktop-2.19675.md`, `drift-versatility-2.0.2.md`,
+`claude-capability-gating-2.26454.md`). Drift stays host-native: commands run on the user's
+machine, with no mandatory VM or container, and it works the same with any provider.
+
+**2.1.1, agent correctness.**
+
+- `write` refuses to replace a file that changed since the agent's last full read of it. A full
+  read records a hash of what it returned; `write` compares it under the per-file lock it already
+  holds. A partial read is not a full view. Drift's own writes and formatter runs record the new
+  hash, so the agent never conflicts with itself. `edit` needs nothing: an exact match on stale
+  text already misses.
+- Skill front matter is honoured: `disable-model-invocation: true` keeps a skill out of the
+  model's list, `user-invocable: false` keeps it out of the slash menu.
+- Every check result reaches the model as one line: passed, failed, unavailable, denied, timed
+  out or stale. A failure links its full log, kept like spooled shell output. A later edit to a
+  file a check covered marks its earlier pass stale.
+- A turn that ends while a configured check (`drift.json` or Settings, never a command the model
+  ran itself) still fails gets exactly one nudge to fix it or say it is blocked. Stop still ends
+  the turn at once, and a check that already failed before the turn does not count.
+
+**2.1.2, what compaction keeps.** After the summary, the request carries what Drift already knows
+exactly: background tasks still running or owed, the todo list, and the skills invoked, at their
+current version. The user's own corrections are not pinned yet; that needs a rule for when a new
+goal retires them.
+
+**M6, capabilities.**
+
+- One settings mechanism decides what a session is offered: tools, instruction sections and
+  settings. New capabilities are off by default, and with them off a session is exactly what it
+  is today. Background processes are the one exception, on by default. `/watch-pr` needs no
+  switch, since it starts only when the user runs it.
+- Background processes, first:
+  - `bash` takes `background: true` and returns a process id at once. A command still running at
+    its time limit moves to the background with its output so far, instead of being killed.
+  - A `process` tool lists, reads output (new lines, or a search), types input, interrupts,
+    stops, and waits until a line appears or the process exits. Background processes get an input
+    pipe; foreground commands keep a closed one. Typing input asks like `bash` does.
+  - A process outlives the turn and Stop. The dock's Stop, archiving its conversation and quitting
+    Drift end it.
+  - Processes show in the Background tasks dock beside background subagents, with the dashed
+    background tag, a live last line and Stop.
+  - A URL a process prints is handed back to the model. With the chrome-devtools MCP that is the
+    whole browser check: start the dev server, wait for its URL, look at the page, stop it.
+- Worktrees: a toggle when a thread starts, never mid-turn. Drift makes branch `drift/<name>` from
+  the current commit in a folder under its data directory and says that uncommitted changes were
+  not copied. Spawned threads inherit the toggle and branch from the parent's worktree. Drift never
+  merges back; the header names the branch. Purging the thread removes the worktree if its branch
+  is merged and asks otherwise.
+- `/watch-pr` on one PR: Drift polls it through `gh` about once a minute, wakes the thread when CI
+  fails or a review comment arrives, and stops at merge, close or the fifth wake. Pushing still asks.
+
+**Not doing.** Side replies while busy (steering and async questions cover them), trimming old
+tool results in the request (it breaks the prompt cache), and moving Explore to a cheaper model
+(its model can already be pinned in Settings). Deferred tool schemas wait until a workspace still
+sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
 
 ### Trade-offs kept on purpose
 

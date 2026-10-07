@@ -270,3 +270,36 @@ change the plan there when a decision changes.
 - [ ] Translate the 349 English keys each locale lacks (they show in English meanwhile)
 - [ ] A plan file the plan agent may write (opencode allows `.opencode/plans/*.md`), so a plan survives compaction
 - [ ] Only if the UI or headless use wants them: user-run `!command` turns, `@agent` mention parts, `format: json_schema` structured output, project references
+
+## 2.1.1: agent correctness
+
+Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine-rewrite.md`.
+
+- [ ] `write` refuses a file that changed since the agent's last full read (hash of the read, checked under the file lock; partial reads are not a full view; Drift's own writes and formatters record the new hash), with tests for an outside edit at a newer, equal and older mtime
+- [ ] Honour skill `disable-model-invocation` (hidden from the model) and `user-invocable: false` (hidden from the slash menu)
+- [ ] Every check result reaches the model as one line (passed, failed, unavailable, denied, timed out, stale), a failure links its full log, and a later edit marks an earlier pass stale
+- [ ] One nudge when a turn ends with a configured check still failing; Stop still ends it, and failures from before the turn do not count
+
+## 2.1.2: what compaction keeps
+
+- [ ] After the summary, carry the background tasks still running or owed, the todo list and the skills invoked at their current version
+
+## M6: capabilities
+
+- [ ] One settings mechanism decides the tools, instruction sections and settings a session is offered; new capabilities off by default, and a session with them off is unchanged
+- [ ] Background processes, on by default:
+  - [ ] `bash` `background: true` returns a process id; a command at its time limit moves to the background instead of being killed
+  - [ ] `process` tool: list, output (new lines or search), input (asks like `bash`), interrupt, stop, wait for a line or exit; background processes get an input pipe
+  - [ ] A process outlives the turn and Stop; the dock's Stop, archiving the conversation and quitting Drift end it
+  - [ ] Processes in the Background tasks dock with the background tag, live last line and Stop
+  - [ ] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
+- [ ] Worktrees: per-thread toggle at start; branch `drift/<name>` from the current commit under Drift's data; uncommitted changes not copied (said so); spawned threads inherit; never merged by Drift; purged with the thread when merged, asked otherwise
+- [ ] `/watch-pr`: poll through `gh` about once a minute, wake the thread on CI failure or a review comment, stop at merge, close or the fifth wake
+
+### Later, each needs its own design round
+
+- [ ] Computer use: see and drive app windows (`docs/research/drift-versatility-2.0.2.md`)
+- [ ] Audio and video as evidence the model can use (same report)
+- [ ] Remote execution targets (same report)
+- [ ] Deferred MCP tool schemas, only if a workspace still sends more than about 30 KB of them (`docs/research/claude-agent-quality-2.0.2.md`)
+- [ ] Pin the user's own corrections through compaction, once there is a rule for when a new goal retires them (same report)
