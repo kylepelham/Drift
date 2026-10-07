@@ -1,8 +1,8 @@
-import { createEffect, createSignal, For, on, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, onMount, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PermissionGrant, PermissionRule } from "../engine/native/client"
 import { t } from "../state/i18n"
-import { activeWorkspace } from "../state/workspaces"
+import { activeWorkspace, workspaces } from "../state/workspaces"
 import { IconArrowDown, IconArrowUp, IconPlus, IconTrash } from "./icons"
 import { Picker } from "./picker"
 import { SettingsGroup } from "./settings-controls"
@@ -104,16 +104,40 @@ function RulesGroup() {
   )
 }
 
+/** Which part of the page a grant belongs to: by what it lets through, not by the tool that asked. */
+export function grantGroup(grant: PermissionGrant): "shell" | "files" | "web" | "mcp" | "other" {
+  const kind = grant.grant === "subcommand" ? "bash" : grant.kind
+  if (kind === "bash") return "shell"
+  if (["read", "edit", "glob", "grep"].includes(kind)) return "files"
+  if (kind === "webfetch") return "web"
+  if (kind === "mcp") return "mcp"
+  return "other"
+}
+
+/** What a grant covers, without the kind its group already names. */
+export function grantText(grant: PermissionGrant) {
+  if (grant.grant === "exact") return grant.target
+  if (grant.grant === "subcommand") return t("drift.permissions.grant.subcommand", { prefix: grant.prefix })
+  if (grant.grant === "folder") return t("drift.permissions.grant.folder", { folder: grant.folder })
+  return grant.pattern
+}
+
+const grantGroups = ["shell", "files", "web", "mcp", "other"] as const
+const filterFrom = 8
+
 function GrantsGroup() {
   const engine = useEngine()
+  const [chosen, setChosen] = createSignal<string>()
   const [grants, setGrants] = createSignal<PermissionGrant[]>([])
+  const [filter, setFilter] = createSignal("")
   const [error, setError] = createSignal("")
   const [busy, setBusy] = createSignal(false)
-  const directory = () => activeWorkspace()?.path
+  const workspace = () => workspaces().find((item) => item.id === chosen()) ?? activeWorkspace() ?? workspaces()[0]
+  const directory = () => workspace()?.path
 
   async function run(action: () => Promise<unknown>) {
     const folder = directory()
-    if (!folder) return setGrants([])
+    if (!folder) return
     setBusy(true)
     setError("")
     try {
@@ -126,43 +150,92 @@ function GrantsGroup() {
     }
   }
 
-  createEffect(on(directory, () => void run(async () => undefined)))
+  createEffect(on(directory, () => {
+    setFilter("")
+    void run(async () => undefined)
+  }))
+
+  const shown = createMemo(() => {
+    const words = filter().trim().toLowerCase()
+    const matching = grants().filter((grant) => !words || `${grant.grant === "subcommand" ? "bash" : grant.kind} ${grantText(grant)}`.toLowerCase().includes(words))
+    return grantGroups.map((group) => ({ group, grants: matching.filter((grant) => grantGroup(grant) === group) })).filter((entry) => entry.grants.length)
+  })
 
   return (
-    <SettingsGroup title={t("drift.permissions.grants")}>
-      <div class="space-y-3 py-3">
-        <Show when={activeWorkspace()} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.noWorkspace")}</div>}>
-          {(workspace) => (
+    <section>
+      <div class="mb-1.5 flex items-center justify-between gap-3">
+        <div class="text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{t("drift.permissions.grants")}</div>
+        <Show when={workspaces().length}>
+          <Picker
+            label={t("drift.permissions.workspace")}
+            items={workspaces().map((item) => ({ id: item.id, label: item.name, hint: item.path }))}
+            selected={workspace()?.id}
+            floating bordered chevronAtEnd placement="below" width="13rem"
+            onPick={setChosen}
+          />
+        </Show>
+      </div>
+      <div class="space-y-4 border-y border-edge/80 py-3">
+        <Show when={workspace()} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.noWorkspace")}</div>}>
+          {(current) => (
             <>
-              <div class="text-xs text-ink-faint">{t("drift.permissions.grantsDescription", { workspace: workspace().name })}</div>
-              <Show when={grants().length > 0} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.noGrants")}</div>}>
-                <div class="space-y-1">
-                  <For each={grants()}>
-                    {(grant) => (
-                      <div class="flex items-center gap-2 rounded-md px-2 py-1 hover:bg-raised/40">
-                        <span class="min-w-0 flex-1 truncate font-mono text-xs text-ink" title={grantLabel(grant)}>
-                          {grantLabel(grant)}
-                        </span>
-                        <button
-                          class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-                          disabled={busy()}
-                          onClick={() => void run(() => engine.actions.revokeGrant(workspace().path, grant))}
-                        >
-                          {t("drift.permissions.revoke")}
-                        </button>
-                      </div>
-                    )}
-                  </For>
-                </div>
-                <div class="flex justify-end">
+              <div class="flex items-start justify-between gap-3">
+                <div class="text-xs leading-relaxed text-ink-faint">{t("drift.permissions.grantsDescription", { workspace: current().name })}</div>
+                <Show when={grants().length}>
                   <button
-                    class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
+                    class="shrink-0 rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-danger/50 hover:text-danger disabled:opacity-40"
                     disabled={busy()}
-                    onClick={() => void run(() => engine.actions.revokeGrant(workspace().path))}
+                    onClick={() => void run(() => engine.actions.revokeGrant(current().path))}
                   >
                     {t("drift.permissions.revokeAll")}
                   </button>
-                </div>
+                </Show>
+              </div>
+              <Show when={grants().length >= filterFrom}>
+                <input
+                  class="h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-xs text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
+                  placeholder={t("drift.permissions.filter")}
+                  aria-label={t("drift.permissions.filter")}
+                  value={filter()}
+                  onInput={(event) => setFilter(event.currentTarget.value)}
+                />
+              </Show>
+              <Show when={grants().length} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.noGrants")}</div>}>
+                <For each={shown()}>
+                  {(entry) => (
+                    <div>
+                      <div class="mb-1 flex items-center gap-2 text-[0.72rem] font-medium text-ink-muted">
+                        {t(`drift.permissions.group.${entry.group}`)}
+                        <span class="text-ink-faint">{entry.grants.length}</span>
+                      </div>
+                      <div class="overflow-hidden rounded-md border border-edge/70">
+                        <For each={entry.grants}>
+                          {(grant) => (
+                            <div class="group/grant flex items-center gap-2 border-b border-edge/50 px-2.5 py-1.5 last:border-b-0 hover:bg-raised/40">
+                              <Show when={entry.group === "other" || entry.group === "files"}>
+                                <span class="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[0.65rem] text-ink-faint">{grant.grant === "subcommand" ? "bash" : grant.kind}</span>
+                              </Show>
+                              <span class="min-w-0 flex-1 truncate font-mono text-[0.72rem] text-ink" title={grantText(grant)}>{grantText(grant)}</span>
+                              <button
+                                type="button"
+                                title={t("drift.permissions.revoke")}
+                                aria-label={t("drift.permissions.revoke")}
+                                class="flex size-6 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-hover/grant:opacity-100 hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 disabled:opacity-30"
+                                disabled={busy()}
+                                onClick={() => void run(() => engine.actions.revokeGrant(current().path, grant))}
+                              >
+                                <IconTrash class="size-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  )}
+                </For>
+                <Show when={!shown().length}>
+                  <div class="text-xs text-ink-faint">{t("drift.permissions.noMatch")}</div>
+                </Show>
               </Show>
             </>
           )}
@@ -171,7 +244,7 @@ function GrantsGroup() {
           <div role="alert" class="text-xs text-danger">{error()}</div>
         </Show>
       </div>
-    </SettingsGroup>
+    </section>
   )
 }
 

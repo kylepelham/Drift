@@ -304,7 +304,13 @@ impl Permissions {
         };
         let mut rules = self.workspace_rules.lock().unwrap();
         let kept = rules.entry(workspace.clone()).or_default();
-        let fresh: Vec<Grant> = grants.into_iter().filter(|grant| !kept.contains(grant)).collect();
+        // One answer can name the same grant twice (`a | head; b | head`).
+        let mut fresh: Vec<Grant> = Vec::new();
+        for grant in grants {
+            if !kept.contains(&grant) && !fresh.contains(&grant) {
+                fresh.push(grant);
+            }
+        }
         if fresh.is_empty() {
             return;
         }
@@ -700,6 +706,15 @@ mod tests {
         assert_eq!(permissions.decide("ses_1", &none, &shell("git status && ./build.sh prod")), Decision::Allow, "each approved command on its own");
         assert_eq!(permissions.decide("ses_1", &none, &shell("./build.sh dev")), Decision::Ask, "an unknown program is approved exactly");
         assert_eq!(permissions.decide("ses_2", &none, &shell("cargo test")), Decision::Ask, "approvals belong to their session");
+    }
+
+    #[test]
+    fn a_command_named_twice_in_one_line_is_granted_once() {
+        let permissions = Permissions::new(Policy::default());
+        permissions.bind("ses_1", "ws_1", Vec::new);
+        approve_always(&permissions, shell("ls | head && cat a | head"));
+        let granted = permissions.grants("ws_1", Vec::new);
+        assert_eq!(granted.iter().filter(|grant| **grant == Grant::Exact { kind: "bash".into(), target: "head".into() }).count(), 1, "{granted:?}");
     }
 
     #[test]

@@ -426,7 +426,7 @@ function SettingsModal(props: { onClose: () => void }) {
                     {(name) => (
                       <button
                         aria-label={t(sectionLabels[name])}
-                        class="flex w-full items-center justify-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors sm:justify-start"
+                        class="flex w-full items-center justify-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors focus-visible:bg-raised/60 sm:justify-start"
                         classList={{
                           "bg-raised text-ink": section() === name,
                           "text-ink-muted hover:bg-raised/60 hover:text-ink": section() !== name,

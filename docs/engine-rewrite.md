@@ -2018,8 +2018,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     startup and replaced whole by `PUT /permission-rules` (`GET` reads it). They are checked after
     the rules in drift.json and the first match wins, so a project's file still decides first. A
     rule whose kind names no operation or whose pattern is no glob is refused with the reason, and
-    the list holds at most 200. The same section lists the active workspace's "always" grants with
-    Revoke and Revoke all, through the routes below.
+    the list holds at most 200. Below them, under "Always allowed in one workspace", a workspace
+    picker (the active workspace first) shows that workspace's "always" grants, since a grant holds
+    only where it was given: grouped as shell commands, files and folders, websites, MCP tools and
+    other, each shown as what it covers, with a filter once there are eight or more, a trash icon on
+    each and Revoke all, through the routes below. One answer that names the same grant twice
+    (`a | head; b | head`) keeps it once, and twins an older build stored are dropped on load.
   - "Always" holds for the workspace, in every session and across restarts (`Permissions::bind`
     ties each planned session to its workspace; grants are kept in the `permissionGrants:<id>`
     setting), as opencode keeps it for the project. A session with no workspace keeps its grants

@@ -205,8 +205,16 @@ impl Engine {
         Ok(())
     }
 
+    /// A workspace's stored grants, any twin kept by an older build dropped.
     fn stored_grants(&self, workspace_id: &str) -> Vec<permission::Grant> {
-        self.store.setting(&grants_key(workspace_id)).ok().flatten().unwrap_or_default()
+        let stored: Vec<permission::Grant> = self.store.setting(&grants_key(workspace_id)).ok().flatten().unwrap_or_default();
+        let mut unique: Vec<permission::Grant> = Vec::with_capacity(stored.len());
+        for grant in stored {
+            if !unique.contains(&grant) {
+                unique.push(grant);
+            }
+        }
+        unique
     }
 
     pub fn permission_grants(&self, workspace_id: &str) -> Vec<permission::Grant> {

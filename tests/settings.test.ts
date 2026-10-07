@@ -616,3 +616,13 @@ test("permission rules reorder within the list and grants read as what was appro
   expect(grantLabel({ grant: "subcommand", prefix: "cargo test" })).toBe("bash: cargo test with any arguments")
   expect(grantLabel({ grant: "pattern", kind: "read", pattern: "docs/**", decision: "allow" })).toBe("read: docs/**")
 })
+test("always-allowed grants are grouped by what they let through and shown without the kind their group names", async () => {
+  const { grantGroup, grantText } = await import("../src/ui/settings-permissions")
+  const exact = { grant: "exact" as const, kind: "bash", target: "cargo test" }
+  const sub = { grant: "subcommand" as const, prefix: "git push" }
+  const folder = { grant: "folder" as const, kind: "read", folder: "C:/notes" }
+  const site = { grant: "pattern" as const, kind: "webfetch", pattern: "https://docs.rs/*", decision: "allow" as const }
+  expect([exact, sub, folder, site].map(grantGroup)).toEqual(["shell", "shell", "files", "web"])
+  expect(grantText(exact)).toBe("cargo test")
+  expect(grantText(site)).toBe("https://docs.rs/*")
+})
