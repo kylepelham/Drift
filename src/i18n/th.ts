@@ -408,6 +408,7 @@ export const drift = {
   "drift.mcp.switchHint": "เปิดในทุกพื้นที่ทำงาน ปุ่มปลั๊กจะเปิดหรือปิดเฉพาะในพื้นที่ทำงานนี้",
   "drift.settings.plugins": "ปลั๊กอิน",
   "drift.plugins.loaded": "โหลดแล้ว",
+  "drift.plugins.off": "ปิด",
   "drift.plugins.reload": "โหลดใหม่",
   "drift.plugins.loading": "กำลังโหลดปลั๊กอิน...",
   "drift.plugins.empty": "ไม่มีปลั๊กอิน ระบุคอมโพเนนต์ WebAssembly ใต้ \"plugins\" ใน {path} แล้วโหลดใหม่",

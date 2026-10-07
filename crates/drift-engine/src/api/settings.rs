@@ -89,5 +89,19 @@ pub async fn plugins(State(engine): State<Arc<Engine>>) -> Json<Vec<crate::hook:
 /// Reads drift.json again and loads every plugin afresh, so an edited one runs without a restart.
 #[utoipa::path(post, path = "/plugins/reload", operation_id = "reloadPlugins", responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
 pub async fn reload_plugins(State(engine): State<Arc<Engine>>) -> Json<Vec<crate::hook::PluginInfo>> {
-    Json(engine.hooks.load(&engine.plugin_cache_dir()).await)
+    Json(engine.reload_plugins().await)
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginEnabled {
+    /// The plugin's entry in drift.json.
+    pub path: String,
+    pub enabled: bool,
+}
+
+/// Switches one plugin on or off; off, it stays listed and runs nothing.
+#[utoipa::path(put, path = "/plugins/enabled", operation_id = "setPluginEnabled", request_body = PluginEnabled, responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
+pub async fn set_plugin_enabled(State(engine): State<Arc<Engine>>, Json(body): Json<PluginEnabled>) -> Result<Json<Vec<crate::hook::PluginInfo>>, ApiError> {
+    Ok(Json(engine.set_plugin_enabled(&body.path, body.enabled).await?))
 }

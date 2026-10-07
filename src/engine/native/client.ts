@@ -100,6 +100,7 @@ export function createClient(target: Target) {
     basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),
     plugins: () => request<Json<"listPlugins", 200>>("GET", "/plugins"),
     reloadPlugins: () => request<Json<"reloadPlugins", 200>>("POST", "/plugins/reload"),
+    setPluginEnabled: (path: string, enabled: boolean) => request<Json<"setPluginEnabled", 200>>("PUT", "/plugins/enabled", { path, enabled }),
     tools: (workspaceId?: string) => request<Json<"listTools", 200>>("GET", `/tools${workspaceId ? `?${new URLSearchParams({ workspace: workspaceId })}` : ""}`),
     saveBasePrompt: (id: string, text: string) => request<Json<"saveBasePrompt", 200>>("PUT", `/prompts/${id}`, { text }),
     resetBasePrompt: (id: string) => request<Json<"resetBasePrompt", 200>>("DELETE", `/prompts/${id}`),

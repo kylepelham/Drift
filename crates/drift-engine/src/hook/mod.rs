@@ -92,6 +92,8 @@ pub trait Hook: Send + Sync {
 pub struct PluginInfo {
     pub name: String,
     pub path: String,
+    /// Off in Settings: listed, not loaded.
+    pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -111,22 +113,26 @@ impl Hooks {
         *self.loaded.write().unwrap() = loaded;
     }
 
-    /// Loads every plugin the user's drift.json lists, replacing the set loaded before. A plugin
-    /// that fails stays in the report with its error; the others still run.
-    pub async fn load(&self, cache_dir: &std::path::Path) -> Vec<PluginInfo> {
+    /// Loads the listed plugins (drift.json entries with their resolved paths), replacing the set
+    /// loaded before. One that fails stays in the report with its error; one in `disabled` is listed and left alone.
+    pub async fn load(&self, cache_dir: &std::path::Path, entries: Vec<(String, Result<std::path::PathBuf, String>)>, disabled: &[String]) -> Vec<PluginInfo> {
         let mut hooks: Vec<Arc<dyn Hook>> = Vec::new();
         let mut loaded = Vec::new();
-        for (entry, path) in crate::config::user_plugins() {
+        for (entry, path) in entries {
+            if disabled.contains(&entry) {
+                loaded.push(PluginInfo { name: plugin_name(&entry), path: entry, enabled: false, error: None });
+                continue;
+            }
             let outcome = match path {
                 Ok(path) => self.load_one(cache_dir, &path).await,
                 Err(error) => Err(error),
             };
             match outcome {
                 Ok((name, hook)) => {
-                    loaded.push(PluginInfo { name, path: entry, error: None });
+                    loaded.push(PluginInfo { name, path: entry, enabled: true, error: None });
                     hooks.push(hook);
                 }
-                Err(error) => loaded.push(PluginInfo { name: entry.clone(), path: entry, error: Some(error) }),
+                Err(error) => loaded.push(PluginInfo { name: plugin_name(&entry), path: entry, enabled: true, error: Some(error) }),
             }
         }
         self.set(hooks, loaded.clone());
@@ -187,6 +193,11 @@ impl Hooks {
             hook.session(event).await;
         }
     }
+}
+
+/// A plugin's name before it has said one: its file's stem.
+fn plugin_name(entry: &str) -> String {
+    std::path::Path::new(entry).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_else(|| entry.to_owned())
 }
 
 /// Session events as the hub publishes them, handed to the hooks until the hub closes.

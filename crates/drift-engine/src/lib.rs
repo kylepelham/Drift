@@ -119,6 +119,8 @@ fn grants_key(workspace_id: &str) -> String {
 /// The rules the user keeps in Settings, for every workspace, checked after drift.json's.
 const PERMISSION_RULES_KEY: &str = "permissionRules";
 const AUTO_ACCEPT_ALL_KEY: &str = "autoAcceptAll";
+/// Plugins the user switched off in Settings, by their drift.json entry.
+const DISABLED_PLUGINS_KEY: &str = "disabledPlugins";
 
 impl Engine {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>, Error> {
@@ -169,9 +171,21 @@ impl Engine {
         }))
     }
 
-    /// Where plugins' compiled code is kept between runs.
-    pub fn plugin_cache_dir(&self) -> PathBuf {
-        self.data_dir.join("plugin-cache")
+    /// Reads drift.json again and loads every plugin that is not switched off.
+    pub async fn reload_plugins(&self) -> Vec<hook::PluginInfo> {
+        let disabled: Vec<String> = self.store.setting(DISABLED_PLUGINS_KEY).ok().flatten().unwrap_or_default();
+        self.hooks.load(&self.data_dir.join("plugin-cache"), config::user_plugins(), &disabled).await
+    }
+
+    /// Switches a plugin on or off by its drift.json entry and reloads.
+    pub async fn set_plugin_enabled(&self, path: &str, enabled: bool) -> rusqlite::Result<Vec<hook::PluginInfo>> {
+        let mut disabled: Vec<String> = self.store.setting(DISABLED_PLUGINS_KEY)?.unwrap_or_default();
+        disabled.retain(|entry| entry != path);
+        if !enabled {
+            disabled.push(path.to_owned());
+        }
+        self.store.set_setting(DISABLED_PLUGINS_KEY, &disabled)?;
+        Ok(self.reload_plugins().await)
     }
 
     /// A changed agent model or prompt may be what an owed result was waiting for.
@@ -460,7 +474,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
     tokio::spawn(engine.clone().stop_idle_mcp());
     tokio::spawn(hook::relay_session_events(engine.clone()));
     tokio::spawn(async move {
-        starting.hooks.load(&starting.plugin_cache_dir()).await;
+        starting.reload_plugins().await;
         starting.connect_all_mcp();
         starting.refresh_catalog().await;
         // Resumed work gets the servers that come up soon, but a dead one never holds it back for long.

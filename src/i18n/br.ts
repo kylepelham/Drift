@@ -376,6 +376,7 @@ export const drift = {
   "drift.mcp.switchHint": "Ligado em todos os espaços de trabalho. O botão de tomada liga ou desliga só neste espaço de trabalho.",
   "drift.settings.plugins": "Plugins",
   "drift.plugins.loaded": "Carregado",
+  "drift.plugins.off": "Desligado",
   "drift.plugins.reload": "Recarregar",
   "drift.plugins.loading": "Carregando plugins...",
   "drift.plugins.empty": "Nenhum plugin. Liste componentes WebAssembly em \"plugins\" no {path} e recarregue.",

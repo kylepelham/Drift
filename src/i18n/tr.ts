@@ -409,6 +409,7 @@ export const drift = {
   "drift.mcp.switchHint": "Her çalışma alanında açık. Fiş düğmesi onu yalnızca bu çalışma alanında açar veya kapatır.",
   "drift.settings.plugins": "Eklentiler",
   "drift.plugins.loaded": "Yüklendi",
+  "drift.plugins.off": "Kapalı",
   "drift.plugins.reload": "Yeniden yükle",
   "drift.plugins.loading": "Eklentiler yükleniyor...",
   "drift.plugins.empty": "Eklenti yok. {path} içinde \"plugins\" altına WebAssembly bileşenleri ekleyin ve yeniden yükleyin.",

@@ -408,6 +408,7 @@ export const drift = {
   "drift.mcp.switchHint": "Увімкнено в усіх робочих просторах. Кнопка вилки вмикає або вимикає його лише в цьому робочому просторі.",
   "drift.settings.plugins": "Плагіни",
   "drift.plugins.loaded": "Завантажено",
+  "drift.plugins.off": "Вимкнено",
   "drift.plugins.reload": "Перезавантажити",
   "drift.plugins.loading": "Завантаження плагінів...",
   "drift.plugins.empty": "Плагінів немає. Вкажіть компоненти WebAssembly у \"plugins\" у {path} і перезавантажте.",

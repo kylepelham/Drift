@@ -1036,7 +1036,8 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   directory, `.wasm` only, never from a workspace. Compiled code is cached under
   `<data>/plugin-cache` keyed by the file's hash and wasmtime's version, so a plugin compiles once.
   Loaded at startup; `GET /plugins` reports each with its error if any; `POST /plugins/reload`
-  reads the file again. One instance per plugin for the engine's life, its calls serialised.
+  reads the file again; `PUT /plugins/enabled` switches one off or on (setting `disabledPlugins`,
+  keyed by the drift.json entry), and an off plugin is listed but never instantiated. One instance per plugin for the engine's life, its calls serialised.
 - Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`), which refuses history
   rewrites and notes failed commands; `hook::wasm::tests` builds and runs it.
 

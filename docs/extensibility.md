@@ -26,7 +26,9 @@ An engine plugin is a WebAssembly component, written in any language with a comp
 
 A project's `drift.json` cannot add plugins: cloning a repository never runs its code. Plugins load
 when the engine starts and again from Reload in Settings > Plugins, which lists each with its
-error if it did not load (`GET /plugins`, `POST /plugins/reload`). Each compiles once; the compiled code is cached beside Drift's data.
+error if it did not load and a switch to turn it off: an off plugin stays listed and is never
+called (`GET /plugins`, `POST /plugins/reload`, `PUT /plugins/enabled`; the off list is the engine
+setting `disabledPlugins`). Each compiles once; the compiled code is cached beside Drift's data.
 
 What a plugin sees and may answer:
 

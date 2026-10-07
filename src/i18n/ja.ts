@@ -376,6 +376,7 @@ export const drift = {
   "drift.mcp.switchHint": "すべてのワークスペースでオン。プラグボタンはこのワークスペースだけでオンまたはオフにします。",
   "drift.settings.plugins": "プラグイン",
   "drift.plugins.loaded": "読み込み済み",
+  "drift.plugins.off": "オフ",
   "drift.plugins.reload": "再読み込み",
   "drift.plugins.loading": "プラグインを読み込んでいます...",
   "drift.plugins.empty": "プラグインはありません。{path} の \"plugins\" に WebAssembly コンポーネントを記載して再読み込みしてください。",

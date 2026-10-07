@@ -408,6 +408,7 @@ export const drift = {
   "drift.mcp.switchHint": "Uključen u svim radnim prostorima. Dugme utikača ga uključuje ili isključuje samo u ovom radnom prostoru.",
   "drift.settings.plugins": "Dodaci",
   "drift.plugins.loaded": "Učitano",
+  "drift.plugins.off": "Isključen",
   "drift.plugins.reload": "Ponovo učitaj",
   "drift.plugins.loading": "Učitavanje dodataka...",
   "drift.plugins.empty": "Nema dodataka. Navedite WebAssembly komponente pod \"plugins\" u {path} i ponovo učitajte.",

@@ -683,6 +683,7 @@ export function createActions(
     toolNames: (directory?: string) => requireClient().tools(directory ? workspaces().id(directory) : undefined),
     plugins: () => requireClient().plugins(),
     reloadPlugins: () => requireClient().reloadPlugins(),
+    setPluginEnabled: (path: string, enabled: boolean) => requireClient().setPluginEnabled(path, enabled),
     saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
     resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),
     permissionRules: () => requireClient().permissionRules(),

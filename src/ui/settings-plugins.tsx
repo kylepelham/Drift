@@ -2,6 +2,7 @@ import { createSignal, For, onMount, Show } from "solid-js"
 import { useEngine } from "../engine"
 import type { PluginInfo } from "../engine/native/client"
 import { t } from "../state/i18n"
+import { Toggle } from "./controls"
 import { SettingsGroup } from "./settings-controls"
 
 const configFile = "~/.config/drift/drift.json"
@@ -44,7 +45,15 @@ export function PluginsSection() {
       <Show when={loading() && !plugins().length}>
         <div role="status" class="px-1 py-3 text-xs text-ink-faint">{t("drift.plugins.loading")}</div>
       </Show>
-      <For each={plugins()}>{(plugin) => <PluginRow plugin={plugin} />}</For>
+      <For each={plugins()}>
+        {(plugin) => (
+          <PluginRow
+            plugin={plugin}
+            disabled={loading() || engine.state.connection !== "online"}
+            onEnabled={(enabled) => void run(() => engine.actions.setPluginEnabled(plugin.path, enabled))}
+          />
+        )}
+      </For>
       <Show when={!loading() && !failure() && !plugins().length}>
         <div class="px-1 py-3 text-xs text-ink-faint">{t("drift.plugins.empty", { path: configFile })}</div>
       </Show>
@@ -55,16 +64,26 @@ export function PluginsSection() {
   )
 }
 
-function PluginRow(props: { plugin: PluginInfo }) {
+function PluginRow(props: { plugin: PluginInfo; disabled: boolean; onEnabled: (enabled: boolean) => void }) {
+  const status = () => (!props.plugin.enabled ? t("drift.plugins.off") : (props.plugin.error ?? t("drift.plugins.loaded")))
   return (
-    <div class="flex min-h-13 items-center gap-4 border-b border-edge/70 px-1 py-2.5">
+    <div
+      class="flex min-h-13 cursor-pointer items-center gap-4 border-b border-edge/70 px-1 py-2.5 hover:bg-raised/40"
+      classList={{ "opacity-50": props.disabled }}
+      onClick={() => !props.disabled && props.onEnabled(!props.plugin.enabled)}
+    >
       <div class="min-w-0 flex-1">
         <div class="truncate text-[0.82rem] font-medium text-ink">{props.plugin.name}</div>
         <div class="mt-0.5 truncate font-mono text-[0.72rem] text-ink-faint">{props.plugin.path}</div>
       </div>
-      <div class="max-w-[55%] truncate text-xs" classList={{ "text-ok": !props.plugin.error, "text-danger": !!props.plugin.error }} title={props.plugin.error ?? undefined}>
-        {props.plugin.error ?? t("drift.plugins.loaded")}
+      <div
+        class="max-w-[45%] truncate text-xs"
+        classList={{ "text-ok": props.plugin.enabled && !props.plugin.error, "text-danger": props.plugin.enabled && !!props.plugin.error, "text-ink-faint": !props.plugin.enabled }}
+        title={props.plugin.error ?? undefined}
+      >
+        {status()}
       </div>
+      <Toggle label={props.plugin.name} checked={props.plugin.enabled} disabled={props.disabled} onChange={() => props.onEnabled(!props.plugin.enabled)} />
     </div>
   )
 }

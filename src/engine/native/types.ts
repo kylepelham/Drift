@@ -220,6 +220,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/plugins/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Switches one plugin on or off; off, it stays listed and runs nothing. */
+        put: operations["setPluginEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/plugins/reload": {
         parameters: {
             query?: never;
@@ -1453,8 +1470,15 @@ export interface components {
             sessionId: string;
             tool: string;
         };
+        PluginEnabled: {
+            enabled: boolean;
+            /** @description The plugin's entry in drift.json. */
+            path: string;
+        };
         /** @description A loaded plugin as the API reports it; `error` set means it is not running. */
         PluginInfo: {
+            /** @description Off in Settings: listed, not loaded. */
+            enabled: boolean;
             error?: string | null;
             name: string;
             path: string;
@@ -2269,6 +2293,29 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    setPluginEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginEnabled"];
+            };
+        };
         responses: {
             200: {
                 headers: {

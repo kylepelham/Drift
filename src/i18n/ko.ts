@@ -375,6 +375,7 @@ export const drift = {
   "drift.mcp.switchHint": "모든 작업 공간에서 켜집니다. 플러그 버튼은 이 작업 공간에서만 켜거나 끕니다.",
   "drift.settings.plugins": "플러그인",
   "drift.plugins.loaded": "로드됨",
+  "drift.plugins.off": "꺼짐",
   "drift.plugins.reload": "다시 로드",
   "drift.plugins.loading": "플러그인을 로드하는 중...",
   "drift.plugins.empty": "플러그인이 없습니다. {path}의 \"plugins\"에 WebAssembly 컴포넌트를 추가한 뒤 다시 로드하세요.",

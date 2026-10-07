@@ -378,6 +378,7 @@ export const drift = {
   "drift.mcp.switchHint": "Włączony we wszystkich obszarach roboczych. Przycisk wtyczki włącza lub wyłącza go tylko w tym obszarze roboczym.",
   "drift.settings.plugins": "Wtyczki",
   "drift.plugins.loaded": "Wczytano",
+  "drift.plugins.off": "Wyłączona",
   "drift.plugins.reload": "Wczytaj ponownie",
   "drift.plugins.loading": "Wczytywanie wtyczek...",
   "drift.plugins.empty": "Brak wtyczek. Wpisz komponenty WebAssembly pod \"plugins\" w {path} i wczytaj ponownie.",

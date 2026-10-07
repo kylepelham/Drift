@@ -408,6 +408,7 @@ export const drift = {
   "drift.mcp.switchHint": "Slået til i alle arbejdsområder. Stikknappen slår den til eller fra kun i dette arbejdsområde.",
   "drift.settings.plugins": "Plugins",
   "drift.plugins.loaded": "Indlæst",
+  "drift.plugins.off": "Fra",
   "drift.plugins.reload": "Genindlæs",
   "drift.plugins.loading": "Indlæser plugins...",
   "drift.plugins.empty": "Ingen plugins. Angiv WebAssembly-komponenter under \"plugins\" i {path}, og genindlæs.",

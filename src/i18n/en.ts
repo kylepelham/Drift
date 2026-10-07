@@ -561,6 +561,7 @@ export const drift = {
   "drift.mcp.switchHint": "On in every workspace. The plug button turns it on or off for this workspace only.",
   "drift.settings.plugins": "Plugins",
   "drift.plugins.loaded": "Loaded",
+  "drift.plugins.off": "Off",
   "drift.plugins.reload": "Reload",
   "drift.plugins.loading": "Loading plugins...",
   "drift.plugins.empty": "No plugins. List WebAssembly components under \"plugins\" in {path}, then reload.",

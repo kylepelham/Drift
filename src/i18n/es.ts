@@ -409,6 +409,7 @@ export const drift = {
   "drift.mcp.switchHint": "Activado en todos los espacios de trabajo. El botón del enchufe lo activa o desactiva solo en este espacio de trabajo.",
   "drift.settings.plugins": "Plugins",
   "drift.plugins.loaded": "Cargado",
+  "drift.plugins.off": "Apagado",
   "drift.plugins.reload": "Recargar",
   "drift.plugins.loading": "Cargando plugins...",
   "drift.plugins.empty": "Sin plugins. Añade componentes WebAssembly bajo \"plugins\" en {path} y recarga.",

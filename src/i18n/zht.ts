@@ -407,6 +407,7 @@ export const drift = {
   "drift.mcp.switchHint": "在所有工作區中開啟。插頭按鈕只在此工作區中開啟或關閉它。",
   "drift.settings.plugins": "外掛",
   "drift.plugins.loaded": "已載入",
+  "drift.plugins.off": "已關閉",
   "drift.plugins.reload": "重新載入",
   "drift.plugins.loading": "正在載入外掛...",
   "drift.plugins.empty": "沒有外掛。在 {path} 的 \"plugins\" 下列出 WebAssembly 元件，然後重新載入。",

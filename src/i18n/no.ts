@@ -410,6 +410,7 @@ export const drift = {
   "drift.mcp.switchHint": "På i alle arbeidsområder. Støpselknappen slår den på eller av bare i dette arbeidsområdet.",
   "drift.settings.plugins": "Programtillegg",
   "drift.plugins.loaded": "Lastet",
+  "drift.plugins.off": "Av",
   "drift.plugins.reload": "Last på nytt",
   "drift.plugins.loading": "Laster programtillegg...",
   "drift.plugins.empty": "Ingen programtillegg. Før opp WebAssembly-komponenter under \"plugins\" i {path}, og last på nytt.",

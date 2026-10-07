@@ -257,7 +257,7 @@ change the plan there when a decision changes.
 
 - [x] `Hook` trait with serde types (`hook/mod.rs`): tool before/after and session events, dispatch in listed order
 - [x] WebAssembly plugins: wasmtime behind the default `wasm-plugins` feature, WIT contract in `crates/drift-engine/wit`, WASI sandbox with nothing opened, five-second calls, compiled code cached under the data dir, `plugins` in the user's own drift.json only, `GET /plugins` and `POST /plugins/reload`, example `plugins/guard` built and run by the tests
-- [x] Settings > Plugins lists loaded plugins with their errors and a Reload button
+- [x] Settings > Plugins lists loaded plugins with their errors, a switch for each and a Reload button
 - [ ] Plugin events still to add: compaction, prompt submit, permission decision
 - [ ] Background task controls: move a running foreground task to the background; add a follow-up to a running background task
 - [ ] Measure `edit` miss rates per model family before considering any fuzzy fallback

@@ -193,7 +193,7 @@ mod tests {
     use super::*;
 
     /// The example plugin, built for the test; `None` when the wasm32-wasip2 target is not installed.
-    fn guard() -> Option<PathBuf> {
+    pub(super) fn guard() -> Option<PathBuf> {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/guard");
         let built = std::process::Command::new("cargo").args(["build", "--release", "--target", "wasm32-wasip2"]).current_dir(&dir).output().expect("cargo runs");
         if !built.status.success() {
@@ -237,6 +237,27 @@ mod tests {
         std::fs::write(&bad, b"not wasm").unwrap();
         let error = Runtime::new(&cache).unwrap().load(&bad).await.err().expect("refused");
         assert!(error.starts_with("could not compile:"), "{error}");
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+}
+
+#[cfg(test)]
+mod load_tests {
+    use crate::hook::Hooks;
+
+    #[tokio::test]
+    async fn a_plugin_switched_off_is_listed_and_runs_nothing_and_a_bad_entry_keeps_its_error() {
+        let Some(path) = super::tests::guard() else { return };
+        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let hooks = Hooks::default();
+        let entries = || vec![("plugins/guard.wasm".to_owned(), Ok(path.clone())), ("plugins/x.js".to_owned(), Err("a plugin is a .wasm component".to_owned()))];
+        let listed = hooks.load(&cache, entries(), &["plugins/guard.wasm".to_owned()]).await;
+        assert_eq!(listed.len(), 2);
+        assert_eq!((listed[0].name.as_str(), listed[0].enabled, listed[0].error.as_deref()), ("guard", false, None));
+        assert_eq!((listed[1].name.as_str(), listed[1].enabled, listed[1].error.as_deref()), ("x", true, Some("a plugin is a .wasm component")));
+        assert!(hooks.is_empty(), "a plugin that is off is not consulted");
+        let listed = hooks.load(&cache, entries(), &[]).await;
+        assert!(listed[0].enabled && !hooks.is_empty());
         let _ = std::fs::remove_dir_all(&cache);
     }
 }

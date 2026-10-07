@@ -374,6 +374,7 @@ export const drift = {
   "drift.mcp.switchHint": "مفعّل في كل مساحات العمل. زر القابس يشغّله أو يوقفه في مساحة العمل هذه فقط.",
   "drift.settings.plugins": "الإضافات",
   "drift.plugins.loaded": "محمّلة",
+  "drift.plugins.off": "متوقفة",
   "drift.plugins.reload": "إعادة التحميل",
   "drift.plugins.loading": "جارٍ تحميل الإضافات...",
   "drift.plugins.empty": "لا توجد إضافات. أدرج مكوّنات WebAssembly تحت \"plugins\" في {path} ثم أعد التحميل.",

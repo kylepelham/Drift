@@ -377,6 +377,7 @@ export const drift = {
   "drift.mcp.switchHint": "In jedem Arbeitsbereich an. Die Stecker-Schaltfläche schaltet ihn nur in diesem Arbeitsbereich ein oder aus.",
   "drift.settings.plugins": "Plugins",
   "drift.plugins.loaded": "Geladen",
+  "drift.plugins.off": "Aus",
   "drift.plugins.reload": "Neu laden",
   "drift.plugins.loading": "Plugins werden geladen...",
   "drift.plugins.empty": "Keine Plugins. WebAssembly-Komponenten unter \"plugins\" in {path} eintragen und neu laden.",
