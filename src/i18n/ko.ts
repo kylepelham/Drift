@@ -429,6 +429,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "이것 외 모두",
   "drift.settings.prompts.tools.none": "도구를 하나 이상 선택하세요.",
   "drift.settings.prompts.builtinTools": "기본 제공",
+  "drift.settings.prompts.mcpTools": "MCP 서버",
   "drift.settings.prompts.permissionsDescription": "이 에이전트에만 적용되는 규칙입니다. 마지막으로 일치하는 규칙이 결정합니다.",
   "drift.settings.prompts.family.all": "모든 모델",
   "drift.settings.prompts.family.codex": "GPT 및 Codex",

@@ -462,6 +462,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "ทั้งหมดยกเว้นรายการนี้",
   "drift.settings.prompts.tools.none": "เลือกเครื่องมืออย่างน้อยหนึ่งรายการ",
   "drift.settings.prompts.builtinTools": "ในตัว",
+  "drift.settings.prompts.mcpTools": "เซิร์ฟเวอร์ MCP",
   "drift.settings.prompts.permissionsDescription": "กฎสำหรับเอเจนต์นี้เท่านั้น กฎสุดท้ายที่ตรงกันเป็นตัวตัดสิน",
   "drift.settings.prompts.family.all": "ทุกโมเดล",
   "drift.settings.prompts.family.codex": "GPT และ Codex",

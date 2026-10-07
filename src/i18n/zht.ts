@@ -461,6 +461,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "除這些外全部",
   "drift.settings.prompts.tools.none": "請至少選擇一個工具。",
   "drift.settings.prompts.builtinTools": "內建",
+  "drift.settings.prompts.mcpTools": "MCP 伺服器",
   "drift.settings.prompts.permissionsDescription": "僅適用於此代理的規則。以最後一條相符的規則為準。",
   "drift.settings.prompts.family.all": "所有模型",
   "drift.settings.prompts.family.codex": "GPT 與 Codex",

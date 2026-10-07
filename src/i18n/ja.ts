@@ -430,6 +430,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "これら以外すべて",
   "drift.settings.prompts.tools.none": "ツールを 1 つ以上選んでください。",
   "drift.settings.prompts.builtinTools": "組み込み",
+  "drift.settings.prompts.mcpTools": "MCP サーバー",
   "drift.settings.prompts.permissionsDescription": "このエージェントだけのルール。最後に一致したルールが適用されます。",
   "drift.settings.prompts.family.all": "すべてのモデル",
   "drift.settings.prompts.family.codex": "GPT と Codex",

@@ -463,6 +463,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "Bunlar dışındakiler",
   "drift.settings.prompts.tools.none": "En az bir araç seçin.",
   "drift.settings.prompts.builtinTools": "Yerleşik",
+  "drift.settings.prompts.mcpTools": "MCP sunucuları",
   "drift.settings.prompts.permissionsDescription": "Yalnızca bu ajanın kuralları. Eşleşen son kural karar verir.",
   "drift.settings.prompts.family.all": "Tüm modeller",
   "drift.settings.prompts.family.codex": "GPT ve Codex",

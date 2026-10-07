@@ -462,6 +462,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "Alle undtagen disse",
   "drift.settings.prompts.tools.none": "Vælg mindst ét værktøj.",
   "drift.settings.prompts.builtinTools": "Indbyggede",
+  "drift.settings.prompts.mcpTools": "MCP-servere",
   "drift.settings.prompts.permissionsDescription": "Regler kun for denne agent. Den sidste regel, der passer, afgør det.",
   "drift.settings.prompts.family.all": "Alle modeller",
   "drift.settings.prompts.family.codex": "GPT og Codex",

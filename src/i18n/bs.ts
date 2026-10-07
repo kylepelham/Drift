@@ -462,6 +462,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "Svi osim ovih",
   "drift.settings.prompts.tools.none": "Odaberi barem jedan alat.",
   "drift.settings.prompts.builtinTools": "Ugrađeni",
+  "drift.settings.prompts.mcpTools": "MCP serveri",
   "drift.settings.prompts.permissionsDescription": "Pravila samo za ovog agenta. Odlučuje posljednje pravilo koje se poklapa.",
   "drift.settings.prompts.family.all": "Svi modeli",
   "drift.settings.prompts.family.codex": "GPT i Codex",

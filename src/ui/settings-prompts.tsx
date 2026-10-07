@@ -444,51 +444,73 @@ function AgentEditor(props: {
   )
 }
 
-/** Every tool as a toggle, built-ins first, then each MCP server's; names the list holds but the engine does not offer here stay too. */
+/**
+ * Built-in tools one chip each; an MCP server one chip for all its tools, since a server can bring
+ * dozens (a single MCP tool is narrowed with a permission rule instead). Names the list holds but
+ * the engine does not offer here stay as chips of their own.
+ */
 function ToolChips(props: { names: ToolName[]; chosen: string[]; excluding: boolean; onChange: (tools: string[]) => void }) {
-  const groups = createMemo(() => {
+  const builtIn = createMemo(() => {
     const known = new Set(props.names.map((tool) => tool.name))
-    const builtIn = props.names.filter((tool) => !tool.server).map((tool) => tool.name)
-    const other = props.chosen.filter((name) => !known.has(name))
-    const servers = [...new Set(props.names.flatMap((tool) => (tool.server ? [tool.server] : [])))].sort()
-    return [
-      { title: t("drift.settings.prompts.builtinTools"), names: [...builtIn, ...other] },
-      ...servers.map((server) => ({ title: server, names: props.names.filter((tool) => tool.server === server).map((tool) => tool.name) })),
-    ]
+    return [...props.names.filter((tool) => !tool.server).map((tool) => tool.name), ...props.chosen.filter((name) => !known.has(name))]
+  })
+  const servers = createMemo(() => {
+    const names = [...new Set(props.names.flatMap((tool) => (tool.server ? [tool.server] : [])))].sort()
+    return names.map((server) => ({ server, tools: props.names.filter((tool) => tool.server === server).map((tool) => tool.name) }))
   })
   const toggle = (name: string) => props.onChange(props.chosen.includes(name) ? props.chosen.filter((item) => item !== name) : [...props.chosen, name])
+  const toggleServer = (tools: string[]) => {
+    const all = tools.every((tool) => props.chosen.includes(tool))
+    props.onChange(all ? props.chosen.filter((name) => !tools.includes(name)) : [...new Set([...props.chosen, ...tools])])
+  }
   return (
     <div class="space-y-3 py-3">
-      <For each={groups()}>
-        {(group) => (
-          <div>
-            <div class="mb-1.5 text-[0.7rem] text-ink-faint">{group.title}</div>
-            <div class="flex flex-wrap gap-1.5">
-              <For each={group.names}>
-                {(name) => (
-                  <button
-                    type="button"
-                    class="rounded-full border px-2.5 py-1 font-mono text-[0.72rem] transition-colors"
-                    classList={{
-                      "border-accent/60 bg-accent/15 text-ink": props.chosen.includes(name) && !props.excluding,
-                      "border-danger/50 bg-danger/10 text-ink line-through": props.chosen.includes(name) && props.excluding,
-                      "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": !props.chosen.includes(name),
-                    }}
-                    aria-pressed={props.chosen.includes(name)}
-                    onClick={() => toggle(name)}
-                  >
-                    {name}
-                  </button>
-                )}
-              </For>
-            </div>
+      <div>
+        <div class="mb-1.5 text-[0.7rem] text-ink-faint">{t("drift.settings.prompts.builtinTools")}</div>
+        <div class="flex flex-wrap gap-1.5">
+          <For each={builtIn()}>{(name) => <Chip label={name} on={props.chosen.includes(name)} excluding={props.excluding} onToggle={() => toggle(name)} />}</For>
+        </div>
+      </div>
+      <Show when={servers().length}>
+        <div>
+          <div class="mb-1.5 text-[0.7rem] text-ink-faint">{t("drift.settings.prompts.mcpTools")}</div>
+          <div class="flex flex-wrap gap-1.5">
+            <For each={servers()}>
+              {(entry) => {
+                const picked = () => entry.tools.filter((tool) => props.chosen.includes(tool)).length
+                const count = () => (picked() && picked() < entry.tools.length ? `${picked()}/${entry.tools.length}` : String(entry.tools.length))
+                return <Chip label={entry.server} count={count()} on={picked() === entry.tools.length} partial={picked() > 0 && picked() < entry.tools.length} excluding={props.excluding} onToggle={() => toggleServer(entry.tools)} />
+              }}
+            </For>
           </div>
-        )}
-      </For>
+        </div>
+      </Show>
       <Show when={!props.chosen.length}>
         <div class="text-[0.72rem] text-warn">{t("drift.settings.prompts.tools.none")}</div>
       </Show>
     </div>
+  )
+}
+
+function Chip(props: { label: string; count?: string; on: boolean; partial?: boolean; excluding: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      class="flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[0.7rem] transition-colors"
+      classList={{
+        "border-accent/50 bg-accent/15 text-accent": props.on && !props.excluding,
+        "border-danger/40 bg-danger/10 text-danger line-through": props.on && props.excluding,
+        "border-accent/30 border-dashed text-ink-muted": !!props.partial,
+        "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted": !props.on && !props.partial,
+      }}
+      aria-pressed={props.on}
+      onClick={props.onToggle}
+    >
+      {props.label}
+      <Show when={props.count}>
+        <span class="text-[0.65rem] text-ink-faint no-underline">{props.count}</span>
+      </Show>
+    </button>
   )
 }
 

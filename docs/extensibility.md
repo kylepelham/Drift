@@ -151,8 +151,9 @@ An agent's editor is laid out like the rest of Settings. Behavior holds its mode
 background jobs only; an agent picked in the composer runs on the conversation's), its default
 reasoning level and its step limit, each a dropdown: the levels are the pinned model's, or with none
 pinned every level a connected model offers, and the step limit offers presets. Then its prompt.
-Then Tools: all tools, only these, or all except these, with every tool as a toggle (the engine's
-built-ins and the active workspace's MCP tools, from `GET /tools`); "All tools" over an agent its
+Then Tools: all tools, only these, or all except these, with a toggle for each built-in tool and
+one for each MCP server of the active workspace, covering all its tools and showing how many are
+chosen (from `GET /tools`; a single MCP tool is narrowed with a permission rule); "All tools" over an agent its
 file narrows is stored as `*`, which the engine reads as every tool. Then its own permission rules,
 edited as on the Permissions page. Background jobs show only their model and prompt. Drift keeps those edits in its store as `agent:<name>` overrides and hands them
 to the engine, which applies them from the agent's next turn; a field the engine would not

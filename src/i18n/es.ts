@@ -463,6 +463,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "Todas salvo estas",
   "drift.settings.prompts.tools.none": "Elige al menos una herramienta.",
   "drift.settings.prompts.builtinTools": "Integradas",
+  "drift.settings.prompts.mcpTools": "Servidores MCP",
   "drift.settings.prompts.permissionsDescription": "Reglas solo para este agente. Decide la última regla que coincida.",
   "drift.settings.prompts.family.all": "Todos los modelos",
   "drift.settings.prompts.family.codex": "GPT y Codex",

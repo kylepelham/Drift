@@ -428,6 +428,7 @@ export const drift = {
   "drift.settings.prompts.tools.except": "الكل باستثناء هذه",
   "drift.settings.prompts.tools.none": "اختر أداة واحدة على الأقل.",
   "drift.settings.prompts.builtinTools": "مدمجة",
+  "drift.settings.prompts.mcpTools": "خوادم MCP",
   "drift.settings.prompts.permissionsDescription": "قواعد لهذا الوكيل وحده. آخر قاعدة مطابقة هي التي تقرر.",
   "drift.settings.prompts.family.all": "كل النماذج",
   "drift.settings.prompts.family.codex": "GPT وCodex",
