@@ -52,7 +52,10 @@ connection; session-keyed state persists.
 
 The sidebar keeps workspace row geometry fixed while revealing actions, so hover never
 moves the thread list. Its 192-480px width is pointer and keyboard resizable and stored
-as a UI preference.
+as a UI preference. Settings > General > Display can turn on day dividers (off by default):
+each workspace's threads, newest first, get a heading at each local day they were last active
+in, reading Today, Yesterday, a weekday within the past week, or a date (`dayDividers`); the
+headings roll over at midnight without a restart.
 
 ## Tool rendering
 

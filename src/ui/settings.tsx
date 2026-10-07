@@ -38,6 +38,8 @@ import {
   attentionKinds,
   autoUpdate,
   collapseCompaction,
+  setSidebarDayDividers,
+  sidebarDayDividers,
   compactionCollapsed,
   customSound,
   responseAnimationSpeed,
@@ -202,6 +204,7 @@ const settingsSearchDefinitions = {
   General: [
     { title: "settings.general.row.language.title", description: "settings.general.row.language.description" },
     { title: "drift.settings.responseAnimation.title", description: "drift.settings.responseAnimation.description" },
+    { title: "drift.settings.dayDividers.title", description: "drift.settings.dayDividers.description" },
     { title: "drift.settings.responseAnimation.speed.title", description: "drift.settings.responseAnimation.speed.description" },
     { title: "drift.preview.settings.title", description: "drift.preview.settings.description" },
     { title: "command.permissions.autoaccept.enable", description: "toast.permissions.autoaccept.on.description" },
@@ -631,6 +634,17 @@ function GeneralSection() {
             placement="below"
             width="12rem"
             onPick={(value) => setLanguage(value as LanguageId)}
+          />
+        </SettingsRow>
+        <SettingsRow
+          title={t("drift.settings.dayDividers.title")}
+          description={t("drift.settings.dayDividers.description")}
+          onClick={() => setSidebarDayDividers(!sidebarDayDividers())}
+        >
+          <Toggle
+            label={t("drift.settings.dayDividers.title")}
+            checked={sidebarDayDividers()}
+            onChange={() => setSidebarDayDividers(!sidebarDayDividers())}
           />
         </SettingsRow>
         <SettingsRow

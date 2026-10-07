@@ -109,6 +109,8 @@ export const [customSound, setCustomSound] = persisted<CustomSound | null>("drif
 export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true)
 export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true)
 export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true)
+/** Day headings (Today, Yesterday, a weekday, a date) between a workspace's threads in the sidebar. */
+export const [sidebarDayDividers, setSidebarDayDividers] = persisted<boolean>("drift.sidebar.dayDividers", false)
 export type KeptAutoAccept = { all: boolean; sessions: string[] }
 
 function keptAutoAccept(): KeptAutoAccept {

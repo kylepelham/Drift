@@ -10,6 +10,7 @@ import { selectedSession, selectSession } from "../state/selection"
 import type { Workspace } from "../state/store"
 import { fixedMenuPosition } from "../state/zoom"
 import { t } from "../state/i18n"
+import { sidebarDayDividers } from "../state/prefs"
 import { Chevron } from "./controls"
 import { BackgroundTag } from "./task-dock"
 import { sidebarWorkers } from "../state/permission-attention"
@@ -74,6 +75,18 @@ export function WorkspaceGroup(props: {
   const visibleIds = createMemo(() => visibleSessions().map((session) => session.id), [], { equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) })
   const rowFor = (id: string) => visibleSessions().find((session) => session.id === id)
   const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))
+  // Bumped at each local midnight, so yesterday's "Today" heading moves on without a restart.
+  const [day, setDay] = createSignal(Date.now())
+  let midnight: ReturnType<typeof setTimeout> | undefined
+  const nextMidnight = () => {
+    midnight = setTimeout(() => {
+      setDay(Date.now())
+      nextMidnight()
+    }, startOfDay(Date.now()) + 86_400_000 + 1_000 - Date.now())
+  }
+  onMount(nextMidnight)
+  onCleanup(() => clearTimeout(midnight))
+  const dividers = createMemo(() => (sidebarDayDividers() ? dayDividers(visibleSessions(), day()) : new Map<string, string>()))
   const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
     <div ref={root} data-workspace={props.workspace.id}>
@@ -142,6 +155,14 @@ export function WorkspaceGroup(props: {
           <For each={visibleIds()}>
             {(id) => (
               <>
+                <Show when={dividers().get(id)}>
+                  {(label) => (
+                    <div class="flex items-center gap-2 px-2 pt-2 pb-0.5 text-[0.65rem] font-medium text-ink-faint select-none first:pt-0.5">
+                      <span class="shrink-0">{label()}</span>
+                      <span class="h-px flex-1 bg-edge" />
+                    </div>
+                  )}
+                </Show>
                 <ThreadItem
                   sessionId={id}
                   title={rowFor(id)?.title ?? ""}
@@ -605,6 +626,36 @@ function pickFile(accept: string): Promise<File | null> {
     input.oncancel = () => resolve(null)
     input.click()
   })
+}
+
+/** Local midnight at or before `timestamp`. */
+export function startOfDay(timestamp: number) {
+  const date = new Date(timestamp)
+  date.setHours(0, 0, 0, 0)
+  return date.getTime()
+}
+
+/** How a day reads above its threads: Today, Yesterday, a weekday this past week, else its date. */
+export function dayLabel(timestamp: number, now: number) {
+  const days = Math.round((startOfDay(now) - startOfDay(timestamp)) / 86_400_000)
+  if (days <= 0) return t("drift.sidebar.today")
+  if (days === 1) return t("drift.sidebar.yesterday")
+  const date = new Date(timestamp)
+  if (days < 7) return date.toLocaleDateString(undefined, { weekday: "long" })
+  const sameYear = date.getFullYear() === new Date(now).getFullYear()
+  return date.toLocaleDateString(undefined, sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" })
+}
+
+/** The heading each day's first thread carries, for threads newest first. */
+export function dayDividers(rows: { id: string; updated: number }[], now: number) {
+  const headings = new Map<string, string>()
+  let previous: number | undefined
+  for (const row of rows) {
+    const day = startOfDay(row.updated)
+    if (day !== previous) headings.set(row.id, dayLabel(row.updated, now))
+    previous = day
+  }
+  return headings
 }
 
 function ago(timestamp: number) {
