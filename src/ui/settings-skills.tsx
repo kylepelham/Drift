@@ -123,44 +123,45 @@ export function SkillsSection() {
       </Show>
       <Show when={view() === "installed"}>
         <div class="border-y border-edge/80" aria-busy={loading()}>
-          <For each={groups().named}>
-            {(group) => (
-              <SkillGroup
-                title={group.pack.name}
-                image={group.pack.image ?? undefined}
-                skills={group.skills}
-                disabled={locked()}
-                busy={busy()}
-                onToggle={toggle}
-                onToggleAll={(on) => toggleAll(group.skills, on)}
-                action={
-                  <button
-                    type="button"
-                    disabled={locked()}
-                    title={confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
-                    aria-label={confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
-                    class="flex items-center gap-1 rounded-md border border-danger/40 px-2 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void removePack(group.pack)
-                    }}
-                  >
-                    {confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : <IconTrash class="size-3.5" />}
-                  </button>
-                }
-              />
-            )}
-          </For>
-          <Show when={groups().project.length}>
-            <SkillGroup title={t("drift.skills.workspace", { name: activeWorkspace()?.name ?? "" })} skills={groups().project} disabled={locked()} busy={busy()} onToggle={toggle} onToggleAll={(on) => toggleAll(groups().project, on)} />
-          </Show>
-          <Show when={groups().own.length}>
-            <SkillGroup title={t("drift.skills.yours")} skills={groups().own} disabled={locked()} busy={busy()} onToggle={toggle} onToggleAll={(on) => toggleAll(groups().own, on)} />
-          </Show>
-          <Show when={!loading() && !skills().length}>
+          <For each={groups().own}>{(skill) => <SkillRow skill={skill} disabled={locked() && busy() !== skill.path} onToggle={() => toggle(skill)} />}</For>
+          <For each={groups().project}>{(skill) => <SkillRow skill={skill} badge={activeWorkspace()?.name} disabled={locked() && busy() !== skill.path} onToggle={() => toggle(skill)} />}</For>
+          <Show when={!loading() && !groups().own.length && !groups().project.length}>
             <div class="px-3 py-5 text-sm text-ink-faint">{t("drift.skills.empty", { folder: skillsFolder })}</div>
           </Show>
         </div>
+        <Show when={groups().named.length}>
+          <div class="pt-5 pb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{t("drift.skills.packs")}</div>
+          <div class="border-y border-edge/80">
+            <For each={groups().named}>
+              {(group) => (
+                <SkillGroup
+                  title={group.pack.name}
+                  image={group.pack.image ?? undefined}
+                  skills={group.skills}
+                  disabled={locked()}
+                  busy={busy()}
+                  onToggle={toggle}
+                  onToggleAll={(on) => toggleAll(group.skills, on)}
+                  action={
+                    <button
+                      type="button"
+                      disabled={locked()}
+                      title={confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
+                      aria-label={confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
+                      class="flex items-center gap-1 rounded-md border border-danger/40 px-2 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void removePack(group.pack)
+                      }}
+                    >
+                      {confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : <IconTrash class="size-3.5" />}
+                    </button>
+                  }
+                />
+              )}
+            </For>
+          </div>
+        </Show>
       </Show>
       <Show when={view() === "registry"}>
         <SkillRegistry installed={installedIds()} disabled={locked()} busy={busy()} onInstall={install} />
@@ -187,9 +188,7 @@ function SkillGroup(props: { title: string; image?: string; skills: UserSkill[];
         onClick={() => setOpen(!open())}
       >
         <Chevron open={open()} />
-        <Show when={props.image !== undefined} fallback={<span class="w-0" />}>
-          <LogoTile image={props.image} title={props.title} />
-        </Show>
+        <LogoTile image={props.image} title={props.title} />
         <div class="min-w-0 flex-1">
           <div class="truncate text-sm font-medium text-ink">{props.title}</div>
           <div class="text-xs text-ink-faint">{t("drift.skills.packCount", { on: on(), count: props.skills.length })}</div>
@@ -208,11 +207,14 @@ function SkillGroup(props: { title: string; image?: string; skills: UserSkill[];
   )
 }
 
-function SkillRow(props: { skill: UserSkill; disabled: boolean; onToggle: () => void }) {
+function SkillRow(props: { skill: UserSkill; badge?: string; disabled: boolean; onToggle: () => void }) {
   return (
     <div class="flex min-h-11 cursor-pointer items-center gap-3 border-b border-edge/70 px-3 py-2 last:border-b-0 hover:bg-raised/40" classList={{ "opacity-60": !props.skill.enabled }} onClick={() => !props.disabled && props.onToggle()}>
       <div class="min-w-0 flex-1">
-        <div class="truncate text-[0.82rem] font-medium text-ink">{props.skill.name}</div>
+        <div class="flex items-center gap-2">
+          <span class="truncate text-[0.82rem] font-medium text-ink">{props.skill.name}</span>
+          <Show when={props.badge}>{(name) => <Badge>{name()}</Badge>}</Show>
+        </div>
         <Show when={props.skill.description}>
           <div class="truncate text-xs text-ink-faint" title={props.skill.description}>{props.skill.description}</div>
         </Show>
