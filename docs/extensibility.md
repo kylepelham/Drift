@@ -139,7 +139,7 @@ base prompts, then Agents (picked in the composer), Subagents (delegated to) and
 and compaction, which Drift runs itself), each ruled off from the one above. A dot marks an item
 that has been customized and "Unsaved" one with edits not yet saved. Edits are kept per item, so
 moving to another item and back loses nothing. Save and Reset sit beside the item's name and act on
-it, and the prompt editor takes the rest of the page's height. Nothing on the page is collapsed.
+it. Nothing on the page is collapsed, and the list stays in view while the editor scrolls.
 
 The base prompts are the one each model family starts with: GPT and Codex, Claude,
 Gemini and other models, plus one for all models that a family's own replacement overrides.
@@ -147,9 +147,14 @@ They are the engine's (`GET`, `PUT` and `DELETE /prompts`); a replacement takes 
 conversation's next turn. The rules Drift always adds after the base prompt (tools and
 `<system-reminder>`, the worktree, the shape of answers) are never replaced and not shown.
 
-An agent's editor has its prompt, its model (subagents and background jobs only; an agent picked
-in the composer runs on the conversation's), its default reasoning level and its step limit as
-plain fields, and its tools and permission rules as a small JSON block. Drift keeps those edits in its store as `agent:<name>` overrides and hands them
+An agent's editor is laid out like the rest of Settings. Behavior holds its model (subagents and
+background jobs only; an agent picked in the composer runs on the conversation's), its default
+reasoning level and its step limit, each a dropdown: the levels are the pinned model's, or with none
+pinned every level a connected model offers, and the step limit offers presets. Then its prompt.
+Then Tools: all tools, only these, or all except these, with every tool as a toggle (the engine's
+built-ins and the active workspace's MCP tools, from `GET /tools`); "All tools" over an agent its
+file narrows is stored as `*`, which the engine reads as every tool. Then its own permission rules,
+edited as on the Permissions page. Background jobs show only their model and prompt. Drift keeps those edits in its store as `agent:<name>` overrides and hands them
 to the engine, which applies them from the agent's next turn; a field the engine would not
 apply is refused rather than stored. Reset removes the override and shows the agent as its
 file or the built-in defines it. Saving refreshes the agent list for both desktop and

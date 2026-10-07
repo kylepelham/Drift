@@ -44,10 +44,6 @@ function RulesGroup() {
   const [notice, setNotice] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
   const dirty = () => JSON.stringify(rules()) !== JSON.stringify(saved())
-  const update = (index: number, change: Partial<PermissionRule>) => {
-    setNotice(false)
-    setRules((list) => list.map((rule, at) => (at === index ? { ...rule, ...change } : rule)))
-  }
 
   async function run(action: () => Promise<PermissionRule[]>, announce: boolean) {
     setBusy(true)
@@ -70,47 +66,10 @@ function RulesGroup() {
     <SettingsGroup title={t("drift.permissions.rules")}>
       <div class="space-y-3 py-3">
         <div class="text-xs text-ink-faint">{t("drift.permissions.rulesDescription")}</div>
-        <Show when={rules().length > 0} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.empty")}</div>}>
-          <div class="space-y-1.5">
-            <For each={rules()}>
-              {(rule, index) => (
-                <div class="flex items-center gap-2">
-                  <Picker
-                    label={t("drift.permissions.kind")}
-                    items={permissionKinds.map((kind) => ({ id: kind, label: kind === "*" ? t("drift.permissions.kind.all") : kind }))}
-                    selected={rule.kind}
-                    fallbackLabel={rule.kind}
-                    floating bordered chevronAtEnd placement="below" width="9.5rem"
-                    onPick={(kind) => update(index(), { kind })}
-                  />
-                  <input
-                    aria-label={t("drift.permissions.pattern")}
-                    class="h-8 min-w-0 flex-1 rounded-md border border-edge bg-raised/45 px-2.5 font-mono text-xs text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
-                    placeholder="git push*"
-                    value={rule.pattern}
-                    onInput={(event) => update(index(), { pattern: event.currentTarget.value })}
-                  />
-                  <Picker
-                    label={t("drift.permissions.decision")}
-                    items={decisions.map((decision) => ({ id: decision, label: t(`drift.permissions.decision.${decision}`) }))}
-                    selected={rule.decision}
-                    floating bordered chevronAtEnd placement="below" width="6.5rem"
-                    onPick={(decision) => update(index(), { decision: decision as PermissionRule["decision"] })}
-                  />
-                  <RowButton title={t("drift.permissions.moveUp")} disabled={index() === 0} onClick={() => setRules((list) => moveRule(list, index(), -1))}>
-                    <IconArrowUp class="size-3.5" />
-                  </RowButton>
-                  <RowButton title={t("drift.permissions.moveDown")} disabled={index() === rules().length - 1} onClick={() => setRules((list) => moveRule(list, index(), 1))}>
-                    <IconArrowDown class="size-3.5" />
-                  </RowButton>
-                  <RowButton title={t("drift.permissions.remove")} onClick={() => setRules((list) => list.filter((_, at) => at !== index()))}>
-                    <IconTrash class="size-3.5" />
-                  </RowButton>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
+        <RuleList rules={rules()} onChange={(next) => {
+          setNotice(false)
+          setRules(next)
+        }} />
         <Show when={error()}>
           <div role="alert" class="text-xs text-danger">{error()}</div>
         </Show>
@@ -118,14 +77,7 @@ function RulesGroup() {
           <div role="status" class="text-xs text-ok">{t("drift.permissions.saved")}</div>
         </Show>
         <div class="flex items-center justify-between gap-2">
-          <button
-            class="flex h-8 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-            disabled={busy()}
-            onClick={() => setRules((list) => [...list, { kind: "bash", pattern: "", decision: "ask" }])}
-          >
-            <IconPlus class="size-3.5" />
-            {t("drift.permissions.add")}
-          </button>
+          <AddRule disabled={busy()} onAdd={() => setRules((list) => [...list, newRule()])} />
           <div class="flex gap-2">
             <Show when={dirty()}>
               <button
@@ -220,6 +172,69 @@ function GrantsGroup() {
         </Show>
       </div>
     </SettingsGroup>
+  )
+}
+
+export const newRule = (): PermissionRule => ({ kind: "bash", pattern: "", decision: "ask" })
+
+/** Rules as editable rows: kind, pattern, decision, and moving or removing each. */
+export function RuleList(props: { rules: PermissionRule[]; onChange: (rules: PermissionRule[]) => void }) {
+  const update = (index: number, change: Partial<PermissionRule>) => props.onChange(props.rules.map((rule, at) => (at === index ? { ...rule, ...change } : rule)))
+  return (
+    <Show when={props.rules.length > 0} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.empty")}</div>}>
+      <div class="space-y-1.5">
+        <For each={props.rules}>
+          {(rule, index) => (
+            <div class="flex items-center gap-2">
+              <Picker
+                label={t("drift.permissions.kind")}
+                items={permissionKinds.map((kind) => ({ id: kind, label: kind === "*" ? t("drift.permissions.kind.all") : kind }))}
+                selected={rule.kind}
+                fallbackLabel={rule.kind}
+                floating bordered chevronAtEnd placement="below" width="9.5rem"
+                onPick={(kind) => update(index(), { kind })}
+              />
+              <input
+                aria-label={t("drift.permissions.pattern")}
+                class="h-8 min-w-0 flex-1 rounded-md border border-edge bg-raised/45 px-2.5 font-mono text-xs text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
+                placeholder="git push*"
+                value={rule.pattern}
+                onInput={(event) => update(index(), { pattern: event.currentTarget.value })}
+              />
+              <Picker
+                label={t("drift.permissions.decision")}
+                items={decisions.map((decision) => ({ id: decision, label: t(`drift.permissions.decision.${decision}`) }))}
+                selected={rule.decision}
+                floating bordered chevronAtEnd placement="below" width="6.5rem"
+                onPick={(decision) => update(index(), { decision: decision as PermissionRule["decision"] })}
+              />
+              <RowButton title={t("drift.permissions.moveUp")} disabled={index() === 0} onClick={() => props.onChange(moveRule(props.rules, index(), -1))}>
+                <IconArrowUp class="size-3.5" />
+              </RowButton>
+              <RowButton title={t("drift.permissions.moveDown")} disabled={index() === props.rules.length - 1} onClick={() => props.onChange(moveRule(props.rules, index(), 1))}>
+                <IconArrowDown class="size-3.5" />
+              </RowButton>
+              <RowButton title={t("drift.permissions.remove")} onClick={() => props.onChange(props.rules.filter((_, at) => at !== index()))}>
+                <IconTrash class="size-3.5" />
+              </RowButton>
+            </div>
+          )}
+        </For>
+      </div>
+    </Show>
+  )
+}
+
+export function AddRule(props: { disabled?: boolean; onAdd: () => void }) {
+  return (
+    <button
+      class="flex h-8 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
+      disabled={props.disabled}
+      onClick={props.onAdd}
+    >
+      <IconPlus class="size-3.5" />
+      {t("drift.permissions.add")}
+    </button>
   )
 }
 

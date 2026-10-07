@@ -106,6 +106,16 @@ async fn health_reports_version() {
 }
 
 #[tokio::test]
+async fn tools_lists_every_builtin_an_agent_can_name_once() {
+    let h = harness().await;
+    let body: Value = h.get("/tools").send().await.unwrap().json().await.unwrap();
+    let names: Vec<&str> = body.as_array().unwrap().iter().map(|tool| tool["name"].as_str().unwrap()).collect();
+    for expected in ["read", "edit", "write", "apply_patch", "bash", "grep", "glob", "task"] {
+        assert_eq!(names.iter().filter(|name| **name == expected).count(), 1, "{expected} in {names:?}");
+    }
+}
+
+#[tokio::test]
 async fn requests_without_token_are_rejected() {
     let h = harness().await;
     let status = h.http.get(h.url("/health")).send().await.unwrap().status();

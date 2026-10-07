@@ -97,6 +97,7 @@ export function createClient(target: Target) {
     settings: () => request<Json<"getSettings", 200>>("GET", "/settings"),
     putSettings: (body: components["schemas"]["EngineSettings"]) => request<Json<"putSettings", 200>>("PUT", "/settings", body),
     basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),
+    tools: (workspaceId?: string) => request<Json<"listTools", 200>>("GET", `/tools${workspaceId ? `?${new URLSearchParams({ workspace: workspaceId })}` : ""}`),
     saveBasePrompt: (id: string, text: string) => request<Json<"saveBasePrompt", 200>>("PUT", `/prompts/${id}`, { text }),
     resetBasePrompt: (id: string) => request<Json<"resetBasePrompt", 200>>("DELETE", `/prompts/${id}`),
     session: (id: string) => request<Json<"getSession", 200>>("GET", `/sessions/${id}`),

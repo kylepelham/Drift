@@ -1,10 +1,11 @@
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useEngine } from "../engine"
+import type { PermissionRule } from "../engine/native/client"
 import type { components } from "../engine/native/types"
-import type { AgentInfo } from "../engine/store"
+import { modelInfo, type AgentInfo, type EngineState } from "../engine/store"
 import { agentModelCapability, agentModelOptions } from "../state/agent-models"
-import { t } from "../state/i18n"
+import { reasoningLevelLabel, t } from "../state/i18n"
 import {
   agentBehaviorIssue,
   agentOverrideValue,
@@ -15,12 +16,26 @@ import {
   type PromptOverride,
   type PromptSnapshot,
 } from "../state/prompts"
+import { activeWorkspace } from "../state/workspaces"
 import { Picker } from "./picker"
+import { SettingsGroup, SettingsRow } from "./settings-controls"
+import { AddRule, newRule, RuleList } from "./settings-permissions"
 
 type BasePrompts = components["schemas"]["BasePrompts"]
+type ToolName = components["schemas"]["ToolName"]
 
-/** An agent's editable fields as the form holds them: text, so a half-typed value is never lost. */
-export type AgentDraft = { prompt: string; model: string; variant: string; steps: string; advanced: string }
+export type ToolMode = "all" | "only" | "except"
+
+/** An agent's editable fields as the form holds them, so a half-made choice is never lost. */
+export type AgentDraft = {
+  prompt: string
+  model: string
+  variant: string
+  steps: string
+  toolMode: ToolMode
+  tools: string[]
+  permissions: PermissionRule[]
+}
 
 const familyLabels: Record<string, string> = {
   all: "drift.settings.prompts.family.all",
@@ -30,7 +45,9 @@ const familyLabels: Record<string, string> = {
   default: "drift.settings.prompts.family.default",
 }
 
-const inputClass = "w-full rounded-md border border-edge bg-bg/50 px-2.5 py-1.5 text-xs text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
+const levelOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+const stepPresets = ["10", "25", "50", "100", "200", "500"]
+const pickerWidth = "13rem"
 const editorClass = "w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
 
 /**
@@ -42,6 +59,7 @@ export function PromptsSection() {
   const engine = useEngine()
   const [base, setBase] = createSignal<BasePrompts | null>(null)
   const [snapshot, setSnapshot] = createSignal<PromptSnapshot | null>(null)
+  const [toolNames, setToolNames] = createSignal<ToolName[]>([])
   const [selected, setSelected] = createSignal("base:all")
   const [baseDrafts, setBaseDrafts] = createStore<Record<string, string>>({})
   const [agentDrafts, setAgentDrafts] = createStore<Record<string, AgentDraft>>({})
@@ -50,10 +68,13 @@ export function PromptsSection() {
   const [saving, setSaving] = createSignal(false)
 
   const loadSnapshot = async () => setSnapshot(await loadPromptSnapshot())
-  onMount(() => void run(async () => {
-    setBase(await engine.actions.basePrompts())
-    await loadSnapshot()
-  }, false))
+  onMount(() => {
+    void run(async () => {
+      setBase(await engine.actions.basePrompts())
+      await loadSnapshot()
+    }, false)
+    void engine.actions.toolNames(activeWorkspace()?.path).then(setToolNames, () => undefined)
+  })
 
   const override = (name: string) => snapshot()?.overrides.find((item) => item.key === `agent:${name}`)
   const agent = (name: string) => engine.state.agents.find((item) => item.name === name)
@@ -134,8 +155,8 @@ export function PromptsSection() {
   const selectedAgent = () => (selected().startsWith("agent:") ? agent(selected().slice(6)) : undefined)
 
   return (
-    <div class="flex h-full min-h-[26rem] flex-col gap-4 sm:flex-row">
-      <nav class="flex max-h-48 shrink-0 flex-col overflow-y-auto sm:max-h-none sm:w-36" aria-label={t("drift.settings.prompts")}>
+    <div class="flex flex-col gap-6 sm:flex-row">
+      <nav class="flex max-h-56 shrink-0 flex-col overflow-y-auto sm:sticky sm:top-0 sm:max-h-none sm:w-40 sm:self-start" aria-label={t("drift.settings.prompts")}>
         <ListGroup title={t("drift.settings.prompts.group.base")} first>
           <For each={base()?.prompts ?? []}>
             {(prompt) => (
@@ -168,7 +189,7 @@ export function PromptsSection() {
           )}
         </For>
       </nav>
-      <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div class="min-w-0 flex-1">
         <Show when={selectedBase()}>
           {(id) => (
             <BaseEditor
@@ -190,9 +211,10 @@ export function PromptsSection() {
               draft={agentDraft(item().name)}
               baseline={agentBaseline(item().name)}
               customized={!!override(item().name)}
+              toolNames={toolNames()}
               status={<Status error={error()} saved={saved()} />}
               actions={<Actions saving={saving()} dirty={agentDirty(item().name)} resettable={!!override(item().name) || agentDirty(item().name)} onSave={() => saveAgent(item().name)} onReset={() => resetAgent(item().name)} />}
-              onChange={(field, value) => setAgentDrafts(item().name, { ...agentDraft(item().name), [field]: value })}
+              onChange={(change) => setAgentDrafts(item().name, { ...agentDraft(item().name), ...change })}
             />
           )}
         </Show>
@@ -204,8 +226,8 @@ export function PromptsSection() {
 /** A section of the list, ruled off from the one above so each reads as its own. */
 function ListGroup(props: { title: string; first?: boolean; children: JSX.Element }) {
   return (
-    <div classList={{ "mt-3 border-t border-edge pt-3": !props.first }}>
-      <div class="mb-1.5 px-2 text-[0.68rem] font-semibold tracking-wider text-ink-muted uppercase">{props.title}</div>
+    <div classList={{ "mt-4 border-t border-edge pt-4": !props.first }}>
+      <div class="mb-2 px-2 text-[0.68rem] font-semibold tracking-wider text-ink-muted uppercase">{props.title}</div>
       <div class="space-y-0.5">{props.children}</div>
     </div>
   )
@@ -215,7 +237,7 @@ function ListItem(props: { label: string; active: boolean; customized: boolean; 
   return (
     <button
       type="button"
-      class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[0.8rem] outline-none transition-colors focus-visible:bg-raised/60"
+      class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.82rem] outline-none transition-colors focus-visible:bg-raised/60"
       classList={{ "bg-raised text-ink": props.active, "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active }}
       aria-current={props.active ? "true" : undefined}
       onClick={props.onSelect}
@@ -234,19 +256,19 @@ function ListItem(props: { label: string; active: boolean; customized: boolean; 
   )
 }
 
-/** The item's name and what it is on the left, Save and Reset on the right, so the editor below gets the height. */
+/** The item's name and what it is on the left, Save and Reset on the right. */
 function EditorHeader(props: { title: string; description?: string; customized: boolean; actions: JSX.Element }) {
   return (
-    <div class="mb-2.5 flex items-start gap-3">
+    <div class="mb-6 flex items-start gap-4">
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2">
-          <span class="truncate text-sm font-semibold text-ink">{props.title}</span>
+          <span class="truncate text-base font-semibold text-ink">{props.title}</span>
           <Show when={props.customized}>
             <span class="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[0.65rem] text-accent">{t("drift.settings.prompts.customized")}</span>
           </Show>
         </div>
         <Show when={props.description}>
-          <div class="mt-0.5 line-clamp-2 text-xs leading-relaxed text-ink-faint">{props.description}</div>
+          <div class="mt-1 text-[0.78rem] leading-relaxed text-ink-faint">{props.description}</div>
         </Show>
       </div>
       {props.actions}
@@ -258,10 +280,10 @@ function Status(props: { error: string; saved: boolean }) {
   return (
     <>
       <Show when={props.error}>
-        <div role="alert" class="mt-2 text-xs text-danger">{props.error}</div>
+        <div role="alert" class="mt-4 text-xs text-danger">{props.error}</div>
       </Show>
       <Show when={props.saved}>
-        <div role="status" class="mt-2 text-xs text-ok">{t("drift.settings.prompts.saved")}</div>
+        <div role="status" class="mt-4 text-xs text-ok">{t("drift.settings.prompts.saved")}</div>
       </Show>
     </>
   )
@@ -278,23 +300,27 @@ function BaseEditor(props: {
   onInput: (value: string) => void
 }) {
   return (
-    <div class="flex min-h-0 flex-1 flex-col">
+    <div>
       <EditorHeader
         title={t(familyLabels[props.id] ?? props.id)}
         description={t(props.id === "all" ? "drift.settings.prompts.allDescription" : "drift.settings.prompts.familyDescription")}
         customized={props.customized}
         actions={props.actions}
       />
-      <textarea
-        aria-label={t("drift.settings.prompts.systemPrompt")}
-        class={`${editorClass} min-h-48 flex-1 resize-none`}
-        classList={{ "text-ink": props.customized || props.dirty, "text-ink-faint": !props.customized && !props.dirty }}
-        spellcheck={false}
-        placeholder={props.id === "all" ? t("drift.settings.prompts.allPlaceholder") : undefined}
-        value={props.draft}
-        disabled={!props.loaded}
-        onInput={(event) => props.onInput(event.currentTarget.value)}
-      />
+      <SettingsGroup title={t("drift.settings.prompts.systemPrompt")}>
+        <div class="py-3">
+          <textarea
+            aria-label={t("drift.settings.prompts.systemPrompt")}
+            class={`${editorClass} h-[28rem]`}
+            classList={{ "text-ink": props.customized || props.dirty, "text-ink-faint": !props.customized && !props.dirty }}
+            spellcheck={false}
+            placeholder={props.id === "all" ? t("drift.settings.prompts.allPlaceholder") : undefined}
+            value={props.draft}
+            disabled={!props.loaded}
+            onInput={(event) => props.onInput(event.currentTarget.value)}
+          />
+        </div>
+      </SettingsGroup>
       {props.status}
     </div>
   )
@@ -305,9 +331,10 @@ function AgentEditor(props: {
   draft: AgentDraft
   baseline: AgentDraft
   customized: boolean
+  toolNames: ToolName[]
   status: JSX.Element
   actions: JSX.Element
-  onChange: (field: keyof AgentDraft, value: string) => void
+  onChange: (change: Partial<AgentDraft>) => void
 }) {
   const engine = useEngine()
   const capability = () => agentModelCapability(props.agent)
@@ -318,68 +345,150 @@ function AgentEditor(props: {
         ? t("drift.settings.agents.currentSessionModel")
         : t("drift.settings.agents.currentModel")
   const models = createMemo(() => [{ id: "", label: inherited() }, ...agentModelOptions(engine.state, capability() ?? "tools")])
-  const changed = (field: keyof AgentDraft) => props.draft[field] !== props.baseline[field]
+  const levels = createMemo(() => [
+    { id: "", label: t("drift.settings.prompts.variantPlaceholder") },
+    ...reasoningLevels(engine.state, props.draft.model, props.draft.variant).map((level) => ({ id: level, label: reasoningLevelLabel(level) })),
+  ])
+  const steps = createMemo(() => [
+    { id: "", label: t("drift.settings.prompts.stepsPlaceholder") },
+    ...[...new Set([...stepPresets, props.draft.steps].filter(Boolean))].sort((a, b) => Number(a) - Number(b)).map((step) => ({ id: step, label: step })),
+  ])
+  const changed = () => props.draft.prompt !== props.baseline.prompt
   // Background jobs only answer in text, so they have no reasoning level, steps, tools or permissions.
   const runsTools = () => capability() !== "text"
   return (
-    <div class="flex min-h-0 flex-1 flex-col">
-      <EditorHeader title={props.agent.name} description={props.agent.description} customized={props.customized} actions={props.actions} />
-      <Show when={props.agent.problem}>
-        <div role="alert" class="mb-2.5 rounded-md border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-xs text-danger">{props.agent.problem}</div>
-      </Show>
-      <div class="mb-2.5 flex flex-wrap gap-3">
+    <div class="space-y-6">
+      <div>
+        <EditorHeader title={props.agent.name} description={props.agent.description} customized={props.customized} actions={props.actions} />
+        <Show when={props.agent.problem}>
+          <div role="alert" class="-mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{props.agent.problem}</div>
+        </Show>
+      </div>
+      <SettingsGroup title={t("drift.settings.prompts.behaviorGroup")}>
         <Show when={capability()}>
-          <Field label={t("command.category.model")} class="min-w-48 flex-[2]">
+          <SettingsRow title={t("command.category.model")} description={t("drift.settings.prompts.modelDescription")}>
             <Picker
               label={t("command.category.model")}
               items={models()}
               selected={props.draft.model}
               fallbackLabel={props.draft.model || inherited()}
-              floating bordered chevronAtEnd placement="below" width="100%"
-              onPick={(value) => props.onChange("model", value)}
+              floating bordered chevronAtEnd placement="below" width={pickerWidth}
+              onPick={(model) => props.onChange({ model })}
             />
-          </Field>
+          </SettingsRow>
         </Show>
         <Show when={runsTools()}>
-          <Field label={t("drift.settings.prompts.variant")} class="min-w-28 flex-1">
-            <input class={inputClass} value={props.draft.variant} placeholder={t("drift.settings.prompts.variantPlaceholder")} onInput={(event) => props.onChange("variant", event.currentTarget.value)} />
-          </Field>
-          <Field label={t("drift.settings.prompts.steps")} class="min-w-28 flex-1">
-            <input class={inputClass} inputMode="numeric" value={props.draft.steps} placeholder={t("drift.settings.prompts.stepsPlaceholder")} onInput={(event) => props.onChange("steps", event.currentTarget.value)} />
-          </Field>
+          <SettingsRow title={t("drift.settings.prompts.variant")} description={t("drift.settings.prompts.variantDescription")}>
+            <Picker
+              label={t("drift.settings.prompts.variant")}
+              items={levels()}
+              selected={props.draft.variant}
+              floating bordered chevronAtEnd placement="below" width={pickerWidth}
+              onPick={(variant) => props.onChange({ variant })}
+            />
+          </SettingsRow>
+          <SettingsRow title={t("drift.settings.prompts.steps")} description={t("drift.settings.prompts.stepsDescription")}>
+            <Picker
+              label={t("drift.settings.prompts.steps")}
+              items={steps()}
+              selected={props.draft.steps}
+              floating bordered chevronAtEnd placement="below" width={pickerWidth}
+              onPick={(steps) => props.onChange({ steps })}
+            />
+          </SettingsRow>
         </Show>
-      </div>
-      <Field label={t("drift.settings.prompts.agentPrompt")} class="flex min-h-0 flex-1 flex-col">
-        <textarea
-          class={`${editorClass} min-h-40 flex-1 resize-none`}
-          classList={{ "text-ink": props.customized || changed("prompt"), "text-ink-faint": !props.customized && !changed("prompt") }}
-          spellcheck={false}
-          placeholder={t("drift.settings.prompts.inheritsFamily")}
-          value={props.draft.prompt}
-          onInput={(event) => props.onChange("prompt", event.currentTarget.value)}
-        />
-      </Field>
-      <Show when={runsTools()}>
-        <Field label={t("drift.settings.prompts.advanced")} class="mt-2.5" hint={t("drift.settings.prompts.advancedFields")}>
+      </SettingsGroup>
+      <SettingsGroup title={t("drift.settings.prompts.agentPrompt")}>
+        <div class="py-3">
           <textarea
-            class={`${editorClass} h-20 resize-y text-ink`}
+            aria-label={t("drift.settings.prompts.agentPrompt")}
+            class={`${editorClass} h-80`}
+            classList={{ "text-ink": props.customized || changed(), "text-ink-faint": !props.customized && !changed() }}
             spellcheck={false}
-            value={props.draft.advanced}
-            onInput={(event) => props.onChange("advanced", event.currentTarget.value)}
+            placeholder={t("drift.settings.prompts.inheritsFamily")}
+            value={props.draft.prompt}
+            onInput={(event) => props.onChange({ prompt: event.currentTarget.value })}
           />
-        </Field>
+        </div>
+      </SettingsGroup>
+      <Show when={runsTools()}>
+        <SettingsGroup title={t("drift.settings.prompts.tools")}>
+          <SettingsRow title={t("drift.settings.prompts.toolsOffered")} description={t("drift.settings.prompts.toolsDescription")}>
+            <Picker
+              label={t("drift.settings.prompts.toolsOffered")}
+              items={(["all", "only", "except"] as const).map((mode) => ({ id: mode, label: t(`drift.settings.prompts.tools.${mode}`) }))}
+              selected={props.draft.toolMode}
+              floating bordered chevronAtEnd placement="below" width={pickerWidth}
+              onPick={(mode) => props.onChange({ toolMode: mode as ToolMode, tools: mode === "all" ? [] : props.draft.tools })}
+            />
+          </SettingsRow>
+          <Show when={props.draft.toolMode !== "all"}>
+            <ToolChips
+              names={props.toolNames}
+              chosen={props.draft.tools}
+              excluding={props.draft.toolMode === "except"}
+              onChange={(tools) => props.onChange({ tools })}
+            />
+          </Show>
+        </SettingsGroup>
+        <SettingsGroup title={t("drift.settings.permissions")}>
+          <div class="space-y-3 py-3">
+            <div class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.settings.prompts.permissionsDescription")}</div>
+            <RuleList rules={props.draft.permissions} onChange={(permissions) => props.onChange({ permissions })} />
+            <AddRule onAdd={() => props.onChange({ permissions: [...props.draft.permissions, newRule()] })} />
+          </div>
+        </SettingsGroup>
       </Show>
       {props.status}
     </div>
   )
 }
 
-function Field(props: { label: string; hint?: string; class?: string; children: JSX.Element }) {
+/** Every tool as a toggle, built-ins first, then each MCP server's; names the list holds but the engine does not offer here stay too. */
+function ToolChips(props: { names: ToolName[]; chosen: string[]; excluding: boolean; onChange: (tools: string[]) => void }) {
+  const groups = createMemo(() => {
+    const known = new Set(props.names.map((tool) => tool.name))
+    const builtIn = props.names.filter((tool) => !tool.server).map((tool) => tool.name)
+    const other = props.chosen.filter((name) => !known.has(name))
+    const servers = [...new Set(props.names.flatMap((tool) => (tool.server ? [tool.server] : [])))].sort()
+    return [
+      { title: t("drift.settings.prompts.builtinTools"), names: [...builtIn, ...other] },
+      ...servers.map((server) => ({ title: server, names: props.names.filter((tool) => tool.server === server).map((tool) => tool.name) })),
+    ]
+  })
+  const toggle = (name: string) => props.onChange(props.chosen.includes(name) ? props.chosen.filter((item) => item !== name) : [...props.chosen, name])
   return (
-    <label class={`block text-xs text-ink-faint ${props.class ?? ""}`}>
-      <span class="mb-1 block" title={props.hint}>{props.label}</span>
-      {props.children}
-    </label>
+    <div class="space-y-3 py-3">
+      <For each={groups()}>
+        {(group) => (
+          <div>
+            <div class="mb-1.5 text-[0.7rem] text-ink-faint">{group.title}</div>
+            <div class="flex flex-wrap gap-1.5">
+              <For each={group.names}>
+                {(name) => (
+                  <button
+                    type="button"
+                    class="rounded-full border px-2.5 py-1 font-mono text-[0.72rem] transition-colors"
+                    classList={{
+                      "border-accent/60 bg-accent/15 text-ink": props.chosen.includes(name) && !props.excluding,
+                      "border-danger/50 bg-danger/10 text-ink line-through": props.chosen.includes(name) && props.excluding,
+                      "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": !props.chosen.includes(name),
+                    }}
+                    aria-pressed={props.chosen.includes(name)}
+                    onClick={() => toggle(name)}
+                  >
+                    {name}
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+        )}
+      </For>
+      <Show when={!props.chosen.length}>
+        <div class="text-[0.72rem] text-warn">{t("drift.settings.prompts.tools.none")}</div>
+      </Show>
+    </div>
   )
 }
 
@@ -404,6 +513,20 @@ function Actions(props: { saving: boolean; dirty: boolean; resettable: boolean; 
       </button>
     </div>
   )
+}
+
+/**
+ * The reasoning levels to offer: the pinned model's, or with none pinned every level a connected
+ * model has, since the agent runs on whichever the conversation uses. A saved level is always kept.
+ */
+export function reasoningLevels(state: Pick<EngineState, "providers" | "connected">, model: string, current: string) {
+  const [providerID, ...rest] = model.split("/")
+  const pinned = model ? modelInfo(state as EngineState, { providerID: providerID!, modelID: rest.join("/") }) : undefined
+  const models = pinned ? [pinned] : state.providers.filter((provider) => state.connected.includes(provider.id)).flatMap((provider) => Object.values(provider.models))
+  const found = new Set(models.flatMap((info) => Object.keys(info.variants ?? {})))
+  if (current) found.add(current)
+  const rank = (level: string) => (levelOrder.includes(level) ? levelOrder.indexOf(level) : levelOrder.length)
+  return [...found].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
 }
 
 /** Agents in the order they are met: picked in the composer, delegated to, then run by Drift itself. */
@@ -432,40 +555,45 @@ export function agentConfig(agent: AgentInfo | undefined, stored?: PromptOverrid
   }
 }
 
-/** A config as the form shows it. Tools and permissions, the only structured fields, stay JSON. */
+/** A config as the form shows it. A tools list of `!name` entries only is every tool except those. */
 export function draftOf(config: Record<string, unknown>): AgentDraft {
   const text = (value: unknown) => (typeof value === "string" ? value : "")
-  const advanced = Object.fromEntries((["tools", "permissions"] as const).filter((key) => config[key] !== undefined).map((key) => [key, config[key]]))
+  const listed = Array.isArray(config.tools) ? config.tools.filter((tool): tool is string => typeof tool === "string" && tool !== "*") : []
+  const excluding = listed.length > 0 && listed.every((tool) => tool.startsWith("!"))
+  const toolMode: ToolMode = !listed.length ? "all" : excluding ? "except" : "only"
   return {
     prompt: text(config.prompt),
     model: text(config.model),
     variant: text(config.variant),
     steps: typeof config.steps === "number" ? String(config.steps) : "",
-    advanced: JSON.stringify(advanced, null, 2),
+    toolMode,
+    tools: excluding ? listed.map((tool) => tool.slice(1)) : listed.filter((tool) => !tool.startsWith("!")),
+    permissions: Array.isArray(config.permissions) ? (config.permissions as PermissionRule[]) : [],
   }
 }
 
 /**
  * The config a draft stands for, or why it cannot be saved. An emptied model or reasoning level that
- * was set is kept as "": for a model that inherits the conversation's, for a level it clears the default.
+ * was set is kept as "": for a model that inherits the conversation's, for a level it clears the
+ * default. "All tools" over a narrowed agent is `*`, since an empty list cannot be stored.
  */
 export function configOf(draft: AgentDraft, baseline: Record<string, unknown>): Record<string, unknown> | string {
-  let advanced: unknown
-  try {
-    advanced = JSON.parse(draft.advanced.trim() || "{}")
-  } catch {
-    return t("drift.settings.prompts.invalidJson")
-  }
-  if (!advanced || typeof advanced !== "object" || Array.isArray(advanced)) return t("drift.settings.prompts.invalidJson")
-  const config: Record<string, unknown> = { prompt: draft.prompt, ...advanced }
+  const config: Record<string, unknown> = { prompt: draft.prompt }
   if (draft.model || baseline.model !== undefined) config.model = draft.model
-  if (draft.variant.trim() || baseline.variant !== undefined) config.variant = draft.variant.trim()
-  if (draft.steps.trim()) config.steps = Number(draft.steps.trim())
+  if (draft.variant || baseline.variant !== undefined) config.variant = draft.variant
+  if (draft.steps) config.steps = Number(draft.steps)
+  if (draft.toolMode !== "all" && !draft.tools.length) return t("drift.settings.prompts.tools.none")
+  if (draft.toolMode === "only") config.tools = draft.tools
+  if (draft.toolMode === "except") config.tools = draft.tools.map((tool) => `!${tool}`)
+  if (draft.toolMode === "all" && baseline.tools !== undefined) config.tools = ["*"]
+  const rules = draft.permissions.filter((rule) => rule.pattern.trim())
+  if (rules.length || baseline.permissions !== undefined) config.permissions = rules
   const { prompt: _prompt, ...behavior } = config
   const issue = agentBehaviorIssue(behavior)
   return issue ? t("drift.settings.prompts.behaviorRefused", { field: issue }) : config
 }
 
 function sameDraft(a: AgentDraft, b: AgentDraft) {
-  return a.prompt === b.prompt && a.model === b.model && a.variant === b.variant && a.steps === b.steps && a.advanced.trim() === b.advanced.trim()
+  const same = (x: unknown, y: unknown) => JSON.stringify(x) === JSON.stringify(y)
+  return a.prompt === b.prompt && a.model === b.model && a.variant === b.variant && a.steps === b.steps && a.toolMode === b.toolMode && same(a.tools, b.tools) && same(a.permissions, b.permissions)
 }

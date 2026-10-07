@@ -201,13 +201,13 @@ impl Agent {
         }
     }
 
-    /// Whether `tool` is one this agent may be offered. Names match in any case, as Claude-style files write them.
+    /// Whether `tool` is one this agent may be offered. Names match in any case, as Claude-style files write them; `*` is every tool.
     pub fn allows_tool(&self, tool: &str) -> bool {
         let (taken, given): (Vec<&String>, Vec<&String>) = self.tools.iter().partition(|name| name.starts_with('!'));
         if taken.iter().any(|name| &name[1..] == "*" || name[1..].eq_ignore_ascii_case(tool)) {
             return false;
         }
-        given.is_empty() || given.iter().any(|name| name.eq_ignore_ascii_case(tool))
+        given.is_empty() || given.iter().any(|name| *name == "*" || name.eq_ignore_ascii_case(tool))
     }
 }
 
@@ -1065,6 +1065,9 @@ mod tests {
         assert!(!config.agent("none").unwrap().allows_tool("read"), "an empty list means no tools");
         assert!(config.agent("all").unwrap().allows_tool("bash"), "an empty map means every tool");
         assert!(config.agent("build").unwrap().allows_tool("anything"), "no list means every tool");
+        let mut widened = config.agent("explore").unwrap().clone();
+        widened.tools = vec!["*".into()];
+        assert!(widened.allows_tool("edit") && widened.allows_tool("bash"), "a Settings override can widen a narrowed agent back to every tool");
         std::fs::remove_dir_all(ws).ok();
     }
 

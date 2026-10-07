@@ -673,6 +673,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every tool an agent could be offered: the built-ins of both tool profiles, then the workspace's MCP tools. */
+        get: operations["listTools"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces": {
         parameters: {
             query?: never;
@@ -987,7 +1004,7 @@ export interface components {
         Ending: "length" | "refused" | "limit";
         /** @description Engine-wide preferences the user changes in Settings. */
         EngineSettings: {
-            /** @description Every session answers its own asks, except secrets and anything outside the workspace. Left out of a PUT, it stays as it is. */
+            /** @description Every session answers its own asks; only a deny rule still refuses. Left out of a PUT, it stays as it is. */
             autoAcceptAll?: boolean | null;
             /** @description Compact a conversation automatically when it nears its model's context window. Left out of a PUT, it stays as it is. */
             autoCompact?: boolean | null;
@@ -1699,6 +1716,12 @@ export interface components {
             description: string;
             name: string;
             read_only: boolean;
+        };
+        /** @description A tool an agent's `tools` list can name, as Settings offers it. */
+        ToolName: {
+            name: string;
+            /** @description The MCP server it comes from; none for a built-in. */
+            server?: string | null;
         };
         /**
          * @description How a model edits files: what its training makes it good at, decided here and nowhere else.
@@ -3173,6 +3196,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listTools: {
+        parameters: {
+            query?: {
+                /** @description The workspace whose MCP servers' tools to include besides the built-ins. */
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolName"][];
+                };
             };
         };
     };

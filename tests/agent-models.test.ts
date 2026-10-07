@@ -94,13 +94,34 @@ test("a saved model no longer offered still shows as the selection", async () =>
   expect(draftOf({ model: "removed-provider/old-model" }).model).toBe("removed-provider/old-model")
 })
 
-test("the form refuses a broken JSON block or a field the engine would not apply", async () => {
+test("tools read as all, only these, or all except these, and go back the same way", async () => {
   const { configOf, draftOf } = await import("../src/ui/settings-prompts")
-  expect(configOf({ ...draftOf({}), advanced: "{ tools: " }, {})).toBeString()
-  expect(configOf({ ...draftOf({}), advanced: "[]" }, {})).toBeString()
+  expect(draftOf({}).toolMode).toBe("all")
+  const only = draftOf({ tools: ["read", "grep"] })
+  expect([only.toolMode, only.tools]).toEqual(["only", ["read", "grep"]])
+  const except = draftOf({ tools: ["!bash", "!edit"] })
+  expect([except.toolMode, except.tools]).toEqual(["except", ["bash", "edit"]])
+  expect(configOf(except, { tools: ["!bash", "!edit"] })).toMatchObject({ tools: ["!bash", "!edit"] })
+  expect(configOf({ ...only, toolMode: "all", tools: [] }, { tools: ["read", "grep"] }), "every tool over a narrowed agent is stored as *").toMatchObject({ tools: ["*"] })
+  expect(configOf({ ...only, tools: [] }, {}), "only these, with none chosen").toBeString()
+  expect(configOf(draftOf({}), {})).not.toHaveProperty("tools")
+})
+
+test("the form refuses what the engine would not apply and drops rules left blank", async () => {
+  const { configOf, draftOf } = await import("../src/ui/settings-prompts")
   expect(configOf({ ...draftOf({}), steps: "0" }, {}), "steps must be positive").toBeString()
-  expect(configOf({ ...draftOf({}), advanced: '{"temperature": 0.2}' }, {}), "only tools and permissions belong there").toBeString()
-  expect(configOf({ ...draftOf({}), steps: "8", variant: " high " }, {})).toEqual({ prompt: "", steps: 8, variant: "high" })
+  expect(configOf({ ...draftOf({}), steps: "50", variant: "high" }, {})).toEqual({ prompt: "", steps: 50, variant: "high" })
+  const rules = [{ kind: "bash", pattern: "git push*", decision: "deny" as const }, { kind: "bash", pattern: " ", decision: "ask" as const }]
+  expect(configOf({ ...draftOf({}), permissions: rules }, {})).toMatchObject({ permissions: [rules[0]] })
+})
+
+test("reasoning levels come from the pinned model, else from every connected model, in order", async () => {
+  const { reasoningLevels } = await import("../src/ui/settings-prompts")
+  const withLevels = (id: string, levels: string[]) => ({ ...model(id), variants: Object.fromEntries(levels.map((level) => [level, {}])) })
+  const state = { providers: [provider("openai", [withLevels("fast", ["low", "high"]), withLevels("deep", ["xhigh", "medium"])])], connected: ["openai"] }
+  expect(reasoningLevels(state, "", "")).toEqual(["low", "medium", "high", "xhigh"])
+  expect(reasoningLevels(state, "openai/fast", "")).toEqual(["low", "high"])
+  expect(reasoningLevels(state, "openai/fast", "max"), "a saved level stays offered").toEqual(["low", "high", "max"])
 })
 
 test("agents are listed as picked in the composer, delegated to, then run by Drift itself", async () => {

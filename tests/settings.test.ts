@@ -73,7 +73,7 @@ test("base prompts and agents are one Server setting, with inherited values styl
   expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Permissions"]')
   expect(source).toContain("<PromptsSection />")
   expect(await Bun.file("src/ui/settings-base-prompts.tsx").exists()).toBeFalse()
-  expect(editor).toContain('"text-ink-faint": !props.customized && !changed("prompt")')
+  expect(editor).toContain('"text-ink-faint": !props.customized && !changed()')
   expect(editor).toContain("disabled={props.saving || !props.dirty}")
 })
 
