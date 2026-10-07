@@ -69,6 +69,9 @@ pub enum Event {
     /// A worker was launched, started, ended, or its result reached its parent.
     #[serde(rename = "task.updated")]
     TaskUpdated { task: crate::session::tasks::TaskRecord },
+    /// A plugin has something to tell the user; `tone` is info, success, warning or error.
+    #[serde(rename = "plugin.notice")]
+    PluginNotice { plugin: String, title: String, body: String, tone: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

@@ -243,6 +243,45 @@ async fn a_plugin_may_refuse_rewrite_or_add_context_to_a_prompt_and_keep_a_turn_
     assert_eq!(user.parts[1].part, Part::Context { plugin: "steward".into(), text: "ticket 42 is about login".into() }, "context sits beside the prompt");
 }
 
+struct Gatekeeper;
+
+#[async_trait::async_trait]
+impl crate::hook::Hook for Gatekeeper {
+    fn name(&self) -> &str {
+        "gatekeeper"
+    }
+    async fn permission(&self, ask: &crate::hook::PermissionAsk) -> crate::hook::PermissionDecision {
+        match ask.commands.as_deref() {
+            Some([command]) if command.starts_with("echo ") => crate::hook::PermissionDecision::Allow,
+            Some([command]) if command.starts_with("touch ") => crate::hook::PermissionDecision::Deny("no new files today".into()),
+            _ => crate::hook::PermissionDecision::Pass,
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_plugin_answers_an_ask_the_rules_leave_to_the_user_and_never_overrides_a_rule() {
+    let h = harness().await;
+    h.engine.hooks.set(vec![std::sync::Arc::new(Gatekeeper)], vec![]);
+    h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: "bash".into(), pattern: "rm *".into(), decision: Decision::Deny }, Rule { kind: "bash".into(), pattern: "*".into(), decision: Decision::Ask }] });
+    h.provider
+        .push(tool_call("bash", r#"{"command": "echo hi"}"#))
+        .push(tool_call("bash", r#"{"command": "touch made.txt"}"#))
+        .push(tool_call("bash", r#"{"command": "rm -rf made.txt"}"#))
+        .push(text("done"));
+    h.engine.submit(&h.session.id, prompt("do things")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done, "allowed by the plugin without asking: {output:?}");
+    assert!(h.engine.permissions.pending().is_empty(), "the user was never asked");
+    let Part::ToolCall { status, output, .. } = &transcript[2].parts[0].part else { panic!() };
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Denied, Some("The gatekeeper plugin refused this call: no new files today")));
+    assert!(!h._dir.join("ws/made.txt").exists());
+    let Part::ToolCall { status, output, .. } = &transcript[3].parts[0].part else { panic!() };
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Denied, Some("A permission rule forbids this call.")), "a deny rule is not the plugin's to answer");
+}
+
 struct Rewriter;
 
 #[async_trait::async_trait]

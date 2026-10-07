@@ -55,8 +55,14 @@ What a plugin sees and may answer:
 Everything a plugin says in the chat (context beside a prompt, a prompt of its own, a note under a
 reply) is one row with a plug icon, the plugin's name and its words on one line, like a tool's row;
 never text in a bubble.
-- `session`: a session was created, started running, went idle, was updated (title, archive), or
-  deleted. Notification only.
+- `permission`: a call the rules would ask you about (never one a rule already allows or
+  denies). Answer `pass` (you are asked as usual), `allow`, or `deny(reason)`. This is where an
+  organisation's policy goes.
+- `compaction`: the conversation is about to be summarised. Answer `proceed` or
+  `instruct(text)`, added to the summariser's instructions under the plugin's name so the summary
+  keeps what the plugin needs. The `session` event `compacted` follows.
+- `session`: a session was created, started running, went idle, was updated (title, archive),
+  was deleted, or was compacted. Notification only.
 - `name()` names the plugin in refusals, in context it adds and in the plugin list.
 
 What a plugin may do, each a host interface it imports (Settings shows which):
@@ -69,6 +75,8 @@ What a plugin may do, each a host interface it imports (Settings shows which):
 - `process`: `run(program, args, timeout-ms)` in that workspace, with the exit code and the
   first 64 KiB of each stream; a minute at most.
 - `http`: `fetch(method, url, headers, body)`, 30 seconds and 1 MiB at most.
+- `notify`: `show(title, body, tone)`, a notice in the app like Drift's own, titled with the
+  plugin's name.
 
 Plugins run in the order listed: the first refusal wins, a replaced input or prompt feeds the next
 plugin. A call gets five seconds of its own running time, plus whatever its host calls take; a
@@ -77,7 +85,8 @@ call that runs past that, traps, or returns something unusable is logged and tre
 
 `plugins/guard` is the example, in Rust with `wit-bindgen`: it refuses shell commands that
 rewrite history, notes failed commands, and when a reply says `@guard test` runs the configured
-test command, keeping the turn going with the failures if any. Build it with
+test command, leaving "tests passed" under the reply or keeping the turn going with the failures
+and a notice. Build it with
 `cargo build --release --target wasm32-wasip2` in that directory (the target installs with
 `rustup target add wasm32-wasip2`); the component is `target/wasm32-wasip2/release/guard.wasm`.
 

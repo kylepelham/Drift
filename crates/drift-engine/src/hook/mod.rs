@@ -53,6 +53,46 @@ pub enum AfterTool {
     Note(String),
 }
 
+/// A call the rules would ask the user about.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionAsk {
+    pub session_id: String,
+    pub workspace: String,
+    pub agent: String,
+    pub tool: String,
+    pub kind: String,
+    pub pattern: String,
+    pub title: String,
+    pub commands: Option<Vec<String>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "decision", content = "value", rename_all = "camelCase")]
+pub enum PermissionDecision {
+    /// The user is asked as usual.
+    Pass,
+    Allow,
+    /// The call does not run; the model is told why.
+    Deny(String),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionEvent {
+    pub session_id: String,
+    pub workspace: String,
+    pub agent: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "decision", content = "value", rename_all = "camelCase")]
+pub enum Compacting {
+    Proceed,
+    /// Added to the summariser's instructions.
+    Instruct(String),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionKind {
@@ -61,6 +101,7 @@ pub enum SessionKind {
     Idle,
     Updated,
     Deleted,
+    Compacted,
 }
 
 /// The user's prompt before the model sees it.
@@ -137,6 +178,12 @@ pub trait Hook: Send + Sync {
     }
     async fn turn_end(&self, _reply: &ReplyEvent) -> TurnEnd {
         TurnEnd::Accept
+    }
+    async fn permission(&self, _ask: &PermissionAsk) -> PermissionDecision {
+        PermissionDecision::Pass
+    }
+    async fn compaction(&self, _event: &CompactionEvent) -> Compacting {
+        Compacting::Proceed
     }
     async fn session(&self, _event: &SessionEvent) {}
 }
@@ -317,6 +364,28 @@ impl Hooks {
         ended
     }
 
+    /// The first plugin that answers decides, with its name; none answering leaves the ask to the user.
+    pub async fn permission(&self, ask: &PermissionAsk) -> Option<(String, PermissionDecision)> {
+        for hook in self.list() {
+            match hook.permission(ask).await {
+                PermissionDecision::Pass => {}
+                decision => return Some((hook.name().to_owned(), decision)),
+            }
+        }
+        None
+    }
+
+    /// Every plugin's instructions for the summary, in order, each under its name.
+    pub async fn compaction(&self, event: &CompactionEvent) -> Vec<String> {
+        let mut out = Vec::new();
+        for hook in self.list() {
+            if let Compacting::Instruct(text) = hook.compaction(event).await {
+                out.push(format!("From the {} plugin: {text}", hook.name()));
+            }
+        }
+        out
+    }
+
     pub async fn session(&self, event: &SessionEvent) {
         for hook in self.list() {
             hook.session(event).await;
@@ -372,7 +441,7 @@ pub async fn relay_session_events(engine: Arc<crate::Engine>) {
     }
 }
 
-fn session_event(engine: &crate::Engine, session: &crate::session::types::Session, kind: SessionKind) -> SessionEvent {
+pub(crate) fn session_event(engine: &crate::Engine, session: &crate::session::types::Session, kind: SessionKind) -> SessionEvent {
     let workspace = engine.store.workspace(&session.workspace_id).ok().flatten().map(|workspace| workspace.path).unwrap_or_default();
     SessionEvent { id: session.id.clone(), workspace, title: session.title.clone(), agent: session.agent.clone(), kind }
 }

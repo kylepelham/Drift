@@ -6,6 +6,7 @@
 wit_bindgen::generate!({ world: "plugin", path: "../../crates/drift-engine/wit" });
 
 use drift::plugin::host::{config, log, Level};
+use drift::plugin::notify::{show, Tone};
 use drift::plugin::process::run;
 
 struct Guard;
@@ -52,9 +53,20 @@ impl Guest for Guard {
         };
         match run(program, args, TEST_TIMEOUT_MS) {
             Ok(output) if output.code == 0 => TurnEnd::Note("tests passed".into()),
-            Ok(output) => TurnEnd::Continue(format!("The tests failed with exit code {}. Fix them before finishing.\n\n{}", output.code, tail(&output.stderr, &output.stdout))),
+            Ok(output) => {
+                show("Tests failed", &format!("exit code {}; the agent is fixing them", output.code), Tone::Warning);
+                TurnEnd::Continue(format!("The tests failed with exit code {}. Fix them before finishing.\n\n{}", output.code, tail(&output.stderr, &output.stdout)))
+            }
             Err(error) => TurnEnd::Continue(format!("The tests could not run: {error}")),
         }
+    }
+
+    fn permission(_ask: PermissionAsk) -> Permission {
+        Permission::Pass
+    }
+
+    fn compaction(_compaction: Compaction) -> Compacting {
+        Compacting::Instruct("Keep the list of commands the guard plugin refused in this conversation, if any.".into())
     }
 
     fn session(session: Session, kind: SessionKind) {

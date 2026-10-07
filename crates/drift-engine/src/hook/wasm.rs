@@ -12,7 +12,7 @@ use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store, UpdateDeadline};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use super::{AfterTool, BeforeTool, Hook, PromptEvent, PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult, TurnEnd};
+use super::{AfterTool, BeforeTool, Compacting, CompactionEvent, Hook, PermissionAsk, PermissionDecision, PromptEvent, PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult, TurnEnd};
 
 mod bindings {
     wasmtime::component::bindgen!({ world: "plugin", path: "wit", imports: { default: async }, exports: { default: async } });
@@ -20,7 +20,7 @@ mod bindings {
 
 use bindings::drift::plugin::host::{Host, Level};
 use bindings::drift::plugin::types as wit;
-use bindings::drift::plugin::{files, http, process, store};
+use bindings::drift::plugin::{files, http, notify, process, store};
 use bindings::Plugin;
 
 /// A hook call gets this much of its own running time; host calls add theirs. The epoch ticks every 100 ms.
@@ -167,6 +167,19 @@ impl http::Host for State {
             Ok(http::Response { status, body: bounded(bytes.to_vec(), BODY_BYTES) })
         })
         .await
+    }
+}
+
+impl notify::Host for State {
+    async fn show(&mut self, title: String, body: String, tone: notify::Tone) {
+        let Ok(engine) = self.engine() else { return };
+        let tone = match tone {
+            notify::Tone::Info => "info",
+            notify::Tone::Success => "success",
+            notify::Tone::Warning => "warning",
+            notify::Tone::Error => "error",
+        };
+        engine.hub.publish(crate::event::Event::PluginNotice { plugin: self.name.clone(), title, body, tone: tone.into() });
     }
 }
 
@@ -349,6 +362,42 @@ impl Hook for WasmPlugin {
         }
     }
 
+    async fn permission(&self, ask: &PermissionAsk) -> PermissionDecision {
+        let input = wit::PermissionAsk {
+            session_id: ask.session_id.clone(),
+            workspace: ask.workspace.clone(),
+            agent: ask.agent.clone(),
+            tool: ask.tool.clone(),
+            kind: ask.kind.clone(),
+            pattern: ask.pattern.clone(),
+            title: ask.title.clone(),
+            commands: ask.commands.clone(),
+        };
+        let mut store = self.enter(&ask.workspace).await;
+        match self.bindings.call_permission(&mut *store, &input).await {
+            Ok(wit::Permission::Pass) => PermissionDecision::Pass,
+            Ok(wit::Permission::Allow) => PermissionDecision::Allow,
+            Ok(wit::Permission::Deny(reason)) => PermissionDecision::Deny(reason),
+            Err(error) => {
+                self.failed("permission", &error);
+                PermissionDecision::Pass
+            }
+        }
+    }
+
+    async fn compaction(&self, event: &CompactionEvent) -> Compacting {
+        let input = wit::Compaction { session_id: event.session_id.clone(), workspace: event.workspace.clone(), agent: event.agent.clone() };
+        let mut store = self.enter(&event.workspace).await;
+        match self.bindings.call_compaction(&mut *store, &input).await {
+            Ok(wit::Compacting::Proceed) => Compacting::Proceed,
+            Ok(wit::Compacting::Instruct(text)) => Compacting::Instruct(text),
+            Err(error) => {
+                self.failed("compaction", &error);
+                Compacting::Proceed
+            }
+        }
+    }
+
     async fn session(&self, event: &SessionEvent) {
         let session = wit::Session { id: event.id.clone(), workspace: event.workspace.clone(), title: event.title.clone(), agent: event.agent.clone() };
         let kind = match event.kind {
@@ -357,6 +406,7 @@ impl Hook for WasmPlugin {
             SessionKind::Idle => wit::SessionKind::Idle,
             SessionKind::Updated => wit::SessionKind::Updated,
             SessionKind::Deleted => wit::SessionKind::Deleted,
+            SessionKind::Compacted => wit::SessionKind::Compacted,
         };
         let mut store = self.enter(&event.workspace).await;
         if let Err(error) = self.bindings.call_session(&mut *store, &session, kind).await {
@@ -397,7 +447,7 @@ pub(super) mod tests {
         let runtime = Runtime::new(&cache).unwrap();
         let plugin = runtime.load(&path, site()).await.unwrap();
         assert_eq!(plugin.name(), "guard");
-        assert_eq!(plugin.capabilities, vec!["process".to_owned()], "guard runs a program and nothing else");
+        assert_eq!(plugin.capabilities, vec!["notify".to_owned(), "process".to_owned()], "guard runs a program and tells the user, nothing else");
         assert_eq!(plugin.before_tool(&call("bash", "git status")).await, BeforeTool::Allow);
         assert_eq!(plugin.before_tool(&call("bash", "git push --force origin main")).await, BeforeTool::Deny("`git push --force` rewrites history; ask the user to run it".into()));
         assert_eq!(plugin.before_tool(&call("read", "git push --force")).await, BeforeTool::Allow);
@@ -467,7 +517,7 @@ mod load_tests {
         assert!(hooks.is_empty(), "a plugin that is off is not consulted");
         let listed = hooks.load(&cache, entries(), &[], std::sync::Weak::new()).await;
         assert!(listed[0].enabled && !hooks.is_empty());
-        assert_eq!(listed[0].capabilities, vec!["process".to_owned()]);
+        assert_eq!(listed[0].capabilities, vec!["notify".to_owned(), "process".to_owned()]);
         let _ = std::fs::remove_dir_all(&cache);
     }
 }

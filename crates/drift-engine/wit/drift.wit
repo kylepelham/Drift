@@ -74,12 +74,50 @@ interface types {
         continue(string),
     }
 
+    /// A call the rules would ask the user about.
+    record permission-ask {
+        session-id: string,
+        workspace: string,
+        agent: string,
+        tool: string,
+        /// The rule namespace: `bash`, `edit`, `read`, `webfetch`, `mcp`, ...
+        kind: string,
+        /// What is touched: a path, a command line, a URL.
+        pattern: string,
+        title: string,
+        /// For a shell line, the simple commands it runs; absent when the line hides what it runs.
+        commands: option<list<string>>,
+    }
+
+    variant permission {
+        /// Not the plugin's call: the user is asked as usual.
+        pass,
+        allow,
+        /// The call does not run; the model is told why.
+        deny(string),
+    }
+
+    /// A conversation about to be summarised.
+    record compaction {
+        session-id: string,
+        workspace: string,
+        agent: string,
+    }
+
+    variant compacting {
+        proceed,
+        /// Added to the summariser's instructions, so the summary keeps what the plugin needs.
+        instruct(string),
+    }
+
     enum session-kind {
         created,
         running,
         idle,
         updated,
         deleted,
+        /// Its history was summarised.
+        compacted,
     }
 
     record session {
@@ -119,6 +157,12 @@ interface process {
     run: func(program: string, args: list<string>, timeout-ms: u32) -> result<output, string>;
 }
 
+/// A notice shown to the user, as the app shows its own.
+interface notify {
+    enum tone { info, success, warning, error }
+    show: func(title: string, body: string, tone: tone);
+}
+
 interface http {
     record response {
         status: u16,
@@ -128,17 +172,20 @@ interface http {
 }
 
 world plugin {
-    use types.{tool-call, before-tool, tool-result, after-tool, prompt, prompt-submit, reply, turn-end, session, session-kind};
+    use types.{tool-call, before-tool, tool-result, after-tool, prompt, prompt-submit, reply, turn-end, permission-ask, permission, compaction, compacting, session, session-kind};
     import host;
     import store;
     import files;
     import process;
     import http;
+    import notify;
 
     export name: func() -> string;
     export before-tool: func(call: tool-call) -> before-tool;
     export after-tool: func(outcome: tool-result) -> after-tool;
     export prompt-submit: func(prompt: prompt) -> prompt-submit;
     export turn-end: func(reply: reply) -> turn-end;
+    export permission: func(ask: permission-ask) -> permission;
+    export compaction: func(compaction: compaction) -> compacting;
     export session: func(session: session, kind: session-kind);
 }

@@ -1173,6 +1173,13 @@ export interface components {
             task: components["schemas"]["TaskRecord"];
             /** @enum {string} */
             type: "task.updated";
+        } | {
+            body: string;
+            plugin: string;
+            title: string;
+            tone: string;
+            /** @enum {string} */
+            type: "plugin.notice";
         };
         ForkBody: {
             /** @description Copy through this message; default is the last finished one, leaving out a turn in flight. */

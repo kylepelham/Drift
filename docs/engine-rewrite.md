@@ -1020,13 +1020,15 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
 
 - Contract: `name()`; `before-tool(call) -> allow | deny(reason) | replace(json)`;
   `after-tool(result) -> keep | replace(output) | note(text)`; `prompt-submit(prompt) -> keep |
-  replace(text) | add-context(text) | deny(reason)`; `turn-end(reply) -> accept | note(text) | continue(text)`;
-  and `session(session, kind)` for created, running, idle, updated and deleted. Tool inputs travel
+  replace(text) | add-context(text) | deny(reason)`; `turn-end(reply) -> accept | note(text) | continue(text)`; `permission(ask) -> pass | allow |
+  deny(reason)`; `compaction(event) -> proceed | instruct(text)`;
+  and `session(session, kind)` for created, running, idle, updated, deleted and compacted. Tool inputs travel
   as JSON strings. Host interfaces, each imported only by plugins that use it and listed as the
   plugin's capabilities: `host` (`log`, `config`), `store` (per-plugin key-values in the
   `plugin:<entry>` setting), `files` (read and write under the event's workspace, checked after
   canonicalising), `process` (`run` with cwd the workspace, output 64 KiB per stream, a minute at
-  most) and `http` (`fetch` on the engine's client, 30 s, 1 MiB).
+  most), `http` (`fetch` on the engine's client, 30 s, 1 MiB) and `notify` (`show`, published as
+  `Event::PluginNotice`, which the UI shows as a toast titled with the plugin's name).
 - Sandbox: WASI preview 2 with nothing opened; stderr is inherited so a panicking plugin says so.
   A call gets five seconds of its own time: an epoch ticker thread fires every 100 ms and the
   store's deadline callback traps once `State::deadline` has passed; host calls move the deadline
@@ -1044,7 +1046,10 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   reply, which `assistant_blocks` never sends; the model reads a user-side context part as a system
   reminder from the plugin, and the UI renders every context part as a `plugin` part: one row with
   the plugin's name (`PluginRow`). Session events come off the
-  hub's own stream (`relay_session_events`), so every site that publishes one is covered.
+  hub's own stream (`relay_session_events`), so every site that publishes one is covered; `compact_once` sends `compacted` itself. `permit`
+  consults the hooks only when `decide_under` says Ask, so a rule's allow or deny is never a
+  plugin's to change; an allow skips the ask, a deny settles the call as Denied with the plugin's
+  reason. `compact_once` appends each plugin's `instruct` text to the summariser's instructions.
 - Loading: `plugins` in the user's own `~/.config/drift/drift.json`, each a path or
   `{ path, config }`, paths relative to that directory, `.wasm` only, never from a workspace.
   Compiled code is cached under `<data>/plugin-cache` keyed by the file's hash and wasmtime's

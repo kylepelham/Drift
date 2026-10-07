@@ -171,7 +171,15 @@ impl Engine {
 
     async fn compact_once(&self, session_id: &str, trigger: Trigger, abort: &CancellationToken) -> Result<(), String> {
         let action = self.action_model(session_id, "compaction", Fallback::Conversation).await.map_err(|e| e.to_string())?;
-        let instructions = action.config.agent("compaction").map(|agent| agent.prompt.clone()).unwrap_or_default();
+        let mut instructions = action.config.agent("compaction").map(|agent| agent.prompt.clone()).unwrap_or_default();
+        let session = self.store.session(session_id).ok().flatten();
+        if let Some(session) = session.as_ref().filter(|_| !self.hooks.is_empty()) {
+            let event = crate::hook::CompactionEvent { session_id: session_id.to_owned(), workspace: action.workspace.to_string_lossy().into_owned(), agent: session.agent.clone() };
+            for extra in self.hooks.compaction(&event).await {
+                instructions.push_str("\n\n");
+                instructions.push_str(&extra);
+            }
+        }
         // Only what the view shows is summarised again, so history the last summary covered is not loaded.
         let transcript = self.request_window(session_id).ok_or("the conversation could not be read")?;
         let view = view(&transcript);
@@ -195,7 +203,11 @@ impl Engine {
         // Charged like any reply, the attempts that came back unusable included.
         summary.usage = spent.usage;
         summary.cost = spent.cost;
-        self.close_compaction(&mut summary, outcome, abort.is_cancelled())
+        let closed = self.close_compaction(&mut summary, outcome, abort.is_cancelled());
+        if let Some(session) = session.filter(|_| closed.is_ok() && !self.hooks.is_empty()) {
+            self.hooks.session(&crate::hook::session_event(self, &session, crate::hook::SessionKind::Compacted)).await;
+        }
+        closed
     }
 
     /// The boundary the UI draws and the streaming summary message it fills.

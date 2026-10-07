@@ -258,6 +258,8 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
       return { type: "question.asked", properties: adaptQuestion(event.request) } as unknown as Event
     case "question.replied":
       return { type: "question.replied", properties: { sessionID: event.sessionId, requestID: event.requestId } } as unknown as Event
+    case "plugin.notice":
+      return { type: "tui.toast.show", properties: { title: `${event.plugin}: ${event.title}`, message: event.body, variant: event.tone, duration: 8000 } } as unknown as Event
     case "catalog.updated":
     case "mcp.updated":
     case "mcp.removed":
