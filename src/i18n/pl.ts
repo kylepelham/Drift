@@ -271,6 +271,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Ukryj wątki",
   "drift.thread.new": "Nowy wątek",
   "drift.thread.loadMore": "Wczytaj jeszcze {{count}}",
+  "drift.thread.showLess": "Pokaż mniej",
   "drift.thread.empty": "Nie ma jeszcze wątków",
   "drift.thread.untitled": "Bez tytułu",
   "drift.composer.selectWorkspace": "Wybierz obszar roboczy, aby rozpocząć",

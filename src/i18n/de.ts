@@ -270,6 +270,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Threads ausblenden",
   "drift.thread.new": "Neuer Thread",
   "drift.thread.loadMore": "{{count}} weitere laden",
+  "drift.thread.showLess": "Weniger anzeigen",
   "drift.thread.empty": "Noch keine Threads",
   "drift.thread.untitled": "Ohne Titel",
   "drift.composer.selectWorkspace": "Arbeitsbereich auswählen, um zu beginnen",

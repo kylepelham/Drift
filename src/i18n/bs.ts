@@ -301,6 +301,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Sakrij razgovore",
   "drift.thread.new": "Novi razgovor",
   "drift.thread.loadMore": "Učitaj još {{count}}",
+  "drift.thread.showLess": "Prikaži manje",
   "drift.thread.empty": "Još nema razgovora",
   "drift.thread.untitled": "Bez naslova",
   "drift.composer.selectWorkspace": "Odaberite radni prostor za početak",

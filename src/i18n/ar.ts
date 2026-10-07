@@ -267,6 +267,7 @@ export const drift = {
   "drift.workspace.hideThreads": "إخفاء المحادثات",
   "drift.thread.new": "محادثة جديدة",
   "drift.thread.loadMore": "تحميل {{count}} أخرى",
+  "drift.thread.showLess": "عرض أقل",
   "drift.thread.empty": "لا توجد محادثات بعد",
   "drift.thread.untitled": "بلا عنوان",
   "drift.composer.selectWorkspace": "اختر مساحة عمل للبدء",

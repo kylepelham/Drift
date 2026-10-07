@@ -270,6 +270,7 @@ export const drift = {
   "drift.workspace.hideThreads": "スレッドを非表示",
   "drift.thread.new": "新しいスレッド",
   "drift.thread.loadMore": "さらに{{count}}件読み込む",
+  "drift.thread.showLess": "表示を減らす",
   "drift.thread.empty": "スレッドはまだありません",
   "drift.thread.untitled": "無題",
   "drift.composer.selectWorkspace": "ワークスペースを選択して開始",

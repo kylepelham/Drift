@@ -303,6 +303,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Skjul tråder",
   "drift.thread.new": "Ny tråd",
   "drift.thread.loadMore": "Last inn {{count}} til",
+  "drift.thread.showLess": "Vis færre",
   "drift.thread.empty": "Ingen tråder ennå",
   "drift.thread.untitled": "Uten tittel",
   "drift.composer.selectWorkspace": "Velg et arbeidsområde for å starte",

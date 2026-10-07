@@ -268,6 +268,7 @@ export const drift = {
   "drift.workspace.hideThreads": "스레드 숨기기",
   "drift.thread.new": "새 스레드",
   "drift.thread.loadMore": "{{count}}개 더 불러오기",
+  "drift.thread.showLess": "간단히 보기",
   "drift.thread.empty": "아직 스레드가 없습니다",
   "drift.thread.untitled": "제목 없음",
   "drift.composer.selectWorkspace": "작업 공간을 선택하여 시작",

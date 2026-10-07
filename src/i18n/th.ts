@@ -301,6 +301,7 @@ export const drift = {
   "drift.workspace.hideThreads": "ซ่อนเธรด",
   "drift.thread.new": "เธรดใหม่",
   "drift.thread.loadMore": "โหลดเพิ่มอีก {{count}}",
+  "drift.thread.showLess": "แสดงน้อยลง",
   "drift.thread.empty": "ยังไม่มีเธรด",
   "drift.thread.untitled": "ไม่มีชื่อ",
   "drift.composer.selectWorkspace": "เลือกพื้นที่ทำงานเพื่อเริ่มต้น",

@@ -305,6 +305,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Скрыть ветки",
   "drift.thread.new": "Новая ветка",
   "drift.thread.loadMore": "Загрузить ещё {{count}}",
+  "drift.thread.showLess": "Показать меньше",
   "drift.thread.empty": "Веток пока нет",
   "drift.thread.untitled": "Без названия",
   "drift.composer.selectWorkspace": "Выберите рабочее пространство, чтобы начать",

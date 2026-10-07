@@ -269,6 +269,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Ocultar conversas",
   "drift.thread.new": "Nova conversa",
   "drift.thread.loadMore": "Carregar mais {{count}}",
+  "drift.thread.showLess": "Mostrar menos",
   "drift.thread.empty": "Nenhuma conversa ainda",
   "drift.thread.untitled": "Sem título",
   "drift.composer.selectWorkspace": "Selecione um espaço de trabalho para começar",

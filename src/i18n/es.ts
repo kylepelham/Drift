@@ -303,6 +303,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Ocultar hilos",
   "drift.thread.new": "Nuevo hilo",
   "drift.thread.loadMore": "Cargar {{count}} más",
+  "drift.thread.showLess": "Mostrar menos",
   "drift.thread.empty": "Aún no hay hilos",
   "drift.thread.untitled": "Sin título",
   "drift.composer.selectWorkspace": "Selecciona un espacio de trabajo para empezar",

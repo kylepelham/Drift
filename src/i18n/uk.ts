@@ -301,6 +301,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Сховати гілки",
   "drift.thread.new": "Нова гілка",
   "drift.thread.loadMore": "Завантажити ще {{count}}",
+  "drift.thread.showLess": "Показати менше",
   "drift.thread.empty": "Гілок ще немає",
   "drift.thread.untitled": "Без назви",
   "drift.composer.selectWorkspace": "Виберіть робочий простір, щоб почати",

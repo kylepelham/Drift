@@ -183,13 +183,26 @@ export function WorkspaceGroup(props: {
               </>
             )}
           </For>
-          <Show when={remaining() > 0}>
-            <button
-              class="flex h-7 w-full items-center rounded-md px-2 text-left text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
-              onClick={() => setVisibleCount((count) => Math.min(count + sessionPageSize, sessions().length))}
-            >
-              {t("drift.thread.loadMore", { count: Math.min(sessionPageSize, remaining()) })}
-            </button>
+          <Show when={remaining() > 0 || visibleCount() > sessionPageSize}>
+            <div class="flex items-center">
+              <Show when={remaining() > 0}>
+                <button
+                  class="flex h-7 min-w-0 flex-1 items-center rounded-md px-2 text-left text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
+                  onClick={() => setVisibleCount((count) => Math.min(count + sessionPageSize, sessions().length))}
+                >
+                  {t("drift.thread.loadMore", { count: Math.min(sessionPageSize, remaining()) })}
+                </button>
+              </Show>
+              <Show when={visibleCount() > sessionPageSize}>
+                <button
+                  class="flex h-7 shrink-0 items-center rounded-md px-2 text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
+                  classList={{ "flex-1 text-left": remaining() === 0 }}
+                  onClick={() => setVisibleCount(sessionPageSize)}
+                >
+                  {t("drift.thread.showLess")}
+                </button>
+              </Show>
+            </div>
           </Show>
           <Show when={sessions().length === 0 && active() && !authoritative()}>
             <div class="px-2 py-1.5 text-xs text-ink-faint" role="status" aria-live="polite">

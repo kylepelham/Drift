@@ -302,6 +302,7 @@ export const drift = {
   "drift.workspace.hideThreads": "Konuları gizle",
   "drift.thread.new": "Yeni konu",
   "drift.thread.loadMore": "{{count}} tane daha yükle",
+  "drift.thread.showLess": "Daha az göster",
   "drift.thread.empty": "Henüz konu yok",
   "drift.thread.untitled": "Başlıksız",
   "drift.composer.selectWorkspace": "Başlamak için bir çalışma alanı seçin",

@@ -300,6 +300,7 @@ export const drift = {
   "drift.workspace.hideThreads": "隐藏会话",
   "drift.thread.new": "新建会话",
   "drift.thread.loadMore": "再加载 {{count}} 个",
+  "drift.thread.showLess": "收起",
   "drift.thread.empty": "暂无会话",
   "drift.thread.untitled": "未命名",
   "drift.composer.selectWorkspace": "选择工作区以开始",

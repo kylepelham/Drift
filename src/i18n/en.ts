@@ -840,6 +840,7 @@ export const drift = {
   "drift.thread.backToParent": "Back to the thread this was spawned from",
   "drift.thread.empty": "No threads yet",
   "drift.thread.loadMore": "Load {{count}} more",
+  "drift.thread.showLess": "Show less",
   "drift.thread.move": "Move",
   "drift.thread.moveToWorkspace": "Move to workspace",
   "drift.thread.new": "New thread",
