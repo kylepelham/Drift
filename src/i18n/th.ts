@@ -459,6 +459,7 @@ export const drift = {
   "drift.plugins.saved": "บันทึกการตั้งค่าของ {{name}} แล้ว",
   "drift.plugins.packNote": "สกิล Markdown ที่แตกไว้ใน {{folder}} Drift เสนอให้โมเดลเหมือนสกิลของคุณเอง แพ็กไม่รันโค้ด แต่ข้อความของมันไปถึงโมเดล จึงควรติดตั้งเฉพาะแพ็กที่คุณไว้ใจ",
   "drift.settings.skills": "สกิล",
+  "drift.skills.mixed": "เปิดบางส่วน",
   "drift.skills.yours": "สกิลของคุณ",
   "drift.skills.workspace": "ใน {{name}}",
   "drift.skills.empty": "ยังไม่มีสกิล วางโฟลเดอร์ที่มี SKILL.md ไว้ใต้ {{folder}} หรือติดตั้งจากรีจิสทรี",

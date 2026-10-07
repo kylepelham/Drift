@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, onMount, Show } from "solid-js"
+import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import type { SkillPack, UserSkill } from "../engine/native/client"
 import { t } from "../state/i18n"
@@ -6,7 +6,7 @@ import { loadRegistries, matchesRegistryQuery, type RegistryFailure, type Regist
 import { loadRegistrySources, registrySources, sourcesOf } from "../state/registry-sources"
 import { activeWorkspace } from "../state/workspaces"
 import { openExternal } from "../shell"
-import { Toggle } from "./controls"
+import { Chevron, Toggle } from "./controls"
 import { IconArrowUp, IconArrowUpRight, IconCheck, IconPlus, IconSearch, IconSliders, IconTrash } from "./icons"
 import { LogoTile } from "./logo-tile"
 import { RegistrySourcesSheet } from "./registry-sources"
@@ -71,6 +71,15 @@ export function SkillsSection() {
     setBusy("")
     setConfirmRemove("")
   }
+  const toggleAll = (list: UserSkill[], on: boolean) => {
+    setBusy("all")
+    void run(async () => {
+      for (const skill of list.filter((skill) => skill.enabled !== on)) {
+        await engine.actions.setSkillEnabled(skill.path, on, skill.workspace ? here() : undefined)
+      }
+      setSkills(await engine.actions.skills(here()))
+    }).finally(() => setBusy(""))
+  }
   const toggle = (skill: UserSkill) => {
     setBusy(skill.path)
     void run(async () => {
@@ -113,56 +122,87 @@ export function SkillsSection() {
         </div>
       </Show>
       <Show when={view() === "installed"}>
-        <div class="space-y-5" aria-busy={loading()}>
+        <div class="border-y border-edge/80" aria-busy={loading()}>
           <For each={groups().named}>
             {(group) => (
-              <div>
-                <div class="flex items-center gap-3 px-1 pb-2">
-                  <LogoTile image={group.pack.image ?? undefined} title={group.pack.name} />
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm font-medium text-ink">{group.pack.name}</div>
-                    <div class="text-xs text-ink-faint">{t("drift.skills.packCount", { on: group.skills.filter((skill) => skill.enabled).length, count: group.skills.length })}</div>
-                  </div>
+              <SkillGroup
+                title={group.pack.name}
+                image={group.pack.image ?? undefined}
+                skills={group.skills}
+                disabled={locked()}
+                busy={busy()}
+                onToggle={toggle}
+                onToggleAll={(on) => toggleAll(group.skills, on)}
+                action={
                   <button
                     type="button"
                     disabled={locked()}
                     title={confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
                     aria-label={confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
                     class="flex items-center gap-1 rounded-md border border-danger/40 px-2 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40"
-                    onClick={() => void removePack(group.pack)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void removePack(group.pack)
+                    }}
                   >
                     {confirmRemove() === group.pack.id ? t("drift.plugins.confirmRemove") : <IconTrash class="size-3.5" />}
                   </button>
-                </div>
-                <div class="border-y border-edge/80">
-                  <For each={group.skills}>{(skill) => <SkillRow skill={skill} disabled={locked() && busy() !== skill.path} onToggle={() => toggle(skill)} />}</For>
-                </div>
-              </div>
+                }
+              />
             )}
           </For>
           <Show when={groups().project.length}>
-            <div>
-              <div class="px-1 pb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{t("drift.skills.workspace", { name: activeWorkspace()?.name ?? "" })}</div>
-              <div class="border-y border-edge/80">
-                <For each={groups().project}>{(skill) => <SkillRow skill={skill} disabled={locked() && busy() !== skill.path} onToggle={() => toggle(skill)} />}</For>
-              </div>
-            </div>
+            <SkillGroup title={t("drift.skills.workspace", { name: activeWorkspace()?.name ?? "" })} skills={groups().project} disabled={locked()} busy={busy()} onToggle={toggle} onToggleAll={(on) => toggleAll(groups().project, on)} />
           </Show>
           <Show when={groups().own.length}>
-            <div>
-              <div class="px-1 pb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{t("drift.skills.yours")}</div>
-              <div class="border-y border-edge/80">
-                <For each={groups().own}>{(skill) => <SkillRow skill={skill} disabled={locked() && busy() !== skill.path} onToggle={() => toggle(skill)} />}</For>
-              </div>
-            </div>
+            <SkillGroup title={t("drift.skills.yours")} skills={groups().own} disabled={locked()} busy={busy()} onToggle={toggle} onToggleAll={(on) => toggleAll(groups().own, on)} />
           </Show>
           <Show when={!loading() && !skills().length}>
-            <div class="border-y border-edge/80 px-3 py-5 text-sm text-ink-faint">{t("drift.skills.empty", { folder: skillsFolder })}</div>
+            <div class="px-3 py-5 text-sm text-ink-faint">{t("drift.skills.empty", { folder: skillsFolder })}</div>
           </Show>
         </div>
       </Show>
       <Show when={view() === "registry"}>
         <SkillRegistry installed={installedIds()} disabled={locked()} busy={busy()} onInstall={install} />
+      </Show>
+    </div>
+  )
+}
+
+/**
+ * A collapsible group of skills with one switch for them all: on when every skill is, off when none
+ * is, and shown as on-but-dimmed when mixed. Closed to begin with, so the page stays a short list.
+ */
+function SkillGroup(props: { title: string; image?: string; skills: UserSkill[]; disabled: boolean; busy: string; action?: JSX.Element; onToggle: (skill: UserSkill) => void; onToggleAll: (on: boolean) => void }) {
+  const [open, setOpen] = createSignal(false)
+  const on = () => props.skills.filter((skill) => skill.enabled).length
+  const all = () => on() === props.skills.length
+  const mixed = () => on() > 0 && !all()
+  return (
+    <div class="border-b border-edge/70 last:border-b-0">
+      <div
+        class="flex min-h-13 cursor-pointer items-center gap-3 px-3 py-2.5 hover:bg-raised/40"
+        role="button"
+        aria-expanded={open()}
+        onClick={() => setOpen(!open())}
+      >
+        <Chevron open={open()} />
+        <Show when={props.image !== undefined} fallback={<span class="w-0" />}>
+          <LogoTile image={props.image} title={props.title} />
+        </Show>
+        <div class="min-w-0 flex-1">
+          <div class="truncate text-sm font-medium text-ink">{props.title}</div>
+          <div class="text-xs text-ink-faint">{t("drift.skills.packCount", { on: on(), count: props.skills.length })}</div>
+        </div>
+        {props.action}
+        <span classList={{ "opacity-60": mixed() }} title={mixed() ? t("drift.skills.mixed") : undefined}>
+          <Toggle label={props.title} checked={on() > 0} disabled={props.disabled} onChange={() => props.onToggleAll(!all())} />
+        </span>
+      </div>
+      <Show when={open()}>
+        <div class="border-t border-edge/70 bg-raised/15 pl-6">
+          <For each={props.skills}>{(skill) => <SkillRow skill={skill} disabled={props.disabled && props.busy !== skill.path} onToggle={() => props.onToggle(skill)} />}</For>
+        </div>
       </Show>
     </div>
   )

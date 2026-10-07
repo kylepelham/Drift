@@ -459,6 +459,7 @@ export const drift = {
   "drift.plugins.saved": "Postavke za {{name}} su spremljene.",
   "drift.plugins.packNote": "Markdown vještine, raspakovane u {{folder}}. Drift ih nudi modelu kao vaše vlastite; paket ne pokreće kod, ali njegov tekst stiže do modela, pa instalirajte pakete kojima vjerujete.",
   "drift.settings.skills": "Vještine",
+  "drift.skills.mixed": "Neke uključene, neke ne",
   "drift.skills.yours": "Vaše vještine",
   "drift.skills.workspace": "U {{name}}",
   "drift.skills.empty": "Još nema vještina. Stavite folder sa SKILL.md pod {{folder}} ili instalirajte iz registra.",

@@ -425,6 +425,7 @@ export const drift = {
   "drift.plugins.saved": "تم حفظ إعدادات {{name}}.",
   "drift.plugins.packNote": "مهارات Markdown تُفك إلى {{folder}}. يقدّمها Drift للنموذج كمهاراتك؛ الحزمة لا تنفّذ كودًا لكن نصها يصل إلى النموذج، فثبّت الحزم التي تثق بها فقط.",
   "drift.settings.skills": "المهارات",
+  "drift.skills.mixed": "بعضها مفعّل وبعضها لا",
   "drift.skills.yours": "مهاراتك",
   "drift.skills.workspace": "في {{name}}",
   "drift.skills.empty": "لا مهارات بعد. ضع مجلدًا يحوي SKILL.md تحت {{folder}}، أو ثبّت واحدة من السجل.",

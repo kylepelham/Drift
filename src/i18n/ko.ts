@@ -426,6 +426,7 @@ export const drift = {
   "drift.plugins.saved": "{{name}} 설정을 저장했습니다.",
   "drift.plugins.packNote": "Markdown 스킬을 {{folder}}에 풉니다. Drift는 내 스킬처럼 모델에 제공합니다. 팩은 코드를 실행하지 않지만 텍스트가 모델에 전달되므로 신뢰하는 팩만 설치하세요.",
   "drift.settings.skills": "스킬",
+  "drift.skills.mixed": "일부만 켜짐",
   "drift.skills.yours": "내 스킬",
   "drift.skills.workspace": "{{name}} 안",
   "drift.skills.empty": "아직 스킬이 없습니다. {{folder}} 아래에 SKILL.md가 있는 폴더를 두거나 레지스트리에서 설치하세요.",

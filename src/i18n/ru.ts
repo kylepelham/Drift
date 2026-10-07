@@ -463,6 +463,7 @@ export const drift = {
   "drift.plugins.saved": "Настройки {{name}} сохранены.",
   "drift.plugins.packNote": "Навыки в Markdown, распакованные в {{folder}}. Drift предлагает их модели как ваши собственные; набор не выполняет код, но его текст попадает к модели, поэтому ставьте только те, которым доверяете.",
   "drift.settings.skills": "Навыки",
+  "drift.skills.mixed": "Часть включена, часть нет",
   "drift.skills.yours": "Ваши навыки",
   "drift.skills.workspace": "В {{name}}",
   "drift.skills.empty": "Навыков пока нет. Положите папку с SKILL.md в {{folder}} или установите из реестра.",

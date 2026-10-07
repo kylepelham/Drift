@@ -460,6 +460,7 @@ export const drift = {
   "drift.plugins.saved": "Se guardaron los ajustes de {{name}}.",
   "drift.plugins.packNote": "Skills en Markdown, extraídas en {{folder}}. Drift las ofrece al modelo como tus propias skills; un paquete no ejecuta código, pero su texto llega al modelo, así que instala paquetes en los que confíes.",
   "drift.settings.skills": "Skills",
+  "drift.skills.mixed": "Algunas activas, otras no",
   "drift.skills.yours": "Tus skills",
   "drift.skills.workspace": "En {{name}}",
   "drift.skills.empty": "Aún no hay skills. Pon una carpeta con SKILL.md en {{folder}} o instala una desde el registro.",

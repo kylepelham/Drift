@@ -459,6 +459,7 @@ export const drift = {
   "drift.plugins.saved": "Indstillingerne for {{name}} blev gemt.",
   "drift.plugins.packNote": "Markdown-skills, pakket ud i {{folder}}. Drift tilbyder dem til modellen som dine egne skills; en pakke kører ingen kode, men dens tekst når modellen, så installer kun pakker, du stoler på.",
   "drift.settings.skills": "Skills",
+  "drift.skills.mixed": "Nogle til, nogle fra",
   "drift.skills.yours": "Dine skills",
   "drift.skills.workspace": "I {{name}}",
   "drift.skills.empty": "Ingen skills endnu. Læg en mappe med SKILL.md under {{folder}}, eller installer en fra registret.",

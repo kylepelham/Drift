@@ -460,6 +460,7 @@ export const drift = {
   "drift.plugins.saved": "{{name}} ayarları kaydedildi.",
   "drift.plugins.packNote": "Markdown beceriler, {{folder}} içine açılır. Drift bunları modele kendi becerileriniz gibi sunar; bir paket kod çalıştırmaz ama metni modele ulaşır, bu yüzden yalnızca güvendiğiniz paketleri yükleyin.",
   "drift.settings.skills": "Beceriler",
+  "drift.skills.mixed": "Bazıları açık, bazıları kapalı",
   "drift.skills.yours": "Becerileriniz",
   "drift.skills.workspace": "{{name}} içinde",
   "drift.skills.empty": "Henüz beceri yok. {{folder}} altına SKILL.md içeren bir klasör koyun ya da kayıt defterinden yükleyin.",

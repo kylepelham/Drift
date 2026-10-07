@@ -427,6 +427,7 @@ export const drift = {
   "drift.plugins.saved": "{{name}} の設定を保存しました。",
   "drift.plugins.packNote": "Markdown のスキルを {{folder}} に展開します。Drift はあなた自身のスキルと同じようにモデルに提供します。パックはコードを実行しませんが、その文章はモデルに届くため、信頼できるパックだけをインストールしてください。",
   "drift.settings.skills": "スキル",
+  "drift.skills.mixed": "一部のみ有効",
   "drift.skills.yours": "あなたのスキル",
   "drift.skills.workspace": "{{name}} 内",
   "drift.skills.empty": "スキルはまだありません。{{folder}} に SKILL.md を含むフォルダーを置くか、レジストリからインストールしてください。",

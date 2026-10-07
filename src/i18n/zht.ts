@@ -458,6 +458,7 @@ export const drift = {
   "drift.plugins.saved": "已儲存 {{name}} 的設定。",
   "drift.plugins.packNote": "Markdown 技能，解壓到 {{folder}}。Drift 會像提供你自己的技能一樣提供給模型；技能包不執行程式碼，但其文字會送達模型，因此只安裝你信任的技能包。",
   "drift.settings.skills": "技能",
+  "drift.skills.mixed": "部分開啟",
   "drift.skills.yours": "你的技能",
   "drift.skills.workspace": "{{name}} 中",
   "drift.skills.empty": "還沒有技能。在 {{folder}} 下放一個含 SKILL.md 的資料夾，或從登錄庫安裝。",
