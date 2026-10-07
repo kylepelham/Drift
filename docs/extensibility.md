@@ -35,7 +35,8 @@ What a plugin sees and may answer:
 - `before-tool`: the session, workspace, agent, tool name and JSON input of a call about to run.
   Answer `allow`, `deny(reason)` (the call does not run and the model reads the reason), or
   `replace(json)` (the call runs with that input, which must still fit the tool).
-- `after-tool`: the same plus the output and whether the tool failed. Answer `keep`,
+- `after-tool`: the same plus the output and whether it failed (the tool errored, or a shell
+  command exited non-zero). Answer `keep`,
   `replace(output)`, or `note(text)` (appended under the output as a note from Drift).
 - `session`: a session was created, started running, went idle, was updated (title, archive), or
   deleted. Notification only.

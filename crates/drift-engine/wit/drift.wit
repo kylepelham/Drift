@@ -28,6 +28,7 @@ interface types {
         input: string,
         /// What the model will read, up to the engine's bound.
         output: string,
+        /// The tool errored, or a shell command exited non-zero.
         failed: bool,
     }
 

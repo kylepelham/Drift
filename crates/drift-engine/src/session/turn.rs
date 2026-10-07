@@ -1471,7 +1471,9 @@ impl Engine {
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
         };
-        let (text, meta) = self.hook_after(scope, &name, hooked, status == ToolStatus::Error, text, meta).await;
+        // A command that exited non-zero failed as far as a plugin is concerned, though the model reads it as a result.
+        let failed = status == ToolStatus::Error || meta.get("exit").and_then(serde_json::Value::as_i64).is_some_and(|code| code != 0);
+        let (text, meta) = self.hook_after(scope, &name, hooked, failed, text, meta).await;
         let (mut meta, text) = self.keep_images(&scope.message.id, meta, text).await;
         // Every result, MCP and tools yet to come included, reaches the model within one bound.
         let spill = self.data_dir.join("tool-output").join(&scope.plan.session.id).join(format!("{call_id}.result.log"));

@@ -202,6 +202,9 @@ impl crate::hook::Hook for Rewriter {
         }
     }
     async fn after_tool(&self, result: &crate::hook::ToolResult) -> crate::hook::AfterTool {
+        if result.failed {
+            return crate::hook::AfterTool::Note("a plugin saw it fail".into());
+        }
         if result.output.contains("alpha") { crate::hook::AfterTool::Note("read by a plugin too".into()) } else { crate::hook::AfterTool::Keep }
     }
 }
@@ -218,6 +221,7 @@ async fn a_plugin_may_refuse_a_call_change_its_input_or_add_a_note_and_a_bad_rew
         .push(tool_call("read", r#"{"path": "secret.txt"}"#))
         .push(tool_call("read", r#"{"path": "b.txt"}"#))
         .push(tool_call("read", r#"{"path": "a.txt"}"#))
+        .push(tool_call("bash", r#"{"command": "exit 3", "description": "fail"}"#))
         .push(text("done"));
     h.engine.submit(&h.session.id, prompt("read them")).await.await_ok();
     until_idle(&h).await;
@@ -232,6 +236,9 @@ read by a plugin too")));
     let Part::ToolCall { status, output, .. } = &transcript[3].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
     assert!(output.as_deref().unwrap_or_default().starts_with("A plugin changed the call so it no longer fits the tool:"), "{output:?}");
+    let Part::ToolCall { status, output, .. } = &transcript[4].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Done, "a non-zero exit is a result to the model");
+    assert!(output.as_deref().unwrap_or_default().ends_with("a plugin saw it fail"), "but a failure to a plugin: {output:?}");
 }
 
 /// Workspace edits, shell lines inside the workspace, fetches and MCP calls run without asking by default; tests of the asking itself say so.
