@@ -139,7 +139,7 @@ base prompts, then Agents (picked in the composer), Subagents (delegated to) and
 and compaction, which Drift runs itself), each ruled off from the one above. A dot marks an item
 that has been customized and "Unsaved" one with edits not yet saved. Edits are kept per item, so
 moving to another item and back loses nothing. Save and Reset sit beside the item's name and act on
-it. Nothing on the page is collapsed, and the list stays in view while the editor scrolls.
+it. Nothing on the page is collapsed. The list stays in view while the editor scrolls and scrolls on its own when it is taller than the window.
 
 The base prompts are the one each model family starts with: GPT and Codex, Claude,
 Gemini and other models, plus one for all models that a family's own replacement overrides.

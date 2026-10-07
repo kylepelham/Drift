@@ -156,7 +156,7 @@ export function PromptsSection() {
 
   return (
     <div class="flex flex-col gap-6 sm:flex-row">
-      <nav class="flex max-h-56 shrink-0 flex-col overflow-y-auto sm:sticky sm:top-0 sm:max-h-none sm:w-40 sm:self-start" aria-label={t("drift.settings.prompts")}>
+      <nav class="flex max-h-56 shrink-0 flex-col overflow-y-auto pr-1 sm:sticky sm:top-0 sm:max-h-[min(35rem,calc(100vh-10rem))] sm:w-40 sm:self-start" aria-label={t("drift.settings.prompts")}>
         <ListGroup title={t("drift.settings.prompts.group.base")} first>
           <For each={base()?.prompts ?? []}>
             {(prompt) => (
