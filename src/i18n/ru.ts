@@ -456,7 +456,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "Фоновые",
   "drift.settings.prompts.customized": "Изменено",
   "drift.settings.prompts.unsaved": "Несохранённые изменения",
-  "drift.settings.prompts.unsavedShort": "Не сохранено",
   "drift.settings.prompts.variant": "Уровень рассуждения",
   "drift.settings.prompts.variantPlaceholder": "По умолчанию для модели",
   "drift.settings.prompts.steps": "Лимит шагов",

@@ -17,7 +17,7 @@ import {
   type PromptSnapshot,
 } from "../state/prompts"
 import { activeWorkspace } from "../state/workspaces"
-import { Picker } from "./picker"
+import { Picker, type PickerItem } from "./picker"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { AddRule, newRule, RuleList } from "./settings-permissions"
 
@@ -153,122 +153,75 @@ export function PromptsSection() {
   const groups = createMemo(() => agentGroups(engine.state.agents))
   const selectedBase = () => (selected().startsWith("base:") ? selected().slice(5) : undefined)
   const selectedAgent = () => (selected().startsWith("agent:") ? agent(selected().slice(6)) : undefined)
+  const status = (unsaved: boolean, customized: boolean, problem?: string) =>
+    problem ?? (unsaved ? t("drift.settings.prompts.unsaved") : customized ? t("drift.settings.prompts.customized") : undefined)
+  const items = createMemo<PickerItem[]>(() => [
+    ...(base()?.prompts ?? []).map((prompt) => ({
+      id: `base:${prompt.id}`,
+      label: t(familyLabels[prompt.id] ?? prompt.id),
+      group: t("drift.settings.prompts.group.base"),
+      detail: status(baseDirty(prompt.id), prompt.custom !== undefined),
+    })),
+    ...groups().flatMap((group) =>
+      group.agents.map((item) => ({
+        id: `agent:${item.name}`,
+        label: item.name,
+        group: t(group.title),
+        detail: status(agentDirty(item.name), !!override(item.name), item.problem),
+      })),
+    ),
+  ])
+  const picker = () => <Picker label={t("drift.settings.prompts")} items={items()} selected={selected()} floating bordered chevronAtEnd placement="below" width={pickerWidth} onPick={select} />
 
   return (
-    <div class="flex flex-col gap-6 sm:flex-row">
-      <nav class="flex shrink-0 flex-col sm:w-40" aria-label={t("drift.settings.prompts")}>
-        <ListGroup title={t("drift.settings.prompts.group.base")} first>
-          <For each={base()?.prompts ?? []}>
-            {(prompt) => (
-              <ListItem
-                label={t(familyLabels[prompt.id] ?? prompt.id)}
-                active={selected() === `base:${prompt.id}`}
-                customized={prompt.custom !== undefined}
-                unsaved={baseDirty(prompt.id)}
-                onSelect={() => select(`base:${prompt.id}`)}
-              />
-            )}
-          </For>
-        </ListGroup>
-        <For each={groups()}>
-          {(group) => (
-            <ListGroup title={t(group.title)}>
-              <For each={group.agents}>
-                {(item) => (
-                  <ListItem
-                    label={item.name}
-                    active={selected() === `agent:${item.name}`}
-                    customized={!!override(item.name)}
-                    unsaved={agentDirty(item.name)}
-                    problem={!!item.problem}
-                    onSelect={() => select(`agent:${item.name}`)}
-                  />
-                )}
-              </For>
-            </ListGroup>
-          )}
-        </For>
-      </nav>
-      <div class="min-w-0 flex-1">
-        <Show when={selectedBase()}>
-          {(id) => (
-            <BaseEditor
-              id={id()}
-              draft={baseDraft(id())}
-              customized={basePrompt(id())?.custom !== undefined}
-              dirty={baseDirty(id())}
-              loaded={!!base()}
-              status={<Status error={error()} saved={saved()} />}
-              actions={<Actions saving={saving()} dirty={baseDirty(id()) && !!baseDraft(id()).trim()} resettable={basePrompt(id())?.custom !== undefined || baseDirty(id())} onSave={() => saveBase(id())} onReset={() => resetBase(id())} />}
-              onInput={(value) => setBaseDrafts(id(), value)}
-            />
-          )}
-        </Show>
-        <Show when={selectedAgent()}>
-          {(item) => (
-            <AgentEditor
-              agent={item()}
-              draft={agentDraft(item().name)}
-              baseline={agentBaseline(item().name)}
-              customized={!!override(item().name)}
-              toolNames={toolNames()}
-              status={<Status error={error()} saved={saved()} />}
-              actions={<Actions saving={saving()} dirty={agentDirty(item().name)} resettable={!!override(item().name) || agentDirty(item().name)} onSave={() => saveAgent(item().name)} onReset={() => resetAgent(item().name)} />}
-              onChange={(change) => setAgentDrafts(item().name, { ...agentDraft(item().name), ...change })}
-            />
-          )}
-        </Show>
-      </div>
+    <div>
+      <Show when={selectedBase()}>
+        {(id) => (
+          <BaseEditor
+            id={id()}
+            draft={baseDraft(id())}
+            customized={basePrompt(id())?.custom !== undefined}
+            dirty={baseDirty(id())}
+            loaded={!!base()}
+            picker={picker()}
+            status={<Status error={error()} saved={saved()} />}
+            actions={<Actions saving={saving()} dirty={baseDirty(id()) && !!baseDraft(id()).trim()} resettable={basePrompt(id())?.custom !== undefined || baseDirty(id())} onSave={() => saveBase(id())} onReset={() => resetBase(id())} />}
+            onInput={(value) => setBaseDrafts(id(), value)}
+          />
+        )}
+      </Show>
+      <Show when={selectedAgent()}>
+        {(item) => (
+          <AgentEditor
+            agent={item()}
+            draft={agentDraft(item().name)}
+            baseline={agentBaseline(item().name)}
+            customized={!!override(item().name)}
+            toolNames={toolNames()}
+            picker={picker()}
+            status={<Status error={error()} saved={saved()} />}
+            actions={<Actions saving={saving()} dirty={agentDirty(item().name)} resettable={!!override(item().name) || agentDirty(item().name)} onSave={() => saveAgent(item().name)} onReset={() => resetAgent(item().name)} />}
+            onChange={(change) => setAgentDrafts(item().name, { ...agentDraft(item().name), ...change })}
+          />
+        )}
+      </Show>
     </div>
   )
 }
 
-/** A section of the list, ruled off from the one above so each reads as its own. */
-function ListGroup(props: { title: string; first?: boolean; children: JSX.Element }) {
-  return (
-    <div classList={{ "mt-4 border-t border-edge pt-4": !props.first }}>
-      <div class="mb-2 px-2 text-[0.68rem] font-semibold tracking-wider text-ink-muted uppercase">{props.title}</div>
-      <div class="space-y-0.5">{props.children}</div>
-    </div>
-  )
-}
-
-function ListItem(props: { label: string; active: boolean; customized: boolean; unsaved: boolean; problem?: boolean; onSelect: () => void }) {
-  return (
-    <button
-      type="button"
-      class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.82rem] outline-none transition-colors focus-visible:bg-raised/60"
-      classList={{ "bg-raised text-ink": props.active, "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active }}
-      aria-current={props.active ? "true" : undefined}
-      onClick={props.onSelect}
-    >
-      <span class="min-w-0 flex-1 truncate">{props.label}</span>
-      <Show when={props.problem}>
-        <span class="size-1.5 shrink-0 rounded-full bg-danger" />
-      </Show>
-      <Show when={props.unsaved}>
-        <span class="shrink-0 text-[0.65rem] text-warn" title={t("drift.settings.prompts.unsaved")}>{t("drift.settings.prompts.unsavedShort")}</span>
-      </Show>
-      <Show when={props.customized && !props.unsaved}>
-        <span class="size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.settings.prompts.customized")} />
-      </Show>
-    </button>
-  )
-}
-
-/** The item's name and what it is on the left, Save and Reset on the right. */
-function EditorHeader(props: { title: string; description?: string; customized: boolean; actions: JSX.Element }) {
+/** The picker choosing what is edited and what it is on the left, Save and Reset on the right. */
+function EditorHeader(props: { picker: JSX.Element; description?: string; customized: boolean; actions: JSX.Element }) {
   return (
     <div class="mb-6 flex items-start gap-4">
       <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-2">
-          <span class="truncate text-base font-semibold text-ink">{props.title}</span>
+        <div class="flex items-center gap-2.5">
+          {props.picker}
           <Show when={props.customized}>
             <span class="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[0.65rem] text-accent">{t("drift.settings.prompts.customized")}</span>
           </Show>
         </div>
         <Show when={props.description}>
-          <div class="mt-1 text-[0.78rem] leading-relaxed text-ink-faint">{props.description}</div>
+          <div class="mt-2 text-[0.78rem] leading-relaxed text-ink-faint">{props.description}</div>
         </Show>
       </div>
       {props.actions}
@@ -295,6 +248,7 @@ function BaseEditor(props: {
   customized: boolean
   dirty: boolean
   loaded: boolean
+  picker: JSX.Element
   status: JSX.Element
   actions: JSX.Element
   onInput: (value: string) => void
@@ -302,7 +256,7 @@ function BaseEditor(props: {
   return (
     <div>
       <EditorHeader
-        title={t(familyLabels[props.id] ?? props.id)}
+        picker={props.picker}
         description={t(props.id === "all" ? "drift.settings.prompts.allDescription" : "drift.settings.prompts.familyDescription")}
         customized={props.customized}
         actions={props.actions}
@@ -332,6 +286,7 @@ function AgentEditor(props: {
   baseline: AgentDraft
   customized: boolean
   toolNames: ToolName[]
+  picker: JSX.Element
   status: JSX.Element
   actions: JSX.Element
   onChange: (change: Partial<AgentDraft>) => void
@@ -359,7 +314,7 @@ function AgentEditor(props: {
   return (
     <div class="space-y-6">
       <div>
-        <EditorHeader title={props.agent.name} description={props.agent.description} customized={props.customized} actions={props.actions} />
+        <EditorHeader picker={props.picker} description={props.agent.description} customized={props.customized} actions={props.actions} />
         <Show when={props.agent.problem}>
           <div role="alert" class="-mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{props.agent.problem}</div>
         </Show>

@@ -422,7 +422,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "W tle",
   "drift.settings.prompts.customized": "Dostosowany",
   "drift.settings.prompts.unsaved": "Niezapisane zmiany",
-  "drift.settings.prompts.unsavedShort": "Niezapisane",
   "drift.settings.prompts.variant": "Poziom rozumowania",
   "drift.settings.prompts.variantPlaceholder": "Domyślny dla modelu",
   "drift.settings.prompts.steps": "Limit kroków",

@@ -387,7 +387,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "Background",
   "drift.settings.prompts.customized": "Customized",
   "drift.settings.prompts.unsaved": "Unsaved changes",
-  "drift.settings.prompts.unsavedShort": "Unsaved",
   "drift.settings.prompts.variant": "Reasoning level",
   "drift.settings.prompts.variantPlaceholder": "Model default",
   "drift.settings.prompts.steps": "Step limit",

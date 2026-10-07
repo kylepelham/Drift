@@ -453,7 +453,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "Arka plan",
   "drift.settings.prompts.customized": "Özelleştirildi",
   "drift.settings.prompts.unsaved": "Kaydedilmemiş değişiklikler",
-  "drift.settings.prompts.unsavedShort": "Kaydedilmedi",
   "drift.settings.prompts.variant": "Akıl yürütme düzeyi",
   "drift.settings.prompts.variantPlaceholder": "Model varsayılanı",
   "drift.settings.prompts.steps": "Adım sınırı",

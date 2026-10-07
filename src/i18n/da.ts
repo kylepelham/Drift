@@ -452,7 +452,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "Baggrund",
   "drift.settings.prompts.customized": "Tilpasset",
   "drift.settings.prompts.unsaved": "Ikke-gemte ændringer",
-  "drift.settings.prompts.unsavedShort": "Ikke gemt",
   "drift.settings.prompts.variant": "Ræsonneringsniveau",
   "drift.settings.prompts.variantPlaceholder": "Modellens standard",
   "drift.settings.prompts.steps": "Trinbegrænsning",

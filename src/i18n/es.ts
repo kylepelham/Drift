@@ -453,7 +453,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "Segundo plano",
   "drift.settings.prompts.customized": "Personalizado",
   "drift.settings.prompts.unsaved": "Cambios sin guardar",
-  "drift.settings.prompts.unsavedShort": "Sin guardar",
   "drift.settings.prompts.variant": "Nivel de razonamiento",
   "drift.settings.prompts.variantPlaceholder": "Predeterminado del modelo",
   "drift.settings.prompts.steps": "Límite de pasos",

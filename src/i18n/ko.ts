@@ -419,7 +419,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "백그라운드",
   "drift.settings.prompts.customized": "사용자 지정됨",
   "drift.settings.prompts.unsaved": "저장되지 않은 변경 사항",
-  "drift.settings.prompts.unsavedShort": "저장 안 됨",
   "drift.settings.prompts.variant": "추론 수준",
   "drift.settings.prompts.variantPlaceholder": "모델 기본값",
   "drift.settings.prompts.steps": "단계 제한",

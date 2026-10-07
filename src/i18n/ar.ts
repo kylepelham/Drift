@@ -418,7 +418,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "في الخلفية",
   "drift.settings.prompts.customized": "مخصّص",
   "drift.settings.prompts.unsaved": "تغييرات غير محفوظة",
-  "drift.settings.prompts.unsavedShort": "غير محفوظ",
   "drift.settings.prompts.variant": "مستوى الاستدلال",
   "drift.settings.prompts.variantPlaceholder": "افتراضي النموذج",
   "drift.settings.prompts.steps": "حد الخطوات",

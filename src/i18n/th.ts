@@ -452,7 +452,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "เบื้องหลัง",
   "drift.settings.prompts.customized": "ปรับแต่งแล้ว",
   "drift.settings.prompts.unsaved": "การเปลี่ยนแปลงที่ยังไม่บันทึก",
-  "drift.settings.prompts.unsavedShort": "ยังไม่บันทึก",
   "drift.settings.prompts.variant": "ระดับการให้เหตุผล",
   "drift.settings.prompts.variantPlaceholder": "ค่าเริ่มต้นของโมเดล",
   "drift.settings.prompts.steps": "จำกัดจำนวนขั้น",

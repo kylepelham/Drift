@@ -423,7 +423,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "Arrière-plan",
   "drift.settings.prompts.customized": "Personnalisé",
   "drift.settings.prompts.unsaved": "Modifications non enregistrées",
-  "drift.settings.prompts.unsavedShort": "Non enregistré",
   "drift.settings.prompts.variant": "Niveau de raisonnement",
   "drift.settings.prompts.variantPlaceholder": "Par défaut du modèle",
   "drift.settings.prompts.steps": "Limite d'étapes",

@@ -452,7 +452,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "U pozadini",
   "drift.settings.prompts.customized": "Prilagođeno",
   "drift.settings.prompts.unsaved": "Nesačuvane promjene",
-  "drift.settings.prompts.unsavedShort": "Nesačuvano",
   "drift.settings.prompts.variant": "Nivo razmišljanja",
   "drift.settings.prompts.variantPlaceholder": "Zadano za model",
   "drift.settings.prompts.steps": "Ograničenje koraka",

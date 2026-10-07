@@ -420,7 +420,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "バックグラウンド",
   "drift.settings.prompts.customized": "カスタマイズ済み",
   "drift.settings.prompts.unsaved": "未保存の変更",
-  "drift.settings.prompts.unsavedShort": "未保存",
   "drift.settings.prompts.variant": "推論レベル",
   "drift.settings.prompts.variantPlaceholder": "モデルの既定",
   "drift.settings.prompts.steps": "ステップ上限",

@@ -451,7 +451,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "后台",
   "drift.settings.prompts.customized": "已自定义",
   "drift.settings.prompts.unsaved": "未保存的更改",
-  "drift.settings.prompts.unsavedShort": "未保存",
   "drift.settings.prompts.variant": "推理级别",
   "drift.settings.prompts.variantPlaceholder": "模型默认",
   "drift.settings.prompts.steps": "步数上限",

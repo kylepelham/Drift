@@ -420,7 +420,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "Segundo plano",
   "drift.settings.prompts.customized": "Personalizado",
   "drift.settings.prompts.unsaved": "Alterações não salvas",
-  "drift.settings.prompts.unsavedShort": "Não salvo",
   "drift.settings.prompts.variant": "Nível de raciocínio",
   "drift.settings.prompts.variantPlaceholder": "Padrão do modelo",
   "drift.settings.prompts.steps": "Limite de etapas",

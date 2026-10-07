@@ -452,7 +452,6 @@ export const drift = {
   "drift.settings.prompts.group.background": "Фонові",
   "drift.settings.prompts.customized": "Змінено",
   "drift.settings.prompts.unsaved": "Незбережені зміни",
-  "drift.settings.prompts.unsavedShort": "Не збережено",
   "drift.settings.prompts.variant": "Рівень міркування",
   "drift.settings.prompts.variantPlaceholder": "Типово для моделі",
   "drift.settings.prompts.steps": "Ліміт кроків",
