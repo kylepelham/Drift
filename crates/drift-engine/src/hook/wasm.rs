@@ -135,7 +135,9 @@ impl process::Host for State {
         let workspace = self.workspace.clone();
         let limit = Duration::from_millis(u64::from(timeout_ms)).min(RUN_LIMIT);
         self.clocked(async move {
-            let mut command = tokio::process::Command::new(&program);
+            // Resolved as a shell would, with the PATH the engine sees now, which the bare name alone is not on Windows.
+            let resolved = crate::platform::process::which(&program).unwrap_or_else(|| PathBuf::from(&program));
+            let mut command = tokio::process::Command::new(&resolved);
             command.args(&args).current_dir(&workspace).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
             crate::platform::process::use_current_path(&mut command, &Default::default());
             crate::platform::process::prepare(&mut command);
