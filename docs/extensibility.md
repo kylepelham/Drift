@@ -37,7 +37,8 @@ What a plugin sees and may answer:
   `replace(json)` (the call runs with that input, which must still fit the tool).
 - `after-tool`: the same plus the output and whether it failed (the tool errored, or a shell
   command exited non-zero). Answer `keep`,
-  `replace(output)`, or `note(text)` (appended under the output as a note from Drift).
+  `replace(output)`, or `note(text)`: one line under the output, shown as "guard: saw this command
+  fail", cut at 160 characters, so a noisy plugin costs the card and the model one short line per call.
 - `session`: a session was created, started running, went idle, was updated (title, archive), or
   deleted. Notification only.
 - `name()` names the plugin in refusals and the plugin list, and `log(level, message)` is the one

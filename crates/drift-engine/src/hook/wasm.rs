@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(plugin.before_tool(&call("bash", "git push --force origin main")).await, BeforeTool::Deny("`git push --force` rewrites history; ask the user to run it".into()));
         assert_eq!(plugin.before_tool(&call("read", "git push --force")).await, BeforeTool::Allow);
         let failed = ToolResult { session_id: "s1".into(), workspace: "C:/work".into(), agent: "build".into(), tool: "bash".into(), input: serde_json::json!({}), output: "boom".into(), failed: true };
-        assert_eq!(plugin.after_tool(&failed).await, AfterTool::Note("The guard plugin saw this command fail.".into()));
+        assert_eq!(plugin.after_tool(&failed).await, AfterTool::Note("saw this command fail".into()));
         assert_eq!(plugin.after_tool(&ToolResult { failed: false, ..failed }).await, AfterTool::Keep);
         plugin.session(&SessionEvent { id: "s1".into(), workspace: "C:/work".into(), title: String::new(), agent: "build".into(), kind: SessionKind::Created }).await;
         // A second load of the same file comes from the cache the first one wrote.

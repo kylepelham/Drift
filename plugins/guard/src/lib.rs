@@ -27,7 +27,7 @@ impl Guest for Guard {
 
     fn after_tool(outcome: ToolResult) -> AfterTool {
         if outcome.tool == "bash" && outcome.failed {
-            return AfterTool::Note("The guard plugin saw this command fail.".into());
+            return AfterTool::Note("saw this command fail".into());
         }
         AfterTool::Keep
     }

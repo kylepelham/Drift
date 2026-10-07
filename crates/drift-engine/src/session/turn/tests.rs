@@ -213,10 +213,8 @@ impl crate::hook::Hook for Rewriter {
 async fn a_plugin_may_refuse_a_call_change_its_input_or_add_a_note_and_a_bad_rewrite_runs_nothing() {
     let h = harness().await;
     h.engine.hooks.set(vec![std::sync::Arc::new(Rewriter)], vec![]);
-    std::fs::write(h._dir.join("ws/a.txt"), "alpha
-").unwrap();
-    std::fs::write(h._dir.join("ws/secret.txt"), "hidden
-").unwrap();
+    std::fs::write(h._dir.join("ws/a.txt"), "alpha\n").unwrap();
+    std::fs::write(h._dir.join("ws/secret.txt"), "hidden\n").unwrap();
     h.provider
         .push(tool_call("read", r#"{"path": "secret.txt"}"#))
         .push(tool_call("read", r#"{"path": "b.txt"}"#))
@@ -229,16 +227,14 @@ async fn a_plugin_may_refuse_a_call_change_its_input_or_add_a_note_and_a_bad_rew
     let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
     assert_eq!((*status, output.as_deref()), (ToolStatus::Error, Some("The rewriter plugin refused this call: secret.txt is off limits")));
     let Part::ToolCall { status, output, input, .. } = &transcript[2].parts[0].part else { panic!() };
-    assert_eq!((*status, output.as_deref()), (ToolStatus::Done, Some("1: alpha
-
-read by a plugin too")));
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Done, Some("1: alpha\n\nrewriter: read by a plugin too")));
     assert_eq!(input["path"], "a.txt", "the stored call shows what ran");
     let Part::ToolCall { status, output, .. } = &transcript[3].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Error);
     assert!(output.as_deref().unwrap_or_default().starts_with("A plugin changed the call so it no longer fits the tool:"), "{output:?}");
     let Part::ToolCall { status, output, .. } = &transcript[4].parts[0].part else { panic!() };
     assert_eq!(*status, ToolStatus::Done, "a non-zero exit is a result to the model");
-    assert!(output.as_deref().unwrap_or_default().ends_with("a plugin saw it fail"), "but a failure to a plugin: {output:?}");
+    assert!(output.as_deref().unwrap_or_default().ends_with("rewriter: a plugin saw it fail"), "but a failure to a plugin: {output:?}");
 }
 
 /// Workspace edits, shell lines inside the workspace, fetches and MCP calls run without asking by default; tests of the asking itself say so.

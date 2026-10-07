@@ -36,7 +36,7 @@ interface types {
         keep,
         /// The model reads this instead.
         replace(string),
-        /// Appended to the output as a note from Drift.
+        /// One line under the output, shown as "<plugin>: <note>"; cut at 160 characters.
         note(string),
     }
 

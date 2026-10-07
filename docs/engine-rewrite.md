@@ -1027,7 +1027,8 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   thread every 100 ms); past that it traps and the engine proceeds as if it answered allow or keep.
   A trap or a non-JSON replacement is logged and ignored the same way.
 - Dispatch (`Hooks`): plugins run in the order listed; the first denial wins and a replaced input
-  feeds the next; after a tool, replacements chain and notes collect, appended with `tool::add_note`.
+  feeds the next; after a tool, replacements chain and notes collect as one bounded line each, named for
+  the plugin (`note_line`), appended with `tool::add_note`.
   `run_call` asks before the permission asks and after the tool returns; a replaced input is checked
   against the tool's schema again, and a read that started early while the reply streamed is dropped
   if its input was rewritten. Session events come off the hub's own stream (`relay_session_events`),

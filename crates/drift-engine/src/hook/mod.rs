@@ -175,14 +175,14 @@ impl Hooks {
         (call, None)
     }
 
-    /// Replacements chain; notes collect in order.
+    /// Replacements chain; notes collect in order, one line each, named for the plugin that wrote it.
     pub async fn after_tool(&self, mut result: ToolResult) -> (String, Vec<String>) {
         let mut notes = Vec::new();
         for hook in self.list() {
             match hook.after_tool(&result).await {
                 AfterTool::Keep => {}
                 AfterTool::Replace(output) => result.output = output,
-                AfterTool::Note(note) => notes.push(note),
+                AfterTool::Note(note) => notes.push(note_line(hook.name(), &note)),
             }
         }
         (result.output, notes)
@@ -192,6 +192,19 @@ impl Hooks {
         for hook in self.list() {
             hook.session(event).await;
         }
+    }
+}
+
+/// A note's limit: enough to say what happened, not a report; the output itself holds the detail.
+const NOTE_CHARS: usize = 160;
+
+/// A plugin's note as the card and the model see it: its first line, bounded, under the plugin's name.
+fn note_line(plugin: &str, note: &str) -> String {
+    let line = note.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default();
+    let cut = line.char_indices().nth(NOTE_CHARS).map(|(at, _)| at);
+    match cut {
+        Some(at) => format!("{plugin}: {}...", line[..at].trim_end()),
+        None => format!("{plugin}: {line}"),
     }
 }
 
@@ -273,6 +286,15 @@ mod tests {
         assert_eq!(call.input["command"], "ls -la");
         assert_eq!(denied, Some(("b".to_owned(), "no".to_owned())));
         let result = ToolResult { session_id: "s".into(), workspace: "w".into(), agent: "build".into(), tool: "bash".into(), input: Value::Null, output: "long".into(), failed: false };
-        assert_eq!(hooks.after_tool(result).await, ("short".to_owned(), vec!["seen".to_owned()]));
+        assert_eq!(hooks.after_tool(result).await, ("short".to_owned(), vec!["a: seen".to_owned()]));
+    }
+
+    #[test]
+    fn a_note_is_one_bounded_line_under_the_plugins_name() {
+        assert_eq!(note_line("guard", "\n  saw it fail  \nand more\n"), "guard: saw it fail");
+        let long = "x".repeat(200);
+        let line = note_line("guard", &long);
+        assert_eq!(line.chars().count(), "guard: ".len() + NOTE_CHARS + 3);
+        assert!(line.ends_with("..."));
     }
 }
