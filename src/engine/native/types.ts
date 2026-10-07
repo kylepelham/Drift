@@ -726,6 +726,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every skill the engine offers, packs and the workspace's included, and every one switched off. */
+        get: operations["listSkills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Turns a skill on or off; off, the model is never offered it. */
+        put: operations["setSkillEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/skills/packs": {
         parameters: {
             query?: never;
@@ -1302,6 +1336,8 @@ export interface components {
             id: string;
             image?: string | null;
             name: string;
+            /** @description Skill folder names to keep; empty keeps every skill the archive holds. */
+            skills?: string[];
             source?: string | null;
             /** @description Folders inside the archive to keep (after its top-level folder); empty keeps everything. */
             subdirs?: string[];
@@ -1850,6 +1886,13 @@ export interface components {
             /** @description Directory holding SKILL.md and whatever it references. */
             path: string;
         };
+        SkillEnabled: {
+            enabled: boolean;
+            /** @description The skill's folder, as listed. */
+            path: string;
+            /** @description The workspace the skill belongs to, for one of its own. */
+            workspace?: string | null;
+        };
         SpawnBody: {
             /** @description What the new thread should do; it starts with a copy of this conversation and works out what it needs. */
             instruction: string;
@@ -1938,6 +1981,18 @@ export interface components {
             input: number;
             /** Format: int64 */
             output: number;
+        };
+        /** @description One skill the user has, from a pack or their own folders. */
+        UserSkill: {
+            description: string;
+            enabled: boolean;
+            name: string;
+            /** @description The pack it came from, by id; none for the user's own. */
+            pack?: string | null;
+            /** @description Its folder, absolute. */
+            path: string;
+            /** @description In the workspace (or a parent up to its repository root) rather than the user's own folders. */
+            workspace?: boolean;
         };
         Variant: components["schemas"]["Reasoning"] & {
             name: string;
@@ -3454,6 +3509,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineSettings"];
+                };
+            };
+        };
+    };
+    listSkills: {
+        parameters: {
+            query?: {
+                /** @description The workspace whose own skills to include besides the user's. */
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSkill"][];
+                };
+            };
+        };
+    };
+    setSkillEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillEnabled"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSkill"][];
                 };
             };
         };

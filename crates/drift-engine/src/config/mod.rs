@@ -24,7 +24,7 @@ const INSTRUCTION_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
 /// Skill roots looked up under the workspace and the home directory, in this order.
 /// Skill folders in a project directory, and (without the dot for Drift's own) in the home directory.
 const SKILL_DIRS: [&str; 3] = [".drift/skills", ".agents/skills", ".claude/skills"];
-const HOME_SKILL_DIRS: [&str; 3] = [".config/drift/skills", ".agents/skills", ".claude/skills"];
+pub(crate) const HOME_SKILL_DIRS: [&str; 3] = [".config/drift/skills", ".agents/skills", ".claude/skills"];
 /// How deep under a skill folder a `SKILL.md` is looked for; folders such as `node_modules` are never entered.
 const SKILL_DEPTH: usize = 6;
 const MAX_INSTRUCTION_CHARS: usize = 40_000;
@@ -775,14 +775,14 @@ impl Config {
 }
 
 /// Skill folders in precedence order: project ancestors, configured paths, then home folders.
-fn skill_folders(workspace: &Path, home: Option<&Path>, listed: Vec<PathBuf>) -> Vec<PathBuf> {
+pub(crate) fn skill_folders(workspace: &Path, home: Option<&Path>, listed: Vec<PathBuf>) -> Vec<PathBuf> {
     let project = ancestors_to_repo_root(workspace).into_iter().flat_map(|dir| SKILL_DIRS.map(|skills| dir.join(skills)));
     let user = home.into_iter().flat_map(|home| HOME_SKILL_DIRS.map(|skills| home.join(skills)));
     project.chain(listed).chain(user).collect()
 }
 
 /// The `SKILL.md` files under `dir`, sorted, so the same tree always yields the same skills.
-fn skill_files(dir: &Path) -> Vec<PathBuf> {
+pub(crate) fn skill_files(dir: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut pending = vec![(dir.to_path_buf(), 0)];
     while let Some((folder, depth)) = pending.pop() {

@@ -1,12 +1,12 @@
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
 import { useEngine } from "../engine"
-import type { PluginInfo, SkillPack } from "../engine/native/client"
+import type { PluginInfo } from "../engine/native/client"
 import { t } from "../state/i18n"
 import {
   buildConfig,
   fieldText,
   installedPath,
-  isSkillPack,
+  isSkillEntry,
   loadRegistries,
   matchesRegistryQuery,
   registryCategories,
@@ -29,7 +29,6 @@ export function PluginsSection() {
   const engine = useEngine()
   const [view, setView] = createSignal<View>("installed")
   const [plugins, setPlugins] = createSignal<PluginInfo[]>([])
-  const [packs, setPacks] = createSignal<SkillPack[]>([])
   const [loading, setLoading] = createSignal(false)
   const [busy, setBusy] = createSignal("")
   const [failure, setFailure] = createSignal("")
@@ -53,41 +52,14 @@ export function PluginsSection() {
       setLoading(false)
     }
   }
-  onMount(() => {
-    void run(() => engine.actions.plugins())
-    void engine.actions.skillPacks().then(setPacks, () => undefined)
-  })
-  const runPacks = async (action: () => Promise<SkillPack[]>, success?: string) => {
-    setLoading(true)
-    setFailure("")
-    setMessage("")
-    try {
-      setPacks(await action())
-      if (success) setMessage(success)
-      return true
-    } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error))
-      return false
-    } finally {
-      setLoading(false)
-    }
-  }
+  onMount(() => void run(() => engine.actions.plugins()))
 
   const install = async (plugin: RegistryPlugin, config: Record<string, unknown>) => {
     setBusy(plugin.id)
-    const done = isSkillPack(plugin)
-      ? await runPacks(() => engine.actions.installSkillPack({ id: plugin.id, name: plugin.name, archive: plugin.archive ?? "", subdirs: plugin.subdirs ?? [], source: plugin.source, image: plugin.image }), t("drift.plugins.installed.pack", { name: plugin.name }))
-      : await run(() => engine.actions.installPlugin({ id: plugin.id, url: plugin.download, sha256: plugin.sha256, config }), t("drift.plugins.installed.one", { name: plugin.name }))
+    const done = await run(() => engine.actions.installPlugin({ id: plugin.id, url: plugin.download, sha256: plugin.sha256, config }), t("drift.plugins.installed.one", { name: plugin.name }))
     setBusy("")
     if (done) setView("installed")
     return done
-  }
-  const removePack = async (pack: SkillPack) => {
-    if (confirmRemove() !== pack.id) return setConfirmRemove(pack.id)
-    setBusy(pack.id)
-    await runPacks(() => engine.actions.removeSkillPack(pack.id), t("drift.plugins.removed", { name: pack.name }))
-    setBusy("")
-    setConfirmRemove("")
   }
   const remove = async (plugin: PluginInfo) => {
     if (confirmRemove() !== plugin.path) return setConfirmRemove(plugin.path)
@@ -96,7 +68,7 @@ export function PluginsSection() {
     setBusy("")
     setConfirmRemove("")
   }
-  const installedPaths = createMemo(() => new Set([...plugins().map((plugin) => plugin.path), ...packs().map((pack) => `pack:${pack.id}`)]))
+  const installedPaths = createMemo(() => new Set(plugins().map((plugin) => plugin.path)))
   // Installed rows show the registry's picture and edit with its fields, for the plugin at their path.
   const [known, setKnown] = createSignal<Record<string, RegistryPlugin>>({})
   onMount(() => {
@@ -161,34 +133,6 @@ export function PluginsSection() {
             <div class="px-3 py-5 text-sm text-ink-faint">{t("drift.plugins.empty", { path: configFile })}</div>
           </Show>
         </div>
-        <Show when={packs().length}>
-          <div class="pt-3 pb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{t("drift.plugins.packs")}</div>
-          <div class="border-y border-edge/80">
-            <For each={packs()}>
-              {(pack) => (
-                <div class="flex items-center gap-3 border-b border-edge/70 px-3 py-2.5 last:border-b-0 hover:bg-raised/40">
-                  <LogoTile image={pack.image ?? undefined} title={pack.name} />
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm font-medium text-ink">{pack.name}</div>
-                    <div class="mt-0.5 truncate text-xs text-ink-faint" title={pack.skills.join(", ")}>
-                      {t("drift.plugins.packSkills", { count: pack.skills.length })} · {pack.skills.slice(0, 6).join(", ")}{pack.skills.length > 6 ? ", ..." : ""}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={locked()}
-                    title={confirmRemove() === pack.id ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
-                    aria-label={confirmRemove() === pack.id ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
-                    class="flex items-center gap-1 rounded-md border border-danger/40 px-2 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40"
-                    onClick={() => void removePack(pack)}
-                  >
-                    {confirmRemove() === pack.id ? t("drift.plugins.confirmRemove") : <IconTrash class="size-3.5" />}
-                  </button>
-                </div>
-              )}
-            </For>
-          </div>
-        </Show>
       </Show>
       <Show when={view() === "registry"}>
         <PluginRegistry installed={installedPaths()} disabled={locked()} busy={busy()} onInstall={install} />
@@ -257,7 +201,7 @@ function PluginRegistry(props: { installed: Set<string>; disabled: boolean; busy
     try {
       await loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) }).catch(() => undefined)
       const loaded = await loadRegistries(sourcesOf("plugins"), fresh)
-      setPlugins(loaded.plugins)
+      setPlugins(loaded.plugins.filter((plugin) => !isSkillEntry(plugin)))
       setFailures(loaded.failures)
       if (!loaded.plugins.length && loaded.failures.length) setError(t("drift.plugins.registryLoadFailed"))
     } catch {
@@ -273,7 +217,7 @@ function PluginRegistry(props: { installed: Set<string>; disabled: boolean; busy
     void load(true)
   }
   const visible = createMemo(() => plugins().filter((plugin) => (category() === "all" || plugin.category === category()) && matchesRegistryQuery(plugin, query())))
-  const installed = (plugin: RegistryPlugin) => props.installed.has(isSkillPack(plugin) ? `pack:${plugin.id}` : installedPath(plugin.id))
+  const installed = (plugin: RegistryPlugin) => props.installed.has(installedPath(plugin.id))
 
   return (
     <Show
@@ -378,7 +322,7 @@ function RegistryCard(props: { plugin: RegistryPlugin; installed: boolean; onOpe
               <IconCheck class="size-3.5 shrink-0 text-ok" aria-label={t("drift.plugins.installedLabel")} />
             </Show>
           </div>
-          <div class="truncate text-[0.7rem] text-ink-faint">{props.plugin.author}{isSkillPack(props.plugin) ? "" : ` · v${props.plugin.version}`}</div>
+          <div class="truncate text-[0.7rem] text-ink-faint">{props.plugin.author} · v{props.plugin.version}</div>
         </div>
       </div>
       <div class="line-clamp-2 text-xs leading-relaxed text-ink-muted">{props.plugin.description}</div>
@@ -386,9 +330,6 @@ function RegistryCard(props: { plugin: RegistryPlugin; installed: boolean; onOpe
         <Show when={props.plugin.sourceName}>{(name) => <Badge tone="warn">{name()}</Badge>}</Show>
         <Badge tone="accent">{t(`drift.plugins.category.${props.plugin.category}`)}</Badge>
         <For each={props.plugin.hooks}>{(hook) => <Badge>{hook}</Badge>}</For>
-        <Show when={isSkillPack(props.plugin)}>
-          <Badge>{t("drift.plugins.packBadge")}</Badge>
-        </Show>
       </div>
     </button>
   )
@@ -521,14 +462,14 @@ function InstallSheet(props: { plugin: RegistryPlugin; installed: boolean; disab
         <LogoTile image={props.plugin.image} title={props.plugin.name} large />
         <div class="min-w-0 flex-1">
           <div class="text-base font-semibold text-ink">{props.plugin.name}</div>
-          <div class="text-[0.7rem] text-ink-faint">{props.plugin.author} · {isSkillPack(props.plugin) ? props.plugin.version : `v${props.plugin.version} · ${formatSize(props.plugin.size)}`}</div>
+          <div class="text-[0.7rem] text-ink-faint">{props.plugin.author} · v{props.plugin.version} · {formatSize(props.plugin.size)}</div>
           <div class="mt-2 text-sm text-ink-muted">{props.plugin.description}</div>
           <div class="mt-2 flex flex-wrap items-center gap-3 text-xs">
             <button class="flex items-center gap-0.5 text-accent hover:underline" onClick={() => openExternal(props.plugin.source)}>
               {t("drift.plugins.source")}
               <IconArrowUpRight class="size-3" />
             </button>
-            <span class="font-mono text-ink-faint">{isSkillPack(props.plugin) ? `skills/${props.plugin.id}/` : installedPath(props.plugin.id)}</span>
+            <span class="font-mono text-ink-faint">{installedPath(props.plugin.id)}</span>
           </div>
           <div class="mt-2 flex flex-wrap gap-1">
             <Show when={props.plugin.sourceName}>{(name) => <Badge tone="warn">{name()}</Badge>}</Show>
@@ -540,12 +481,7 @@ function InstallSheet(props: { plugin: RegistryPlugin; installed: boolean; disab
       <Show when={props.plugin.config.length}>
         <ConfigFields fields={props.plugin.config} typed={typed()} onTyped={setTyped} values={{}} />
       </Show>
-      <Show when={isSkillPack(props.plugin)}>
-        <div class="space-y-1 rounded-lg border border-edge bg-surface p-3 text-xs text-ink-muted">
-          <div>{t("drift.plugins.packNote", { folder: `~/.config/drift/skills/${props.plugin.id}` })}</div>
-          <div class="font-mono text-[0.7rem] text-ink-faint">{props.plugin.archive}</div>
-        </div>
-      </Show>
+
       <div class="flex items-center justify-end gap-2">
         <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>{t("common.cancel")}</button>
         <button
@@ -561,7 +497,7 @@ function InstallSheet(props: { plugin: RegistryPlugin; installed: boolean; disab
   )
 }
 
-function Badge(props: { tone?: "accent" | "warn"; children: JSX.Element }) {
+export function Badge(props: { tone?: "accent" | "warn"; children: JSX.Element }) {
   return (
     <span class="rounded px-1.5 py-0.5 text-[0.65rem]" classList={{ "bg-raised text-ink-muted": !props.tone, "bg-accent/12 text-accent": props.tone === "accent", "bg-warn/12 text-warn": props.tone === "warn" }}>
       {props.children}
@@ -569,7 +505,7 @@ function Badge(props: { tone?: "accent" | "warn"; children: JSX.Element }) {
   )
 }
 
-function Tab(props: { active: boolean; onClick: () => void; children: JSX.Element }) {
+export function Tab(props: { active: boolean; onClick: () => void; children: JSX.Element }) {
   return (
     <button
       type="button"

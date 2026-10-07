@@ -184,6 +184,42 @@ pub struct PackId {
     pub id: String,
 }
 
+#[derive(Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsQuery {
+    /// The workspace whose own skills to include besides the user's.
+    pub workspace: Option<String>,
+}
+
+fn workspace_path(engine: &Engine, id: Option<&str>) -> Option<std::path::PathBuf> {
+    id.and_then(|id| engine.store.workspace(id).ok().flatten()).map(|workspace| std::path::PathBuf::from(workspace.path))
+}
+
+/// Every skill the engine offers, packs and the workspace's included, and every one switched off.
+#[utoipa::path(get, path = "/skills", operation_id = "listSkills", params(SkillsQuery), responses((status = 200, body = Vec<crate::config::skills::UserSkill>)))]
+pub async fn skills(State(engine): State<Arc<Engine>>, axum::extract::Query(query): axum::extract::Query<SkillsQuery>) -> Json<Vec<crate::config::skills::UserSkill>> {
+    Json(crate::config::skills::list_skills(workspace_path(&engine, query.workspace.as_deref()).as_deref()))
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillEnabled {
+    /// The skill's folder, as listed.
+    pub path: String,
+    pub enabled: bool,
+    /// The workspace the skill belongs to, for one of its own.
+    #[serde(default)]
+    pub workspace: Option<String>,
+}
+
+/// Turns a skill on or off; off, the model is never offered it.
+#[utoipa::path(put, path = "/skills/enabled", operation_id = "setSkillEnabled", request_body = SkillEnabled, responses((status = 200, body = Vec<crate::config::skills::UserSkill>)))]
+pub async fn set_skill_enabled(State(engine): State<Arc<Engine>>, Json(body): Json<SkillEnabled>) -> Result<Json<Vec<crate::config::skills::UserSkill>>, ApiError> {
+    let workspace = workspace_path(&engine, body.workspace.as_deref());
+    crate::config::skills::set_skill_enabled(&body.path, body.enabled, workspace.as_deref()).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "skill", error))?;
+    Ok(Json(crate::config::skills::list_skills(workspace.as_deref())))
+}
+
 /// Removes a skill pack and every skill it brought.
 #[utoipa::path(delete, path = "/skills/packs", operation_id = "removeSkillPack", params(PackId), responses((status = 200, body = Vec<crate::config::skills::Pack>)))]
 pub async fn remove_skill_pack(axum::extract::Query(query): axum::extract::Query<PackId>) -> Result<Json<Vec<crate::config::skills::Pack>>, ApiError> {
