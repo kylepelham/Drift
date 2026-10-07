@@ -9,8 +9,6 @@ use utoipa::ToSchema;
 
 const SKILLS_DIR: &str = "skills";
 const MARKER: &str = ".drift-pack.json";
-/// A skill switched off keeps its folder; its SKILL.md is renamed so the engine never offers it.
-const OFF: &str = "SKILL.md.off";
 const MAX_ARCHIVE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -188,54 +186,32 @@ fn skill_dirs(workspace: Option<&Path>) -> Vec<(PathBuf, bool)> {
     dirs
 }
 
-/// Every skill the engine would offer, and every one switched off, from the user's folders and the workspace's.
-pub fn list_skills(workspace: Option<&Path>) -> Vec<UserSkill> {
+/// Every skill in the user's folders and the workspace's, each marked off when its folder is in `off`.
+pub fn list_skills(workspace: Option<&Path>, off: &[PathBuf]) -> Vec<UserSkill> {
     let packs = packs_dir().unwrap_or_default();
     let mut skills = Vec::new();
     for (dir, in_workspace) in skill_dirs(workspace) {
-        for file in super::skill_files(&dir).into_iter().chain(off_files(&dir)) {
+        for file in super::skill_files(&dir) {
             let Ok(text) = std::fs::read_to_string(&file) else { continue };
             let folder = file.parent().unwrap_or(&dir);
             let doc = super::frontmatter::parse(&text);
             let name = doc.field("name").unwrap_or_else(|| folder.file_name().unwrap_or_default().to_string_lossy().into_owned());
             let pack = folder.strip_prefix(&packs).ok().and_then(|rest| rest.components().next()).map(|part| part.as_os_str().to_string_lossy().into_owned());
-            skills.push(UserSkill { name, description: doc.field("description").unwrap_or_default(), path: folder.to_string_lossy().into_owned(), pack, workspace: in_workspace, enabled: file.file_name().is_some_and(|name| name == "SKILL.md") });
+            skills.push(UserSkill { name, description: doc.field("description").unwrap_or_default(), path: folder.to_string_lossy().into_owned(), pack, workspace: in_workspace, enabled: !off.contains(&crate::tool::canonical(folder)) });
         }
     }
     skills.sort_by(|a, b| a.pack.cmp(&b.pack).then(a.name.cmp(&b.name)));
     skills
 }
 
-/// Switched-off skills under `dir`, which the engine's own walk never sees.
-fn off_files(dir: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut pending = vec![(dir.to_path_buf(), 0)];
-    while let Some((folder, depth)) = pending.pop() {
-        let Ok(entries) = std::fs::read_dir(&folder) else { continue };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && depth < 6 && !matches!(entry.file_name().to_str(), Some("node_modules" | ".git")) {
-                pending.push((path, depth + 1));
-            } else if entry.file_name() == OFF {
-                found.push(path);
-            }
-        }
-    }
-    found
-}
-
-/// Turns a skill on or off by renaming its SKILL.md; the folder must be under a skill folder of the user's or the workspace's.
-pub fn set_skill_enabled(folder: &str, enabled: bool, workspace: Option<&Path>) -> Result<(), String> {
+/// The skill folder the switch names, as the engine compares it; only a folder under a skill folder of the user's or the workspace's.
+pub fn skill_folder(folder: &str, workspace: Option<&Path>) -> Result<PathBuf, String> {
     let folder = Path::new(folder);
     let allowed = skill_dirs(workspace).iter().any(|(dir, _)| folder.starts_with(dir));
     if !allowed || folder.components().any(|part| matches!(part, Component::ParentDir)) {
         return Err("not one of your skills".into());
     }
-    let (from, to) = if enabled { (folder.join(OFF), folder.join("SKILL.md")) } else { (folder.join("SKILL.md"), folder.join(OFF)) };
-    if to.exists() {
-        return Ok(());
-    }
-    std::fs::rename(&from, &to).map_err(|error| format!("could not switch the skill: {error}"))
+    Ok(crate::tool::canonical(folder))
 }
 
 pub fn remove(id: &str) -> Result<(), String> {
@@ -267,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn a_workspaces_own_skills_list_beside_the_users_and_switch_off_by_rename() {
+    fn a_workspaces_own_skills_list_beside_the_users_and_a_switch_never_touches_their_files() {
         let root = std::env::temp_dir().join(format!("drift-skill-list-{}", crate::random_hex(4)));
         let ws = root.join("ws");
         std::fs::create_dir_all(ws.join(".drift/skills/review")).unwrap();
@@ -278,16 +254,17 @@ description: Reviews a diff.
 body").unwrap();
         std::fs::create_dir_all(ws.join(".claude/skills/plain")).unwrap();
         std::fs::write(ws.join(".claude/skills/plain/SKILL.md"), "no front matter").unwrap();
-        let listed = list_skills(Some(&ws));
+        let listed = list_skills(Some(&ws), &[]);
         let names: Vec<(&str, bool, bool)> = listed.iter().map(|skill| (skill.name.as_str(), skill.workspace, skill.enabled)).collect();
         assert_eq!(names, vec![("plain", true, true), ("review", true, true)], "both layouts, the folder name standing in for a missing one");
         assert_eq!(listed[1].description, "Reviews a diff.");
-        set_skill_enabled(&listed[1].path, false, Some(&ws)).unwrap();
-        assert!(ws.join(".drift/skills/review/SKILL.md.off").is_file());
-        assert_eq!(list_skills(Some(&ws)).iter().map(|skill| skill.enabled).collect::<Vec<_>>(), vec![true, false]);
-        set_skill_enabled(&listed[1].path, true, Some(&ws)).unwrap();
-        assert!(ws.join(".drift/skills/review/SKILL.md").is_file());
-        assert!(set_skill_enabled(&root.join("elsewhere").to_string_lossy(), false, Some(&ws)).is_err(), "only a skill folder may be switched");
+        let off = skill_folder(&listed[1].path, Some(&ws)).unwrap();
+        assert_eq!(list_skills(Some(&ws), std::slice::from_ref(&off)).iter().map(|skill| skill.enabled).collect::<Vec<_>>(), vec![true, false]);
+        assert!(ws.join(".drift/skills/review/SKILL.md").is_file(), "the skill's own file is left as it is");
+        let config = crate::config::Config::load_skipping(&ws, std::slice::from_ref(&off));
+        assert!(config.skill("review").is_none() && config.commands.iter().all(|command| command.name != "review"), "off, the model and the slash menu never see it");
+        assert!(config.skill("plain").is_some());
+        assert!(skill_folder(&root.join("elsewhere").to_string_lossy(), Some(&ws)).is_err(), "only a skill folder may be switched");
         let _ = std::fs::remove_dir_all(&root);
     }
 

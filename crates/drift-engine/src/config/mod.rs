@@ -486,7 +486,16 @@ impl Config {
         Self::load_with_home(workspace, home().as_deref())
     }
 
+    /// As [`Self::load`], leaving out the skills in folders the user switched off.
+    pub fn load_skipping(workspace: &Path, off: &[PathBuf]) -> Self {
+        Self::load_from(workspace, home().as_deref(), off)
+    }
+
     pub fn load_with_home(workspace: &Path, home: Option<&Path>) -> Self {
+        Self::load_from(workspace, home, &[])
+    }
+
+    fn load_from(workspace: &Path, home: Option<&Path>, off: &[PathBuf]) -> Self {
         let mut config = Self { agents: builtin_agents(), ..Self::default() };
         let mut roots: Vec<PathBuf> = Vec::new();
         if let Some(home) = home {
@@ -499,7 +508,7 @@ impl Config {
             config.apply_dir(&if root == workspace { root.join(DIR) } else { root.clone() });
         }
         for dir in skill_folders(workspace, home, std::mem::take(&mut config.skill_paths)) {
-            config.add_skills(&dir);
+            config.add_skills(&dir, off);
         }
         config.add_skill_commands();
         config.add_instructions(workspace, home);
@@ -737,10 +746,13 @@ impl Config {
     }
 
     /// Every `SKILL.md` under `dir`, at any depth up to [`SKILL_DEPTH`]; a name already found nearer wins.
-    fn add_skills(&mut self, dir: &Path) {
+    fn add_skills(&mut self, dir: &Path, off: &[PathBuf]) {
         for path in skill_files(dir) {
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
             let folder = path.parent().unwrap_or(dir);
+            if off.contains(&crate::tool::canonical(folder)) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else { continue };
             let doc = frontmatter::parse(&text);
             let name = doc.field("name").unwrap_or_else(|| folder.file_name().unwrap_or_default().to_string_lossy().into_owned());
             if self.skills.iter().any(|s| s.name == name) {

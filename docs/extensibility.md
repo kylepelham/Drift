@@ -127,8 +127,10 @@ project and its parents to the repository root), the user's own (the same three 
 directory, `~/.config/drift/skills` first) and those from installed packs, grouped by pack with the
 pack's picture and a Remove. A skill is a folder with a `SKILL.md` whose front matter gives its name
 and description; nothing about that format changes, and a folder with no front matter is listed by
-its folder name. Off is a rename of `SKILL.md` to `SKILL.md.off`, so the engine's own walk never
-sees it and a file manager still does; on renames it back (`GET /skills?workspace=`,
+its folder name. Off is Drift's own setting, the folder on the engine's `disabledSkills` list:
+the skill's files are never touched, so Claude Code and any other tool reading `~/.claude/skills`
+or a project's skill folders still see it, and a project's `git status` stays clean. Off, the model
+is not offered it and the slash menu leaves it out, from the next turn (`GET /skills?workspace=`,
 `PUT /skills/enabled`, `config::skills`).
 
 The Registry tab lists the registry's skill entries: a single skill (`kind: "skill"`) or a pack of

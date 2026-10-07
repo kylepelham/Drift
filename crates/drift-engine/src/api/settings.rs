@@ -198,7 +198,7 @@ fn workspace_path(engine: &Engine, id: Option<&str>) -> Option<std::path::PathBu
 /// Every skill the engine offers, packs and the workspace's included, and every one switched off.
 #[utoipa::path(get, path = "/skills", operation_id = "listSkills", params(SkillsQuery), responses((status = 200, body = Vec<crate::config::skills::UserSkill>)))]
 pub async fn skills(State(engine): State<Arc<Engine>>, axum::extract::Query(query): axum::extract::Query<SkillsQuery>) -> Json<Vec<crate::config::skills::UserSkill>> {
-    Json(crate::config::skills::list_skills(workspace_path(&engine, query.workspace.as_deref()).as_deref()))
+    Json(crate::config::skills::list_skills(workspace_path(&engine, query.workspace.as_deref()).as_deref(), &engine.disabled_skills()))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -216,8 +216,9 @@ pub struct SkillEnabled {
 #[utoipa::path(put, path = "/skills/enabled", operation_id = "setSkillEnabled", request_body = SkillEnabled, responses((status = 200, body = Vec<crate::config::skills::UserSkill>)))]
 pub async fn set_skill_enabled(State(engine): State<Arc<Engine>>, Json(body): Json<SkillEnabled>) -> Result<Json<Vec<crate::config::skills::UserSkill>>, ApiError> {
     let workspace = workspace_path(&engine, body.workspace.as_deref());
-    crate::config::skills::set_skill_enabled(&body.path, body.enabled, workspace.as_deref()).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "skill", error))?;
-    Ok(Json(crate::config::skills::list_skills(workspace.as_deref())))
+    let folder = crate::config::skills::skill_folder(&body.path, workspace.as_deref()).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "skill", error))?;
+    engine.set_skill_enabled(&folder, body.enabled)?;
+    Ok(Json(crate::config::skills::list_skills(workspace.as_deref(), &engine.disabled_skills())))
 }
 
 /// Removes a skill pack and every skill it brought.

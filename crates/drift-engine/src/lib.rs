@@ -121,6 +121,8 @@ const PERMISSION_RULES_KEY: &str = "permissionRules";
 const AUTO_ACCEPT_ALL_KEY: &str = "autoAcceptAll";
 /// Plugins the user switched off in Settings, by their drift.json entry.
 const DISABLED_PLUGINS_KEY: &str = "disabledPlugins";
+/// Skill folders the user switched off in Settings; the files themselves are never touched.
+const DISABLED_SKILLS_KEY: &str = "disabledSkills";
 
 impl Engine {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>, Error> {
@@ -209,6 +211,22 @@ impl Engine {
         Ok(self.reload_plugins().await)
     }
 
+    /// The skill folders switched off, as the engine compares folders.
+    pub fn disabled_skills(&self) -> Vec<PathBuf> {
+        self.store.setting::<Vec<String>>(DISABLED_SKILLS_KEY).ok().flatten().unwrap_or_default().into_iter().map(PathBuf::from).collect()
+    }
+
+    /// Turns a skill on or off for every workspace and session from the next turn; its files stay as they are.
+    pub fn set_skill_enabled(&self, folder: &Path, enabled: bool) -> rusqlite::Result<()> {
+        let key = folder.to_string_lossy().into_owned();
+        let mut disabled: Vec<String> = self.store.setting(DISABLED_SKILLS_KEY)?.unwrap_or_default();
+        disabled.retain(|entry| *entry != key);
+        if !enabled {
+            disabled.push(key);
+        }
+        self.store.set_setting(DISABLED_SKILLS_KEY, &disabled)
+    }
+
     /// A changed agent model or prompt may be what an owed result was waiting for.
     pub fn set_agent_overrides(self: &Arc<Self>, overrides: std::collections::HashMap<String, config::AgentOverride>) {
         *self.agent_overrides.write().unwrap() = overrides;
@@ -294,7 +312,7 @@ impl Engine {
 
     /// The workspace's agents, commands and skills with the user's Settings overrides applied.
     pub fn workspace_config(&self, workspace: &Path) -> config::Config {
-        let mut config = config::Config::load(workspace);
+        let mut config = config::Config::load_skipping(workspace, &self.disabled_skills());
         config.apply_overrides(&self.agent_overrides.read().unwrap());
         config
     }
