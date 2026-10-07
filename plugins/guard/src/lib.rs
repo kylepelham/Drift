@@ -1,7 +1,4 @@
-//! A Drift plugin that refuses shell commands which rewrite history, notes failed commands, and
-//! runs the workspace's tests when a reply says `@guard test`, keeping the turn going if they fail.
-//! Its drift.json entry may set the command: `{ "path": "plugins/guard.wasm", "config": { "test": ["cargo", "test"] } }`.
-//! Build with `cargo build --release --target wasm32-wasip2`; the component is `target/wasm32-wasip2/release/guard.wasm`.
+//! Example plugin: refuses history-rewriting shell lines, notes failed ones, and runs the `test` command on `@guard test`.
 
 wit_bindgen::generate!({ world: "plugin", path: "../../crates/drift-engine/wit" });
 

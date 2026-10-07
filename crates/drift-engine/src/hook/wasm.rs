@@ -1,5 +1,4 @@
-//! Plugins as WebAssembly components: sandboxed, any language with a component toolchain, compiled
-//! once per file into a disk cache. The contract is `wit/drift.wit`.
+//! Plugins as sandboxed WebAssembly components, compiled once into a disk cache; the contract is `wit/drift.wit`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Weak;

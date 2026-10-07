@@ -23,15 +23,11 @@ pub struct Snapshots {
     sources: Mutex<HashMap<PathBuf, Option<Source>>>,
 }
 
-/// A git repository a workspace is the top of. A whole-tree capture there starts from its index and
-/// reads its objects, as opencode's does, so files git has already hashed are not hashed again and a
-/// repository of any size is captured.
+/// A repository a workspace is the top of; a capture there starts from its index, so one of any size is captured.
 #[derive(Clone, Debug)]
 struct Source {
     index: PathBuf,
-    /// Its object stores, lent to tree commands only (`GIT_ALTERNATE_OBJECT_DIRECTORIES`): a blob
-    /// recorded for undo is always written to the shadow store itself, never left in the repository,
-    /// whose own gc could drop it.
+    /// Its object stores, lent to tree commands only; undo's blobs always go to the shadow store, out of reach of its gc.
     objects: std::ffi::OsString,
 }
 
@@ -247,8 +243,7 @@ impl Snapshots {
         Ok(Tree { id, oversized })
     }
 
-    /// The repository `workspace` is the top of, found once per run; none for a plain folder (a
-    /// drive, a home folder) or a folder inside a repository, whose index lists paths from elsewhere.
+    /// The repository `workspace` is the top of, looked up once; none for a plain folder or a folder inside a repository.
     async fn source(&self, workspace: &Path) -> Option<Source> {
         if let Some(known) = self.sources.lock().unwrap().get(workspace) {
             return known.clone();
@@ -258,8 +253,7 @@ impl Snapshots {
         found
     }
 
-    /// Starts the shadow index from the repository's, once per shadow repo. An index this git cannot
-    /// read (a split index whose shared part stays behind) is dropped, and git builds its own.
+    /// Starts the shadow index from the repository's once; an index this git cannot read is dropped and rebuilt.
     async fn seed(&self, workspace: &Path, source: &Source) {
         let git_dir = self.git_dir(workspace);
         let marker = git_dir.join("drift-seeded");
@@ -276,8 +270,7 @@ impl Snapshots {
         let _ = tokio::fs::write(marker, "").await;
     }
 
-    /// `leave_out_large_files` for a repository, without walking it: git names what changed and what
-    /// is untracked (its index holds the rest), and only those, with the files already left out, are sized.
+    /// `leave_out_large_files` for a repository: only what git names as changed or untracked is sized, with no walk.
     async fn leave_out_large_changes(&self, workspace: &Path, source: &Source) -> Result<Vec<(String, Stamp)>, Error> {
         let modified = self.run_with(workspace, &["diff-files", "--name-only", "-z"], None, Some(source)).await?;
         let untracked = self.run_with(workspace, &["ls-files", "--others", "--exclude-standard", "-z"], None, Some(source)).await?;
@@ -487,8 +480,7 @@ async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Opt
     output.status.success().then_some(output.stdout)
 }
 
-/// Drops changes whose file the repository, hashing it through its own filters, still holds as the
-/// before blob: only its timestamp moved, since a seeded entry is the converted content and a fresh one raw.
+/// Drops changes whose file the repository still holds as the before blob through its filters: only the timestamp moved.
 async fn unconverted_changes(workspace: &Path, changes: Vec<FileChange>) -> Vec<FileChange> {
     let modified: Vec<&FileChange> = changes.iter().filter(|change| change.before.is_some() && change.after.is_some()).collect();
     if modified.is_empty() {

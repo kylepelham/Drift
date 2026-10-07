@@ -761,10 +761,7 @@ export function failedAttempt(entry: MessageEntry) {
   return !!error && error.name !== "MessageAbortedError" && !entry.parts.some(partVisible)
 }
 
-/**
- * While the attempt after a run of failed ones is in flight, the retry line stays where it was
- * ("Retrying - attempt #n") instead of vanishing until that attempt fails too or shows output.
- */
+/** The retry line stays up while the attempt after a run of failures is in flight, until it fails or shows output. */
 export function retryInFlight(entries: MessageEntry[], running?: string): Extract<SessionStatus, { type: "retry" }> | undefined {
   const index = entries.findIndex((entry) => entry.info.id === running)
   const current = entries[index]

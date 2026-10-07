@@ -284,8 +284,7 @@ impl Output {
     }
 }
 
-/// Adds something Drift says about a call, rather than something the call printed: after its output,
-/// where the model reads it, and in `metadata.notes`, so the UI can show it under the call instead.
+/// Adds Drift's own remark about a call: after its output for the model, and in `metadata.notes` for the UI to show beneath.
 pub fn add_note(output: &mut String, metadata: &mut Value, note: &str) {
     if !output.is_empty() {
         output.push_str("\n\n");

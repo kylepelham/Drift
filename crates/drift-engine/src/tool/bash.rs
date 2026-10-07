@@ -283,8 +283,15 @@ fn take(read: std::io::Result<usize>, buffer: &[u8], spool: &mut Spool) -> bool 
     }
 }
 
+/// The output without blank lines at either end; the first printed line keeps its indentation.
+fn without_blank_ends(text: &str) -> &str {
+    let text = text.trim_end();
+    let first = text.find(|ch: char| !ch.is_whitespace()).unwrap_or(text.len());
+    &text[text[..first].rfind('\n').map_or(0, |newline| newline + 1)..]
+}
+
 fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>) -> Output {
-    let mut text = spooled.text.trim().to_string();
+    let mut text = without_blank_ends(&spooled.text).to_string();
     let mut metadata = json!({ "shellTimeoutMs": limit.map(|d| d.as_millis() as u64), "outputBytes": spooled.total });
     if let Some(file) = &spooled.file {
         metadata["outputFile"] = json!(file.to_string_lossy());
@@ -517,6 +524,13 @@ fn resume_main_thread(child: &tokio::process::Child) {
 mod tests {
     use super::super::tests::Sandbox;
     use super::*;
+
+    #[test]
+    fn output_loses_blank_lines_at_its_ends_but_never_its_first_lines_indentation() {
+        assert_eq!(without_blank_ends("\n\r\n  @@ -1 +1 @@\n-a\n+b\n\n"), "  @@ -1 +1 @@\n-a\n+b");
+        assert_eq!(without_blank_ends("   \n\t\n"), "");
+        assert_eq!(without_blank_ends("plain"), "plain");
+    }
 
     #[tokio::test]
     async fn runs_a_command_in_the_workspace_and_reports_exit_codes() {

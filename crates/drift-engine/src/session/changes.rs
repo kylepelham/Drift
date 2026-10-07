@@ -15,8 +15,7 @@ pub(super) enum Capture {
     Tree(Tree),
     /// A whole tree that could not be taken, and why; tree changes are never undone, so the call still runs.
     Unrecorded(String),
-    /// A plain folder too large to capture whole (a drive, a home folder): nothing is lost, since tree
-    /// changes are never undone, so nothing is said either.
+    /// A plain folder too large to capture (a drive, a home folder); tree changes are never undone, so nothing is said.
     Skipped,
 }
 

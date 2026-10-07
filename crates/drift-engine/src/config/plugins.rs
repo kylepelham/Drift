@@ -1,5 +1,4 @@
-//! Installing plugins from a registry: the component is fetched and checked, written under the
-//! user's config directory, and listed in their drift.json, which is rewritten as JSON.
+//! Installing registry plugins: fetched, hash-checked, written under the user's config and listed in their drift.json.
 
 use std::path::{Path, PathBuf};
 

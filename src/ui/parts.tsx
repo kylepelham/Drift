@@ -872,8 +872,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
   )
 }
 
-/** A call's output without the notes Drift added after it (`metadata.notes`, in order), and those
- * notes, which show under the call instead of inside what it printed. Older calls have none. */
+/** A call's output without the notes Drift appended (`metadata.notes`), and those notes, shown under the call instead. */
 export function splitNotes(output: string, notes: unknown): { output: string; notes: string[] } {
   const listed = Array.isArray(notes) ? notes.filter((note): note is string => typeof note === "string") : []
   let rest = output

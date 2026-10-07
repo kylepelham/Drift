@@ -170,10 +170,7 @@ export function SkillsSection() {
   )
 }
 
-/**
- * A collapsible group of skills with one switch for them all: on when every skill is, off when none
- * is, and shown as on-but-dimmed when mixed. Closed to begin with, so the page stays a short list.
- */
+/** A collapsible group, closed at first, with one switch: on when every skill is, off when none is, dimmed when mixed. */
 function SkillGroup(props: { title: string; image?: string; skills: UserSkill[]; disabled: boolean; busy: string; action?: JSX.Element; onToggle: (skill: UserSkill) => void; onToggleAll: (on: boolean) => void }) {
   const [open, setOpen] = createSignal(false)
   const on = () => props.skills.filter((skill) => skill.enabled).length

@@ -28,8 +28,7 @@ pub struct EngineSettings {
     pub registry_sources: Option<Vec<RegistrySource>>,
 }
 
-/// A registry the user added: a JSON document at an https URL, in the plugin registry's format or
-/// the MCP registry's.
+/// A registry the user added: a JSON document over https, in the plugin or the MCP registry's format.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RegistrySource {

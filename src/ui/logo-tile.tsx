@@ -14,10 +14,7 @@ export function forgetMcpLogo(name: string) {
   setMcpLogos(rest)
 }
 
-/**
- * The picture a plugin or server shows: its image, or its initial on a tile when it has none or
- * the image does not load. One component, so both pages' cards and rows look the same.
- */
+/** A plugin's or server's picture, or its initial on a tile when it has none or it fails to load; cards and rows share it. */
 export function LogoTile(props: { image?: string; title: string; large?: boolean }) {
   const [failed, setFailed] = createSignal(false)
   const size = () => (props.large ? "size-12 text-lg" : "size-9 text-sm")

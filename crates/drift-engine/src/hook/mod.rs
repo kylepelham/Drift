@@ -1,5 +1,4 @@
-//! The engine's plugin seam: moments a plugin may observe or answer. `Hook` is runtime-neutral;
-//! `wasm` runs WebAssembly components against it.
+//! The engine's plugin seam: moments a plugin may observe or answer; `wasm` runs components against `Hook`.
 
 use std::sync::{Arc, RwLock};
 
@@ -262,8 +261,7 @@ impl Hooks {
         *self.loaded.write().unwrap() = loaded;
     }
 
-    /// Loads the listed plugins (drift.json entries with their resolved paths), replacing the set
-    /// loaded before. One that fails stays in the report with its error; one in `disabled` is listed and left alone.
+    /// Replaces the loaded plugins; a failed one is reported with its error, a `disabled` one listed and left alone.
     pub async fn load(&self, cache_dir: &std::path::Path, entries: Vec<Listed>, disabled: &[String], engine: std::sync::Weak<crate::Engine>) -> Vec<PluginInfo> {
         let mut hooks: Vec<Arc<dyn Hook>> = Vec::new();
         let mut loaded = Vec::new();

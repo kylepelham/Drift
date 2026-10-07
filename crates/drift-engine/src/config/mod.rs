@@ -54,8 +54,7 @@ pub struct File {
     pub providers: BTreeMap<String, ProviderConfig>,
     /// More folders to find skills in (`SKILL.md` at any depth), relative to the file's directory or starting `~/`.
     pub skill_paths: Vec<String>,
-    /// WebAssembly plugins (`.wasm` components under this directory), each a path or a path with
-    /// its config, from the user's own file only: opening a project must never run code it ships.
+    /// WebAssembly plugins under this directory, each a path or a path with config; read from the user's own file only.
     pub plugins: Vec<crate::hook::PluginEntry>,
 }
 

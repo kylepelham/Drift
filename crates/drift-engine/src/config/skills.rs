@@ -1,5 +1,4 @@
-//! Skill packs: Markdown skills from another repository, installed by extracting a tarball of a
-//! pinned ref under the user's skills folder, where the engine already finds them.
+//! Skill packs, unpacked from a pinned tarball under the user's skills folder, and the per-skill switch.
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -101,8 +100,7 @@ pub async fn install(http: &reqwest::Client, pack: InstallPack) -> Result<Pack, 
     Ok(installed)
 }
 
-/// Writes the archive's regular files under `into`, the top-level folder stripped, keeping only
-/// `subdirs` when given and, within them, only the skill folders in `wanted` when given.
+/// Writes the archive's files under `into` without its top folder, keeping only `subdirs` and `wanted` skills when given.
 fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, String> {
     if into.exists() {
         std::fs::remove_dir_all(into).map_err(|error| format!("could not replace {}: {error}", into.display()))?;
@@ -142,8 +140,7 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
     Ok(skills)
 }
 
-/// The path to write an entry at: its archive path without the top-level folder, only when it is
-/// under one of `subdirs` (or any when none), and never climbing out.
+/// Where an archive entry lands: its path without the top folder, inside `subdirs` when given, never climbing out.
 fn inner_path(path: &Path, subdirs: &[String]) -> Option<PathBuf> {
     let mut parts = path.components();
     parts.next()?;
@@ -170,8 +167,7 @@ pub fn list() -> Vec<Pack> {
     packs
 }
 
-/// The folders skills are read from: the workspace's (and its parents' to the repository root) when
-/// one is given, then the user's own. The same walk the engine makes when it offers skills.
+/// The folders skills are read from, as the engine walks them: the workspace's up to its repository root, then the user's.
 fn skill_dirs(workspace: Option<&Path>) -> Vec<(PathBuf, bool)> {
     let home = super::home();
     let user: Vec<PathBuf> = home.iter().flat_map(|home| super::HOME_SKILL_DIRS.map(|skills| home.join(skills))).collect();

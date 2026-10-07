@@ -1,7 +1,6 @@
 package drift:plugin@0.2.0;
 
-/// What Drift tells a plugin and what it may answer. JSON travels as strings:
-/// a tool's input is whatever shape the tool takes.
+/// What Drift tells a plugin and what it may answer; JSON travels as strings.
 interface types {
     record tool-call {
         session-id: string,

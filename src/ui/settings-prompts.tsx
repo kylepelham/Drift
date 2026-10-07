@@ -51,11 +51,7 @@ const stepPresets = ["10", "25", "50", "100", "200", "500"]
 const pickerWidth = "13rem"
 const editorClass = "w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
 
-/**
- * Every prompt Drift sends, in one place: the base prompt each model family starts from, and each
- * agent's own prompt and settings. Edits are kept per item until saved, so moving between items
- * never loses or blocks one.
- */
+/** Every prompt Drift sends, base prompts and agents, beside one editor; edits are kept per item until saved. */
 export function PromptsSection() {
   const engine = useEngine()
   const [base, setBase] = createSignal<BasePrompts | null>(null)
@@ -447,10 +443,7 @@ function AgentEditor(props: {
   )
 }
 
-/**
- * One row per built-in tool, two to a line. Names the list holds but the engine does not offer here
- * keep a row of their own so they can still be switched off.
- */
+/** One row per built-in tool, two to a line; a listed name the engine does not offer here keeps a row so it can be switched off. */
 function ToolRows(props: { names: ToolName[]; chosen: string[]; onChange: (tools: string[]) => void }) {
   const builtIn = createMemo(() => {
     const known = new Set(props.names.map((tool) => tool.name))
@@ -526,10 +519,7 @@ function Actions(props: { saving: boolean; dirty: boolean; resettable: boolean; 
   )
 }
 
-/**
- * The reasoning levels to offer: the pinned model's, or with none pinned every level a connected
- * model has, since the agent runs on whichever the conversation uses. A saved level is always kept.
- */
+/** The pinned model's reasoning levels, or every connected model's when none is pinned; a saved level is always kept. */
 export function reasoningLevels(state: Pick<EngineState, "providers" | "connected">, model: string, current: string) {
   const [providerID, ...rest] = model.split("/")
   const pinned = model ? modelInfo(state as EngineState, { providerID: providerID!, modelID: rest.join("/") }) : undefined
@@ -583,11 +573,7 @@ export function draftOf(config: Record<string, unknown>): AgentDraft {
   }
 }
 
-/**
- * The config a draft stands for, or why it cannot be saved. An emptied model or reasoning level that
- * was set is kept as "": for a model that inherits the conversation's, for a level it clears the
- * default. "All tools" over a narrowed agent is `*`, since an empty list cannot be stored.
- */
+/** The config a draft stands for, or why it cannot be saved; a cleared model or level that was set saves as "", all tools as `*`. */
 export function configOf(draft: AgentDraft, baseline: Record<string, unknown>): Record<string, unknown> | string {
   const config: Record<string, unknown> = { prompt: draft.prompt }
   if (draft.model || baseline.model !== undefined) config.model = draft.model
