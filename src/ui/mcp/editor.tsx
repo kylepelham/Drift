@@ -110,8 +110,8 @@ export function McpEditor(props: {
                 pairs={form().headers}
                 onChange={(headers) => setForm((value) => ({ ...value, headers }))}
               />
-              <details class="group rounded-md border border-edge/70 px-3 py-2" open={!!form().clientId}>
-                <summary class="cursor-pointer text-[0.78rem] font-medium text-ink">{t("drift.mcp.form.app")}</summary>
+              <div class="rounded-md border border-edge/70 px-3 py-2">
+                <div class="text-[0.78rem] font-medium text-ink">{t("drift.mcp.form.app")}</div>
                 <div class="mt-2 space-y-3">
                   <div class="text-[0.7rem] text-ink-faint">{t("drift.mcp.form.appHint")}</div>
                   <Field label={t("drift.mcp.form.clientId")}>
@@ -142,7 +142,7 @@ export function McpEditor(props: {
                     />
                   </Field>
                 </div>
-              </details>
+              </div>
             </Show>
             <Field label={t("drift.mcp.form.timeout")}>
               <TextInput

@@ -298,8 +298,8 @@ function PasswordSignIn() {
 
 function Certificate() {
   return (
-    <details class="group rounded-lg border border-edge/80 px-3 py-2 text-xs">
-      <summary class="cursor-pointer text-ink-muted select-none hover:text-ink">{t("drift.remote.certificate.title")}</summary>
+    <div class="rounded-lg border border-edge/80 px-3 py-2 text-xs">
+      <div class="text-ink-muted">{t("drift.remote.certificate.title")}</div>
       <div class="mt-2 space-y-2 leading-relaxed text-ink-faint">
         <p>{t("drift.remote.certificate.description")}</p>
         <div>
@@ -307,6 +307,6 @@ function Certificate() {
           <div class="mt-1 font-mono text-[0.68rem] break-all text-ink-muted select-all">{remoteAccessStatus()?.certificateFingerprint}</div>
         </div>
       </div>
-    </details>
+    </div>
   )
 }

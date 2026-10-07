@@ -23,8 +23,8 @@
   button { margin-top: 0.9rem; width: 100%; padding: 0.65rem; border-radius: 0.5rem; border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
   button:disabled { opacity: 0.5; cursor: default; }
   a { color: var(--accent); }
-  details { margin-top: 0.6rem; color: var(--muted); font-size: 0.85rem; }
-  summary { cursor: pointer; color: var(--ink); }
+  .steps { margin-top: 0.6rem; color: var(--muted); font-size: 0.85rem; }
+  .steps h3 { margin: 0; font-size: 0.85rem; font-weight: 600; color: var(--ink); }
   .status { font-size: 0.85rem; min-height: 1.3em; }
   .error { color: var(--danger); }
   .ok { color: var(--ok); }
@@ -61,13 +61,13 @@
     <h2 id="security-title">Connection security</h2>
     <p>The connection is encrypted with a certificate made by your computer. Browsers do not know that certificate, so they warn the first time you connect.</p>
     <p><a href="/auth/certificate" download>Download the certificate</a> and install it on this device to stop the warning.</p>
-    <details>
-      <summary>How to install it</summary>
+    <div class="steps">
+      <h3>How to install it</h3>
       <p><strong>Android:</strong> Settings &gt; Security &gt; Encryption &amp; credentials &gt; Install a certificate &gt; CA certificate, then choose the downloaded file.</p>
       <p><strong>iPhone and iPad:</strong> open the downloaded profile in Settings &gt; Profile Downloaded and install it. Then turn it on in Settings &gt; General &gt; About &gt; Certificate Trust Settings.</p>
       <p><strong>Windows, macOS, Linux:</strong> import it as a trusted root certificate authority.</p>
       <p>Before installing, check that its SHA-256 fingerprint matches the one in Drift under Settings &gt; Remote Access &gt; Stop the certificate warning. The certificate can only vouch for private network addresses.</p>
-    </details>
+    </div>
   </section>
 </main>
 <script>

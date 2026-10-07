@@ -162,7 +162,7 @@ const sectionLabels: Record<Section, string> = {
   Providers: "settings.providers.title",
   Usage: "drift.usage.title",
   MCP: "dialog.mcp.title",
-  Prompts: "drift.settings.promptsAgents",
+  Prompts: "drift.settings.prompts",
   Permissions: "drift.settings.permissions",
   Storage: "drift.storage",
   "Remote Access": "drift.remote.title",
@@ -271,7 +271,6 @@ const settingsSearchDefinitions = {
   Prompts: [
     { title: "drift.settings.prompts.group.base", description: "drift.settings.prompts.familyDescription" },
     { title: "drift.settings.prompts.systemPrompt", description: "drift.settings.prompts.allDescription" },
-    { title: "drift.settings.prompts.sharedRules", description: "drift.settings.prompts.sharedDescription" },
     { title: "settings.agents.title", description: "drift.settings.prompts.agentsDescription" },
     { title: "drift.settings.prompts.group.subagents" },
     { title: "command.category.model" },

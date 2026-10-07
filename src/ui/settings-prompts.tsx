@@ -134,9 +134,9 @@ export function PromptsSection() {
   const selectedAgent = () => (selected().startsWith("agent:") ? agent(selected().slice(6)) : undefined)
 
   return (
-    <div class="flex min-h-[28rem] flex-col gap-4 sm:flex-row">
-      <nav class="flex max-h-48 shrink-0 flex-col gap-3 overflow-y-auto sm:max-h-none sm:w-40" aria-label={t("drift.settings.promptsAgents")}>
-        <ListGroup title={t("drift.settings.prompts.group.base")}>
+    <div class="flex h-full min-h-[26rem] flex-col gap-4 sm:flex-row">
+      <nav class="flex max-h-48 shrink-0 flex-col overflow-y-auto sm:max-h-none sm:w-36" aria-label={t("drift.settings.prompts")}>
+        <ListGroup title={t("drift.settings.prompts.group.base")} first>
           <For each={base()?.prompts ?? []}>
             {(prompt) => (
               <ListItem
@@ -168,20 +168,18 @@ export function PromptsSection() {
           )}
         </For>
       </nav>
-      <div class="min-w-0 flex-1">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col">
         <Show when={selectedBase()}>
           {(id) => (
             <BaseEditor
               id={id()}
-              shared={base()?.shared ?? ""}
               draft={baseDraft(id())}
               customized={basePrompt(id())?.custom !== undefined}
               dirty={baseDirty(id())}
               loaded={!!base()}
-              saving={saving()}
+              status={<Status error={error()} saved={saved()} />}
+              actions={<Actions saving={saving()} dirty={baseDirty(id()) && !!baseDraft(id()).trim()} resettable={basePrompt(id())?.custom !== undefined || baseDirty(id())} onSave={() => saveBase(id())} onReset={() => resetBase(id())} />}
               onInput={(value) => setBaseDrafts(id(), value)}
-              onSave={() => saveBase(id())}
-              onReset={() => resetBase(id())}
             />
           )}
         </Show>
@@ -192,29 +190,22 @@ export function PromptsSection() {
               draft={agentDraft(item().name)}
               baseline={agentBaseline(item().name)}
               customized={!!override(item().name)}
-              dirty={agentDirty(item().name)}
-              saving={saving()}
+              status={<Status error={error()} saved={saved()} />}
+              actions={<Actions saving={saving()} dirty={agentDirty(item().name)} resettable={!!override(item().name) || agentDirty(item().name)} onSave={() => saveAgent(item().name)} onReset={() => resetAgent(item().name)} />}
               onChange={(field, value) => setAgentDrafts(item().name, { ...agentDraft(item().name), [field]: value })}
-              onSave={() => saveAgent(item().name)}
-              onReset={() => resetAgent(item().name)}
             />
           )}
-        </Show>
-        <Show when={error()}>
-          <div role="alert" class="mt-3 text-xs text-danger">{error()}</div>
-        </Show>
-        <Show when={saved()}>
-          <div role="status" class="mt-3 text-xs text-ok">{t("drift.settings.prompts.saved")}</div>
         </Show>
       </div>
     </div>
   )
 }
 
-function ListGroup(props: { title: string; children: JSX.Element }) {
+/** A section of the list, ruled off from the one above so each reads as its own. */
+function ListGroup(props: { title: string; first?: boolean; children: JSX.Element }) {
   return (
-    <div>
-      <div class="mb-1 px-2 text-[0.65rem] font-semibold tracking-wide text-ink-faint uppercase">{props.title}</div>
+    <div classList={{ "mt-3 border-t border-edge pt-3": !props.first }}>
+      <div class="mb-1.5 px-2 text-[0.68rem] font-semibold tracking-wider text-ink-muted uppercase">{props.title}</div>
       <div class="space-y-0.5">{props.children}</div>
     </div>
   )
@@ -224,7 +215,7 @@ function ListItem(props: { label: string; active: boolean; customized: boolean; 
   return (
     <button
       type="button"
-      class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[0.8rem] transition-colors"
+      class="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[0.8rem] outline-none transition-colors focus-visible:bg-raised/60"
       classList={{ "bg-raised text-ink": props.active, "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active }}
       aria-current={props.active ? "true" : undefined}
       onClick={props.onSelect}
@@ -243,44 +234,60 @@ function ListItem(props: { label: string; active: boolean; customized: boolean; 
   )
 }
 
-function EditorHeader(props: { title: string; description?: string; customized: boolean }) {
+/** The item's name and what it is on the left, Save and Reset on the right, so the editor below gets the height. */
+function EditorHeader(props: { title: string; description?: string; customized: boolean; actions: JSX.Element }) {
   return (
-    <div class="mb-3">
-      <div class="flex items-center gap-2">
-        <span class="text-sm font-semibold text-ink">{props.title}</span>
-        <Show when={props.customized}>
-          <span class="rounded bg-accent/15 px-1.5 py-0.5 text-[0.65rem] text-accent">{t("drift.settings.prompts.customized")}</span>
+    <div class="mb-2.5 flex items-start gap-3">
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-2">
+          <span class="truncate text-sm font-semibold text-ink">{props.title}</span>
+          <Show when={props.customized}>
+            <span class="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[0.65rem] text-accent">{t("drift.settings.prompts.customized")}</span>
+          </Show>
+        </div>
+        <Show when={props.description}>
+          <div class="mt-0.5 line-clamp-2 text-xs leading-relaxed text-ink-faint">{props.description}</div>
         </Show>
       </div>
-      <Show when={props.description}>
-        <div class="mt-0.5 text-xs leading-relaxed text-ink-faint">{props.description}</div>
-      </Show>
+      {props.actions}
     </div>
+  )
+}
+
+function Status(props: { error: string; saved: boolean }) {
+  return (
+    <>
+      <Show when={props.error}>
+        <div role="alert" class="mt-2 text-xs text-danger">{props.error}</div>
+      </Show>
+      <Show when={props.saved}>
+        <div role="status" class="mt-2 text-xs text-ok">{t("drift.settings.prompts.saved")}</div>
+      </Show>
+    </>
   )
 }
 
 function BaseEditor(props: {
   id: string
-  shared: string
   draft: string
   customized: boolean
   dirty: boolean
   loaded: boolean
-  saving: boolean
+  status: JSX.Element
+  actions: JSX.Element
   onInput: (value: string) => void
-  onSave: () => void
-  onReset: () => void
 }) {
   return (
-    <div>
+    <div class="flex min-h-0 flex-1 flex-col">
       <EditorHeader
         title={t(familyLabels[props.id] ?? props.id)}
         description={t(props.id === "all" ? "drift.settings.prompts.allDescription" : "drift.settings.prompts.familyDescription")}
         customized={props.customized}
+        actions={props.actions}
       />
       <textarea
         aria-label={t("drift.settings.prompts.systemPrompt")}
-        class={`${editorClass} h-80`}
+        class={`${editorClass} min-h-48 flex-1 resize-none`}
         classList={{ "text-ink": props.customized || props.dirty, "text-ink-faint": !props.customized && !props.dirty }}
         spellcheck={false}
         placeholder={props.id === "all" ? t("drift.settings.prompts.allPlaceholder") : undefined}
@@ -288,12 +295,7 @@ function BaseEditor(props: {
         disabled={!props.loaded}
         onInput={(event) => props.onInput(event.currentTarget.value)}
       />
-      <details class="mt-2 text-xs text-ink-faint">
-        <summary class="cursor-pointer select-none">{t("drift.settings.prompts.sharedRules")}</summary>
-        <p class="mt-2">{t("drift.settings.prompts.sharedDescription")}</p>
-        <pre class="mt-2 max-h-48 overflow-auto rounded-lg bg-bg/40 p-3 font-mono text-[0.68rem] leading-relaxed whitespace-pre-wrap">{props.shared}</pre>
-      </details>
-      <Actions saving={props.saving} dirty={props.dirty && !!props.draft.trim()} resettable={props.customized || props.dirty} onSave={props.onSave} onReset={props.onReset} />
+      {props.status}
     </div>
   )
 }
@@ -303,11 +305,9 @@ function AgentEditor(props: {
   draft: AgentDraft
   baseline: AgentDraft
   customized: boolean
-  dirty: boolean
-  saving: boolean
+  status: JSX.Element
+  actions: JSX.Element
   onChange: (field: keyof AgentDraft, value: string) => void
-  onSave: () => void
-  onReset: () => void
 }) {
   const engine = useEngine()
   const capability = () => agentModelCapability(props.agent)
@@ -319,68 +319,65 @@ function AgentEditor(props: {
         : t("drift.settings.agents.currentModel")
   const models = createMemo(() => [{ id: "", label: inherited() }, ...agentModelOptions(engine.state, capability() ?? "tools")])
   const changed = (field: keyof AgentDraft) => props.draft[field] !== props.baseline[field]
+  // Background jobs only answer in text, so they have no reasoning level, steps, tools or permissions.
+  const runsTools = () => capability() !== "text"
   return (
-    <div>
-      <EditorHeader title={props.agent.name} description={props.agent.description} customized={props.customized} />
+    <div class="flex min-h-0 flex-1 flex-col">
+      <EditorHeader title={props.agent.name} description={props.agent.description} customized={props.customized} actions={props.actions} />
       <Show when={props.agent.problem}>
-        <div role="alert" class="mb-3 rounded-md border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-xs text-danger">{props.agent.problem}</div>
+        <div role="alert" class="mb-2.5 rounded-md border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-xs text-danger">{props.agent.problem}</div>
       </Show>
-      <div class="space-y-3">
+      <div class="mb-2.5 flex flex-wrap gap-3">
         <Show when={capability()}>
-          <Field label={t("command.category.model")}>
+          <Field label={t("command.category.model")} class="min-w-48 flex-[2]">
             <Picker
               label={t("command.category.model")}
               items={models()}
               selected={props.draft.model}
               fallbackLabel={props.draft.model || inherited()}
-              floating bordered chevronAtEnd placement="below" width="14rem"
+              floating bordered chevronAtEnd placement="below" width="100%"
               onPick={(value) => props.onChange("model", value)}
             />
           </Field>
         </Show>
-        <Show when={capability() !== "text"}>
-          <div class="grid grid-cols-2 gap-3">
-            <Field label={t("drift.settings.prompts.variant")}>
-              <input class={inputClass} value={props.draft.variant} placeholder={t("drift.settings.prompts.variantPlaceholder")} onInput={(event) => props.onChange("variant", event.currentTarget.value)} />
-            </Field>
-            <Field label={t("drift.settings.prompts.steps")}>
-              <input class={inputClass} inputMode="numeric" value={props.draft.steps} placeholder={t("drift.settings.prompts.stepsPlaceholder")} onInput={(event) => props.onChange("steps", event.currentTarget.value)} />
-            </Field>
-          </div>
-        </Show>
-        <Field label={t("drift.settings.prompts.agentPrompt")}>
-          <textarea
-            class={`${editorClass} h-56`}
-            classList={{ "text-ink": props.customized || changed("prompt"), "text-ink-faint": !props.customized && !changed("prompt") }}
-            spellcheck={false}
-            placeholder={t("drift.settings.prompts.inheritsFamily")}
-            value={props.draft.prompt}
-            onInput={(event) => props.onChange("prompt", event.currentTarget.value)}
-          />
-        </Field>
-        <Show when={capability() !== "text"}>
-          <details class="text-xs text-ink-faint" open={props.draft.advanced !== "{}"}>
-            <summary class="cursor-pointer select-none">{t("drift.settings.prompts.advanced")}</summary>
-            <textarea
-              aria-label={t("drift.settings.prompts.advanced")}
-              class={`${editorClass} mt-2 h-32 text-ink`}
-              spellcheck={false}
-              value={props.draft.advanced}
-              onInput={(event) => props.onChange("advanced", event.currentTarget.value)}
-            />
-            <p class="mt-1">{t("drift.settings.prompts.advancedFields")}</p>
-          </details>
+        <Show when={runsTools()}>
+          <Field label={t("drift.settings.prompts.variant")} class="min-w-28 flex-1">
+            <input class={inputClass} value={props.draft.variant} placeholder={t("drift.settings.prompts.variantPlaceholder")} onInput={(event) => props.onChange("variant", event.currentTarget.value)} />
+          </Field>
+          <Field label={t("drift.settings.prompts.steps")} class="min-w-28 flex-1">
+            <input class={inputClass} inputMode="numeric" value={props.draft.steps} placeholder={t("drift.settings.prompts.stepsPlaceholder")} onInput={(event) => props.onChange("steps", event.currentTarget.value)} />
+          </Field>
         </Show>
       </div>
-      <Actions saving={props.saving} dirty={props.dirty} resettable={props.customized || props.dirty} onSave={props.onSave} onReset={props.onReset} />
+      <Field label={t("drift.settings.prompts.agentPrompt")} class="flex min-h-0 flex-1 flex-col">
+        <textarea
+          class={`${editorClass} min-h-40 flex-1 resize-none`}
+          classList={{ "text-ink": props.customized || changed("prompt"), "text-ink-faint": !props.customized && !changed("prompt") }}
+          spellcheck={false}
+          placeholder={t("drift.settings.prompts.inheritsFamily")}
+          value={props.draft.prompt}
+          onInput={(event) => props.onChange("prompt", event.currentTarget.value)}
+        />
+      </Field>
+      <Show when={runsTools()}>
+        <Field label={t("drift.settings.prompts.advanced")} class="mt-2.5" hint={t("drift.settings.prompts.advancedFields")}>
+          <textarea
+            class={`${editorClass} h-20 resize-y text-ink`}
+            spellcheck={false}
+            value={props.draft.advanced}
+            onInput={(event) => props.onChange("advanced", event.currentTarget.value)}
+          />
+        </Field>
+      </Show>
+      {props.status}
     </div>
   )
 }
 
-function Field(props: { label: string; children: JSX.Element }) {
+function Field(props: { label: string; hint?: string; class?: string; children: JSX.Element }) {
   return (
-    <label class="block text-xs text-ink-faint">
-      <span class="mb-1 block">{props.label}</span>
+    <label class={`block text-xs text-ink-faint ${props.class ?? ""}`}>
+      <span class="mb-1 block" title={props.hint}>{props.label}</span>
       {props.children}
     </label>
   )
@@ -388,7 +385,7 @@ function Field(props: { label: string; children: JSX.Element }) {
 
 function Actions(props: { saving: boolean; dirty: boolean; resettable: boolean; onSave: () => void; onReset: () => void }) {
   return (
-    <div class="mt-3 flex justify-end gap-2">
+    <div class="flex shrink-0 gap-2">
       <Show when={props.resettable}>
         <button
           class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"

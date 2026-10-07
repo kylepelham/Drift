@@ -57,7 +57,7 @@ test("selected language dictionaries translate settings without loading every lo
   expect(t("settings.general.row.language.title")).toBe("Idioma")
   expect(t("common.reset")).toBe("Restablecer")
   expect(t("drift.remote.title")).toBe("Remote Access")
-  expect(t("drift.settings.promptsAgents")).toBe("Prompts y agentes")
+  expect(t("drift.settings.prompts")).toBe("Prompts")
   expect(t("drift.slash.spawn.required")).toBe("Say what the new thread should do after /spawn.")
   expect(t("drift.attachment.kind.pdf")).toBe("PDF")
   expect(reasoningLevelLabel("xhigh")).toBe("Muy alto")

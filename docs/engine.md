@@ -16,7 +16,7 @@ uses it.
 - `crates/drift-engined` is the same engine headless: `bun run dev` runs it for the browser
   dev loop, the conformance tests drive it, and it can serve a remote host
   (`drift-engined [--data-dir DIR] [--port N]`, data in `~/.local/share/drift` by default).
-- Settings the shell keeps (agent overrides from Settings > Prompts and agents, the shell time limit) are
+- Settings the shell keeps (agent overrides from Settings > Prompts, the shell time limit) are
   handed to the engine at startup and on every change; everything else the engine owns.
 
 ## Data
