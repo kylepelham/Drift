@@ -34,7 +34,9 @@ export type RegistryRemote = {
 }
 /** How a catalog shows a server: what GitHub's registry knows of its repository, or what the entry itself says. */
 export type RegistryListing = {
-  source: "github" | "official"
+  source: "github" | "official" | "custom"
+  /** For a custom source, the name the user gave it. */
+  sourceName?: string
   publisher?: string
   image?: string
   stars?: number

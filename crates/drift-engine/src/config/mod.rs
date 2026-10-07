@@ -3,6 +3,7 @@
 mod arguments;
 mod frontmatter;
 pub mod jsonc;
+pub mod plugins;
 mod overrides;
 
 pub use overrides::{AgentOverride, ModelPin};

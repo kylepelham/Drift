@@ -177,6 +177,27 @@ impl Engine {
         self.hooks.load(&self.data_dir.join("plugin-cache"), config::user_plugins(), &disabled, self.me.clone()).await
     }
 
+    /// Fetches a registry plugin, checks its hash, lists it in drift.json with its config, and reloads.
+    pub async fn install_plugin(&self, install: config::plugins::Install) -> Result<Vec<hook::PluginInfo>, String> {
+        let path = config::plugins::fetch_component(&self.http, &install).await?;
+        let dir = config::plugins::config_dir()?;
+        config::plugins::edit_plugins(&dir, |plugins| config::plugins::set_entry(plugins, &path, install.config))?;
+        Ok(self.reload_plugins().await)
+    }
+
+    /// Removes a plugin's drift.json entry and its component, and reloads.
+    pub async fn remove_plugin(&self, path: &str) -> Result<Vec<hook::PluginInfo>, String> {
+        config::plugins::remove(&config::plugins::config_dir()?, path)?;
+        Ok(self.reload_plugins().await)
+    }
+
+    /// Replaces a plugin's config in drift.json and reloads, so it reads the new values.
+    pub async fn configure_plugin(&self, path: &str, config: serde_json::Value) -> Result<Vec<hook::PluginInfo>, String> {
+        let dir = config::plugins::config_dir()?;
+        config::plugins::edit_plugins(&dir, |plugins| config::plugins::set_entry(plugins, path, config))?;
+        Ok(self.reload_plugins().await)
+    }
+
     /// Switches a plugin on or off by its drift.json entry and reloads.
     pub async fn set_plugin_enabled(&self, path: &str, enabled: bool) -> rusqlite::Result<Vec<hook::PluginInfo>> {
         let mut disabled: Vec<String> = self.store.setting(DISABLED_PLUGINS_KEY)?.unwrap_or_default();

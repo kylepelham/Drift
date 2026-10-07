@@ -1057,7 +1057,12 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   capabilities and error if any; `POST /plugins/reload` reads the file again; `PUT /plugins/enabled`
   switches one off or on (setting `disabledPlugins`, keyed by the drift.json entry), and an off
   plugin is listed but never instantiated. One instance per plugin for the engine's life, its calls
-  serialised.
+  serialised. `POST /plugins/install` (`config::plugins`) fetches a component over https on the
+  engine's client, refuses it unless its SHA-256 matches the registry's, writes it under the config
+  directory's `plugins/` and rewrites drift.json's `plugins` list (the file is parsed as JSONC and
+  written back as JSON); `DELETE /plugins` and `PUT /plugins/config` edit the same list. Registry
+  sources the user adds are the `registrySources` setting on `/settings`, https only; the UI reads
+  the registries itself.
 - Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`): refuses history
   rewrites, notes failed commands, runs the configured test command on `@guard test` and continues
   the turn with the failures; `hook::wasm::tests` builds and runs it.

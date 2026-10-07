@@ -125,6 +125,13 @@ impl files::Host for State {
     }
 
     async fn write(&mut self, path: String, content: String) -> Result<(), String> {
+        // A new folder is made for the file, once the path is known not to climb out of the workspace.
+        if Path::new(&path).components().any(|part| matches!(part, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir)) {
+            return Err(format!("{path} is outside the workspace"));
+        }
+        if let Some(parent) = self.workspace.join(&path).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
         let file = self.inside(&path)?;
         self.clocked(async { tokio::fs::write(&file, content).await.map_err(|error| format!("{path}: {error}")) }).await
     }

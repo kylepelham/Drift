@@ -270,6 +270,7 @@ const settingsSearchDefinitions = {
     { title: "drift.mcp.form.environment" },
     { title: "drift.mcp.form.url" },
     { title: "drift.mcp.form.headers" },
+    { title: "drift.registry.sources", description: "drift.registry.sources.mcpDescription" },
   ],
   Prompts: [
     { title: "drift.settings.prompts.group.base", description: "drift.settings.prompts.familyDescription" },
@@ -285,6 +286,8 @@ const settingsSearchDefinitions = {
   ],
   Plugins: [
     { title: "drift.settings.plugins", description: "drift.plugins.empty" },
+    { title: "drift.plugins.tab.registry", description: "drift.plugins.registrySource" },
+    { title: "drift.registry.sources", description: "drift.registry.sources.pluginsDescription" },
     { title: "drift.plugins.reload" },
   ],
   Permissions: [

@@ -230,6 +230,9 @@ pub struct PluginInfo {
     pub path: String,
     /// Off in Settings: listed, not loaded.
     pub enabled: bool,
+    /// Its config object from drift.json, so Settings can show and edit it.
+    #[serde(default)]
+    pub config: Value,
     /// The host interfaces it imports: `store`, `files`, `process`, `http`.
     #[serde(default)]
     pub capabilities: Vec<String>,
@@ -266,19 +269,19 @@ impl Hooks {
         let mut loaded = Vec::new();
         for Listed { entry, path, config } in entries {
             if disabled.contains(&entry) {
-                loaded.push(PluginInfo { name: plugin_name(&entry), path: entry, enabled: false, capabilities: vec![], error: None });
+                loaded.push(PluginInfo { name: plugin_name(&entry), path: entry, enabled: false, config, capabilities: vec![], error: None });
                 continue;
             }
             let outcome = match path {
-                Ok(path) => self.load_one(cache_dir, &path, &entry, config, engine.clone()).await,
+                Ok(path) => self.load_one(cache_dir, &path, &entry, config.clone(), engine.clone()).await,
                 Err(error) => Err(error),
             };
             match outcome {
                 Ok(plugin) => {
-                    loaded.push(PluginInfo { name: plugin.name, path: entry, enabled: true, capabilities: plugin.capabilities, error: None });
+                    loaded.push(PluginInfo { name: plugin.name, path: entry, enabled: true, config, capabilities: plugin.capabilities, error: None });
                     hooks.push(plugin.hook);
                 }
-                Err(error) => loaded.push(PluginInfo { name: plugin_name(&entry), path: entry, enabled: true, capabilities: vec![], error: Some(error) }),
+                Err(error) => loaded.push(PluginInfo { name: plugin_name(&entry), path: entry, enabled: true, config, capabilities: vec![], error: Some(error) }),
             }
         }
         self.set(hooks, loaded.clone());

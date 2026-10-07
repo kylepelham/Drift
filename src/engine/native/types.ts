@@ -214,6 +214,24 @@ export interface paths {
         get: operations["listPlugins"];
         put?: never;
         post?: never;
+        /** Removes a plugin: its drift.json entry and, for one under the plugins directory, its component. */
+        delete: operations["removePlugin"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces a plugin's config object in drift.json. */
+        put: operations["configurePlugin"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -231,6 +249,23 @@ export interface paths {
         /** Switches one plugin on or off; off, it stays listed and runs nothing. */
         put: operations["setPluginEnabled"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Installs a plugin from a registry: fetched over https, checked against the hash, listed in drift.json. */
+        post: operations["installPlugin"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1061,6 +1096,8 @@ export interface components {
             autoCompact?: boolean | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
+            /** @description Registries besides the built-in ones, for a team's own plugins and MCP servers. Left out of a PUT, they stay as they are. */
+            registrySources?: components["schemas"]["RegistrySource"][] | null;
         };
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
@@ -1228,6 +1265,15 @@ export interface components {
             directory?: string | null;
             /** @enum {string} */
             type: "workspace.open";
+        };
+        /** @description What a registry entry needs to be installed. */
+        Install: {
+            config?: unknown;
+            /** @description Becomes the file name: letters, digits, `-` and `_` only. */
+            id: string;
+            /** @description Hex SHA-256 of the component; the download must match it. */
+            sha256: string;
+            url: string;
         };
         Instruction: {
             name: string;
@@ -1482,6 +1528,10 @@ export interface components {
             sessionId: string;
             tool: string;
         };
+        PluginConfig: {
+            config: unknown;
+            path: string;
+        };
         PluginEnabled: {
             enabled: boolean;
             /** @description The plugin's entry in drift.json. */
@@ -1491,6 +1541,8 @@ export interface components {
         PluginInfo: {
             /** @description The host interfaces it imports: `store`, `files`, `process`, `http`. */
             capabilities?: string[];
+            /** @description Its config object from drift.json, so Settings can show and edit it. */
+            config?: unknown;
             /** @description Off in Settings: listed, not loaded. */
             enabled: boolean;
             error?: string | null;
@@ -1569,6 +1621,17 @@ export interface components {
         Receipt: {
             message: components["schemas"]["Message"];
             session: components["schemas"]["Session"];
+        };
+        /** @enum {string} */
+        RegistryKind: "plugins" | "mcp";
+        /**
+         * @description A registry the user added: a JSON document at an https URL, in the plugin registry's format or
+         *     the MCP registry's.
+         */
+        RegistrySource: {
+            kind: components["schemas"]["RegistryKind"];
+            name: string;
+            url: string;
         };
         RenameBody: {
             to: string;
@@ -2318,6 +2381,51 @@ export interface operations {
             };
         };
     };
+    removePlugin: {
+        parameters: {
+            query: {
+                /** @description The plugin's entry in drift.json. */
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    configurePlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginConfig"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
     setPluginEnabled: {
         parameters: {
             query?: never;
@@ -2328,6 +2436,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["PluginEnabled"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    installPlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Install"];
             };
         };
         responses: {

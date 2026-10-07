@@ -23,10 +23,37 @@ pub struct EngineSettings {
     /// Every session answers its own asks; only a deny rule still refuses. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_accept_all: Option<bool>,
+    /// Registries besides the built-in ones, for a team's own plugins and MCP servers. Left out of a PUT, they stay as they are.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_sources: Option<Vec<RegistrySource>>,
 }
 
+/// A registry the user added: a JSON document at an https URL, in the plugin registry's format or
+/// the MCP registry's.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RegistrySource {
+    pub name: String,
+    pub url: String,
+    pub kind: RegistryKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistryKind {
+    Plugins,
+    Mcp,
+}
+
+const REGISTRY_SOURCES_KEY: &str = "registrySources";
+
 fn current(engine: &Engine) -> EngineSettings {
-    EngineSettings { auto_compact: Some(engine.auto_compact()), background_tasks: Some(engine.background_enabled()), auto_accept_all: Some(engine.auto_accept_all()) }
+    EngineSettings {
+        auto_compact: Some(engine.auto_compact()),
+        background_tasks: Some(engine.background_enabled()),
+        auto_accept_all: Some(engine.auto_accept_all()),
+        registry_sources: Some(engine.store.setting(REGISTRY_SOURCES_KEY).ok().flatten().unwrap_or_default()),
+    }
 }
 
 #[utoipa::path(get, path = "/settings", operation_id = "getSettings", responses((status = 200, body = EngineSettings)))]
@@ -44,6 +71,12 @@ pub async fn put(State(engine): State<Arc<Engine>>, Json(body): Json<EngineSetti
     }
     if let Some(on) = body.auto_accept_all {
         engine.set_auto_accept_all(on)?;
+    }
+    if let Some(sources) = body.registry_sources {
+        if let Some(bad) = sources.iter().find(|source| !source.url.starts_with("https://") || source.name.trim().is_empty()) {
+            return Err(ApiError::new(axum::http::StatusCode::BAD_REQUEST, "source", format!("a registry source needs a name and an https URL: {}", bad.url)));
+        }
+        engine.store.set_setting(REGISTRY_SOURCES_KEY, &sources)?;
     }
     Ok(Json(current(&engine)))
 }
@@ -98,6 +131,38 @@ pub struct PluginEnabled {
     /// The plugin's entry in drift.json.
     pub path: String,
     pub enabled: bool,
+}
+
+/// Installs a plugin from a registry: fetched over https, checked against the hash, listed in drift.json.
+#[utoipa::path(post, path = "/plugins/install", operation_id = "installPlugin", request_body = crate::config::plugins::Install, responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
+pub async fn install_plugin(State(engine): State<Arc<Engine>>, Json(body): Json<crate::config::plugins::Install>) -> Result<Json<Vec<crate::hook::PluginInfo>>, ApiError> {
+    engine.install_plugin(body).await.map(Json).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error))
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginPath {
+    /// The plugin's entry in drift.json.
+    pub path: String,
+}
+
+/// Removes a plugin: its drift.json entry and, for one under the plugins directory, its component.
+#[utoipa::path(delete, path = "/plugins", operation_id = "removePlugin", params(PluginPath), responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
+pub async fn remove_plugin(State(engine): State<Arc<Engine>>, axum::extract::Query(query): axum::extract::Query<PluginPath>) -> Result<Json<Vec<crate::hook::PluginInfo>>, ApiError> {
+    engine.remove_plugin(&query.path).await.map(Json).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error))
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginConfig {
+    pub path: String,
+    pub config: serde_json::Value,
+}
+
+/// Replaces a plugin's config object in drift.json.
+#[utoipa::path(put, path = "/plugins/config", operation_id = "configurePlugin", request_body = PluginConfig, responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
+pub async fn configure_plugin(State(engine): State<Arc<Engine>>, Json(body): Json<PluginConfig>) -> Result<Json<Vec<crate::hook::PluginInfo>>, ApiError> {
+    engine.configure_plugin(&body.path, body.config).await.map(Json).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error))
 }
 
 /// Switches one plugin on or off; off, it stays listed and runs nothing.

@@ -10,8 +10,11 @@ import {
 } from "../../mcp-registry"
 import { openExternal } from "../../shell"
 import { t } from "../../state/i18n"
-import { createRegistrySearch, forgetRegistryCatalog } from "../../state/mcp-registry-search"
-import { IconArrowUp, IconArrowUpRight, IconCheck, IconKey, IconPlus, IconSearch } from "../icons"
+import { createRegistrySearch, forgetRegistryCatalog, loadCustomRegistry, registryScore } from "../../state/mcp-registry-search"
+import { loadRegistrySources, registrySources, sourcesOf } from "../../state/registry-sources"
+import { useEngine } from "../../engine"
+import { IconArrowUp, IconArrowUpRight, IconCheck, IconKey, IconPlus, IconSearch, IconSliders } from "../icons"
+import { RegistrySourcesSheet } from "../registry-sources"
 
 type Filter = "all" | "remote" | "local"
 type Entry = { server: RegistryServer; options: InstallOption[] }
@@ -34,8 +37,25 @@ export function McpRegistry(props: {
   const [error, setError] = createSignal("")
   const [shown, setShown] = createSignal(PAGE)
   const [selected, setSelected] = createSignal<Entry>()
+  const [sourcesOpen, setSourcesOpen] = createSignal(false)
+  const [own, setOwn] = createSignal<Entry[]>([])
+  const [ownFailures, setOwnFailures] = createSignal<string[]>([])
+  const engine = useEngine()
   const registry = createRegistrySearch()
   let disposed = false
+  /** The user's own registries, read whole; one that fails is named and the rest still show. */
+  const loadOwn = async () => {
+    await loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) }).catch(() => undefined)
+    const sources = sourcesOf("mcp")
+    const results = await Promise.allSettled(sources.map((source) => loadCustomRegistry(source)))
+    if (disposed) return
+    setOwn(entries(results.flatMap((result) => (result.status === "fulfilled" ? result.value : []))))
+    setOwnFailures(results.flatMap((result, index) => (result.status === "rejected" ? [sources[index]!.name] : [])))
+  }
+  const closeSources = () => {
+    setSourcesOpen(false)
+    void loadOwn()
+  }
   const entries = (servers: RegistryServer[]) =>
     servers.map((server) => ({ server, options: registryOptions(server) })).filter((entry) => entry.options.length)
   const search = async () => {
@@ -64,7 +84,10 @@ export function McpRegistry(props: {
     setMore(entries(result.servers))
     setSearchingOfficial(false)
   }
-  onMount(() => void search())
+  onMount(() => {
+    void search()
+    void loadOwn()
+  })
   let timer: number | undefined
   onCleanup(() => {
     disposed = true
@@ -81,11 +104,16 @@ export function McpRegistry(props: {
     if (filter() === "local") return entry.options.some((option) => option.kind !== "remote")
     return true
   }
+  const ownVisible = createMemo(() => {
+    const asked = query().trim()
+    return own().filter(matches).filter((entry) => !asked || registryScore(entry.server, asked) > 0)
+  })
   const visible = createMemo(() => popular().filter(matches))
   const extra = createMemo(() => more().filter(matches))
   const installed = (server: RegistryServer) => props.installed.has(registryInstallName(server))
 
   return (
+    <Show when={!sourcesOpen()} fallback={<RegistrySourcesSheet kind="mcp" onBack={closeSources} />}>
     <Show
       when={selected()}
       fallback={
@@ -116,8 +144,30 @@ export function McpRegistry(props: {
                 )}
               </For>
             </div>
+            <button
+              type="button"
+              title={t("drift.registry.sources")}
+              aria-label={t("drift.registry.sources")}
+              class="flex h-9 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted hover:border-edge-strong hover:text-ink"
+              onClick={() => setSourcesOpen(true)}
+            >
+              <IconSliders class="size-3.5" />
+              <Show when={sourcesOf("mcp").length}>{(count) => <span>{count()}</span>}</Show>
+            </button>
           </div>
           <div class="text-[0.7rem] text-ink-faint">{t("drift.mcp.registrySource")}</div>
+          <For each={ownFailures()}>
+            {(name) => <div role="alert" class="rounded-md border border-warn/35 bg-warn/10 px-3 py-2 text-xs text-warn">{t("drift.registry.sources.failed", { name, error: t("drift.plugins.registryLoadFailed") })}</div>}
+          </For>
+          <Show when={ownVisible().length}>
+            <div class="text-xs font-medium text-ink-muted">{t("drift.registry.sources.yours")}</div>
+            <div class="grid gap-2 sm:grid-cols-2">
+              <For each={ownVisible()}>{(entry) => <RegistryCard entry={entry} installed={installed(entry.server)} onOpen={() => setSelected(entry)} />}</For>
+            </div>
+            <Show when={registrySources().length}>
+              <div class="pt-1 text-xs font-medium text-ink-muted">{t("drift.mcp.registry")}</div>
+            </Show>
+          </Show>
           <Show when={error()}>
             <div role="alert" class="flex items-center gap-3 rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger">
               {error()}
@@ -176,6 +226,7 @@ export function McpRegistry(props: {
           }}
         />
       )}
+    </Show>
     </Show>
   )
 }
@@ -335,6 +386,7 @@ function Byline(props: { server: RegistryServer }) {
   const listing = () => props.server.listing
   return (
     <div class="flex items-center gap-1.5 truncate text-[0.7rem] text-ink-faint">
+      <Show when={listing()?.sourceName}>{(name) => <span class="shrink-0 rounded bg-warn/12 px-1 text-warn">{name()}</span>}</Show>
       <Show when={listing()?.publisher}>{(publisher) => <span class="truncate">{publisher()}</span>}</Show>
       <Show when={listing()?.stars}>
         {(stars) => (
