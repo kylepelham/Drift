@@ -81,11 +81,16 @@ jobs:
         if: steps.whisper.outputs.cache-hit != 'true'
         run: bun run build:whisper
 
+      # The plugin tests build the example plugin as a WebAssembly component.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip2
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: .
+          workspaces: |
+            .
+            plugins/guard
 
       # A fresh runner scans node.exe on its first launch; doing that here keeps it out of the MCP tests' start limit.
       - name: Warm node for the MCP and LSP fixtures

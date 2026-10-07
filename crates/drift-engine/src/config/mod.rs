@@ -52,6 +52,9 @@ pub struct File {
     pub providers: BTreeMap<String, ProviderConfig>,
     /// More folders to find skills in (`SKILL.md` at any depth), relative to the file's directory or starting `~/`.
     pub skill_paths: Vec<String>,
+    /// WebAssembly plugins (`.wasm` components under this directory), from the user's own file only:
+    /// opening a project must never run code it ships.
+    pub plugins: Vec<String>,
 }
 
 /// A provider the user adds (any OpenAI-compatible server) or re-points (a gateway, a remote LM Studio).
@@ -84,8 +87,33 @@ pub fn user_providers() -> BTreeMap<String, ProviderConfig> {
 }
 
 fn user_providers_in(home: &Path) -> BTreeMap<String, ProviderConfig> {
-    let Ok(text) = std::fs::read_to_string(home.join(".config/drift").join(FILE)) else { return BTreeMap::new() };
-    serde_json::from_str::<File>(&jsonc::strip(&text)).map(|file| file.providers).unwrap_or_default()
+    user_file(home).map(|file| file.providers).unwrap_or_default()
+}
+
+fn user_file(home: &Path) -> Option<File> {
+    let text = std::fs::read_to_string(home.join(".config/drift").join(FILE)).ok()?;
+    serde_json::from_str::<File>(&jsonc::strip(&text)).ok()
+}
+
+/// The plugins the user's own drift.json lists, as paths; an entry that leaves the directory or is not a `.wasm` is the error beside it.
+pub fn user_plugins() -> Vec<(String, Result<PathBuf, String>)> {
+    home().map(|home| user_plugins_in(&home)).unwrap_or_default()
+}
+
+fn user_plugins_in(home: &Path) -> Vec<(String, Result<PathBuf, String>)> {
+    let root = home.join(".config/drift");
+    user_file(home).map(|file| file.plugins).unwrap_or_default().into_iter().map(|entry| (entry.clone(), plugin_path(&root, &entry))).collect()
+}
+
+fn plugin_path(root: &Path, entry: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(entry);
+    if relative.components().any(|part| !matches!(part, std::path::Component::Normal(_))) {
+        return Err("a plugin path must be relative and stay under the config directory".into());
+    }
+    if relative.extension().is_none_or(|extension| !extension.eq_ignore_ascii_case("wasm")) {
+        return Err("a plugin is a .wasm component".into());
+    }
+    Ok(root.join(relative))
 }
 
 /// A route's time limits in seconds; either may be left out to keep the route's default.
@@ -891,6 +919,21 @@ mod tests {
         let path = root.join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, text).unwrap();
+    }
+
+    #[test]
+    fn plugins_come_from_the_users_file_and_stay_under_its_directory() {
+        let root = std::env::temp_dir().join(format!("drift-config-plugins-{}", crate::random_hex(4)));
+        let (home, ws) = (root.join("home"), root.join("ws"));
+        write(&home, ".config/drift/drift.json", r#"{ "plugins": ["plugins/guard.wasm", "../escape.wasm", "C:/abs.wasm", "plugins/script.js"] }"#);
+        write(&ws, "drift.json", r#"{ "plugins": ["theirs.wasm"] }"#);
+        let listed = user_plugins_in(&home);
+        assert_eq!(listed.len(), 4, "the project's file adds none");
+        assert_eq!(listed[0].1, Ok(home.join(".config/drift").join("plugins/guard.wasm")));
+        assert!(listed[1].1.as_ref().is_err_and(|error| error.contains("stay under")));
+        assert!(listed[2].1.is_err());
+        assert!(listed[3].1.as_ref().is_err_and(|error| error.contains(".wasm")));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

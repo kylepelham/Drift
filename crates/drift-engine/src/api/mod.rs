@@ -54,6 +54,8 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::unrevert))
         .routes(routes!(settings::get, settings::put))
         .routes(routes!(settings::tools))
+        .routes(routes!(settings::plugins))
+        .routes(routes!(settings::reload_plugins))
         .routes(routes!(prompts::list))
         .routes(routes!(prompts::save, prompts::reset))
         .routes(routes!(providers::list))

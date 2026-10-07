@@ -26,7 +26,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio, Ollama. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec; it signs in with Codex's own OAuth client and sends `originator: opencode`, the value OpenAI accepts from that integration, so Drift keeps it rather than risk an unrecognised originator being refused). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
-| Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the upstream hook points. Compiled Rust plugins through a Drift SDK come later and are not designed for now. |
+| Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the hook points; plugins are WebAssembly components run by wasmtime against the WIT in `crates/drift-engine/wit` (see "Plugins" below). |
 | Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `read_thread`. M3 adds parent-scoped `task_output` and `task_stop` for background workers. Branch creation is never a model tool. |
 | Dropped | `websearch`, the model-facing `lsp` tool (diagnostics after edits come from language servers instead; see Post-edit), `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
 | Edit | Exact match only, with line ending normalisation on both sides. A file keeps its CRLF line endings and its UTF-8 byte order mark through `edit`, `write` and `apply_patch` (`tool::text::TextFormat`); `read` shows the text without the mark, so a match never has to include it. On a miss, return the closest region so the model can re-read cheaply; the tool text and the miss both say read's `N: ` prefix is not in the file, and a miss caused by copied prefixes says exactly that (still no fuzzy apply). `apply_patch`, offered only to the GPT and Codex models whose catalog profile asks for it, finds hunks as Codex's own `seek_sequence` does, because those models write patches that rely on it: exactly, then ignoring trailing whitespace, then surrounding whitespace, then with typographic dashes, quotes and spaces read as ASCII; the first pass that matches wins, and a miss shows the closest region as `edit` does. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, updates, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff); every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation, and so does an update to a file that is not UTF-8 (a Windows-1252 page, say), which `edit` refuses too: decoding it loosely and writing it back would replace every such byte in the whole file. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the write fails with that reason and the file is left as it was. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
@@ -1005,12 +1005,40 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
 
 ### M5: hook seam
 
-- `Hook` trait finalised with serde types.
-- Prompt overrides implemented as an internal hook to prove the seam.
+- `Hook` trait finalised with serde types (`hook/mod.rs`), with the WebAssembly runtime as its
+  first implementation. See "Plugins" below.
 - Background task controls: a foreground task the user moves to the background keeps running under
   its owner's scope and delivers like any background task; `task_output` (or a sibling call) can add
   a follow-up to a background task still running, which it reads at its next step. Both keep the
   worker's ownership, Stop fencing and one-delivery rules.
+
+### Plugins
+
+A plugin is a WebAssembly component implementing the `plugin` world of
+`crates/drift-engine/wit/drift.wit`. The engine runs them with wasmtime (`hook/wasm.rs`), behind
+the default `wasm-plugins` feature; without it, listed plugins report that the build runs none.
+
+- Contract: `name()`, `before-tool(call) -> allow | deny(reason) | replace(json)`,
+  `after-tool(result) -> keep | replace(output) | note(text)`, and `session(session, kind)` for
+  created, running, idle, updated and deleted. Tool inputs travel as JSON strings. The one host
+  import is `log(level, message)`, which goes to the engine's stderr prefixed with the plugin's name.
+- Sandbox: WASI preview 2 with nothing opened: no files, no environment, no network; stderr is
+  inherited so a panicking plugin says so. A hook call gets five seconds (epoch interruption, a ticker
+  thread every 100 ms); past that it traps and the engine proceeds as if it answered allow or keep.
+  A trap or a non-JSON replacement is logged and ignored the same way.
+- Dispatch (`Hooks`): plugins run in the order listed; the first denial wins and a replaced input
+  feeds the next; after a tool, replacements chain and notes collect, appended with `tool::add_note`.
+  `run_call` asks before the permission asks and after the tool returns; a replaced input is checked
+  against the tool's schema again, and a read that started early while the reply streamed is dropped
+  if its input was rewritten. Session events come off the hub's own stream (`relay_session_events`),
+  so every site that publishes one is covered.
+- Loading: `plugins` in the user's own `~/.config/drift/drift.json`, paths relative to that
+  directory, `.wasm` only, never from a workspace. Compiled code is cached under
+  `<data>/plugin-cache` keyed by the file's hash and wasmtime's version, so a plugin compiles once.
+  Loaded at startup; `GET /plugins` reports each with its error if any; `POST /plugins/reload`
+  reads the file again. One instance per plugin for the engine's life, its calls serialised.
+- Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`), which refuses history
+  rewrites and notes failed commands; `hook::wasm::tests` builds and runs it.
 
 ### Trade-offs kept on purpose
 

@@ -5,14 +5,52 @@
 1. The engine: agents, commands and skills as Markdown files (`~/.config/drift/{agents,commands,skills}`
    for your own, `.drift/` in a project), `drift.json` settings (model, permission rules,
    providers, formatters, checks, language servers, instruction files, skill paths), MCP
-   servers (see [mcp.md](mcp.md)), and per-family base prompts in Settings > Prompts. The engine
-   runs no JavaScript and loads no plugins; its only plugin seam is an internal `Hook` trait,
-   planned for M5 in `CHECKLIST.md`. Plugins written for opencode are named in the import
-   summary and not run.
+   servers (see [mcp.md](mcp.md)), per-family base prompts in Settings > Prompts, and engine
+   plugins: WebAssembly components that see tool calls and session events (below). The engine runs
+   no JavaScript. Plugins written for opencode are named in the import summary and not run.
 2. The interface: UI and workflow hooks the engine cannot see, modeled on claude-code's hook
    taxonomy (see `examples/claude-code/entrypoints/sdk/coreTypes.ts` HOOK_EVENTS). The Drift
    plugin foundation is built; the remaining planned events are listed below.
-## Drift plugins
+## Engine plugins
+
+An engine plugin is a WebAssembly component, written in any language with a component toolchain
+(Rust, C, Go, C#, Python through `componentize-py`, JavaScript through `jco`), implementing the
+`plugin` world in `crates/drift-engine/wit/drift.wit`. List them in your own
+`~/.config/drift/drift.json`, as paths under that directory:
+
+```json
+{
+  "plugins": ["plugins/guard.wasm"]
+}
+```
+
+A project's `drift.json` cannot add plugins: cloning a repository never runs its code. Plugins load
+when the engine starts and again on `POST /plugins/reload`; `GET /plugins` lists each with its
+error if it did not load. Each compiles once; the compiled code is cached beside Drift's data.
+
+What a plugin sees and may answer:
+
+- `before-tool`: the session, workspace, agent, tool name and JSON input of a call about to run.
+  Answer `allow`, `deny(reason)` (the call does not run and the model reads the reason), or
+  `replace(json)` (the call runs with that input, which must still fit the tool).
+- `after-tool`: the same plus the output and whether the tool failed. Answer `keep`,
+  `replace(output)`, or `note(text)` (appended under the output as a note from Drift).
+- `session`: a session was created, started running, went idle, was updated (title, archive), or
+  deleted. Notification only.
+- `name()` names the plugin in refusals and the plugin list, and `log(level, message)` is the one
+  host function, writing to the engine's log.
+
+Plugins run in the order listed: the first refusal wins, a replaced input feeds the next plugin.
+They are sandboxed: no files, environment or network. A call that runs past five seconds, traps, or
+returns something unusable is logged and treated as `allow` or `keep`.
+
+`plugins/guard` is the example, in Rust with `wit-bindgen`: it refuses shell commands that
+rewrite history and notes failed commands. Build it with
+`cargo build --release --target wasm32-wasip2` in that directory (the target installs with
+`rustup target add wasm32-wasip2`); the component is
+`target/wasm32-wasip2/release/guard.wasm`.
+
+## Interface plugins
 
 Drift's platform config directory can list local JavaScript modules in `drift.json`:
 

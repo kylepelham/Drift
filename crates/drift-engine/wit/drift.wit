@@ -1,0 +1,71 @@
+package drift:plugin@0.1.0;
+
+/// What Drift tells a plugin and what it may answer. JSON travels as strings:
+/// a tool's input is whatever shape the tool takes.
+interface types {
+    record tool-call {
+        session-id: string,
+        workspace: string,
+        agent: string,
+        tool: string,
+        /// The tool's input as JSON.
+        input: string,
+    }
+
+    variant before-tool {
+        allow,
+        /// The call does not run; the model is told why.
+        deny(string),
+        /// The call runs with this JSON input instead.
+        replace(string),
+    }
+
+    record tool-result {
+        session-id: string,
+        workspace: string,
+        agent: string,
+        tool: string,
+        input: string,
+        /// What the model will read, up to the engine's bound.
+        output: string,
+        failed: bool,
+    }
+
+    variant after-tool {
+        keep,
+        /// The model reads this instead.
+        replace(string),
+        /// Appended to the output as a note from Drift.
+        note(string),
+    }
+
+    enum session-kind {
+        created,
+        running,
+        idle,
+        updated,
+        deleted,
+    }
+
+    record session {
+        id: string,
+        workspace: string,
+        title: string,
+        agent: string,
+    }
+}
+
+interface host {
+    enum level { info, warn, error }
+    log: func(level: level, message: string);
+}
+
+world plugin {
+    use types.{tool-call, before-tool, tool-result, after-tool, session, session-kind};
+    import host;
+
+    export name: func() -> string;
+    export before-tool: func(call: tool-call) -> before-tool;
+    export after-tool: func(outcome: tool-result) -> after-tool;
+    export session: func(session: session, kind: session-kind);
+}

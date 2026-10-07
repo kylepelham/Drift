@@ -186,6 +186,54 @@ async fn permission_denial_is_reported_to_the_model() {
     assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::ToolResult { is_error: true, content, .. } if content == "A permission rule forbids this call."), "a rule, not the user");
 }
 
+struct Rewriter;
+
+#[async_trait::async_trait]
+impl crate::hook::Hook for Rewriter {
+    fn name(&self) -> &str {
+        "rewriter"
+    }
+    async fn before_tool(&self, call: &crate::hook::ToolCall) -> crate::hook::BeforeTool {
+        match call.input["path"].as_str() {
+            Some("secret.txt") => crate::hook::BeforeTool::Deny("secret.txt is off limits".into()),
+            Some("b.txt") => crate::hook::BeforeTool::Replace(serde_json::json!({ "path": "a.txt" })),
+            Some("a.txt") => crate::hook::BeforeTool::Replace(serde_json::json!({ "nonsense": true })),
+            _ => crate::hook::BeforeTool::Allow,
+        }
+    }
+    async fn after_tool(&self, result: &crate::hook::ToolResult) -> crate::hook::AfterTool {
+        if result.output.contains("alpha") { crate::hook::AfterTool::Note("read by a plugin too".into()) } else { crate::hook::AfterTool::Keep }
+    }
+}
+
+#[tokio::test]
+async fn a_plugin_may_refuse_a_call_change_its_input_or_add_a_note_and_a_bad_rewrite_runs_nothing() {
+    let h = harness().await;
+    h.engine.hooks.set(vec![std::sync::Arc::new(Rewriter)], vec![]);
+    std::fs::write(h._dir.join("ws/a.txt"), "alpha
+").unwrap();
+    std::fs::write(h._dir.join("ws/secret.txt"), "hidden
+").unwrap();
+    h.provider
+        .push(tool_call("read", r#"{"path": "secret.txt"}"#))
+        .push(tool_call("read", r#"{"path": "b.txt"}"#))
+        .push(tool_call("read", r#"{"path": "a.txt"}"#))
+        .push(text("done"));
+    h.engine.submit(&h.session.id, prompt("read them")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else { panic!() };
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Error, Some("The rewriter plugin refused this call: secret.txt is off limits")));
+    let Part::ToolCall { status, output, input, .. } = &transcript[2].parts[0].part else { panic!() };
+    assert_eq!((*status, output.as_deref()), (ToolStatus::Done, Some("1: alpha
+
+read by a plugin too")));
+    assert_eq!(input["path"], "a.txt", "the stored call shows what ran");
+    let Part::ToolCall { status, output, .. } = &transcript[3].parts[0].part else { panic!() };
+    assert_eq!(*status, ToolStatus::Error);
+    assert!(output.as_deref().unwrap_or_default().starts_with("A plugin changed the call so it no longer fits the tool:"), "{output:?}");
+}
+
 /// Workspace edits, shell lines inside the workspace, fetches and MCP calls run without asking by default; tests of the asking itself say so.
 pub(crate) fn asks_for(h: &Harness, kind: &str) {
     h.engine.permissions.set_policy(Policy { rules: vec![Rule { kind: kind.into(), pattern: "*".into(), decision: Decision::Ask }] });

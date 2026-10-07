@@ -203,6 +203,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The plugins the user's drift.json lists, loaded or with why they are not. */
+        get: operations["listPlugins"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reads drift.json again and loads every plugin afresh, so an edited one runs without a restart. */
+        post: operations["reloadPlugins"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/prompts": {
         parameters: {
             query?: never;
@@ -1419,6 +1453,12 @@ export interface components {
             sessionId: string;
             tool: string;
         };
+        /** @description A loaded plugin as the API reports it; `error` set means it is not running. */
+        PluginInfo: {
+            error?: string | null;
+            name: string;
+            path: string;
+        };
         Prompt: {
             /** @description The agent the session runs as from this prompt on; absent keeps the session's. Only a primary agent of the workspace. */
             agent?: string | null;
@@ -2218,6 +2258,44 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listPlugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    reloadPlugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
             };
         };
     };

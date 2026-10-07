@@ -79,3 +79,15 @@ pub async fn tools(State(engine): State<Arc<Engine>>, axum::extract::Query(query
     }
     Json(names)
 }
+
+/// The plugins the user's drift.json lists, loaded or with why they are not.
+#[utoipa::path(get, path = "/plugins", operation_id = "listPlugins", responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
+pub async fn plugins(State(engine): State<Arc<Engine>>) -> Json<Vec<crate::hook::PluginInfo>> {
+    Json(engine.hooks.loaded())
+}
+
+/// Reads drift.json again and loads every plugin afresh, so an edited one runs without a restart.
+#[utoipa::path(post, path = "/plugins/reload", operation_id = "reloadPlugins", responses((status = 200, body = Vec<crate::hook::PluginInfo>)))]
+pub async fn reload_plugins(State(engine): State<Arc<Engine>>) -> Json<Vec<crate::hook::PluginInfo>> {
+    Json(engine.hooks.load(&engine.plugin_cache_dir()).await)
+}

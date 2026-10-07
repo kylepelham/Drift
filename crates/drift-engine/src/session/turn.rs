@@ -1421,6 +1421,11 @@ impl Engine {
             self.settle(&mut row, ToolStatus::Error, None, refusal, None);
             return Outcome::Allowed;
         }
+        let (input, rewritten) = match self.hook_before(scope, &mut row, &name, &tool.spec().input_schema, input).await {
+            Ok(input) => input,
+            Err(outcome) => return outcome,
+        };
+        let hooked = (!self.hooks.is_empty()).then(|| input.clone());
         let writes = tool.call_mutates(&input);
         let touches = writes.then(|| tool.touches(&ctx, &input));
         let _turn = match self.lock_call(scope, &mut row, touches.as_ref().and_then(|paths| paths.as_deref())).await {
@@ -1444,7 +1449,8 @@ impl Engine {
             return Outcome::Allowed;
         }
         ctx.progress = self.progress_for(&row);
-        let started = scope.early.lock().unwrap().take(&call_id);
+        // A read that started while the reply streamed ran on the input as the model sent it.
+        let started = scope.early.lock().unwrap().take(&call_id).filter(|_| !rewritten);
         let result = match started {
             Some(started) => tokio::select! {
                 result = started.finish(scope.files) => result,
@@ -1465,6 +1471,7 @@ impl Engine {
             }
             Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
         };
+        let (text, meta) = self.hook_after(scope, &name, hooked, status == ToolStatus::Error, text, meta).await;
         let (mut meta, text) = self.keep_images(&scope.message.id, meta, text).await;
         // Every result, MCP and tools yet to come included, reaches the model within one bound.
         let spill = self.data_dir.join("tool-output").join(&scope.plan.session.id).join(format!("{call_id}.result.log"));
@@ -1489,6 +1496,41 @@ impl Engine {
             scope.wrote.lock().unwrap().note(&row);
         }
         if scope.abort.is_cancelled() { Outcome::Aborted } else { Outcome::Allowed }
+    }
+
+    /// A plugin may refuse the call or change its input; a changed input must still fit the tool. Says whether it changed.
+    async fn hook_before(&self, scope: &CallScope<'_>, row: &mut PartRow, name: &str, schema: &serde_json::Value, input: serde_json::Value) -> Result<(serde_json::Value, bool), Outcome> {
+        if self.hooks.is_empty() {
+            return Ok((input, false));
+        }
+        let call = crate::hook::ToolCall { session_id: scope.plan.session.id.clone(), workspace: scope.plan.workspace.to_string_lossy().into_owned(), agent: scope.plan.session.agent.clone(), tool: name.to_owned(), input };
+        let (call, denied) = self.hooks.before_tool(call).await;
+        if let Some((plugin, reason)) = denied {
+            self.settle(row, ToolStatus::Error, None, format!("The {plugin} plugin refused this call: {reason}"), None);
+            return Err(Outcome::Allowed);
+        }
+        let Part::ToolCall { input: stored, .. } = &mut row.part else { return Ok((call.input, false)) };
+        if *stored == call.input {
+            return Ok((call.input, false));
+        }
+        let problems = crate::tool::schema::problems(schema, &call.input);
+        if !problems.is_empty() {
+            self.settle(row, ToolStatus::Error, None, format!("A plugin changed the call so it no longer fits the tool: {}.", problems.join("; ")), None);
+            return Err(Outcome::Allowed);
+        }
+        stored.clone_from(&call.input);
+        Ok((call.input, true))
+    }
+
+    /// A plugin may replace what the model reads or add a note under it.
+    async fn hook_after(&self, scope: &CallScope<'_>, name: &str, input: Option<serde_json::Value>, failed: bool, text: String, mut meta: serde_json::Value) -> (String, serde_json::Value) {
+        let Some(input) = input else { return (text, meta) };
+        let result = crate::hook::ToolResult { session_id: scope.plan.session.id.clone(), workspace: scope.plan.workspace.to_string_lossy().into_owned(), agent: scope.plan.session.agent.clone(), tool: name.to_owned(), input, output: text, failed };
+        let (mut text, notes) = self.hooks.after_tool(result).await;
+        for note in notes {
+            crate::tool::add_note(&mut text, &mut meta, &note);
+        }
+        (text, meta)
     }
 
     /// Holds named files before preparing their approval preview, until the call is recorded.

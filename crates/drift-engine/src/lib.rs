@@ -4,6 +4,7 @@ pub mod api;
 pub mod config;
 pub mod edit;
 pub mod event;
+pub mod hook;
 pub mod id;
 pub mod llm;
 pub mod lsp;
@@ -104,6 +105,8 @@ pub struct Engine {
     local_shown: llm::local::Shown,
     /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
+    /// The user's plugins, loaded at start and on request.
+    pub hooks: hook::Hooks,
     /// The engine itself, for work started from a call that only borrows it (a workspace's MCP servers, from planning).
     me: std::sync::Weak<Engine>,
 }
@@ -162,7 +165,13 @@ impl Engine {
             local_models: Default::default(),
             local_shown: Default::default(),
             lsp: Default::default(),
+            hooks: Default::default(),
         }))
+    }
+
+    /// Where plugins' compiled code is kept between runs.
+    pub fn plugin_cache_dir(&self) -> PathBuf {
+        self.data_dir.join("plugin-cache")
     }
 
     /// A changed agent model or prompt may be what an owed result was waiting for.
@@ -449,7 +458,9 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
     let starting = engine.clone();
     tokio::spawn(engine.clone().watch_local());
     tokio::spawn(engine.clone().stop_idle_mcp());
+    tokio::spawn(hook::relay_session_events(engine.clone()));
     tokio::spawn(async move {
+        starting.hooks.load(&starting.plugin_cache_dir()).await;
         starting.connect_all_mcp();
         starting.refresh_catalog().await;
         // Resumed work gets the servers that come up soon, but a dead one never holds it back for long.
