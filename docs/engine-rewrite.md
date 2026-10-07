@@ -1018,29 +1018,42 @@ A plugin is a WebAssembly component implementing the `plugin` world of
 `crates/drift-engine/wit/drift.wit`. The engine runs them with wasmtime (`hook/wasm.rs`), behind
 the default `wasm-plugins` feature; without it, listed plugins report that the build runs none.
 
-- Contract: `name()`, `before-tool(call) -> allow | deny(reason) | replace(json)`,
-  `after-tool(result) -> keep | replace(output) | note(text)`, and `session(session, kind)` for
-  created, running, idle, updated and deleted. Tool inputs travel as JSON strings. The one host
-  import is `log(level, message)`, which goes to the engine's stderr prefixed with the plugin's name.
-- Sandbox: WASI preview 2 with nothing opened: no files, no environment, no network; stderr is
-  inherited so a panicking plugin says so. A hook call gets five seconds (epoch interruption, a ticker
-  thread every 100 ms); past that it traps and the engine proceeds as if it answered allow or keep.
-  A trap or a non-JSON replacement is logged and ignored the same way.
+- Contract: `name()`; `before-tool(call) -> allow | deny(reason) | replace(json)`;
+  `after-tool(result) -> keep | replace(output) | note(text)`; `prompt-submit(prompt) -> keep |
+  replace(text) | add-context(text) | deny(reason)`; `turn-end(reply) -> accept | continue(text)`;
+  and `session(session, kind)` for created, running, idle, updated and deleted. Tool inputs travel
+  as JSON strings. Host interfaces, each imported only by plugins that use it and listed as the
+  plugin's capabilities: `host` (`log`, `config`), `store` (per-plugin key-values in the
+  `plugin:<entry>` setting), `files` (read and write under the event's workspace, checked after
+  canonicalising), `process` (`run` with cwd the workspace, output 64 KiB per stream, a minute at
+  most) and `http` (`fetch` on the engine's client, 30 s, 1 MiB).
+- Sandbox: WASI preview 2 with nothing opened; stderr is inherited so a panicking plugin says so.
+  A call gets five seconds of its own time: an epoch ticker thread fires every 100 ms and the
+  store's deadline callback traps once `State::deadline` has passed; host calls move the deadline
+  on by what they took (`clocked`). A trap or an unusable answer is logged and read as the
+  do-nothing answer.
 - Dispatch (`Hooks`): plugins run in the order listed; the first denial wins and a replaced input
-  feeds the next; after a tool, replacements chain and notes collect as one bounded line each, named for
-  the plugin (`note_line`), appended with `tool::add_note`.
-  `run_call` asks before the permission asks and after the tool returns; a replaced input is checked
-  against the tool's schema again, and a read that started early while the reply streamed is dropped
-  if its input was rewritten. Session events come off the hub's own stream (`relay_session_events`),
-  so every site that publishes one is covered.
-- Loading: `plugins` in the user's own `~/.config/drift/drift.json`, paths relative to that
-  directory, `.wasm` only, never from a workspace. Compiled code is cached under
-  `<data>/plugin-cache` keyed by the file's hash and wasmtime's version, so a plugin compiles once.
-  Loaded at startup; `GET /plugins` reports each with its error if any; `POST /plugins/reload`
-  reads the file again; `PUT /plugins/enabled` switches one off or on (setting `disabledPlugins`,
-  keyed by the drift.json entry), and an off plugin is listed but never instantiated. One instance per plugin for the engine's life, its calls serialised.
-- Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`), which refuses history
-  rewrites and notes failed commands; `hook::wasm::tests` builds and runs it.
+  or prompt feeds the next; after a tool, replacements chain and notes collect as one bounded line
+  each, named for the plugin (`note_line`), appended with `tool::add_note`. `run_call` asks
+  before the permission asks and after the tool returns; a replaced input is checked against the
+  tool's schema again, and a read that started early while the reply streamed is dropped if its
+  input was rewritten. `admit_once` asks `hook_prompt` for the user's own prompts: a denial is
+  `TurnError::Refused` (403 `refused`), context lands as `Part::Context` beside the prompt. After
+  `run_steps`, `hook_turn_end` offers the reply and admits a `Part::Context` prompt when a plugin
+  continues, three times per user prompt at most; the model reads a context part as a system
+  reminder from the plugin and the UI shows it as the plugin's words. Session events come off the
+  hub's own stream (`relay_session_events`), so every site that publishes one is covered.
+- Loading: `plugins` in the user's own `~/.config/drift/drift.json`, each a path or
+  `{ path, config }`, paths relative to that directory, `.wasm` only, never from a workspace.
+  Compiled code is cached under `<data>/plugin-cache` keyed by the file's hash and wasmtime's
+  version, so a plugin compiles once. Loaded at startup; `GET /plugins` reports each with its
+  capabilities and error if any; `POST /plugins/reload` reads the file again; `PUT /plugins/enabled`
+  switches one off or on (setting `disabledPlugins`, keyed by the drift.json entry), and an off
+  plugin is listed but never instantiated. One instance per plugin for the engine's life, its calls
+  serialised.
+- Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`): refuses history
+  rewrites, notes failed commands, runs the configured test command on `@guard test` and continues
+  the turn with the failures; `hook::wasm::tests` builds and runs it.
 
 ### Trade-offs kept on purpose
 

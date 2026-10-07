@@ -1,4 +1,4 @@
-package drift:plugin@0.1.0;
+package drift:plugin@0.2.0;
 
 /// What Drift tells a plugin and what it may answer. JSON travels as strings:
 /// a tool's input is whatever shape the tool takes.
@@ -40,6 +40,38 @@ interface types {
         note(string),
     }
 
+    /// The user's prompt, before the model sees it.
+    record prompt {
+        session-id: string,
+        workspace: string,
+        agent: string,
+        text: string,
+    }
+
+    variant prompt-submit {
+        keep,
+        /// The model reads this text instead of the user's.
+        replace(string),
+        /// Added beside the prompt as context from the plugin; the user sees it too.
+        add-context(string),
+        /// The prompt is not sent; the user is told why.
+        deny(string),
+    }
+
+    /// The model's reply that ended a turn.
+    record reply {
+        session-id: string,
+        workspace: string,
+        agent: string,
+        text: string,
+    }
+
+    variant turn-end {
+        accept,
+        /// The turn goes on: the reason is sent to the model as a prompt from the plugin.
+        continue(string),
+    }
+
     enum session-kind {
         created,
         running,
@@ -59,14 +91,52 @@ interface types {
 interface host {
     enum level { info, warn, error }
     log: func(level: level, message: string);
+    /// The plugin's own object from its drift.json entry, as JSON; "{}" when none.
+    config: func() -> string;
+}
+
+/// The plugin's own values, kept by Drift across runs.
+interface store {
+    get: func(key: string) -> option<string>;
+    set: func(key: string, value: string);
+}
+
+/// Files under the workspace of the event being handled; nothing outside it.
+interface files {
+    read: func(path: string) -> result<string, string>;
+    write: func(path: string, content: string) -> result<_, string>;
+}
+
+/// A program run in the event's workspace, with its output bounded.
+interface process {
+    record output {
+        code: s32,
+        stdout: string,
+        stderr: string,
+    }
+    run: func(program: string, args: list<string>, timeout-ms: u32) -> result<output, string>;
+}
+
+interface http {
+    record response {
+        status: u16,
+        body: string,
+    }
+    fetch: func(method: string, url: string, headers: list<tuple<string, string>>, body: option<string>) -> result<response, string>;
 }
 
 world plugin {
-    use types.{tool-call, before-tool, tool-result, after-tool, session, session-kind};
+    use types.{tool-call, before-tool, tool-result, after-tool, prompt, prompt-submit, reply, turn-end, session, session-kind};
     import host;
+    import store;
+    import files;
+    import process;
+    import http;
 
     export name: func() -> string;
     export before-tool: func(call: tool-call) -> before-tool;
     export after-tool: func(outcome: tool-result) -> after-tool;
+    export prompt-submit: func(prompt: prompt) -> prompt-submit;
+    export turn-end: func(reply: reply) -> turn-end;
     export session: func(session: session, kind: session-kind);
 }

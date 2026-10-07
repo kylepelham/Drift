@@ -116,6 +116,9 @@ export function adaptPart(row: NativePartRow): Part {
     // The engine's own prompt to a working orchestrator: shown, but marked as Drift's, never the user's goal.
     case "nudge":
       return { ...base, type: "text", text: row.text, metadata: { generated: true } }
+    // A plugin's words to the model, shown as Drift's under the plugin's name.
+    case "context":
+      return { ...base, type: "text", text: `${row.plugin}: ${row.text}`, metadata: { generated: true } }
     // Rendered as an Answered row; the text is what the model read.
     case "clarification": {
       const items = row.items.map((item) => ({ header: item.header, question: item.question, answers: item.answers }))

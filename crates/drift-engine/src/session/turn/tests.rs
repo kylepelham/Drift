@@ -186,6 +186,54 @@ async fn permission_denial_is_reported_to_the_model() {
     assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::ToolResult { is_error: true, content, .. } if content == "A permission rule forbids this call."), "a rule, not the user");
 }
 
+struct Steward;
+
+#[async_trait::async_trait]
+impl crate::hook::Hook for Steward {
+    fn name(&self) -> &str {
+        "steward"
+    }
+    async fn prompt_submit(&self, prompt: &crate::hook::PromptEvent) -> crate::hook::PromptSubmit {
+        match prompt.text.as_str() {
+            "forbidden" => crate::hook::PromptSubmit::Deny("not in this workspace".into()),
+            "shorthand" => crate::hook::PromptSubmit::Replace("the long form".into()),
+            _ => crate::hook::PromptSubmit::AddContext("ticket 42 is about login".into()),
+        }
+    }
+    async fn turn_end(&self, reply: &crate::hook::ReplyEvent) -> crate::hook::TurnEnd {
+        if reply.text.contains("done") { crate::hook::TurnEnd::Accept } else { crate::hook::TurnEnd::Continue("say done".into()) }
+    }
+}
+
+#[tokio::test]
+async fn a_plugin_may_refuse_rewrite_or_add_context_to_a_prompt_and_keep_a_turn_going() {
+    let h = harness().await;
+    h.engine.hooks.set(vec![std::sync::Arc::new(Steward)], vec![]);
+    let refused = h.engine.submit(&h.session.id, prompt("forbidden")).await;
+    assert!(matches!(refused, Err(TurnError::Refused(ref reason)) if reason == "The steward plugin refused this prompt: not in this workspace"), "{refused:?}");
+    assert!(h.engine.store.transcript(&h.session.id).unwrap().is_empty(), "nothing was written");
+    h.provider.push(text("ok")).push(text("ok, done"));
+    h.engine.submit(&h.session.id, prompt("shorthand")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(transcript[0].parts[0].part, Part::Text { text: "the long form".into() }, "the model reads the replacement");
+    assert_eq!(transcript[1].parts[0].part, Part::Text { text: "ok".into() });
+    assert_eq!(transcript[2].parts[0].part, Part::Context { plugin: "steward".into(), text: "say done".into() }, "the plugin kept the turn going");
+    assert_eq!(transcript[3].parts[0].part, Part::Text { text: "ok, done".into() });
+    assert_eq!(transcript.len(), 4);
+    {
+        let requests = h.provider.requests.lock().unwrap();
+        assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::Text(text) if text.contains("From the steward plugin:\nsay done")), "{:?}", requests[1].messages[2].blocks);
+    }
+    h.provider.push(text("done"));
+    h.engine.submit(&h.session.id, prompt("about the ticket")).await.await_ok();
+    until_idle(&h).await;
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let user = &transcript[4];
+    assert_eq!(user.parts.len(), 2);
+    assert_eq!(user.parts[1].part, Part::Context { plugin: "steward".into(), text: "ticket 42 is about login".into() }, "context sits beside the prompt");
+}
+
 struct Rewriter;
 
 #[async_trait::async_trait]

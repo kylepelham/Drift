@@ -1435,6 +1435,11 @@ export interface components {
             /** @enum {string} */
             type: "nudge";
         } | {
+            plugin: string;
+            text: string;
+            /** @enum {string} */
+            type: "context";
+        } | {
             auto: boolean;
             /** @description First message the model still sees verbatim after the summary; `None` keeps nothing. */
             tailFrom?: string | null;
@@ -1477,6 +1482,8 @@ export interface components {
         };
         /** @description A loaded plugin as the API reports it; `error` set means it is not running. */
         PluginInfo: {
+            /** @description The host interfaces it imports: `store`, `files`, `process`, `http`. */
+            capabilities?: string[];
             /** @description Off in Settings: listed, not loaded. */
             enabled: boolean;
             error?: string | null;

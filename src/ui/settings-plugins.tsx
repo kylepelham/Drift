@@ -74,7 +74,12 @@ function PluginRow(props: { plugin: PluginInfo; disabled: boolean; onEnabled: (e
     >
       <div class="min-w-0 flex-1">
         <div class="truncate text-[0.82rem] font-medium text-ink">{props.plugin.name}</div>
-        <div class="mt-0.5 truncate font-mono text-[0.72rem] text-ink-faint">{props.plugin.path}</div>
+        <div class="mt-0.5 flex min-w-0 items-center gap-2 text-[0.72rem] text-ink-faint">
+          <span class="truncate font-mono">{props.plugin.path}</span>
+          <Show when={props.plugin.capabilities?.length}>
+            <span class="shrink-0">{props.plugin.capabilities?.join(" · ")}</span>
+          </Show>
+        </div>
       </div>
       <div
         class="max-w-[45%] truncate text-xs"

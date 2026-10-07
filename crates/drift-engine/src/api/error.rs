@@ -60,6 +60,7 @@ impl From<TurnError> for ApiError {
             TurnError::NoCredentials => (StatusCode::UNAUTHORIZED, "credentials"),
             TurnError::SignInExpired(_) => (StatusCode::UNAUTHORIZED, "signin_expired"),
             TurnError::Config(_) => (StatusCode::BAD_REQUEST, "config"),
+            TurnError::Refused(_) => (StatusCode::FORBIDDEN, "refused"),
             TurnError::Store(_) => (StatusCode::INTERNAL_SERVER_ERROR, "store"),
         };
         Self::new(status, code, error.to_string())

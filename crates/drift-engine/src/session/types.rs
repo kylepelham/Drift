@@ -228,6 +228,11 @@ pub enum Part {
     Nudge {
         text: String,
     },
+    /// What a plugin added for the model: context beside the user's prompt, or a prompt of its own that kept a turn going.
+    Context {
+        plugin: String,
+        text: String,
+    },
     /// The boundary of a compaction; its summary is the assistant message that follows.
     #[serde(rename_all = "camelCase")]
     Compaction {

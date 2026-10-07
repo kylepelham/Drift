@@ -52,9 +52,9 @@ pub struct File {
     pub providers: BTreeMap<String, ProviderConfig>,
     /// More folders to find skills in (`SKILL.md` at any depth), relative to the file's directory or starting `~/`.
     pub skill_paths: Vec<String>,
-    /// WebAssembly plugins (`.wasm` components under this directory), from the user's own file only:
-    /// opening a project must never run code it ships.
-    pub plugins: Vec<String>,
+    /// WebAssembly plugins (`.wasm` components under this directory), each a path or a path with
+    /// its config, from the user's own file only: opening a project must never run code it ships.
+    pub plugins: Vec<crate::hook::PluginEntry>,
 }
 
 /// A provider the user adds (any OpenAI-compatible server) or re-points (a gateway, a remote LM Studio).
@@ -95,14 +95,19 @@ fn user_file(home: &Path) -> Option<File> {
     serde_json::from_str::<File>(&jsonc::strip(&text)).ok()
 }
 
-/// The plugins the user's own drift.json lists, as paths; an entry that leaves the directory or is not a `.wasm` is the error beside it.
-pub fn user_plugins() -> Vec<(String, Result<PathBuf, String>)> {
+/// The plugins the user's own drift.json lists; an entry that leaves the directory or is not a `.wasm` carries the error instead of a path.
+pub fn user_plugins() -> Vec<crate::hook::Listed> {
     home().map(|home| user_plugins_in(&home)).unwrap_or_default()
 }
 
-fn user_plugins_in(home: &Path) -> Vec<(String, Result<PathBuf, String>)> {
+fn user_plugins_in(home: &Path) -> Vec<crate::hook::Listed> {
     let root = home.join(".config/drift");
-    user_file(home).map(|file| file.plugins).unwrap_or_default().into_iter().map(|entry| (entry.clone(), plugin_path(&root, &entry))).collect()
+    user_file(home)
+        .map(|file| file.plugins)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entry| crate::hook::Listed { entry: entry.path().to_owned(), path: plugin_path(&root, entry.path()), config: entry.config() })
+        .collect()
 }
 
 fn plugin_path(root: &Path, entry: &str) -> Result<PathBuf, String> {
@@ -925,14 +930,16 @@ mod tests {
     fn plugins_come_from_the_users_file_and_stay_under_its_directory() {
         let root = std::env::temp_dir().join(format!("drift-config-plugins-{}", crate::random_hex(4)));
         let (home, ws) = (root.join("home"), root.join("ws"));
-        write(&home, ".config/drift/drift.json", r#"{ "plugins": ["plugins/guard.wasm", "../escape.wasm", "C:/abs.wasm", "plugins/script.js"] }"#);
+        write(&home, ".config/drift/drift.json", r#"{ "plugins": [{ "path": "plugins/guard.wasm", "config": { "strict": true } }, "../escape.wasm", "C:/abs.wasm", "plugins/script.js"] }"#);
         write(&ws, "drift.json", r#"{ "plugins": ["theirs.wasm"] }"#);
         let listed = user_plugins_in(&home);
         assert_eq!(listed.len(), 4, "the project's file adds none");
-        assert_eq!(listed[0].1, Ok(home.join(".config/drift").join("plugins/guard.wasm")));
-        assert!(listed[1].1.as_ref().is_err_and(|error| error.contains("stay under")));
-        assert!(listed[2].1.is_err());
-        assert!(listed[3].1.as_ref().is_err_and(|error| error.contains(".wasm")));
+        assert_eq!(listed[0].path, Ok(home.join(".config/drift").join("plugins/guard.wasm")));
+        assert_eq!(listed[0].config["strict"], true);
+        assert_eq!(listed[1].config, serde_json::json!({}));
+        assert!(listed[1].path.as_ref().is_err_and(|error| error.contains("stay under")));
+        assert!(listed[2].path.is_err());
+        assert!(listed[3].path.as_ref().is_err_and(|error| error.contains(".wasm")));
         let _ = std::fs::remove_dir_all(&root);
     }
 

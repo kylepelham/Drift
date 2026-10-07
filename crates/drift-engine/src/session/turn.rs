@@ -97,6 +97,8 @@ pub enum TurnError {
     SignInExpired(String),
     /// A config file could not be read, so its rules are unknown; says which and why.
     Config(String),
+    /// A plugin refused the prompt; says which and why.
+    Refused(String),
     /// The session is not waiting to retry a failed request, so there is nothing to switch.
     NotRetrying,
     /// The session is undone back to a prompt; send a prompt or redo first.
@@ -125,6 +127,7 @@ impl std::fmt::Display for TurnError {
             Self::UnknownModel => write!(f, "model is not in the catalog"),
             Self::NoCredentials => write!(f, "provider has no credentials"),
             Self::Config(problem) => write!(f, "{problem}"),
+            Self::Refused(reason) => write!(f, "{reason}"),
             Self::SignInExpired(reason) => write!(f, "the sign-in has expired and could not be renewed; sign in again under Settings > Providers ({reason})"),
             Self::NotRetrying => write!(f, "the session is not waiting to retry"),
             Self::Reverted => write!(f, "the session is undone; send a prompt or redo first"),
@@ -411,12 +414,71 @@ impl Engine {
         match planned {
             Ok(mut plan) => {
                 plan.bootstrap = how.bootstrap.to_vec();
+                let prompt = match self.hook_prompt(&plan, prompt, &how).await {
+                    Ok(prompt) => prompt,
+                    Err(error) => {
+                        self.turns.release(session_id);
+                        return Err(error);
+                    }
+                };
                 self.start(session_id, prompt, plan, abort, &payload_hash, how)
             }
             Err(error) => {
                 self.turns.release(session_id);
                 Err(error)
             }
+        }
+    }
+
+    /// Plugins see the user's own prompts before the model does: one may refuse it, rewrite its text or add context beside it.
+    async fn hook_prompt(&self, plan: &Plan, mut prompt: Prompt, how: &Admission<'_>) -> Result<Prompt, TurnError> {
+        if self.hooks.is_empty() || plan.turn_only || !how.bootstrap.is_empty() || how.steer_only {
+            return Ok(prompt);
+        }
+        let text: String = prompt.parts.iter().filter_map(|part| if let Part::Text { text } = part { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
+        if text.trim().is_empty() {
+            return Ok(prompt);
+        }
+        let event = crate::hook::PromptEvent { session_id: plan.session.id.clone(), workspace: plan.workspace.to_string_lossy().into_owned(), agent: plan.session.agent.clone(), text: text.clone() };
+        let (replaced, context) = self.hooks.prompt_submit(event).await.map_err(|(plugin, reason)| TurnError::Refused(format!("The {plugin} plugin refused this prompt: {reason}")))?;
+        if replaced != text {
+            // The first text part takes the whole replacement; the others go, so the model reads one text.
+            let mut first = true;
+            prompt.parts.retain_mut(|part| {
+                let Part::Text { text } = part else { return true };
+                if !first {
+                    return false;
+                }
+                first = false;
+                *text = replaced.clone();
+                true
+            });
+        }
+        prompt.parts.extend(context.into_iter().map(|(plugin, text)| Part::Context { plugin, text }));
+        Ok(prompt)
+    }
+
+    /// A plugin reads the reply that would end the turn and may keep it going with a prompt of its own, a few times at most.
+    async fn hook_turn_end(&self, plan: &Plan, continued: &mut u32, abort: &CancellationToken) -> bool {
+        const MOST: u32 = 3;
+        if self.hooks.is_empty() || plan.turn_only || *continued >= MOST || abort.is_cancelled() {
+            return false;
+        }
+        let Ok(Some(reply)) = self.store.last_reply(&plan.session.id) else { return false };
+        if reply.info.error.is_some() {
+            return false;
+        }
+        let text: String = reply.parts.iter().filter_map(|row| if let Part::Text { text } = &row.part { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
+        let event = crate::hook::ReplyEvent { session_id: plan.session.id.clone(), workspace: plan.workspace.to_string_lossy().into_owned(), agent: plan.session.agent.clone(), text };
+        let Some((plugin, reason)) = self.hooks.turn_end(&event).await else { return false };
+        let pick = Pick { model: &plan.model_ref, variant: None, agent: None, sticky: true };
+        match self.admit_fenced(&plan.session.id, pick, vec![Part::Context { plugin, text: reason }], None, Some(abort), None) {
+            Ok(admitted) => {
+                self.announce(&plan.session.id, admitted);
+                *continued += 1;
+                true
+            }
+            Err(_) => false,
         }
     }
 
@@ -755,8 +817,12 @@ impl Engine {
             self.record_end(&plan.session, &abort);
             return;
         }
+        let mut continued = 0;
         loop {
             let answered = self.run_steps(&mut plan, &abort, started.as_deref()).await;
+            if self.hook_turn_end(&plan, &mut continued, &abort).await {
+                continue;
+            }
             if abort.is_cancelled() || !self.carries_on(&plan, answered.as_deref(), &abort) {
                 break;
             }

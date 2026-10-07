@@ -95,6 +95,7 @@ fn user_blocks(message: &MessageWithParts) -> Vec<Block> {
         .iter()
         .filter_map(|row| match &row.part {
             Part::Text { text } | Part::Nudge { text } if !text.is_empty() => Some(Block::Text(text.clone())),
+            Part::Context { plugin, text } => Some(Block::Text(format!("<system-reminder>\nFrom the {plugin} plugin:\n{text}\n</system-reminder>"))),
             Part::File { mime, url, .. } if mime.starts_with("image/") => {
                 url.split_once(",").map(|(_, data)| Block::Image { mime: mime.clone(), base64: data.to_string() })
             }

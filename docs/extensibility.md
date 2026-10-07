@@ -16,19 +16,23 @@
 An engine plugin is a WebAssembly component, written in any language with a component toolchain
 (Rust, C, Go, C#, Python through `componentize-py`, JavaScript through `jco`), implementing the
 `plugin` world in `crates/drift-engine/wit/drift.wit`. List them in your own
-`~/.config/drift/drift.json`, as paths under that directory:
+`~/.config/drift/drift.json`, as paths under that directory, each on its own or with its config:
 
 ```json
 {
-  "plugins": ["plugins/guard.wasm"]
+  "plugins": [
+    "plugins/notify.wasm",
+    { "path": "plugins/guard.wasm", "config": { "test": ["cargo", "test"] } }
+  ]
 }
 ```
 
 A project's `drift.json` cannot add plugins: cloning a repository never runs its code. Plugins load
-when the engine starts and again from Reload in Settings > Plugins, which lists each with its
-error if it did not load and a switch to turn it off: an off plugin stays listed and is never
-called (`GET /plugins`, `POST /plugins/reload`, `PUT /plugins/enabled`; the off list is the engine
-setting `disabledPlugins`). Each compiles once; the compiled code is cached beside Drift's data.
+when the engine starts and again from Reload in Settings > Plugins, which lists each with what it
+can reach, its error if it did not load, and a switch to turn it off: an off plugin stays listed and
+is never called (`GET /plugins`, `POST /plugins/reload`, `PUT /plugins/enabled`; the off list is
+the engine setting `disabledPlugins`). Each compiles once; the compiled code is cached beside
+Drift's data.
 
 What a plugin sees and may answer:
 
@@ -36,23 +40,41 @@ What a plugin sees and may answer:
   Answer `allow`, `deny(reason)` (the call does not run and the model reads the reason), or
   `replace(json)` (the call runs with that input, which must still fit the tool).
 - `after-tool`: the same plus the output and whether it failed (the tool errored, or a shell
-  command exited non-zero). Answer `keep`,
-  `replace(output)`, or `note(text)`: one line under the output, shown as "guard: saw this command
-  fail", cut at 160 characters, so a noisy plugin costs the card and the model one short line per call.
+  command exited non-zero). Answer `keep`, `replace(output)`, or `note(text)`: one line under
+  the output, shown as "guard: saw this command fail", cut at 160 characters, so a noisy plugin
+  costs the card and the model one short line per call.
+- `prompt-submit`: the user's own prompt before the model sees it (not the engine's own prompts,
+  nor a steer into a running turn). Answer `keep`, `replace(text)`, `add-context(text)` (kept
+  beside the prompt, shown as the plugin's words and read by the model as a system reminder from
+  it), or `deny(reason)` (nothing is sent; the user sees the reason).
+- `turn-end`: the reply that would end the turn. Answer `accept`, or `continue(text)` to send
+  that text to the model as the plugin's prompt and keep the turn going, at most three times per
+  user prompt. This is the "run the tests before you finish" hook.
 - `session`: a session was created, started running, went idle, was updated (title, archive), or
   deleted. Notification only.
-- `name()` names the plugin in refusals and the plugin list, and `log(level, message)` is the one
-  host function, writing to the engine's log.
+- `name()` names the plugin in refusals, in context it adds and in the plugin list.
 
-Plugins run in the order listed: the first refusal wins, a replaced input feeds the next plugin.
-They are sandboxed: no files, environment or network. A call that runs past five seconds, traps, or
-returns something unusable is logged and treated as `allow` or `keep`.
+What a plugin may do, each a host interface it imports (Settings shows which):
+
+- `host`: `log(level, message)` to the engine's log; `config()`, its own object from the
+  drift.json entry as JSON.
+- `store`: `get(key)` and `set(key, value)`, kept by Drift across runs.
+- `files`: `read(path)` and `write(path, content)` under the workspace of the event being
+  handled, never outside it.
+- `process`: `run(program, args, timeout-ms)` in that workspace, with the exit code and the
+  first 64 KiB of each stream; a minute at most.
+- `http`: `fetch(method, url, headers, body)`, 30 seconds and 1 MiB at most.
+
+Plugins run in the order listed: the first refusal wins, a replaced input or prompt feeds the next
+plugin. A call gets five seconds of its own running time, plus whatever its host calls take; a
+call that runs past that, traps, or returns something unusable is logged and treated as `allow`,
+`keep` or `accept`.
 
 `plugins/guard` is the example, in Rust with `wit-bindgen`: it refuses shell commands that
-rewrite history and notes failed commands. Build it with
+rewrite history, notes failed commands, and when a reply says `@guard test` runs the configured
+test command, keeping the turn going with the failures if any. Build it with
 `cargo build --release --target wasm32-wasip2` in that directory (the target installs with
-`rustup target add wasm32-wasip2`); the component is
-`target/wasm32-wasip2/release/guard.wasm`.
+`rustup target add wasm32-wasip2`); the component is `target/wasm32-wasip2/release/guard.wasm`.
 
 ## Interface plugins
 

@@ -174,7 +174,7 @@ impl Engine {
     /// Reads drift.json again and loads every plugin that is not switched off.
     pub async fn reload_plugins(&self) -> Vec<hook::PluginInfo> {
         let disabled: Vec<String> = self.store.setting(DISABLED_PLUGINS_KEY).ok().flatten().unwrap_or_default();
-        self.hooks.load(&self.data_dir.join("plugin-cache"), config::user_plugins(), &disabled).await
+        self.hooks.load(&self.data_dir.join("plugin-cache"), config::user_plugins(), &disabled, self.me.clone()).await
     }
 
     /// Switches a plugin on or off by its drift.json entry and reloads.
