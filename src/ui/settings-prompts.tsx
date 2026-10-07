@@ -156,7 +156,7 @@ export function PromptsSection() {
 
   return (
     <div class="flex flex-col gap-6 sm:flex-row">
-      <nav class="flex max-h-56 shrink-0 flex-col overflow-y-auto pr-1 sm:sticky sm:top-0 sm:max-h-[min(35rem,calc(100vh-10rem))] sm:w-40 sm:self-start" aria-label={t("drift.settings.prompts")}>
+      <nav class="flex shrink-0 flex-col sm:w-40" aria-label={t("drift.settings.prompts")}>
         <ListGroup title={t("drift.settings.prompts.group.base")} first>
           <For each={base()?.prompts ?? []}>
             {(prompt) => (
@@ -311,7 +311,7 @@ function BaseEditor(props: {
         <div class="py-3">
           <textarea
             aria-label={t("drift.settings.prompts.systemPrompt")}
-            class={`${editorClass} h-[28rem]`}
+            class={`${editorClass} h-80`}
             classList={{ "text-ink": props.customized || props.dirty, "text-ink-faint": !props.customized && !props.dirty }}
             spellcheck={false}
             placeholder={props.id === "all" ? t("drift.settings.prompts.allPlaceholder") : undefined}
