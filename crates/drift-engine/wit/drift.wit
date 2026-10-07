@@ -68,6 +68,8 @@ interface types {
 
     variant turn-end {
         accept,
+        /// The turn ends; the line is shown under the reply as the plugin's, and the model never sees it.
+        note(string),
         /// The turn goes on: the reason is sent to the model as a prompt from the plugin.
         continue(string),
     }

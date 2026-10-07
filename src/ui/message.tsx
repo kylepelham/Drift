@@ -1,4 +1,4 @@
-import type { AssistantMessage, Part, ToolPart, UserMessage } from "../engine/shapes"
+import type { AssistantMessage, Part, PluginPart, ToolPart, UserMessage } from "../engine/shapes"
 import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import { createStore, reconcile, unwrap } from "solid-js/store"
 import { useEngine } from "../engine"
@@ -13,7 +13,7 @@ import { selectedSession, selectSession } from "../state/selection"
 import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons"
 import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
-import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
+import { contextTools, ExploredGroup, FilePartView, PartView, partVisible, PluginRow } from "./parts"
 import { TextShimmer } from "./text-shimmer"
 import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer"
 import { citationFileGroups } from "./citation-files"
@@ -45,7 +45,7 @@ function interruptionText(error: NonNullable<AssistantMessage["error"]>) {
 
 export function messageVisible(entry: MessageEntry) {
   if (entry.info.role === "user")
-    return !!messageText(entry) || entry.parts.some((part) => part.type === "file" || part.type === "compaction")
+    return !!messageText(entry) || entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "plugin")
   const info = entry.info as AssistantMessage
   if (info.summary && collapseCompaction()) return true
   return entry.parts.some(partVisible) || !!info.error
@@ -98,6 +98,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
   // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
   const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
   const files = () => props.entry.parts.filter((part) => part.type === "file")
+  const plugins = () => props.entry.parts.filter((part): part is PluginPart => part.type === "plugin")
   const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking)
   const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID
   const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
@@ -112,6 +113,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
       when={clarification()}
       fallback={
         <>
+          <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
           <Show when={text() || files().length > 0}>
             <div class="group flex flex-col items-end gap-1.5">
               <Show when={files().length > 0}>

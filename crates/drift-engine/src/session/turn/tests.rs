@@ -201,7 +201,7 @@ impl crate::hook::Hook for Steward {
         }
     }
     async fn turn_end(&self, reply: &crate::hook::ReplyEvent) -> crate::hook::TurnEnd {
-        if reply.text.contains("done") { crate::hook::TurnEnd::Accept } else { crate::hook::TurnEnd::Continue("say done".into()) }
+        if reply.text.contains("done") { crate::hook::TurnEnd::Note("heard it".into()) } else { crate::hook::TurnEnd::Continue("say done".into()) }
     }
 }
 
@@ -220,10 +220,19 @@ async fn a_plugin_may_refuse_rewrite_or_add_context_to_a_prompt_and_keep_a_turn_
     assert_eq!(transcript[1].parts[0].part, Part::Text { text: "ok".into() });
     assert_eq!(transcript[2].parts[0].part, Part::Context { plugin: "steward".into(), text: "say done".into() }, "the plugin kept the turn going");
     assert_eq!(transcript[3].parts[0].part, Part::Text { text: "ok, done".into() });
+    assert_eq!(transcript[3].parts[1].part, Part::Context { plugin: "steward".into(), text: "heard it".into() }, "a note sits under the reply");
     assert_eq!(transcript.len(), 4);
     {
         let requests = h.provider.requests.lock().unwrap();
         assert!(matches!(&requests[1].messages[2].blocks[0], llm::Block::Text(text) if text.contains("From the steward plugin:\nsay done")), "{:?}", requests[1].messages[2].blocks);
+    }
+    h.provider.push(text("done"));
+    h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
+    until_idle(&h).await;
+    {
+        let requests = h.provider.requests.lock().unwrap();
+        let replayed = requests[2].messages.iter().flat_map(|message| &message.blocks).filter(|block| matches!(block, llm::Block::Text(text) if text.contains("heard it"))).count();
+        assert_eq!(replayed, 0, "the model never reads a note");
     }
     h.provider.push(text("done"));
     h.engine.submit(&h.session.id, prompt("about the ticket")).await.await_ok();

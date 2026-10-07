@@ -340,6 +340,7 @@ impl Hook for WasmPlugin {
         let mut store = self.enter(&reply.workspace).await;
         match self.bindings.call_turn_end(&mut *store, &input).await {
             Ok(wit::TurnEnd::Accept) => TurnEnd::Accept,
+            Ok(wit::TurnEnd::Note(note)) => TurnEnd::Note(note),
             Ok(wit::TurnEnd::Continue(reason)) => TurnEnd::Continue(reason),
             Err(error) => {
                 self.failed("turn-end", &error);
@@ -422,7 +423,7 @@ pub(super) mod tests {
         let plugin = runtime.load(&path, site).await.unwrap();
         let reply = |text: &str| ReplyEvent { session_id: "s1".into(), workspace: workspace.to_string_lossy().into_owned(), agent: "build".into(), text: text.into() };
         assert_eq!(plugin.turn_end(&reply("Changed nothing.")).await, TurnEnd::Accept, "a reply without the trigger runs nothing");
-        assert_eq!(plugin.turn_end(&reply("Done. @guard test")).await, TurnEnd::Accept, "tests pass");
+        assert_eq!(plugin.turn_end(&reply("Done. @guard test")).await, TurnEnd::Note("tests passed".into()));
         std::env::set_var("FAIL_TESTS", "1");
         let outcome = plugin.turn_end(&reply("Done. @guard test")).await;
         std::env::remove_var("FAIL_TESTS");

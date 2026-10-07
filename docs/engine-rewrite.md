@@ -1020,7 +1020,7 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
 
 - Contract: `name()`; `before-tool(call) -> allow | deny(reason) | replace(json)`;
   `after-tool(result) -> keep | replace(output) | note(text)`; `prompt-submit(prompt) -> keep |
-  replace(text) | add-context(text) | deny(reason)`; `turn-end(reply) -> accept | continue(text)`;
+  replace(text) | add-context(text) | deny(reason)`; `turn-end(reply) -> accept | note(text) | continue(text)`;
   and `session(session, kind)` for created, running, idle, updated and deleted. Tool inputs travel
   as JSON strings. Host interfaces, each imported only by plugins that use it and listed as the
   plugin's capabilities: `host` (`log`, `config`), `store` (per-plugin key-values in the
@@ -1040,8 +1040,10 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   input was rewritten. `admit_once` asks `hook_prompt` for the user's own prompts: a denial is
   `TurnError::Refused` (403 `refused`), context lands as `Part::Context` beside the prompt. After
   `run_steps`, `hook_turn_end` offers the reply and admits a `Part::Context` prompt when a plugin
-  continues, three times per user prompt at most; the model reads a context part as a system
-  reminder from the plugin and the UI shows it as the plugin's words. Session events come off the
+  continues, three times per user prompt at most, and appends a note as a `Part::Context` on the
+  reply, which `assistant_blocks` never sends; the model reads a user-side context part as a system
+  reminder from the plugin, and the UI renders every context part as a `plugin` part: one row with
+  the plugin's name (`PluginRow`). Session events come off the
   hub's own stream (`relay_session_events`), so every site that publishes one is covered.
 - Loading: `plugins` in the user's own `~/.config/drift/drift.json`, each a path or
   `{ path, config }`, paths relative to that directory, `.wasm` only, never from a workspace.

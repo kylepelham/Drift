@@ -382,6 +382,16 @@ export type CompactionPart = {
     auto: boolean;
 };
 
+/** A plugin's words: context beside a prompt, a prompt of its own, or a note under a reply. */
+export type PluginPart = {
+    id: string;
+    sessionID: string;
+    messageID: string;
+    type: "plugin";
+    plugin: string;
+    text: string;
+};
+
 export type Part = TextPart | {
     id: string;
     sessionID: string;
@@ -390,7 +400,7 @@ export type Part = TextPart | {
     prompt: string;
     description: string;
     agent: string;
-} | ReasoningPart | FilePart | ToolPart | StepStartPart | StepFinishPart | SnapshotPart | PatchPart | AgentPart | RetryPart | CompactionPart;
+} | ReasoningPart | FilePart | ToolPart | StepStartPart | StepFinishPart | SnapshotPart | PatchPart | AgentPart | RetryPart | CompactionPart | PluginPart;
 
 export type EventMessagePartUpdated = {
     type: "message.part.updated";

@@ -47,9 +47,14 @@ What a plugin sees and may answer:
   nor a steer into a running turn). Answer `keep`, `replace(text)`, `add-context(text)` (kept
   beside the prompt, shown as the plugin's words and read by the model as a system reminder from
   it), or `deny(reason)` (nothing is sent; the user sees the reason).
-- `turn-end`: the reply that would end the turn. Answer `accept`, or `continue(text)` to send
-  that text to the model as the plugin's prompt and keep the turn going, at most three times per
-  user prompt. This is the "run the tests before you finish" hook.
+- `turn-end`: the reply that would end the turn. Answer `accept`; `note(text)`, shown as a row under
+  the reply and never read by the model ("tests passed"); or `continue(text)` to send that text to
+  the model as the plugin's prompt and keep the turn going, at most three times per user prompt.
+  This is the "run the tests before you finish" hook.
+
+Everything a plugin says in the chat (context beside a prompt, a prompt of its own, a note under a
+reply) is one row with a plug icon, the plugin's name and its words on one line, like a tool's row;
+never text in a bubble.
 - `session`: a session was created, started running, went idle, was updated (title, archive), or
   deleted. Notification only.
 - `name()` names the plugin in refusals, in context it adds and in the plugin list.

@@ -51,7 +51,7 @@ impl Guest for Guard {
             return TurnEnd::Accept;
         };
         match run(program, args, TEST_TIMEOUT_MS) {
-            Ok(output) if output.code == 0 => TurnEnd::Accept,
+            Ok(output) if output.code == 0 => TurnEnd::Note("tests passed".into()),
             Ok(output) => TurnEnd::Continue(format!("The tests failed with exit code {}. Fix them before finishing.\n\n{}", output.code, tail(&output.stderr, &output.stdout))),
             Err(error) => TurnEnd::Continue(format!("The tests could not run: {error}")),
         }

@@ -1,4 +1,4 @@
-import type { FilePart, Part, ReasoningPart, ToolPart } from "../engine/shapes"
+import type { FilePart, Part, PluginPart, ReasoningPart, ToolPart } from "../engine/shapes"
 import { createEffect, createMemo, createSignal, For, Match, on, onCleanup, onMount, Show, Switch, untrack, type JSX } from "solid-js"
 import { useEngine } from "../engine"
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins"
@@ -7,7 +7,7 @@ import { openLightbox } from "./lightbox"
 import { showReasoning, toolErrorsExpanded } from "../state/prefs"
 import { agentLabel, t } from "../state/i18n"
 import { selectSession } from "../state/selection"
-import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconInfo } from "./icons"
+import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconInfo, IconPlug } from "./icons"
 import { codeTokens, Markdown, openWorkspaceFile, ProgressiveCodeView, type SyntaxToken } from "./markdown"
 import { classifyMarkdownLink } from "./markdown-links"
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code"
@@ -72,6 +72,7 @@ export function PartView(props: { part: Part; responseID?: string; live?: boolea
           )
         }}
       </Match>
+      <Match when={props.part.type === "plugin" && (props.part as PluginPart)}>{(part) => <PluginRow part={part()} />}</Match>
       <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
         {(part) => <ReasoningView part={part()} revision={props.revision} />}
       </Match>
@@ -157,6 +158,17 @@ function OrchestratorStatusRow(props: { status: OrchestratorStatus }) {
   )
 }
 
+/** What a plugin said, as a row like a tool's: its name, then its words on one line. */
+export function PluginRow(props: { part: PluginPart; end?: boolean }) {
+  return (
+    <div class="flex min-h-8 min-w-0 items-center gap-2 px-1.5 text-sm" classList={{ "justify-end": props.end }} title={props.part.text}>
+      <IconPlug class="size-3.5 shrink-0 text-ink-faint" />
+      <span class="shrink-0 font-medium text-ink-muted">{props.part.plugin}</span>
+      <span class="min-w-0 truncate text-[0.85rem] text-ink-faint">{props.part.text}</span>
+    </div>
+  )
+}
+
 export function partVisible(part: Part) {
   if (part.type !== "tool" && hasPartRenderer(part.type)) return true
   switch (part.type) {
@@ -169,6 +181,7 @@ export function partVisible(part: Part) {
     case "compaction":
     case "subtask":
     case "file":
+    case "plugin":
       return true
     default:
       return false

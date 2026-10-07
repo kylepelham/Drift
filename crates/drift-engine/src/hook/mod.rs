@@ -99,8 +99,17 @@ pub struct ReplyEvent {
 #[serde(tag = "decision", content = "value", rename_all = "camelCase")]
 pub enum TurnEnd {
     Accept,
+    /// The turn ends; the line is shown under the reply and the model never sees it.
+    Note(String),
     /// The turn goes on with this as the plugin's prompt to the model.
     Continue(String),
+}
+
+/// What the plugins made of a reply: lines to show under it, and the first continuation if any.
+#[derive(Debug, Default, PartialEq)]
+pub struct Ended {
+    pub notes: Vec<(String, String)>,
+    pub continued: Option<(String, String)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -292,14 +301,20 @@ impl Hooks {
         Ok((prompt.text, context))
     }
 
-    /// The first plugin that wants the turn to go on decides, with its name.
-    pub async fn turn_end(&self, reply: &ReplyEvent) -> Option<(String, String)> {
+    /// Every plugin sees the reply; notes collect, and the first that wants the turn to go on decides.
+    pub async fn turn_end(&self, reply: &ReplyEvent) -> Ended {
+        let mut ended = Ended::default();
         for hook in self.list() {
-            if let TurnEnd::Continue(reason) = hook.turn_end(reply).await {
-                return Some((hook.name().to_owned(), reason));
+            match hook.turn_end(reply).await {
+                TurnEnd::Accept => {}
+                TurnEnd::Note(note) => ended.notes.push((hook.name().to_owned(), note)),
+                TurnEnd::Continue(reason) => {
+                    ended.continued = Some((hook.name().to_owned(), reason));
+                    break;
+                }
             }
         }
-        None
+        ended
     }
 
     pub async fn session(&self, event: &SessionEvent) {

@@ -470,7 +470,13 @@ impl Engine {
         }
         let text: String = reply.parts.iter().filter_map(|row| if let Part::Text { text } = &row.part { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
         let event = crate::hook::ReplyEvent { session_id: plan.session.id.clone(), workspace: plan.workspace.to_string_lossy().into_owned(), agent: plan.session.agent.clone(), text };
-        let Some((plugin, reason)) = self.hooks.turn_end(&event).await else { return false };
+        let ended = self.hooks.turn_end(&event).await;
+        for (plugin, note) in ended.notes {
+            if let Ok(row) = self.store.add_part(&reply.info.id, &plan.session.id, Part::Context { plugin, text: note }) {
+                self.hub.publish(Event::PartCreated { part: row });
+            }
+        }
+        let Some((plugin, reason)) = ended.continued else { return false };
         let pick = Pick { model: &plan.model_ref, variant: None, agent: None, sticky: true };
         match self.admit_fenced(&plan.session.id, pick, vec![Part::Context { plugin, text: reason }], None, Some(abort), None) {
             Ok(admitted) => {
