@@ -17,7 +17,8 @@ import {
   type PromptSnapshot,
 } from "../state/prompts"
 import { activeWorkspace } from "../state/workspaces"
-import { Picker, type PickerItem } from "./picker"
+import { Toggle } from "./controls"
+import { Picker } from "./picker"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { AddRule, newRule, RuleList } from "./settings-permissions"
 
@@ -153,75 +154,117 @@ export function PromptsSection() {
   const groups = createMemo(() => agentGroups(engine.state.agents))
   const selectedBase = () => (selected().startsWith("base:") ? selected().slice(5) : undefined)
   const selectedAgent = () => (selected().startsWith("agent:") ? agent(selected().slice(6)) : undefined)
-  const status = (unsaved: boolean, customized: boolean, problem?: string) =>
-    problem ?? (unsaved ? t("drift.settings.prompts.unsaved") : customized ? t("drift.settings.prompts.customized") : undefined)
-  const items = createMemo<PickerItem[]>(() => [
-    ...(base()?.prompts ?? []).map((prompt) => ({
-      id: `base:${prompt.id}`,
-      label: t(familyLabels[prompt.id] ?? prompt.id),
-      group: t("drift.settings.prompts.group.base"),
-      detail: status(baseDirty(prompt.id), prompt.custom !== undefined),
-    })),
-    ...groups().flatMap((group) =>
-      group.agents.map((item) => ({
-        id: `agent:${item.name}`,
-        label: item.name,
-        group: t(group.title),
-        detail: status(agentDirty(item.name), !!override(item.name), item.problem),
-      })),
-    ),
-  ])
-  const picker = () => <Picker label={t("drift.settings.prompts")} items={items()} selected={selected()} floating bordered chevronAtEnd placement="below" width={pickerWidth} onPick={select} />
 
   return (
-    <div>
-      <Show when={selectedBase()}>
-        {(id) => (
-          <BaseEditor
-            id={id()}
-            draft={baseDraft(id())}
-            customized={basePrompt(id())?.custom !== undefined}
-            dirty={baseDirty(id())}
-            loaded={!!base()}
-            picker={picker()}
-            status={<Status error={error()} saved={saved()} />}
-            actions={<Actions saving={saving()} dirty={baseDirty(id()) && !!baseDraft(id()).trim()} resettable={basePrompt(id())?.custom !== undefined || baseDirty(id())} onSave={() => saveBase(id())} onReset={() => resetBase(id())} />}
-            onInput={(value) => setBaseDrafts(id(), value)}
-          />
-        )}
-      </Show>
-      <Show when={selectedAgent()}>
-        {(item) => (
-          <AgentEditor
-            agent={item()}
-            draft={agentDraft(item().name)}
-            baseline={agentBaseline(item().name)}
-            customized={!!override(item().name)}
-            toolNames={toolNames()}
-            picker={picker()}
-            status={<Status error={error()} saved={saved()} />}
-            actions={<Actions saving={saving()} dirty={agentDirty(item().name)} resettable={!!override(item().name) || agentDirty(item().name)} onSave={() => saveAgent(item().name)} onReset={() => resetAgent(item().name)} />}
-            onChange={(change) => setAgentDrafts(item().name, { ...agentDraft(item().name), ...change })}
-          />
-        )}
-      </Show>
+    <div class="flex flex-col gap-6 sm:flex-row">
+      <nav class="flex shrink-0 flex-col sm:w-40" aria-label={t("drift.settings.prompts")}>
+        <ListGroup title={t("drift.settings.prompts.group.base")} first>
+          <For each={base()?.prompts ?? []}>
+            {(prompt) => (
+              <ListItem
+                label={t(familyLabels[prompt.id] ?? prompt.id)}
+                active={selected() === `base:${prompt.id}`}
+                customized={prompt.custom !== undefined}
+                unsaved={baseDirty(prompt.id)}
+                onSelect={() => select(`base:${prompt.id}`)}
+              />
+            )}
+          </For>
+        </ListGroup>
+        <For each={groups()}>
+          {(group) => (
+            <ListGroup title={t(group.title)}>
+              <For each={group.agents}>
+                {(item) => (
+                  <ListItem
+                    label={item.name}
+                    active={selected() === `agent:${item.name}`}
+                    customized={!!override(item.name)}
+                    unsaved={agentDirty(item.name)}
+                    problem={!!item.problem}
+                    onSelect={() => select(`agent:${item.name}`)}
+                  />
+                )}
+              </For>
+            </ListGroup>
+          )}
+        </For>
+      </nav>
+      <div class="min-w-0 flex-1">
+        <Show when={selectedBase()}>
+          {(id) => (
+            <BaseEditor
+              id={id()}
+              draft={baseDraft(id())}
+              customized={basePrompt(id())?.custom !== undefined}
+              dirty={baseDirty(id())}
+              loaded={!!base()}
+              status={<Status error={error()} saved={saved()} />}
+              actions={<Actions saving={saving()} dirty={baseDirty(id()) && !!baseDraft(id()).trim()} resettable={basePrompt(id())?.custom !== undefined || baseDirty(id())} onSave={() => saveBase(id())} onReset={() => resetBase(id())} />}
+              onInput={(value) => setBaseDrafts(id(), value)}
+            />
+          )}
+        </Show>
+        <Show when={selectedAgent()}>
+          {(item) => (
+            <AgentEditor
+              agent={item()}
+              draft={agentDraft(item().name)}
+              baseline={agentBaseline(item().name)}
+              customized={!!override(item().name)}
+              toolNames={toolNames()}
+              status={<Status error={error()} saved={saved()} />}
+              actions={<Actions saving={saving()} dirty={agentDirty(item().name)} resettable={!!override(item().name) || agentDirty(item().name)} onSave={() => saveAgent(item().name)} onReset={() => resetAgent(item().name)} />}
+              onChange={(change) => setAgentDrafts(item().name, { ...agentDraft(item().name), ...change })}
+            />
+          )}
+        </Show>
+      </div>
     </div>
   )
 }
 
-/** The picker choosing what is edited and what it is on the left, Save and Reset on the right. */
-function EditorHeader(props: { picker: JSX.Element; description?: string; customized: boolean; actions: JSX.Element }) {
+/** A section of the list, ruled off from the one above so each reads as its own. */
+function ListGroup(props: { title: string; first?: boolean; children: JSX.Element }) {
+  return (
+    <div classList={{ "mt-4 border-t border-edge pt-4": !props.first }}>
+      <div class="mb-2 px-2 text-[0.68rem] font-semibold tracking-wider text-ink-muted uppercase">{props.title}</div>
+      <div class="space-y-0.5">{props.children}</div>
+    </div>
+  )
+}
+
+function ListItem(props: { label: string; active: boolean; customized: boolean; unsaved: boolean; problem?: boolean; onSelect: () => void }) {
+  return (
+    <button
+      type="button"
+      class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.82rem] outline-none transition-colors focus-visible:bg-raised/60"
+      classList={{ "bg-raised text-ink": props.active, "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active }}
+      aria-current={props.active ? "true" : undefined}
+      onClick={props.onSelect}
+    >
+      <span class="min-w-0 flex-1 truncate">{props.label}</span>
+      <Show when={props.problem}>
+        <span class="size-1.5 shrink-0 rounded-full bg-danger" />
+      </Show>
+      <Show when={props.unsaved}>
+        <span class="shrink-0 text-[0.65rem] text-warn" title={t("drift.settings.prompts.unsaved")}>{t("drift.settings.prompts.unsavedShort")}</span>
+      </Show>
+      <Show when={props.customized && !props.unsaved}>
+        <span class="size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.settings.prompts.customized")} />
+      </Show>
+    </button>
+  )
+}
+
+/** The item's name and what it is on the left, Save and Reset on the right. */
+function EditorHeader(props: { title: string; description?: string; actions: JSX.Element }) {
   return (
     <div class="mb-6 flex items-start gap-4">
       <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-2.5">
-          {props.picker}
-          <Show when={props.customized}>
-            <span class="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[0.65rem] text-accent">{t("drift.settings.prompts.customized")}</span>
-          </Show>
-        </div>
+        <div class="truncate text-base font-semibold text-ink">{props.title}</div>
         <Show when={props.description}>
-          <div class="mt-2 text-[0.78rem] leading-relaxed text-ink-faint">{props.description}</div>
+          <div class="mt-1 text-[0.78rem] leading-relaxed text-ink-faint">{props.description}</div>
         </Show>
       </div>
       {props.actions}
@@ -248,7 +291,6 @@ function BaseEditor(props: {
   customized: boolean
   dirty: boolean
   loaded: boolean
-  picker: JSX.Element
   status: JSX.Element
   actions: JSX.Element
   onInput: (value: string) => void
@@ -256,9 +298,8 @@ function BaseEditor(props: {
   return (
     <div>
       <EditorHeader
-        picker={props.picker}
+        title={t(familyLabels[props.id] ?? props.id)}
         description={t(props.id === "all" ? "drift.settings.prompts.allDescription" : "drift.settings.prompts.familyDescription")}
-        customized={props.customized}
         actions={props.actions}
       />
       <SettingsGroup title={t("drift.settings.prompts.systemPrompt")}>
@@ -286,7 +327,6 @@ function AgentEditor(props: {
   baseline: AgentDraft
   customized: boolean
   toolNames: ToolName[]
-  picker: JSX.Element
   status: JSX.Element
   actions: JSX.Element
   onChange: (change: Partial<AgentDraft>) => void
@@ -314,7 +354,7 @@ function AgentEditor(props: {
   return (
     <div class="space-y-6">
       <div>
-        <EditorHeader picker={props.picker} description={props.agent.description} customized={props.customized} actions={props.actions} />
+        <EditorHeader title={props.agent.name} description={props.agent.description} actions={props.actions} />
         <Show when={props.agent.problem}>
           <div role="alert" class="-mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{props.agent.problem}</div>
         </Show>
@@ -378,17 +418,25 @@ function AgentEditor(props: {
             />
           </SettingsRow>
           <Show when={props.draft.toolMode !== "all"}>
-            <ToolChips
+            <ToolRows
               names={props.toolNames}
               chosen={props.draft.tools}
-              excluding={props.draft.toolMode === "except"}
               onChange={(tools) => props.onChange({ tools })}
             />
+            <Show when={!props.draft.tools.length}>
+              <div class="px-1 py-2.5 text-[0.72rem] text-warn">{t("drift.settings.prompts.tools.none")}</div>
+            </Show>
           </Show>
         </SettingsGroup>
+        <Show when={props.draft.toolMode !== "all"}>
+          <ServerRows
+            names={props.toolNames}
+            chosen={props.draft.tools}
+            onChange={(tools) => props.onChange({ tools })}
+          />
+        </Show>
         <SettingsGroup title={t("drift.settings.permissions")}>
           <div class="space-y-3 py-3">
-            <div class="text-[0.72rem] leading-relaxed text-ink-faint">{t("drift.settings.prompts.permissionsDescription")}</div>
             <RuleList rules={props.draft.permissions} onChange={(permissions) => props.onChange({ permissions })} />
             <AddRule onAdd={() => props.onChange({ permissions: [...props.draft.permissions, newRule()] })} />
           </div>
@@ -400,72 +448,58 @@ function AgentEditor(props: {
 }
 
 /**
- * Built-in tools one chip each; an MCP server one chip for all its tools, since a server can bring
- * dozens (a single MCP tool is narrowed with a permission rule instead). Names the list holds but
- * the engine does not offer here stay as chips of their own.
+ * One row per built-in tool, two to a line. Names the list holds but the engine does not offer here
+ * keep a row of their own so they can still be switched off.
  */
-function ToolChips(props: { names: ToolName[]; chosen: string[]; excluding: boolean; onChange: (tools: string[]) => void }) {
+function ToolRows(props: { names: ToolName[]; chosen: string[]; onChange: (tools: string[]) => void }) {
   const builtIn = createMemo(() => {
     const known = new Set(props.names.map((tool) => tool.name))
     return [...props.names.filter((tool) => !tool.server).map((tool) => tool.name), ...props.chosen.filter((name) => !known.has(name))]
   })
-  const servers = createMemo(() => {
-    const names = [...new Set(props.names.flatMap((tool) => (tool.server ? [tool.server] : [])))].sort()
-    return names.map((server) => ({ server, tools: props.names.filter((tool) => tool.server === server).map((tool) => tool.name) }))
-  })
   const toggle = (name: string) => props.onChange(props.chosen.includes(name) ? props.chosen.filter((item) => item !== name) : [...props.chosen, name])
-  const toggleServer = (tools: string[]) => {
-    const all = tools.every((tool) => props.chosen.includes(tool))
-    props.onChange(all ? props.chosen.filter((name) => !tools.includes(name)) : [...new Set([...props.chosen, ...tools])])
-  }
   return (
-    <div class="space-y-3 py-3">
-      <div>
-        <div class="mb-1.5 text-[0.7rem] text-ink-faint">{t("drift.settings.prompts.builtinTools")}</div>
-        <div class="flex flex-wrap gap-1.5">
-          <For each={builtIn()}>{(name) => <Chip label={name} on={props.chosen.includes(name)} excluding={props.excluding} onToggle={() => toggle(name)} />}</For>
-        </div>
-      </div>
-      <Show when={servers().length}>
-        <div>
-          <div class="mb-1.5 text-[0.7rem] text-ink-faint">{t("drift.settings.prompts.mcpTools")}</div>
-          <div class="flex flex-wrap gap-1.5">
-            <For each={servers()}>
-              {(entry) => {
-                const picked = () => entry.tools.filter((tool) => props.chosen.includes(tool)).length
-                const count = () => (picked() && picked() < entry.tools.length ? `${picked()}/${entry.tools.length}` : String(entry.tools.length))
-                return <Chip label={entry.server} count={count()} on={picked() === entry.tools.length} partial={picked() > 0 && picked() < entry.tools.length} excluding={props.excluding} onToggle={() => toggleServer(entry.tools)} />
-              }}
-            </For>
-          </div>
-        </div>
-      </Show>
-      <Show when={!props.chosen.length}>
-        <div class="text-[0.72rem] text-warn">{t("drift.settings.prompts.tools.none")}</div>
-      </Show>
+    <div class="grid border-t border-edge/70 sm:grid-cols-2 sm:gap-x-8">
+      <For each={builtIn()}>{(name) => <ToolRow label={name} on={props.chosen.includes(name)} onToggle={() => toggle(name)} />}</For>
     </div>
   )
 }
 
-function Chip(props: { label: string; count?: string; on: boolean; partial?: boolean; excluding: boolean; onToggle: () => void }) {
+/** An MCP server is one row for all its tools, since a server can bring dozens; one tool is narrowed with a permission rule. */
+function ServerRows(props: { names: ToolName[]; chosen: string[]; onChange: (tools: string[]) => void }) {
+  const servers = createMemo(() => {
+    const names = [...new Set(props.names.flatMap((tool) => (tool.server ? [tool.server] : [])))].sort()
+    return names.map((server) => ({ server, tools: props.names.filter((tool) => tool.server === server).map((tool) => tool.name) }))
+  })
+  const toggle = (tools: string[]) => {
+    const all = tools.every((tool) => props.chosen.includes(tool))
+    props.onChange(all ? props.chosen.filter((name) => !tools.includes(name)) : [...new Set([...props.chosen, ...tools])])
+  }
   return (
-    <button
-      type="button"
-      class="flex items-center gap-1.5 rounded-md border px-2 py-0.5 font-mono text-[0.7rem] transition-colors"
-      classList={{
-        "border-accent/50 bg-accent/15 text-accent": props.on && !props.excluding,
-        "border-danger/40 bg-danger/10 text-danger line-through": props.on && props.excluding,
-        "border-accent/30 border-dashed text-ink-muted": !!props.partial,
-        "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted": !props.on && !props.partial,
-      }}
-      aria-pressed={props.on}
-      onClick={props.onToggle}
-    >
-      {props.label}
+    <Show when={servers().length}>
+      <SettingsGroup title={t("drift.settings.prompts.mcpTools")}>
+        <div class="grid sm:grid-cols-2 sm:gap-x-8">
+          <For each={servers()}>
+            {(entry) => {
+              const picked = () => entry.tools.filter((tool) => props.chosen.includes(tool)).length
+              const count = () => (picked() && picked() < entry.tools.length ? `${picked()} / ${entry.tools.length}` : String(entry.tools.length))
+              return <ToolRow label={entry.server} count={count()} on={picked() === entry.tools.length} onToggle={() => toggle(entry.tools)} />
+            }}
+          </For>
+        </div>
+      </SettingsGroup>
+    </Show>
+  )
+}
+
+function ToolRow(props: { label: string; count?: string; on: boolean; onToggle: () => void }) {
+  return (
+    <div class="flex min-h-10 cursor-pointer items-center gap-3 border-b border-edge/70 px-1 py-1.5 hover:bg-raised/40" onClick={props.onToggle}>
+      <span class="min-w-0 flex-1 truncate text-[0.82rem] text-ink">{props.label}</span>
       <Show when={props.count}>
-        <span class="text-[0.65rem] text-ink-faint no-underline">{props.count}</span>
+        <span class="shrink-0 text-[0.72rem] text-ink-faint">{props.count}</span>
       </Show>
-    </button>
+      <Toggle label={props.label} checked={props.on} onChange={props.onToggle} />
+    </div>
   )
 }
 
