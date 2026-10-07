@@ -413,7 +413,7 @@ function SettingsModal(props: { onClose: () => void }) {
         aria-modal="true"
         aria-label={t("sidebar.settings")}
         tabIndex={-1}
-        class="fade-up flex h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(42rem,calc(100vh-3rem))] sm:w-[min(54rem,calc(100vw-3rem))]"
+        class="fade-up flex h-[calc((100vh-1rem)/var(--zoom-scale,1))] w-[calc((100vw-1rem)/var(--zoom-scale,1))] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(48rem,calc((100vh-3rem)/var(--zoom-scale,1)))] sm:w-[min(64rem,calc((100vw-3rem)/var(--zoom-scale,1)))]"
         onClick={(event) => event.stopPropagation()}
       >
         <nav class="flex w-13 shrink-0 flex-col overflow-y-auto border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3">
