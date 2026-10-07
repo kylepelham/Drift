@@ -161,7 +161,7 @@ function OrchestratorStatusRow(props: { status: OrchestratorStatus }) {
 /** What a plugin said, as a row like a tool's: its name, then its words on one line. */
 export function PluginRow(props: { part: PluginPart; end?: boolean }) {
   return (
-    <div class="flex min-h-8 min-w-0 items-center gap-2 px-1.5 text-sm" classList={{ "justify-end": props.end }} title={props.part.text}>
+    <div class="flex min-h-8 min-w-0 items-center gap-2 px-1.5 text-sm" classList={{ "w-full justify-end": props.end }} title={props.part.text}>
       <IconPlug class="size-3.5 shrink-0 text-ink-faint" />
       <span class="shrink-0 font-medium text-ink-muted">{props.part.plugin}</span>
       <span class="min-w-0 truncate text-[0.85rem] text-ink-faint">{props.part.text}</span>
