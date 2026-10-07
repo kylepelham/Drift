@@ -111,6 +111,7 @@ import {
   IconKeyboard,
   IconMic,
   IconPalette,
+  IconPlug,
   IconPlus,
   IconSearch,
   IconShieldCheck,
@@ -126,6 +127,7 @@ import { UsageLimitsSection } from "./settings-usage"
 import { VoiceSection } from "./settings-voice"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { McpManagement } from "./mcp"
+import { PluginsSection } from "./settings-plugins"
 import { Toggle } from "./controls"
 import { ProviderIcon } from "./provider-icon"
 import { authorizationPrompt } from "../engine/provider-auth"
@@ -149,7 +151,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Prompts", "Permissions", "Storage", "Remote Access", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Plugins", "Prompts", "Permissions", "Storage", "Remote Access", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -162,6 +164,7 @@ const sectionLabels: Record<Section, string> = {
   Providers: "settings.providers.title",
   Usage: "drift.usage.title",
   MCP: "dialog.mcp.title",
+  Plugins: "drift.settings.plugins",
   Prompts: "drift.settings.prompts",
   Permissions: "drift.settings.permissions",
   Storage: "drift.storage",
@@ -170,7 +173,7 @@ const sectionLabels: Record<Section, string> = {
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Permissions"] },
+  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Plugins", "Prompts", "Permissions"] },
   { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ]
 
@@ -279,6 +282,10 @@ const settingsSearchDefinitions = {
     { title: "drift.settings.prompts.steps" },
     { title: "drift.settings.prompts.tools", description: "drift.settings.prompts.toolsDescription" },
     { title: "drift.settings.permissions", description: "drift.settings.prompts.permissionsDescription" },
+  ],
+  Plugins: [
+    { title: "drift.settings.plugins", description: "drift.plugins.empty" },
+    { title: "drift.plugins.reload" },
   ],
   Permissions: [
     { title: "drift.permissions.rules", description: "drift.permissions.rulesDescription" },
@@ -528,6 +535,9 @@ function SettingsModal(props: { onClose: () => void }) {
                   </Match>
                   <Match when={section() === "MCP"}>
                     <McpManagement embedded />
+                  </Match>
+                  <Match when={section() === "Plugins"}>
+                    <PluginsSection />
                   </Match>
                   <Match when={section() === "Shortcuts"}>
                     <KeybindsSection />
@@ -1864,6 +1874,7 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "Providers") return <IconChip />
     if (props.section === "Usage") return <IconGauge />
     if (props.section === "MCP") return <IconShieldCheck />
+    if (props.section === "Plugins") return <IconPlug />
     if (props.section === "Prompts") return <IconCode />
     if (props.section === "Permissions") return <IconShieldCheck />
     if (props.section === "Storage") return <IconArchive />

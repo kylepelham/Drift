@@ -70,7 +70,7 @@ test("selected language dictionaries translate settings without loading every lo
 test("base prompts and agents are one Server setting, with inherited values styled apart and save only for changes", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
   const editor = await Bun.file("src/ui/settings-prompts.tsx").text()
-  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Permissions"]')
+  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Plugins", "Prompts", "Permissions"]')
   expect(source).toContain("<PromptsSection />")
   expect(await Bun.file("src/ui/settings-base-prompts.tsx").exists()).toBeFalse()
   expect(editor).toContain('"text-ink-faint": !props.customized && !changed()')
@@ -102,6 +102,7 @@ test("settings search covers every category and finds feature descriptions", asy
     "Tools",
     "Providers",
     "MCP",
+    "Plugins",
     "Prompts",
     "Storage",
     "Remote Access",

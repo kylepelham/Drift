@@ -681,6 +681,8 @@ export function createActions(
     basePrompts: () => requireClient().basePrompts(),
     /** Tool names an agent can be limited to: the built-ins and the folder's workspace MCP tools. */
     toolNames: (directory?: string) => requireClient().tools(directory ? workspaces().id(directory) : undefined),
+    plugins: () => requireClient().plugins(),
+    reloadPlugins: () => requireClient().reloadPlugins(),
     saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
     resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),
     permissionRules: () => requireClient().permissionRules(),

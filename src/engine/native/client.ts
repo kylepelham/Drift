@@ -6,6 +6,7 @@ export type Target = { url: string; token: string }
 /** The engine's `MAX_REQUEST_BYTES`: a larger request is cut off mid-upload, which a browser reports only as a failed fetch. */
 export const maxRequestBytes = 64 * 1024 * 1024
 export type Workspace = components["schemas"]["Workspace"]
+export type PluginInfo = components["schemas"]["PluginInfo"]
 export type NewWorkspace = components["schemas"]["NewWorkspace"]
 export type Health = components["schemas"]["Health"]
 export type Frame = components["schemas"]["Frame"]
@@ -97,6 +98,8 @@ export function createClient(target: Target) {
     settings: () => request<Json<"getSettings", 200>>("GET", "/settings"),
     putSettings: (body: components["schemas"]["EngineSettings"]) => request<Json<"putSettings", 200>>("PUT", "/settings", body),
     basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),
+    plugins: () => request<Json<"listPlugins", 200>>("GET", "/plugins"),
+    reloadPlugins: () => request<Json<"reloadPlugins", 200>>("POST", "/plugins/reload"),
     tools: (workspaceId?: string) => request<Json<"listTools", 200>>("GET", `/tools${workspaceId ? `?${new URLSearchParams({ workspace: workspaceId })}` : ""}`),
     saveBasePrompt: (id: string, text: string) => request<Json<"saveBasePrompt", 200>>("PUT", `/prompts/${id}`, { text }),
     resetBasePrompt: (id: string) => request<Json<"resetBasePrompt", 200>>("DELETE", `/prompts/${id}`),
