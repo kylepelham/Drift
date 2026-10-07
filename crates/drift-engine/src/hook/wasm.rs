@@ -429,17 +429,18 @@ impl Hook for WasmPlugin {
 pub(super) mod tests {
     use super::*;
 
-    /// The example plugin, built for the test; `None` when the wasm32-wasip2 target is not installed.
+    /// The example plugin, built into the workspace's own `target/plugins`; `None` when the wasm32-wasip2 target is not installed.
     pub(super) fn guard() -> Option<PathBuf> {
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins/guard");
-        let built = std::process::Command::new("cargo").args(["build", "--release", "--target", "wasm32-wasip2"]).current_dir(&dir).output().expect("cargo runs");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let target = root.join("target/plugins");
+        let built = std::process::Command::new("cargo").args(["build", "--release", "--target", "wasm32-wasip2"]).env("CARGO_TARGET_DIR", &target).current_dir(root.join("plugins/guard")).output().expect("cargo runs");
         if !built.status.success() {
             let stderr = String::from_utf8_lossy(&built.stderr);
             assert!(stderr.contains("wasm32-wasip2"), "guard plugin failed to build: {stderr}");
             eprintln!("skipping: the wasm32-wasip2 target is not installed");
             return None;
         }
-        Some(dir.join("target/wasm32-wasip2/release/guard.wasm"))
+        Some(target.join("wasm32-wasip2/release/guard.wasm"))
     }
 
     pub(super) fn site() -> Site {

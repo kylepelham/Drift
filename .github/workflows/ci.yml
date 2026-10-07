@@ -86,11 +86,10 @@ jobs:
         with:
           targets: wasm32-wasip2
 
+      # The example plugin builds into target/plugins, inside the workspace's own target, which this caches.
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            .
-            plugins/guard
+          workspaces: .
 
       # A fresh runner scans node.exe on its first launch; doing that here keeps it out of the MCP tests' start limit.
       - name: Warm node for the MCP and LSP fixtures
