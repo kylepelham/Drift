@@ -1703,10 +1703,7 @@ export interface components {
         };
         /** @enum {string} */
         RegistryKind: "plugins" | "mcp";
-        /**
-         * @description A registry the user added: a JSON document at an https URL, in the plugin registry's format or
-         *     the MCP registry's.
-         */
+        /** @description A registry the user added: a JSON document over https, in the plugin or the MCP registry's format. */
         RegistrySource: {
             kind: components["schemas"]["RegistryKind"];
             name: string;
