@@ -1415,7 +1415,7 @@ dependencies = [
 
 [[package]]
 name = "drift"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1456,13 +1456,14 @@ dependencies = [
 
 [[package]]
 name = "drift-engine"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
  "bytes",
  "crc32fast",
+ "flate2",
  "futures-util",
  "getrandom 0.3.4",
  "globset",
@@ -1484,6 +1485,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "similar",
+ "tar",
  "tokio",
  "tokio-tungstenite 0.30.0",
  "tokio-util",
@@ -1497,7 +1499,7 @@ dependencies = [
 
 [[package]]
 name = "drift-engined"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "drift-engine",
  "rustls",
@@ -1506,7 +1508,7 @@ dependencies = [
 
 [[package]]
 name = "drift-migrate"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "drift-engine",
  "rusqlite",
