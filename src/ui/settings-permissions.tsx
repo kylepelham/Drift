@@ -62,43 +62,43 @@ function RulesGroup() {
 
   onMount(() => void run(() => engine.actions.permissionRules(), false))
 
+  const actions = (
+    <div class="flex gap-2">
+      <Show when={dirty()}>
+        <button
+          class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+          onClick={() => {
+            setError("")
+            setRules(saved())
+          }}
+        >
+          {t("common.reset")}
+        </button>
+      </Show>
+      <button
+        class="rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink disabled:opacity-40"
+        disabled={busy() || !dirty()}
+        onClick={() => void run(() => engine.actions.savePermissionRules(rules()), true)}
+      >
+        {t("common.save")}
+      </button>
+    </div>
+  )
+
   return (
-    <SettingsGroup title={t("drift.permissions.rules")}>
-      <div class="space-y-3 py-3">
-        <div class="text-xs text-ink-faint">{t("drift.permissions.rulesDescription")}</div>
-        <RuleList rules={rules()} onChange={(next) => {
-          setNotice(false)
-          setRules(next)
-        }} />
+    <SettingsGroup title={t("drift.permissions.rules")} action={actions}>
+      <RuleList rules={rules()} onChange={(next) => {
+        setNotice(false)
+        setRules(next)
+      }} />
+      <div class="flex items-center gap-3 px-1 py-2.5">
+        <AddRule disabled={busy()} onAdd={() => setRules((list) => [...list, newRule()])} />
         <Show when={error()}>
           <div role="alert" class="text-xs text-danger">{error()}</div>
         </Show>
         <Show when={notice()}>
           <div role="status" class="text-xs text-ok">{t("drift.permissions.saved")}</div>
         </Show>
-        <div class="flex items-center justify-between gap-2">
-          <AddRule disabled={busy()} onAdd={() => setRules((list) => [...list, newRule()])} />
-          <div class="flex gap-2">
-            <Show when={dirty()}>
-              <button
-                class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-                onClick={() => {
-                  setError("")
-                  setRules(saved())
-                }}
-              >
-                {t("common.reset")}
-              </button>
-            </Show>
-            <button
-              class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
-              disabled={busy() || !dirty()}
-              onClick={() => void run(() => engine.actions.savePermissionRules(rules()), true)}
-            >
-              {t("common.save")}
-            </button>
-          </div>
-        </div>
       </div>
     </SettingsGroup>
   )
@@ -161,91 +161,86 @@ function GrantsGroup() {
     return grantGroups.map((group) => ({ group, grants: matching.filter((grant) => grantGroup(grant) === group) })).filter((entry) => entry.grants.length)
   })
 
+  const picker = (
+    <Show when={workspaces().length}>
+      <Picker
+        label={t("drift.permissions.workspace")}
+        items={workspaces().map((item) => ({ id: item.id, label: item.name, hint: item.path }))}
+        selected={workspace()?.id}
+        floating bordered chevronAtEnd placement="below" width="13rem"
+        onPick={setChosen}
+      />
+    </Show>
+  )
+
   return (
-    <section>
-      <div class="mb-1.5 flex items-center justify-between gap-3">
-        <div class="text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{t("drift.permissions.grants")}</div>
-        <Show when={workspaces().length}>
-          <Picker
-            label={t("drift.permissions.workspace")}
-            items={workspaces().map((item) => ({ id: item.id, label: item.name, hint: item.path }))}
-            selected={workspace()?.id}
-            floating bordered chevronAtEnd placement="below" width="13rem"
-            onPick={setChosen}
-          />
-        </Show>
-      </div>
-      <div class="space-y-4 border-y border-edge/80 py-3">
-        <Show when={workspace()} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.noWorkspace")}</div>}>
-          {(current) => (
-            <>
-              <div class="flex items-start justify-between gap-3">
-                <div class="text-xs leading-relaxed text-ink-faint">{t("drift.permissions.grantsDescription", { workspace: current().name })}</div>
-                <Show when={grants().length}>
-                  <button
-                    class="shrink-0 rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-danger/50 hover:text-danger disabled:opacity-40"
-                    disabled={busy()}
-                    onClick={() => void run(() => engine.actions.revokeGrant(current().path))}
-                  >
-                    {t("drift.permissions.revokeAll")}
-                  </button>
-                </Show>
-              </div>
+    <SettingsGroup title={t("drift.permissions.grants")} action={picker}>
+      <Show when={workspace()} fallback={<Empty text={t("drift.permissions.noWorkspace")} />}>
+        {(current) => (
+          <Show when={grants().length} fallback={<Empty text={t("drift.permissions.noGrants")} />}>
+            <div class="flex items-center justify-end gap-3 border-b border-edge/70 px-1 py-2.5">
               <Show when={grants().length >= filterFrom}>
                 <input
-                  class="h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-xs text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
+                  class="h-8 min-w-0 flex-1 rounded-md border border-edge bg-raised/45 px-2.5 text-xs text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
                   placeholder={t("drift.permissions.filter")}
                   aria-label={t("drift.permissions.filter")}
                   value={filter()}
                   onInput={(event) => setFilter(event.currentTarget.value)}
                 />
               </Show>
-              <Show when={grants().length} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.noGrants")}</div>}>
-                <For each={shown()}>
-                  {(entry) => (
-                    <div>
-                      <div class="mb-1 flex items-center gap-2 text-[0.72rem] font-medium text-ink-muted">
-                        {t(`drift.permissions.group.${entry.group}`)}
-                        <span class="text-ink-faint">{entry.grants.length}</span>
+              <button
+                class="h-8 shrink-0 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-danger/50 hover:text-danger disabled:opacity-40"
+                disabled={busy()}
+                onClick={() => void run(() => engine.actions.revokeGrant(current().path))}
+              >
+                {t("drift.permissions.revokeAll")}
+              </button>
+            </div>
+            <For each={shown()}>
+              {(entry) => (
+                <>
+                  <div class="flex items-center gap-2 border-b border-edge/70 px-1 pt-4 pb-1.5 text-[0.78rem] font-medium text-ink">
+                    {t(`drift.permissions.group.${entry.group}`)}
+                    <span class="text-ink-faint">{entry.grants.length}</span>
+                  </div>
+                  <For each={entry.grants}>
+                    {(grant) => (
+                      <div class="group/grant flex min-h-9 items-center gap-3 border-b border-edge/70 px-1 py-1.5 last:border-b-0 hover:bg-raised/40">
+                        <Show when={entry.group === "other" || entry.group === "files"}>
+                          <span class="w-16 shrink-0 text-[0.72rem] text-ink-faint">{grant.grant === "subcommand" ? "bash" : grant.kind}</span>
+                        </Show>
+                        <span class="min-w-0 flex-1 truncate font-mono text-[0.74rem] text-ink-muted" title={grantText(grant)}>{grantText(grant)}</span>
+                        <button
+                          type="button"
+                          title={t("drift.permissions.revoke")}
+                          aria-label={t("drift.permissions.revoke")}
+                          class="flex size-6 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-hover/grant:opacity-100 hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 disabled:opacity-30"
+                          disabled={busy()}
+                          onClick={() => void run(() => engine.actions.revokeGrant(current().path, grant))}
+                        >
+                          <IconTrash class="size-3.5" />
+                        </button>
                       </div>
-                      <div class="overflow-hidden rounded-md border border-edge/70">
-                        <For each={entry.grants}>
-                          {(grant) => (
-                            <div class="group/grant flex items-center gap-2 border-b border-edge/50 px-2.5 py-1.5 last:border-b-0 hover:bg-raised/40">
-                              <Show when={entry.group === "other" || entry.group === "files"}>
-                                <span class="shrink-0 rounded bg-raised px-1.5 py-0.5 text-[0.65rem] text-ink-faint">{grant.grant === "subcommand" ? "bash" : grant.kind}</span>
-                              </Show>
-                              <span class="min-w-0 flex-1 truncate font-mono text-[0.72rem] text-ink" title={grantText(grant)}>{grantText(grant)}</span>
-                              <button
-                                type="button"
-                                title={t("drift.permissions.revoke")}
-                                aria-label={t("drift.permissions.revoke")}
-                                class="flex size-6 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-hover/grant:opacity-100 hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 disabled:opacity-30"
-                                disabled={busy()}
-                                onClick={() => void run(() => engine.actions.revokeGrant(current().path, grant))}
-                              >
-                                <IconTrash class="size-3.5" />
-                              </button>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                  )}
-                </For>
-                <Show when={!shown().length}>
-                  <div class="text-xs text-ink-faint">{t("drift.permissions.noMatch")}</div>
-                </Show>
-              </Show>
-            </>
-          )}
-        </Show>
-        <Show when={error()}>
-          <div role="alert" class="text-xs text-danger">{error()}</div>
-        </Show>
-      </div>
-    </section>
+                    )}
+                  </For>
+                </>
+              )}
+            </For>
+            <Show when={!shown().length}>
+              <Empty text={t("drift.permissions.noMatch")} />
+            </Show>
+          </Show>
+        )}
+      </Show>
+      <Show when={error()}>
+        <div role="alert" class="px-1 py-2.5 text-xs text-danger">{error()}</div>
+      </Show>
+    </SettingsGroup>
   )
+}
+
+function Empty(props: { text: string }) {
+  return <div class="px-1 py-3 text-xs text-ink-faint">{props.text}</div>
 }
 
 export const newRule = (): PermissionRule => ({ kind: "bash", pattern: "", decision: "ask" })
@@ -254,11 +249,11 @@ export const newRule = (): PermissionRule => ({ kind: "bash", pattern: "", decis
 export function RuleList(props: { rules: PermissionRule[]; onChange: (rules: PermissionRule[]) => void }) {
   const update = (index: number, change: Partial<PermissionRule>) => props.onChange(props.rules.map((rule, at) => (at === index ? { ...rule, ...change } : rule)))
   return (
-    <Show when={props.rules.length > 0} fallback={<div class="text-xs text-ink-faint">{t("drift.permissions.empty")}</div>}>
-      <div class="space-y-1.5">
+    <Show when={props.rules.length > 0} fallback={<Empty text={t("drift.permissions.empty")} />}>
+      <div>
         <For each={props.rules}>
           {(rule, index) => (
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 border-b border-edge/70 px-1 py-2">
               <Picker
                 label={t("drift.permissions.kind")}
                 items={permissionKinds.map((kind) => ({ id: kind, label: kind === "*" ? t("drift.permissions.kind.all") : kind }))}

@@ -423,7 +423,6 @@ export const drift = {
   "drift.permissions.remove": "ลบกฎ",
   "drift.permissions.saved": "บันทึกแล้ว การเรียกใช้จากนี้จะทำตามกฎเหล่านี้",
   "drift.permissions.grants": "อนุญาตเสมอในพื้นที่ทำงานเดียว",
-  "drift.permissions.grantsDescription": "สิ่งที่คุณตอบว่าเสมอขณะทำงานใน {{workspace}} ใช้ได้เฉพาะพื้นที่ทำงานนั้น เพิกถอนรายการใดแล้ว Drift จะถามอีกครั้ง",
   "drift.permissions.noWorkspace": "เปิดเวิร์กสเปซเพื่อดูสิ่งที่อนุญาตเสมอ",
   "drift.permissions.noGrants": "ไม่มีสิ่งใดที่อนุญาตเสมอในเวิร์กสเปซนี้",
   "drift.permissions.revoke": "เพิกถอน",

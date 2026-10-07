@@ -5,11 +5,14 @@ import type { JSX } from "solid-js"
  * section can be split into its own file without importing back into the module that renders it.
  */
 
-/** A titled block of rows. */
-export function SettingsGroup(props: { title: string; children: JSX.Element }) {
+/** A titled block of rows, with an optional control beside the title. */
+export function SettingsGroup(props: { title: string; action?: JSX.Element; children: JSX.Element }) {
   return (
     <section>
-      <div class="mb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{props.title}</div>
+      <div class="mb-1.5 flex items-center justify-between gap-3">
+        <div class="text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{props.title}</div>
+        {props.action}
+      </div>
       <div class="border-y border-edge/80">{props.children}</div>
     </section>
   )

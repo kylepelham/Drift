@@ -425,7 +425,6 @@ export const drift = {
   "drift.permissions.remove": "Fjern regel",
   "drift.permissions.saved": "Lagret. Kall følger nå disse reglene.",
   "drift.permissions.grants": "Alltid tillatt i ett arbeidsområde",
-  "drift.permissions.grantsDescription": "Det du svarte Alltid på i {{workspace}}. Det gjelder bare i dette arbeidsområdet; tilbakekall ett, så spør Drift igjen.",
   "drift.permissions.noWorkspace": "Åpne et arbeidsområde for å se hva det alltid tillater.",
   "drift.permissions.noGrants": "Ingenting er alltid tillatt i dette arbeidsområdet.",
   "drift.permissions.revoke": "Tilbakekall",

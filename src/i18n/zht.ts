@@ -422,7 +422,6 @@ export const drift = {
   "drift.permissions.remove": "移除規則",
   "drift.permissions.saved": "已儲存。之後的呼叫將遵循這些規則。",
   "drift.permissions.grants": "在單一工作區中一律允許",
-  "drift.permissions.grantsDescription": "你在 {{workspace}} 中回答「一律」的項目。僅在該工作區有效；撤銷後 Drift 下次會再次詢問。",
   "drift.permissions.noWorkspace": "開啟一個工作區以查看它一律允許的動作。",
   "drift.permissions.noGrants": "此工作區中沒有一律允許的動作。",
   "drift.permissions.revoke": "撤銷",

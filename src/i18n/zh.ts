@@ -422,7 +422,6 @@ export const drift = {
   "drift.permissions.remove": "删除规则",
   "drift.permissions.saved": "已保存。之后的调用将遵循这些规则。",
   "drift.permissions.grants": "在单个工作区中始终允许",
-  "drift.permissions.grantsDescription": "你在 {{workspace}} 中回答“始终”的项目。仅在该工作区有效；撤销后 Drift 下次会再次询问。",
   "drift.permissions.noWorkspace": "打开一个工作区以查看它始终允许的操作。",
   "drift.permissions.noGrants": "此工作区中没有始终允许的操作。",
   "drift.permissions.revoke": "撤销",

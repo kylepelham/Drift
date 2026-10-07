@@ -393,7 +393,6 @@ export const drift = {
   "drift.permissions.remove": "Usuń regułę",
   "drift.permissions.saved": "Zapisano. Wywołania od teraz stosują te reguły.",
   "drift.permissions.grants": "Zawsze dozwolone w jednym obszarze roboczym",
-  "drift.permissions.grantsDescription": "To, na co odpowiedziałeś Zawsze w {{workspace}}. Obowiązuje tylko w tym obszarze; cofnij jedno, a Drift znów zapyta.",
   "drift.permissions.noWorkspace": "Otwórz obszar roboczy, aby zobaczyć, na co zawsze zezwala.",
   "drift.permissions.noGrants": "W tym obszarze roboczym nic nie jest zawsze dozwolone.",
   "drift.permissions.revoke": "Cofnij",

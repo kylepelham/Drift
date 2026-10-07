@@ -423,7 +423,6 @@ export const drift = {
   "drift.permissions.remove": "Ukloni pravilo",
   "drift.permissions.saved": "Sačuvano. Pozivi od sada slijede ova pravila.",
   "drift.permissions.grants": "Uvijek dozvoljeno u jednom radnom prostoru",
-  "drift.permissions.grantsDescription": "Ono na što si odgovorio Uvijek u {{workspace}}. Važi samo u tom radnom prostoru; opozovi jedno i Drift će ponovo pitati.",
   "drift.permissions.noWorkspace": "Otvori radni prostor da vidiš šta uvijek dozvoljava.",
   "drift.permissions.noGrants": "U ovom radnom prostoru ništa nije uvijek dozvoljeno.",
   "drift.permissions.revoke": "Opozovi",

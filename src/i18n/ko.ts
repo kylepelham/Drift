@@ -390,7 +390,6 @@ export const drift = {
   "drift.permissions.remove": "규칙 삭제",
   "drift.permissions.saved": "저장했습니다. 이제부터 호출은 이 규칙을 따릅니다.",
   "drift.permissions.grants": "한 작업 공간에서 항상 허용",
-  "drift.permissions.grantsDescription": "{{workspace}}에서 항상이라고 답한 항목입니다. 그 작업 공간에서만 적용되며, 취소하면 다음에 다시 묻습니다.",
   "drift.permissions.noWorkspace": "워크스페이스를 열면 항상 허용하는 작업을 볼 수 있습니다.",
   "drift.permissions.noGrants": "이 워크스페이스에서 항상 허용된 작업이 없습니다.",
   "drift.permissions.revoke": "취소",

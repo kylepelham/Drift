@@ -576,7 +576,6 @@ export const drift = {
   "drift.permissions.remove": "Remove rule",
   "drift.permissions.saved": "Saved. Calls from now on follow these rules.",
   "drift.permissions.grants": "Always allowed in one workspace",
-  "drift.permissions.grantsDescription": "What you answered Always to while working in {{workspace}}. These hold in that workspace only; revoke one and Drift asks again next time.",
   "drift.permissions.noWorkspace": "Open a workspace to see what it always allows.",
   "drift.permissions.noGrants": "Nothing is always allowed in this workspace.",
   "drift.permissions.revoke": "Revoke",

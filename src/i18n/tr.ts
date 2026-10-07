@@ -424,7 +424,6 @@ export const drift = {
   "drift.permissions.remove": "Kuralı kaldır",
   "drift.permissions.saved": "Kaydedildi. Çağrılar artık bu kurallara uyar.",
   "drift.permissions.grants": "Tek bir çalışma alanında her zaman izinli",
-  "drift.permissions.grantsDescription": "{{workspace}} içinde Her zaman diye yanıtladıkların. Yalnızca o çalışma alanında geçerlidir; birini geri al, Drift yeniden sorar.",
   "drift.permissions.noWorkspace": "Her zaman neye izin verdiğini görmek için bir çalışma alanı aç.",
   "drift.permissions.noGrants": "Bu çalışma alanında her zaman izinli hiçbir şey yok.",
   "drift.permissions.revoke": "Geri al",

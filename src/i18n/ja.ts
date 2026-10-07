@@ -391,7 +391,6 @@ export const drift = {
   "drift.permissions.remove": "ルールを削除",
   "drift.permissions.saved": "保存しました。今後の呼び出しはこのルールに従います。",
   "drift.permissions.grants": "1 つのワークスペースで常に許可",
-  "drift.permissions.grantsDescription": "{{workspace}} で「常に」と答えたもの。そのワークスペースでのみ有効です。取り消すと次回また確認します。",
   "drift.permissions.noWorkspace": "ワークスペースを開くと、常に許可されている操作が表示されます。",
   "drift.permissions.noGrants": "このワークスペースで常に許可されているものはありません。",
   "drift.permissions.revoke": "取り消す",

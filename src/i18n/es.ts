@@ -424,7 +424,6 @@ export const drift = {
   "drift.permissions.remove": "Quitar regla",
   "drift.permissions.saved": "Guardado. Desde ahora las llamadas siguen estas reglas.",
   "drift.permissions.grants": "Siempre permitido en un espacio de trabajo",
-  "drift.permissions.grantsDescription": "Lo que respondiste con Siempre en {{workspace}}. Solo vale en ese espacio de trabajo; revoca uno y Drift volverá a preguntar.",
   "drift.permissions.noWorkspace": "Abre un espacio de trabajo para ver lo que siempre permite.",
   "drift.permissions.noGrants": "No hay nada siempre permitido en este espacio de trabajo.",
   "drift.permissions.revoke": "Revocar",

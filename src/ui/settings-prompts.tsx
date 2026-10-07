@@ -436,8 +436,8 @@ function AgentEditor(props: {
           />
         </Show>
         <SettingsGroup title={t("drift.settings.permissions")}>
-          <div class="space-y-3 py-3">
-            <RuleList rules={props.draft.permissions} onChange={(permissions) => props.onChange({ permissions })} />
+          <RuleList rules={props.draft.permissions} onChange={(permissions) => props.onChange({ permissions })} />
+          <div class="px-1 py-2.5">
             <AddRule onAdd={() => props.onChange({ permissions: [...props.draft.permissions, newRule()] })} />
           </div>
         </SettingsGroup>

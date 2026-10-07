@@ -389,7 +389,6 @@ export const drift = {
   "drift.permissions.remove": "إزالة القاعدة",
   "drift.permissions.saved": "تم الحفظ. تتبع الاستدعاءات هذه القواعد من الآن.",
   "drift.permissions.grants": "مسموح دائمًا في مساحة عمل واحدة",
-  "drift.permissions.grantsDescription": "ما أجبت عنه بـ دائمًا أثناء العمل في {{workspace}}. يسري في تلك المساحة فقط؛ ألغِ أحدها وسيسأل Drift مجددًا.",
   "drift.permissions.noWorkspace": "افتح مساحة عمل لترى ما تسمح به دائمًا.",
   "drift.permissions.noGrants": "لا شيء مسموح به دائمًا في مساحة العمل هذه.",
   "drift.permissions.revoke": "إلغاء",

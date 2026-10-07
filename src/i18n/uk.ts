@@ -423,7 +423,6 @@ export const drift = {
   "drift.permissions.remove": "Видалити правило",
   "drift.permissions.saved": "Збережено. Відтепер виклики дотримуються цих правил.",
   "drift.permissions.grants": "Завжди дозволено в одній робочій області",
-  "drift.permissions.grantsDescription": "Те, на що ви відповіли «Завжди» в {{workspace}}. Діє лише в цій робочій області; відкличте одне, і Drift спитає знову.",
   "drift.permissions.noWorkspace": "Відкрийте робочу область, щоб побачити, що в ній завжди дозволено.",
   "drift.permissions.noGrants": "У цій робочій області нічого не дозволено завжди.",
   "drift.permissions.revoke": "Відкликати",

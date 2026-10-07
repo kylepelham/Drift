@@ -392,7 +392,6 @@ export const drift = {
   "drift.permissions.remove": "Regel entfernen",
   "drift.permissions.saved": "Gespeichert. Aufrufe folgen ab jetzt diesen Regeln.",
   "drift.permissions.grants": "Immer erlaubt in einem Arbeitsbereich",
-  "drift.permissions.grantsDescription": "Was du in {{workspace}} mit Immer beantwortet hast. Das gilt nur in diesem Arbeitsbereich; widerrufe einen Eintrag, und Drift fragt beim nächsten Mal wieder.",
   "drift.permissions.noWorkspace": "Öffne einen Arbeitsbereich, um zu sehen, was er immer erlaubt.",
   "drift.permissions.noGrants": "In diesem Arbeitsbereich ist nichts immer erlaubt.",
   "drift.permissions.revoke": "Widerrufen",
