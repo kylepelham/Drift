@@ -57,7 +57,7 @@ test("selected language dictionaries translate settings without loading every lo
   expect(t("settings.general.row.language.title")).toBe("Idioma")
   expect(t("common.reset")).toBe("Restablecer")
   expect(t("drift.remote.title")).toBe("Remote Access")
-  expect(t("drift.settings.prompts")).toBe("Prompts")
+  expect(t("drift.settings.promptsAgents")).toBe("Prompts y agentes")
   expect(t("drift.slash.spawn.required")).toBe("Say what the new thread should do after /spawn.")
   expect(t("drift.attachment.kind.pdf")).toBe("PDF")
   expect(reasoningLevelLabel("xhigh")).toBe("Muy alto")
@@ -67,21 +67,21 @@ test("selected language dictionaries translate settings without loading every lo
   expect(t("common.reset")).toBe("Reset")
 })
 
-test("prompt and agent editors are separate Server settings with inherited-value styling", async () => {
+test("base prompts and agents are one Server setting, with inherited values styled apart and save only for changes", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"]')
-  expect(source).toContain("<BasePromptsSection />")
-  expect(source).toContain("<PromptEditorSection />")
-  expect(source).toContain('"text-ink-faint": !agentPromptModified()')
-  expect(source).toContain('"text-ink-faint": !agentBehaviorModified()')
-  expect(source).toContain("disabled={props.disabled || !props.dirty}")
+  const editor = await Bun.file("src/ui/settings-prompts.tsx").text()
+  expect(source).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Permissions"]')
+  expect(source).toContain("<PromptsSection />")
+  expect(await Bun.file("src/ui/settings-base-prompts.tsx").exists()).toBeFalse()
+  expect(editor).toContain('"text-ink-faint": !props.customized && !changed("prompt")')
+  expect(editor).toContain("disabled={props.saving || !props.dirty}")
 })
 
 test("model-family base prompts are edited and reset in the engine, never through the shell's family overrides", async () => {
   const settings = await Bun.file("src/ui/settings.tsx").text()
-  const editor = await Bun.file("src/ui/settings-base-prompts.tsx").text()
-  expect(editor).toContain("engine.actions.saveBasePrompt(selected(), draft())")
-  expect(editor).toContain("engine.actions.resetBasePrompt(selected())")
+  const editor = await Bun.file("src/ui/settings-prompts.tsx").text()
+  expect(editor).toContain("engine.actions.saveBasePrompt(id, baseDraft(id))")
+  expect(editor).toContain("engine.actions.resetBasePrompt(id)")
   expect(editor).not.toContain("readOnly")
   expect(settings).not.toContain("`family:")
   expect(settings).not.toContain("familyUnavailable")
@@ -103,7 +103,6 @@ test("settings search covers every category and finds feature descriptions", asy
     "Providers",
     "MCP",
     "Prompts",
-    "Agents",
     "Storage",
     "Remote Access",
     "About",
@@ -150,8 +149,8 @@ test("agent overrides saved or reset reach the engine for desktop and companion 
     expect(body.trimEnd().endsWith("crate::native::push_agent_overrides(&app, &store)")).toBeTrue()
     expect(remote).toContain(`prompts::${command}(`)
   }
-  const ui = await Bun.file("src/ui/settings.tsx").text()
-  expect(ui).toContain("await action()\n      await engine.actions.refreshAgents()")
+  const ui = await Bun.file("src/ui/settings-prompts.tsx").text()
+  expect(ui).toContain("await write()\n      await engine.actions.refreshAgents()")
   expect(ui).toContain('t("drift.settings.prompts.saved")')
   expect(ui).not.toContain("showRestartNotice")
 })
@@ -166,7 +165,7 @@ const pendingKeys = (prefix: string, suffixes: string) =>
 const pendingTranslation = new Set([
   ...pendingKeys("drift.thread", "openSubagent"),
   ...pendingKeys("drift.settings.autoCompact", "title description"),
-  ...pendingKeys("drift.settings.prompts", "behaviorFields behaviorRefused"),
+  ...pendingKeys("drift.settings.prompts", "behaviorRefused"),
   "drift.message.forkHere",
   ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
   "drift.markdown.linkFailed",
@@ -249,14 +248,7 @@ const pendingTranslation = new Set([
       sessions.placeholder transcript transcript.placeholder
     `,
   ),
-  ...pendingKeys(
-    "drift.settings.prompts",
-    `
-      agentDescription agentPrompt agents behavior familyDescription inheritsFamily invalidJson
-      modelFamilies saved saveBeforeSwitch systemPrompt
-    `,
-  ),
-  "drift.settings.prompts",
+  ...pendingKeys("drift.settings.prompts", "agentPrompt familyDescription inheritsFamily saved systemPrompt"),
   "drift.shortcuts.findInSession",
   ...pendingKeys(
     "drift.slash",

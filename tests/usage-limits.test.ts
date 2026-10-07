@@ -130,7 +130,7 @@ test("settings lists usage for every linked provider and forced refresh skips th
   await refreshUsage("zai-coding-plan", Date.now(), true)
   expect(invoke.mock.calls.length).toBe(calls + 1)
   const settings = await Bun.file("src/ui/settings.tsx").text()
-  expect(settings).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"]')
+  expect(settings).toContain('items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Permissions"]')
   expect(settings).toContain("<UsageLimitsSection />")
   const section = await Bun.file("src/ui/settings-usage.tsx").text()
   expect(section).toContain("engine.state.connected.includes(provider.id)")

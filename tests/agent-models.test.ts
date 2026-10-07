@@ -1,11 +1,6 @@
 import { expect, test } from "bun:test"
 import type { ModelInfo, ProviderInfo } from "../src/engine/store"
-import {
-  agentBehaviorModel,
-  agentModelCapability,
-  agentModelOptions,
-  withAgentModel,
-} from "../src/state/agent-models"
+import { agentModelCapability, agentModelOptions } from "../src/state/agent-models"
 import { agentBehaviorIssue, agentOverrideValue, applicableOverride } from "../src/state/prompts"
 import { hiddenModelIds, setHiddenModelIds } from "../src/state/prefs"
 
@@ -75,29 +70,44 @@ test("utility agent choices include text models without tool calling and exclude
   ])
 })
 
-test("model selection preserves prompt, permissions, and custom behavior", () => {
-  const config = { prompt: "Review carefully", permission: { edit: "deny" }, temperature: 0.2, vendorOption: { enabled: true } }
-  const selected = withAgentModel(JSON.stringify(config), "provider/vendor/reviewer")
-  expect(JSON.parse(selected)).toEqual({ ...config, model: "provider/vendor/reviewer" })
-  expect(agentBehaviorModel(selected)).toBe("provider/vendor/reviewer")
-  expect(agentOverrideValue(JSON.parse(selected), config)).toEqual({ model: "provider/vendor/reviewer" })
+test("picking a model changes only the model and keeps every other field", async () => {
+  const { configOf, draftOf } = await import("../src/ui/settings-prompts")
+  const baseline = { prompt: "Review carefully", permissions: [{ kind: "edit", pattern: "*", decision: "deny" }], steps: 12 }
+  const draft = { ...draftOf(baseline), model: "provider/vendor/reviewer" }
+  const config = configOf(draft, baseline) as Record<string, unknown>
+  expect(config).toEqual({ ...baseline, model: "provider/vendor/reviewer" })
+  expect(agentOverrideValue(config, baseline)).toEqual({ model: "provider/vendor/reviewer" })
 })
 
-test("Current model is dynamic inheritance and explicitly masks an underlying model pin", () => {
-  expect(agentBehaviorModel("{}")).toBe("")
-  const baseline = { model: "provider/smart", prompt: "Keep prompt", mode: "subagent" }
-  const inherited = withAgentModel(JSON.stringify(baseline), "")
-  expect(agentBehaviorModel(inherited)).toBe("")
-  expect(JSON.parse(inherited)).toEqual({ ...baseline, model: "" })
-  const override = agentOverrideValue(JSON.parse(inherited), baseline, { prompt: "Keep prompt", model: "provider/smart" })
-  expect(override).toEqual({ prompt: "Keep prompt", model: "" })
-  expect(agentBehaviorModel(JSON.stringify({ ...baseline, ...override }))).toBe("")
+test("Current model is dynamic inheritance and explicitly masks an underlying model pin", async () => {
+  const { configOf, draftOf } = await import("../src/ui/settings-prompts")
+  expect(draftOf({}).model).toBe("")
+  const baseline = { model: "provider/smart", prompt: "Keep prompt" }
+  const config = configOf({ ...draftOf(baseline), model: "" }, baseline) as Record<string, unknown>
+  expect(config.model, "an emptied pin is sent as empty, not left out").toBe("")
+  expect(agentOverrideValue(config, baseline, { prompt: "Keep prompt", model: "provider/smart" })).toEqual({ prompt: "Keep prompt", model: "" })
+  expect(configOf(draftOf({ prompt: "No pin" }), { prompt: "No pin" })).toEqual({ prompt: "No pin" })
 })
 
-test("editing behavior JSON updates the model selection, including unavailable saved models", () => {
-  expect(agentBehaviorModel('{"model":"removed-provider/old-model"}')).toBe("removed-provider/old-model")
-  expect(agentBehaviorModel('{"model":"different-provider/new-model"}')).toBe("different-provider/new-model")
-  expect(agentBehaviorModel('{"prompt":"No pin"}')).toBe("")
+test("a saved model no longer offered still shows as the selection", async () => {
+  const { draftOf } = await import("../src/ui/settings-prompts")
+  expect(draftOf({ model: "removed-provider/old-model" }).model).toBe("removed-provider/old-model")
+})
+
+test("the form refuses a broken JSON block or a field the engine would not apply", async () => {
+  const { configOf, draftOf } = await import("../src/ui/settings-prompts")
+  expect(configOf({ ...draftOf({}), advanced: "{ tools: " }, {})).toBeString()
+  expect(configOf({ ...draftOf({}), advanced: "[]" }, {})).toBeString()
+  expect(configOf({ ...draftOf({}), steps: "0" }, {}), "steps must be positive").toBeString()
+  expect(configOf({ ...draftOf({}), advanced: '{"temperature": 0.2}' }, {}), "only tools and permissions belong there").toBeString()
+  expect(configOf({ ...draftOf({}), steps: "8", variant: " high " }, {})).toEqual({ prompt: "", steps: 8, variant: "high" })
+})
+
+test("agents are listed as picked in the composer, delegated to, then run by Drift itself", async () => {
+  const { agentGroups } = await import("../src/ui/settings-prompts")
+  const agent = (name: string, mode: "primary" | "subagent" | "all", hidden = false) => ({ name, description: "", mode, hidden, builtIn: true, tools: [] })
+  const groups = agentGroups([agent("plan", "primary"), agent("title", "primary", true), agent("explore", "subagent"), agent("build", "all"), agent("general", "subagent")])
+  expect(groups.map((group) => group.agents.map((item) => item.name))).toEqual([["build", "plan"], ["explore", "general"], ["title"]])
 })
 
 test("the behavior editor refuses what the engine would not apply, naming the field", () => {
@@ -124,9 +134,4 @@ test("a stored override keeps only fields the engine still applies", () => {
     steps: 3,
     tools: ["read"],
   })
-})
-
-test.each(["{", "null", "[]", '"string"', "42"])("choosing a model does not replace invalid behavior JSON: %s", (behavior) => {
-  expect(agentBehaviorModel(behavior)).toBeUndefined()
-  expect(() => withAgentModel(behavior, "provider/model")).toThrow()
 })

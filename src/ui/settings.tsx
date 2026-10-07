@@ -2,7 +2,6 @@ import type { ProviderAuthMethod } from "../engine/shapes"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
-import type { AgentInfo } from "../engine/store"
 import { filePreviewTypes } from "../file-preview-types"
 import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs"
 import {
@@ -28,7 +27,6 @@ import {
   type SyntaxThemePreset,
 } from "../state/code"
 import { t } from "../state/i18n"
-import { agentBehaviorModel, agentModelCapability, agentModelOptions, withAgentModel } from "../state/agent-models"
 import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
 import { language, languages, setLanguage, type LanguageId } from "../state/language"
 import { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } from "../state/lm-studio"
@@ -86,16 +84,6 @@ import {
   type SplashExitAnimation,
   type SplashMascotAnimation,
 } from "../state/startup"
-import {
-  agentBehaviorIssue,
-  agentOverrideValue,
-  applicableOverride,
-  loadPromptSnapshot,
-  resetPromptOverride,
-  savePromptOverride,
-  type PromptOverride,
-  type PromptSnapshot,
-} from "../state/prompts"
 import { requestNotificationPermission } from "./notifications"
 import {
   codeFont,
@@ -142,7 +130,7 @@ import { Toggle } from "./controls"
 import { ProviderIcon } from "./provider-icon"
 import { authorizationPrompt } from "../engine/provider-auth"
 import { Picker } from "./picker"
-import { BasePromptsSection } from "./settings-base-prompts"
+import { PromptsSection } from "./settings-prompts"
 import { PermissionsSection } from "./settings-permissions"
 import { Chevron } from "./controls"
 import { playAlertSound, soundOptions } from "./sounds"
@@ -161,7 +149,7 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions", "Storage", "Remote Access", "About"] as const
+const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Prompts", "Permissions", "Storage", "Remote Access", "About"] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -174,8 +162,7 @@ const sectionLabels: Record<Section, string> = {
   Providers: "settings.providers.title",
   Usage: "drift.usage.title",
   MCP: "dialog.mcp.title",
-  Prompts: "drift.settings.prompts",
-  Agents: "settings.agents.title",
+  Prompts: "drift.settings.promptsAgents",
   Permissions: "drift.settings.permissions",
   Storage: "drift.storage",
   "Remote Access": "drift.remote.title",
@@ -183,7 +170,7 @@ const sectionLabels: Record<Section, string> = {
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
   { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"] },
+  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Permissions"] },
   { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ]
 
@@ -282,15 +269,16 @@ const settingsSearchDefinitions = {
     { title: "drift.mcp.form.headers" },
   ],
   Prompts: [
-    { title: "drift.settings.prompts.modelFamilies", description: "drift.settings.prompts.familyDescription" },
+    { title: "drift.settings.prompts.group.base", description: "drift.settings.prompts.familyDescription" },
     { title: "drift.settings.prompts.systemPrompt", description: "drift.settings.prompts.allDescription" },
     { title: "drift.settings.prompts.sharedRules", description: "drift.settings.prompts.sharedDescription" },
-  ],
-  Agents: [
-    { title: "drift.settings.prompts.agents", description: "drift.settings.prompts.agentDescription" },
+    { title: "settings.agents.title", description: "drift.settings.prompts.agentsDescription" },
+    { title: "drift.settings.prompts.group.subagents" },
     { title: "command.category.model" },
     { title: "drift.settings.prompts.agentPrompt", description: "drift.settings.prompts.inheritsFamily" },
-    { title: "drift.settings.prompts.behavior" },
+    { title: "drift.settings.prompts.variant" },
+    { title: "drift.settings.prompts.steps" },
+    { title: "drift.settings.prompts.advanced", description: "drift.settings.prompts.advancedFields" },
   ],
   Permissions: [
     { title: "drift.permissions.rules", description: "drift.permissions.rulesDescription" },
@@ -545,10 +533,7 @@ function SettingsModal(props: { onClose: () => void }) {
                     <KeybindsSection />
                   </Match>
                   <Match when={section() === "Prompts"}>
-                    <BasePromptsSection />
-                  </Match>
-                  <Match when={section() === "Agents"}>
-                    <PromptEditorSection />
+                    <PromptsSection />
                   </Match>
                   <Match when={section() === "Permissions"}>
                     <PermissionsSection />
@@ -1558,286 +1543,6 @@ function KeybindsSection() {
   )
 }
 
-function PromptEditorSection() {
-  const engine = useEngine()
-  const [snapshot, setSnapshot] = createSignal<PromptSnapshot | null>(null)
-  const [agentName, setAgentName] = createSignal("build")
-  const [agentPrompt, setAgentPrompt] = createSignal("")
-  const [agentBehavior, setAgentBehavior] = createSignal("{}")
-  const [agentPromptBaseline, setAgentPromptBaseline] = createSignal("")
-  const [agentBehaviorBaseline, setAgentBehaviorBaseline] = createSignal("{}")
-  const [showSavedNotice, setShowSavedNotice] = createSignal(false)
-  const [error, setError] = createSignal("")
-  const [saving, setSaving] = createSignal(false)
-  const override = (key: string) => snapshot()?.overrides.find((item) => item.key === key)
-  const agentOverridden = () => !!override(`agent:${agentName()}`)
-  const agentDirty = () => agentPrompt() !== agentPromptBaseline() || agentBehavior() !== agentBehaviorBaseline()
-  const agentOverrideFields = () => {
-    const storedValue = override(`agent:${agentName()}`)?.value
-    if (!storedValue || typeof storedValue !== "object" || Array.isArray(storedValue)) return {}
-    return storedValue as Record<string, unknown>
-  }
-  const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
-  const agentBehaviorModified = () =>
-    agentBehavior() !== agentBehaviorBaseline() || Object.keys(agentOverrideFields()).some((key) => key !== "prompt")
-  const modelCapability = () => agentModelCapability(currentAgent())
-  const inheritedModelLabel = () =>
-    currentAgent()?.name === "title"
-      ? t("drift.settings.agents.automaticSmallModel")
-      : currentAgent()?.name === "compaction"
-        ? t("drift.settings.agents.currentSessionModel")
-        : t("drift.settings.agents.currentModel")
-  const agentModels = createMemo(() => [
-    { id: "", label: inheritedModelLabel() },
-    ...agentModelOptions(engine.state, modelCapability() ?? "tools"),
-  ])
-  const selectedAgentModel = () => agentBehaviorModel(agentBehavior())
-
-  function selectAgentModel(model: string) {
-    try {
-      setAgentBehavior(withAgentModel(agentBehavior(), model))
-      setError("")
-    } catch {
-      setError(t("drift.settings.prompts.invalidJson"))
-    }
-  }
-
-  async function load() {
-    const next = await loadPromptSnapshot().catch((cause) => {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      return null
-    })
-    setSnapshot(next)
-  }
-
-  onMount(() => void load())
-
-  // Splits a resolved agent config into the two editors: the prompt gets its own textarea, every
-  // other field is edited as raw JSON. Both editors reset their baseline so nothing reads as dirty.
-  function loadAgentEditors(config: ReturnType<typeof agentConfig>) {
-    const { prompt: promptField, ...behavior } = config
-    const prompt = typeof promptField === "string" ? promptField : ""
-    const serialized = JSON.stringify(behavior, null, 2)
-    setAgentPrompt(prompt)
-    setAgentPromptBaseline(prompt)
-    setAgentBehavior(serialized)
-    setAgentBehaviorBaseline(serialized)
-  }
-
-  function currentAgent() {
-    return engine.state.agents.find((item) => item.name === agentName())
-  }
-
-  createEffect(() => {
-    if (agentDirty()) return
-    const storedOverride = override(`agent:${agentName()}`)
-    loadAgentEditors(agentConfig(currentAgent(), storedOverride))
-  })
-
-  async function mutate(action: () => Promise<void>, clean: () => void) {
-    setSaving(true)
-    setError("")
-    setShowSavedNotice(false)
-    try {
-      await action()
-      await engine.actions.refreshAgents()
-      clean()
-      await load()
-      setShowSavedNotice(true)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function saveAgent() {
-    let behavior: unknown
-    try {
-      behavior = JSON.parse(agentBehavior())
-    } catch {
-      setError(t("drift.settings.prompts.invalidJson"))
-      return
-    }
-    if (!behavior || typeof behavior !== "object" || Array.isArray(behavior)) {
-      setError(t("drift.settings.prompts.invalidJson"))
-      return
-    }
-    const issue = agentBehaviorIssue(behavior as Record<string, unknown>)
-    if (issue) {
-      setError(t("drift.settings.prompts.behaviorRefused", { field: issue }))
-      return
-    }
-    const key = `agent:${agentName()}`
-    const storedOverride = override(key)
-    const existing =
-      storedOverride?.value && typeof storedOverride.value === "object"
-        ? applicableOverride(storedOverride.value as Record<string, unknown>)
-        : {}
-    const baseline = JSON.parse(agentBehaviorBaseline()) as Record<string, unknown>
-    const value = agentOverrideValue(
-      { ...(behavior as object), prompt: agentPrompt() },
-      { ...baseline, prompt: agentPromptBaseline() },
-      existing,
-    )
-    // A baseline stored before the engine narrowed agent overrides still names retired fields, which the shell now refuses.
-    const recorded = storedOverride?.original
-    const original = recorded && typeof recorded === "object" ? applicableOverride(recorded as Record<string, unknown>) : agentConfig(currentAgent())
-    const action = Object.keys(value).length
-      ? () => savePromptOverride(key, value, original)
-      : () => resetPromptOverride(key)
-    void mutate(action, () => {
-      setAgentPromptBaseline(agentPrompt())
-      setAgentBehaviorBaseline(agentBehavior())
-    })
-  }
-
-  function resetAgent() {
-    const key = `agent:${agentName()}`
-    if (override(key)) {
-      return void mutate(() => resetPromptOverride(key), () => {
-        setAgentPromptBaseline(agentPrompt())
-        setAgentBehaviorBaseline(agentBehavior())
-      })
-    }
-    loadAgentEditors(agentConfig(currentAgent()))
-  }
-
-  return (
-    <div class="space-y-6">
-      <Show
-        when={snapshot()}
-        fallback={
-          <Show when={!error()}>
-            <div class="px-2 text-sm text-ink-faint">{t("common.loading")}</div>
-          </Show>
-        }
-      >
-              <SettingsGroup title={t("drift.settings.prompts.agents")}>
-              <div class="space-y-3 py-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="text-xs text-ink-faint">{t("drift.settings.prompts.agentDescription")}</div>
-                  <Picker
-                    label={t("drift.settings.prompts.agents")}
-                    items={engine.state.agents.map((agent) => ({ id: agent.name, label: agent.name, hint: agent.description }))}
-                    selected={agentName()}
-                    floating bordered chevronAtEnd placement="below" width="11rem"
-                    onPick={(value) => {
-                      if (agentDirty()) {
-                        setError(t("drift.settings.prompts.saveBeforeSwitch"))
-                        return
-                      }
-                      setAgentName(value)
-                    }}
-                  />
-                </div>
-                <Show when={modelCapability()}>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-xs text-ink-faint">{t("command.category.model")}</span>
-                    <Picker
-                      label={t("command.category.model")}
-                      items={agentModels()}
-                      selected={selectedAgentModel()}
-                      fallbackLabel={selectedAgentModel() || inheritedModelLabel()}
-                      floating bordered chevronAtEnd placement="below" width="11rem"
-                      onPick={selectAgentModel}
-                    />
-                  </div>
-                </Show>
-                <label class="block text-xs text-ink-faint">
-                  <span class="mb-1 block">{t("drift.settings.prompts.agentPrompt")}</span>
-                  <textarea
-                    class="h-48 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
-                    classList={{ "text-ink": agentPromptModified(), "text-ink-faint": !agentPromptModified() }}
-                    spellcheck={false}
-                    placeholder={t("drift.settings.prompts.inheritsFamily")}
-                    value={agentPrompt()}
-                    onInput={(event) => {
-                      const value = event.currentTarget.value
-                      setAgentPrompt(value)
-                    }}
-                  />
-                </label>
-                <label class="block text-xs text-ink-faint">
-                  <span class="mb-1 block">{t("drift.settings.prompts.behavior")}</span>
-                  <textarea
-                    class="h-40 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
-                    classList={{ "text-ink": agentBehaviorModified(), "text-ink-faint": !agentBehaviorModified() }}
-                    spellcheck={false}
-                    value={agentBehavior()}
-                    onInput={(event) => {
-                      const value = event.currentTarget.value
-                      setAgentBehavior(value)
-                    }}
-                  />
-                  <span class="mt-1 block">{t("drift.settings.prompts.behaviorFields")}</span>
-                </label>
-                <PromptActions
-                  disabled={saving()}
-                  dirty={agentDirty()}
-                  overridden={agentOverridden()}
-                  onSave={saveAgent}
-                  onReset={resetAgent}
-                />
-              </div>
-              </SettingsGroup>
-      </Show>
-      <Show when={showSavedNotice()}>
-        <div class="text-xs text-accent">{t("drift.settings.prompts.saved")}</div>
-      </Show>
-      <Show when={error()}>
-        <div class="text-xs text-danger">{error()}</div>
-      </Show>
-    </div>
-  )
-}
-
-function PromptActions(props: {
-  disabled: boolean
-  dirty: boolean
-  overridden: boolean
-  onSave: () => void
-  onReset: () => void
-}) {
-  return (
-    <div class="flex justify-end gap-2">
-      <button
-        class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-        disabled={props.disabled || (!props.dirty && !props.overridden)}
-        onClick={props.onReset}
-      >
-        {t("common.reset")}
-      </button>
-      <button
-        class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-        disabled={props.disabled || !props.dirty}
-        onClick={props.onSave}
-      >
-        {t("common.save")}
-      </button>
-    </div>
-  )
-}
-
-/** The agent as the engine runs it, in the fields Settings can change: nothing shown here goes unapplied. */
-function agentConfig(agent: AgentInfo | undefined, storedOverride?: PromptOverride) {
-  const restored =
-    storedOverride?.value && typeof storedOverride.value === "object"
-      ? applicableOverride(storedOverride.value as Record<string, unknown>)
-      : undefined
-  if (!agent) return restored ? { ...restored } : {}
-  return {
-    prompt: agent.prompt,
-    model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
-    steps: agent.steps,
-    permissions: agent.permissions?.length ? agent.permissions : undefined,
-    variant: agent.variant,
-    // An empty list is every tool; showing none keeps the editor from offering an override that would mean the same.
-    tools: agent.tools.length ? agent.tools : undefined,
-    ...restored,
-  }
-}
-
 const websiteUrl = "https://driftagent.dev"
 
 function AboutSection() {
@@ -2160,7 +1865,6 @@ function SectionIcon(props: { section: Section }) {
     if (props.section === "Usage") return <IconGauge />
     if (props.section === "MCP") return <IconShieldCheck />
     if (props.section === "Prompts") return <IconCode />
-    if (props.section === "Agents") return <IconSliders />
     if (props.section === "Permissions") return <IconShieldCheck />
     if (props.section === "Storage") return <IconArchive />
     if (props.section === "Remote Access") return <IconShieldCheck />

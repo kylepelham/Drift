@@ -5,7 +5,7 @@
 1. The engine: agents, commands and skills as Markdown files (`~/.config/drift/{agents,commands,skills}`
    for your own, `.drift/` in a project), `drift.json` settings (model, permission rules,
    providers, formatters, checks, language servers, instruction files, skill paths), MCP
-   servers (see [mcp.md](mcp.md)), and per-family base prompts in Settings > Prompts. The engine
+   servers (see [mcp.md](mcp.md)), and per-family base prompts in Settings > Prompts and agents. The engine
    runs no JavaScript and loads no plugins; its only plugin seam is an internal `Hook` trait,
    planned for M5 in `CHECKLIST.md`. Plugins written for opencode are named in the import
    summary and not run.
@@ -134,22 +134,29 @@ running is left out. The copy keeps compaction markers, so it continues from the
 
 ## Prompt and agent editing
 
-Settings > Prompts edits the base prompt each model family starts with: GPT and Codex, Claude,
+Settings > Prompts and agents holds every prompt Drift sends, in one list beside one editor: the
+base prompts, then Agents (picked in the composer), Subagents (delegated to) and Background (titles
+and compaction, which Drift runs itself). A dot marks an item that has been customized and
+"Unsaved" one with edits not yet saved. Edits are kept per item, so moving to another item and
+back loses nothing, and Save and Reset act on the item shown.
+
+The base prompts are the one each model family starts with: GPT and Codex, Claude,
 Gemini and other models, plus one for all models that a family's own replacement overrides.
 They are the engine's (`GET`, `PUT` and `DELETE /prompts`); a replacement takes effect at each
 conversation's next turn. The rules Drift always adds after the base prompt (tools and
 `<system-reminder>`, the worktree, the shape of answers) are shown read-only and never replaced.
 
-Settings > Agents edits each agent's prompt, model, steps, tools, permission rules and default
-reasoning level. Drift keeps those edits in its store as `agent:<name>` overrides and hands them
+An agent's editor has its prompt, its model (subagents and background jobs only; an agent picked
+in the composer runs on the conversation's), its default reasoning level and its step limit as
+plain fields, and its tools and permission rules as a small JSON block. Drift keeps those edits in its store as `agent:<name>` overrides and hands them
 to the engine, which applies them from the agent's next turn; a field the engine would not
 apply is refused rather than stored. Reset removes the override and shows the agent as its
 file or the built-in defines it. Saving refreshes the agent list for both desktop and
 companion clients.
 ### Agent models
 
-In Settings > Agents, select a subagent type such as `explore`, `general`, or a custom
-agent, then choose its Model. The compact row aligns with the agent selector. The searchable list includes tool-capable models
+In Settings > Prompts and agents, select a subagent such as `explore`, `general`, or a custom
+agent, then choose its Model. The searchable list includes tool-capable models
 from connected providers, including models hidden from the composer. LM Studio models
 must meet its loaded-context requirement. Save the agent to apply to new tasks from idle
 sessions. Tasks launched by an already active session keep that session's configuration
@@ -161,8 +168,8 @@ An explicit choice stores the engine's `provider/model-id` under the existing SQ
 `agent:<name>` override. Selecting Current model stores an empty model string, which
 masks any lower-precedence agent model and restores task model inheritance. Reset removes
 the whole Drift agent override and restores the underlying agent configuration instead.
-Prompt and behavior edits are preserved when changing the model. The picker and behavior
-JSON edit the same value; unavailable saved models remain visible by ID until changed.
+Changing the model leaves every other field as it was; an unavailable saved model remains
+visible by ID until changed.
 
 Built-in primary agents are `build`, `plan` (read-only) and `orchestrator`, which is offered no
 tool that edits or runs commands and delegates every change to subagents; its replies end in a
@@ -178,7 +185,7 @@ row, and the prompt that leaves the orchestrator tells the model its protocol no
 
 Built-in subagents are `general` (the default `task` type, full tools) and `explore` (read-only
 search); a workspace `.drift/agents/<name>.md` with `mode: subagent` adds another. All appear in
-Settings > Agents with their prompts and model pickers, never in the composer. A workspace agent
+Settings > Prompts and agents with their prompts and model pickers, never in the composer. A workspace agent
 with `mode: all`, or no `mode` at all (as opencode reads one), is both: in the composer and offered
 for delegation. `hidden: true` keeps one out of the composer; `disable: true` removes it. The engine runs a
 `task` subagent on its agent's pinned model, falling back to the parent's.

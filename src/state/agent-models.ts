@@ -34,24 +34,3 @@ export function agentModelOptions(
       }))
   })
 }
-
-export function agentBehaviorModel(behavior: string): string | undefined {
-  try {
-    const config = parseAgentBehavior(behavior)
-    return typeof config.model === "string" ? config.model : ""
-  } catch {
-    return undefined
-  }
-}
-
-export function withAgentModel(behavior: string, model: string) {
-  const config = parseAgentBehavior(behavior)
-  // An empty model masks lower-precedence agent pins and restores parent-model inheritance.
-  return JSON.stringify({ ...config, model }, null, 2)
-}
-
-function parseAgentBehavior(behavior: string): Record<string, unknown> {
-  const config: unknown = JSON.parse(behavior)
-  if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("Invalid agent configuration")
-  return config as Record<string, unknown>
-}

@@ -266,7 +266,7 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
 
 #### Per-action models
 
-Every job the engine does can run on its own model, chosen under Settings > Agents.
+Every job the engine does can run on its own model, chosen under Settings > Prompts and agents.
 
 | Agent | Kind | Runs | Default model |
 | --- | --- | --- | --- |
@@ -2232,7 +2232,7 @@ engine's start is what 1.3 waited on.
   read-only agent replied carries a reminder, in the request only, that the read-only limits no
   longer apply (`prompt::remind_agents`); it stays on that prompt in later requests, so the
   prefix is unchanged, and later prompts follow a reply by the new agent, so they get none. Each MCP server whose tools the turn offers adds its initialize `instructions`
-  under "# Instructions from the <name> MCP server" (`prompt::Setting`). Settings > Prompts
+  under "# Instructions from the <name> MCP server" (`prompt::Setting`). Settings > Prompts and agents
   edits the base prompts in the engine (`GET /prompts`, `PUT` and `DELETE /prompts/{id}`, one
   setting `basePrompt:{id}` each): "All models" (`all`) replaces every family's text, and a
   family's own replacement wins over it (`prompt::base_for`). A replacement is never empty (reset
