@@ -15,6 +15,7 @@ import { loadRegistrySources, registrySources, sourcesOf } from "../../state/reg
 import { useEngine } from "../../engine"
 import { IconArrowUp, IconArrowUpRight, IconCheck, IconKey, IconPlus, IconSearch, IconSliders } from "../icons"
 import { RegistrySourcesSheet } from "../registry-sources"
+import { LogoTile } from "../logo-tile"
 
 type Filter = "all" | "remote" | "local"
 type Entry = { server: RegistryServer; options: InstallOption[] }
@@ -240,7 +241,7 @@ function RegistryCard(props: { entry: Entry; installed: boolean; onOpen: () => v
       onClick={props.onOpen}
     >
       <div class="flex min-w-0 items-start gap-2.5">
-        <Logo server={server()} />
+        <LogoTile image={server().listing?.image} title={title(server())} />
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-1.5">
             <span class="truncate text-sm font-medium text-ink">{title(server())}</span>
@@ -280,7 +281,7 @@ function InstallSheet(props: {
         {t("drift.mcp.registry.back")}
       </button>
       <div class="flex items-start gap-3">
-        <Logo server={server()} large />
+        <LogoTile image={server().listing?.image} title={title(server())} large />
         <div class="min-w-0 flex-1">
           <div class="text-base font-semibold text-ink">{title(server())}</div>
           <Byline server={server()} />
@@ -396,31 +397,6 @@ function Byline(props: { server: RegistryServer }) {
         )}
       </Show>
     </div>
-  )
-}
-
-/** The server's logo, or its initial on a tile when it has none or it does not load. */
-function Logo(props: { server: RegistryServer; large?: boolean }) {
-  const [failed, setFailed] = createSignal(false)
-  const size = () => (props.large ? "size-12 text-lg" : "size-9 text-sm")
-  return (
-    <Show
-      when={props.server.listing?.image && !failed()}
-      fallback={
-        <div class={`${size()} flex shrink-0 items-center justify-center rounded-lg bg-raised font-semibold text-ink-muted`} aria-hidden="true">
-          {title(props.server).slice(0, 1).toUpperCase()}
-        </div>
-      }
-    >
-      <img
-        src={props.server.listing!.image}
-        alt=""
-        loading="lazy"
-        referrerpolicy="no-referrer"
-        class={`${size()} shrink-0 rounded-lg border border-edge/60 bg-raised object-cover`}
-        onError={() => setFailed(true)}
-      />
-    </Show>
   )
 }
 

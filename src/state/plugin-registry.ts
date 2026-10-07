@@ -8,7 +8,8 @@ export type RegistryPlugin = {
   name: string
   description: string
   category: string
-  icon?: string
+  /** Its picture, an https image URL; the tile shows its initial without one. */
+  image?: string
   hooks: string[]
   config: ConfigField[]
   version: string

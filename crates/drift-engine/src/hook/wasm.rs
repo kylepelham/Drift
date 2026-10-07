@@ -148,6 +148,9 @@ impl process::Host for State {
             command.args(&args).current_dir(&workspace).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
             crate::platform::process::use_current_path(&mut command, &Default::default());
             crate::platform::process::prepare(&mut command);
+            // No console window for the child, as the shell tool spawns.
+            #[cfg(windows)]
+            command.creation_flags(0x0800_0000);
             let child = command.spawn().map_err(|error| format!("{program}: {error}"))?;
             let output = tokio::time::timeout(limit, child.wait_with_output()).await.map_err(|_| format!("{program} ran past {} ms", limit.as_millis()))?.map_err(|error| error.to_string())?;
             Ok(process::Output { code: output.status.code().unwrap_or(-1), stdout: bounded(output.stdout, OUTPUT_BYTES), stderr: bounded(output.stderr, OUTPUT_BYTES) })

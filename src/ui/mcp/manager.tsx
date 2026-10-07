@@ -2,11 +2,13 @@ import { createEffect, createMemo, createSignal, For, onMount, Show, type JSX } 
 import { useEngine } from "../../engine"
 import type { McpServerConfig, McpServerStatus } from "../../engine/store"
 import { registryInstallName, type RegistryServer } from "../../mcp-registry"
+import { createRegistrySearch } from "../../state/mcp-registry-search"
 import { t } from "../../state/i18n"
 import { activeWorkspace } from "../../state/workspaces"
 import { openExternal } from "../../shell"
 import { Toggle } from "../controls"
 import { IconPlug, IconPlugOff, IconPlus, IconSquarePen, IconTrash } from "../icons"
+import { forgetMcpLogo, LogoTile, mcpLogos, rememberMcpLogo } from "../logo-tile"
 import { McpEditor } from "./editor"
 import { McpRegistry } from "./registry"
 
@@ -82,7 +84,24 @@ export function McpManagement(props: { embedded?: boolean }) {
       setLoading(false)
     }
   }
-  onMount(() => void refresh())
+  onMount(() => void refresh().then(fillLogos))
+  /** Servers installed before logos were remembered take theirs from the registry catalog, when it has them. */
+  const fillLogos = async () => {
+    const missing = rowNames().filter((name) => !mcpLogos()[name])
+    if (!missing.length) return
+    const registry = createRegistrySearch()
+    try {
+      const result = await registry.search("")
+      for (const server of result.servers) {
+        const name = registryInstallName(server)
+        if (missing.includes(name)) rememberMcpLogo(name, server.listing?.image)
+      }
+    } catch {
+      return
+    } finally {
+      registry.dispose()
+    }
+  }
   /** One change at a time, owned by the row it acts on, so only that row shows it working. */
   const run = async (name: string, action: () => Promise<unknown>, success?: string) => {
     if (busy()) return false
@@ -116,7 +135,10 @@ export function McpManagement(props: { embedded?: boolean }) {
   }
   const remove = async (name: string) => {
     if (confirmRemove() !== name) return setConfirmRemove(name)
-    if (await run(name, () => engine.actions.mcpRemove(name), t("drift.mcp.removed", { name }))) setConfirmRemove("")
+    if (await run(name, () => engine.actions.mcpRemove(name), t("drift.mcp.removed", { name }))) {
+      setConfirmRemove("")
+      forgetMcpLogo(name)
+    }
   }
   const runtime = (server: McpServerStatus, action: RuntimeAction) =>
     void run(server.name, () => (action === "connect" ? engine.actions.mcpConnect(server.name, here()) : engine.actions.mcpDisconnect(server.name, here())))
@@ -126,6 +148,7 @@ export function McpManagement(props: { embedded?: boolean }) {
   /** Installs and connects; a server that answers with a sign-in request has its sign-in page opened at once. */
   const install = async (server: RegistryServer, config: McpServerConfig) => {
     const name = registryInstallName(server)
+    rememberMcpLogo(name, server.listing?.image)
     const done = await run(name, async () => {
       const status = await engine.actions.mcpSave(name, config, { create: true, directory: here() })
       if (status.needsSignIn) openExternal(await engine.actions.mcpSignIn(name))
@@ -304,6 +327,7 @@ function ServerRow(props: {
       }}
     >
       <div class="flex items-start gap-3">
+        <LogoTile image={mcpLogos()[props.server.name]} title={props.server.name} />
         <div class="min-w-0 flex-1">
           <div class="truncate text-sm font-medium text-ink">{props.server.name}</div>
           <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
