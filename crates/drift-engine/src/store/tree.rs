@@ -31,10 +31,12 @@ impl Store {
             .query_map(params![source_id, through], |row| row.get(0))?
             .collect()
         })?;
+
         let result = self.finish_fork(source_id, &session.id, through, &messages);
         if matches!(&result, Ok(Some(_))) {
             return result;
         }
+
         let cleanup = self
             .lock()
             .prepare_cached("DELETE FROM session WHERE id = ?1")
@@ -58,6 +60,7 @@ impl Store {
         if messages.last().is_none_or(|id| id != through) || !self.copy_pages(messages, fork_id)? {
             return Ok(None);
         }
+
         transaction(&self.lock(), |conn| {
             super::reads::copy_reads(conn, source_id, fork_id, through)?;
             conn.prepare_cached("UPDATE session SET archived_at = NULL WHERE id = ?1")?
@@ -79,8 +82,10 @@ impl Store {
                 return Ok(false);
             }
         }
+
         Ok(true)
     }
+
     /// The session and its subagents, at any depth. Branches are independent and stay behind.
     pub fn session_tree(&self, id: &str) -> rusqlite::Result<Vec<String>> {
         self.lock()
@@ -105,6 +110,7 @@ impl Store {
             let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
             rows.collect::<rusqlite::Result<_>>()?
         };
+
         let mut blobs: HashMap<String, std::collections::BTreeSet<String>> = HashMap::new();
         for (session_workspace, json) in rows {
             let Ok(Part::ToolCall {
@@ -129,6 +135,7 @@ impl Store {
                 );
             }
         }
+
         Ok(blobs
             .into_iter()
             .map(|(owner, set)| (owner, set.into_iter().collect()))
@@ -165,6 +172,7 @@ fn copy_message(
     if copied == 0 {
         return Ok(false);
     }
+
     copies.insert(source.to_string(), message_id.clone());
     // The copy names the same images, so they stay as long as either message does.
     conn.prepare_cached("INSERT INTO blob_ref(hash, message_id) SELECT hash, ?1 FROM blob_ref WHERE message_id = ?2")?
@@ -177,6 +185,7 @@ fn copy_message(
             Ok((row.get(0)?, row.get::<_, Option<bool>>(1)?.unwrap_or(false)))
         })?
         .collect::<rusqlite::Result<_>>()?;
+
     for (part, boundary) in parts {
         let copy = id::new("prt");
         if boundary {
@@ -194,6 +203,7 @@ fn copy_message(
         }
         conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json, provider_signature) SELECT ?1, ?2, ?3, json, provider_signature FROM part WHERE id = ?4")?.execute(params![copy, message_id, session_id, part])?;
     }
+
     Ok(true)
 }
 
@@ -218,6 +228,7 @@ fn copy_boundary(
     if let Part::Compaction { tail_from, .. } = &mut parsed {
         *tail_from = tail_from.as_ref().and_then(|tail| copies.get(tail).cloned());
     }
+
     conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)")?
         .execute(params![
             destination.part_id,
@@ -225,6 +236,7 @@ fn copy_boundary(
             destination.session_id,
             parsed.stored()
         ])?;
+
     Ok(())
 }
 

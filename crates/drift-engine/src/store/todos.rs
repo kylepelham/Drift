@@ -11,6 +11,7 @@ impl Store {
             .prepare_cached("SELECT json FROM todo WHERE session_id = ?1")?
             .query_row([session_id], |row| row.get(0))
             .optional()?;
+
         Ok(json
             .and_then(|json| serde_json::from_str(&json).ok())
             .unwrap_or_default())
@@ -23,6 +24,7 @@ impl Store {
                  ON CONFLICT(session_id) DO UPDATE SET json = ?2, updated_at = ?3",
             )?
             .execute(params![session_id, serde_json::to_string(todos).unwrap(), id::now_ms()])?;
+
         Ok(())
     }
 }

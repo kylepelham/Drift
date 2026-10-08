@@ -47,15 +47,8 @@ impl Store {
             }
             let session = session_from(child, None);
             insert_session(conn, &session)?;
-            let task_id = id::new("task");
-            let state = if new.mode == Mode::Background {
-                TaskState::Queued
-            } else {
-                TaskState::Running
-            };
-            conn.prepare_cached(&format!("INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL)"))?
-                .execute(params![task_id, new.parent_session_id, session.id, new.call_id, new.description, new.agent, new.mode.as_str(), new.reason, state.as_str(), id::now_ms(), new.generation])?;
-            let task = query_one(conn, "id = ?1", &[&task_id])?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            let task = insert_task(conn, &new, &session.id)?;
+
             Ok(Launch {
                 task,
                 child: session,
@@ -81,15 +74,8 @@ impl Store {
                 });
             }
             let child = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-            let task_id = id::new("task");
-            let state = if new.mode == Mode::Background {
-                TaskState::Queued
-            } else {
-                TaskState::Running
-            };
-            conn.prepare_cached(&format!("INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL)"))?
-                .execute(params![task_id, new.parent_session_id, session_id, new.call_id, new.description, new.agent, new.mode.as_str(), new.reason, state.as_str(), id::now_ms(), new.generation])?;
-            let task = query_one(conn, "id = ?1", &[&task_id])?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+            let task = insert_task(conn, &new, session_id)?;
+
             Ok(Launch {
                 task,
                 child,
@@ -123,6 +109,7 @@ impl Store {
             .lock()
             .prepare_cached("UPDATE task SET state = 'running' WHERE id = ?1 AND state = 'queued'")?
             .execute([task_id])?;
+
         Ok(changed == 1)
     }
 
@@ -132,6 +119,7 @@ impl Store {
             .lock()
             .prepare_cached("UPDATE task SET state = ?2, result = ?3, finished_at = ?4 WHERE id = ?1 AND state IN ('queued', 'running')")?
             .execute(params![task_id, state.as_str(), result, id::now_ms()])?;
+
         Ok(changed == 1)
     }
 
@@ -140,6 +128,7 @@ impl Store {
         self.lock()
             .prepare_cached("UPDATE task SET delivered = 1 WHERE id = ?1")?
             .execute([task_id])?;
+
         Ok(())
     }
 
@@ -151,6 +140,7 @@ impl Store {
                 "UPDATE task SET held = 1, delivery_error = NULL WHERE id = ?1 AND delivered = 0 AND held = 0",
             )?
             .execute([task_id])?;
+
         Ok(changed == 1)
     }
 
@@ -159,6 +149,7 @@ impl Store {
         self.lock()
             .prepare_cached("UPDATE task SET delivery_error = ?2 WHERE id = ?1 AND delivered = 0")?
             .execute(params![task_id, reason])?;
+
         Ok(())
     }
 
@@ -211,8 +202,9 @@ impl Store {
         let found = self
             .lock()
             .prepare_cached("SELECT generation FROM stop_generation WHERE session_id = ?1")?
-            .query_row([session_id], |r| r.get(0))
+            .query_row([session_id], |row| row.get(0))
             .optional()?;
+
         Ok(found.unwrap_or(0))
     }
 
@@ -220,7 +212,7 @@ impl Store {
     pub fn bump_stop_generation(&self, session_id: &str) -> rusqlite::Result<i64> {
         self.lock()
             .prepare_cached("INSERT INTO stop_generation(session_id, generation) VALUES(?1, 1) ON CONFLICT(session_id) DO UPDATE SET generation = generation + 1 RETURNING generation")?
-            .query_row([session_id], |r| r.get(0))
+            .query_row([session_id], |row| row.get(0))
     }
 }
 
@@ -229,7 +221,35 @@ pub(super) fn acknowledge(conn: &Connection, task_id: &str, parent: &str) -> rus
     let changed = conn
         .prepare_cached("UPDATE task SET delivered = 1, delivery_error = NULL WHERE id = ?1 AND parent_session_id = ?2 AND delivered = 0 AND state NOT IN ('queued', 'running')")?
         .execute([task_id, parent])?;
+
     Ok(changed == 1)
+}
+
+fn insert_task(conn: &Connection, new: &NewTask<'_>, session_id: &str) -> rusqlite::Result<TaskRecord> {
+    let task_id = id::new("task");
+    let state = if new.mode == Mode::Background {
+        TaskState::Queued
+    } else {
+        TaskState::Running
+    };
+    let sql = format!(
+        "INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL)"
+    );
+    conn.prepare_cached(&sql)?.execute(params![
+        task_id,
+        new.parent_session_id,
+        session_id,
+        new.call_id,
+        new.description,
+        new.agent,
+        new.mode.as_str(),
+        new.reason,
+        state.as_str(),
+        id::now_ms(),
+        new.generation,
+    ])?;
+
+    query_one(conn, "id = ?1", &[&task_id])?.ok_or(rusqlite::Error::QueryReturnedNoRows)
 }
 
 fn query_one(conn: &Connection, filter: &str, args: &[&str]) -> rusqlite::Result<Option<TaskRecord>> {

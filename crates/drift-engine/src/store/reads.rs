@@ -9,6 +9,7 @@ impl Store {
         self.lock()
             .prepare_cached("INSERT OR IGNORE INTO read_file(session_id, path, at) VALUES(?1, ?2, ?3)")?
             .execute(params![session_id, path, crate::id::stamp()])?;
+
         Ok(())
     }
 
@@ -26,8 +27,10 @@ pub(super) fn copy_reads(conn: &Connection, source_id: &str, fork_id: &str, thro
         .prepare_cached("SELECT MIN(id) FROM message WHERE session_id = ?1 AND id > ?2")?
         .query_row(params![source_id, through], |row| row.get(0))?;
     let before = next.as_deref().and_then(crate::id::stamp_of).unwrap_or(i64::MAX);
+
     conn.prepare_cached("INSERT INTO read_file(session_id, path, at) SELECT ?2, path, at FROM read_file WHERE session_id = ?1 AND at < ?3")?
         .execute(params![source_id, fork_id, before])?;
+
     Ok(())
 }
 

@@ -21,6 +21,7 @@ impl Store {
         self.lock()
             .prepare_cached("INSERT OR REPLACE INTO staged_replacement(staged, destination, backup, swapped, created_at) VALUES(?1, ?2, ?3, ?4, ?5)")?
             .execute(params![replacement.staged, replacement.destination, replacement.backup, replacement.swapped, id::now_ms()])?;
+
         Ok(())
     }
 
@@ -29,6 +30,7 @@ impl Store {
         self.lock()
             .prepare_cached("UPDATE staged_replacement SET swapped = 1 WHERE staged = ?1")?
             .execute([staged])?;
+
         Ok(())
     }
 
@@ -37,6 +39,7 @@ impl Store {
         if staged.is_empty() {
             return Ok(());
         }
+
         transaction(&self.lock(), |conn| {
             for path in staged {
                 conn.prepare_cached("DELETE FROM staged_replacement WHERE staged = ?1")?

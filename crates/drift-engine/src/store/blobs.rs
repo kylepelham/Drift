@@ -12,6 +12,7 @@ impl Store {
     /// Stores `data` once, however often it is put, and records that `message_id` names it; returns its hash.
     pub fn put_blob(&self, message_id: &str, data: &[u8]) -> rusqlite::Result<String> {
         let hash = crate::hex_bytes(&sha2::Sha256::digest(data));
+
         transaction(&self.lock(), |conn| {
             conn.prepare_cached("INSERT OR IGNORE INTO blob(hash, data, created_at) VALUES(?1, ?2, ?3)")?
                 .execute(params![hash, data, id::now_ms()])?;
@@ -19,6 +20,7 @@ impl Store {
                 .execute(params![hash, message_id])?;
             Ok(())
         })?;
+
         Ok(hash)
     }
 

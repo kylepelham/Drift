@@ -74,6 +74,7 @@ pub fn open_file(file: &Path) -> rusqlite::Result<Store> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "mmap_size", MMAP_SIZE_BYTES)?;
     migrations::apply(&conn)?;
+
     Ok(Store::new(conn))
 }
 
@@ -96,6 +97,7 @@ impl Store {
             "SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE removed_at IS NULL ORDER BY last_used DESC"
         ))?;
         let rows = stmt.query_map([], map_workspace)?;
+
         rows.collect()
     }
 
@@ -110,6 +112,7 @@ impl Store {
             )?
             .query_row([path], |row| row.get(0))
             .optional()?;
+
         let id = match existing {
             Some(id) => {
                 conn.prepare_cached("UPDATE workspace SET removed_at = NULL, last_used = ?2 WHERE id = ?1")?
@@ -125,9 +128,11 @@ impl Store {
                 id
             }
         };
+
         let workspace = conn
             .prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE id = ?1"))?
             .query_row([&id], map_workspace)?;
+
         Ok(workspace)
     }
 }
@@ -143,10 +148,12 @@ impl Store {
         if removed != Some(true) {
             return Ok(None);
         }
+
         let ids = conn
             .prepare_cached("SELECT id FROM session WHERE workspace_id = ?1")?
             .query_map([id], |row| row.get(0))?
             .collect::<rusqlite::Result<_>>()?;
+
         Ok(Some(ids))
     }
 

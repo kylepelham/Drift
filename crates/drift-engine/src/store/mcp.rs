@@ -22,6 +22,7 @@ impl Store {
         for ((server, tool), name) in tools.iter().zip(&names) {
             keep.execute(params![server, tool, name])?;
         }
+
         Ok(names)
     }
 
@@ -51,6 +52,7 @@ impl Store {
         let conn = self.lock();
         let mut stmt = conn.prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config ORDER BY name"))?;
         let rows = stmt.query_map([], stored)?.collect::<rusqlite::Result<Vec<_>>>()?;
+
         rows.into_iter().map(|stored| with_choices(&conn, stored)).collect()
     }
 
@@ -68,9 +70,11 @@ impl Store {
              ON CONFLICT(name) DO UPDATE SET config_json = ?2, updated_at = ?3, era = NULL",
         )?
         .execute(params![name, json, id::now_ms()])?;
+
         let row = conn
             .prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?
             .query_row([name], map_row)?;
+
         choices_of(&conn, row)
     }
 
@@ -81,6 +85,7 @@ impl Store {
             .lock()
             .prepare_cached("UPDATE mcp_config SET era = ?3 WHERE name = ?1 AND config_json = ?2")?
             .execute(params![name, json, era.map(Era::as_str)])?;
+
         Ok(changed > 0)
     }
 
@@ -90,6 +95,7 @@ impl Store {
             .lock()
             .prepare_cached("UPDATE mcp_config SET read_only_trusted = ?2 WHERE name = ?1")?
             .execute(params![name, trusted])?;
+
         Ok(changed > 0)
     }
 
@@ -141,6 +147,7 @@ impl Store {
         if server_in(&conn, from)?.is_none() {
             return Ok(None);
         }
+
         if conn
             .prepare_cached("UPDATE mcp_config SET name = ?2, updated_at = ?3 WHERE name = ?1")?
             .execute(params![from, to, id::now_ms()])?
@@ -148,7 +155,7 @@ impl Store {
         {
             return Ok(None);
         }
-        // Its tools are named after it, so they take new names; the old ones are free again.
+        // Renaming a server releases its old wire names so the new server name can determine them.
         conn.prepare_cached("DELETE FROM mcp_tool_name WHERE server = ?1")?
             .execute([from])?;
         let row = conn
@@ -201,6 +208,7 @@ fn server_in(conn: &Connection, name: &str) -> rusqlite::Result<Option<ServerRow
         .prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?
         .query_row([name], stored)
         .optional()?;
+
     found
         .and_then(Stored::readable)
         .map(|row| choices_of(conn, row))
@@ -218,17 +226,21 @@ fn with_choices(conn: &Connection, stored: Stored) -> rusqlite::Result<Stored> {
 fn choices_of(conn: &Connection, mut row: ServerRow) -> rusqlite::Result<ServerRow> {
     row.workspaces = conn
         .prepare_cached("SELECT c.workspace_id, w.path, c.enabled FROM mcp_workspace c JOIN workspace w ON w.id = c.workspace_id WHERE c.server = ?1 ORDER BY c.workspace_id")?
-        .query_map([&row.name], |r| Ok(WorkspaceChoice { workspace_id: r.get(0)?, path: r.get(1)?, enabled: r.get(2)? }))?
+        .query_map([&row.name], |workspace| Ok(WorkspaceChoice {
+            workspace_id: workspace.get(0)?, path: workspace.get(1)?, enabled: workspace.get(2)?,
+        }))?
         .collect::<rusqlite::Result<_>>()?;
+
     Ok(row)
 }
 
 fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {
     let json: String = row.get(1)?;
     let config = serde_json::from_str(&json)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(e)))?;
+        .map_err(|error| rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(error)))?;
     let hash = config_hash(&config);
     let era = row.get::<_, Option<String>>(4)?.as_deref().and_then(Era::parse);
+
     Ok(ServerRow {
         name: row.get(0)?,
         config,

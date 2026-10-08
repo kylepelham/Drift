@@ -50,6 +50,7 @@ impl Store {
             }
             own
         };
+
         ImportCheckpoints { store: self, conn }
     }
 
@@ -66,6 +67,7 @@ impl Store {
         let unfinished = conn
             .prepare_cached("SELECT 1 FROM imported_session WHERE id = ?1 AND complete = 0")?
             .exists([session_id])?;
+
         Ok(!unfinished
             && conn
                 .prepare_cached("SELECT 1 FROM session WHERE id = ?1")?
@@ -96,6 +98,7 @@ impl Store {
                 }
                 None => {}
             }
+
             insert_session(conn, session, Some(id::now_ms()))?;
             conn.prepare_cached("INSERT INTO imported_session(id, imported_at, complete) VALUES(?1, ?2, 0)")?
                 .execute(params![session.id, id::now_ms()])?;
@@ -165,13 +168,14 @@ fn insert_session(conn: &Connection, session: &Session, archived_at: Option<i64>
         visibility_str(session.visibility),
         session.title,
         session.agent,
-        session.model.as_ref().map(|m| &m.provider),
-        session.model.as_ref().map(|m| &m.model),
+        session.model.as_ref().map(|model| &model.provider),
+        session.model.as_ref().map(|model| &model.model),
         session.created_at,
         session.updated_at,
         archived_at,
         session.variant
     ])?;
+
     Ok(())
 }
 
@@ -185,8 +189,8 @@ fn insert_message(conn: &Connection, message: &Message) -> rusqlite::Result<()> 
         message.session_id,
         role_str(message.role),
         status_str(message.status),
-        message.model.as_ref().map(|m| &m.provider),
-        message.model.as_ref().map(|m| &m.model),
+        message.model.as_ref().map(|model| &model.provider),
+        message.model.as_ref().map(|model| &model.model),
         serde_json::to_string(&message.usage).unwrap(),
         message.cost,
         message.error,
@@ -196,6 +200,7 @@ fn insert_message(conn: &Connection, message: &Message) -> rusqlite::Result<()> 
         message.agent,
         message.ending.map(crate::session::types::Ending::as_str)
     ])?;
+
     Ok(())
 }
 
