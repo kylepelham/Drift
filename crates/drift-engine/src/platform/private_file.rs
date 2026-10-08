@@ -47,6 +47,7 @@ fn replace(from: &Path, to: &Path) -> io::Result<()> {
     let wide = |path: &Path| path.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
     let (from, to) = (wide(from), wide(to));
     for attempt in 0..20 {
+        // SAFETY: both path buffers are NUL-terminated and remain live for the move operation.
         if unsafe {
             MoveFileExW(
                 from.as_ptr(),
@@ -84,6 +85,7 @@ pub fn restrict(path: &Path) -> io::Result<()> {
     let descriptor: Vec<u16> = descriptor.encode_utf16().chain([0]).collect();
     let name: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
     let mut security = std::ptr::null_mut();
+    // SAFETY: strings are NUL-terminated; the allocated descriptor stays live until LocalFree below.
     unsafe {
         if ConvertStringSecurityDescriptorToSecurityDescriptorW(
             descriptor.as_ptr(),
@@ -114,6 +116,7 @@ fn user_sid() -> io::Result<String> {
     use windows_sys::Win32::Security::TOKEN_QUERY;
     use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
     let mut token = std::ptr::null_mut();
+    // SAFETY: the current process handle is valid; the opened token stays live through token_sid then closes.
     unsafe {
         if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
             return Err(io::Error::last_os_error());
@@ -130,8 +133,7 @@ unsafe fn token_sid(token: windows_sys::Win32::Foundation::HANDLE) -> io::Result
     use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
     use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_USER, TokenUser};
 
-    // SAFETY: the caller passes an open token handle; the buffer is sized by the first call and aligned for
-    // TOKEN_USER, and the SID string is read up to its NUL terminator before LocalFree releases it.
+    // SAFETY: token is live, the buffer is sized and aligned, and the NUL-terminated SID is read before freeing.
     unsafe {
         let mut length = 0;
         GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut length);
@@ -204,6 +206,7 @@ mod tests {
         let path = dir.join("secret");
         write(&path, b"secret").unwrap();
         let name: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+        // SAFETY: buffers are sized by Windows and aligned; descriptor and ACL pointers stay inside them.
         unsafe {
             let mut length = 0;
             GetFileSecurityW(

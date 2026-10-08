@@ -277,7 +277,7 @@ impl Engine {
         let path = config::plugins::fetch_component(&self.fetcher(), source.as_ref(), &install).await?;
         let dir = config::plugins::config_dir()?;
         config::plugins::edit_plugins(&dir, |plugins| {
-            config::plugins::set_entry(plugins, &path, install.config)
+            config::plugins::set_entry(plugins, &path, install.config);
         })?;
         Ok(self.reload_plugins().await)
     }
@@ -629,7 +629,20 @@ const TOOL_OUTPUT_RETENTION: std::time::Duration = std::time::Duration::from_sec
 pub(crate) fn random_hex(bytes: usize) -> String {
     let mut buffer = vec![0u8; bytes];
     getrandom::fill(&mut buffer).expect("system random source unavailable");
-    buffer.iter().map(|byte| format!("{byte:02x}")).collect()
+
+    hex_bytes(&buffer)
+}
+
+/// Lowercase hexadecimal with two digits for every byte, including leading zeros.
+pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(text, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+
+    text
 }
 
 pub struct Server {

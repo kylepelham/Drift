@@ -101,7 +101,7 @@ pub async fn fetch_component(
 }
 
 fn hex(digest: &ring::digest::Digest) -> String {
-    digest.as_ref().iter().map(|byte| format!("{byte:02x}")).collect()
+    crate::hex_bytes(digest.as_ref())
 }
 
 /// drift.json as a JSON object, an empty one when there is no file yet.
@@ -182,7 +182,7 @@ mod tests {
                 plugins,
                 "plugins/guard.wasm",
                 serde_json::json!({ "test": ["cargo", "test"] }),
-            )
+            );
         })
         .unwrap();
         let file: Value =
@@ -193,7 +193,7 @@ mod tests {
             serde_json::json!(["plugins/old.wasm", { "path": "plugins/guard.wasm", "config": { "test": ["cargo", "test"] } }])
         );
         edit_plugins(&dir, |plugins| {
-            set_entry(plugins, "plugins/guard.wasm", serde_json::json!({}))
+            set_entry(plugins, "plugins/guard.wasm", serde_json::json!({}));
         })
         .unwrap();
         let file: Value =

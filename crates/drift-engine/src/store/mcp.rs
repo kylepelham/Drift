@@ -167,11 +167,10 @@ pub enum Renamed {
 /// The config's identity, so a connection can tell whether the server it serves still has the definition it opened with.
 fn config_hash(config: &ServerConfig) -> String {
     use sha2::Digest;
-    sha2::Sha256::digest(serde_json::to_string(config).unwrap().as_bytes())
-        .iter()
-        .take(8)
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    let json = serde_json::to_string(config).unwrap();
+    let digest = sha2::Sha256::digest(json.as_bytes());
+
+    crate::hex_bytes(&digest[..8])
 }
 
 /// A saved server, or the name of one whose definition does not parse.

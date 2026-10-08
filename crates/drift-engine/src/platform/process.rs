@@ -17,11 +17,14 @@ mod imp {
     /// Every descendant of the child lives in this job; closing it, however that happens, kills them all.
     pub struct Tree(HANDLE);
 
+    // SAFETY: job handles can move between threads, and Tree owns the only handle that closes the job.
     unsafe impl Send for Tree {}
+    // SAFETY: job queries and termination support shared access; dropping Tree requires exclusive ownership.
     unsafe impl Sync for Tree {}
 
     impl Tree {
         pub fn adopt(pid: u32) -> io::Result<Self> {
+            // SAFETY: structures are correctly sized; opened handles are closed on failure or owned by Tree.
             unsafe {
                 let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
                 if job.is_null() {
@@ -56,12 +59,14 @@ mod imp {
         }
 
         pub fn kill(&self) {
+            // SAFETY: Tree holds a valid job handle until Drop closes it.
             unsafe {
                 TerminateJobObject(self.0, 1);
             }
         }
 
         pub fn is_empty(&self) -> io::Result<bool> {
+            // SAFETY: the job is live and the output buffer has the size and alignment the query requires.
             unsafe {
                 let mut info: JOBOBJECT_BASIC_ACCOUNTING_INFORMATION = std::mem::zeroed();
                 let size = std::mem::size_of_val(&info) as u32;
@@ -82,6 +87,7 @@ mod imp {
 
     impl Drop for Tree {
         fn drop(&mut self) {
+            // SAFETY: Tree owns this job handle and closes it exactly once.
             unsafe {
                 CloseHandle(self.0);
             }
@@ -90,21 +96,23 @@ mod imp {
 
     pub fn prepare(_command: &mut tokio::process::Command) {}
 
-    pub fn suspend(command: &mut tokio::process::Command) {
+    pub(super) fn suspend(command: &mut tokio::process::Command) {
         command.creation_flags(0x0800_0000 | 0x0000_0004);
     }
 
-    pub fn resume(child: &tokio::process::Child) -> io::Result<()> {
+    pub(super) fn resume(child: &tokio::process::Child) -> io::Result<()> {
         use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
         use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD};
         let pid = child
             .id()
             .ok_or_else(|| io::Error::other("suspended child has no process ID"))?;
+        // SAFETY: this call takes only flags and a process id, and returns an owned snapshot handle.
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
         if snapshot == INVALID_HANDLE_VALUE {
             return Err(io::Error::last_os_error());
         }
         let result = resume_thread(snapshot, pid);
+        // SAFETY: the snapshot is valid and has not been closed by resume_thread.
         unsafe {
             CloseHandle(snapshot);
         }
@@ -114,6 +122,7 @@ mod imp {
     fn resume_thread(snapshot: HANDLE, pid: u32) -> io::Result<()> {
         use windows_sys::Win32::System::Diagnostics::ToolHelp::{THREADENTRY32, Thread32First, Thread32Next};
         use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+        // SAFETY: the snapshot is live; entry is correctly sized and each opened thread handle is closed.
         unsafe {
             let mut entry: THREADENTRY32 = std::mem::zeroed();
             entry.dwSize = std::mem::size_of_val(&entry) as u32;
@@ -155,12 +164,14 @@ mod imp {
         }
 
         pub fn kill(&self) {
+            // SAFETY: the negative child pid addresses its owned process group; kill takes no pointers.
             unsafe {
                 libc::kill(-self.0, libc::SIGKILL);
             }
         }
 
         pub fn is_empty(&self) -> io::Result<bool> {
+            // SAFETY: signal zero checks the owned process group without sending a signal or accessing memory.
             if unsafe { libc::kill(-self.0, 0) } == -1 {
                 let error = io::Error::last_os_error();
                 if error.raw_os_error() == Some(libc::ESRCH) {
@@ -185,9 +196,9 @@ mod imp {
         command.process_group(0);
     }
 
-    pub fn suspend(_command: &mut tokio::process::Command) {}
+    pub(super) fn suspend(_command: &mut tokio::process::Command) {}
 
-    pub fn resume(_child: &tokio::process::Child) -> io::Result<()> {
+    pub(super) fn resume(_child: &tokio::process::Child) -> io::Result<()> {
         Ok(())
     }
 
@@ -335,6 +346,7 @@ fn registry_string(root: windows_sys::Win32::System::Registry::HKEY, key: &str, 
     let (key, value) = (wide(key), wide(value));
     let mut size = 0u32;
     // A REG_EXPAND_SZ value comes back expanded, as RRF_RT_REG_SZ without RRF_NOEXPAND asks.
+    // SAFETY: key and value are NUL-terminated; a null output buffer asks only for the required size.
     let sized = unsafe {
         RegGetValueW(
             root,
@@ -351,6 +363,7 @@ fn registry_string(root: windows_sys::Win32::System::Registry::HKEY, key: &str, 
     }
     let mut buffer = vec![0u16; size as usize / 2 + 1];
     let mut written = (buffer.len() * 2) as u32;
+    // SAFETY: the UTF-16 buffer is aligned and its byte capacity is passed in written.
     let read = unsafe {
         RegGetValueW(
             root,

@@ -21,7 +21,7 @@ const DEPENDENCY_FIELDS: [&str; 3] = ["dependencies", "optionalDependencies", "p
 
 /// A launcher's package version (when its package is found) and a hash of the launcher, that
 /// package, the project's plugins for it and everything those depend on.
-pub fn fingerprint(launcher: &Path, name: &str) -> (Option<String>, String) {
+pub(super) fn fingerprint(launcher: &Path, name: &str) -> (Option<String>, String) {
     let mut digest = Sha256::new();
     digest.update(std::fs::read(launcher).unwrap_or_default());
     let root = package_root(launcher, name);
@@ -35,15 +35,9 @@ pub fn fingerprint(launcher: &Path, name: &str) -> (Option<String>, String) {
         hash_package(&package, &mut digest, &mut seen);
     }
     remember(launcher, seen);
-    (
-        version,
-        digest
-            .finalize()
-            .iter()
-            .take(HASH_BYTES)
-            .map(|b| format!("{b:02x}"))
-            .collect(),
-    )
+
+    let digest = digest.finalize();
+    (version, crate::hex_bytes(&digest[..HASH_BYTES]))
 }
 
 /// The project's plugins and shared configs for the program, by the npm naming convention
@@ -217,7 +211,7 @@ fn remember(launcher: &Path, seen: HashMap<PathBuf, Seen>) {
 fn content_hash(file: &Path, seen: &mut HashMap<PathBuf, Seen>) -> [u8; 32] {
     let meta = std::fs::metadata(file).ok();
     let stamp = (
-        meta.as_ref().map_or(0, |m| m.len()),
+        meta.as_ref().map_or(0, std::fs::Metadata::len),
         meta.and_then(|m| m.modified().ok()),
     );
     let known = KNOWN
