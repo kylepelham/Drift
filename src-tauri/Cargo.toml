@@ -4,6 +4,9 @@ version.workspace = true
 license.workspace = true
 edition = "2024"
 
+[lints]
+workspace = true
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -20,6 +23,7 @@ rusqlite = { workspace = true }
 rfd = "0.15"
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 getrandom = { workspace = true }
 sha2 = "0.10"
 # Remote Access password sign-in; PBKDF2 is the vetted, dependency-light choice alongside sha2.

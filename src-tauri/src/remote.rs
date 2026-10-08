@@ -470,7 +470,7 @@ async fn ui_state_events(
                             let event = Event::default().json_data(snapshot).ok()?;
                             return Some((Ok(event), (None, receiver, auth)));
                         }
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                        Err(broadcast::error::RecvError::Lagged(_)) => {},
                         Err(broadcast::error::RecvError::Closed) => return None,
                     }
                 }
@@ -992,22 +992,31 @@ mod tests {
 
     #[test]
     fn rpc_has_a_finite_allowlist() {
-        assert!(rpc_allowed("store_workspaces"));
-        assert!(rpc_allowed("store_expired_archived"));
-        assert!(rpc_allowed("voice_transcribe"));
-        assert!(rpc_allowed("ui_state_snapshot"));
-        assert!(rpc_allowed("ui_state_update"));
-        assert!(rpc_allowed("shell_timeout_snapshot"));
-        assert!(rpc_allowed("shell_timeout_update"));
-        assert!(rpc_allowed("pick_folder"));
-        assert!(rpc_allowed("open_file"));
-        assert!(rpc_allowed("open_file_in_editor"));
-        assert!(rpc_allowed("read_file_preview"));
-        assert!(!rpc_allowed("voice_dictation_set_enabled"));
-        assert!(!rpc_allowed("remote_access_enable"));
-        assert!(!rpc_allowed("ui_state_initialize"));
-        assert!(!rpc_allowed("shell_timeout_initialize"));
-        assert!(!rpc_allowed("plugin:shell|execute"));
+        for command in [
+            "store_workspaces",
+            "store_expired_archived",
+            "voice_transcribe",
+            "ui_state_snapshot",
+            "ui_state_update",
+            "shell_timeout_snapshot",
+            "shell_timeout_update",
+            "pick_folder",
+            "open_file",
+            "open_file_in_editor",
+            "read_file_preview",
+        ] {
+            assert!(rpc_allowed(command), "{command}");
+        }
+
+        for command in [
+            "voice_dictation_set_enabled",
+            "remote_access_enable",
+            "ui_state_initialize",
+            "shell_timeout_initialize",
+            "plugin:shell|execute",
+        ] {
+            assert!(!rpc_allowed(command), "{command}");
+        }
     }
 
     #[tokio::test]
@@ -1099,19 +1108,7 @@ mod tests {
         let (shutdown, receiver) = watch::channel(false);
         let server = tokio::spawn(accept_loop(listener, router, tls.clone(), receiver));
 
-        let mut roots = rustls::RootCertStore::empty();
-        roots
-            .add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec()))
-            .unwrap();
-        let mut config = rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-        let client = reqwest::Client::builder()
-            .use_preconfigured_tls(config)
-            .redirect(Policy::none())
-            .build()
-            .unwrap();
+        let client = trusted_client(&tls, true);
         let secure = client
             .get(format!("https://127.0.0.1:{port}/peer"))
             .send()
@@ -1130,19 +1127,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(forged.status(), reqwest::StatusCode::FORBIDDEN);
-        let http1 = reqwest::Client::builder()
-            .use_preconfigured_tls({
-                let mut roots = rustls::RootCertStore::empty();
-                roots
-                    .add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec()))
-                    .unwrap();
-                rustls::ClientConfig::builder()
-                    .with_root_certificates(roots)
-                    .with_no_client_auth()
-            })
-            .http1_only()
-            .build()
-            .unwrap();
+        let http1 = trusted_client(&tls, false);
         let legacy = http1
             .get(format!("https://127.0.0.1:{port}/peer"))
             .send()
@@ -1166,21 +1151,7 @@ mod tests {
             format!("https://127.0.0.1:{port}/companion?a=1")
         );
 
-        let untrusted = reqwest::Client::builder()
-            .use_preconfigured_tls(
-                rustls::ClientConfig::builder()
-                    .with_root_certificates(rustls::RootCertStore::empty())
-                    .with_no_client_auth(),
-            )
-            .build()
-            .unwrap();
-        assert!(
-            untrusted
-                .get(format!("https://127.0.0.1:{port}/peer"))
-                .send()
-                .await
-                .is_err()
-        );
+        assert_untrusted_client_rejected(port).await;
 
         shutdown.send(true).unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(2), server)
@@ -1208,6 +1179,46 @@ mod tests {
         let hostless = plain_redirect("GET http://elsewhere/ HTTP/1.1\r\n\r\n", "10.0.0.2:41718");
         assert!(hostless.contains("Location: https://10.0.0.2:41718/\r\n"));
         assert!(plain_redirect("garbage", "10.0.0.2:41718").contains("https://10.0.0.2:41718/"));
+    }
+
+    fn trusted_client(tls: &Tls, http2: bool) -> reqwest::Client {
+        let mut roots = rustls::RootCertStore::empty();
+        roots
+            .add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec()))
+            .unwrap();
+        let mut config = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+
+        if http2 {
+            config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+        }
+        let builder = reqwest::Client::builder().use_preconfigured_tls(config);
+        let builder = if http2 {
+            builder.redirect(Policy::none())
+        } else {
+            builder.http1_only()
+        };
+
+        builder.build().unwrap()
+    }
+
+    async fn assert_untrusted_client_rejected(port: u16) {
+        let config = rustls::ClientConfig::builder()
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth();
+        let client = reqwest::Client::builder()
+            .use_preconfigured_tls(config)
+            .build()
+            .unwrap();
+
+        assert!(
+            client
+                .get(format!("https://127.0.0.1:{port}/peer"))
+                .send()
+                .await
+                .is_err()
+        );
     }
 
     #[test]

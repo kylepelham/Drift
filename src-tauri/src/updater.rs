@@ -12,9 +12,7 @@ fn updatable() -> bool {
     if cfg!(debug_assertions) {
         return false;
     }
-    std::env::current_exe()
-        .map(|exe| installed_alongside_uninstaller(&exe))
-        .unwrap_or(false)
+    std::env::current_exe().is_ok_and(|exe| installed_alongside_uninstaller(&exe))
 }
 
 /// Whether this build can update itself, surfaced in About so a local build is recognizable.

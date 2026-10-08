@@ -12,18 +12,32 @@ fn store_roundtrip() {
     let dir = test_dir("store");
     let store = open(&dir).unwrap();
 
+    dictation_roundtrip(&store);
+    workspace_roundtrip(&store);
+    archive_roundtrip(&store);
+    workspace_retention_roundtrip(&store);
+    prompt_roundtrip(&store);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn dictation_roundtrip(store: &Store) {
     assert!(!store.dictation_enabled().unwrap());
     store.save_dictation_enabled(true).unwrap();
     assert!(store.dictation_enabled().unwrap());
     store.save_dictation_enabled(false).unwrap();
     assert!(!store.dictation_enabled().unwrap());
+}
 
+fn workspace_roundtrip(store: &Store) {
     let created = store.add_workspace("w1", "S:/proj", "Proj", "").unwrap();
     assert_eq!(created.id, "w1");
     store.save_workspace("w1", "S:/moved", "Renamed", "R").unwrap();
     assert_eq!(store.workspaces().unwrap()[0].name, "Renamed");
     assert_eq!(store.workspaces().unwrap()[0].path, "S:/moved");
+}
 
+fn archive_roundtrip(store: &Store) {
     store.archive_session("s1", "w1").unwrap();
     store.archive_session("s2", "w1").unwrap();
     assert_eq!(store.archived().unwrap().len(), 2);
@@ -36,7 +50,9 @@ fn store_roundtrip() {
     assert!(store.expired_archived(now() - 1000).unwrap().is_empty());
     store.unarchive_session("s2").unwrap();
     assert!(store.archived().unwrap().is_empty());
+}
 
+fn workspace_retention_roundtrip(store: &Store) {
     store.remove_workspace("w1").unwrap();
     assert!(store.workspaces().unwrap().is_empty());
     assert_eq!(store.removed_workspaces().unwrap().len(), 1);
@@ -56,6 +72,9 @@ fn store_roundtrip() {
     assert!(store.workspaces().unwrap().is_empty());
     assert!(store.removed_workspaces().unwrap().is_empty());
     assert!(store.add_workspace("w3", "S:/moved", "Fresh", "").unwrap().id == "w3");
+}
+
+fn prompt_roundtrip(store: &Store) {
     let value = serde_json::json!({ "prompt": "Drift prompt" });
     let original = serde_json::json!({ "prompt": "Original prompt" });
     store
@@ -67,7 +86,6 @@ fn store_roundtrip() {
     assert_eq!(prompts[0].original, Some(original));
     store.reset_prompt_override("agent:build").unwrap();
     assert!(store.prompt_overrides().unwrap().is_empty());
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]

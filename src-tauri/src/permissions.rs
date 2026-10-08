@@ -39,11 +39,9 @@ pub(crate) fn permission_decision(
     let Ok(request) = url::Url::parse(uri) else {
         return PermissionDecision::Default;
     };
-    let own_origin = app_origins.iter().any(|origin| {
-        url::Url::parse(origin)
-            .map(|app| request.origin() == app.origin())
-            .unwrap_or(false)
-    });
+    let own_origin = app_origins
+        .iter()
+        .any(|origin| url::Url::parse(origin).is_ok_and(|app| request.origin() == app.origin()));
     if own_origin && kind == WebPermissionKind::Microphone && consent {
         PermissionDecision::Allow
     } else {
@@ -95,6 +93,7 @@ fn attach_webview2_handler(
     };
     use windows::core::PWSTR;
 
+    // SAFETY: WebView2 calls run on its owning thread and each output pointer refers to a live local value.
     unsafe {
         let webview = platform.controller().CoreWebView2()?;
         let handler = PermissionRequestedEventHandler::create(Box::new(move |_, args| {

@@ -4,6 +4,7 @@
 use base64::Engine as _;
 use serde::Serialize;
 use sha1::{Digest, Sha1};
+use std::fmt::Write as _;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -216,7 +217,10 @@ async fn fetch_model(
     }
     file.flush().map_err(|error| error.to_string())?;
     let digest = hasher.finalize();
-    let actual: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut actual = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(actual, "{byte:02x}").unwrap();
+    }
     if actual != model.sha1 {
         return Err("downloaded model failed its checksum".into());
     }

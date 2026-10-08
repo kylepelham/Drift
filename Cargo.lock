@@ -1444,6 +1444,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "thiserror 2.0.19",
  "time",
  "tokio",
  "tokio-rustls",

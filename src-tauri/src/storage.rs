@@ -25,7 +25,7 @@ const FOLDERS: [(&str, &str); 2] = [("undo", "snapshots"), ("output", "tool-outp
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TableUsage {
+pub(crate) struct TableUsage {
     pub table: String,
     pub rows: i64,
     /// Estimated for a table (row count times a sampled mean row size), exact for a folder.
@@ -34,7 +34,7 @@ pub struct TableUsage {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionCounts {
+pub(crate) struct SessionCounts {
     pub total: i64,
     pub top_level: i64,
     pub subagent: i64,
@@ -43,7 +43,7 @@ pub struct SessionCounts {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StorageStats {
+pub(crate) struct StorageStats {
     pub path: String,
     /// The database with its log, and the engine's folders.
     pub total_bytes: i64,
@@ -57,7 +57,7 @@ pub struct StorageStats {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PruneResult {
+pub(crate) struct PruneResult {
     /// Images nothing referred to any more.
     pub removed_rows: i64,
     /// How much smaller the database and the engine's folders are now.
@@ -67,7 +67,7 @@ pub struct PruneResult {
 }
 
 /// Where the engine keeps its database and folders.
-pub struct Location {
+pub(crate) struct Location {
     pub data_dir: PathBuf,
 }
 
@@ -90,7 +90,7 @@ impl Location {
 }
 
 fn file_bytes(path: &Path) -> i64 {
-    std::fs::metadata(path).map(|meta| meta.len() as i64).unwrap_or(0)
+    std::fs::metadata(path).map_or(0, |meta| meta.len() as i64)
 }
 
 fn folder_bytes(path: &Path) -> i64 {
@@ -99,7 +99,7 @@ fn folder_bytes(path: &Path) -> i64 {
         .flatten()
         .map(|entry| match entry.file_type() {
             Ok(kind) if kind.is_dir() => folder_bytes(&entry.path()),
-            _ => entry.metadata().map(|meta| meta.len() as i64).unwrap_or(0),
+            _ => entry.metadata().map_or(0, |meta| meta.len() as i64),
         })
         .sum()
 }
@@ -179,7 +179,7 @@ fn quote_list(ids: &[String]) -> String {
         .join(",")
 }
 
-pub fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, String> {
+pub(crate) fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, String> {
     let conn = open(&location.database(), true)?;
     let mut tables = Vec::new();
     for (table, column) in PAYLOAD_TABLES {
@@ -209,7 +209,7 @@ pub fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, S
 }
 
 /// What a cleanup took away, measured around it.
-pub fn cleaned(location: &Location, before: i64, images: usize) -> Result<PruneResult, String> {
+pub(crate) fn cleaned(location: &Location, before: i64, images: usize) -> Result<PruneResult, String> {
     let conn = open(&location.database(), true)?;
     Ok(PruneResult {
         removed_rows: images as i64,
@@ -218,13 +218,13 @@ pub fn cleaned(location: &Location, before: i64, images: usize) -> Result<PruneR
     })
 }
 
-pub fn total_bytes(location: &Location) -> i64 {
+pub(crate) fn total_bytes(location: &Location) -> i64 {
     location.total_bytes()
 }
 
 /// Rewrites the database to give its free pages back to the disk. The caller refuses while a
 /// conversation runs: the rewrite holds the database for its whole length.
-pub fn compact(location: &Location) -> Result<PruneResult, String> {
+pub(crate) fn compact(location: &Location) -> Result<PruneResult, String> {
     let before = location.total_bytes();
     let conn = open(&location.database(), false)?;
     conn.execute_batch("VACUUM")
@@ -239,7 +239,7 @@ pub fn compact(location: &Location) -> Result<PruneResult, String> {
 }
 
 /// Session ids Drift has archived, counted as archived beside the engine's own flag.
-pub fn archived_ids(store: &Store) -> Vec<String> {
+pub(crate) fn archived_ids(store: &Store) -> Vec<String> {
     store
         .archived()
         .map(|rows| rows.into_iter().map(|row| row.session_id).collect())

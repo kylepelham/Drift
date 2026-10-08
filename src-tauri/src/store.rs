@@ -9,11 +9,11 @@ use std::sync::Arc;
 const WORKSPACE_COLUMNS: &str = "id, path, name, icon, last_used, removed_at";
 
 /// Shell tables live in the engine's database and go through its single connection.
-pub struct Store(Arc<drift_engine::store::Store>);
+pub(crate) struct Store(Arc<drift_engine::store::Store>);
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Workspace {
+pub(crate) struct Workspace {
     pub id: String,
     pub path: String,
     pub name: String,
@@ -25,7 +25,7 @@ pub struct Workspace {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ArchivedSession {
+pub(crate) struct ArchivedSession {
     pub session_id: String,
     pub workspace_id: String,
     pub archived_at: i64,
@@ -33,7 +33,7 @@ pub struct ArchivedSession {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct McpServer {
+pub(crate) struct McpServer {
     pub name: String,
     pub config: Value,
     pub updated_at: i64,
@@ -41,7 +41,7 @@ pub struct McpServer {
 
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct McpDecision {
+pub(crate) struct McpDecision {
     pub name: String,
     pub fingerprint: String,
     pub decision: String,
@@ -51,7 +51,7 @@ pub struct McpDecision {
 /// A browser or app signed in to Remote Access. Only the SHA-256 of its session token is stored.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteDevice {
+pub(crate) struct RemoteDevice {
     pub id: String,
     pub name: String,
     #[serde(skip)]
@@ -62,14 +62,14 @@ pub struct RemoteDevice {
 }
 
 #[derive(Clone)]
-pub struct McpState {
+pub(crate) struct McpState {
     pub servers: Vec<McpServer>,
     pub decisions: Vec<McpDecision>,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PromptOverride {
+pub(crate) struct PromptOverride {
     pub key: String,
     pub value: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,7 +78,7 @@ pub struct PromptOverride {
 }
 
 #[cfg(test)]
-pub fn open(dir: &Path) -> rusqlite::Result<Store> {
+pub(crate) fn open(dir: &Path) -> rusqlite::Result<Store> {
     attach(Arc::new(drift_engine::store::open(dir)?))
 }
 
@@ -88,7 +88,7 @@ fn open_at(file: &Path) -> rusqlite::Result<Store> {
 }
 
 /// Creates the shell's tables on the engine's connection. The engine owns `workspace`.
-pub fn attach(engine: Arc<drift_engine::store::Store>) -> rusqlite::Result<Store> {
+pub(crate) fn attach(engine: Arc<drift_engine::store::Store>) -> rusqlite::Result<Store> {
     let store = Store(engine);
     let conn = store.0.lock();
     conn.execute_batch(
@@ -175,19 +175,18 @@ fn collapse_duplicate_workspaces(conn: &Connection) -> rusqlite::Result<()> {
 fn now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |elapsed| elapsed.as_millis() as i64)
 }
 
 impl Store {
-    pub fn app_setting(&self, key: &str) -> rusqlite::Result<Option<String>> {
+    pub(crate) fn app_setting(&self, key: &str) -> rusqlite::Result<Option<String>> {
         self.0
             .lock()
             .query_row("SELECT value FROM app_setting WHERE key = ?1", [key], |row| row.get(0))
             .optional()
     }
 
-    pub fn initialize_app_setting(&self, key: &str, value: &str) -> rusqlite::Result<String> {
+    pub(crate) fn initialize_app_setting(&self, key: &str, value: &str) -> rusqlite::Result<String> {
         let mut conn = self.0.lock();
         let transaction = conn.transaction()?;
         transaction.execute(
@@ -199,7 +198,7 @@ impl Store {
         Ok(stored)
     }
 
-    pub fn save_app_setting(&self, key: &str, value: &str) -> rusqlite::Result<()> {
+    pub(crate) fn save_app_setting(&self, key: &str, value: &str) -> rusqlite::Result<()> {
         self.0.lock().execute(
             "INSERT INTO app_setting(key, value) VALUES(?1, ?2)
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -208,21 +207,21 @@ impl Store {
         Ok(())
     }
 
-    pub fn delete_app_setting(&self, key: &str) -> rusqlite::Result<()> {
+    pub(crate) fn delete_app_setting(&self, key: &str) -> rusqlite::Result<()> {
         self.0.lock().execute("DELETE FROM app_setting WHERE key = ?1", [key])?;
         Ok(())
     }
 
-    pub fn dictation_enabled(&self) -> rusqlite::Result<bool> {
+    pub(crate) fn dictation_enabled(&self) -> rusqlite::Result<bool> {
         let value = self.app_setting("dictation_enabled")?;
         Ok(value.as_deref() == Some("true"))
     }
 
-    pub fn save_dictation_enabled(&self, enabled: bool) -> rusqlite::Result<()> {
+    pub(crate) fn save_dictation_enabled(&self, enabled: bool) -> rusqlite::Result<()> {
         self.save_app_setting("dictation_enabled", if enabled { "true" } else { "false" })
     }
 
-    pub fn remote_access_enabled(&self) -> rusqlite::Result<bool> {
+    pub(crate) fn remote_access_enabled(&self) -> rusqlite::Result<bool> {
         let enabled = self
             .0
             .lock()
@@ -234,7 +233,7 @@ impl Store {
     }
 
     /// `token` is the retired shared access key, left untouched so older builds still open this database.
-    pub fn save_remote_access(&self, enabled: bool) -> rusqlite::Result<()> {
+    pub(crate) fn save_remote_access(&self, enabled: bool) -> rusqlite::Result<()> {
         self.0.lock().execute(
             "INSERT INTO remote_access(id, enabled, token) VALUES(1, ?1, '')
                  ON CONFLICT(id) DO UPDATE SET enabled = ?1",
@@ -243,7 +242,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn remote_devices(&self) -> rusqlite::Result<Vec<RemoteDevice>> {
+    pub(crate) fn remote_devices(&self) -> rusqlite::Result<Vec<RemoteDevice>> {
         let conn = self.0.lock();
         let mut stmt = conn.prepare_cached(
             "SELECT id, name, token_hash, method, created_at, last_seen_at
@@ -262,7 +261,7 @@ impl Store {
         rows.collect()
     }
 
-    pub fn insert_remote_device(&self, device: &RemoteDevice) -> rusqlite::Result<()> {
+    pub(crate) fn insert_remote_device(&self, device: &RemoteDevice) -> rusqlite::Result<()> {
         self.0.lock().execute(
             "INSERT INTO remote_device(id, name, token_hash, method, created_at, last_seen_at)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
@@ -278,7 +277,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn touch_remote_device(&self, id: &str, at: i64) -> rusqlite::Result<()> {
+    pub(crate) fn touch_remote_device(&self, id: &str, at: i64) -> rusqlite::Result<()> {
         self.0.lock().execute(
             "UPDATE remote_device SET last_seen_at = ?2 WHERE id = ?1",
             params![id, at],
@@ -287,7 +286,7 @@ impl Store {
     }
 
     /// Deletes one device, every device (`None`), or every device signed in with `method`.
-    pub fn delete_remote_devices(&self, id: Option<&str>, method: Option<&str>) -> rusqlite::Result<()> {
+    pub(crate) fn delete_remote_devices(&self, id: Option<&str>, method: Option<&str>) -> rusqlite::Result<()> {
         self.0.lock().execute(
             "DELETE FROM remote_device WHERE (?1 IS NULL OR id = ?1) AND (?2 IS NULL OR method = ?2)",
             params![id, method],
@@ -295,7 +294,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn prompt_overrides(&self) -> rusqlite::Result<Vec<PromptOverride>> {
+    pub(crate) fn prompt_overrides(&self) -> rusqlite::Result<Vec<PromptOverride>> {
         let conn = self.0.lock();
         let mut stmt =
             conn.prepare_cached("SELECT key, value_json, original_json, updated_at FROM prompt_override ORDER BY key")?;
@@ -318,7 +317,12 @@ impl Store {
         rows.collect()
     }
 
-    pub fn save_prompt_override(&self, key: &str, value: &Value, original: Option<&Value>) -> rusqlite::Result<()> {
+    pub(crate) fn save_prompt_override(
+        &self,
+        key: &str,
+        value: &Value,
+        original: Option<&Value>,
+    ) -> rusqlite::Result<()> {
         let conn = self.0.lock();
         conn.prepare_cached(
             "INSERT INTO prompt_override(key, value_json, original_json, updated_at) VALUES(?1, ?2, ?3, ?4)
@@ -334,7 +338,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn reset_prompt_override(&self, key: &str) -> rusqlite::Result<()> {
+    pub(crate) fn reset_prompt_override(&self, key: &str) -> rusqlite::Result<()> {
         self.0
             .lock()
             .prepare_cached("DELETE FROM prompt_override WHERE key = ?1")?
@@ -342,7 +346,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn import_opencode_workspaces(&self, database: &Path) -> rusqlite::Result<usize> {
+    pub(crate) fn import_opencode_workspaces(&self, database: &Path) -> rusqlite::Result<usize> {
         if !database.is_file() {
             return Ok(0);
         }
@@ -399,12 +403,12 @@ impl Store {
     }
 
     /// Workspaces still in use, most recently opened first.
-    pub fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
+    pub(crate) fn workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
         self.query_workspaces("WHERE removed_at IS NULL ORDER BY last_used DESC")
     }
 
     /// Soft-deleted workspaces awaiting purge, most recently removed first.
-    pub fn removed_workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
+    pub(crate) fn removed_workspaces(&self) -> rusqlite::Result<Vec<Workspace>> {
         self.query_workspaces("WHERE removed_at IS NOT NULL ORDER BY removed_at DESC")
     }
 
@@ -415,7 +419,7 @@ impl Store {
         rows.collect()
     }
 
-    pub fn add_workspace(&self, id: &str, path: &str, name: &str, icon: &str) -> rusqlite::Result<Workspace> {
+    pub(crate) fn add_workspace(&self, id: &str, path: &str, name: &str, icon: &str) -> rusqlite::Result<Workspace> {
         let conn = self.0.lock();
         // Canonical match so re-adding a directory restores its row instead of minting a variant.
         let existing: Option<String> = conn
@@ -446,7 +450,7 @@ impl Store {
         Ok(workspace)
     }
 
-    pub fn save_workspace(&self, id: &str, path: &str, name: &str, icon: &str) -> rusqlite::Result<()> {
+    pub(crate) fn save_workspace(&self, id: &str, path: &str, name: &str, icon: &str) -> rusqlite::Result<()> {
         let conn = self.0.lock();
         // Editing a path onto another row's directory merges that row into this one.
         let clashes: Vec<String> = conn
@@ -471,14 +475,14 @@ impl Store {
         Ok(())
     }
 
-    pub fn touch_workspace(&self, id: &str) -> rusqlite::Result<()> {
+    pub(crate) fn touch_workspace(&self, id: &str) -> rusqlite::Result<()> {
         let conn = self.0.lock();
         conn.prepare_cached("UPDATE workspace SET last_used = ?2 WHERE id = ?1")?
             .execute((id, now()))?;
         Ok(())
     }
 
-    pub fn remove_workspace(&self, id: &str) -> rusqlite::Result<()> {
+    pub(crate) fn remove_workspace(&self, id: &str) -> rusqlite::Result<()> {
         let conn = self.0.lock();
         conn.prepare_cached("UPDATE workspace SET removed_at = ?2 WHERE id = ?1")?
             .execute((id, now()))?;
@@ -488,7 +492,7 @@ impl Store {
     /// Workspaces removed before `before` whose directory no active workspace uses. Removed rows
     /// that still match an active directory are stale duplicates: collapsed here, never returned,
     /// so retention can't delete sessions that are still on the sidebar.
-    pub fn expired_removed_workspaces(&self, before: i64) -> rusqlite::Result<Vec<Workspace>> {
+    pub(crate) fn expired_removed_workspaces(&self, before: i64) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock();
         let duplicates: Vec<(String, String)> = conn
             .prepare_cached(
@@ -522,7 +526,7 @@ impl Store {
 
     /// Drops an expired removed workspace; true when its row went. Only call after its engine
     /// sessions are gone, or the startup import resurrects the row from the leftovers.
-    pub fn forget_workspace(&self, id: &str) -> rusqlite::Result<bool> {
+    pub(crate) fn forget_workspace(&self, id: &str) -> rusqlite::Result<bool> {
         let conn = self.0.lock();
         conn.prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
             .execute([id])?;
@@ -532,7 +536,7 @@ impl Store {
         Ok(removed > 0)
     }
 
-    pub fn archived(&self) -> rusqlite::Result<Vec<ArchivedSession>> {
+    pub(crate) fn archived(&self) -> rusqlite::Result<Vec<ArchivedSession>> {
         let conn = self.0.lock();
         let mut stmt = conn.prepare_cached(
             "SELECT session_id, workspace_id, archived_at FROM session_meta WHERE archived_at IS NOT NULL",
@@ -547,14 +551,14 @@ impl Store {
         rows.collect()
     }
 
-    pub fn unarchive_session(&self, session_id: &str) -> rusqlite::Result<()> {
+    pub(crate) fn unarchive_session(&self, session_id: &str) -> rusqlite::Result<()> {
         let conn = self.0.lock();
         conn.prepare_cached("DELETE FROM session_meta WHERE session_id = ?1")?
             .execute([session_id])?;
         Ok(())
     }
 
-    pub fn archive_session(&self, session_id: &str, workspace_id: &str) -> rusqlite::Result<()> {
+    pub(crate) fn archive_session(&self, session_id: &str, workspace_id: &str) -> rusqlite::Result<()> {
         let conn = self.0.lock();
         conn.prepare_cached(
             "INSERT INTO session_meta(session_id, workspace_id, archived_at) VALUES(?1, ?2, ?3)
@@ -567,7 +571,7 @@ impl Store {
     /// Archived sessions whose retention window has lapsed. Non-destructive: each row is the
     /// deletion tombstone and is only dropped via `unarchive_session` once the engine confirms
     /// the session is gone, so a failed engine deletion is retried on a later purge.
-    pub fn expired_archived(&self, before: i64) -> rusqlite::Result<Vec<String>> {
+    pub(crate) fn expired_archived(&self, before: i64) -> rusqlite::Result<Vec<String>> {
         let conn = self.0.lock();
         let mut stmt = conn
             .prepare_cached("SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1")?;
@@ -575,7 +579,7 @@ impl Store {
         rows.collect()
     }
 
-    pub fn mcp_state(&self) -> rusqlite::Result<McpState> {
+    pub(crate) fn mcp_state(&self) -> rusqlite::Result<McpState> {
         let conn = self.0.lock();
         let servers = conn
             .prepare_cached("SELECT name, config_json, updated_at FROM mcp_server ORDER BY name COLLATE NOCASE")?

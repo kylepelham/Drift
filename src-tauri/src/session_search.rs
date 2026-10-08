@@ -27,7 +27,7 @@ const MAX_QUERY_CHARS: usize = 200;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionMatch {
+pub(crate) struct SessionMatch {
     pub session_id: String,
     pub message_id: String,
     pub title: String,
@@ -106,7 +106,7 @@ pub(crate) fn excerpt(text: &str, query: &str) -> String {
 ///
 /// An empty `directory` searches every workspace on the sidebar. Subagent sessions are excluded:
 /// their work is reachable from the parent thread, and listing both would return it twice.
-pub fn search(database: &Path, query: &str, directory: &str) -> Result<Vec<SessionMatch>, String> {
+pub(crate) fn search(database: &Path, query: &str, directory: &str) -> Result<Vec<SessionMatch>, String> {
     search_in(&open(database)?, query, directory)
 }
 

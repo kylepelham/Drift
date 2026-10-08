@@ -147,55 +147,7 @@ fn main() {
             ui_state::shell_timeout_snapshot,
             ui_state::shell_timeout_update
         ])
-        .setup(|app| {
-            startup::mark("setup-start");
-            let launch_window = app
-                .get_webview_window("main")
-                .ok_or_else(|| std::io::Error::other("main window was not created"))?;
-            let data_dir = app.path().app_data_dir().expect("no app data dir");
-            let config_dir = app.path().app_config_dir().expect("no app config dir");
-            std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
-            app.manage(ConfigRoot(config_dir));
-            let engine = native::start(app.handle(), &data_dir).expect("failed to open the drift engine");
-            let store = store::attach(engine.store.clone()).expect("failed to open drift store");
-            native::push_agent_overrides(app.handle(), &store).expect("failed to load agent settings");
-            let ui_state = ui_state::UiStateAuthority::load(&store).expect("failed to load UI mirror state");
-            let shell_timeout =
-                ui_state::ShellTimeoutAuthority::load(&store).expect("failed to load shell timeout policy");
-            if let Some(policy) = shell_timeout.current() {
-                native::push_shell_timeout(app.handle(), policy.timeout_ms);
-            }
-            let dictation_enabled = store.dictation_enabled().unwrap_or(false);
-            app.state::<permissions::DictationConsent>().set(dictation_enabled);
-            app.manage(store);
-            app.manage(ui_state);
-            app.manage(shell_timeout);
-            app.manage(opencode_import::start(app.handle()));
-            #[cfg(windows)]
-            permissions::install(app)?;
-            let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>(), &data_dir)
-                .expect("failed to load remote access settings");
-            let start_remote = remote_access.should_start();
-            app.manage(remote_access);
-            if start_remote {
-                let app = app.handle().clone();
-                tauri::async_runtime::spawn(async move {
-                    let access = app.state::<remote::RemoteAccess>();
-                    if let Err(error) = access.start(app.clone()).await {
-                        access.set_error(error);
-                    }
-                });
-            }
-            startup::mark("setup-complete");
-            // Recover if the preload script never observes paint or cannot invoke the reveal.
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
-                    reveal_main_window(&launch_window);
-                }
-            });
-            Ok(())
-        })
+        .setup(setup)
         .build(tauri::generate_context!())
         .expect("failed to build drift")
         .run(|app, event| {
@@ -204,6 +156,60 @@ fn main() {
                 native::stop(app);
             }
         });
+}
+
+fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    startup::mark("setup-start");
+    let launch_window = app
+        .get_webview_window("main")
+        .ok_or_else(|| std::io::Error::other("main window was not created"))?;
+    let data_dir = app.path().app_data_dir().expect("no app data dir");
+    let config_dir = app.path().app_config_dir().expect("no app config dir");
+    std::fs::create_dir_all(&config_dir).expect("failed to create config dir");
+    app.manage(ConfigRoot(config_dir));
+
+    let engine = native::start(app.handle(), &data_dir).expect("failed to open the drift engine");
+    let store = store::attach(engine.store.clone()).expect("failed to open drift store");
+    native::push_agent_overrides(app.handle(), &store).expect("failed to load agent settings");
+    let ui_state = ui_state::UiStateAuthority::load(&store).expect("failed to load UI mirror state");
+    let shell_timeout = ui_state::ShellTimeoutAuthority::load(&store).expect("failed to load shell timeout policy");
+    if let Some(policy) = shell_timeout.current() {
+        native::push_shell_timeout(app.handle(), policy.timeout_ms);
+    }
+
+    let dictation_enabled = store.dictation_enabled().unwrap_or(false);
+    app.state::<permissions::DictationConsent>().set(dictation_enabled);
+    app.manage(store);
+    app.manage(ui_state);
+    app.manage(shell_timeout);
+    app.manage(opencode_import::start(app.handle()));
+    #[cfg(windows)]
+    permissions::install(app)?;
+
+    let remote_access = remote::RemoteAccess::load(&app.state::<store::Store>(), &data_dir)
+        .expect("failed to load remote access settings");
+    let start_remote = remote_access.should_start();
+    app.manage(remote_access);
+    if start_remote {
+        let app = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            let access = app.state::<remote::RemoteAccess>();
+            if let Err(error) = access.start(app.clone()).await {
+                access.set_error(error);
+            }
+        });
+    }
+    startup::mark("setup-complete");
+
+    // Recover if the preload script never observes paint or cannot invoke the reveal.
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
+            reveal_main_window(&launch_window);
+        }
+    });
+
+    Ok(())
 }
 
 #[cfg(test)]

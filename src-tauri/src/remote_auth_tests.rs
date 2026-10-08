@@ -26,7 +26,10 @@ fn password_hashes_verify_only_the_original_password() {
     }
     let vector = hash_password("passwd", b"salt", 1);
     let key = STANDARD_NO_PAD.decode(vector.rsplit('$').next().unwrap()).unwrap();
-    let hex: String = key.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut hex = String::with_capacity(key.len() * 2);
+    for byte in key {
+        write!(hex, "{byte:02x}").unwrap();
+    }
     assert_eq!(hex, "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc");
     assert_ne!(new_password_hash("same"), new_password_hash("same"));
 }
@@ -78,11 +81,16 @@ fn a_device_links_only_after_its_code_is_entered_on_the_desktop() {
         ("Android Chrome", "link")
     );
     assert!(auth.device("not-a-token", &store).is_none());
-    let reloaded = Auth::load(&store).unwrap().devices();
-    assert_eq!(reloaded, vec![device.clone()]);
-    assert!(!serde_json::to_string(&reloaded).unwrap().contains(&device.token_hash));
+    assert_device_persisted_without_token(&store, &device);
+
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
+}
+
+fn assert_device_persisted_without_token(store: &Store, device: &RemoteDevice) {
+    let reloaded = Auth::load(store).unwrap().devices();
+    assert_eq!(reloaded, vec![device.clone()]);
+    assert!(!serde_json::to_string(&reloaded).unwrap().contains(&device.token_hash));
 }
 
 #[test]

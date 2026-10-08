@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
@@ -244,10 +245,12 @@ impl Auth {
 }
 
 pub(crate) fn token_hash(token: &str) -> String {
-    Sha256::digest(token.as_bytes())
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    let mut encoded = String::with_capacity(64);
+    for byte in Sha256::digest(token.as_bytes()) {
+        write!(encoded, "{byte:02x}").unwrap();
+    }
+
+    encoded
 }
 
 fn random_bytes<const N: usize>() -> [u8; N] {
@@ -257,7 +260,13 @@ fn random_bytes<const N: usize>() -> [u8; N] {
 }
 
 fn random_hex(len: usize) -> String {
-    (0..len).map(|_| format!("{:02x}", random_bytes::<1>()[0])).collect()
+    let mut encoded = String::with_capacity(len * 2);
+    for _ in 0..len {
+        let byte = random_bytes::<1>()[0];
+        write!(encoded, "{byte:02x}").unwrap();
+    }
+
+    encoded
 }
 
 /// Draws unbiased characters from an alphabet without look-alikes (no 0/O, 1/I/L).
@@ -359,8 +368,7 @@ fn with_cookie(mut response: Response, cookie: HeaderValue) -> Response {
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |elapsed| elapsed.as_millis() as i64)
 }
 
 fn failure(status: StatusCode, message: &str) -> Response {

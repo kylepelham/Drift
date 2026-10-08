@@ -406,8 +406,7 @@ fn copilot(body: &Value) -> Vec<UsageWindow> {
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |elapsed| elapsed.as_millis() as i64)
 }
 
 fn client() -> Result<&'static reqwest::Client, String> {

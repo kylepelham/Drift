@@ -19,6 +19,7 @@ pub(crate) fn clipboard_write_text(window: tauri::WebviewWindow, text: String) -
     }
     let value = clipboard_utf16(&text);
     let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
+    // SAFETY: Each allocation is checked before access and ownership transfers only after SetClipboardData succeeds.
     unsafe {
         let memory = GlobalAlloc(GMEM_MOVEABLE, value.len() * std::mem::size_of::<u16>());
         if memory.is_null() {
