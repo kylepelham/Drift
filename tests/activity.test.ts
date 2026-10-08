@@ -410,7 +410,7 @@ test("loaded stale tool states become interrupted without mutating live or compl
 });
 
 test("streamed tool replacements retain mounted group and plugin identities", async () => {
-    const { groupParts, updatePartGroupSlots } = await import("../src/ui/message");
+    const { groupParts, updatePartGroupSlots } = await import("../src/ui/message-groups");
     // Bun selects Solid's server condition for tests, so load the browser primitives
     // used by Vite to verify the keyed mount behavior without requiring a DOM.
     // @ts-expect-error Solid's browser build shares the package's public types.

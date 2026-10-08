@@ -90,7 +90,7 @@ const assistant = (id: string, parts: unknown[], extra: Record<string, unknown> 
     }) as MessageEntry;
 
 test("assistant grouping and pitch are invariant to provider message chunking", async () => {
-    const { groupAssistantEntries } = await import("../src/ui/message");
+    const { groupAssistantEntries } = await import("../src/ui/message-groups");
     const { timelinePitch } = await import("../src/ui/chat");
     const one = [assistant("a1", [tool("r1", "a1"), tool("r2", "a1"), tool("r3", "a1"), text("answer", "a1")])];
     const split = [
@@ -117,7 +117,7 @@ test("assistant grouping and pitch are invariant to provider message chunking", 
 });
 
 test("context grouping stops at meaningful transcript boundaries", async () => {
-    const { groupAssistantEntries } = await import("../src/ui/message");
+    const { groupAssistantEntries } = await import("../src/ui/message-groups");
     const first = assistant("a1", [tool("r1", "a1")]);
     const user = {
         info: { id: "u1", sessionID: "s1", role: "user", time: { created: 2 } },

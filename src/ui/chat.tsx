@@ -1,4 +1,6 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
+import { assistantFlowContinues, groupAssistantEntries, type PartGroup } from "./message-groups";
+import { largeUserText, MessageView, messageVisible } from "./message";
 import { messageModel, messageProblem } from "../engine/messages";
 import { clarificationAnswer } from "./clarification-answer";
 import { clearReveal, revealTarget } from "./session-search";
@@ -36,14 +38,6 @@ import {
     syncTranscriptMatches,
     transcriptFindNeedle,
 } from "./transcript-find";
-import {
-    assistantFlowContinues,
-    groupAssistantEntries,
-    largeUserText,
-    MessageView,
-    messageVisible,
-    type PartGroup,
-} from "./message";
 import {
     collapseCompaction,
     compactionCollapsed,

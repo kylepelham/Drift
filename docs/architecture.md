@@ -79,6 +79,10 @@ headings roll over at midnight without a restart.
 wait detection. Tool rows and message grouping share it rather than coupling these
 descriptions to the transcript renderer.
 
+`src/ui/message-groups.ts` groups adjacent exploration calls and reconciles their keyed
+slots. A split or merge keeps the surviving mounted slot and advances its revision;
+streamed record replacement does not remount the tool body or plugin renderer.
+
 Single-file edit and write tools keep their filename and stats in the clickable summary
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
 status, additions/deletions, and numbered syntax-highlighted diff for every changed
