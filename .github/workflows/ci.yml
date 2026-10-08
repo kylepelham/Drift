@@ -38,6 +38,9 @@ jobs:
             - name: Lint
               run: bun run lint
 
+            - name: Unused files and exports
+              run: bun run knip
+
             - name: Typecheck
               run: bun run typecheck
 

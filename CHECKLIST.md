@@ -322,8 +322,8 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [x] Typed tool-call metadata (`ToolMetadata`), same JSON, typed in the generated client
 - [x] Shell, importer and headless crates: workspace lints, typed errors, split files, grouped blocks
 - [x] ESLint clean, then in the gates and CI
-- [ ] Engine: workspace lints (parameter structs, split functions, `SAFETY` notes), `session/turn.rs` split, typed errors
+- [x] Engine: workspace lints (parameter structs, split functions, `SAFETY` notes), `session/turn.rs` split, typed errors
 - [x] UI speaks the native engine: `shapes.ts` and `native/adapt.ts` removed
-- [ ] knip clean and in CI
-- [ ] Large UI files split (`settings.tsx`, `parts.tsx`, `chat.tsx`, `markdown.tsx`, `composer.tsx`)
-- [ ] Statements grouped into labelled blocks across the engine, UI and tests
+- [x] knip clean and in CI
+- [x] Large UI files split (`settings.tsx`, `parts.tsx`, `chat.tsx`, `markdown.tsx`, `composer.tsx`)
+- [x] Statements grouped into labelled blocks across the engine, UI and tests
