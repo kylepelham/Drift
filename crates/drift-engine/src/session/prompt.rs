@@ -16,7 +16,8 @@ const LEFT_ORCHESTRATOR: &str = "<system-reminder>\n\
     even though earlier replies did.\n</system-reminder>";
 const LEFT_READ_ONLY: &str = "<system-reminder>\n\
     The conversation has switched from the {from} agent to the {agent} agent. \
-    The {from} agent's read-only limits no longer apply: you may now change files and run commands with the tools you have. \
+    The {from} agent's read-only limits no longer apply: \
+    you may now change files and run commands with the tools you have. \
     Carry out the plan agreed above.\n</system-reminder>";
 
 pub fn shared_rules() -> &'static str {

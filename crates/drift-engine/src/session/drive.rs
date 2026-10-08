@@ -12,8 +12,8 @@ pub const MAX_ROUNDS: usize = 30;
 
 const PROCEED: &str = "Proceed toward the goal. Dispatch the next tasks now and verify results as they land. \
     Do not re-summarize completed work.";
-const REMINDER: &str = "Your last reply did not end with a valid <orchestrator_status> block, so your state is unknown. \
-    Proceed toward the goal, and end every reply with the mandatory status block.";
+const REMINDER: &str = "Your last reply did not end with a valid <orchestrator_status> block, \
+    so your state is unknown. Proceed toward the goal, and end every reply with the mandatory status block.";
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
