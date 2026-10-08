@@ -62,15 +62,16 @@ pub fn parse(text: &str) -> Result<Vec<Op>, ParseError> {
     let lines: Vec<&str> = normalised.lines().collect();
     let begin = lines
         .iter()
-        .position(|l| l.trim() == "*** Begin Patch")
+        .position(|line| line.trim() == "*** Begin Patch")
         .ok_or(ParseError::MissingBegin)?;
     let end = lines
         .iter()
-        .rposition(|l| l.trim() == "*** End Patch")
+        .rposition(|line| line.trim() == "*** End Patch")
         .ok_or(ParseError::MissingEnd)?;
     if end < begin {
         return Err(ParseError::ReversedEnvelope);
     }
+
     let mut ops = Vec::new();
     let mut i = begin + 1;
     while i < end {
@@ -88,31 +89,39 @@ pub fn parse(text: &str) -> Result<Vec<Op>, ParseError> {
             });
             i += 1;
         } else if let Some(path) = line.strip_prefix("*** Update File:") {
-            let mut next = i + 1;
-            let move_to = lines
-                .get(next)
-                .and_then(|l| l.strip_prefix("*** Move to:"))
-                .map(|p| p.trim().to_string());
-            if move_to.is_some() {
-                next += 1;
-            }
-            let (chunks, after) = chunks(&lines, next, end);
-            ops.push(Op::Update {
-                path: path.trim().into(),
-                move_to,
-                chunks,
-            });
-            i = after;
+            let (op, next) = update(path, &lines, i + 1, end);
+            ops.push(op);
+            i = next;
         } else if line.trim().is_empty() {
             i += 1;
         } else {
             return Err(ParseError::UnexpectedLine(line.into()));
         }
     }
+
     if ops.is_empty() {
         return Err(ParseError::NoOperations);
     }
     Ok(ops)
+}
+
+/// An `*** Update File:` section whose body starts at line `i`, with the line after it.
+fn update(path: &str, lines: &[&str], mut i: usize, end: usize) -> (Op, usize) {
+    let move_to = lines
+        .get(i)
+        .and_then(|line| line.strip_prefix("*** Move to:"))
+        .map(|to| to.trim().to_string());
+    if move_to.is_some() {
+        i += 1;
+    }
+
+    let (chunks, next) = chunks(lines, i, end);
+    let op = Op::Update {
+        path: path.trim().into(),
+        move_to,
+        chunks,
+    };
+    (op, next)
 }
 
 fn add_content(lines: &[&str], mut i: usize, end: usize) -> (String, usize) {
@@ -121,6 +130,7 @@ fn add_content(lines: &[&str], mut i: usize, end: usize) -> (String, usize) {
         content.push(lines[i].strip_prefix('+').unwrap_or(lines[i]));
         i += 1;
     }
+
     let mut text = content.join("\n");
     if !text.is_empty() {
         text.push('\n');
@@ -165,6 +175,7 @@ fn chunks(lines: &[&str], mut i: usize, end: usize) -> (Vec<Chunk>, usize) {
         }
         i += 1;
     }
+
     chunks.extend(current);
     (chunks, i)
 }
@@ -174,11 +185,13 @@ pub fn apply_chunks(content: &str, chunks: &[Chunk]) -> Result<String, HunkError
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
     let trailing_newline = content.ends_with('\n') || content.is_empty();
     let mut cursor = 0;
+
     for (index, chunk) in chunks.iter().enumerate() {
         let at = locate(&lines, chunk, cursor).ok_or_else(|| miss(content, index, chunk))?;
         lines.splice(at..at + chunk.old.len(), chunk.new.iter().cloned());
         cursor = at + chunk.new.len();
     }
+
     let mut out = lines.join("\n");
     if trailing_newline && !out.is_empty() {
         out.push('\n');
@@ -188,9 +201,10 @@ pub fn apply_chunks(content: &str, chunks: &[Chunk]) -> Result<String, HunkError
 
 fn locate(lines: &[String], chunk: &Chunk, from: usize) -> Option<usize> {
     let start = match &chunk.context {
-        Some(context) => seek(lines, std::slice::from_ref(context), from, false).map_or(from, |i| i + 1),
+        Some(context) => seek(lines, std::slice::from_ref(context), from, false).map_or(from, |at| at + 1),
         None => from,
     };
+
     if chunk.old.is_empty() {
         return Some(if chunk.end_of_file {
             lines.len()
@@ -231,13 +245,13 @@ fn matches_at(lines: &[String], pattern: &[String], at: usize, same: fn(&str, &s
         && lines[at..at + pattern.len()]
             .iter()
             .zip(pattern)
-            .all(|(a, b)| same(a, b))
+            .all(|(line, wanted)| same(line, wanted))
 }
 
 /// Codex's normalisation: typographic dashes, quotes and spaces as their ASCII forms.
 fn ascii_punctuation(text: &str) -> String {
     text.chars()
-        .map(|c| match c {
+        .map(|character| match character {
             '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
             '\u{2018}'..='\u{201B}' => '\'',
             '\u{201C}'..='\u{201F}' => '"',
