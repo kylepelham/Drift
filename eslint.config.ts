@@ -5,7 +5,18 @@ import solid from "eslint-plugin-solid"
 // Formatting is Prettier's; these are the rules a formatter cannot check: Solid reactivity, import order and the
 // style guide's limits on complexity and density.
 export default tseslint.config(
-  { ignores: [".build/", ".worktrees/", "dist/", "target/", "examples/", "src-tauri/", "plugins/", "src/engine/native/types.ts"] },
+  {
+    ignores: [
+      ".build/",
+      ".worktrees/",
+      "dist/",
+      "target/",
+      "examples/",
+      "src-tauri/",
+      "plugins/",
+      "src/engine/native/types.ts",
+    ],
+  },
   {
     files: ["src/**/*.{ts,tsx}", "tests/**/*.ts", "scripts/**/*.ts", "vite.config.ts", "eslint.config.ts"],
     extends: [tseslint.configs.base],

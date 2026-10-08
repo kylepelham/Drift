@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, "next/**"]
   pull_request:
   workflow_dispatch:
 
@@ -24,16 +24,34 @@ jobs:
         run: |
           bun install --frozen-lockfile
 
-      - name: Typecheck
-        run: bun run typecheck
-
-      # The generated-client check and the conformance tests need drift-engined.
-      - uses: dtolnay/rust-toolchain@stable
+      # rust-toolchain.toml pins the version, components and the plugin target.
+      - name: Rust toolchain
+        run: rustup toolchain install
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
 
+      - name: Format
+        run: bun run format:check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Spelling
+        uses: crate-ci/typos@v1
+
+      - name: Dependency audit
+        uses: EmbarkStudios/cargo-deny-action@v2
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+
+      - name: Unused dependencies
+        run: cargo machete
+
+      # The generated-client check and the conformance tests need drift-engined.
       - name: Build engine
         run: cargo build -p drift-engined
 
@@ -44,7 +62,6 @@ jobs:
         run: bun run test
 
   full:
-    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,24 +98,27 @@ jobs:
         if: steps.whisper.outputs.cache-hit != 'true'
         run: bun run build:whisper
 
-      # The plugin tests build the example plugin as a WebAssembly component.
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-wasip2
+      # rust-toolchain.toml pins the version, components and the wasm32-wasip2 target the plugin tests build for.
+      - name: Rust toolchain
+        run: rustup toolchain install
 
       # The example plugin builds into target/plugins, inside the workspace's own target, which this caches.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: .
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       # A fresh runner scans node.exe on its first launch; doing that here keeps it out of the MCP tests' start limit.
       - name: Warm node for the MCP and LSP fixtures
         run: node -e 0
 
+      # nextest's slow timeout (.config/nextest.toml) names a hung test and kills it, so the run still reports.
       - name: Native unit tests
-        # A hung test fails here with its log, instead of holding the runner until a cancel that keeps none.
         timeout-minutes: 20
-        run: cargo test --workspace
+        run: cargo nextest run --workspace --profile ci
 
       - name: Native lint
         run: cargo clippy --workspace --all-targets -- -D warnings

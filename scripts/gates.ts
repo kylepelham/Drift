@@ -15,6 +15,7 @@ const chains: Step[][] = [
     { name: "cargo test", cmd: ["cargo", "test", "-q", "--workspace"] },
   ],
   [
+    { name: "format", cmd: ["bun", "run", "format:check"] },
     { name: "typecheck", cmd: ["bun", "run", "typecheck"] },
     { name: "bun test", cmd: ["bun", "run", "test"] },
   ],
