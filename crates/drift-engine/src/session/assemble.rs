@@ -320,6 +320,7 @@ mod tests {
             .execute("UPDATE part SET json = '{\"type\":\"text\",\"text\":\"on disk\"}'", [])
             .unwrap();
         let parts = store.transcript(&session.id).unwrap().remove(0).parts;
+
         assert_eq!(
             parts[0].part,
             Part::Text { text: "on disk".into() },
@@ -370,6 +371,7 @@ mod tests {
 
         let mut sent = Vec::new();
         super::super::convert::append(&mut sent, &transcript, &model);
+
         let crate::llm::Block::Signed { part, signature } = &sent[0].blocks[0] else {
             panic!("a signed call replays signed to the same model");
         };
@@ -408,6 +410,7 @@ mod tests {
                 model: "gpt".into(),
             },
         );
+
         assert!(matches!(switched[0].blocks[0], crate::llm::Block::ToolUse { .. }));
 
         drop(store);

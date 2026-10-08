@@ -60,6 +60,7 @@ async fn a_repository_is_captured_from_its_own_index_whatever_its_size_and_conve
     repo_git(&workspace, &["update-index", "--refresh"]);
     let mut snapshots = Snapshots::new(&base.join("data"));
     snapshots.max_tree_files = 3;
+
     let before = snapshots
         .take(&workspace)
         .await
@@ -74,6 +75,7 @@ async fn a_repository_is_captured_from_its_own_index_whatever_its_size_and_conve
     std::thread::sleep(Duration::from_millis(20));
     std::fs::write(workspace.join("b.txt"), "b one\r\nb two\r\n").unwrap();
     std::fs::write(workspace.join("new.txt"), "n\r\n").unwrap();
+
     let after = snapshots.take(&workspace).await.unwrap();
     let mut changed: Vec<_> = snapshots
         .changes_between(&workspace, &before, &after)
@@ -154,6 +156,7 @@ async fn a_shadow_repo_made_before_the_rule_is_brought_up_to_it() {
     std::fs::write(workspace.join("a.txt"), "lower\r\n").unwrap();
     std::fs::remove_file(snapshots.git_dir(&workspace).join("info/attributes")).unwrap();
     snapshots.git(&workspace, &["add", "-A"]).await.unwrap();
+
     let converted = snapshots
         .git(&workspace, &["ls-files", "-s", "--", "a.txt"])
         .await

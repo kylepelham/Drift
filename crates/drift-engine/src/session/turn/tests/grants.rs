@@ -14,8 +14,10 @@ async fn always_holds_for_the_workspace_across_sessions_and_restarts_and_settles
     h.engine.submit(&h.session.id, prompt("first")).await.await_ok();
     let first = next_ask(&mut events).await;
     h.engine.submit(&other.id, prompt("second")).await.await_ok();
+
     let second = next_ask(&mut events).await;
     assert_ne!(first.session_id, second.session_id);
+
     reply_permission(&h, &first.id, Reply::Always);
     until_idle(&h).await;
 

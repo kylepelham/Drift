@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn local_routes_wait_longer_and_drift_json_can_set_any_routes_limits() {
     use crate::llm::http::Timeouts;
+
     assert_eq!(Timeouts::for_route("ollama").headers, Duration::from_secs(600));
     assert_eq!(Timeouts::for_route("lmstudio").idle, Duration::from_secs(600));
     assert_eq!(Timeouts::for_route("anthropic"), Timeouts::default());
@@ -21,6 +22,7 @@ fn local_routes_wait_longer_and_drift_json_can_set_any_routes_limits() {
         r#"{ "timeouts": { "ollama": { "headersSeconds": 1800 }, "anthropic": { "idleSeconds": 60 } } }"#,
     )
     .unwrap();
+
     let config = Config::load_with_home(&dir, None);
     assert_eq!(
         config.route_timeouts("ollama"),
@@ -72,16 +74,19 @@ async fn a_local_servers_installed_models_appear_and_run_without_a_key_while_it_
             .is_some(),
         "the installed model is listed"
     );
+
     h.provider.push(text("local reply"));
     let mut ask = prompt("hi");
     ask.model = Some(local);
     h.engine.submit(&h.session.id, ask).await.await_ok();
     until_idle(&h).await;
+
     assert_eq!(transcript(&h)[1].info.status, MessageStatus::Done, "no key was needed");
 
     serving.abort();
     let _ = serving.await;
     h.engine.ask_local().await;
+
     assert!(
         h.engine.credentials.resolve("lmstudio", &[]).is_none(),
         "a server that stopped answering is not connected"

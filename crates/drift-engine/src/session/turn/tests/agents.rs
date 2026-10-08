@@ -109,6 +109,7 @@ async fn a_prompt_that_picks_plan_runs_as_plan_and_every_message_says_so() {
 async fn a_drift_json_that_cannot_be_read_stops_the_turn_instead_of_dropping_its_rules() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/drift.json"), r#"{ "permissions": [ "#).unwrap();
+
     let refused = h.engine.submit(&h.session.id, prompt("run")).await.err();
     assert!(
         matches!(&refused, Some(TurnError::Config(problem)) if problem.contains("drift.json could not be read")),
@@ -137,6 +138,7 @@ async fn workspace_config_shapes_the_turn() {
         .push(text("denied"));
     h.engine.submit(&h.session.id, prompt("run")).await.await_ok();
     until_idle(&h).await;
+
     let messages = transcript(&h);
     assert_eq!(tool(&messages[1].parts[0]).status, ToolStatus::Denied);
     let system = h.provider.requests.lock().unwrap()[0].system.clone();
@@ -152,6 +154,7 @@ async fn workspace_config_shapes_the_turn() {
     h.provider.push(text("planned"));
     h.engine.submit(&h.session.id, prompt("plan it")).await.await_ok();
     until_idle(&h).await;
+
     let requests = h.provider.requests.lock().unwrap().clone();
     let (build, plan) = (&requests[0], requests.last().unwrap());
     assert_eq!((&plan.system, &plan.tools), (&build.system, &build.tools));
@@ -235,6 +238,7 @@ async fn a_read_only_agent_is_refused_every_call_that_would_change_something() {
         !h._dir.join("ws/plan-mutated.txt").exists() && !h._dir.join("ws/made.txt").exists(),
         "plan mode must not write"
     );
+
     let messages = transcript(&h);
     for row in &messages[1].parts[..3] {
         let refused = tool(row);
@@ -245,6 +249,7 @@ async fn a_read_only_agent_is_refused_every_call_that_would_change_something() {
             "nothing was recorded for a call that never ran"
         );
     }
+
     assert_eq!(
         tool(&messages[1].parts[3]).status,
         ToolStatus::Done,

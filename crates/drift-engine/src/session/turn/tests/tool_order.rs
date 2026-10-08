@@ -95,6 +95,7 @@ async fn a_call_id_the_provider_repeats_is_renamed_so_every_call_keeps_its_own()
     assert_eq!(ids.len(), 2);
     assert_eq!(ids[0], "functions.read:0", "a fresh id is kept as the provider sent it");
     assert!(ids[1] != ids[0] && ids[1].starts_with("call_"), "{ids:?}");
+
     let last = h.provider.requests.lock().unwrap().last().unwrap().clone();
     let results: Vec<_> = last
         .messages

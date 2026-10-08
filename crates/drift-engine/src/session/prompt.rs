@@ -301,6 +301,7 @@ mod tests {
         assert!(!prompt.contains("# Subagents"), "no task tool, no subagent list");
 
         std::fs::create_dir_all(workspace.join(".git")).unwrap();
+
         assert!(system(&setting("plan", false)).contains("Git repository: yes\n"));
 
         let delegating = system(&setting("build", true));
@@ -319,6 +320,7 @@ mod tests {
             agent: broken.agent("build"),
             ..setting("build", true)
         });
+
         assert!(
             offered.contains("- general: ") && !offered.contains("- explore: "),
             "a broken subagent is not offered"
@@ -339,6 +341,7 @@ mod tests {
         };
 
         config.skills = vec![skill("review"), skill("deploy")];
+
         let workspace = std::env::temp_dir();
         let deny = |kind: &str, name: &str| (kind, name) == ("skill", "deploy") || (kind, name) == ("task", "explore");
         let built = |loads_skills: bool, denied: &dyn Fn(&str, &str) -> bool| {
@@ -462,6 +465,7 @@ mod tests {
                 checked += 1;
             }
         }
+
         assert!(checked > 10, "every prompt directory was read");
     }
 
@@ -497,6 +501,7 @@ mod tests {
             message(Role::User, Some("build")),
         ]);
         remind_agents(&config, "build", &mut left);
+
         assert!(
             texts(&left[2]).contains("<orchestrator_status> block"),
             "leaving the orchestrator ends its protocol"
@@ -513,6 +518,7 @@ mod tests {
             message(Role::Assistant, Some("plan")),
         ]);
         remind_agents(&config, "plan", &mut run);
+
         assert!(
             texts(&run[0]).contains("# Plan mode") && texts(&run[2]).is_empty(),
             "a run of plan turns carries plan's prompt once"

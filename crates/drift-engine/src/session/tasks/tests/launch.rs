@@ -49,6 +49,7 @@ async fn a_worker_thinks_at_its_parents_reasoning_level() {
 
     let child = h.engine.store.session(&tasks(&h)[0].session_id).unwrap().unwrap();
     assert_eq!(child.variant.as_deref(), Some("max"));
+
     let requests = h.provider.requests.lock().unwrap();
     let asked_child = requests
         .iter()
@@ -98,6 +99,7 @@ async fn a_background_worker_returns_a_receipt_and_its_result_arrives_later() {
 
     until("the result is delivered", || tasks(&h)[0].delivered).await;
     until_idle(&h).await;
+
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert_eq!(
         delivered_results(&transcript),
@@ -176,6 +178,7 @@ async fn a_workers_permission_wait_blocks_only_that_worker() {
         .push_for("CHILD build", text("built"));
 
     h.engine.submit(&h.session.id, prompt("PARENT build")).await.unwrap();
+
     let ask = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(5), events.recv())
             .await
@@ -208,6 +211,7 @@ async fn a_workers_permission_wait_blocks_only_that_worker() {
 
     until("delivered", || tasks(&h)[0].delivered).await;
     until_idle(&h).await;
+
     assert_eq!(tasks(&h)[0].state, TaskState::Replied);
 }
 
@@ -234,6 +238,7 @@ async fn the_same_launch_again_gets_what_it_launched_and_makes_nothing_new() {
         .push_stall_for("CHILD again")
         .push_for("CHILD front", text("front answer"));
     let ctx = context(&h, &h.session.id, "bg_call");
+
     let first = crate::tool::task::Task
         .run(&ctx, background("Again", "CHILD again"))
         .await

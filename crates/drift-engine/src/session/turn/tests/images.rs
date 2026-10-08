@@ -48,8 +48,10 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
         stored.contains("\"hash\"") && !stored.contains("iVBORw0KGgo"),
         "the part names its images; their bytes live in the blob table"
     );
+
     let mut blind = model_with(0, false);
     blind.attachment = false;
+
     let text_only = crate::llm::prepare_files(last.messages.clone(), &blind, |_| None);
     assert!(
         text_only
@@ -64,6 +66,7 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
 fn only_the_newest_images_are_sent_and_a_lost_one_becomes_a_line() {
     let mut seeing = model_with(0, false);
     (seeing.attachment, seeing.pdf) = (true, true);
+
     let blocks = (0..MAX_IMAGES_SENT + 5)
         .map(|index| Block::Stored {
             mime: "image/png".into(),
@@ -131,6 +134,7 @@ fn only_the_newest_images_are_sent_and_a_lost_one_becomes_a_line() {
         "a stored PDF loads as a PDF"
     );
     seeing.pdf = false;
+
     let refused = crate::llm::prepare_files(pdf, &seeing, |_| Some(b"%PDF-1.7".to_vec()));
     assert!(matches!(&refused[0].blocks[0], Block::Text(text) if text.contains("cannot read PDFs")));
 }

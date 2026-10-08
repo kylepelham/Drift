@@ -76,6 +76,7 @@ impl crate::hook::Hook for Rewriter {
 async fn a_plugin_may_refuse_rewrite_or_add_context_to_a_prompt_and_keep_a_turn_going() {
     let h = harness().await;
     h.engine.hooks.set(vec![Arc::new(Steward)], vec![]);
+
     let refused = h.engine.submit(&h.session.id, prompt("forbidden")).await;
     let expected = "The steward plugin refused this prompt: not in this workspace";
     assert!(
@@ -87,6 +88,7 @@ async fn a_plugin_may_refuse_rewrite_or_add_context_to_a_prompt_and_keep_a_turn_
     h.provider.push(text("ok")).push(text("ok, done"));
     h.engine.submit(&h.session.id, prompt("shorthand")).await.await_ok();
     until_idle(&h).await;
+
     let messages = transcript(&h);
     assert_eq!(
         messages[0].parts[0].part,

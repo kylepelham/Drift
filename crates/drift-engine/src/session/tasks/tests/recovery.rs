@@ -6,8 +6,10 @@ async fn a_stop_while_a_result_waits_to_be_admitted_keeps_it_from_starting_a_tur
     with_model(&h);
     let task = recorded(&h, "launch", Mode::Background);
     h.engine.end_task(&task.id, TaskState::Replied, "late answer");
+
     let job = CancellationToken::new();
     assert!(h.engine.turns.claim(&h.session.id, &job));
+
     let delivering = tokio::spawn({
         let (engine, id) = (h.engine.clone(), task.id.clone());
         async move { engine.deliver(&id).await }
@@ -17,7 +19,9 @@ async fn a_stop_while_a_result_waits_to_be_admitted_keeps_it_from_starting_a_tur
     })
     .await;
     tokio::time::sleep(Duration::from_millis(50)).await;
+
     assert!(h.engine.abort(&h.session.id));
+
     tokio::time::timeout(Duration::from_secs(5), delivering)
         .await
         .expect("the wait ends with the Stop")
@@ -76,6 +80,7 @@ async fn a_held_result_rides_along_with_a_later_permitted_delivery_once() {
     h.engine.end_task(&held.id, TaskState::Replied, "from before the stop");
     h.engine.abort(&h.session.id);
     h.engine.deliver(&held.id).await;
+
     assert!(
         h.engine.store.task(&held.id).unwrap().unwrap().held && h.provider.requests.lock().unwrap().is_empty(),
         "alone it wakes nothing"
@@ -86,6 +91,7 @@ async fn a_held_result_rides_along_with_a_later_permitted_delivery_once() {
     h.engine.end_task(&later.id, TaskState::Replied, "from after the stop");
     h.engine.deliver(&later.id).await;
     until_idle(&h).await;
+
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let carried: Vec<_> = transcript
         .iter()
@@ -109,6 +115,7 @@ async fn a_held_result_rides_along_with_a_later_permitted_delivery_once() {
     h.provider.push(text("ok"));
     h.engine.submit(&h.session.id, prompt("next")).await.unwrap();
     until_idle(&h).await;
+
     assert_eq!(
         delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).len(),
         2,
@@ -125,6 +132,7 @@ async fn a_delivery_that_already_landed_carries_no_held_result_with_it() {
     let landed = recorded(&h, "landed", Mode::Background);
     h.engine.end_task(&landed.id, TaskState::Replied, "landed");
     h.engine.store.mark_task_delivered(&landed.id).unwrap();
+
     let handover = crate::store::Handover {
         delivery: Some(&landed.id),
         held: vec![(held.id.clone(), result_part(&held))],
@@ -160,19 +168,24 @@ async fn a_result_held_by_stop_rides_along_with_the_next_prompt_once() {
     h.engine.end_task(&task.id, TaskState::Replied, "held answer");
     h.engine.abort(&h.session.id);
     h.engine.deliver(&task.id).await;
+
     assert!(h.engine.store.task(&task.id).unwrap().unwrap().held);
     tokio::time::sleep(Duration::from_millis(100)).await;
+
     assert!(
         h.provider.requests.lock().unwrap().is_empty(),
         "never wakes the stopped parent"
     );
+
     h.engine.deliver(&task.id).await;
     h.engine.recover_tasks().await;
+
     assert!(!h.engine.turns.is_running(&h.session.id) && !h.engine.store.task(&task.id).unwrap().unwrap().delivered);
 
     h.provider.push(text("thanks")).push(text("again"));
     h.engine.submit(&h.session.id, prompt("what next")).await.unwrap();
     until_idle(&h).await;
+
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert_eq!(
         delivered_results(&transcript),
@@ -188,6 +201,7 @@ async fn a_result_held_by_stop_rides_along_with_the_next_prompt_once() {
 
     h.engine.submit(&h.session.id, prompt("and then")).await.unwrap();
     until_idle(&h).await;
+
     assert_eq!(
         delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).len(),
         1,

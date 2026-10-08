@@ -6,12 +6,15 @@ async fn blobs_round_trip_and_tree_diffs_name_each_changed_path() {
     let snapshots = Snapshots::new(&base.join("data"));
     std::fs::write(workspace.join("a.txt"), "one\n").unwrap();
     std::fs::write(workspace.join("gone.txt"), "g\n").unwrap();
+
     let one = snapshots.record(&workspace, "a.txt").await.unwrap().unwrap();
     assert_eq!(snapshots.record(&workspace, "missing.txt").await.unwrap(), None);
+
     let before = snapshots.take(&workspace).await.unwrap();
     std::fs::write(workspace.join("a.txt"), "two\n").unwrap();
     std::fs::remove_file(workspace.join("gone.txt")).unwrap();
     std::fs::write(workspace.join("new.txt"), "n\n").unwrap();
+
     let after = snapshots.take(&workspace).await.unwrap();
     let mut changes = snapshots
         .changes_between(&workspace, &before, &after)
@@ -34,9 +37,11 @@ async fn blobs_round_trip_and_tree_diffs_name_each_changed_path() {
     assert_eq!(changes[0].before.as_deref(), Some(one.as_str()));
 
     assert_ne!(snapshots.current(&workspace, "a.txt").await.unwrap(), Some(one.clone()));
+
     let store = crate::store::tests::store();
     snapshots.put(&store, &workspace, "a.txt", Some(&one)).await.unwrap();
     snapshots.put(&store, &workspace, "new.txt", None).await.unwrap();
+
     assert_eq!(std::fs::read_to_string(workspace.join("a.txt")).unwrap(), "one\n");
     assert!(!workspace.join("new.txt").exists());
     assert_eq!(snapshots.current(&workspace, "a.txt").await.unwrap(), Some(one));
@@ -68,6 +73,7 @@ async fn a_capture_stopped_part_way_does_not_block_the_next() {
     let before = snapshots.take(&workspace).await.unwrap();
     std::fs::write(snapshots.git_dir(&workspace).join("index.lock"), "").unwrap();
     std::fs::write(workspace.join("a.txt"), "changed\n").unwrap();
+
     let after = snapshots.take(&workspace).await.unwrap();
     assert_ne!(
         before.id, after.id,
@@ -91,9 +97,11 @@ async fn a_prune_keeps_what_history_refers_to_and_drops_the_rest() {
         .unwrap();
 
     assert!(snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok());
+
     assert!(snapshots.git(&workspace, &["cat-file", "-e", &dropped]).await.is_err());
 
     snapshots.prune(&workspace, &[]).await.unwrap();
+
     assert!(
         snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok(),
         "the grace period protects recent objects"
@@ -107,16 +115,19 @@ async fn a_bound_workspace_keeps_its_history_under_its_owner_wherever_its_direct
     let (base, workspace) = dirs();
     let snapshots = Snapshots::new(&base.join("data"));
     std::fs::write(workspace.join("a.txt"), "one\n").unwrap();
+
     let old = snapshots.record(&workspace, "a.txt").await.unwrap().unwrap();
     let legacy = snapshots.path_dir(&workspace);
     assert!(legacy.join("HEAD").exists());
 
     snapshots.bind("ws_1", &workspace);
+
     assert!(!legacy.exists(), "the path-named repo was taken over");
 
     std::fs::write(workspace.join("a.txt"), "two\n").unwrap();
     let store = crate::store::tests::store();
     snapshots.put(&store, &workspace, "a.txt", Some(&old)).await.unwrap();
+
     assert_eq!(
         std::fs::read_to_string(workspace.join("a.txt")).unwrap(),
         "one\n",
@@ -128,6 +139,7 @@ async fn a_bound_workspace_keeps_its_history_under_its_owner_wherever_its_direct
     snapshots.bind("ws_1", &moved);
     std::fs::write(moved.join("a.txt"), "three\n").unwrap();
     snapshots.put(&store, &moved, "a.txt", Some(&old)).await.unwrap();
+
     assert_eq!(
         std::fs::read_to_string(moved.join("a.txt")).unwrap(),
         "one\n",

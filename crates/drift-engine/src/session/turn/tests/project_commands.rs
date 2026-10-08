@@ -24,6 +24,7 @@ async fn a_projects_own_commands_run_only_once_the_user_says_so_and_always_holds
         .await
         .await_ok();
     until_idle(&h).await;
+
     assert!(
         h.engine.permissions.pending().is_empty(),
         "nothing of the project's covers a .md file, so nothing is asked"
@@ -33,13 +34,16 @@ async fn a_projects_own_commands_run_only_once_the_user_says_so_and_always_holds
         .push(tool_call("write", r#"{"path": "a.txt", "content": "a\n"}"#))
         .push(text("one"));
     h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();
+
     let ask = next_ask(&mut events).await;
     assert_eq!(
         (ask.ask.kind.as_str(), ask.ask.pattern.as_str()),
         ("project-commands", format!("check mark: {shell} {flag} {run}").as_str())
     );
+
     reply_permission(&h, &ask.id, Reply::Deny);
     until_idle(&h).await;
+
     assert!(!marker.exists(), "refused, the project's command does not run");
 
     h.provider
@@ -47,6 +51,7 @@ async fn a_projects_own_commands_run_only_once_the_user_says_so_and_always_holds
         .push(text("two"));
     h.engine.submit(&h.session.id, prompt("write b")).await.await_ok();
     until_idle(&h).await;
+
     assert!(
         h.engine.permissions.pending().is_empty() && !marker.exists(),
         "a refusal holds for the session without asking again"
@@ -149,6 +154,7 @@ async fn a_formatter_installed_in_the_project_runs_only_once_allowed() {
 
     reply_permission(&h, &ask.id, Reply::Deny);
     until_idle(&h).await;
+
     assert!(
         !marker.exists(),
         "a binary the repository brings never runs without the user's say-so"
@@ -177,6 +183,7 @@ async fn refusing_the_projects_formatter_leaves_its_checks_to_their_own_answer()
         .push(tool_call("write", r#"{"path": "a.ts", "content": "let a = 1\n"}"#))
         .push(text("one"));
     h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();
+
     let formatter = next_ask(&mut events).await;
     assert!(
         formatter.ask.pattern.starts_with("formatter prettier: "),
@@ -184,12 +191,14 @@ async fn refusing_the_projects_formatter_leaves_its_checks_to_their_own_answer()
         formatter.ask.pattern
     );
     reply_permission(&h, &formatter.id, Reply::Deny);
+
     let check = next_ask(&mut events).await;
     assert!(
         check.ask.pattern.starts_with("check mark: "),
         "asked about apart from the formatter: {}",
         check.ask.pattern
     );
+
     reply_permission(&h, &check.id, Reply::Always);
     until_idle(&h).await;
 
@@ -198,6 +207,7 @@ async fn refusing_the_projects_formatter_leaves_its_checks_to_their_own_answer()
         .push(text("two"));
     h.engine.submit(&h.session.id, prompt("write b")).await.await_ok();
     until_idle(&h).await;
+
     assert!(h.engine.permissions.pending().is_empty());
     assert!(!formatted.exists(), "the refused formatter never runs");
     assert_eq!(
@@ -249,6 +259,7 @@ async fn a_configured_formatter_runs_after_a_write() {
         .await
         .await_ok();
     until_idle(&h).await;
+
     let messages = transcript(&h);
     let call = tool(&messages[messages.len() - 2].parts[0]);
     assert!(

@@ -326,6 +326,7 @@ mod tests {
         assert!(text.len() < MAX_MENTION_BYTES + 200 && text.ends_with("for the rest)"));
 
         std::fs::write(&big, "small\n").unwrap();
+
         assert!(matches!(read(&big), Ok(Read::Whole(text)) if text == "small\n"));
         std::fs::remove_dir_all(dir).ok();
     }

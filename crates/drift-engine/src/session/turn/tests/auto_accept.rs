@@ -24,6 +24,7 @@ async fn auto_accept_answers_every_ask_and_only_a_deny_rule_still_refuses() {
     );
 
     until_idle(&h).await;
+
     assert_eq!(tool(&transcript(&h)[1].parts[0]).status, ToolStatus::Done);
     assert_auto_accept_policy(&h);
 }

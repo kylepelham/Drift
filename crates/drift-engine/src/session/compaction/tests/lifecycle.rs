@@ -121,6 +121,7 @@ async fn a_manual_compaction_summarises_older_turns_and_keeps_the_recent_ones() 
         .unwrap();
     h.provider.push(text("SUMMARY"));
     h.engine.start_compaction(&h.session.id).unwrap();
+
     assert!(
         matches!(h.engine.start_compaction(&h.session.id), Err(TurnError::Busy)),
         "one job at a time"
@@ -155,6 +156,7 @@ async fn a_manual_compaction_summarises_older_turns_and_keeps_the_recent_ones() 
 
     h.provider.push(text("four"));
     turn(&h, "fourth").await;
+
     let next = requests(&h).last().unwrap().clone();
     assert!(!next.no_tool_calls);
     assert!(first_text(&next).contains("SUMMARY") && first_text(&next).starts_with("This conversation was compacted"));
@@ -248,6 +250,7 @@ async fn a_request_the_provider_rejects_as_too_long_is_compacted_and_retried_onc
         .push(text("SUMMARY 2"))
         .push_error(too_long());
     turn(&h, "third").await;
+
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let last = transcript.last().unwrap();
     assert_eq!(
@@ -263,12 +266,15 @@ async fn automatic_compaction_can_be_switched_off_and_stops_after_repeated_failu
     let h = harness().await;
     h.provider.push(reply_using(980_000, "long"));
     turn(&h, "first").await;
+
     let model = h.engine.catalog.read().unwrap().providers["anthropic"].models["claude-sonnet-4-5"].clone();
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert!(h.engine.wants_compaction(&h.session.id, &model, &transcript));
 
     h.engine.store.set_setting(AUTO_COMPACT_KEY, &false).unwrap();
+
     assert!(!h.engine.wants_compaction(&h.session.id, &model, &transcript));
+
     h.engine.store.set_setting(AUTO_COMPACT_KEY, &true).unwrap();
     h.provider
         .push_error(crate::llm::Error::Api {
@@ -332,6 +338,7 @@ async fn nothing_is_written_when_there_is_nothing_to_compact_and_stop_cancels_a_
     let h = harness().await;
     h.engine.start_compaction(&h.session.id).unwrap();
     until_idle(&h).await;
+
     assert!(h.engine.store.transcript(&h.session.id).unwrap().is_empty());
 
     for (ask, reply) in [("first", "one"), ("second", "two"), ("third", "three")] {
@@ -341,6 +348,7 @@ async fn nothing_is_written_when_there_is_nothing_to_compact_and_stop_cancels_a_
     h.provider.push_stall();
     h.engine.start_compaction(&h.session.id).unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
+
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
 
@@ -360,6 +368,7 @@ async fn a_fork_of_a_compacted_conversation_sees_the_same_history() {
     h.provider.push(text("SUMMARY"));
     h.engine.start_compaction(&h.session.id).unwrap();
     until_idle(&h).await;
+
     let fork = h.engine.fork(&h.session.id, None).unwrap();
 
     let source = h.engine.store.transcript(&h.session.id).unwrap();

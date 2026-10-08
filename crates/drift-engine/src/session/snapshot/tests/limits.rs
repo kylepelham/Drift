@@ -21,6 +21,7 @@ async fn a_workspace_with_too_many_files_is_not_captured_and_not_walked_again() 
     );
 
     std::fs::remove_file(workspace.join("d")).unwrap();
+
     assert_eq!(
         snapshots.take(&workspace).await,
         Err(Error::TooManyFiles),
@@ -41,6 +42,7 @@ async fn large_files_are_never_copied_into_the_store() {
     )
     .unwrap();
     std::fs::write(workspace.join("small.txt"), "changed\n").unwrap();
+
     assert!(matches!(
         snapshots.record(&workspace, "huge [1].bin").await,
         Err(Error::TooLarge(_))
@@ -71,6 +73,7 @@ async fn a_tracked_file_that_grows_past_the_limit_leaves_the_store_without_readi
 
     let big = vec![b'y'; MAX_RECORDED_BYTES as usize + 1];
     std::fs::write(workspace.join("grows.log"), &big).unwrap();
+
     let large = snapshots.take(&workspace).await.unwrap();
     let grew = snapshots.changes_between(&workspace, &small, &large).await.unwrap();
     assert_eq!(
@@ -89,6 +92,7 @@ async fn a_tracked_file_that_grows_past_the_limit_leaves_the_store_without_readi
     );
 
     std::fs::write(workspace.join("grows.log"), "small again\n").unwrap();
+
     let shrunk = snapshots.take(&workspace).await.unwrap();
     let back = snapshots.changes_between(&workspace, &large, &shrunk).await.unwrap();
     assert_eq!(
@@ -101,6 +105,7 @@ async fn a_tracked_file_that_grows_past_the_limit_leaves_the_store_without_readi
     );
 
     std::fs::write(workspace.join("grows.log"), "edited\n").unwrap();
+
     let edited = snapshots.take(&workspace).await.unwrap();
     let recorded = snapshots.changes_between(&workspace, &shrunk, &edited).await.unwrap();
     assert_eq!(recorded.changes.len(), 1, "once small it is recorded again");

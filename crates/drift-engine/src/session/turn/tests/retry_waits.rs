@@ -6,6 +6,7 @@ async fn a_retry_wait_is_announced_and_ends_with_running_again() {
     let mut events = h.engine.hub.attach(None).rx;
     h.provider.push_error(overloaded()).push(text("second time lucky"));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
+
     let (attempt, message, next_at) = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(3), events.recv())
             .await
@@ -67,6 +68,7 @@ async fn a_turn_waiting_to_retry_can_be_moved_to_another_model_and_keeps_it() {
         .push(text("answered by the other model"));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_waiting_to_retry(&h).await;
+
     let unusable = ModelRef {
         provider: "openai".into(),
         model: "gpt-5".into(),
@@ -76,6 +78,7 @@ async fn a_turn_waiting_to_retry_can_be_moved_to_another_model_and_keeps_it() {
         Err(TurnError::NoCredentials),
         "a model without a credential is refused up front"
     );
+
     let started = std::time::Instant::now();
     h.engine
         .switch_retry_model(&h.session.id, &other, Some(Some("high".into())))
@@ -107,6 +110,7 @@ async fn stop_ends_a_retry_wait_at_once() {
     h.provider.push_error(overloaded());
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_waiting_to_retry(&h).await;
+
     let started = std::time::Instant::now();
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
@@ -127,6 +131,7 @@ async fn retryable_provider_errors_are_retried_and_others_are_not() {
         .push(text("second time lucky"));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_idle(&h).await;
+
     let messages = transcript(&h);
     assert_eq!(messages.len(), 3);
     assert_eq!(messages[1].info.status, MessageStatus::Error);
@@ -136,6 +141,7 @@ async fn retryable_provider_errors_are_retried_and_others_are_not() {
         .push_error(llm::Error::Unauthenticated("invalid x-api-key".into()));
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     until_idle(&h).await;
+
     let messages = transcript(&h);
     assert_eq!(messages.len(), 5, "a refused key is not retried");
     assert_eq!(messages[4].info.status, MessageStatus::Error);
@@ -152,6 +158,7 @@ async fn stop_ends_a_request_still_waiting_for_its_response() {
     *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Anthropic(llm::anthropic::Anthropic::new(&url)));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(300)).await;
+
     let started = std::time::Instant::now();
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
@@ -210,6 +217,7 @@ async fn a_spent_quota_is_one_request_and_an_endless_wait_releases_the_session()
     ));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_idle(&h).await;
+
     assert_eq!(
         h.provider.requests.lock().unwrap().len(),
         1,
@@ -219,6 +227,7 @@ async fn a_spent_quota_is_one_request_and_an_endless_wait_releases_the_session()
     h.provider.push_error(asking_to_wait(Duration::MAX));
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     until_idle(&h).await;
+
     assert_eq!(
         h.provider.requests.lock().unwrap().len(),
         2,

@@ -37,6 +37,7 @@ async fn undo_puts_back_what_a_fixing_check_rewrote_and_forgets_what_checks_said
             .starts_with("fixed")
     );
     h.engine.turns.repeated(&h.session.id, "fixer", Some("seen"));
+
     let messages = transcript(&h);
     let prompt_id = messages
         .iter()
@@ -110,6 +111,7 @@ async fn a_change_no_check_covers_is_left_to_whoever_made_it_and_undo_keeps_it()
         !h._dir.join("ws/a.md").exists(),
         "the check's rewrite is undone with the write"
     );
+
     assert!(
         std::fs::read_to_string(&other).unwrap().starts_with("user edit"),
         "someone else's edit is never undone as the session's"
@@ -197,6 +199,7 @@ async fn a_whole_workspace_fixer_is_captured_whole_and_what_it_changed_elsewhere
         !h._dir.join("ws/a.md").exists(),
         "the step's own file goes back, check's rewrite and all"
     );
+
     assert!(
         std::fs::read_to_string(h._dir.join("ws/other.md"))
             .unwrap()

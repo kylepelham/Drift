@@ -11,6 +11,7 @@ async fn a_prompt_sent_during_a_call_reaches_the_next_request_after_its_result()
     until_call_running(&h).await;
     let mut steer = prompt("also check the logs");
     steer.submission_id = Some("steer-1".into());
+
     let first = h
         .engine
         .submit(&h.session.id, steer.clone())
@@ -73,6 +74,7 @@ async fn a_prompt_sent_during_another_job_waits_and_then_runs() {
 
     assert!(started.elapsed() >= Duration::from_millis(250));
     until_idle(&h).await;
+
     assert_eq!(h.provider.responses_left(), 0);
 }
 
@@ -128,6 +130,7 @@ async fn a_model_named_mid_turn_powers_its_next_request_and_the_conversation_car
     h.provider.push_slow(Duration::from_millis(300), text("busy"));
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(50)).await;
+
     assert_eq!(
         h.engine.submit(&h.session.id, unknown).await.err(),
         Some(TurnError::UnknownModel),

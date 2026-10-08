@@ -48,8 +48,10 @@ async fn a_commands_agent_and_model_run_that_turn_only() {
         Some("plan"),
         "the command's reply ran as its agent"
     );
+
     h.engine.submit(&h.session.id, prompt("carry on")).await.unwrap();
     until_idle(&h).await;
+
     let requests = h.provider.requests.lock().unwrap();
     assert_eq!(requests[0].model, "claude-haiku-4-5");
     assert!(format!("{:?}", requests[0].messages).contains("Review src and tests."));
@@ -92,6 +94,7 @@ async fn shell_lines_run_as_checked_calls_and_at_files_are_mentioned() {
             break request;
         }
     };
+
     assert_eq!(
         ask.ask.pattern, "cargo publish",
         "the line a rule asks about asks; the other ran without asking"
@@ -122,6 +125,7 @@ async fn shell_lines_run_as_checked_calls_and_at_files_are_mentioned() {
     );
     assert!(sent.contains("NOTE BODY"), "@NOTES.md was read in as a mention");
     command(&h, "away", "---\nsubtask: true\n---\nCheck !`git status`.");
+
     assert!(matches!(
         h.engine.execute_command(&h.session.id, "away", "", None).await,
         Err(CommandError::Invalid(_))
@@ -205,6 +209,7 @@ async fn a_broken_primary_agent_cannot_be_picked_mid_turn() {
 
     let mut switch = prompt("as hot");
     switch.agent = Some("hot".into());
+
     let refused = h.engine.submit(&h.session.id, switch).await.unwrap_err();
     let TurnError::Config(reason) = &refused else {
         panic!("{refused:?}");
@@ -215,6 +220,7 @@ async fn a_broken_primary_agent_cannot_be_picked_mid_turn() {
     );
 
     until_idle(&h).await;
+
     assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "build");
 }
 
@@ -316,6 +322,7 @@ async fn skill_commands_are_exposed_and_authorized_before_instructions_reach_the
         "---\nname: private\ndescription: A private skill\n---\nPRIVATE_INSTRUCTIONS for $ARGUMENTS.",
     )
     .unwrap();
+
     assert!(
         h.engine
             .workspace_config(&h._dir.join("ws"))
@@ -323,6 +330,7 @@ async fn skill_commands_are_exposed_and_authorized_before_instructions_reach_the
             .iter()
             .any(|command| command.skill.as_deref() == Some("private"))
     );
+
     h.engine.permissions.set_policy(crate::permission::Policy {
         rules: vec![crate::permission::Rule {
             kind: "skill".into(),
@@ -336,6 +344,7 @@ async fn skill_commands_are_exposed_and_authorized_before_instructions_reach_the
         .await
         .unwrap();
     until_idle(&h).await;
+
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert!(transcript.iter().flat_map(|message| &message.parts).any(|row| matches!(
         row.part,
@@ -353,6 +362,7 @@ async fn skill_commands_are_exposed_and_authorized_before_instructions_reach_the
         .await
         .unwrap();
     until_idle(&h).await;
+
     assert!(
         format!("{:?}", h.provider.requests.lock().unwrap().last().unwrap().messages)
             .contains("PRIVATE_INSTRUCTIONS for src.")

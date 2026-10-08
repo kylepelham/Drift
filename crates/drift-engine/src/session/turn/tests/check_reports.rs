@@ -63,6 +63,7 @@ async fn checks_run_once_per_step_say_unchanged_problems_briefly_and_announce_fi
         .await
         .await_ok();
     until_idle(&h).await;
+
     let again = call_outputs(&h, transcript(&h).len() - 2);
     assert!(
         again[0].0.contains("[types] the same problems as reported before") && !again[0].0.contains("3 type errors"),
@@ -75,6 +76,7 @@ async fn checks_run_once_per_step_say_unchanged_problems_briefly_and_announce_fi
         .push(text("noted"));
     h.engine.submit(&h.session.id, prompt("write notes")).await.await_ok();
     until_idle(&h).await;
+
     let fixed = call_outputs(&h, transcript(&h).len() - 2);
     assert!(
         std::fs::read_to_string(h._dir.join("ws/notes.md"))
@@ -130,8 +132,10 @@ async fn configured_checks_report_problems_with_the_write_and_stop_cuts_them_off
     let started = std::time::Instant::now();
     h.engine.submit(&h.session.id, prompt("write rust")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(800)).await;
+
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
+
     assert!(
         started.elapsed() < Duration::from_secs(15),
         "Stop does not wait out a slow check"

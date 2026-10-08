@@ -38,6 +38,7 @@ impl Answers {
 fn a_subagent_takes_its_parents_answer_and_a_new_command_is_asked_about() {
     let answers = Answers::default();
     answers.set("parent", &["check lint: eslint".into()], true);
+
     let child = ["child".to_string(), "parent".to_string()];
 
     assert_eq!(
@@ -52,6 +53,7 @@ fn a_subagent_takes_its_parents_answer_and_a_new_command_is_asked_about() {
     );
 
     answers.set("child", &["check lint: eslint".into()], false);
+
     assert_eq!(
         answers.get(&child, "check lint: eslint"),
         Some(false),

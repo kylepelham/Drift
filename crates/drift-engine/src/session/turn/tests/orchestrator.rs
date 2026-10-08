@@ -67,6 +67,7 @@ async fn an_orchestrator_stops_after_the_round_limit_and_a_new_prompt_restarts_t
         .await
         .await_ok();
     until_idle(&h).await;
+
     assert_eq!(nudges(&h).len(), crate::session::drive::MAX_ROUNDS);
     assert_eq!(
         h.engine.store.nudges_since_prompt(&h.session.id).unwrap(),
@@ -76,6 +77,7 @@ async fn an_orchestrator_stops_after_the_round_limit_and_a_new_prompt_restarts_t
     h.provider.push(status("working")).push(status("blocked"));
     h.engine.submit(&h.session.id, prompt("keep going")).await.await_ok();
     until_idle(&h).await;
+
     assert_eq!(
         nudges(&h).len(),
         crate::session::drive::MAX_ROUNDS + 1,
@@ -89,5 +91,6 @@ async fn other_agents_are_never_driven() {
     h.provider.push(status("working"));
     h.engine.submit(&h.session.id, prompt("hello")).await.await_ok();
     until_idle(&h).await;
+
     assert!(nudges(&h).is_empty());
 }

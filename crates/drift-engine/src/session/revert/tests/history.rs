@@ -48,6 +48,7 @@ async fn undo_follows_the_order_writes_finished_not_the_order_their_messages_beg
         .unwrap();
 
     let undone = h.engine.revert(&h.session.id, &prompt).await.unwrap();
+
     assert!(
         undone.kept.is_empty(),
         "an unbroken chain of the session's own writes: {:?}",
@@ -55,6 +56,7 @@ async fn undo_follows_the_order_writes_finished_not_the_order_their_messages_beg
     );
     assert_eq!(read(&h, "shared.txt").as_deref(), Some("ORIGINAL"));
     h.engine.unrevert(&h.session.id).await.unwrap();
+
     assert_eq!(read(&h, "shared.txt").as_deref(), Some("FROM_A"));
 }
 
@@ -69,17 +71,22 @@ async fn undo_and_redo_merge_one_files_history_across_nested_workspace_moves() {
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "A");
 
     h.engine.prune_snapshots().await;
+
     let redone = h.engine.unrevert(&h.session.id).await.unwrap();
     assert!(redone.kept.is_empty());
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "C");
 
     h.engine.revert(&h.session.id, &second).await.unwrap();
+
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "B");
     h.engine.revert(&h.session.id, &first).await.unwrap();
+
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "A");
     h.engine.revert(&h.session.id, &second).await.unwrap();
+
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "B");
     h.engine.unrevert(&h.session.id).await.unwrap();
+
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "C");
 }
 
@@ -163,6 +170,7 @@ async fn undo_leaves_the_users_own_work_alone() {
     assert_ne!(untouched, edited);
 
     h.engine.revert(&h.session.id, &second).await.unwrap();
+
     assert_eq!(
         read(&h, "notes.txt").as_deref(),
         Some("mine, edited\n"),
@@ -187,6 +195,7 @@ async fn undo_leaves_the_users_own_work_alone() {
         "the session's own change is undone"
     );
     h.engine.unrevert(&h.session.id).await.unwrap();
+
     assert_eq!(
         (read(&h, "notes.txt").as_deref(), read(&h, "fresh.txt").as_deref()),
         (Some("mine, edited\n"), Some("new idea\n"))
@@ -198,6 +207,7 @@ async fn a_file_edited_after_the_session_wrote_it_is_kept_and_reported() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
     std::fs::write(h._dir.join("ws/a.txt"), "the user's fix\n").unwrap();
+
     let undone = h.engine.revert(&h.session.id, &second).await.unwrap();
     assert_eq!(undone.kept, ["a.txt"]);
     assert_eq!(
@@ -213,6 +223,7 @@ async fn a_file_edited_after_the_session_wrote_it_is_kept_and_reported() {
     assert_eq!(read(&h, "b.txt"), None, "the rest of the turn is still undone");
 
     std::fs::write(h._dir.join("ws/b.txt"), "user recreated it\n").unwrap();
+
     let redone = h.engine.unrevert(&h.session.id).await.unwrap();
     assert_eq!(
         redone.kept.len(),
@@ -238,6 +249,7 @@ async fn a_shell_commands_changes_are_reported_but_never_undone() {
         .push(tool_call("bash", r#"{"command": "echo made > made.txt"}"#))
         .push(text("made it"));
     turn(&h, "make a file").await;
+
     assert!(read(&h, "made.txt").is_some_and(|text| text.contains("made")));
 
     let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
@@ -266,6 +278,7 @@ async fn a_user_edit_made_while_a_command_runs_survives_undo() {
     until_running_call(&h).await;
     std::fs::write(h._dir.join("ws/mine.txt"), "the user's edit\n").unwrap();
     until_idle(&h).await;
+
     let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
     let undone = h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
 
@@ -300,6 +313,7 @@ async fn a_file_the_session_wrote_and_a_command_then_touched_is_left_alone() {
         .push(tool_call("bash", r#"{"command": "echo more >> a.txt"}"#))
         .push(text("done"));
     turn(&h, "write then append").await;
+
     let after = read(&h, "a.txt").unwrap();
     let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
     let undone = h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
@@ -324,6 +338,7 @@ async fn a_user_edit_between_two_session_writes_survives_undo_and_redo() {
         .push(write("a.txt", "two"))
         .push(text("wrote two"));
     turn(&h, "second").await;
+
     assert_eq!(read(&h, "a.txt").as_deref(), Some("two"));
 
     let first = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
@@ -374,6 +389,7 @@ async fn undo_after_a_move_changes_the_files_where_they_were_written() {
         .unwrap();
     h.engine.move_session(&h.session.id, &workspace.id).unwrap();
     h.engine.prune_snapshots().await;
+
     let first = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
     let undone = h
         .engine
@@ -389,6 +405,7 @@ async fn undo_after_a_move_changes_the_files_where_they_were_written() {
         "B is untouched"
     );
     h.engine.unrevert(&h.session.id).await.unwrap();
+
     assert_eq!(
         read(&h, "a.txt").as_deref(),
         Some("written in A"),

@@ -89,6 +89,7 @@ async fn a_stream_that_ends_without_a_stop_reason_runs_no_tools() {
             call.output
         );
     }
+
     assert_eq!(
         messages.len(),
         2 + MAX_RETRIES as usize,
@@ -192,6 +193,7 @@ async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() 
         .push(tool_call("bash", &json!({ "command": sleep }).to_string()))
         .push(text("it was too slow"));
     h.engine.submit(&h.session.id, prompt("wait")).await.await_ok();
+
     let running = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(3), events.recv())
             .await
@@ -277,6 +279,7 @@ async fn a_running_command_shows_its_output_before_it_ends() {
         .push(tool_call("bash", &json!({ "command": command }).to_string()))
         .push(text("done"));
     h.engine.submit(&h.session.id, prompt("run")).await.await_ok();
+
     let shown = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let envelope = events.recv().await.unwrap();

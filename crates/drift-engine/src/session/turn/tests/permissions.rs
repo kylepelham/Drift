@@ -40,18 +40,22 @@ async fn an_edit_holds_the_previewed_file_while_approval_is_pending() {
         ))
         .push(text("done"));
     h.engine.submit(&h.session.id, prompt("edit a")).await.await_ok();
+
     let ask = next_ask(&mut events).await;
     assert!(ask.ask.diff.as_deref().is_some_and(|diff| diff.contains("+two")));
+
     let other_file = file.clone();
     let other = tokio::spawn(async move {
         let _held = crate::tool::lock::files(std::slice::from_ref(&other_file)).await;
         tokio::fs::read_to_string(other_file).await.unwrap()
     });
     tokio::time::sleep(Duration::from_millis(100)).await;
+
     assert!(
         !other.is_finished(),
         "a competing writer waits until the approved edit is recorded"
     );
+
     reply_permission(&h, &ask.id, Reply::Once);
     until_idle(&h).await;
 
@@ -179,6 +183,7 @@ async fn agent_permissions_and_default_variant_are_applied_to_the_turn() {
         h.provider.requests.lock().unwrap().last().unwrap().reasoning.is_some(),
         "the configured default variant reaches the provider"
     );
+
     h.provider.push(text("low"));
     h.engine
         .submit(
@@ -191,6 +196,7 @@ async fn agent_permissions_and_default_variant_are_applied_to_the_turn() {
         .await
         .await_ok();
     until_idle(&h).await;
+
     assert_eq!(session(&h).variant.as_deref(), Some("low"));
 }
 
@@ -203,6 +209,7 @@ async fn ordinary_reads_allow_by_default_but_explicit_ask_requires_approval() {
         .push(text("done"));
     h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
     until_idle(&h).await;
+
     assert!(h.engine.permissions.pending().is_empty());
 
     rule(&h, "read", "a.txt", Decision::Ask);
@@ -211,8 +218,10 @@ async fn ordinary_reads_allow_by_default_but_explicit_ask_requires_approval() {
         .push(tool_call("read", r#"{"path":"a.txt"}"#))
         .push(text("done"));
     h.engine.submit(&h.session.id, prompt("read again")).await.await_ok();
+
     let ask = next_ask(&mut events).await;
     assert_eq!(ask.ask.kind, "read");
+
     reply_permission(&h, &ask.id, Reply::Once);
     until_idle(&h).await;
 }
@@ -317,6 +326,7 @@ async fn asks_wait_for_a_reply_and_mutations_snapshot_first() {
         .push(tool_call("write", r#"{"path": "new.txt", "content": "hi\n"}"#))
         .push(text("Written"));
     h.engine.submit(&h.session.id, prompt("make new.txt")).await.await_ok();
+
     let request = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(2), events.recv())
             .await
@@ -328,6 +338,7 @@ async fn asks_wait_for_a_reply_and_mutations_snapshot_first() {
     };
     assert_eq!(request.tool, "write");
     assert_eq!(request.ask.kind, "edit");
+
     reply_permission(&h, &request.id, Reply::Once);
     until_idle(&h).await;
 

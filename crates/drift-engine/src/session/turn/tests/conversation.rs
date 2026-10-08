@@ -44,6 +44,7 @@ async fn a_job_that_panics_still_releases_its_session() {
     assert!(h.engine.turns.claim(&h.session.id, &CancellationToken::new()));
     h.engine.spawn_job(&h.session.id, async { panic!("a bug in a job") });
     until_idle(&h).await;
+
     assert!(!h.engine.turns.is_running(&h.session.id));
 
     h.provider.push(text("still usable"));
@@ -121,5 +122,6 @@ async fn a_finished_reply_tells_the_ui_its_conversation_moved_up() {
             _ => {}
         }
     }
+
     assert!(moved, "a session.updated follows the reply, not only the prompt");
 }

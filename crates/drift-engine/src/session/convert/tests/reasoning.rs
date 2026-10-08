@@ -7,6 +7,7 @@ fn an_empty_signed_text_part_goes_only_to_the_model_that_signed_it() {
         vec![Part::Text { text: "answer".into() }, Part::Text { text: String::new() }],
     );
     reply.parts[1].provider_signature = Some("sig".into());
+
     let transcript = [message(Role::User, vec![Part::Text { text: "q".into() }]), reply];
 
     let same = messages(&transcript, &target());
@@ -115,6 +116,7 @@ fn a_mode_and_its_base_take_each_others_signed_reasoning() {
             catalog: &catalog,
         },
     );
+
     assert!(
         matches!(&output[0].blocks[0], Block::Reasoning { signature: Some(_), .. }),
         "the same model, run fast"
@@ -132,6 +134,7 @@ fn a_mode_and_its_base_take_each_others_signed_reasoning() {
             catalog: &catalog,
         },
     );
+
     assert_eq!(
         sibling[0].blocks,
         vec![Block::Text("hm".into())],

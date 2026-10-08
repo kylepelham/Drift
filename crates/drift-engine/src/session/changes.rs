@@ -203,6 +203,7 @@ mod tests {
         // Written past what the store keeps, so the after state cannot be recorded.
         std::fs::write(ws.join("a.txt"), vec![b'x'; MAX_RECORDED_BYTES as usize + 1]).unwrap();
         std::fs::write(ws.join("new.txt"), "created\n").unwrap();
+
         let lost = h.engine.record_call(&ws, capture).await.unwrap_err();
         assert!(lost.put_back && lost.note.contains("put the files back"), "{lost:?}");
         assert_eq!(std::fs::read_to_string(ws.join("a.txt")).unwrap(), "before\n");
@@ -219,6 +220,7 @@ mod tests {
         // The shadow store vanishing is an I/O failure that has nothing to do with the file sizes.
         std::fs::remove_dir_all(h._dir.join("data/snapshots")).unwrap();
         std::fs::write(h._dir.join("data/snapshots"), "not a directory").unwrap();
+
         let lost = h.engine.record_call(&ws, capture).await.unwrap_err();
         assert!(
             !lost.put_back && lost.note.contains("undo cannot put it back"),

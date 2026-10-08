@@ -42,7 +42,9 @@ async fn an_edit_waits_while_another_writer_holds_the_file() {
     h.engine.submit(&h.session.id, prompt("edit a")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(300)).await;
     std::fs::write(&file, "one\nTWO\n").unwrap();
+
     assert!(h.engine.turns.is_running(&h.session.id), "the edit waits its turn");
+
     drop(held);
     until_idle(&h).await;
 
@@ -174,7 +176,9 @@ async fn stop_ends_a_capture_that_has_not_finished() {
     }
 
     tokio::time::sleep(Duration::from_millis(50)).await;
+
     assert!(h.engine.abort(&h.session.id));
+
     until_idle(&h).await;
     drop(held);
 

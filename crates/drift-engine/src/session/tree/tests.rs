@@ -127,6 +127,7 @@ async fn a_fork_copies_the_history_into_an_independent_conversation() {
         .update_session(&h.session.id, None, None, Some("plan"))
         .unwrap();
     h.engine.store.set_session_variant(&h.session.id, Some("high")).unwrap();
+
     let fork = h.engine.fork(&h.session.id, None).unwrap();
     assert_eq!(texts(&h, &fork.id), ["first", "one", "second", "two"]);
     assert_eq!(
@@ -224,6 +225,7 @@ async fn a_fork_carries_the_reads_its_copied_history_shows() {
 async fn a_bounded_fork_stops_at_the_chosen_message() {
     let h = harness().await;
     two_turns(&h).await;
+
     let first_reply = h.engine.store.transcript(&h.session.id).unwrap()[1].info.id.clone();
     let fork = h.engine.fork(&h.session.id, Some(&first_reply)).unwrap();
     assert_eq!(texts(&h, &fork.id), ["first", "one"]);
@@ -248,6 +250,7 @@ async fn forking_a_running_session_leaves_the_turn_in_flight_out() {
         h.engine.store.session(&fork.id).unwrap().unwrap().archived_at.is_none(),
         "a finished fork is listed"
     );
+
     let in_flight = h
         .engine
         .store
@@ -307,6 +310,7 @@ async fn a_move_takes_subagents_but_not_branches_and_waits_for_idle() {
     long_bash(&h);
     h.engine.submit(&subagent.id, prompt("wait")).await.unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
+
     assert!(
         matches!(h.engine.move_session(&h.session.id, &other.id), Err(TreeError::Busy)),
         "a running subagent blocks the move"
@@ -326,6 +330,7 @@ async fn a_move_takes_subagents_but_not_branches_and_waits_for_idle() {
 
     let mut expected = vec![h.session.id.clone(), subagent.id.clone()];
     expected.sort();
+
     assert_eq!(moved, expected);
 
     let workspace_of = |id: &str| h.engine.store.session(id).unwrap().unwrap().workspace_id;

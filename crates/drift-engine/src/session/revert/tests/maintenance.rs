@@ -48,6 +48,7 @@ async fn every_blob_undo_needs_is_kept_through_a_prune() {
     h.engine.prune_snapshots().await;
     h.engine.revert(&h.session.id, &second).await.unwrap();
     h.engine.unrevert(&h.session.id).await.unwrap();
+
     assert_eq!(read(&h, "a.txt").as_deref(), Some("two"));
 }
 
@@ -62,7 +63,9 @@ async fn housekeeping_runs_again_and_again_and_keeps_what_undo_needs() {
     tokio::time::pause();
     let maintaining = tokio::spawn(h.engine.clone().maintain());
     until_gone(&first_old).await;
+
     assert!(fresh.exists(), "recent output is kept");
+
     let second_old = old_output(&h, "second.log");
     tokio::time::sleep(crate::MAINTENANCE_INTERVAL).await;
     until_gone(&second_old).await;
@@ -71,6 +74,7 @@ async fn housekeeping_runs_again_and_again_and_keeps_what_undo_needs() {
 
     h.engine.revert(&h.session.id, &second).await.unwrap();
     h.engine.unrevert(&h.session.id).await.unwrap();
+
     assert_eq!(
         read(&h, "a.txt").as_deref(),
         Some("two"),

@@ -33,6 +33,7 @@ async fn a_spawn_starts_at_once_with_the_conversation_and_the_instruction() {
     h.engine.store.set_session_variant(&h.session.id, Some("high")).unwrap();
 
     h.provider.push(text("Investigating"));
+
     let spawned = h
         .engine
         .spawn(&h.session.id, "Investigate why I am getting major fps loss")
@@ -105,6 +106,7 @@ async fn a_fork_is_not_framed_as_a_spawned_thread() {
 
     let before = transcript.clone();
     frame_spawned(&fork, &mut transcript);
+
     assert_eq!(transcript, before);
 }
 
@@ -152,8 +154,10 @@ async fn stopping_the_source_does_not_stop_what_it_spawned() {
     let spawned = h.engine.spawn(&h.session.id, "wait elsewhere").await.unwrap();
 
     tokio::time::sleep(Duration::from_millis(300)).await;
+
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
+
     assert!(
         h.engine.turns.is_running(&spawned.id),
         "a spawned thread is not a worker of its source"
@@ -167,6 +171,7 @@ async fn stopping_the_source_does_not_stop_what_it_spawned() {
 async fn subagents_and_empty_instructions_are_refused() {
     let h = harness().await;
     conversation(&h).await;
+
     let subagent = h
         .engine
         .store

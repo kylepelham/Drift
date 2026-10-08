@@ -181,6 +181,7 @@ async fn an_answer_after_stop_is_saved_for_the_next_turn_and_starts_nothing() {
     h.provider.push(text("ok, not deploying"));
     h.engine.submit(&h.session.id, prompt("so?")).await.unwrap();
     until_idle(&h).await;
+
     assert!(
         sent_to_model(&h).iter().any(|t| t.contains("Answer: no")),
         "the next turn reads it"
@@ -263,6 +264,7 @@ async fn a_saved_answer_is_recognised_from_the_store_once_its_card_is_gone() {
             .await,
         Err(AnswerError::Conflict)
     );
+
     assert_eq!(
         h.engine.answer_question(&request.id, None).await,
         Err(AnswerError::Conflict),
@@ -277,6 +279,7 @@ async fn an_answer_that_cannot_be_saved_keeps_its_card() {
     let request = asked(&h).await;
 
     h.engine.credentials.remove("anthropic").unwrap();
+
     let failed = h
         .engine
         .answer_question(&request.id, Some(vec![vec!["yes".into()]]))
@@ -314,6 +317,7 @@ async fn a_subagent_always_waits_for_its_answer() {
         .push_for("PARENT", text("done"));
 
     h.engine.submit(&h.session.id, prompt("PARENT go")).await.unwrap();
+
     let request = loop {
         if let Some(found) = h.engine.questions.pending().pop() {
             break found;
@@ -331,5 +335,6 @@ async fn a_subagent_always_waits_for_its_answer() {
         .await
         .unwrap();
     until_idle(&h).await;
+
     assert_eq!(h.provider.responses_left(), 0);
 }

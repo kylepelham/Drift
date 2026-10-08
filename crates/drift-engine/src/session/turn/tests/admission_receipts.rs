@@ -14,6 +14,7 @@ async fn steering_uses_the_admitted_agent_and_model_generation() {
         "---\ndescription: Added mid-turn\n---\nA later agent.",
     )
     .unwrap();
+
     let late = Prompt {
         agent: Some("late".into()),
         ..prompt("late selection")
@@ -45,6 +46,7 @@ async fn steering_uses_the_admitted_agent_and_model_generation() {
         provider: "anthropic".into(),
         model: "new-mid-turn".into(),
     };
+
     assert!(matches!(
         h.engine
             .submit(
@@ -62,6 +64,7 @@ async fn steering_uses_the_admitted_agent_and_model_generation() {
     h.provider.push(text("later turn"));
     h.engine.submit(&h.session.id, late).await.await_ok();
     until_idle(&h).await;
+
     assert_eq!(session(&h).agent, "late");
 }
 
@@ -98,6 +101,7 @@ async fn submit_rejects_bad_plans() {
     );
 
     h.engine.credentials.remove("anthropic").unwrap();
+
     assert_eq!(
         h.engine.submit(&h.session.id, prompt("x")).await.err(),
         Some(TurnError::NoCredentials)
@@ -110,6 +114,7 @@ async fn failed_admission_releases_the_session_and_submission_ids_replay() {
     h.provider.push(text("ok")).push(text("again"));
     let mut first = prompt("hello");
     first.submission_id = Some("sub_1".into());
+
     let receipt = h.engine.submit(&h.session.id, first.clone()).await.await_ok();
     let replay = h.engine.submit(&h.session.id, first).await.await_ok();
     assert_eq!(
@@ -117,11 +122,13 @@ async fn failed_admission_releases_the_session_and_submission_ids_replay() {
         "same submission id returns the same receipt"
     );
     until_idle(&h).await;
+
     assert_eq!(transcript(&h).len(), 2);
 
     let other = sibling_session(&h, "");
     let mut reused = prompt("x");
     reused.submission_id = Some("sub_1".into());
+
     assert_eq!(
         h.engine.submit(&other.id, reused).await.err(),
         Some(TurnError::SubmissionReused)
@@ -137,8 +144,10 @@ async fn failed_admission_releases_the_session_and_submission_ids_replay() {
         )
         .unwrap();
     let failed = h.engine.submit(&doomed.id, prompt("boom")).await;
+
     assert!(matches!(failed, Err(TurnError::Store(_))), "{failed:?}");
     h.engine.store.lock().execute("DROP TRIGGER block", []).unwrap();
+
     assert!(
         !h.engine.turns.is_running(&doomed.id),
         "a failed admission must not leave the session busy"
@@ -147,6 +156,7 @@ async fn failed_admission_releases_the_session_and_submission_ids_replay() {
         h.engine.store.transcript(&doomed.id).unwrap().is_empty(),
         "no half-written prompt"
     );
+
     h.provider.push(text("fine"));
     h.engine.submit(&doomed.id, prompt("retry")).await.await_ok();
     until_idle(&h).await;
@@ -169,8 +179,10 @@ async fn submission_ids_survive_a_restart_and_reject_a_different_payload() {
         2,
         "no second prompt after restart"
     );
+
     let mut changed = prompt("different text");
     changed.submission_id = Some("sub_durable".into());
+
     assert_eq!(
         reopened.submit(&h.session.id, changed).await.err(),
         Some(TurnError::SubmissionReused)

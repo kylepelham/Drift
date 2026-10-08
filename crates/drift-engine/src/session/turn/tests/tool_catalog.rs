@@ -26,9 +26,11 @@ async fn a_turn_keeps_the_tools_it_started_with_and_a_change_reaches_the_next_on
         (ToolStatus::Done, Some("still here")),
         "served by the client the turn began with"
     );
+
     h.provider.push(text("ok"));
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     until_idle(&h).await;
+
     let requests = h.provider.requests.lock().unwrap();
     assert!(requests[0].tools.iter().any(|tool| tool.name == "echo_echo"));
     assert!(

@@ -17,6 +17,7 @@ async fn an_undo_whose_write_fails_once_begun_leaves_the_file_whole_and_can_be_t
     assert!(leftovers(&workspace).is_empty() && h.engine.store.replacements().unwrap().is_empty());
 
     h.engine.revert(&h.session.id, &second).await.unwrap();
+
     assert_eq!(
         read(&h, "a.txt").as_deref(),
         Some("one"),
@@ -52,6 +53,7 @@ async fn an_undo_that_fails_partway_puts_back_what_it_already_changed() {
         .clone();
     let workspace = crate::tool::canonical(&h._dir.join("ws"));
     inject(Fault::AfterStaging, &workspace.join("b.txt"));
+
     let Err(RevertError::Files(message)) = h.engine.revert(&h.session.id, &second).await else {
         panic!("the undo should fail")
     };
@@ -83,6 +85,7 @@ async fn an_undo_or_redo_whose_marker_cannot_be_saved_puts_the_files_back_and_ca
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
     refuse_marker(&h);
+
     let Err(RevertError::Files(message)) = h.engine.revert(&h.session.id, &second).await else {
         panic!("the undo should fail")
     };
@@ -96,6 +99,7 @@ async fn an_undo_or_redo_whose_marker_cannot_be_saved_puts_the_files_back_and_ca
         "files and history still agree"
     );
     allow_marker(&h);
+
     let undone = h.engine.revert(&h.session.id, &second).await.unwrap();
     assert!(
         undone.kept.is_empty(),
@@ -105,6 +109,7 @@ async fn an_undo_or_redo_whose_marker_cannot_be_saved_puts_the_files_back_and_ca
     assert_eq!((read(&h, "a.txt").as_deref(), read(&h, "b.txt")), (Some("one"), None));
 
     refuse_marker(&h);
+
     assert!(matches!(
         h.engine.unrevert(&h.session.id).await,
         Err(RevertError::Files(_))
@@ -116,6 +121,7 @@ async fn an_undo_or_redo_whose_marker_cannot_be_saved_puts_the_files_back_and_ca
     );
     assert!(h.engine.store.session(&h.session.id).unwrap().unwrap().revert.is_some());
     allow_marker(&h);
+
     let redone = h.engine.unrevert(&h.session.id).await.unwrap();
     assert!(redone.kept.is_empty() && redone.session.revert.is_none());
     assert_eq!(
@@ -135,6 +141,7 @@ async fn an_undo_takes_every_files_turn_before_changing_any() {
     let undo = tokio::spawn(async move { engine.revert(&id, &second).await.map(|_| ()) });
 
     tokio::time::sleep(Duration::from_millis(200)).await;
+
     assert!(!undo.is_finished());
     assert_eq!(
         read(&h, "a.txt").as_deref(),
@@ -168,12 +175,14 @@ async fn rollback_keeps_competing_writers_out_until_the_marker_failure_is_repair
     });
 
     tokio::time::sleep(Duration::from_millis(100)).await;
+
     assert!(
         !competing.is_finished(),
         "undo still holds the files while its marker is uncommitted"
     );
 
     refuse_marker(&h);
+
     let marker = Revert::new(&second, Vec::new(), Some(&second));
     assert!(
         h.engine
@@ -191,6 +200,7 @@ async fn rollback_keeps_competing_writers_out_until_the_marker_failure_is_repair
         Some("another session"),
         "rollback completed before the competing writer ran"
     );
+
     assert!(h.engine.store.session(&h.session.id).unwrap().unwrap().revert.is_none());
 }
 
@@ -199,6 +209,7 @@ async fn cross_workspace_undo_rolls_back_from_the_endpoint_that_owns_the_previou
     let (h, first, _, file) = overlapping_writes(false).await;
 
     refuse_marker(&h);
+
     assert!(matches!(
         h.engine.revert(&h.session.id, &first).await,
         Err(RevertError::Files(_))
@@ -212,9 +223,11 @@ async fn cross_workspace_undo_rolls_back_from_the_endpoint_that_owns_the_previou
 
     allow_marker(&h);
     h.engine.revert(&h.session.id, &first).await.unwrap();
+
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "A");
 
     refuse_marker(&h);
+
     assert!(matches!(
         h.engine.unrevert(&h.session.id).await,
         Err(RevertError::Files(_))

@@ -18,8 +18,10 @@ async fn undo_redo_and_moving_the_point_keep_files_and_history_in_step() {
     );
 
     h.engine.revert(&h.session.id, &first).await.unwrap();
+
     assert_eq!(read(&h, "a.txt"), None, "back to before anything was written");
     h.engine.revert(&h.session.id, &second).await.unwrap();
+
     assert_eq!(
         read(&h, "a.txt").as_deref(),
         Some("one"),
@@ -57,14 +59,17 @@ async fn an_undo_that_keeps_files_moves_only_the_conversation_and_a_later_one_st
     );
 
     h.engine.revert(&h.session.id, &second).await.unwrap();
+
     assert_eq!(
         (read(&h, "a.txt").as_deref(), read(&h, "b.txt")),
         (Some("one"), None),
         "an ordinary undo puts back from where the files stood"
     );
     h.engine.revert_keeping_files(&h.session.id, &first).await.unwrap();
+
     assert_eq!(read(&h, "a.txt").as_deref(), Some("one"), "still kept as they are");
     h.engine.unrevert(&h.session.id).await.unwrap();
+
     assert_eq!(
         (read(&h, "a.txt").as_deref(), read(&h, "b.txt").as_deref()),
         (Some("two"), Some("bee")),
@@ -74,6 +79,7 @@ async fn an_undo_that_keeps_files_moves_only_the_conversation_and_a_later_one_st
     h.engine.revert_keeping_files(&h.session.id, &second).await.unwrap();
     h.provider.push(text("carried on"));
     turn(&h, "again").await;
+
     let prompts = h
         .engine
         .store
@@ -115,12 +121,14 @@ async fn a_prompt_sent_while_undone_commits_the_undo() {
         Some("one"),
         "the files stay where the undo left them"
     );
+
     let mut removed = 0;
     while let Ok(envelope) = events.try_recv() {
         if matches!(envelope.event, Event::MessageRemoved { .. }) {
             removed += 1;
         }
     }
+
     assert_eq!(
         removed, 4,
         "the hidden prompt and its three replies are announced as gone"
@@ -136,6 +144,7 @@ async fn undo_refuses_non_prompts_and_stops_a_running_turn_before_undoing() {
         h.engine.revert(&h.session.id, &reply).await,
         Err(RevertError::NotAPrompt)
     ));
+
     let sleep = if cfg!(windows) {
         "ping -n 10 127.0.0.1"
     } else {
@@ -146,6 +155,7 @@ async fn undo_refuses_non_prompts_and_stops_a_running_turn_before_undoing() {
         .push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
+
     let started = std::time::Instant::now();
     let undone = h
         .engine
@@ -190,6 +200,7 @@ async fn undo_stops_an_mcp_call_under_way_instead_of_waiting_for_it() {
         .push(tool_call("echo_shout", &json!({ "text": "hang" }).to_string()));
     h.engine.submit(&h.session.id, prompt("hang")).await.unwrap();
     until_running_call(&h).await;
+
     let started = std::time::Instant::now();
     let undone = h
         .engine
@@ -221,6 +232,7 @@ async fn undo_puts_back_what_a_subagent_wrote() {
         .push(text("child wrote c"))
         .push(text("parent done"));
     turn(&h, "delegate").await;
+
     assert_eq!(read(&h, "c.txt").as_deref(), Some("sea"));
 
     let delegated = h
@@ -243,6 +255,7 @@ async fn undo_puts_back_what_a_subagent_wrote() {
     );
 
     h.engine.unrevert(&h.session.id).await.unwrap();
+
     assert_eq!(read(&h, "c.txt").as_deref(), Some("sea"));
 }
 

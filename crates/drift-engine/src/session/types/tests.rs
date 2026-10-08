@@ -122,6 +122,7 @@ fn tool_metadata_producers_round_trip_without_added_defaults() {
         assert!(metadata.extra.is_empty(), "{producer}: native fields must be typed");
         assert_eq!(serde_json::to_value(&metadata).unwrap(), json, "{producer}");
     }
+
     assert_eq!(
         serde_json::to_value(ToolMetadata::default()).unwrap(),
         serde_json::json!({})
@@ -180,6 +181,7 @@ fn typed_metadata_overwrites_legacy_keys_without_duplicate_json_fields() {
     let mut metadata = ToolMetadata::from(serde_json::json!({"exit": "unavailable", "notes": null}));
     metadata.exit = Some(0);
     metadata.notes = Some(Vec::new());
+
     let json = serde_json::to_string(&metadata).unwrap();
     assert_eq!(json.matches("\"exit\"").count(), 1);
     assert_eq!(json.matches("\"notes\"").count(), 1);

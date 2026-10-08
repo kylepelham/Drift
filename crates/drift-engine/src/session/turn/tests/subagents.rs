@@ -234,6 +234,7 @@ async fn subagents_are_not_offered_delegation_and_cannot_call_it() {
     for tool in crate::tool::task::DELEGATION {
         assert!(!names(1).iter().any(|name| name == tool), "subagent was offered {tool}");
     }
+
     let count: i64 = h
         .engine
         .store

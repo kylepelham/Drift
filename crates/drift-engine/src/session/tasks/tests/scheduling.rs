@@ -79,6 +79,7 @@ async fn background_slots_are_bounded_and_session_stop_ends_them_even_when_idle(
         tasks(&h).iter().filter(|task| task.state == TaskState::Running).count() == DEFAULT_BACKGROUND_LIMIT
     })
     .await;
+
     assert_eq!(
         tasks(&h).iter().filter(|task| task.state == TaskState::Queued).count(),
         1,
@@ -90,6 +91,7 @@ async fn background_slots_are_bounded_and_session_stop_ends_them_even_when_idle(
         h.engine.abort(&h.session.id),
         "Stop has something to stop with the parent idle"
     );
+
     until("all stopped and held", || {
         tasks(&h).len() == DEFAULT_BACKGROUND_LIMIT + 1
             && tasks(&h)
@@ -98,6 +100,7 @@ async fn background_slots_are_bounded_and_session_stop_ends_them_even_when_idle(
     })
     .await;
     tokio::time::sleep(Duration::from_millis(200)).await;
+
     assert_eq!(
         h.provider.requests.lock().unwrap().len(),
         requests,
@@ -157,6 +160,7 @@ async fn a_worker_stopped_between_its_start_and_its_turn_never_runs() {
             && tasks(&h).iter().any(|task| task.state == TaskState::Queued)
     })
     .await;
+
     let queued = tasks(&h)
         .into_iter()
         .find(|task| task.state == TaskState::Queued)
@@ -165,6 +169,7 @@ async fn a_worker_stopped_between_its_start_and_its_turn_never_runs() {
     // Holding the transcript stops the worker between its running marker and turn admission.
     let holder = CancellationToken::new();
     assert!(h.engine.turns.claim(&queued.session_id, &holder));
+
     let freed = tasks(&h)
         .into_iter()
         .find(|task| task.state == TaskState::Running)

@@ -41,6 +41,7 @@ async fn a_mentioned_workspace_file_is_read_into_the_prompt() {
     std::fs::write(workspace.join("notes.md"), "remember the milk\n").unwrap();
     std::fs::create_dir_all(workspace.join("src")).unwrap();
     std::fs::write(workspace.join("src/lib.rs"), "").unwrap();
+
     let sent = sent_text(
         &h,
         with_files(
@@ -100,6 +101,7 @@ async fn a_mention_counts_as_read_only_once_its_prompt_is_admitted() {
     let h = harness().await;
     let notes = h._dir.join("ws/notes.md");
     std::fs::write(&notes, "milk\n").unwrap();
+
     let audio = file("audio/wav", "memo.wav", "data:audio/wav;base64,UklGRg==");
     assert!(
         h.engine
@@ -113,6 +115,7 @@ async fn a_mention_counts_as_read_only_once_its_prompt_is_admitted() {
     );
 
     sent_text(&h, with_files("see", vec![mention(&notes)])).await;
+
     assert_eq!(h.engine.store.read_files(&h.session.id).unwrap().len(), 1);
 }
 
@@ -123,6 +126,7 @@ async fn a_mentioned_secret_or_outside_file_is_not_read_without_a_rule() {
     std::fs::write(workspace.join(".env"), "API_KEY=hunter2\n").unwrap();
     let outside = h._dir.join("outside.txt");
     std::fs::write(&outside, "far away\n").unwrap();
+
     let sent = sent_text(
         &h,
         with_files("look", vec![mention(&workspace.join(".env")), mention(&outside)]),
@@ -141,6 +145,7 @@ async fn a_mentioned_secret_or_outside_file_is_not_read_without_a_rule() {
         json!({ "permissions": [{ "kind": "read", "pattern": resolved, "decision": "allow" }] }).to_string(),
     )
     .unwrap();
+
     let allowed = sent_text(&h, with_files("again", vec![mention(&outside)])).await;
     assert!(
         allowed.contains("far away"),
@@ -153,6 +158,7 @@ async fn files_a_model_cannot_take_are_refused_not_dropped() {
     let h = harness().await;
     let image = file("image/png", "shot.png", "data:image/png;base64,iVBORw0KGgo=");
     mutate_model(&h, |model| model.attachment = false);
+
     let refused = h
         .engine
         .submit(&h.session.id, with_files("look", vec![image]))
@@ -199,6 +205,7 @@ async fn a_pdf_goes_whole_to_a_model_that_reads_pdfs_and_is_refused_by_one_that_
         "data:application/pdf;base64,JVBERi0xLjcK",
     );
     mutate_model(&h, |model| model.pdf = false);
+
     let refused = h
         .engine
         .submit(&h.session.id, with_files("read", vec![pdf.clone()]))
@@ -211,8 +218,10 @@ async fn a_pdf_goes_whole_to_a_model_that_reads_pdfs_and_is_refused_by_one_that_
         message.contains("cannot read PDFs") && message.contains("spec.pdf"),
         "{refused:?}"
     );
+
     let fake = file("application/pdf", "spec.pdf", "data:application/pdf;base64,aGVsbG8=");
     mutate_model(&h, |model| model.pdf = true);
+
     let refused = h.engine.submit(&h.session.id, with_files("read", vec![fake])).await;
     assert!(matches!(refused, Err(TurnError::Attachment(message)) if message.contains("not one")));
 
@@ -222,6 +231,7 @@ async fn a_pdf_goes_whole_to_a_model_that_reads_pdfs_and_is_refused_by_one_that_
         .await
         .await_ok();
     until_idle(&h).await;
+
     let request = h.provider.requests.lock().unwrap().last().unwrap().clone();
     assert!(
         request.messages[0]
@@ -318,6 +328,7 @@ async fn a_steered_image_is_judged_against_the_model_the_next_request_runs_on() 
     let image = file("image/png", "shot.png", "data:image/png;base64,iVBORw0KGgo=");
     let mut steered = with_files("look at this", vec![image.clone()]);
     steered.model = None;
+
     let refused = h.engine.submit(&h.session.id, steered).await.unwrap_err();
     assert!(
         matches!(&refused, TurnError::Attachment(message) if message.contains("cannot read images")),
@@ -334,6 +345,7 @@ async fn a_steered_image_is_judged_against_the_model_the_next_request_runs_on() 
         .await
         .expect("the model it switches to reads images");
     until_idle(&h).await;
+
     assert_eq!(
         h.provider.requests.lock().unwrap().last().unwrap().model,
         other,

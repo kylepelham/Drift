@@ -34,10 +34,12 @@ async fn a_turn_pauses_at_its_step_limit_and_a_message_carries_on() {
         );
         assert!(format!("{:?}", requests[1].messages.last()).contains("last step this turn allows"));
     }
+
     assert_eq!(h.provider.responses_left(), 2, "no request after the limit");
 
     h.engine.submit(&h.session.id, prompt("carry on")).await.await_ok();
     until_idle(&h).await;
+
     assert_eq!(h.provider.responses_left(), 0);
     let requests = h.provider.requests.lock().unwrap().clone();
     assert!(

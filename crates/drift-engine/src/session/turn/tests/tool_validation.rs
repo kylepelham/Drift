@@ -38,6 +38,7 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
         "the parser's complaint is quoted: {:?}",
         call.output
     );
+
     let next = h.provider.requests.lock().unwrap()[1].clone();
     let replayed: Vec<_> = next
         .messages
@@ -56,6 +57,7 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
     h.provider.push(cut);
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     until_idle(&h).await;
+
     let messages = transcript(&h);
     let last = messages.last().unwrap();
     let call = tool(&last.parts[0]);
@@ -122,6 +124,7 @@ async fn any_tool_result_past_the_bound_is_cut_to_its_ends_with_the_whole_on_dis
         "{}",
         output.len()
     );
+
     let file = call
         .metadata
         .unwrap()

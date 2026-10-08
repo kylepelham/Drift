@@ -97,6 +97,7 @@ fn a_chatgpt_sign_in_titles_on_the_backends_mini_model_never_an_api_only_one() {
 
     let mut catalog = crate::llm::catalog::Catalog::bundled();
     codex::shape(catalog.providers.get_mut("openai").unwrap());
+
     let like = ModelRef {
         provider: "openai".into(),
         model: "gpt-5.5".into(),
@@ -174,6 +175,7 @@ async fn without_a_usable_title_model_the_first_message_stays_the_title() {
     );
 
     tokio::time::sleep(Duration::from_millis(100)).await;
+
     assert!(
         title_request(&h).is_none(),
         "no credential for the pinned provider, so no request"

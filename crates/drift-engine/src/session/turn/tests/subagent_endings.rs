@@ -84,6 +84,7 @@ async fn a_subagent_stopped_after_compacting_is_not_answered_by_its_summary() {
     }
 
     tokio::time::sleep(Duration::from_millis(50)).await;
+
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
 

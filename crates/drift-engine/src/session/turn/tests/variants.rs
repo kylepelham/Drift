@@ -100,19 +100,23 @@ fn output_and_thinking_budgets_are_valid_together() {
 
     let mut local = model_with(0, false);
     local.limit.context = 4_096;
+
     assert_eq!(
         budgets(&local, None),
         (1_024, None),
         "an unknown limit asks for a quarter of a known window"
     );
     local.limit.context = 2_048;
+
     assert_eq!(
         budgets(&local, None).0,
         MIN_ANSWER_TOKENS,
         "never less than room for an answer"
     );
+
     let mut whole = model_with(32_768, false);
     whole.limit.context = 32_768;
+
     assert_eq!(
         whole.reply_room(),
         16_384,
