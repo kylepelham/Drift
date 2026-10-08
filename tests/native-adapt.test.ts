@@ -1,4 +1,5 @@
-import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptSession } from "../src/engine/native/adapt"
+import { adaptMessage, adaptPart, adaptPermission, adaptProvider } from "../src/engine/native/adapt"
+import { hiddenParent, sessionInWorkspace } from "../src/engine/sessions"
 import { toolElapsedMs } from "../src/ui/tool-duration"
 import { createEngineState } from "../src/engine/store"
 import { reduce } from "../src/engine/events"
@@ -20,14 +21,12 @@ const session: components["schemas"]["Session"] = {
 }
 
 test("sessions map workspace ids to directories and keep archive time", () => {
-  const legacy = adaptSession({ ...session, archivedAt: 30 }, workspaces)
-  expect(legacy.directory).toBe("C:/repo")
-  expect(legacy.projectID).toBe("w1")
-  expect(legacy.time).toEqual({ created: 10, updated: 20, archived: 30 })
-  expect((legacy as { model?: { providerID: string; id: string } }).model).toEqual({
-    providerID: "anthropic",
-    id: "claude",
-  })
+  const shown = sessionInWorkspace({ ...session, archivedAt: 30 }, workspaces)
+
+  expect(shown.directory).toBe("C:/repo")
+  expect(shown).toMatchObject({ workspaceId: "w1", createdAt: 10, updatedAt: 20, archivedAt: 30 })
+  expect(shown.model).toEqual({ provider: "anthropic", model: "claude" })
+  expect(sessionInWorkspace({ ...session, workspaceId: "missing" }, workspaces).directory).toBe("missing")
 })
 
 test("a model's reasoning levels from the catalog become the picker's variants, in order", () => {
@@ -52,11 +51,12 @@ test("a model's reasoning levels from the catalog become the picker's variants, 
 })
 
 test("subagents nest under their parent while spawned threads stay top level with a link", () => {
-  const subagent = adaptSession({ ...session, id: "ses_2", parentId: "ses_1", visibility: "hidden" }, workspaces)
-  expect(subagent.parentID).toBe("ses_1")
-  const spawned = adaptSession({ ...session, id: "ses_3", parentId: "ses_1" }, workspaces)
-  expect(spawned.parentID).toBeUndefined()
-  expect((spawned as { spawnedFrom?: string }).spawnedFrom).toBe("ses_1")
+  const subagent = sessionInWorkspace({ ...session, id: "ses_2", parentId: "ses_1", visibility: "hidden" }, workspaces)
+  const spawned = sessionInWorkspace({ ...session, id: "ses_3", parentId: "ses_1" }, workspaces)
+
+  expect(hiddenParent(subagent)).toBe("ses_1")
+  expect(hiddenParent(spawned)).toBeUndefined()
+  expect(spawned.parentId).toBe("ses_1")
 })
 
 test("assistant messages carry tokens, cost and errors in the legacy shape", () => {
@@ -83,8 +83,8 @@ test("assistant messages carry tokens, cost and errors in the legacy shape", () 
 })
 
 test("sessions and messages keep the agent they actually ran as", () => {
-  expect((adaptSession({ ...session, agent: "plan" }, workspaces) as { agent?: string }).agent).toBe("plan")
-  expect((adaptSession({ ...session, variant: "max" }, workspaces) as { variant?: string | null }).variant).toBe("max")
+  expect(sessionInWorkspace({ ...session, agent: "plan" }, workspaces).agent).toBe("plan")
+  expect(sessionInWorkspace({ ...session, variant: "max" }, workspaces).variant).toBe("max")
   const base = {
     sessionId: "ses_1",
     model: { provider: "anthropic", model: "claude" },
@@ -307,9 +307,9 @@ test("tool call statuses become legacy tool states", () => {
 })
 
 test("an undo marker and a native removed message reach the store", () => {
-  const undone = adaptSession({ ...session, revert: { messageId: "msg_5", kept: ["a.txt"] } }, workspaces)
-  expect((undone as { revert?: unknown }).revert).toEqual({ messageID: "msg_5" })
-  expect((adaptSession(session, workspaces) as { revert?: unknown }).revert).toBeUndefined()
+  const undone = sessionInWorkspace({ ...session, revert: { messageId: "msg_5", kept: ["a.txt"] } }, workspaces)
+  expect(undone.revert).toEqual({ messageId: "msg_5", kept: ["a.txt"] })
+  expect(sessionInWorkspace(session, workspaces).revert).toBeUndefined()
   const [state, set] = createEngineState()
   set("transcripts", "ses_1", [{ info: { id: "msg_5", role: "user" }, parts: [] }] as never)
 

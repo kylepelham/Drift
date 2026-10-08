@@ -133,7 +133,7 @@ function runSessionSlash(engine: Engine, current: string, name: string, args: st
     case "undo":
       return undoCurrentSession(engine, current)
     case "redo": {
-      const marker = engine.state.sessions[current]?.revert?.messageID
+      const marker = engine.state.sessions[current]?.revert?.messageId
       if (marker) return restoreReverted(engine, current, marker)
     }
   }
@@ -171,8 +171,8 @@ function archiveCurrentSession(engine: Engine, current: string) {
 }
 
 async function undoCurrentSession(engine: Engine, current: string) {
-  const marker = engine.state.sessions[current]?.revert?.messageID
-  const target = previousUserMessage(engine.state.transcripts[current] ?? [], marker)
+  const marker = engine.state.sessions[current]?.revert?.messageId
+  const target = previousUserMessage(engine.state.transcripts[current] ?? [], marker ?? undefined)
   if (!target) return
 
   const restored = draftFromMessage(target)

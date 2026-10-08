@@ -1,5 +1,6 @@
 import { captureRevisions, createEngineState, mergeTranscriptSnapshot, messageRevisionKey } from "../src/engine/store"
-import { adaptMessage, adaptPart, adaptSession } from "../src/engine/native/adapt"
+import { adaptMessage, adaptPart } from "../src/engine/native/adapt"
+import { sessionInWorkspace } from "../src/engine/sessions"
 import { reduce, withDelta } from "../src/engine/events"
 import { createActions } from "../src/engine/actions"
 import { expect, test } from "bun:test"
@@ -73,7 +74,7 @@ test("a gap during an HTTP reload fetches a newer snapshot after that reload fin
   set(
     "sessions",
     "s",
-    adaptSession(
+    sessionInWorkspace(
       { id: "s", workspaceId: "w", visibility: "sibling", title: "", agent: "build", createdAt: 1, updatedAt: 1 },
       workspaces,
     ),

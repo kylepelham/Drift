@@ -23,7 +23,9 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
   engine's OpenAPI document (`bun run gen:engine`).
 - `src/engine/native/events.ts` keeps the event socket: it reconnects with its cursor,
   hydrates again on `resync`, and hands frames to the reducer.
-- `src/engine/native/adapt.ts` maps the engine's sessions, messages and parts onto the shapes
+- `src/engine/sessions.ts` adds a workspace directory to native sessions without renaming
+  their fields. Hidden workers nest under `parentId`; spawned siblings keep a navigation link.
+- `src/engine/native/adapt.ts` maps the engine's messages and parts onto the shapes
   the views render (`src/engine/shapes.ts`).
 - `src/engine/store.ts` holds the state shape plus pure helpers (`visibleSessions`,
   `resolveModel`, `sessionBusy`). No IO.

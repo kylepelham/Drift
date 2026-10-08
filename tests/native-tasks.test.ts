@@ -125,7 +125,7 @@ test("a background row times its worker, not the instant its launch returned", (
 
 test("a worker's sidebar row finds its newest task through its parent", () => {
   const [state, set] = createEngineState()
-  set("sessions", "worker_a", { id: "worker_a", parentID: "parent" } as never)
+  set("sessions", "worker_a", { id: "worker_a", parentId: "parent", visibility: "hidden" } as never)
   expect(taskForWorker(state, "worker_a")).toBeUndefined()
   putTasks(set, state, "parent", [
     task("a", { mode: "foreground", createdAt: 1 }),

@@ -14,7 +14,10 @@ export function RevertDock() {
   const items = createMemo(() => {
     const id = selectedSession()
     if (!id) return []
-    return revertDockEntries(engine.state.transcripts[id] ?? [], engine.state.sessions[id]?.revert?.messageID)
+    return revertDockEntries(
+      engine.state.transcripts[id] ?? [],
+      engine.state.sessions[id]?.revert?.messageId ?? undefined,
+    )
   })
   createEffect(
     on(

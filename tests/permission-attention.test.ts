@@ -23,7 +23,7 @@ test("the webview no longer answers asks or keeps an always rule of its own", as
 test("the sidebar shows a subagent while it runs, waits on the user, or is open", () => {
   const [state, set] = createEngineState()
   for (const id of ["running", "asking", "done"])
-    set("sessions", id, { id, parentID: "parent", time: { created: 1, updated: 1 } } as never)
+    set("sessions", id, { id, parentId: "parent", visibility: "hidden", createdAt: 1, updatedAt: 1 } as never)
   set("status", "running", { type: "busy" })
   set("status", "done", { type: "idle" })
   set("questions", "asking", [{ id: "q1", sessionID: "asking", questions: [] }] as never)

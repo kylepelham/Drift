@@ -39,7 +39,7 @@ test("session.updated clears the revert marker the engine dropped", () => {
     updatedAt: 1,
   }
   reduce(set, { type: "session.updated", session: { ...session, revert: { messageId: "m5" } } })
-  expect(state.sessions["s1"].revert?.messageID).toBe("m5")
+  expect(state.sessions["s1"].revert?.messageId).toBe("m5")
   reduce(set, { type: "session.updated", session })
   expect(state.sessions["s1"].revert).toBeUndefined()
 })

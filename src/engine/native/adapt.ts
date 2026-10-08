@@ -1,9 +1,8 @@
 // Native engine shapes to the shapes the UI was built on. Dies at M4 when the UI adopts native types.
-import type { AssistantMessage, Message, Part, Permission, Session, ToolPart } from "../shapes"
+import type { AssistantMessage, Message, Part, Permission, ToolPart } from "../shapes"
 import type { ModelInfo, ProviderInfo, QuestionRequest } from "../store"
 import type { components } from "./types"
 
-type NativeSession = components["schemas"]["Session"]
 type NativeMessage = components["schemas"]["Message"]
 type NativePartRow = components["schemas"]["PartRow"]
 type NativeRequest = components["schemas"]["PermissionRequest"]
@@ -11,34 +10,6 @@ type NativeQuestion = components["schemas"]["QuestionRequest"]
 type NativeProvider = components["schemas"]["ProviderStatus"]
 type NativeModel = components["schemas"]["Model"]
 export type NativeMessageWithParts = components["schemas"]["MessageWithParts"]
-
-/** Workspace ids map to directories because the UI keys everything by directory. */
-export type WorkspaceIndex = { path(id: string): string | undefined; id(path: string): string | undefined }
-
-const engineVersion = "drift"
-
-export function adaptSession(session: NativeSession, workspaces: WorkspaceIndex): Session {
-  return {
-    id: session.id,
-    projectID: session.workspaceId,
-    directory: workspaces.path(session.workspaceId) ?? session.workspaceId,
-    // Spawned threads are top-level rows that link back; only subagents nest under a parent.
-    parentID: session.visibility === "hidden" ? session.parentId : undefined,
-    spawnedFrom: session.visibility === "sibling" ? session.parentId : undefined,
-    title: session.title,
-    version: engineVersion,
-    time: {
-      created: session.createdAt,
-      updated: session.updatedAt,
-      ...(session.archivedAt ? { archived: session.archivedAt } : {}),
-    },
-    ...(session.model ? { model: { providerID: session.model.provider, id: session.model.model } } : {}),
-    ...(session.revert ? { revert: { messageID: session.revert.messageId } } : {}),
-    agent: session.agent,
-    variant: session.variant ?? null,
-    autoAccept: !!session.autoAccept,
-  } as Session
-}
 
 /** The engine marks every message with its agent; this only fills the field its schema leaves optional. */
 const defaultAgent = "build"

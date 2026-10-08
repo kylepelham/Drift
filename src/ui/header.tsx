@@ -3,6 +3,7 @@ import { selectedSession, selectSession } from "../state/selection"
 import { IconArrowUp, IconMenu, IconSearch } from "./icons"
 import { createSignal, onCleanup, Show } from "solid-js"
 import { openMobileDrawer } from "../state/navigation"
+import { hiddenParent } from "../engine/sessions"
 import { ContextMeter } from "./context-meter"
 import { useEngine } from "../engine"
 import { t } from "../state/i18n"
@@ -33,7 +34,7 @@ export function ChatHeader() {
   const backTarget = () => {
     const current = session()
     if (!current) return undefined
-    return current.parentID ?? engine.state.links[current.id]
+    return hiddenParent(current) ?? engine.state.links[current.id]
   }
   return (
     <Show

@@ -70,7 +70,7 @@ export function Chat() {
   const allEntries = createMemo(() => {
     const id = selectedSession()
     if (!id) return []
-    const revertedAt = engine.state.sessions[id]?.revert?.messageID
+    const revertedAt = engine.state.sessions[id]?.revert?.messageId
     const transcript = engine.state.transcripts[id] ?? []
     // Nested part replacement does not invalidate every memo that iterates the transcript proxy.
     // Event reducers already bump this key for every message/part update, so consume it at the
@@ -91,7 +91,7 @@ export function Chat() {
     const session = id ? engine.state.sessions[id] : undefined
     const source = id ? engine.state.links[id] : undefined
     if (!id || !session || !source) return undefined
-    const copied = copiedCount(allEntries(), session.time.created)
+    const copied = copiedCount(allEntries(), session.createdAt)
     if (!copied) return undefined
     const list = allEntries()
     const shown = shownCopies().has(id)
@@ -176,7 +176,7 @@ export function Chat() {
     const cursor = engine.state.cursors[id]
     if (
       !revertBackfillNeeded({
-        revertedAt: engine.state.sessions[id]?.revert?.messageID,
+        revertedAt: engine.state.sessions[id]?.revert?.messageId,
         visible: entries().length,
         loaded: engine.state.loaded[id],
         cursor,

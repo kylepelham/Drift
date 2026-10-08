@@ -46,10 +46,10 @@ export type SessionMenuState = { x: number; y: number; sessionId: string; worksp
 
 const sessionPageSize = 5
 
-const threadRow = (session: { id: string; title: string; time: { updated: number } }): CachedSession => ({
+const threadRow = (session: { id: string; title: string; updatedAt: number }): CachedSession => ({
   id: session.id,
   title: session.title,
-  updated: session.time.updated,
+  updated: session.updatedAt,
 })
 
 export function WorkspaceGroup(props: {

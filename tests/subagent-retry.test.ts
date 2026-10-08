@@ -266,9 +266,11 @@ test("a running delegated row recovers its child when parallel task metadata is 
   const [state, set] = createEngineState()
   set("sessions", "child", {
     id: "child",
-    parentID: "parent",
+    parentId: "parent",
+    visibility: "hidden",
     title: "Explore service sinks (@explore subagent)",
-    time: { created: 1, updated: 1 },
+    createdAt: 1,
+    updatedAt: 1,
   } as never)
   const part = {
     tool: "task",
@@ -287,9 +289,11 @@ test("a running delegated row recovers its child when parallel task metadata is 
 
   set("sessions", "duplicate", {
     id: "duplicate",
-    parentID: "parent",
+    parentId: "parent",
+    visibility: "hidden",
     title: "Explore service sinks (@explore subagent)",
-    time: { created: 2, updated: 2 },
+    createdAt: 2,
+    updatedAt: 2,
   } as never)
   expect(delegatedChildId(state, part)).toBeNull()
 })

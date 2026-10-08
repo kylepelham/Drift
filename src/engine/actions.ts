@@ -4,6 +4,7 @@ import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { applyProviderCatalog } from "../state/provider-cache"
 import { formatAttachmentBytes } from "../attachments"
 import { handOverAutoAccept } from "../state/prefs"
+import { sessionInWorkspace } from "./sessions"
 import { untrack } from "solid-js"
 import { t } from "../state/i18n"
 import {
@@ -29,15 +30,14 @@ import {
   adaptPermission,
   adaptProvider,
   adaptQuestion,
-  adaptSession,
   adaptTodos,
   type NativeMessageWithParts,
-  type WorkspaceIndex,
 } from "./native/adapt"
 
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { Permission, Session } from "./shapes"
+import type { Session, WorkspaceIndex } from "./sessions"
 import type { components } from "./native/types"
+import type { Permission } from "./shapes"
 
 type NativeSession = components["schemas"]["Session"]
 
@@ -232,7 +232,7 @@ export function createActions(
     let before: string | undefined
     for (;;) {
       const page = await requireClient().sessions({ ...params, before, limit: sessionPageSize })
-      all.push(...page.map((s) => adaptSession(s, workspaces())))
+      all.push(...page.map((s) => sessionInWorkspace(s, workspaces())))
       running.push(...page.filter((s) => s.running).map((s) => s.id))
       if (page.length < sessionPageSize) return { sessions: all, running }
       before = page[page.length - 1]!.id
@@ -274,7 +274,7 @@ export function createActions(
     const workspaceId = workspaces().id(state.directory)
     if (!workspaceId) return undefined
     const created = await requireClient().createSession({ workspaceId })
-    const session = adaptSession(created, workspaces())
+    const session = sessionInWorkspace(created, workspaces())
     // A fresh session is known empty; mark it loaded so the first turn's events are not dropped.
     set(
       produce((draft) => {
@@ -325,7 +325,7 @@ export function createActions(
     try {
       const receipt = await requireClient().submit(id, { submissionId: submission, ...prompt })
       unsettled.delete(key)
-      putSession(set, adaptSession(receipt.session, workspaces()))
+      putSession(set, sessionInWorkspace(receipt.session, workspaces()))
       return { ok: true }
     } catch (cause) {
       if (definite(cause)) unsettled.delete(key)
@@ -344,13 +344,13 @@ export function createActions(
 
   async function rename(id: string, title: string) {
     const updated = await requireClient().updateSession(id, { title })
-    putSession(set, adaptSession(updated, workspaces()))
+    putSession(set, sessionInWorkspace(updated, workspaces()))
   }
 
   /** Archiving stops whatever the session is running, in the engine, before anything else hides it. */
   async function setArchived(id: string, archived: boolean) {
     const updated = await requireClient().updateSession(id, { archived })
-    putSession(set, adaptSession(updated, workspaces()))
+    putSession(set, sessionInWorkspace(updated, workspaces()))
   }
 
   /// Permanent deletion; true only once the engine confirms the row is gone.
@@ -513,7 +513,7 @@ export function createActions(
   /** Copies finished history into a new conversation, through `atMessage` or else everything finished. The copy keeps compaction markers, so it sees the same context. */
   async function fork(id: string, atMessage?: string) {
     try {
-      const session = adaptSession(await requireClient().forkSession(id, atMessage), workspaces())
+      const session = sessionInWorkspace(await requireClient().forkSession(id, atMessage), workspaces())
       putSession(set, session)
       return session
     } catch (cause) {
@@ -558,7 +558,7 @@ export function createActions(
   ) {
     try {
       const { session, kept, unattributed, unrecorded } = await call()
-      putSession(set, adaptSession(session, workspaces()))
+      putSession(set, sessionInWorkspace(session, workspaces()))
       // Files the user changed after the session did are never overwritten; say which.
       if (kept.length)
         notice({
@@ -630,7 +630,7 @@ export function createActions(
   /** The engine answers this session's asks, and its subagents', except secrets and anything outside the workspace. */
   async function setAutoAccept(id: string, autoAccept: boolean) {
     const updated = await requireClient().updateSession(id, { autoAccept })
-    putSession(set, adaptSession(updated, workspaces()))
+    putSession(set, sessionInWorkspace(updated, workspaces()))
   }
 
   async function setAutoAcceptAll(autoAcceptAll: boolean) {
@@ -689,7 +689,7 @@ export function createActions(
   /** `/spawn <instruction>`: a new linked thread that starts at once with this conversation and the instruction. */
   async function spawn(id: string, instruction: string) {
     try {
-      const session = adaptSession(await requireClient().spawnThread(id, instruction), workspaces())
+      const session = sessionInWorkspace(await requireClient().spawnThread(id, instruction), workspaces())
       putSession(set, session)
       return session
     } catch (cause) {

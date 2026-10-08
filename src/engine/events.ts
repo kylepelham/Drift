@@ -1,5 +1,6 @@
-import { adaptMessage, adaptPart, adaptPermission, adaptQuestion, adaptSession, adaptTodos } from "./native/adapt"
+import { adaptMessage, adaptPart, adaptPermission, adaptQuestion, adaptTodos } from "./native/adapt"
 import { clearQuestionDraft } from "../state/question-drafts"
+import { sessionInWorkspace } from "./sessions"
 import { produce } from "solid-js/store"
 import {
   bumpAskRevision,
@@ -19,9 +20,9 @@ import {
   type QuestionRequest,
 } from "./store"
 
-import type { Message, Part, Permission, Session, SessionStatus } from "./shapes"
+import type { Message, Part, Permission, SessionStatus } from "./shapes"
+import type { Session, WorkspaceIndex } from "./sessions"
 import type { SetStoreFunction } from "solid-js/store"
-import type { WorkspaceIndex } from "./native/adapt"
 import type { components } from "./native/types"
 
 type SetEngineState = SetStoreFunction<EngineState>
@@ -43,7 +44,7 @@ function reduceSessionEvent(set: SetEngineState, event: Event, workspaces: Works
   switch (event.type) {
     case "session.created":
     case "session.updated":
-      putSession(set, adaptSession(event.session, workspaces))
+      putSession(set, sessionInWorkspace(event.session, workspaces))
       return true
     case "session.deleted":
       set(produce((draft) => purgeSession(draft, event.sessionId)))
@@ -151,12 +152,12 @@ export function applySessionSnapshot(
       const advanced = (id: string) => revisionAdvanced(draft.revisions, input.captured, sessionRevisionKey(id))
       for (const info of input.sessions) {
         if (advanced(info.id)) continue
-        draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+        draft.sessions[info.id] = { revert: undefined, ...info }
         // Applying a snapshot advances the session so an older overlapping snapshot (a reconnect
         // flap fires two hydrates) can neither downgrade nor purge what this one established.
         bumpRevision(draft, sessionRevisionKey(info.id))
-        const model = (info as Session & { model?: { id: string; providerID: string } }).model
-        if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
+        const model = info.model
+        if (model) draft.sessionModels[info.id] = { providerID: model.provider, modelID: model.model }
       }
       if (!input.scope) return
       for (const session of Object.values(draft.sessions)) {
@@ -164,7 +165,7 @@ export function applySessionSnapshot(
         if (!all && normalizeDir(session.directory) !== dir) continue
         // Scoped listings exclude engine-archived sessions, so their absence is not a deletion.
         // Purging them here would delete-and-reload archived transcripts on every hydration.
-        if (!all && (session.time as { archived?: number }).archived) continue
+        if (!all && session.archivedAt) continue
         purgeSession(draft, session.id)
       }
     }),

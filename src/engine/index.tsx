@@ -9,7 +9,7 @@ import { workspaces } from "../state/workspaces"
 import { resolveTarget } from "./native/target"
 import { reduce } from "./events"
 
-import type { WorkspaceIndex } from "./native/adapt"
+import type { WorkspaceIndex } from "./sessions"
 
 export type Engine = {
   state: EngineState

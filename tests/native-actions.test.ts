@@ -325,9 +325,9 @@ test("archiving and restoring go to the engine and keep the session's record in 
     },
   } as Partial<Client>)
   await h.actions.setArchived("ses_1", true)
-  expect(h.state.sessions.ses_1?.time.archived).toBe(50)
+  expect(h.state.sessions.ses_1?.archivedAt).toBe(50)
   await h.actions.setArchived("ses_1", false)
-  expect(h.state.sessions.ses_1?.time.archived).toBeUndefined()
+  expect(h.state.sessions.ses_1?.archivedAt).toBeUndefined()
   expect(sent).toEqual([
     ["ses_1", { archived: true }],
     ["ses_1", { archived: false }],
@@ -544,7 +544,7 @@ test("undo and redo apply the engine's session and report refusals", async () =>
   expect(await h.actions.revert("ses_1", "msg_2")).toBeTrue()
   expect(await h.actions.revert("ses_1", "msg_2", true)).toBeTrue()
   expect(asked.slice(0, 2), "Shift asks the engine to leave the files").toEqual([false, true])
-  expect((h.state.sessions.ses_1 as { revert?: { messageID: string } }).revert?.messageID).toBe("msg_2")
+  expect(h.state.sessions.ses_1?.revert?.messageId).toBe("msg_2")
   expect(h.state.notices.length).toBe(0)
   expect(await h.actions.unrevert("ses_1")).toBeTrue()
   expect((h.state.sessions.ses_1 as { revert?: unknown }).revert).toBeUndefined()
@@ -598,7 +598,7 @@ test("a spawned thread is one call, top level and linked to its source, and load
   const created = await h.actions.spawn("ses_1", "fix lint")
   expect(sent).toEqual([["ses_1", "fix lint"]])
   expect(created?.id).toBe("ses_spawn")
-  expect(h.state.sessions.ses_spawn!.parentID).toBeUndefined()
+  expect(h.state.sessions.ses_spawn!.visibility).toBe("sibling")
   expect(h.state.links.ses_spawn).toBe("ses_1")
   expect(h.state.loaded.ses_spawn).toBeFalsy()
 })
@@ -619,7 +619,7 @@ test("fork opens the copy as a new top-level session", async () => {
   const fork = await h.actions.fork("ses_1", "active")
   expect(fork?.id).toBe("ses_fork")
   expect(h.state.sessions.ses_fork!.title).toBe("ses_1 (fork)")
-  expect(h.state.sessions.ses_fork!.parentID).toBeUndefined()
+  expect(h.state.sessions.ses_fork!.parentId).toBeUndefined()
 })
 
 test("moving resolves the destination workspace and reports the engine's busy refusal", async () => {

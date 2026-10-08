@@ -1,7 +1,9 @@
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
+import { hiddenParent } from "./sessions"
 
 import type { McpServerConfig, McpServerConfigView, McpServerStatus, PermissionRule, TaskRecord } from "./native/client"
-import type { Command, Message, Model, Part, Permission, Session, SessionStatus, Todo, ToolPart } from "./shapes"
+import type { Command, Message, Model, Part, Permission, SessionStatus, Todo, ToolPart } from "./shapes"
+import type { Session } from "./sessions"
 export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }
 export type Connection = "idle" | "connecting" | "online" | "offline"
 
@@ -229,20 +231,20 @@ export function createEngineState() {
 
 /** The engine knows which thread spawned which; that beats links inferred from tool parts. */
 function linkSpawned(links: Record<string, string>, info: Session) {
-  const parent = (info as Session & { spawnedFrom?: string }).spawnedFrom
+  const parent = info.visibility === "sibling" ? info.parentId : undefined
   if (!parent) return
   links[info.id] = parent
   recordLink({ child: info.id, parent })
 }
 
-// Store sets merge; optional keys the engine dropped (revert, share) must clear explicitly.
+// Store sets merge, so a revert marker the engine dropped must clear explicitly.
 export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
   set(
     produce((draft) => {
-      draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
+      draft.sessions[info.id] = { revert: undefined, ...info }
       linkSpawned(draft.links, info)
-      const model = (info as Session & { model?: { id: string; providerID: string } }).model
-      if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
+      const model = info.model
+      if (model) draft.sessionModels[info.id] = { providerID: model.provider, modelID: model.model }
       bumpRevision(draft, sessionRevisionKey(info.id))
     }),
   )
@@ -252,7 +254,7 @@ export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]
   set(
     "sessions",
     produce((sessions) => {
-      for (const info of infos) sessions[info.id] = { revert: undefined, share: undefined, ...info }
+      for (const info of infos) sessions[info.id] = { revert: undefined, ...info }
     }),
   )
   set(
@@ -265,8 +267,8 @@ export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]
     "sessionModels",
     produce((models) => {
       for (const info of infos) {
-        const model = (info as Session & { model?: { id: string; providerID: string } }).model
-        if (model) models[info.id] = { providerID: model.providerID, modelID: model.id }
+        const model = info.model
+        if (model) models[info.id] = { providerID: model.provider, modelID: model.model }
       }
     }),
   )
@@ -492,7 +494,7 @@ export function taskForCall(state: EngineState, sessionId: string, callId: strin
 
 /** The newest task that ran in a worker's session; tasks are kept oldest first. */
 export function taskForWorker(state: EngineState, sessionId: string) {
-  const parentId = state.sessions[sessionId]?.parentID
+  const parentId = hiddenParent(state.sessions[sessionId])
   return parentId ? (state.tasks[parentId] ?? []).filter((task) => task.sessionId === sessionId).at(-1) : undefined
 }
 
@@ -504,16 +506,14 @@ export function taskTiming(task: Pick<TaskRecord, "state" | "createdAt" | "finis
   }
 }
 
-type SavedSession = Session & { agent?: string; variant?: string | null; model?: { providerID: string; id: string } }
-
 /** The model, agent and reasoning level the engine saved on a session: what its newest prompt chose. */
 export function savedChoice(
   state: EngineState,
   id: string | null | undefined,
 ): { agent?: string; variant?: string | null; model?: ModelRef } {
-  const session = id ? (state.sessions[id] as SavedSession | undefined) : undefined
+  const session = id ? state.sessions[id] : undefined
   if (!session) return {}
-  const model = session.model ? { model: { providerID: session.model.providerID, modelID: session.model.id } } : {}
+  const model = session.model ? { model: { providerID: session.model.provider, modelID: session.model.model } } : {}
   return { agent: session.agent, variant: session.variant ?? null, ...model }
 }
 
@@ -543,14 +543,14 @@ export function bumpAskRevision(state: EngineState, kind: AskKind, directory?: s
 export function sessionsFor(state: EngineState, directory: string) {
   const dir = normalizeDir(directory)
   return Object.values(state.sessions)
-    .filter((session) => !session.parentID && normalizeDir(session.directory) === dir)
-    .sort((a, b) => b.time.updated - a.time.updated)
+    .filter((session) => !hiddenParent(session) && normalizeDir(session.directory) === dir)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
 export function childrenOf(state: EngineState, parentId: string) {
   return Object.values(state.sessions)
-    .filter((session) => session.parentID === parentId)
-    .sort((a, b) => a.time.created - b.time.created)
+    .filter((session) => hiddenParent(session) === parentId)
+    .sort((a, b) => a.createdAt - b.createdAt)
 }
 
 const providerPriority = ["anthropic", "openai", "opencode", "github-copilot", "google", "zai", "xai"]

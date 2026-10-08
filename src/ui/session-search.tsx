@@ -85,7 +85,7 @@ export function SessionSearchBar() {
         id: session.id,
         title: session.title || t("drift.thread.untitled"),
         directory: session.directory,
-        updatedAt: (session.time.updated ?? 0) * 1000,
+        updatedAt: (session.updatedAt ?? 0) * 1000,
       })),
     )
 

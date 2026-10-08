@@ -15,6 +15,7 @@ import { Chat, forwardWheelToChat } from "./ui/chat"
 import { selectedSession } from "./state/selection"
 import { FilePreviewHost } from "./ui/file-preview"
 import { bindCodePreferences } from "./state/code"
+import { hiddenParent } from "./engine/sessions"
 import { initKeybinds } from "./state/keybinds"
 import { bindLanguage } from "./state/language"
 import { debugPanelOpen } from "./state/panels"
@@ -144,7 +145,7 @@ function OrchestratorBinding() {
       previousStatus,
       status: state.status[id]?.type ?? "idle",
       agent: (prompt?.info as { agent?: string } | undefined)?.agent,
-      parentID: state.sessions[id]?.parentID,
+      parentID: hiddenParent(state.sessions[id]),
       lastMessage: last && {
         role: last.info.role,
         completed: !!(last.info as { time: { completed?: number } }).time.completed,
