@@ -234,11 +234,17 @@ const workspaceCrates = ["drift", "drift-engine", "drift-engined", "drift-migrat
 export function stampReleaseVersion(tag: string, root = path.resolve(import.meta.dirname, "..")) {
     const version = versionFromTag(tag);
 
+    // Only the version string is replaced, so the files keep the formatting Prettier gave them.
     for (const relative of ["package.json", "src-tauri/tauri.conf.json"]) {
         const file = path.join(root, relative);
-        const contents = JSON.parse(readFileSync(file, "utf8")) as { version: string };
-        contents.version = version;
-        writeFileSync(file, `${JSON.stringify(contents, null, 2)}\n`);
+        const stamped = replaceRequired(
+            readFileSync(file, "utf8"),
+            // The first "version" key is the top-level one in both files.
+            /("version":\s*")[^"]+(")/,
+            `$1${version}$2`,
+            file,
+        );
+        writeFileSync(file, stamped);
     }
 
     // Every crate inherits the workspace's version, so the engine reports the same one as the shell.
