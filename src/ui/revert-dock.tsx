@@ -29,6 +29,7 @@ export function RevertDock() {
     async function restore(entry: MessageEntry) {
         const id = selectedSession();
         if (!id || busy()) return;
+
         setBusy(true);
         try {
             if (!(await restoreReverted(engine, id, entry.info.id))) {

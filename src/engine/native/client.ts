@@ -61,14 +61,18 @@ export function createClient(target: Target) {
             const error = (await response.json().catch(() => null)) as ErrorBody | null;
             throw new EngineError(response.status, path, error?.code, error?.message);
         }
+
         const text = await response.text();
+
         return (text ? JSON.parse(text) : undefined) as T;
     };
     const query = (params: Record<string, string | number | boolean | null | undefined>) => {
         const search = new URLSearchParams();
         for (const [key, value] of Object.entries(params))
             if (value !== undefined && value !== null) search.set(key, String(value));
+
         const text = search.toString();
+
         return text ? `?${text}` : "";
     };
     return {
@@ -185,7 +189,9 @@ export function createClient(target: Target) {
             if (options.create) query.set("create", "true");
             if (options.readOnlyTrusted !== undefined) query.set("readOnlyTrusted", String(options.readOnlyTrusted));
             if (options.workspace) query.set("workspace", options.workspace);
+
             const search = query.size ? `?${query}` : "";
+
             return request<Json<"saveMcpServer", 200>>("PUT", `/mcp/${name}${search}`, config);
         },
         renameMcpServer: (name: string, to: string, workspace?: string) =>

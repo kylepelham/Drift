@@ -12,6 +12,7 @@ const [menu, setMenu] = createSignal<MenuState | null>(null);
 export function openToolContextMenu(event: MouseEvent, part: ToolPart) {
     const actions = toolContextActions(part);
     if (!actions.length) return;
+
     event.preventDefault();
     event.stopPropagation();
     setMenu({ x: event.clientX, y: event.clientY, actions });
@@ -22,8 +23,10 @@ export function ToolContextMenuHost() {
     const position = () => {
         const state = menu();
         if (!state) return { left: 8, top: 8, viewportHeight: window.innerHeight };
+
         const estimatedHeight = state.actions.length * 38 + 20;
         const viewport = fixedMenuPosition(state.x, state.y, 288, 0);
+
         return fixedMenuPosition(state.x, state.y, 288, Math.min(viewport.viewportHeight * 0.7, estimatedHeight));
     };
 

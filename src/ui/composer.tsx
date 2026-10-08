@@ -82,6 +82,7 @@ export function Composer() {
     };
     const setStaged = (value: StagedFile[] | ((current: StagedFile[]) => StagedFile[])) => {
         setHistoryNavigation(null);
+
         const key = scope();
         const current = composerDraft(key).staged;
         patchComposerDraft(key, { staged: typeof value === "function" ? value(current) : value });
@@ -206,6 +207,7 @@ export function Composer() {
                 const selectedPrefs = prefsFor(existing, savedChoice(engine.state, existing));
                 const selectedModel = resolveModel(engine.state, selectedPrefs.model);
                 const selectedVariants = variantNames(modelInfo(engine.state, selectedModel));
+
                 return {
                     selectedPrefs,
                     selectedModel,
@@ -235,6 +237,7 @@ export function Composer() {
                     setFileError(message);
                     return { ok: false as const, error: message };
                 }
+
                 const attachments = await prepareAttachmentsForSend(snapshot.staged);
                 const files = [...mentionFiles(text, snapshot.mentions, workspace.path), ...attachments.files];
                 const prompt = [text, attachments.text].filter(Boolean).join("\n\n");
@@ -245,6 +248,7 @@ export function Composer() {
                     files,
                 });
                 if (result.ok) clearEdits(id);
+
                 return result;
             },
             admitted(key, snapshot, historyDraft) {
@@ -273,19 +277,24 @@ export function Composer() {
 
     function onKey(event: KeyboardEvent) {
         if (event.isComposing) return;
+
         if (event.key === "Enter" && !event.shiftKey && submitting()) {
             event.preventDefault();
             return;
         }
+
         if (mention.open() && mention.handleKey(event)) return;
         if (slash.active() && slash.handleKey(event)) return;
         if (["ArrowUp", "ArrowDown"].includes(event.key) && browseHistory(event)) return;
+
         if (event.key === "Tab") {
             event.preventDefault();
             cycleAgent(event.shiftKey ? -1 : 1);
             return;
         }
+
         if (event.key !== "Enter" || event.shiftKey) return;
+
         event.preventDefault();
         void submit();
     }
@@ -293,9 +302,11 @@ export function Composer() {
     function browseHistory(event: KeyboardEvent) {
         if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
         if (area.selectionStart !== area.selectionEnd) return false;
+
         const direction = event.key === "ArrowUp" ? "up" : "down";
         const active = historyNavigation();
         if (!canNavigateComposerHistory(direction, draft(), area.selectionStart, !!active)) return false;
+
         const result = navigateComposerHistory(
             composerHistory(),
             { index: active?.index ?? -1, saved: active?.saved ?? null },
@@ -303,6 +314,7 @@ export function Composer() {
             direction,
         );
         if (!result) return false;
+
         const key = scope();
         setComposerDraft(key, result.draft);
         setHistoryNavigation(
@@ -321,15 +333,18 @@ export function Composer() {
         queueMicrotask(() => {
             resize();
             area.focus();
+
             const position = result.cursor === "start" ? 0 : result.draft.text.length;
             area.setSelectionRange(position, position);
         });
+
         return true;
     }
 
     function cycleAgent(step: number) {
         const items = agentItems();
         if (items.length < 2) return;
+
         const index = items.findIndex((item) => item.id === prefs().agent);
         updatePrefs(selectedSession(), { agent: items[(index + step + items.length) % items.length].id });
     }
@@ -339,6 +354,7 @@ export function Composer() {
         const current = area.offsetHeight;
         areaFrame.style.height = `${current}px`;
         area.style.height = "auto";
+
         const scrollHeight = area.scrollHeight;
         const next = Math.min(scrollHeight, maxComposerHeightPx);
         area.style.height = `${next}px`;
@@ -351,6 +367,7 @@ export function Composer() {
         const text = composerSelection(target.value, target.selectionStart, target.selectionEnd);
         const invoke = shellInvoke();
         if (!text || !invoke) return;
+
         setTimeout(
             () => void invoke("clipboard_write_text", { text }).catch(() => undefined),
             clipboardRepublishDelayMs,

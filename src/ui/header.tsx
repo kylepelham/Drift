@@ -25,6 +25,7 @@ export function ChatHeader() {
 
     function observe(element: HTMLDivElement) {
         row = element;
+
         const observer = new ResizeObserver(remeasure);
         observer.observe(element);
         for (const child of element.children) observer.observe(child);

@@ -59,10 +59,12 @@ export function Chat() {
     const allEntries = createMemo(() => {
         const id = selectedSession();
         if (!id) return [];
+
         const revertedAt = engine.state.sessions[id]?.revert?.messageId;
         const transcript = engine.state.transcripts[id] ?? [];
         // Nested part replacement skips transcript memos; reading each revision key subscribes to it.
         for (const entry of transcript) engine.state.revisions[messageRevisionKey(id, entry.info.id)];
+
         const boundary = revertedAt ? transcript.find((entry) => entry.info.id === revertedAt) : undefined;
         const sorted = [...transcript]
             .filter((entry) => {
@@ -71,6 +73,7 @@ export function Chat() {
                 return entry.info.id < revertedAt;
             })
             .sort(compareMessages);
+
         return sorted;
     });
     const spawnedCopy = createMemo(() => {
@@ -78,10 +81,13 @@ export function Chat() {
         const session = id ? engine.state.sessions[id] : undefined;
         const source = id ? engine.state.links[id] : undefined;
         if (!id || !session || !source) return undefined;
+
         const copied = copiedCount(allEntries(), session.createdAt);
         if (!copied) return undefined;
+
         const list = allEntries();
         const shown = shownCopies().has(id);
+
         return {
             id,
             copied,
@@ -105,11 +111,15 @@ export function Chat() {
     const sessionError = createMemo(() => {
         const id = selectedSession();
         if (!id) return null;
+
         const error = engine.state.errors[id];
         if (!error) return null;
+
         const latest = entries().at(-1);
         if (latest?.info.role !== "assistant") return error;
+
         const problem = messageProblem(latest.info);
+
         return problem && !problem.interrupted ? null : error;
     });
     const thinking = createMemo(() => {
@@ -120,6 +130,7 @@ export function Chat() {
         const id = selectedSession();
         const status = id ? engine.state.status[id] : undefined;
         if (status?.type === "retry") return status;
+
         return status?.type === "busy" ? retryInFlight(entries(), thinking()?.messageID) : undefined;
     });
     const timelineSource = createMemo(() => timelineEntries(entries(), thinking()?.messageID));
@@ -128,6 +139,7 @@ export function Chat() {
         const source = timelineSource();
         const groups = assistantGroups();
         const active = thinking()?.messageID;
+
         return source.filter((entry, index) =>
             timelineRowVisible(entry, groups.get(entry.info.id), source[index + 1], active),
         );
@@ -174,17 +186,21 @@ export function Chat() {
             cached.collapsed === collapsed
         )
             return cached.value;
+
         const value = estimatedTimelineRow(entry, fontSize, parts, thinking, collapsed);
         estimates.set(entry.info.id, { rev, fontSize, thinking, collapsed, value });
+
         return value;
     }
 
     const offsets = createMemo(() => {
         measured();
+
         const list = timeline();
         const fontSize = codeFontSize();
         const result = new Array<number>(list.length + 1);
         result[0] = 0;
+
         const groups = assistantGroups();
         for (let index = 0; index < list.length; index++) {
             const entry = list[index];
@@ -194,6 +210,7 @@ export function Chat() {
                 (heights.get(entry.info.id) ??
                     rowEstimate(entry, parts, fontSize, thinkingOnly(entry), collapsedSummary(entry)));
         }
+
         return result;
     });
 
@@ -231,7 +248,9 @@ export function Chat() {
             changed = true;
             deltaAbove += resizeCompensation(previous, next, row.getBoundingClientRect().bottom, viewportTop);
         }
+
         if (!changed) return;
+
         setMeasured((value) => value + 1);
         if (deltaAbove !== 0 && !untrack(stick)) scroller.scrollTop += deltaAbove;
     });
@@ -241,8 +260,11 @@ export function Chat() {
         // Snap before publishing: browser clamping as the dock grows would otherwise make the range jump.
         if (untrack(stick)) snapViewportToBottom();
         else publishViewport();
+
         const top = scroller.scrollTop;
+
         if (untrack(stick)) return;
+
         const distance = scroller.scrollHeight - top - scroller.clientHeight;
         setAwayFromBottom(shouldShowScrollToBottom(distance));
     });
@@ -281,6 +303,7 @@ export function Chat() {
         const value = transcriptFindNeedle();
         const occurrence = activeFindOccurrence();
         const target = occurrence ? JSON.stringify([value, occurrence.messageId, occurrence.index]) : "";
+
         viewTop();
         measured();
         entries();
@@ -315,23 +338,27 @@ export function Chat() {
     function scrollToMessage(messageId: string) {
         const index = timeline().findIndex((entry) => entry.info.id === messageId);
         if (index < 0) return false;
+
         const place = () => {
             const target = Math.max(0, headerOffset + offsets()[index] - findMargin);
             scroller.scrollTop = target;
             publishViewport();
         };
+
         batch(() => {
             setStick(false);
             setAwayFromBottom(true);
         });
         place();
         requestAnimationFrame(place);
+
         return true;
     }
 
     createEffect(() => {
         const target = findHighlight();
         if (!target) return;
+
         // Retried as heights are measured, since an unmeasured region moves the target's offset.
         measured();
         untrack(() => scrollToMessage(target));
@@ -381,7 +408,9 @@ export function Chat() {
     const releaseDrag = () => (dragging = false);
     const forwardedWheel = (event: Event) => {
         const detail = (event as CustomEvent<ForwardedWheel>).detail;
+
         gesture();
+
         const delta = normalizedWheelDelta(detail.deltaY, detail.deltaMode, scroller.clientHeight);
         const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
         scroller.scrollTop = accumulatedWheelTarget(scroller.scrollTop, null, delta, max);
@@ -397,6 +426,7 @@ export function Chat() {
     function onScroll() {
         const top = scroller.scrollTop;
         const previous = untrack(viewTop);
+
         setViewTop(top);
         setViewHeight(scroller.clientHeight);
         if (
@@ -423,7 +453,9 @@ export function Chat() {
         const id = selectedSession();
         // A stuck view's top positions are synthetic (resets, measurement), so only a user scroll pages history.
         if (!id || loadingOlder || untrack(stick) || top > loadOlderAt || !engine.state.cursors[id]) return;
+
         loadingOlder = true;
+
         const before = scroller.scrollHeight - scroller.scrollTop;
         void engine.actions.loadOlder(id).finally(() => {
             queueMicrotask(() => {

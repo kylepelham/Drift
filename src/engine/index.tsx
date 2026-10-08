@@ -82,6 +82,7 @@ export function EngineProvider(props: ParentProps) {
 
     async function hydrate() {
         if (!client || disposed) return;
+
         set(
             produce((draft) => {
                 draft.sessionSnapshotEpoch += 1;
@@ -91,6 +92,7 @@ export function EngineProvider(props: ParentProps) {
             }),
         );
         listed.clear();
+
         const hydrating = directory;
         await hydrateFrom(actions, hydrating);
         if (hydrating) listed.add(hydrating);
@@ -167,7 +169,9 @@ export function EngineProvider(props: ParentProps) {
         directory = path;
         set("directory", path ?? "");
         events?.setOpenWorkspace(path);
+
         if (!path) return;
+
         if (client && state.connection === "online") {
             if (!listed.has(path)) {
                 listed.add(path);

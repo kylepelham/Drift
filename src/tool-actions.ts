@@ -24,6 +24,7 @@ export function registerToolContextActions(tool: string, provider: ToolContextAc
     const group = providers.get(tool) ?? new Set<ToolContextActionProvider>();
     providers.set(tool, group);
     group.add(provider);
+
     return () => {
         group.delete(provider);
         if (!group.size) providers.delete(tool);
@@ -75,16 +76,21 @@ export function firstChangedLine(diff: string) {
 export function builtinFileTargets(part: ToolPart, workspace = activeWorkspace()?.path): FileTarget[] {
     const input = toolInput(part) as { filePath?: string };
     const metadata = toolMetadata(part);
+
     if (part.name === "write") return target(input.filePath, input.filePath, 1, workspace);
+
     if (part.name === "edit") {
         const filediff = metadata?.filediff as { file?: string; patch?: string } | undefined;
         const path = filediff?.file ?? input.filePath;
         const diff = filediff?.patch ?? (metadata?.diff as string | undefined) ?? "";
         return target(path, input.filePath, firstChangedLine(diff), workspace);
     }
+
     if (part.name !== "apply_patch" || !Array.isArray(metadata?.files)) return [];
+
     return metadata.files.flatMap((value) => {
         if (!value || typeof value !== "object") return [];
+
         const file = value as {
             filePath?: string;
             relativePath?: string;
@@ -93,6 +99,7 @@ export function builtinFileTargets(part: ToolPart, workspace = activeWorkspace()
             patch?: string;
         };
         if (file.type === "delete") return [];
+
         return target(
             file.movePath ?? file.filePath,
             file.relativePath ?? file.movePath ?? file.filePath,

@@ -28,6 +28,7 @@ export function splitNotes(output: string, notes: unknown): { output: string; no
         else break;
         shown.unshift(note);
     }
+
     return { output: rest, notes: shown };
 }
 
@@ -114,6 +115,7 @@ export function createShellTranscriptStream() {
             normalized += "\n";
             carriageReturn = false;
         }
+
         return normalized;
     };
 
@@ -128,9 +130,11 @@ export function createShellTranscriptStream() {
         escape = "none";
         carriageReturn = false;
         pending = [];
+
         const normalized = consume(output, done);
         visible = !!normalized.trim();
         if (!visible) pending = [normalized];
+
         return { replace: true, text: `$ ${command}${visible ? `\n\n${normalized}` : ""}` };
     };
 
@@ -184,7 +188,9 @@ export function createFrameCoalescer<T>(
                 apply(latest);
                 return;
             }
+
             if (frame !== undefined) return;
+
             frame = schedule(() => {
                 frame = undefined;
                 apply(latest);
@@ -201,11 +207,13 @@ export function createFrameCoalescer<T>(
 function omittedDivider(omitted: number, file?: string) {
     const divider = document.createElement("span");
     divider.className = "my-2 flex items-center gap-2 text-xs text-ink-faint select-none";
+
     const rule = () => {
         const line = document.createElement("span");
         line.className = "h-px flex-1 bg-edge";
         return line;
     };
+
     const label = document.createElement("span");
     label.textContent = t("drift.shell.omitted", { size: formatBytes(omitted) });
     divider.append(rule(), label);
@@ -219,6 +227,7 @@ function omittedDivider(omitted: number, file?: string) {
         divider.append(open);
     }
     divider.append(rule());
+
     return divider;
 }
 
@@ -237,7 +246,9 @@ export function ShellOutput(props: { command: string; output: string; running: b
         cancelAnimationFrame,
         ({ command, output, running }: { command: string; output: string; running: boolean }) => {
             const update = stream.update(command, output, !running);
+
             if (!mounted) return;
+
             if (update.replace) {
                 const segments = shellReplaceSegments(command, update.text);
                 const cut = splitOmitted(segments.output);
@@ -280,11 +291,13 @@ export function ShellOutput(props: { command: string; output: string; running: b
         ),
     );
     onCleanup(() => normalizer.dispose());
+
     const copy = async () => {
         await navigator.clipboard.writeText(shellTranscript(props.command, props.output));
         setCopied(true);
         setTimeout(() => setCopied(false), copiedFeedbackMs);
     };
+
     createEffect(
         on(renderRevision, () => {
             const top = savedTop;
@@ -294,6 +307,7 @@ export function ShellOutput(props: { command: string; output: string; running: b
             });
         }),
     );
+
     return (
         <div class="group/shell relative overflow-hidden rounded-[6px] border-[0.5px] border-edge">
             <button

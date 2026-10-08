@@ -44,6 +44,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         set("autoAcceptAll", !!settings.autoAcceptAll);
         await handOverAutoAccept(async (kept) => {
             if (kept.all && !settings.autoAcceptAll) await setAutoAcceptAll(true);
+
             const left: string[] = [];
             for (const id of kept.sessions) {
                 // A session the engine no longer has is let go; any other failure is offered again next time.
@@ -53,6 +54,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
                 );
                 if (!settled) left.push(id);
             }
+
             return { all: false, sessions: left };
         });
     }
@@ -61,6 +63,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
     async function refreshAgents() {
         const workspace = workspaces().id(state.directory);
         if (!workspace) return;
+
         const config = await requireClient().workspaceConfig(workspace);
         const agents: AgentInfo[] = config.agents.map((agent) => ({
             name: agent.name,
@@ -99,6 +102,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
                     : {}),
             };
         });
+
         // A config file that cannot be read stops every turn here until it is fixed; say so before the first send.
         for (const problem of config.problems ?? [])
             notice({
@@ -177,11 +181,13 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
     /** The engine renames in one step and refuses a name already taken, so no other server is ever replaced. */
     async function mcpRename(from: string, to: string, directory?: string) {
         const renamed = await requireClient().renameMcpServer(from, to, workspaceOf(directory));
+
         set(
             "mcpServers",
             produce((servers) => void delete servers[from]),
         );
         set("mcpServers", renamed.name, reconcile(renamed));
+
         return renamed;
     }
 

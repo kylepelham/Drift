@@ -38,7 +38,9 @@ export function timelineRowVisible(
     if (entry.info.role === "user") return true;
     // A failure the session has moved past (a retry, or a new prompt) is no longer news.
     if (failedAttempt(entry) && next) return false;
+
     const info = entry.info;
+
     return (
         !!groups?.length ||
         !!info.summary ||
@@ -63,10 +65,14 @@ export function retryInFlight(
     const index = entries.findIndex((entry) => entry.info.id === running);
     const current = entries[index];
     if (!current || current.info.role !== "assistant" || current.parts.some(partVisible)) return undefined;
+
     let attempt = 0;
     while (index - attempt - 1 >= 0 && failedAttempt(entries[index - attempt - 1])) attempt += 1;
+
     if (attempt === 0) return undefined;
+
     const last = entries[index - 1].info;
+
     return { type: "retry", attempt, message: messageProblem(last)?.text ?? "An error occurred", next: 0 };
 }
 
@@ -76,12 +82,14 @@ export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
 
 export function thinkingState(entries: MessageEntry[], status?: string) {
     if (status !== "busy" && status !== "retry") return null;
+
     const newestFirst = [...entries].reverse();
     const unfinished = newestFirst.find((entry) => entry.info.role === "assistant" && !entry.info.finishedAt);
     // A user turn newer than every reply anchors the indicator; otherwise the running reply does.
     const anchor =
         unfinished ?? newestFirst.find((entry) => entry.info.role === "user" || entry.info.role === "assistant");
     if (!anchor) return null;
+
     const assistants = anchor.info.role === "assistant" ? [anchor] : [];
     const error = assistants.find((entry) => {
         const problem = messageProblem(entry.info);
@@ -89,6 +97,7 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
     });
     // After a failure the turn is over, unless another attempt is already under way.
     if (status === "busy" && error && !(unfinished && !messageProblem(unfinished.info))) return null;
+
     const heading = assistants
         .flatMap((entry) => entry.parts)
         .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
@@ -99,6 +108,7 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
         owner.info.role === "assistant"
             ? !!(owner.info as { summary?: boolean }).summary
             : owner.parts.some((part) => part.type === "compaction");
+
     return { messageID: owner.info.id, heading, compaction };
 }
 
@@ -115,16 +125,19 @@ export function reasoningHeading(text: string) {
         const value = cleanHeading(html[1].replace(/<[^>]+>/g, " "));
         if (value) return value;
     }
+
     const atx = markdown.match(/^\s{0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/m);
     if (atx?.[1]) {
         const value = cleanHeading(atx[1]);
         if (value) return value;
     }
+
     const setext = markdown.match(/^([^\n]+)\n(?:=+|-+)\s*$/m);
     if (setext?.[1]) {
         const value = cleanHeading(setext[1]);
         if (value) return value;
     }
+
     const strong = markdown.match(/^\s*(?:\*\*|__)(.+?)(?:\*\*|__)\s*$/m);
     if (strong?.[1]) return cleanHeading(strong[1]) || undefined;
 }

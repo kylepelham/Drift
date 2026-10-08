@@ -46,6 +46,7 @@ export function App() {
     bindShellTimeoutPolicy();
     onCleanup(initDevtoolsShortcut());
     onMount(() => void syncDictationConsent().catch(() => undefined));
+
     return (
         <EngineProvider>
             <WorkspaceBinding />
@@ -180,7 +181,9 @@ function WorkspaceBinding() {
     createEffect(() => engine.setDirectory(activeWorkspace()?.path ?? null));
     createEffect(() => {
         if (engine.state.connection !== "online") return;
+
         void engine.actions.loadAllSessions();
+
         // Full sweep once on connect; the timer keeps the active workspace hot afterward.
         const paths = untrack(() => workspaces().map((workspace) => workspace.path));
         void engine.actions.refreshPermissions(paths);
@@ -197,8 +200,10 @@ function WorkspaceBinding() {
 
     function refreshPermissions() {
         if (engine.state.connection !== "online") return;
+
         const active = activeWorkspace()?.path;
         const paths = workspaces().map((workspace) => workspace.path);
+
         permissionTick += 1;
         if (permissionTick % ticksPerAllWorkspaceSweep === 0) {
             void engine.actions.refreshPermissions(paths);

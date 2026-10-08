@@ -12,12 +12,15 @@ const pollMs = 100;
 export async function resolveTarget(): Promise<Target> {
     const invoke = shellInvoke();
     if (invoke) return waitForShell(invoke);
+
     const gateway = remoteEngineBase();
     if (gateway) return { url: gateway, token: "" };
+
     const url = import.meta.env.VITE_NATIVE_ENGINE_URL;
     const token = import.meta.env.VITE_NATIVE_ENGINE_TOKEN;
     if (!url || !token)
         throw new Error("VITE_NATIVE_ENGINE_URL and VITE_NATIVE_ENGINE_TOKEN are required outside the shell");
+
     return { url, token };
 }
 

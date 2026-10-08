@@ -20,13 +20,16 @@ export function estimatedTimelineRow(
     if (thinkingOnly) return 32;
     if (collapsedSummary) return 44;
     if (clarificationAnswer(parts === entry.parts ? entry : { ...entry, parts })) return 40;
+
     const text = messageText(parts === entry.parts ? entry : { ...entry, parts });
     const generated = parts.some((part) => part.type === "nudge");
     if (entry.info.role === "user" && !generated && largeUserText(text))
         return Math.max(estimatedRow, Math.ceil(text.split("\n").length * fontSize * 1.6 + 62));
+
     const width = entry.info.role === "user" ? 72 : 88;
     const textHeight = estimateTextLines(text, width) * 14 * 1.6;
     const toolHeight = parts.filter((part) => part.type === "tool_call").length * 56;
+
     return Math.max(estimatedRow, Math.ceil(textHeight + toolHeight + (text ? 48 : 0)));
 }
 
@@ -37,8 +40,10 @@ export function estimateTextLines(text: string, width: number) {
             fenced = !fenced;
             return total + 1;
         }
+
         if (fenced) return total + 1;
         if (!line) return total;
+
         return total + Math.max(1, Math.ceil(line.length / width));
     }, 0);
 }
@@ -53,8 +58,10 @@ export function virtualRange(offsets: number[], viewTop: number, viewHeight: num
     const bottom = currentTop + viewHeight + overscan;
     let start = 0;
     while (start < offsets.length - 1 && offsets[start + 1] < top) start++;
+
     let end = start;
     while (end < offsets.length - 1 && offsets[end] < bottom) end++;
+
     return { start, end };
 }
 

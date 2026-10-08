@@ -26,8 +26,10 @@ export function citationFileGroups(
 
     function collect(messages: MessageEntry[]) {
         const files = new Set<string>();
+
         function add(value: unknown) {
             if (typeof value !== "string") return;
+
             // Tool paths are native strings, not percent-encoded hrefs.
             const href = value
                 .split(/([/\\])/)
@@ -37,6 +39,7 @@ export function citationFileGroups(
             const link = classifyMarkdownLink(href, directory);
             if (link.kind === "file") files.add(link.path);
         }
+
         for (const entry of messages) {
             for (const part of entry.parts) {
                 if (part.sessionId !== sessionID) continue;
@@ -44,6 +47,7 @@ export function citationFileGroups(
                 if (entry.info.id === messageID && part.id === partID) break;
             }
         }
+
         return [...files];
     }
 

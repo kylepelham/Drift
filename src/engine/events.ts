@@ -159,7 +159,9 @@ export function applySessionSnapshot(
                 const model = info.model;
                 if (model) draft.sessionModels[info.id] = { providerID: model.provider, modelID: model.model };
             }
+
             if (!input.scope) return;
+
             for (const session of Object.values(draft.sessions)) {
                 if (ids.has(session.id) || advanced(session.id)) continue;
                 if (!all && normalizeDir(session.directory) !== dir) continue;
@@ -211,9 +213,12 @@ function upsertMessage(set: SetEngineState, info: Message) {
                     modelID: info.model?.model ?? "",
                     messageId: info.id,
                 };
+
             const list = draft.loaded[info.sessionId] ? draft.transcripts[info.sessionId] : undefined;
             if (!list) return;
+
             bumpRevision(draft, messageRevisionKey(info.sessionId, info.id));
+
             const index = list.findIndex((entry) => entry.info.id === info.id);
             if (index >= 0) list[index].info = info;
             else list.push({ info, parts: [] });
@@ -226,6 +231,7 @@ function dropMessage(set: SetEngineState, sessionID: string, messageID: string) 
         produce((draft) => {
             const list = draft.transcripts[sessionID];
             if (!list) return;
+
             bumpRevision(draft, messageRevisionKey(sessionID, messageID));
             draft.transcripts[sessionID] = list.filter((entry) => entry.info.id !== messageID);
         }),
@@ -247,9 +253,12 @@ function upsertPart(set: SetEngineState, part: Part) {
                 if (part.status === "pending" || part.status === "running") draft.liveTools[part.id] = part.sessionId;
                 else delete draft.liveTools[part.id];
             }
+
             const entry = draft.transcripts[part.sessionId]?.find((item) => item.info.id === part.messageId);
             if (!entry) return;
+
             bumpRevision(draft, messageRevisionKey(part.sessionId, part.messageId));
+
             const index = entry.parts.findIndex((existing) => existing.id === part.id);
             if (index >= 0) entry.parts[index] = reconcilePart(entry.parts[index]!, part);
             else entry.parts.push(part);
@@ -264,6 +273,7 @@ function reconcilePart(existing: Part, incoming: Part) {
     if (existing.text.length > incoming.text.length && existing.text.startsWith(incoming.text)) {
         return { ...incoming, text: existing.text };
     }
+
     return incoming;
 }
 
@@ -274,6 +284,7 @@ export function withDelta(current: string, delta: string, offset?: number) {
     if (offset === undefined) return current + delta;
     if (offset > current.length) return current;
     if (current.length >= offset + delta.length) return current;
+
     return current.slice(0, offset) + delta;
 }
 
@@ -312,6 +323,7 @@ function trackActivity(draft: EngineState, part: ToolPart) {
         entry.tools += 1;
         entry.lastPartId = part.id;
     }
+
     const active = part.status === "pending" || part.status === "running";
     entry.current = active ? part.name : undefined;
     draft.activity[part.sessionId] = entry;

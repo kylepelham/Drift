@@ -15,6 +15,7 @@ export function ComposerSlashMenu(props: { menu: ReturnType<typeof createSlashMe
             if (active && list.contains(active)) active.scrollIntoView({ block: "nearest" });
         });
     });
+
     return (
         <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-80 max-w-[calc(100%_-_1.5rem)] overflow-hidden rounded-lg border border-edge bg-overlay shadow-xl shadow-black/30">
             <div

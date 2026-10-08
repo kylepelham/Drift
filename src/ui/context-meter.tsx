@@ -41,16 +41,19 @@ export function ContextMeter(props: { sessionId: string }) {
         resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model);
     const stats = () => contextStats(engine.state, props.sessionId, model());
     const percent = () => stats()?.percent ?? 0;
+
     const refresh = () => {
         const provider = model()?.providerID;
         if (provider) void refreshUsage(provider);
     };
+
     createEffect(
         on(
             () => engine.state.status[props.sessionId]?.type,
             (type) => type === "idle" && refresh(),
         ),
     );
+
     return (
         <div class="group/meter relative shrink-0" onMouseEnter={refresh}>
             <button
@@ -104,6 +107,7 @@ export function ContextSection(props: { sessionId: string }) {
         const usage = stats();
         return usage ? estimateContextBreakdown(engine.state.transcripts[props.sessionId] ?? [], usage.count) : [];
     });
+
     return (
         <Show
             when={stats()}
@@ -137,18 +141,22 @@ export function ContextSection(props: { sessionId: string }) {
 function BreakdownBar(props: { segments: BreakdownSegment[]; context: number }) {
     const [hovered, setHovered] = createSignal<number>();
     const share = (tokens: number) => (tokens / props.context) * 100;
+
     const offset = (index: number) => {
         let sum = 0;
         for (const segment of props.segments.slice(0, index)) sum += share(segment.tokens);
 
         return sum;
     };
+
     const tip = () => {
         const index = hovered();
         const segment = index === undefined ? undefined : props.segments[index];
         if (index === undefined || !segment) return undefined;
+
         return { segment, center: Math.min(85, Math.max(15, offset(index) + share(segment.tokens) / 2)) };
     };
+
     return (
         <div class="relative" onMouseLeave={() => setHovered(undefined)}>
             <Show when={tip()}>
@@ -191,6 +199,7 @@ export function usageMessage(entry: UsageEntry | undefined) {
     if (entry.usage?.status === "unsubscribed") return t("drift.usage.unsubscribed");
     if (entry.failed && !entry.usage) return t("drift.usage.failed");
     if (!entry.usage?.windows.length) return t("drift.usage.empty");
+
     return "";
 }
 
@@ -200,6 +209,7 @@ export function UsageSection(props: { provider: string }) {
     const providerName = () =>
         engine.state.providers.find((provider) => provider.id === props.provider)?.name ?? props.provider;
     const plan = () => entry()?.usage?.plan;
+
     return (
         <Show when={entry()?.usage !== null}>
             <div class="space-y-2 border-t border-edge px-3 py-2 text-xs" data-usage-limits>

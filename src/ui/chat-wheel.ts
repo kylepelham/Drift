@@ -3,12 +3,14 @@ export const chatWheelEvent = "drift:chat-wheel";
 
 export function forwardWheelToChat(event: WheelEvent, boundary: HTMLElement) {
     if (event.ctrlKey || event.deltaY === 0 || wheelTargetConsumes(event.target, boundary, event.deltaY)) return false;
+
     window.dispatchEvent(
         new CustomEvent<ForwardedWheel>(chatWheelEvent, {
             detail: { deltaY: event.deltaY, deltaMode: event.deltaMode },
         }),
     );
     event.preventDefault();
+
     return true;
 }
 

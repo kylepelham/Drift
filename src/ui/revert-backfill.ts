@@ -32,6 +32,7 @@ export function createRevertBackfill(engine: Engine, entries: Accessor<MessageEn
     createEffect(() => {
         const id = selectedSession();
         if (!id || revertBackfill()) return;
+
         const cursor = engine.state.cursors[id];
         if (
             !revertBackfillNeeded({
@@ -42,9 +43,11 @@ export function createRevertBackfill(engine: Engine, entries: Accessor<MessageEn
             })
         )
             return;
+
         // A failed page leaves the cursor unchanged; wait for it or the session to move.
         const attempt = revertBackfillAttempt(id, cursor);
         if (revertBackfillFailure() === attempt) return;
+
         setRevertBackfill(true);
         void engine.actions
             .loadOlder(id)

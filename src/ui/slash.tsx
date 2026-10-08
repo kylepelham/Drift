@@ -69,9 +69,11 @@ const builtins: SlashItem[] = [
 
 export function parseSlash(draft: string) {
     if (!draft.startsWith("/") || draft.startsWith("//")) return null;
+
     const body = draft.slice(1);
     const space = body.search(/\s/);
     if (space < 0) return { query: body, args: "", separated: false };
+
     return { query: body.slice(0, space), args: body.slice(space + 1).trim(), separated: true };
 }
 
@@ -116,9 +118,12 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
         selectSession(id);
         return engine.actions.runCommand(id, item.name, args);
     }
+
     if (item.name === "new") return selectSession(null);
+
     if (item.name === "theme") setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length]);
     if (item.name === "mcp") openMcpServers();
+
     if (current) return runSessionSlash(engine, current, item.name, args);
 }
 

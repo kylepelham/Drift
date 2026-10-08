@@ -18,6 +18,7 @@ export function AttachmentChip(props: { file: StagedFile; remove: () => void }) 
             return t("drift.attachment.table", { rows: props.file.meta.rows, columns: props.file.meta.columns ?? 0 });
         if (kind() === "pdf" && props.file.meta.pages !== undefined)
             return t("drift.attachment.pages", { count: props.file.meta.pages });
+
         return formatAttachmentBytes(props.file.size);
     };
     const title = () => [props.file.filename, props.file.meta.preview].filter(Boolean).join("\n\n");

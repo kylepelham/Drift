@@ -35,7 +35,9 @@ export async function restoreReverted(engine: RevertHost, sessionID: string, mes
         if (success) setComposerDraft(composerScope(sessionID), restored);
         return success;
     }
+
     const success = await engine.actions.unrevert(sessionID);
     if (success) clearComposerDraft(composerScope(sessionID));
+
     return success;
 }

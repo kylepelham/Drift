@@ -47,15 +47,18 @@ export function Row(props: {
     const fadeIn = untrack(
         () => Date.now() - props.entry.info.createdAt < freshMessageMs && props.entry.info.role === "user",
     );
+
     const pitch = () => {
         if (props.nextThinking) return "none";
         if (props.next) return timelinePitch(props.entry, props.next);
 
         return props.terminalError ? "turn" : "none";
     };
+
     // A running compaction animates its own divider label, so the generic indicator would double up.
     const compactionShimmer = () =>
         props.thinking && !!props.thinkingCompaction && compactionThinkingRow(props.entry, collapseCompaction());
+
     return (
         <div
             ref={props.measure}
@@ -140,13 +143,17 @@ function SessionRetry(props: {
 
     async function switchModel(id: string) {
         if (submitting()) return;
+
         const [providerID, ...rest] = id.split("/");
         const model = { providerID, modelID: rest.join("/") };
         const preferredVariant = prefsFor(props.sessionID, savedChoice(engine.state, props.sessionID)).variant;
         const variants = variantNames(modelInfo(engine.state, model));
         const variant = preferredVariant && variants.includes(preferredVariant) ? preferredVariant : undefined;
+
         setSubmitting(true);
+
         const result = await engine.actions.switchRetryModel(props.sessionID, props.messageID, model, variant);
+
         setSubmitting(false);
         if (!result.ok) {
             engine.actions.notice({
@@ -226,6 +233,7 @@ export function retryPresentation(status: Extract<SessionStatus, { type: "retry"
     const message = truncated ? normalized.slice(0, maxRetryMessageChars) + "..." : normalized;
     const seconds = Math.max(0, Math.round((status.next - now) / 1000));
     const retry = seconds > 0 ? t("drift.chat.retry.inSeconds", { seconds }) : t("drift.chat.retry.now");
+
     return {
         message,
         truncated,

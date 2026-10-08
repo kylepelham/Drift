@@ -99,10 +99,13 @@ export function createActions(
             state.liveTools,
             t("drift.message.interrupted"),
         );
+
         if (existed && !state.sessions[id]) return;
+
         set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], loaded, id, captured, state.revisions));
         set("loaded", id, true);
         set("cursors", id, messages.length === pageSize ? messages[0]!.id : null);
+
         const [todos, tasks] = await Promise.all([
             requireClient()
                 .todos(id)
@@ -118,8 +121,10 @@ export function createActions(
     // A gap during an existing reload needs a newer snapshot, not that reload's stale response.
     function reconcileSession(id: string) {
         reconciliationWanted.add(id);
+
         const active = reconciliations.get(id);
         if (active) return active;
+
         const request = (async () => {
             await transcriptRequests.get(id);
             while (reconciliationWanted.delete(id)) await reloadSession(id);
@@ -137,6 +142,7 @@ export function createActions(
                 reconciliationWanted.delete(id);
             });
         reconciliations.set(id, request);
+
         return request;
     }
 
@@ -157,8 +163,10 @@ export function createActions(
 
     function openSession(id: string) {
         if (state.loaded[id]) return Promise.resolve(true);
+
         const active = transcriptRequests.get(id);
         if (active) return active;
+
         let request!: Promise<boolean>;
         request = reloadSession(id)
             .then(() => true)
@@ -175,12 +183,14 @@ export function createActions(
                 if (transcriptRequests.get(id) === request) transcriptRequests.delete(id);
             });
         transcriptRequests.set(id, request);
+
         return request;
     }
 
     async function loadOlder(id: string) {
         const cursor = state.cursors[id];
         if (!cursor) return false;
+
         const older = await requireClient().messages(id, { before: cursor, limit: pageSize });
         const sorted = interruptStaleTools(
             entries(older).sort(compareMessages),
@@ -197,6 +207,7 @@ export function createActions(
             }),
         );
         set("cursors", id, older.length === pageSize ? older[0]!.id : null);
+
         return sorted.length > 0;
     }
 
@@ -230,8 +241,11 @@ export function createActions(
             epoch: state.sessionSnapshotEpoch,
         }));
         if (!workspace) return;
+
         const { sessions, running } = await allPages({ workspace });
+
         if (state.sessionSnapshotEpoch !== epoch) return;
+
         applySessionSnapshot(set, { sessions, captured, scope: { directory } });
         reconcileStatus(sessions, new Set(running), captured);
     }
@@ -248,6 +262,7 @@ export function createActions(
     async function newSession(): Promise<(Session & { discard: () => Promise<void> }) | undefined> {
         const workspaceId = workspaces().id(state.directory);
         if (!workspaceId) return undefined;
+
         const created = await requireClient().createSession({ workspaceId });
         const session = sessionInWorkspace(created, workspaces());
         // A fresh session is known empty; mark it loaded so the first turn's events are not dropped.
@@ -259,11 +274,13 @@ export function createActions(
             }),
         );
         putSession(set, session);
+
         return { ...session, discard: () => sessions.purgeSession(session.id).then(() => undefined) };
     }
 
     async function send(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
         set("errors", id, undefined!);
+
         const parts = [
             ...(text.trim() ? [{ type: "text" as const, text }] : []),
             ...(options.files ?? []).map((file) => ({
@@ -274,6 +291,7 @@ export function createActions(
             })),
         ];
         if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty");
+
         // Named only when they change what runs next; an unchanged follow-up steers into the running turn.
         const saved = savedChoice(state, id);
         const prompt = {
@@ -295,6 +313,7 @@ export function createActions(
                     limit: formatAttachmentBytes(maxRequestBytes),
                 }),
             );
+
         const submission = unsettled.get(key) ?? submissionId();
         unsettled.set(key, submission);
         try {

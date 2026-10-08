@@ -45,6 +45,7 @@ export function initialToolOpenForPart(
 
 export function rememberToolOpen(partId: string, open: boolean) {
     if (explicitToolOpen.get(partId) === open) return;
+
     explicitToolOpen.delete(partId);
     explicitToolOpen.set(partId, open);
     if (explicitToolOpen.size > maxExplicitToolOpen) explicitToolOpen.delete(explicitToolOpen.keys().next().value!);
@@ -74,6 +75,7 @@ function diffStats(diff: string) {
         if (row.kind === "add") additions++;
         if (row.kind === "del") deletions++;
     }
+
     return { additions, deletions };
 }
 
@@ -82,10 +84,12 @@ export function ToolView(props: { part: ToolPart }) {
     const state = () => toolDisplay(props.part);
     const info = () => toolInfo(props.part);
     const delegated = () => props.part.name === "task" || props.part.name === "spawn_thread";
+
     // Hoisted: the eager memo below runs before a const accessor would leave its dead zone.
     function spawnedId() {
         return delegatedChildId(engine.state, props.part);
     }
+
     // Memoized: it scans the parent transcript and is read from several places per delta.
     const delegatedStatus = createMemo(() => {
         if (!delegated()) return null;
@@ -93,33 +97,43 @@ export function ToolView(props: { part: ToolPart }) {
         return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null;
     });
     const background = createMemo(() => backgroundRun(engine.state, props.part));
+
     // A background launch returns at once; its time is the worker's own.
     const timing = () => {
         const task = background()?.task;
         return task ? taskTiming(task) : state();
     };
+
     const active = () => {
         if (awaitingPermission(engine.state, props.part)) return false;
         if (delegated()) return delegatedStatus() === "running";
         return state().status === "running" || state().status === "pending";
     };
+
     const title = () =>
         info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.name);
+
     const progress = () => {
         if (props.part.name !== "task") return null;
+
         const childId = spawnedId();
         if (!childId || delegatedStatus() !== "running") return null;
+
         const activity = engine.state.activity[childId];
         if (!activity) return null;
+
         const count = t(activity.tools === 1 ? "drift.count.tool.one" : "drift.count.tool.other", {
             count: activity.tools,
         });
+
         return `${count}${activity.current ? " · " + activity.current : ""}`;
     };
+
     const diff = () => {
         const value = toolMeta(props.part)?.diff;
         return typeof value === "string" && value.trim() ? value : null;
     };
+
     const error = () => (state().status === "error" ? (state() as { error: string }).error : null);
     const [open, setOpen] = createSignal(
         untrack(() => initialToolOpenForPart(props.part.id, props.part.name, state().status, toolErrorsExpanded())),
@@ -127,17 +141,22 @@ export function ToolView(props: { part: ToolPart }) {
     createEffect(
         on(error, (value, previous) => setOpen(nextToolOpen(open(), !!previous, !!value, toolErrorsExpanded()))),
     );
+
     const expanded = () => open();
+
     const toggleOpen = () => {
         const next = !open();
         rememberToolOpen(props.part.id, next);
         setOpen(next);
     };
+
     const stats = () => {
         const patch = diff();
         return patch ? diffStats(patch) : null;
     };
+
     const timeout = () => shellTimeoutStatus(props.part);
+
     const activate = () => {
         if (delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "navigate") {
             selectSession(spawnedId()!);
@@ -145,7 +164,9 @@ export function ToolView(props: { part: ToolPart }) {
         }
         activateToolHeader(toggleOpen);
     };
+
     const inlineExpanded = () => expanded() && delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand";
+
     return (
         <div class="flex min-w-0 max-w-full flex-col gap-1 text-sm">
             <button
@@ -270,13 +291,16 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
     const label = () => `${t("settings.permissions.tool.read.title")} · ${props.parts.length}`;
     const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part));
     const running = () => props.parts.some((part) => part.status === "running" || part.status === "pending");
+
     const activePart = () => {
         for (let index = props.parts.length - 1; index >= 0; index--) {
             const part = props.parts[index];
             if (part.status === "running" || part.status === "pending") return part;
         }
     };
+
     const expanded = () => open() || waiting();
+
     return (
         <div class="flex flex-col gap-1.5 text-sm">
             <button

@@ -29,10 +29,13 @@ export type DelegatedTaskStatus = "queued" | "running" | "completed" | "error";
 /** A `task` call whose worker runs in the background: the engine's record, or before it arrives, what the call says. */
 export function backgroundRun(state: EngineState, part: ToolPart) {
     if (part.name !== "task") return null;
+
     const metadata = part.metadata;
     const task = taskForCall(state, part.sessionId, part.callId, metadata?.taskId);
     if (task) return task.mode === "background" ? { task } : null;
+
     const asked = toolInput(part).run_in_background === true;
+
     return asked || metadata?.background === true || metadata?.mode === "background" ? { task: undefined } : null;
 }
 
@@ -40,11 +43,14 @@ export function delegatedTaskStatus(state: EngineState, part: ToolPart, childId:
     // This invocation's result stays terminal even when another call resumes the same child.
     if (part.status === "error" || part.status === "denied") return "error";
     if (part.name === "spawn_thread") return part.status === "done" ? "completed" : "running";
+
     // The engine's record outranks the call: a background call finishes at launch, its worker later.
     const task = taskForCall(state, part.sessionId, part.callId, part.metadata?.taskId);
     if (task) return delegatedRecordStatus(task);
+
     const terminal = delegatedTerminalState(state, part, childId);
     if (terminal) return terminal;
+
     return state.errors[childId] ? "error" : "running";
 }
 

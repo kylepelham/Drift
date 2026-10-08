@@ -12,6 +12,7 @@ export function FilePartView(props: { part: Pick<FilePart, "mime" | "name" | "ur
     const resolved = () => resolveAttachmentKind({ filename: props.part.name, mime: props.part.mime });
     const kind = () => resolved().kind;
     const mention = () => (props.directory ? props.part.path : undefined);
+
     return (
         <Show when={mention()} fallback={<AttachmentView part={props.part} linkable={linkable()} kind={kind()} />}>
             {(path) => <MentionChip path={path()} directory={props.directory!} kind={kind()} />}

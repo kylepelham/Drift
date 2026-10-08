@@ -49,6 +49,7 @@ export function createMentionAutocomplete(options: MentionAutocompleteOptions) {
             setHits([]);
             return;
         }
+
         const token = search.begin();
         void options
             .findFiles(current)
@@ -67,6 +68,7 @@ export function createMentionAutocomplete(options: MentionAutocompleteOptions) {
         const before = options.draft().slice(0, caret);
         const match = before.match(mentionPattern);
         if (!match) return;
+
         const start = caret - match[2].length - 1;
         options.setDraft(options.draft().slice(0, start) + "@" + path + " " + options.draft().slice(caret));
         options.setMentions([...new Set([...options.mentions(), path])]);
@@ -74,6 +76,7 @@ export function createMentionAutocomplete(options: MentionAutocompleteOptions) {
         queueMicrotask(() => {
             options.resize();
             area.focus();
+
             // Past the inserted "@path " - the path plus the leading "@" and the trailing space.
             const position = start + path.length + 2;
             area.setSelectionRange(position, position);
@@ -112,7 +115,9 @@ export function mentionFiles(text: string, paths: string[], root: string) {
         const value = "@" + path;
         const start = mentionAt(text, value);
         if (start < 0 || !directory) return [];
+
         const absolute = `${directory}/${path}`;
+
         return [
             {
                 mime: "text/plain",

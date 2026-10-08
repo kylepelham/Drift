@@ -9,13 +9,17 @@ import { t } from "../state/i18n";
 // WebView2 stubs the Web Notification API, so the shell path uses the Tauri plugin.
 function show(kind: AttentionKind, sessionId: string, title: string, body: string) {
     void playAlertSound(alertSounds()[kind] ?? "none", customSound());
+
     if (!systemNotifications()[kind] || document.hasFocus()) return;
+
     const invoke = shellInvoke();
     if (invoke) {
         void invoke("plugin:notification|notify", { options: { title, body } }).catch(() => {});
         return;
     }
+
     if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+
     const notification = new Notification(title, { body, tag: `drift-${sessionId}` });
     notification.onclick = () => {
         window.focus();
@@ -111,11 +115,13 @@ export function NoticeHost(props: { children?: JSX.Element }) {
     const [dismissed, setDismissed] = createSignal(new Set<string>());
     const timer = setInterval(() => setNow(Date.now()), 250);
     onCleanup(() => clearInterval(timer));
+
     const visible = createMemo(() =>
         engine.state.notices.filter(
             (notice) => !dismissed().has(notice.id) && notice.created + notice.duration > now(),
         ),
     );
+
     createEffect(() => {
         const active = new Set(
             engine.state.notices
@@ -124,7 +130,9 @@ export function NoticeHost(props: { children?: JSX.Element }) {
         );
         setDismissed((current) => pruneDismissedNoticeIds(current, active));
     });
+
     const dismiss = (id: string) => setDismissed((current) => new Set([...current, id]));
+
     return (
         <div class="pointer-events-none fixed top-11 right-5 bottom-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))]">
             <div
@@ -198,6 +206,8 @@ export function requestNotificationPermission() {
             .catch(() => {});
         return;
     }
+
     if (typeof Notification === "undefined") return;
+
     if (Notification.permission === "default") void Notification.requestPermission();
 }

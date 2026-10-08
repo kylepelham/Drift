@@ -51,6 +51,7 @@ export function parseDiff(diff: string): DiffRow[] {
         }
         if (oldRemaining <= 0 && newRemaining <= 0) inHunk = false;
     }
+
     return rows;
 }
 
@@ -83,9 +84,11 @@ export function DiffPanel(props: { diff: string; filename: string; bare?: boolea
     const [highlight, setHighlight] = createSignal<{ key: string; tokens: SyntaxToken[][] }>();
     let languageRequest = 0;
     let request = 0;
+
     createEffect(() => {
         const filename = props.filename;
         const current = ++languageRequest;
+
         setLanguage(undefined);
         void resolveFileLanguage(filename)
             // A failed catalog load must degrade to plain text, not leave the panel unhighlighted forever.
@@ -94,20 +97,25 @@ export function DiffPanel(props: { diff: string; filename: string; bare?: boolea
                 if (current === languageRequest) setLanguage({ filename, value });
             });
     });
+
     const highlightKey = createMemo(() => diffHighlightKey(syntaxTheme(), language(), props.filename, code()));
     createEffect(() => {
         const key = highlightKey();
         const resolved = language();
         const current = ++request;
+
         if (!key || !resolved) return;
         if (untrack(() => highlight()?.key) === key) return;
+
         void codeTokens(code(), resolved.value)
             .catch(() => [] as SyntaxToken[][])
             .then((tokens) => {
                 if (current === request) setHighlight({ key, tokens });
             });
     });
+
     const visibleTokens = () => (highlight()?.key === highlightKey() ? (highlight()?.tokens ?? []) : []);
+
     return (
         <div class="diff-view overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
             <div class="transcript-tool-output max-h-80 overflow-auto py-1 font-mono leading-relaxed">
@@ -215,6 +223,7 @@ function PatchFilePanel(props: { file: PatchFile }) {
         if (props.file.type === "add") return t("drift.file.created");
         if (props.file.type === "delete") return t("drift.file.deleted");
         if (props.file.type === "move") return t("drift.file.moved");
+
         return null;
     };
     return (

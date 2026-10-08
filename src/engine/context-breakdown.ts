@@ -26,10 +26,12 @@ function assistantChars(part: Part) {
     if (text !== undefined) return { assistant: text.length, tool: 0 };
     if (part.type === "reasoning") return { assistant: part.text.length, tool: 0 };
     if (part.type !== "tool_call") return { assistant: 0, tool: 0 };
+
     const input = Object.keys(toolInput(part)).length * charsPerToolArgument;
     if (part.status === "done") return { assistant: 0, tool: input + (part.output ?? "").length };
     if (part.status === "error" || part.status === "denied")
         return { assistant: 0, tool: input + (part.output ?? "Failed").length };
+
     return { assistant: 0, tool: input };
 }
 
@@ -60,6 +62,7 @@ function characterCounts(entries: MessageEntry[]) {
 // Transcript categories are estimates; whatever they leave unexplained is system prompt plus tool schemas.
 export function estimateContextBreakdown(entries: MessageEntry[], total: number): BreakdownSegment[] {
     if (total <= 0) return [];
+
     const chars = characterCounts(entries);
     const estimated = {
         user: Math.ceil(chars.user / charsPerToken),
@@ -77,5 +80,6 @@ export function estimateContextBreakdown(entries: MessageEntry[], total: number)
         { key: "assistant", tokens: assistant },
         { key: "tool", tokens: tool },
     ];
+
     return segments.filter((segment) => segment.tokens > 0);
 }

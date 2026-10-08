@@ -10,9 +10,11 @@ const url = /https?:\/\/\S+/g;
 export function authorizationPrompt(instructions: string): AuthorizationPrompt {
     const code = instructions.match(deviceCode)?.[1];
     if (code) return { code };
+
     const text = instructions
         .replace(url, "")
         .replace(/[\s:]+$/, "")
         .trim();
+
     return text ? { text } : {};
 }

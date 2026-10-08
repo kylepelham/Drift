@@ -32,11 +32,13 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
             .providers()
             .catch(() => undefined);
         if (!providers) return false;
+
         applyProviderCatalog(set, {
             all: providers,
             connected: providers.filter((p) => p.connected).map((p) => p.id),
             default: {},
         });
+
         return true;
     }
 
@@ -67,8 +69,10 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
     async function providerAuthorize(id: string, method: number) {
         const mode = authMethods[id]?.[method]?.mode;
         if (!mode) throw new Error("this method has no sign-in flow");
+
         const started = await requireClient().startOAuth(id, mode);
         oauthStates.set(id, started.state);
+
         // No instructions: settings words each step in the user's language and shows any device code itself.
         return {
             url: started.url,
@@ -81,6 +85,7 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
     async function providerCallback(id: string, _method: number, code?: string): Promise<ProviderAuthResult> {
         const oauthState = oauthStates.get(id);
         if (!code && !oauthState) return { ok: false, connected: false };
+
         try {
             await requireClient().finishOAuth(id, code ?? "", oauthState);
         } catch (cause) {
@@ -96,6 +101,7 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
             oauthStates.delete(id);
         }
         await refreshProviders();
+
         return { ok: true, connected: state.connected.includes(id) };
     }
 

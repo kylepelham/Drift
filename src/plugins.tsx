@@ -81,6 +81,7 @@ export function pluginPaths(source: string) {
     const config = JSON.parse(source) as Config | null;
     if (!config || typeof config !== "object") return [];
     if (!Array.isArray(config.plugins)) return [];
+
     return config.plugins
         .filter((path): path is string => typeof path === "string")
         .map(safePluginPath)
@@ -91,6 +92,7 @@ function safePluginPath(path: string) {
     const normalized = path.replaceAll("\\", "/");
     if (!/\.m?js$/i.test(normalized) || normalized.startsWith("/") || normalized.includes(":")) return "";
     if (normalized.split("/").includes("..")) return "";
+
     return normalized;
 }
 
@@ -98,6 +100,7 @@ function on<K extends HookName>(name: K, hook: Hook<K>) {
     const group = hooks.get(name) ?? new Set<AnyHook>();
     hooks.set(name, group);
     group.add(hook as AnyHook);
+
     return () => group.delete(hook as AnyHook);
 }
 
@@ -149,7 +152,9 @@ export function PluginToolView(props: { part: ToolPart }) {
         // Dependency reads: plugin registration, and `status` so the tool re-renders as it progresses.
         rendererVersion();
         props.part.status;
+
         const output = renderers.get(props.part.name)?.(props.part);
+
         root.replaceChildren();
         if (typeof output === "string") root.textContent = output;
         else if (output) root.append(output);
@@ -165,11 +170,13 @@ export function PluginToolView(props: { part: ToolPart }) {
 function registerToolRenderer(tool: string, renderer: ToolRenderer) {
     renderers.set(tool, renderer);
     setRendererVersion((value) => value + 1);
+
     const off = () => {
         if (renderers.get(tool) !== renderer) return;
         renderers.delete(tool);
         setRendererVersion((value) => value + 1);
     };
+
     return off;
 }
 
@@ -185,7 +192,9 @@ export function PluginPartView(props: { part: Part }) {
         // Dependency read: no single field marks a part dirty, so stringify subscribes to all of them.
         rendererVersion();
         JSON.stringify(props.part);
+
         const output = partRenderers.get(props.part.type)?.(props.part);
+
         root.replaceChildren();
         if (typeof output === "string") root.textContent = output;
         else if (output) root.append(output);
@@ -196,11 +205,13 @@ export function PluginPartView(props: { part: Part }) {
 function registerPartRenderer(type: string, renderer: PartRenderer) {
     partRenderers.set(type, renderer);
     setRendererVersion((value) => value + 1);
+
     const off = () => {
         if (partRenderers.get(type) !== renderer) return;
         partRenderers.delete(type);
         setRendererVersion((value) => value + 1);
     };
+
     return off;
 }
 
@@ -236,6 +247,7 @@ async function readConfigFile(path: string) {
 
 function createPluginApi(engine: Engine) {
     const owned = new Set<() => void>();
+
     const track = (cleanup: () => void) => {
         owned.add(cleanup);
         return () => {
@@ -243,6 +255,7 @@ function createPluginApi(engine: Engine) {
             owned.delete(cleanup);
         };
     };
+
     const api: DriftPluginApi = {
         version: 1,
         context: () => ({
@@ -260,19 +273,23 @@ function createPluginApi(engine: Engine) {
             create: async () => {
                 const session = await engine.actions.newSession();
                 if (!session) return;
+
                 selectSession(session.id);
                 emitThreadCreated(session.id);
+
                 return session.id;
             },
             select: selectSession,
         },
     };
+
     return { api, cleanup: () => owned.forEach((dispose) => dispose()) };
 }
 
 async function loadPlugins(engine: Engine, current: number) {
     const config = await readConfigFile("drift.json");
     if (current !== generation || !config) return;
+
     for (const path of pluginPaths(config)) {
         const file = await readConfigFile(path);
         if (current !== generation) return;
@@ -307,6 +324,7 @@ async function loadPlugins(engine: Engine, current: number) {
 export function PluginHost(props: { engine: Engine }) {
     onMount(() => {
         const current = ++generation;
+
         setPluginsSettled(false);
         untrack(unloadPlugins);
         void loadPlugins(props.engine, current)
@@ -327,6 +345,7 @@ export function PluginHost(props: { engine: Engine }) {
         const current = theme();
         untrack(() => void emit("theme.changed", { theme: current }));
     });
+
     const seenPermissions = new Set<string>();
     createEffect(() => {
         const all = Object.values(props.engine.state.permissions).flat();
@@ -347,6 +366,7 @@ export function PluginHost(props: { engine: Engine }) {
             );
         }
     });
+
     const seenQuestions = new Set<string>();
     createEffect(() => {
         const all = Object.values(props.engine.state.questions).flat();
@@ -365,6 +385,7 @@ export function PluginHost(props: { engine: Engine }) {
             );
         }
     });
+
     const busySessions = new Set<string>();
     createEffect(() => {
         for (const [sessionId, status] of Object.entries(props.engine.state.status)) {
@@ -377,5 +398,6 @@ export function PluginHost(props: { engine: Engine }) {
         generation++;
         unloadPlugins();
     });
+
     return null;
 }

@@ -19,21 +19,27 @@ export function createComposerSubmissionGuard(onChange: () => void = () => undef
         },
         acquire(scope: string): SubmissionLease | undefined {
             if (held.has(scope)) return;
+
             held.add(scope);
             onChange();
+
             const scopes = [scope];
             let released = false;
+
             return {
                 hold(next: string) {
                     if (scopes.includes(next)) return true;
                     if (held.has(next)) return false;
+
                     held.add(next);
                     scopes.push(next);
                     onChange();
+
                     return true;
                 },
                 release() {
                     if (released) return;
+
                     released = true;
                     for (const key of scopes) held.delete(key);
                     onChange();

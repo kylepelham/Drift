@@ -2,8 +2,10 @@ export type EngineError = { name?: string; data?: unknown };
 
 export function errorText(error?: EngineError) {
     if (!error) return "An error occurred";
+
     const data = error.data as { message?: unknown } | undefined;
     const message = typeof data?.message === "string" ? data.message : "";
+
     return unwrapErrorMessage(message) || error.name || "An error occurred";
 }
 

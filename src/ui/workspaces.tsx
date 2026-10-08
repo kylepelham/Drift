@@ -54,6 +54,7 @@ export function WorkspaceGroup(props: {
     let root!: HTMLDivElement;
     let cancelDrag = () => {};
     onCleanup(() => cancelDrag());
+
     const collapsed = () => workspaceCollapsed(props.workspace.id);
     const [visibleCount, setVisibleCount] = createSignal(sessionPageSize);
     const active = () => activeWorkspaceId() === props.workspace.id;
@@ -68,6 +69,7 @@ export function WorkspaceGroup(props: {
         const current = live();
         if (current.length || authoritative()) rememberSessions(props.workspace.path, current);
     });
+
     // Cold engine startup takes seconds; the last known threads stand in until it answers.
     const all = createMemo(() => {
         const current = live();
@@ -86,6 +88,7 @@ export function WorkspaceGroup(props: {
     // Bumped at each local midnight, so yesterday's "Today" heading moves on without a restart.
     const [day, setDay] = createSignal(Date.now());
     let midnight: ReturnType<typeof setTimeout> | undefined;
+
     const nextMidnight = () => {
         midnight = setTimeout(
             () => {
@@ -95,12 +98,15 @@ export function WorkspaceGroup(props: {
             startOfDay(Date.now()) + 86_400_000 + 1_000 - Date.now(),
         );
     };
+
     onMount(nextMidnight);
     onCleanup(() => clearTimeout(midnight));
+
     const dividers = createMemo(() =>
         sidebarDayDividers() ? dayDividers(visibleSessions(), day()) : new Map<string, string>(),
     );
     const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id });
+
     return (
         <div ref={root} data-workspace={props.workspace.id}>
             <div
@@ -277,6 +283,7 @@ function ThreadItem(props: {
     const engine = useEngine();
     const active = () => selectedSession() === props.sessionId;
     const [forking, setForking] = createSignal(false);
+
     return (
         <div
             data-sidebar-navigation
@@ -310,8 +317,10 @@ function ThreadItem(props: {
                     disabled={forking()}
                     onClick={() => {
                         if (forking()) return;
+
                         setForking(true);
                         selectWorkspace(props.workspace.id);
+
                         const selection = selectedSession();
                         void engine.actions
                             .fork(props.sessionId)
@@ -358,6 +367,7 @@ function StatusDot(props: { sessionId: string }) {
     const attention = () => permissions().length > 0 || (engine.state.questions[props.sessionId]?.length ?? 0) > 0;
     const attentionTitle = () =>
         permissions().length > 0 ? t("drift.thread.waitingForPermission") : t("drift.thread.waitingForAnswer");
+
     return (
         <Switch>
             <Match when={attention()}>
@@ -388,6 +398,7 @@ function ChildThreadItem(props: {
     const engine = useEngine();
     const active = () => selectedSession() === props.sessionId;
     const background = () => taskForWorker(engine.state, props.sessionId)?.mode === "background";
+
     return (
         <div
             data-sidebar-navigation

@@ -14,16 +14,19 @@ import { IconX } from "./icons";
 export function DebugPanel() {
     const engine = useEngine();
     const entries = () => engine.state.transcripts[selectedSession() ?? ""] ?? [];
+
     const provider = () => {
         const id = selectedSession();
         return id
             ? resolveModel(engine.state, prefsFor(id, savedChoice(engine.state, id)).model)?.providerID
             : undefined;
     };
+
     createEffect(() => {
         const id = provider();
         if (debugPanelOpen() && id) void refreshUsage(id);
     });
+
     return (
         <Show when={debugPanelOpen() && selectedSession()}>
             <div class="debug-panel flex min-h-0 min-w-0 w-[26rem] shrink-0 flex-col overflow-hidden border-l border-edge bg-surface">
@@ -88,12 +91,15 @@ function JsonView(props: { value: unknown }) {
         const value = text();
         const shikiTheme = lightTheme() ? "github-light" : "github-dark-default";
         const current = ++generation;
+
         if (value.length > 200_000) return setHtml("");
+
         void import("shiki").then(async (shiki) => {
             const output = await shiki.codeToHtml(value, { lang: "json", theme: shikiTheme }).catch(() => "");
             if (current === generation) setHtml(DOMPurify.sanitize(output));
         });
     });
+
     return (
         <Show
             when={html()}

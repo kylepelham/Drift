@@ -76,8 +76,10 @@ export function messageVisible(entry: MessageEntry) {
             !!messageText(entry) ||
             entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "context")
         );
+
     const info = entry.info;
     if (info.summary && collapseCompaction()) return true;
+
     return entry.parts.some(partVisible) || !!messageProblem(info);
 }
 
@@ -137,6 +139,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
     const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
     const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
     // Shift keeps every file as it is: only the conversation goes back.
     const revert = async (keepFiles: boolean) => {
         const restored = draftFromMessage(props.entry);
@@ -144,6 +147,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
         if (await engine.actions.revert(info().sessionId, info().id, keepFiles))
             setComposerDraft(composerScope(info().sessionId), restored);
     };
+
     return (
         <Show
             when={clarification()}
@@ -296,7 +300,9 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     const slots = new Map<string, PartGroupSlot>();
     const [groups, setGroups] = createSignal<PartGroupSlot[]>([]);
     createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)));
+
     const visible = () => groups().length > 0 || !!problem() || (!!props.footer && !!info().finishedAt);
+
     /**
      * A new conversation with this conversation's history through this reply, opened only if the user is still here.
      */
@@ -305,10 +311,12 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
         const forked = await engine.actions.fork(source, info().id);
         if (forked && selectedSession() === source) selectSession(forked.id);
     };
+
     const liveTextPartID = () => {
         if (info().finishedAt || !sessionBusy(engine.state, info().sessionId)) return undefined;
         return [...props.entry.parts].reverse().find((part) => part.type === "text")?.id;
     };
+
     return (
         <Show when={visible()}>
             <div class="group flex min-w-0 max-w-full flex-col gap-3">
@@ -392,8 +400,10 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
 function formatDuration(ms: number) {
     const seconds = Math.max(1, Math.round(ms / 1000));
     if (seconds < 60) return t("drift.message.duration.seconds", { seconds });
+
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return t("drift.message.duration.minutes", { minutes, seconds: seconds % 60 });
+
     return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
@@ -406,6 +416,7 @@ export function generationMs(entry: MessageEntry) {
         // Native reasoning has no timestamps; its previous display used a zero start.
         if (part.type === "reasoning" && info.finishedAt) total += Math.max(0, info.finishedAt);
     }
+
     return total;
 }
 
@@ -414,6 +425,7 @@ export function tokensPerSecond(entry: MessageEntry) {
     const elapsed = generationMs(entry) || (info.finishedAt ?? 0) - info.createdAt;
     const tokens = info.usage.output;
     if (elapsed <= 0 || tokens <= 0) return null;
+
     return (tokens / (elapsed / 1000)).toFixed(1);
 }
 

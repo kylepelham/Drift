@@ -54,8 +54,11 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
      */
     const hydrate = (seq: number) => {
         wanted = seq;
+
         if (hydrating) return;
+
         held ??= [];
+
         const mine = generation;
         const live = () => !closed && mine === generation;
         hydrating = (async () => {
@@ -71,8 +74,11 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
                     wanted ??= target;
                 }
             }
+
             if (!live()) return;
+
             const pending = held ?? [];
+
             held = undefined;
             hydrating = undefined;
             for (const envelope of pending) applyEvent(envelope);
@@ -102,8 +108,10 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
             hydrate(frame.seq);
             return;
         }
+
         // Replies go over HTTP, which reports their outcome; a socket reply's result carries no seq.
         if (frame.type === "question.result") return;
+
         if (held) held.push(frame);
         else applyEvent(frame);
     };
@@ -120,7 +128,9 @@ export function connectEvents(target: Target, handlers: EventHandlers): EventStr
         socket.onmessage = (message) => apply(JSON.parse(String(message.data)) as Frame);
         socket.onclose = () => {
             handlers.online?.(false);
+
             if (closed) return;
+
             retry = setTimeout(open, backoff);
             backoff = Math.min(backoff * 2, maxBackoffMs);
         };

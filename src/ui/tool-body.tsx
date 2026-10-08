@@ -19,14 +19,18 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
     const engine = useEngine();
     const state = () => toolDisplay(props.part);
     const shellCommand = () => (state().input as { command?: string }).command ?? "";
+
     // While running, the output so far rides on the part's metadata; once ended, the saved result is the output.
     const shellOutput = () => {
         const current = state();
         if (current.status === "completed") return current.output;
         if (current.status === "error") return current.error;
+
         return (toolMeta(props.part)?.output as string | undefined) ?? "";
     };
+
     const shell = createMemo(() => splitNotes(shellOutput() ?? "", toolMeta(props.part)?.notes));
+
     const written = () => {
         if (props.part.name !== "write") return null;
         const input = state().input as { content?: string; filePath?: string };
@@ -34,13 +38,17 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
             ? { content: input.content, name: toolFilename(input.filePath) }
             : null;
     };
+
     const patched = () => (props.part.name === "apply_patch" ? patchFiles(props.part) : []);
+
     const diffFilename = () => {
         const input = state().input as { filePath?: string };
         const file = patched()[0];
         return file?.relativePath ?? file?.filePath ?? input.filePath ?? "";
     };
+
     const tasked = () => taskBody(props.part);
+
     const citationFiles = () => {
         const child = delegatedChildId(engine.state, props.part);
         return child
@@ -55,6 +63,7 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
               )
             : citationFileGroups(engine.state, props.part.sessionId, props.part.messageId, props.part.id);
     };
+
     return (
         <>
             <Switch fallback={<GenericBody part={props.part} />}>
@@ -118,9 +127,11 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
 
 export function taskBody(part: ToolPart) {
     if (part.name !== "task" && part.name !== "spawn_thread") return null;
+
     const input = toolInput(part) as { prompt?: string; task?: string };
     const output = part.status === "done" ? (part.output ?? "") : "";
     const result = output.match(/<task_result>\n?([\s\S]*?)\n?<\/task_result>/)?.[1] ?? output;
+
     // The engine tells the model how to continue the subagent; the card shows the subagent's own words.
     return { prompt: input.prompt ?? input.task ?? "", result: result.replace(/\n\n\(task_id: [^)]*\)$/, "") };
 }
@@ -129,6 +140,7 @@ function GenericBody(props: { part: ToolPart }) {
     const state = () => toolDisplay(props.part);
     const output = () => (state().status === "completed" ? (state() as { output: string }).output : "");
     const showInput = () => !!toolInfo(props.part).called;
+
     return (
         <div class="space-y-1.5 border-l-2 border-edge pl-3">
             <Show when={showInput()}>

@@ -57,8 +57,10 @@ export function createSlashMenu(options: SlashMenuOptions) {
     const argumentPresets = createMemo(() => {
         const current = parsed();
         const item = argumentItem();
+
         // Once a subcommand is completed, keep its help visible while the user supplies its target.
         if (current?.args && (/\s/.test(current.args) || /\s$/.test(options.draft()))) return [];
+
         return current && item ? slashPresets(item, current.args) : [];
     });
 
@@ -69,6 +71,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
             item && slashPresets(item, "").find((preset) => preset.value.trim().toLowerCase() === first?.toLowerCase());
         if (preset) return { usage: preset.usage, description: preset.description };
         if (first && item?.presets?.length) return { usage: undefined, description: undefined };
+
         return { usage: item?.usage, description: item?.description };
     });
 

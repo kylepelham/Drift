@@ -62,9 +62,12 @@ export function interruptStaleTools(
         const parts = entry.parts.map((part) => {
             if (part.type !== "tool_call" || (part.status !== "pending" && part.status !== "running")) return part;
             if (liveTools[part.id] === part.sessionId) return part;
+
             changed = true;
+
             const completed = entry.info.finishedAt;
             const start = part.startedAt ?? undefined;
+
             return {
                 ...part,
                 status: "error" as const,
@@ -177,6 +180,7 @@ function loadLinks(): Record<string, string> {
 export function recordLink(link: { child: string; parent: string }) {
     const links = loadLinks();
     if (links[link.child] === link.parent) return;
+
     links[link.child] = link.parent;
     try {
         localStorage.setItem("drift.links", JSON.stringify(links));
@@ -230,6 +234,7 @@ export function createEngineState() {
 function linkSpawned(links: Record<string, string>, info: Session) {
     const parent = info.visibility === "sibling" ? info.parentId : undefined;
     if (!parent) return;
+
     links[info.id] = parent;
     recordLink({ child: info.id, parent });
 }
@@ -240,6 +245,7 @@ export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
         produce((draft) => {
             draft.sessions[info.id] = { revert: undefined, ...info };
             linkSpawned(draft.links, info);
+
             const model = info.model;
             if (model) draft.sessionModels[info.id] = { providerID: model.provider, modelID: model.model };
             bumpRevision(draft, sessionRevisionKey(info.id));
@@ -298,9 +304,11 @@ export function mergeTranscriptSnapshot(
             // Reusing an unchanged live object keeps keyed rows mounted; a fresh copy flashed every hydration.
             return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry];
         }
+
         return current ? [withSnapshotParts(current, entry)] : [];
     });
     for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry);
+
     return merged.sort(compareMessages);
 }
 
@@ -310,6 +318,7 @@ function withSnapshotParts(current: MessageEntry, snapshot: MessageEntry): Messa
     let changed = false;
     const parts = current.parts.map((part) => {
         if (part.type !== "text" && part.type !== "reasoning") return part;
+
         const incoming = byId.get(part.id);
         if (
             incoming?.type !== part.type ||
@@ -317,7 +326,9 @@ function withSnapshotParts(current: MessageEntry, snapshot: MessageEntry): Messa
             !incoming.text.startsWith(part.text)
         )
             return part;
+
         changed = true;
+
         return { ...part, text: incoming.text };
     });
     const present = new Set(parts.map((part) => part.id));
@@ -327,6 +338,7 @@ function withSnapshotParts(current: MessageEntry, snapshot: MessageEntry): Messa
         parts.push(part);
         changed = true;
     }
+
     return changed ? { ...current, parts: parts.sort((a, b) => a.id.localeCompare(b.id)) } : current;
 }
 
@@ -367,16 +379,19 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
         return entry.info.role === "assistant" && tokenCount(entry.info.usage) > 0;
     });
     if (!last) return null;
+
     const tokens = last.info.usage;
     const count = tokenCount(tokens);
     const model = modelInfo(state, modelRef ?? null) ?? modelInfo(state, messageModel(last.info));
     const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number };
     const context = limits.context ?? 0;
     if (!context || !count) return null;
+
     const maxOutput = replyRoom(limits.output ?? 0, context);
     const reserved = Math.min(compactionReserveTokens, maxOutput);
     // Mirrors `Model::compaction_point`: an input cap counts only when it is below the window.
     const usable = usableContext(limits.input, context, reserved, maxOutput);
+
     return {
         count,
         context,
@@ -395,8 +410,10 @@ function usableContext(input: number | undefined, context: number, reserved: num
 
 export function spawnLink(part: Part): { child: string; parent: string } | undefined {
     if (part.type !== "tool_call" || (part.name !== "task" && part.name !== "spawn_thread")) return;
+
     const meta = part.metadata;
     if (!meta?.sessionId) return;
+
     return { child: meta.sessionId, parent: part.sessionId };
 }
 
@@ -474,7 +491,9 @@ export function savedChoice(
 ): { agent?: string; variant?: string | null; model?: ModelRef } {
     const session = id ? state.sessions[id] : undefined;
     if (!session) return {};
+
     const model = session.model ? { model: { providerID: session.model.provider, modelID: session.model.model } } : {};
+
     return { agent: session.agent, variant: session.variant ?? null, ...model };
 }
 
@@ -509,12 +528,15 @@ export function resolveModel(state: EngineState, pref: ModelRef | null): ModelRe
         state.providers.some((p) => p.id === pref.providerID && pref.modelID in p.models)
     )
         return pref;
+
     const connected = state.providers.filter((p) => state.connected.includes(p.id));
     const pool = availableProviders(state, connected);
+
     const rank = (id: string) => {
         const index = providerPriority.indexOf(id);
         return index < 0 ? providerPriority.length : index;
     };
+
     for (const provider of [...pool].sort((a, b) => rank(a.id) - rank(b.id))) {
         const usable = Object.values(provider.models);
         if (!usable.length) continue;
@@ -522,6 +544,7 @@ export function resolveModel(state: EngineState, pref: ModelRef | null): ModelRe
         const model = preferred ?? usable[0];
         return { providerID: provider.id, modelID: model.id };
     }
+
     return null;
 }
 

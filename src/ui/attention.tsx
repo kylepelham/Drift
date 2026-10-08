@@ -36,6 +36,7 @@ function TodoStrip() {
     const [open, setOpen] = createSignal(false);
     const todos = () => engine.state.todos[selectedSession() ?? ""] ?? [];
     const remaining = () => todos().filter((todo) => todo.status !== "completed" && todo.status !== "cancelled");
+
     return (
         <Show when={remaining().length > 0}>
             <div class="composer-layer-card dock-card rounded-lg border border-edge bg-surface text-sm">
@@ -140,16 +141,19 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
         void engine.actions.replyPermission(props.permission.sessionId, props.permission.id, response);
     const diff = () => props.permission.diff;
     const filename = () => props.permission.pattern;
+
     const alwaysCovers = () => {
         const grants = props.permission.always ?? [];
         return grants.length
             ? t("drift.permission.alwaysCovers", { what: grants.map(grantLabel).join("; ") })
             : undefined;
     };
+
     const reason = () => props.permission.reason;
     const target = () => props.permission.pattern;
     // A call with no description of its own is titled with its target; that is shown once, below.
     const title = () => (props.permission.title === target() ? "" : props.permission.title);
+
     return (
         <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-surface px-3 py-2.5">
             <div class="mb-2 flex items-start justify-between gap-3">
@@ -238,12 +242,15 @@ export function QuestionCard(props: {
 
     function advance() {
         if (sending() || hidden()) return;
+
         const original = submission()?.answers;
         if (original) return void answer(original);
         if (!questionAnswer(draft()).length) return;
         if (step() + 1 < props.questions.length) return setStep(step() + 1);
+
         const missing = drafts().findIndex((item) => !questionAnswer(item).length);
         if (missing !== -1) return setStep(missing);
+
         void answer(drafts().map(questionAnswer));
     }
 
@@ -380,7 +387,9 @@ export function QuestionCard(props: {
                                         tabIndex={editingDisabled() ? -1 : 0}
                                         onClick={(event) => {
                                             if (editingDisabled() || event.target instanceof HTMLInputElement) return;
+
                                             const row = event.currentTarget;
+
                                             update(selectQuestionCustom(draft(), !!question().multiple));
                                             queueMicrotask(() => row.querySelector("input")?.focus());
                                         }}

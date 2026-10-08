@@ -25,6 +25,7 @@ export function createAttachmentStager(options: StagerOptions) {
 
     async function addFiles(files: Iterable<File>) {
         const key = scope();
+
         options.staging();
         setFileError("");
         await Promise.all([...files].map((file) => addFile(file, key)));
@@ -39,12 +40,14 @@ export function createAttachmentStager(options: StagerOptions) {
                 { id, filename: file.name, mime: resolved.mime, size: file.size, status: "processing", meta: {} },
             ],
         });
+
         const prepared = await prepareAttachment(file, id);
         if (!prepared.ok) {
             patchComposerDraft(key, { staged: composerDraft(key).staged.filter((item) => item.id !== id) });
             showFileFailure(key, file.name, prepared.reason, prepared.kind, prepared.limit);
             return;
         }
+
         const unsupported = unsupportedModelAttachment(
             [{ filename: prepared.attachment.filename, mime: prepared.attachment.mime }],
             selectedModel(),
@@ -85,6 +88,7 @@ export function createAttachmentStager(options: StagerOptions) {
                     limit: formatAttachmentBytes(limit ?? 0),
                 }),
             );
+
         setFileError(t("drift.composer.fileReadFailed", { filename }));
     }
 
