@@ -1,6 +1,6 @@
 //! What a subscription-authenticated request must look like: the shape Claude Code itself sends.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::oauth::sha256;
 
@@ -32,7 +32,11 @@ pub fn transform(body: &mut Value) {
         }
     }
     if let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) {
-        for block in messages.iter_mut().filter_map(|m| m["content"].as_array_mut()).flatten() {
+        for block in messages
+            .iter_mut()
+            .filter_map(|m| m["content"].as_array_mut())
+            .flatten()
+        {
             if block["type"] == "tool_use" {
                 rename(&mut block["name"]);
             }
@@ -42,7 +46,9 @@ pub fn transform(body: &mut Value) {
 
 /// Undoes `rename` for names the model sends back.
 pub fn original_name(name: &str) -> String {
-    let Some(rest) = name.strip_prefix(TOOL_PREFIX) else { return name.to_string() };
+    let Some(rest) = name.strip_prefix(TOOL_PREFIX) else {
+        return name.to_string();
+    };
     let mut chars = rest.chars();
     match chars.next() {
         Some(first) => first.to_lowercase().chain(chars).collect(),
@@ -51,9 +57,15 @@ pub fn original_name(name: &str) -> String {
 }
 
 fn rename(name: &mut Value) {
-    let Some(text) = name.as_str().filter(|n| !n.is_empty()) else { return };
+    let Some(text) = name.as_str().filter(|n| !n.is_empty()) else {
+        return;
+    };
     let mut chars = text.chars();
-    let renamed: String = chars.next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default() + chars.as_str();
+    let renamed: String = chars
+        .next()
+        .map(|c| c.to_uppercase().collect::<String>())
+        .unwrap_or_default()
+        + chars.as_str();
     *name = Value::String(format!("{TOOL_PREFIX}{renamed}"));
 }
 
@@ -81,7 +93,10 @@ fn billing(text: &str) -> String {
     }
     salted.push_str(VERSION);
     let suffix = &hex(&sha256(salted.as_bytes()))[..3];
-    format!("x-anthropic-billing-header: cc_version={VERSION}.{suffix}; cc_entrypoint={ENTRYPOINT}; cch={};", &hash[..5])
+    format!(
+        "x-anthropic-billing-header: cc_version={VERSION}.{suffix}; cc_entrypoint={ENTRYPOINT}; cch={};",
+        &hash[..5]
+    )
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -103,7 +118,10 @@ mod tests {
         let system = body["system"].as_array().unwrap();
         assert_eq!(system.len(), 3);
         let billing = system[0]["text"].as_str().unwrap();
-        assert!(billing.starts_with("x-anthropic-billing-header: cc_version=2.1.280."), "{billing}");
+        assert!(
+            billing.starts_with("x-anthropic-billing-header: cc_version=2.1.280."),
+            "{billing}"
+        );
         assert!(billing.contains("cc_entrypoint=sdk-cli; cch="));
         assert_eq!(system[1]["text"], IDENTITY);
         assert_eq!(system[2]["text"], "You are Drift.");

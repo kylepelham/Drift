@@ -8,8 +8,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::turn::Plan;
 use super::types::{Message, Part, PartRow};
-use crate::tool::{Context, Output, SessionFiles, ToolError};
 use crate::Engine;
+use crate::tool::{Context, Output, SessionFiles, ToolError};
 
 pub(super) struct Early {
     started: HashMap<String, Started>,
@@ -29,7 +29,10 @@ pub(super) struct Started {
 impl Started {
     /// The call's result; what it read now counts as read in the session.
     pub(super) async fn finish(self, files: &SessionFiles) -> Result<Output, ToolError> {
-        let result = self.run.await.unwrap_or_else(|failure| Err(ToolError(failure.to_string())));
+        let result = self
+            .run
+            .await
+            .unwrap_or_else(|failure| Err(ToolError(failure.to_string())));
         if result.is_ok() {
             files.absorb(&self.files);
         }
@@ -39,7 +42,12 @@ impl Started {
 
 impl Early {
     pub(super) fn new(abort: &CancellationToken) -> Self {
-        Self { started: HashMap::new(), seen: 0, stop: abort.child_token(), closed: false }
+        Self {
+            started: HashMap::new(),
+            seen: 0,
+            stop: abort.child_token(),
+            closed: false,
+        }
     }
 
     pub(super) fn seen(&self) -> usize {
@@ -47,9 +55,21 @@ impl Early {
     }
 
     /// Starts `row` now if it may, else leaves it for the step.
-    pub(super) fn consider(&mut self, engine: &Arc<Engine>, plan: &Plan, message: &Message, files: &SessionFiles, row: &PartRow) {
+    pub(super) fn consider(
+        &mut self,
+        engine: &Arc<Engine>,
+        plan: &Plan,
+        message: &Message,
+        files: &SessionFiles,
+        row: &PartRow,
+    ) {
         self.seen += 1;
-        let Part::ToolCall { call_id, name, input, .. } = &row.part else { return };
+        let Part::ToolCall {
+            call_id, name, input, ..
+        } = &row.part
+        else {
+            return;
+        };
         let tool = plan.offered(name).filter(|tool| tool.starts_early());
         let Some(tool) = tool.filter(|_| !self.closed) else {
             self.closed = true;
@@ -74,7 +94,12 @@ impl Early {
         };
         let policy = plan.config.policy();
         let agent_policy = plan.config.agent_policy(&plan.session.agent);
-        let allowed = tool.asks(&ctx, input).iter().all(|ask| engine.permissions.decide_under(&plan.session.id, &policy, &agent_policy, ask) == crate::permission::Decision::Allow);
+        let allowed = tool.asks(&ctx, input).iter().all(|ask| {
+            engine
+                .permissions
+                .decide_under(&plan.session.id, &policy, &agent_policy, ask)
+                == crate::permission::Decision::Allow
+        });
         if !allowed {
             return;
         }

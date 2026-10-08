@@ -3,7 +3,7 @@
 
 use crate::clipboard::clipboard_utf16;
 use crate::config::config_path;
-use crate::editor::{editor_arguments, editor_kind, EditorKind};
+use crate::editor::{EditorKind, editor_arguments, editor_kind};
 use crate::updater::installed_alongside_uninstaller;
 use std::path::Path;
 
@@ -22,14 +22,8 @@ fn config_paths_stay_under_the_config_directory() {
 #[test]
 fn editor_locations_use_one_direct_gui_invocation() {
     assert_eq!(editor_kind(Path::new("Code.exe")), EditorKind::GotoFlag);
-    assert_eq!(
-        editor_kind(Path::new("sublime_text.exe")),
-        EditorKind::Location
-    );
-    assert_eq!(
-        editor_kind(Path::new("notepad++.exe")),
-        EditorKind::NotepadPlus
-    );
+    assert_eq!(editor_kind(Path::new("sublime_text.exe")), EditorKind::Location);
+    assert_eq!(editor_kind(Path::new("notepad++.exe")), EditorKind::NotepadPlus);
     assert_eq!(
         editor_arguments(EditorKind::GotoFlag, "S:\\repo\\app.ts", 24, 3),
         ["--goto", "S:\\repo\\app.ts:24:3"]

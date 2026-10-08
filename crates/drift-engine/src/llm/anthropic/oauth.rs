@@ -1,6 +1,6 @@
 //! Claude subscription sign-in: the PKCE flow Claude Code uses, so Pro and Max plans work without a key.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::llm::Credential;
 
@@ -22,7 +22,8 @@ fn token_url() -> String {
 
     TOKEN_URL.into()
 }
-const SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+const SCOPES: &str =
+    "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 /// The token endpoint checks this; it is what the reference client sends.
 const TOKEN_USER_AGENT: &str = "axios/1.13.6";
 
@@ -95,15 +96,26 @@ pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Cr
 
 async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credential, String> {
     let timeouts = crate::llm::http::Timeouts::default();
-    let request = client.post(token_url()).header("accept", "application/json, text/plain, */*").header("user-agent", TOKEN_USER_AGENT).json(body);
-    let response = crate::llm::http::send(request, &timeouts).await.map_err(|e| e.to_string())?;
+    let request = client
+        .post(token_url())
+        .header("accept", "application/json, text/plain, */*")
+        .header("user-agent", TOKEN_USER_AGENT)
+        .json(body);
+    let response = crate::llm::http::send(request, &timeouts)
+        .await
+        .map_err(|e| e.to_string())?;
     let status = response.status();
     let text = crate::llm::http::bounded_body(response, &timeouts).await;
     if !status.is_success() {
         return Err(format!("token request failed ({status}): {text}"));
     }
     let json: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-    let field = |key: &str| json[key].as_str().map(str::to_string).ok_or_else(|| format!("token response lacks {key}"));
+    let field = |key: &str| {
+        json[key]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| format!("token response lacks {key}"))
+    };
     let expires_in = json["expires_in"].as_i64().unwrap_or(0);
     Ok(Credential::OAuth {
         access: field("access_token")?,
@@ -128,7 +140,10 @@ pub(crate) fn base64url(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let bits = chunk.iter().enumerate().fold(0u32, |acc, (i, b)| acc | (u32::from(*b) << (16 - 8 * i)));
+        let bits = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |acc, (i, b)| acc | (u32::from(*b) << (16 - 8 * i)));
         for i in 0..chunk.len() + 1 {
             out.push(TABLE[((bits >> (18 - 6 * i)) & 63) as usize] as char);
         }
@@ -153,18 +168,29 @@ mod tests {
     #[test]
     fn authorize_url_carries_pkce_and_scopes() {
         let started = start(Mode::Max);
-        assert!(started.url.starts_with("https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a"));
+        assert!(
+            started
+                .url
+                .starts_with("https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a")
+        );
         assert!(started.url.contains("code_challenge_method=S256"));
         assert!(started.url.contains("scope=org%3Acreate_api_key%20user%3Aprofile"));
         assert!(started.url.contains(&format!("state={}", started.state)));
         assert_eq!(started.verifier.len(), 86);
-        assert!(start(Mode::Console).url.starts_with("https://platform.claude.com/oauth/authorize"));
+        assert!(
+            start(Mode::Console)
+                .url
+                .starts_with("https://platform.claude.com/oauth/authorize")
+        );
     }
 
     #[test]
     fn callback_forms_are_all_accepted() {
         assert_eq!(parse_callback(" abc#st "), Some(("abc".into(), "st".into())));
-        assert_eq!(parse_callback("https://x/cb?code=abc&state=st"), Some(("abc".into(), "st".into())));
+        assert_eq!(
+            parse_callback("https://x/cb?code=abc&state=st"),
+            Some(("abc".into(), "st".into()))
+        );
         assert_eq!(parse_callback("state=st&code=abc"), Some(("abc".into(), "st".into())));
         assert_eq!(parse_callback("code=abc"), None);
     }
@@ -179,8 +205,18 @@ mod tests {
 
     #[test]
     fn expiry_is_strictly_past() {
-        let live = Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: crate::id::now_ms() + 10_000, account: None };
-        let dead = Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: 1, account: None };
+        let live = Credential::OAuth {
+            access: "a".into(),
+            refresh: "r".into(),
+            expires_at: crate::id::now_ms() + 10_000,
+            account: None,
+        };
+        let dead = Credential::OAuth {
+            access: "a".into(),
+            refresh: "r".into(),
+            expires_at: 1,
+            account: None,
+        };
         assert!(!live.is_expired());
         assert!(dead.is_expired());
         assert!(!Credential::ApiKey { key: "k".into() }.is_expired());

@@ -88,8 +88,15 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NoGit => write!(f, "git is not installed"),
-            Self::TooLarge(path) => write!(f, "{path} is larger than {} MB, too large to keep for undo", MAX_RECORDED_BYTES / 1024 / 1024),
-            Self::TooManyFiles => write!(f, "the workspace holds more than {MAX_TREE_FILES} files, too many to record"),
+            Self::TooLarge(path) => write!(
+                f,
+                "{path} is larger than {} MB, too large to keep for undo",
+                MAX_RECORDED_BYTES / 1024 / 1024
+            ),
+            Self::TooManyFiles => write!(
+                f,
+                "the workspace holds more than {MAX_TREE_FILES} files, too many to record"
+            ),
             Self::Failed(message) => write!(f, "git: {message}"),
         }
     }
@@ -97,11 +104,23 @@ impl std::fmt::Display for Error {
 
 impl Snapshots {
     pub fn new(data_dir: &Path) -> Self {
-        Self { root: data_dir.join("snapshots"), locks: Mutex::default(), owners: Mutex::default(), too_many: Mutex::default(), max_tree_files: MAX_TREE_FILES, sources: Mutex::default() }
+        Self {
+            root: data_dir.join("snapshots"),
+            locks: Mutex::default(),
+            owners: Mutex::default(),
+            too_many: Mutex::default(),
+            max_tree_files: MAX_TREE_FILES,
+            sources: Mutex::default(),
+        }
     }
 
     pub(super) fn lock_for(&self, workspace: &Path) -> Arc<tokio::sync::Mutex<()>> {
-        self.locks.lock().unwrap().entry(self.git_dir(workspace)).or_default().clone()
+        self.locks
+            .lock()
+            .unwrap()
+            .entry(self.git_dir(workspace))
+            .or_default()
+            .clone()
     }
 
     /// Ties a workspace directory to its owner (the workspace id), whose history does not depend on
@@ -117,7 +136,10 @@ impl Snapshots {
     }
 
     fn owned_dir(&self, owner: &str) -> PathBuf {
-        self.root.join(format!("ws-{}", owner.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "-")))
+        self.root.join(format!(
+            "ws-{}",
+            owner.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "-")
+        ))
     }
 
     /// Deletes a workspace's whole history, once nothing of it is kept: its conversations are gone.
@@ -128,7 +150,12 @@ impl Snapshots {
     }
 
     fn git_dir(&self, workspace: &Path) -> PathBuf {
-        self.owners.lock().unwrap().get(workspace).cloned().unwrap_or_else(|| self.path_dir(workspace))
+        self.owners
+            .lock()
+            .unwrap()
+            .get(workspace)
+            .cloned()
+            .unwrap_or_else(|| self.path_dir(workspace))
     }
 
     /// Where an unbound directory's history lives, derived from its path.
@@ -156,7 +183,13 @@ impl Snapshots {
     }
 
     /// `run`, with a repository's objects readable for a tree command.
-    async fn run_with(&self, workspace: &Path, args: &[&str], input: Option<&[u8]>, source: Option<&Source>) -> Result<Vec<u8>, Error> {
+    async fn run_with(
+        &self,
+        workspace: &Path,
+        args: &[&str],
+        input: Option<&[u8]>,
+        source: Option<&Source>,
+    ) -> Result<Vec<u8>, Error> {
         use tokio::io::AsyncWriteExt;
         let mut command = self.command(workspace, args, input.is_some());
         if let Some(source) = source {
@@ -166,9 +199,14 @@ impl Snapshots {
         if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
             stdin.write_all(input).await.map_err(|e| Error::Failed(e.to_string()))?;
         }
-        let output = child.wait_with_output().await.map_err(|e| Error::Failed(e.to_string()))?;
+        let output = child
+            .wait_with_output()
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?;
         if !output.status.success() {
-            return Err(Error::Failed(String::from_utf8_lossy(&output.stderr).trim().to_string()));
+            return Err(Error::Failed(
+                String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            ));
         }
         Ok(output.stdout)
     }
@@ -206,10 +244,13 @@ impl Snapshots {
         if git_dir.join("HEAD").exists() {
             return Ok(());
         }
-        tokio::fs::create_dir_all(&git_dir).await.map_err(|e| Error::Failed(e.to_string()))?;
+        tokio::fs::create_dir_all(&git_dir)
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?;
         self.git(workspace, &["init", "-q"]).await?;
         self.git(workspace, &["config", "core.autocrlf", "false"]).await?;
-        self.git(workspace, &["config", "user.email", "drift@localhost"]).await?;
+        self.git(workspace, &["config", "user.email", "drift@localhost"])
+            .await?;
         self.git(workspace, &["config", "user.name", "Drift"]).await?;
         Ok(())
     }
@@ -236,10 +277,23 @@ impl Snapshots {
         };
         // A file git cannot index (an unusual name, a locked file) must not stop every other file
         // being recorded; `--ignore-errors` still exits non-zero, so only the tree write decides.
-        let _ = self.run_with(workspace, &["add", "-A", "--ignore-errors", "--", "."], None, source.as_ref()).await;
+        let _ = self
+            .run_with(
+                workspace,
+                &["add", "-A", "--ignore-errors", "--", "."],
+                None,
+                source.as_ref(),
+            )
+            .await;
         // A seeded tree may name blobs only the repository holds; its ids are compared, never read.
-        let write: &[&str] = if source.is_some() { &["write-tree", "--missing-ok"] } else { &["write-tree"] };
-        let id = String::from_utf8_lossy(&self.run_with(workspace, write, None, source.as_ref()).await?).trim().to_string();
+        let write: &[&str] = if source.is_some() {
+            &["write-tree", "--missing-ok"]
+        } else {
+            &["write-tree"]
+        };
+        let id = String::from_utf8_lossy(&self.run_with(workspace, write, None, source.as_ref()).await?)
+            .trim()
+            .to_string();
         Ok(Tree { id, oversized })
     }
 
@@ -249,7 +303,10 @@ impl Snapshots {
             return known.clone();
         }
         let found = find_source(workspace).await;
-        self.sources.lock().unwrap().insert(workspace.to_path_buf(), found.clone());
+        self.sources
+            .lock()
+            .unwrap()
+            .insert(workspace.to_path_buf(), found.clone());
         found
     }
 
@@ -264,7 +321,16 @@ impl Snapshots {
         if tokio::fs::copy(&source.index, &index).await.is_err() {
             return;
         }
-        if self.run_with(workspace, &["ls-files", "-z", "--", ":(literal)drift-seed-probe"], None, Some(source)).await.is_err() {
+        if self
+            .run_with(
+                workspace,
+                &["ls-files", "-z", "--", ":(literal)drift-seed-probe"],
+                None,
+                Some(source),
+            )
+            .await
+            .is_err()
+        {
             let _ = tokio::fs::remove_file(&index).await;
         }
         let _ = tokio::fs::write(marker, "").await;
@@ -272,23 +338,48 @@ impl Snapshots {
 
     /// `leave_out_large_files` for a repository: only what git names as changed or untracked is sized, with no walk.
     async fn leave_out_large_changes(&self, workspace: &Path, source: &Source) -> Result<Vec<(String, Stamp)>, Error> {
-        let modified = self.run_with(workspace, &["diff-files", "--name-only", "-z"], None, Some(source)).await?;
-        let untracked = self.run_with(workspace, &["ls-files", "--others", "--exclude-standard", "-z"], None, Some(source)).await?;
-        let excluded = tokio::fs::read_to_string(self.git_dir(workspace).join("info").join("exclude")).await.unwrap_or_default();
+        let modified = self
+            .run_with(workspace, &["diff-files", "--name-only", "-z"], None, Some(source))
+            .await?;
+        let untracked = self
+            .run_with(
+                workspace,
+                &["ls-files", "--others", "--exclude-standard", "-z"],
+                None,
+                Some(source),
+            )
+            .await?;
+        let excluded = tokio::fs::read_to_string(self.git_dir(workspace).join("info").join("exclude"))
+            .await
+            .unwrap_or_default();
         let listed = [modified, untracked].map(|raw| String::from_utf8_lossy(&raw).into_owned());
-        let mut candidates: Vec<String> = listed.iter().flat_map(|text| text.split('\0')).filter(|path| !path.is_empty()).map(str::to_string).collect();
-        candidates.extend(excluded.lines().filter_map(|line| line.strip_prefix('/')).map(unescape_pattern));
+        let mut candidates: Vec<String> = listed
+            .iter()
+            .flat_map(|text| text.split('\0'))
+            .filter(|path| !path.is_empty())
+            .map(str::to_string)
+            .collect();
+        candidates.extend(
+            excluded
+                .lines()
+                .filter_map(|line| line.strip_prefix('/'))
+                .map(unescape_pattern),
+        );
         candidates.sort();
         candidates.dedup();
         let root = workspace.to_path_buf();
         let sized = move || -> Vec<(String, Stamp)> {
             let large = |path: String| {
-                let meta = std::fs::metadata(root.join(&path)).ok().filter(|m| m.is_file() && m.len() > MAX_RECORDED_BYTES)?;
+                let meta = std::fs::metadata(root.join(&path))
+                    .ok()
+                    .filter(|m| m.is_file() && m.len() > MAX_RECORDED_BYTES)?;
                 Some((path, (meta.len(), meta.modified().ok())))
             };
             candidates.into_iter().filter_map(large).collect()
         };
-        let large = tokio::task::spawn_blocking(sized).await.map_err(|e| Error::Failed(e.to_string()))?;
+        let large = tokio::task::spawn_blocking(sized)
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?;
         self.exclude(workspace, &large).await?;
         Ok(large)
     }
@@ -298,11 +389,18 @@ impl Snapshots {
     async fn store_raw_bytes(&self, workspace: &Path) -> Result<(), Error> {
         let info = self.git_dir(workspace).join("info");
         let path = info.join("attributes");
-        if tokio::fs::read_to_string(&path).await.is_ok_and(|current| current == RAW_ATTRIBUTES) {
+        if tokio::fs::read_to_string(&path)
+            .await
+            .is_ok_and(|current| current == RAW_ATTRIBUTES)
+        {
             return Ok(());
         }
-        tokio::fs::create_dir_all(&info).await.map_err(|e| Error::Failed(e.to_string()))?;
-        tokio::fs::write(&path, RAW_ATTRIBUTES).await.map_err(|e| Error::Failed(e.to_string()))?;
+        tokio::fs::create_dir_all(&info)
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?;
+        tokio::fs::write(&path, RAW_ATTRIBUTES)
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?;
         match tokio::fs::remove_file(self.git_dir(workspace).join("index")).await {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(Error::Failed(error.to_string())),
             _ => Ok(()),
@@ -314,7 +412,9 @@ impl Snapshots {
     /// index. The workspace's `.gitignore` is never touched. Returns what was left out.
     async fn leave_out_large_files(&self, workspace: &Path) -> Result<Vec<(String, Stamp)>, Error> {
         let (root, limit) = (workspace.to_path_buf(), self.max_tree_files);
-        let walked = tokio::task::spawn_blocking(move || large_files(&root, limit)).await.map_err(|e| Error::Failed(e.to_string()))?;
+        let walked = tokio::task::spawn_blocking(move || large_files(&root, limit))
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?;
         let Some(large) = walked else {
             self.too_many.lock().unwrap().insert(workspace.to_path_buf());
             return Err(Error::TooManyFiles);
@@ -326,12 +426,24 @@ impl Snapshots {
     /// Keeps `large` out of the shadow index from now on, and drops any already in it.
     async fn exclude(&self, workspace: &Path, large: &[(String, Stamp)]) -> Result<(), Error> {
         let info = self.git_dir(workspace).join("info");
-        tokio::fs::create_dir_all(&info).await.map_err(|e| Error::Failed(e.to_string()))?;
-        let lines: String = large.iter().map(|(path, _)| format!("/{}\n", escape_pattern(path))).collect();
-        tokio::fs::write(info.join("exclude"), lines).await.map_err(|e| Error::Failed(e.to_string()))?;
+        tokio::fs::create_dir_all(&info)
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?;
+        let lines: String = large
+            .iter()
+            .map(|(path, _)| format!("/{}\n", escape_pattern(path)))
+            .collect();
+        tokio::fs::write(info.join("exclude"), lines)
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))?;
         if !large.is_empty() {
             let paths: String = large.iter().map(|(path, _)| format!("{path}\0")).collect();
-            self.run(workspace, &["update-index", "--force-remove", "-z", "--stdin"], Some(paths.as_bytes())).await?;
+            self.run(
+                workspace,
+                &["update-index", "--force-remove", "-z", "--stdin"],
+                Some(paths.as_bytes()),
+            )
+            .await?;
         }
         Ok(())
     }
@@ -351,13 +463,26 @@ impl Snapshots {
         if keep.is_empty() {
             let _ = self.git(workspace, &["update-ref", "-d", KEEP_REF]).await;
         } else {
-            let listing: String = keep.iter().enumerate().map(|(i, blob)| format!("100644 blob {blob}\t{i}\n")).collect();
-            let tree = self.run(workspace, &["mktree", "--missing"], Some(listing.as_bytes())).await?;
+            let listing: String = keep
+                .iter()
+                .enumerate()
+                .map(|(i, blob)| format!("100644 blob {blob}\t{i}\n"))
+                .collect();
+            let tree = self
+                .run(workspace, &["mktree", "--missing"], Some(listing.as_bytes()))
+                .await?;
             let tree = String::from_utf8_lossy(&tree).trim().to_string();
-            let commit = self.git(workspace, &["commit-tree", &tree, "-m", "blobs referenced by recorded changes"]).await?;
+            let commit = self
+                .git(
+                    workspace,
+                    &["commit-tree", &tree, "-m", "blobs referenced by recorded changes"],
+                )
+                .await?;
             self.git(workspace, &["update-ref", KEEP_REF, &commit]).await?;
         }
-        self.git(workspace, &["prune", &format!("--expire={expire}")]).await.map(|_| ())
+        self.git(workspace, &["prune", &format!("--expire={expire}")])
+            .await
+            .map(|_| ())
     }
 
     /// Stores `path`'s content now and returns its blob, or `None` when there is no such file.
@@ -369,7 +494,13 @@ impl Snapshots {
     /// (an imported edit's earlier version).
     pub async fn store_bytes(&self, workspace: &Path, bytes: &[u8]) -> Result<String, Error> {
         self.ensure(workspace).await?;
-        let blob = self.run(workspace, &["hash-object", "-w", "--no-filters", "--stdin"], Some(bytes)).await?;
+        let blob = self
+            .run(
+                workspace,
+                &["hash-object", "-w", "--no-filters", "--stdin"],
+                Some(bytes),
+            )
+            .await?;
         Ok(String::from_utf8_lossy(&blob).trim().to_string())
     }
 
@@ -384,7 +515,9 @@ impl Snapshots {
             self.ensure(workspace).await?;
         }
         let file = workspace.join(path);
-        let Ok(meta) = std::fs::metadata(&file).map(|m| (m.is_file(), m.len())) else { return Ok(None) };
+        let Ok(meta) = std::fs::metadata(&file).map(|m| (m.is_file(), m.len())) else {
+            return Ok(None);
+        };
         if !meta.0 {
             return Ok(None);
         }
@@ -392,12 +525,22 @@ impl Snapshots {
             return Err(Error::TooLarge(path.to_string()));
         }
         let file = file.to_string_lossy().into_owned();
-        let args: Vec<&str> = if store { vec!["hash-object", "-w", "--no-filters", "--", &file] } else { vec!["hash-object", "--no-filters", "--", &file] };
+        let args: Vec<&str> = if store {
+            vec!["hash-object", "-w", "--no-filters", "--", &file]
+        } else {
+            vec!["hash-object", "--no-filters", "--", &file]
+        };
         self.git(workspace, &args).await.map(Some)
     }
 
     /// Makes `path` hold `blob` through the staged writer, or removes it for `None`.
-    pub async fn put(&self, store: &crate::store::Store, workspace: &Path, path: &str, blob: Option<&str>) -> Result<(), Error> {
+    pub async fn put(
+        &self,
+        store: &crate::store::Store,
+        workspace: &Path,
+        path: &str,
+        blob: Option<&str>,
+    ) -> Result<(), Error> {
         let file = workspace.join(path);
         let Some(blob) = blob else {
             return match tokio::fs::remove_file(&file).await {
@@ -406,19 +549,47 @@ impl Snapshots {
             };
         };
         let content = self.git_bytes(workspace, &["cat-file", "blob", blob]).await?;
-        crate::tool::stage::replace(store, &file, &content).await.map_err(|e| Error::Failed(e.to_string()))
+        crate::tool::stage::replace(store, &file, &content)
+            .await
+            .map_err(|e| Error::Failed(e.to_string()))
     }
 
     /// Every path that differs between two trees, with its blob on each side.
     pub async fn changes_between(&self, workspace: &Path, before: &Tree, after: &Tree) -> Result<TreeChanges, Error> {
         let source = self.source(workspace).await;
-        let raw = self.run_with(workspace, &["diff-tree", "-r", "--no-renames", "-z", &before.id, &after.id], None, source.as_ref()).await?;
-        let oversized = |path: &str| before.oversized.iter().chain(&after.oversized).any(|(large, _)| large == path);
-        let (unrecordable, changes): (Vec<FileChange>, Vec<FileChange>) = parse_raw_diff(&raw).into_iter().partition(|change| oversized(&change.path));
-        let changes = if source.is_some() { unconverted_changes(workspace, changes).await } else { changes };
+        let raw = self
+            .run_with(
+                workspace,
+                &["diff-tree", "-r", "--no-renames", "-z", &before.id, &after.id],
+                None,
+                source.as_ref(),
+            )
+            .await?;
+        let oversized = |path: &str| {
+            before
+                .oversized
+                .iter()
+                .chain(&after.oversized)
+                .any(|(large, _)| large == path)
+        };
+        let (unrecordable, changes): (Vec<FileChange>, Vec<FileChange>) = parse_raw_diff(&raw)
+            .into_iter()
+            .partition(|change| oversized(&change.path));
+        let changes = if source.is_some() {
+            unconverted_changes(workspace, changes).await
+        } else {
+            changes
+        };
         let mut unrecorded: Vec<String> = unrecordable.into_iter().map(|change| change.path).collect();
         let untouched = |entry: &(String, Stamp)| before.oversized.contains(entry) && after.oversized.contains(entry);
-        unrecorded.extend(before.oversized.iter().chain(&after.oversized).filter(|entry| !untouched(entry)).map(|(path, _)| path.clone()));
+        unrecorded.extend(
+            before
+                .oversized
+                .iter()
+                .chain(&after.oversized)
+                .filter(|entry| !untouched(entry))
+                .map(|(path, _)| path.clone()),
+        );
         unrecorded.sort();
         unrecorded.dedup();
         Ok(TreeChanges { changes, unrecorded })
@@ -431,15 +602,28 @@ impl Snapshots {
 fn large_files(root: &Path, limit: usize) -> Option<Vec<(String, Stamp)>> {
     let mut files = 0;
     let mut large = Vec::new();
-    for entry in ignore::WalkBuilder::new(root).hidden(false).require_git(false).filter_entry(|entry| entry.file_name() != ".git").build().flatten() {
-        let Some(meta) = entry.metadata().ok().filter(std::fs::Metadata::is_file) else { continue };
+    for entry in ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .require_git(false)
+        .filter_entry(|entry| entry.file_name() != ".git")
+        .build()
+        .flatten()
+    {
+        let Some(meta) = entry.metadata().ok().filter(std::fs::Metadata::is_file) else {
+            continue;
+        };
         files += 1;
         if files > limit {
             return None;
         }
         if meta.len() > MAX_RECORDED_BYTES {
-            let Ok(path) = entry.path().strip_prefix(root) else { continue };
-            large.push((path.to_string_lossy().replace('\\', "/"), (meta.len(), meta.modified().ok())));
+            let Ok(path) = entry.path().strip_prefix(root) else {
+                continue;
+            };
+            large.push((
+                path.to_string_lossy().replace('\\', "/"),
+                (meta.len(), meta.modified().ok()),
+            ));
         }
     }
     Some(large)
@@ -447,21 +631,44 @@ fn large_files(root: &Path, limit: usize) -> Option<Vec<(String, Stamp)>> {
 
 /// The repository `workspace` is the top of, with its index and object stores; `None` otherwise.
 async fn find_source(workspace: &Path) -> Option<Source> {
-    let output = plain_git(workspace, &["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir", "--git-common-dir"], None).await?;
+    let output = plain_git(
+        workspace,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--show-toplevel",
+            "--git-dir",
+            "--git-common-dir",
+        ],
+        None,
+    )
+    .await?;
     let text = String::from_utf8_lossy(&output);
-    let [top, git_dir, common] = text.lines().collect::<Vec<_>>()[..] else { return None };
+    let [top, git_dir, common] = text.lines().collect::<Vec<_>>()[..] else {
+        return None;
+    };
     if crate::tool::canonical(Path::new(top)) != crate::tool::canonical(workspace) {
         return None;
     }
     let objects = PathBuf::from(common).join("objects");
     let chained = std::fs::read_to_string(objects.join("info").join("alternates")).unwrap_or_default();
-    let more = chained.lines().map(str::trim).filter(|line| !line.is_empty()).map(|line| objects.join(line));
-    let stores: Vec<PathBuf> = std::iter::once(objects.clone()).chain(more).filter(|dir| dir.is_dir()).collect();
+    let more = chained
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| objects.join(line));
+    let stores: Vec<PathBuf> = std::iter::once(objects.clone())
+        .chain(more)
+        .filter(|dir| dir.is_dir())
+        .collect();
     let index = PathBuf::from(git_dir).join("index");
     if stores.is_empty() || !index.is_file() {
         return None;
     }
-    Some(Source { index, objects: std::env::join_paths(stores).ok()? })
+    Some(Source {
+        index,
+        objects: std::env::join_paths(stores).ok()?,
+    })
 }
 
 /// Git in the workspace's own repository, never the shadow one; `None` when it fails.
@@ -469,7 +676,14 @@ async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Opt
     use tokio::io::AsyncWriteExt;
     let mut command = Command::new("git");
     let stdin = if input.is_some() { Stdio::piped() } else { Stdio::null() };
-    command.current_dir(workspace).args(args).env("GIT_TERMINAL_PROMPT", "0").stdin(stdin).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+    command
+        .current_dir(workspace)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(stdin)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
     let mut child = command.spawn().ok()?;
@@ -482,15 +696,28 @@ async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Opt
 
 /// Drops changes whose file the repository still holds as the before blob through its filters: only the timestamp moved.
 async fn unconverted_changes(workspace: &Path, changes: Vec<FileChange>) -> Vec<FileChange> {
-    let modified: Vec<&FileChange> = changes.iter().filter(|change| change.before.is_some() && change.after.is_some()).collect();
+    let modified: Vec<&FileChange> = changes
+        .iter()
+        .filter(|change| change.before.is_some() && change.after.is_some())
+        .collect();
     if modified.is_empty() {
         return changes;
     }
     let paths: String = modified.iter().map(|change| format!("{}\n", change.path)).collect();
-    let Some(hashed) = plain_git(workspace, &["hash-object", "--stdin-paths"], Some(paths.as_bytes())).await else { return changes };
+    let Some(hashed) = plain_git(workspace, &["hash-object", "--stdin-paths"], Some(paths.as_bytes())).await else {
+        return changes;
+    };
     let hashed = String::from_utf8_lossy(&hashed);
-    let same: HashSet<String> = modified.iter().zip(hashed.lines()).filter(|(change, id)| change.before.as_deref() == Some(id.trim())).map(|(change, _)| change.path.clone()).collect();
-    changes.into_iter().filter(|change| !same.contains(&change.path)).collect()
+    let same: HashSet<String> = modified
+        .iter()
+        .zip(hashed.lines())
+        .filter(|(change, id)| change.before.as_deref() == Some(id.trim()))
+        .map(|(change, _)| change.path.clone())
+        .collect();
+    changes
+        .into_iter()
+        .filter(|change| !same.contains(&change.path))
+        .collect()
 }
 
 /// The path an exclude pattern written by `escape_pattern` matches.
@@ -505,7 +732,15 @@ fn unescape_pattern(pattern: &str) -> String {
 
 /// An exclude pattern matching exactly this path.
 fn escape_pattern(path: &str) -> String {
-    path.chars().flat_map(|c| if matches!(c, '*' | '?' | '[' | '\\' | '!' | '#' | ' ') { vec!['\\', c] } else { vec![c] }).collect()
+    path.chars()
+        .flat_map(|c| {
+            if matches!(c, '*' | '?' | '[' | '\\' | '!' | '#' | ' ') {
+                vec!['\\', c]
+            } else {
+                vec![c]
+            }
+        })
+        .collect()
 }
 
 /// `git diff-tree -z` raw records: `:<mode> <mode> <sha> <sha> <status>\0<path>\0`; all-zero shas mean no file.
@@ -517,7 +752,12 @@ fn parse_raw_diff(raw: &[u8]) -> Vec<FileChange> {
         let parts: Vec<&str> = header.trim_start_matches(':').split(' ').collect();
         let [_, _, before, after, _] = parts[..] else { continue };
         let blob = |sha: &str| (!sha.chars().all(|c| c == '0')).then(|| sha.to_string());
-        changes.push(FileChange { path: path.to_string(), before: blob(before), after: blob(after), observed: false });
+        changes.push(FileChange {
+            path: path.to_string(),
+            before: blob(before),
+            after: blob(after),
+            observed: false,
+        });
     }
     changes
 }
@@ -546,10 +786,24 @@ mod tests {
         std::fs::remove_file(workspace.join("gone.txt")).unwrap();
         std::fs::write(workspace.join("new.txt"), "n\n").unwrap();
         let after = snapshots.take(&workspace).await.unwrap();
-        let mut changes = snapshots.changes_between(&workspace, &before, &after).await.unwrap().changes;
+        let mut changes = snapshots
+            .changes_between(&workspace, &before, &after)
+            .await
+            .unwrap()
+            .changes;
         changes.sort_by(|a, b| a.path.cmp(&b.path));
-        let summary: Vec<(&str, bool, bool)> = changes.iter().map(|c| (c.path.as_str(), c.before.is_some(), c.after.is_some())).collect();
-        assert_eq!(summary, [("a.txt", true, true), ("gone.txt", true, false), ("new.txt", false, true)]);
+        let summary: Vec<(&str, bool, bool)> = changes
+            .iter()
+            .map(|c| (c.path.as_str(), c.before.is_some(), c.after.is_some()))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("a.txt", true, true),
+                ("gone.txt", true, false),
+                ("new.txt", false, true)
+            ]
+        );
         assert_eq!(changes[0].before.as_deref(), Some(one.as_str()));
 
         assert_ne!(snapshots.current(&workspace, "a.txt").await.unwrap(), Some(one.clone()));
@@ -559,7 +813,10 @@ mod tests {
         assert_eq!(std::fs::read_to_string(workspace.join("a.txt")).unwrap(), "one\n");
         assert!(!workspace.join("new.txt").exists());
         assert_eq!(snapshots.current(&workspace, "a.txt").await.unwrap(), Some(one));
-        assert!(!workspace.join(".git").exists(), "shadow repo must not touch the workspace");
+        assert!(
+            !workspace.join(".git").exists(),
+            "shadow repo must not touch the workspace"
+        );
         std::fs::remove_dir_all(base).ok();
     }
 
@@ -568,14 +825,26 @@ mod tests {
         let (base, workspace) = dirs();
         let snapshots = Snapshots::new(&base.join("data"));
         let command = snapshots.command(&workspace, &["add", "-A", "--", "."], false);
-        assert_eq!(command.as_std().get_current_dir(), Some(workspace.as_path()), "`.` must mean the workspace, not where the app was started");
+        assert_eq!(
+            command.as_std().get_current_dir(),
+            Some(workspace.as_path()),
+            "`.` must mean the workspace, not where the app was started"
+        );
         std::fs::remove_dir_all(base).ok();
     }
 
     /// Git in the test repository itself, as its user would run it.
     fn repo_git(workspace: &Path, args: &[&str]) -> String {
-        let out = std::process::Command::new("git").current_dir(workspace).args(args).output().unwrap();
-        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        let out = std::process::Command::new("git")
+            .current_dir(workspace)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     }
 
@@ -584,12 +853,20 @@ mod tests {
         let (base, workspace) = dirs();
         let workspace = crate::tool::canonical(&workspace);
         repo_git(&workspace, &["init", "-q"]);
-        for (key, value) in [("core.autocrlf", "true"), ("user.email", "dev@example.com"), ("user.name", "Dev")] {
+        for (key, value) in [
+            ("core.autocrlf", "true"),
+            ("user.email", "dev@example.com"),
+            ("user.name", "Dev"),
+        ] {
             repo_git(&workspace, &["config", key, value]);
         }
         std::fs::write(workspace.join(".gitattributes"), "* text=auto\n").unwrap();
         for name in ["a", "b", "c", "d", "e"] {
-            std::fs::write(workspace.join(format!("{name}.txt")), format!("{name} one\r\n{name} two\r\n")).unwrap();
+            std::fs::write(
+                workspace.join(format!("{name}.txt")),
+                format!("{name} one\r\n{name} two\r\n"),
+            )
+            .unwrap();
         }
         repo_git(&workspace, &["add", "-A"]);
         repo_git(&workspace, &["commit", "-qm", "start"]);
@@ -598,9 +875,15 @@ mod tests {
         repo_git(&workspace, &["update-index", "--refresh"]);
         let mut snapshots = Snapshots::new(&base.join("data"));
         snapshots.max_tree_files = 3;
-        let before = snapshots.take(&workspace).await.expect("a repository has no file limit");
+        let before = snapshots
+            .take(&workspace)
+            .await
+            .expect("a repository has no file limit");
         let counted = snapshots.git(&workspace, &["count-objects"]).await.unwrap();
-        assert!(counted.starts_with("0 objects"), "the repository's files were not copied in: {counted}");
+        assert!(
+            counted.starts_with("0 objects"),
+            "the repository's files were not copied in: {counted}"
+        );
 
         std::fs::write(workspace.join("a.txt"), "a changed\r\n").unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -608,12 +891,22 @@ mod tests {
         std::fs::write(workspace.join("b.txt"), "b one\r\nb two\r\n").unwrap();
         std::fs::write(workspace.join("new.txt"), "n\r\n").unwrap();
         let after = snapshots.take(&workspace).await.unwrap();
-        let mut changed: Vec<String> = snapshots.changes_between(&workspace, &before, &after).await.unwrap().changes.into_iter().map(|change| change.path).collect();
+        let mut changed: Vec<String> = snapshots
+            .changes_between(&workspace, &before, &after)
+            .await
+            .unwrap()
+            .changes
+            .into_iter()
+            .map(|change| change.path)
+            .collect();
         changed.sort();
         assert_eq!(changed, ["a.txt", "new.txt"]);
 
         let kept = snapshots.record(&workspace, "c.txt").await.unwrap().unwrap();
-        assert!(stored(&snapshots, &workspace, &kept), "a blob kept for undo lives in the shadow store, not only in the repository");
+        assert!(
+            stored(&snapshots, &workspace, &kept),
+            "a blob kept for undo lives in the shadow store, not only in the repository"
+        );
         std::fs::remove_dir_all(base).ok();
     }
 
@@ -626,9 +919,20 @@ mod tests {
             std::fs::write(workspace.join(name), name).unwrap();
         }
         assert_eq!(snapshots.take(&workspace).await, Err(Error::TooManyFiles));
-        assert!(snapshots.git(&workspace, &["count-objects"]).await.unwrap().starts_with("0 objects"), "git never ran over the tree");
+        assert!(
+            snapshots
+                .git(&workspace, &["count-objects"])
+                .await
+                .unwrap()
+                .starts_with("0 objects"),
+            "git never ran over the tree"
+        );
         std::fs::remove_file(workspace.join("d")).unwrap();
-        assert_eq!(snapshots.take(&workspace).await, Err(Error::TooManyFiles), "the verdict lasts while the engine runs");
+        assert_eq!(
+            snapshots.take(&workspace).await,
+            Err(Error::TooManyFiles),
+            "the verdict lasts while the engine runs"
+        );
     }
 
     #[tokio::test]
@@ -640,7 +944,10 @@ mod tests {
         std::fs::write(snapshots.git_dir(&workspace).join("index.lock"), "").unwrap();
         std::fs::write(workspace.join("a.txt"), "changed\n").unwrap();
         let after = snapshots.take(&workspace).await.unwrap();
-        assert_ne!(before.id, after.id, "the change was captured despite the stopped capture's lock file");
+        assert_ne!(
+            before.id, after.id,
+            "the change was captured despite the stopped capture's lock file"
+        );
     }
 
     #[tokio::test]
@@ -649,22 +956,39 @@ mod tests {
         let snapshots = Snapshots::new(&base.join("data"));
         std::fs::write(workspace.join("small.txt"), "s\n").unwrap();
         let before = snapshots.take(&workspace).await.unwrap();
-        std::fs::write(workspace.join("huge [1].bin"), vec![b'x'; MAX_RECORDED_BYTES as usize + 1]).unwrap();
+        std::fs::write(
+            workspace.join("huge [1].bin"),
+            vec![b'x'; MAX_RECORDED_BYTES as usize + 1],
+        )
+        .unwrap();
         std::fs::write(workspace.join("small.txt"), "changed\n").unwrap();
-        assert!(matches!(snapshots.record(&workspace, "huge [1].bin").await, Err(Error::TooLarge(_))));
+        assert!(matches!(
+            snapshots.record(&workspace, "huge [1].bin").await,
+            Err(Error::TooLarge(_))
+        ));
         let after = snapshots.take(&workspace).await.unwrap();
         let diff = snapshots.changes_between(&workspace, &before, &after).await.unwrap();
         let changed: Vec<String> = diff.changes.into_iter().map(|c| c.path).collect();
         assert_eq!(changed, ["small.txt"], "the large file is left out of the tree");
         assert_eq!(diff.unrecorded, ["huge [1].bin"]);
         let again = snapshots.take(&workspace).await.unwrap();
-        assert_eq!(snapshots.changes_between(&workspace, &after, &again).await.unwrap(), TreeChanges::default(), "an untouched large file is not news");
+        assert_eq!(
+            snapshots.changes_between(&workspace, &after, &again).await.unwrap(),
+            TreeChanges::default(),
+            "an untouched large file is not news"
+        );
         std::fs::remove_dir_all(base).ok();
     }
 
     fn stored(snapshots: &Snapshots, workspace: &Path, blob: &str) -> bool {
         let git_dir = snapshots.git_dir(workspace);
-        std::process::Command::new("git").arg("--git-dir").arg(git_dir).args(["cat-file", "-e", blob]).status().unwrap().success()
+        std::process::Command::new("git")
+            .arg("--git-dir")
+            .arg(git_dir)
+            .args(["cat-file", "-e", blob])
+            .status()
+            .unwrap()
+            .success()
     }
 
     #[tokio::test]
@@ -677,14 +1001,31 @@ mod tests {
         std::fs::write(workspace.join("grows.log"), &big).unwrap();
         let large = snapshots.take(&workspace).await.unwrap();
         let grew = snapshots.changes_between(&workspace, &small, &large).await.unwrap();
-        assert_eq!(grew, TreeChanges { changes: vec![], unrecorded: vec!["grows.log".into()] }, "not a deletion");
+        assert_eq!(
+            grew,
+            TreeChanges {
+                changes: vec![],
+                unrecorded: vec!["grows.log".into()]
+            },
+            "not a deletion"
+        );
         let big_blob = snapshots.current(&workspace, "grows.log").await.unwrap().unwrap();
-        assert!(!stored(&snapshots, &workspace, &big_blob), "the large content never enters the store");
+        assert!(
+            !stored(&snapshots, &workspace, &big_blob),
+            "the large content never enters the store"
+        );
 
         std::fs::write(workspace.join("grows.log"), "small again\n").unwrap();
         let shrunk = snapshots.take(&workspace).await.unwrap();
         let back = snapshots.changes_between(&workspace, &large, &shrunk).await.unwrap();
-        assert_eq!(back, TreeChanges { changes: vec![], unrecorded: vec!["grows.log".into()] }, "not a creation");
+        assert_eq!(
+            back,
+            TreeChanges {
+                changes: vec![],
+                unrecorded: vec!["grows.log".into()]
+            },
+            "not a creation"
+        );
         std::fs::write(workspace.join("grows.log"), "edited\n").unwrap();
         let edited = snapshots.take(&workspace).await.unwrap();
         let recorded = snapshots.changes_between(&workspace, &shrunk, &edited).await.unwrap();
@@ -696,7 +1037,14 @@ mod tests {
     fn hostile_attributes(snapshots: &Snapshots, workspace: &Path, attributes: &str) {
         std::fs::write(workspace.join(".gitattributes"), attributes).unwrap();
         let git_dir = snapshots.git_dir(workspace);
-        let config = |key: &str, value: &str| std::process::Command::new("git").arg("--git-dir").arg(&git_dir).args(["config", key, value]).status().unwrap();
+        let config = |key: &str, value: &str| {
+            std::process::Command::new("git")
+                .arg("--git-dir")
+                .arg(&git_dir)
+                .args(["config", key, value])
+                .status()
+                .unwrap()
+        };
         config("filter.upper.clean", "tr a-z A-Z");
         config("filter.upper.smudge", "cat");
     }
@@ -707,16 +1055,38 @@ mod tests {
         let snapshots = Snapshots::new(&base.join("data"));
         std::fs::write(workspace.join("seed"), "x").unwrap();
         snapshots.take(&workspace).await.unwrap();
-        hostile_attributes(&snapshots, &workspace, "* text=auto\n*.txt eol=lf ident filter=upper working-tree-encoding=UTF-16\n");
+        hostile_attributes(
+            &snapshots,
+            &workspace,
+            "* text=auto\n*.txt eol=lf ident filter=upper working-tree-encoding=UTF-16\n",
+        );
         std::fs::write(workspace.join("a.txt"), "one $Id$\r\ntwo\r\n").unwrap();
         std::fs::write(workspace.join("b.md"), "crlf\r\n").unwrap();
         let before = snapshots.take(&workspace).await.unwrap();
         std::fs::write(workspace.join("a.txt"), "three\r\n").unwrap();
         std::fs::write(workspace.join("b.md"), "changed\r\n").unwrap();
         let after = snapshots.take(&workspace).await.unwrap();
-        for change in snapshots.changes_between(&workspace, &before, &after).await.unwrap().changes {
-            assert_eq!(snapshots.current(&workspace, &change.path).await.unwrap(), change.after, "{} after is the file's exact bytes", change.path);
-            snapshots.put(&crate::store::tests::store(), &workspace, &change.path, change.before.as_deref()).await.unwrap();
+        for change in snapshots
+            .changes_between(&workspace, &before, &after)
+            .await
+            .unwrap()
+            .changes
+        {
+            assert_eq!(
+                snapshots.current(&workspace, &change.path).await.unwrap(),
+                change.after,
+                "{} after is the file's exact bytes",
+                change.path
+            );
+            snapshots
+                .put(
+                    &crate::store::tests::store(),
+                    &workspace,
+                    &change.path,
+                    change.before.as_deref(),
+                )
+                .await
+                .unwrap();
         }
         assert_eq!(std::fs::read(workspace.join("a.txt")).unwrap(), b"one $Id$\r\ntwo\r\n");
         assert_eq!(std::fs::read(workspace.join("b.md")).unwrap(), b"crlf\r\n");
@@ -733,12 +1103,21 @@ mod tests {
         std::fs::write(workspace.join("a.txt"), "lower\r\n").unwrap();
         std::fs::remove_file(snapshots.git_dir(&workspace).join("info/attributes")).unwrap();
         snapshots.git(&workspace, &["add", "-A"]).await.unwrap();
-        let converted = snapshots.git(&workspace, &["ls-files", "-s", "--", "a.txt"]).await.unwrap();
+        let converted = snapshots
+            .git(&workspace, &["ls-files", "-s", "--", "a.txt"])
+            .await
+            .unwrap();
 
         let tree = snapshots.take(&workspace).await.unwrap();
-        let entry = snapshots.git(&workspace, &["ls-tree", &tree.id, "--", "a.txt"]).await.unwrap();
+        let entry = snapshots
+            .git(&workspace, &["ls-tree", &tree.id, "--", "a.txt"])
+            .await
+            .unwrap();
         let exact = snapshots.current(&workspace, "a.txt").await.unwrap().unwrap();
-        assert!(entry.contains(&exact), "the stale converted entry is replaced: {converted} vs {entry}");
+        assert!(
+            entry.contains(&exact),
+            "the stale converted entry is replaced: {converted} vs {entry}"
+        );
         std::fs::remove_dir_all(base).ok();
     }
 
@@ -750,11 +1129,17 @@ mod tests {
         std::fs::write(workspace.join("dropped.txt"), "dropped\n").unwrap();
         let kept = snapshots.record(&workspace, "kept.txt").await.unwrap().unwrap();
         let dropped = snapshots.record(&workspace, "dropped.txt").await.unwrap().unwrap();
-        snapshots.prune_older_than(&workspace, std::slice::from_ref(&kept), "now").await.unwrap();
+        snapshots
+            .prune_older_than(&workspace, std::slice::from_ref(&kept), "now")
+            .await
+            .unwrap();
         assert!(snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok());
         assert!(snapshots.git(&workspace, &["cat-file", "-e", &dropped]).await.is_err());
         snapshots.prune(&workspace, &[]).await.unwrap();
-        assert!(snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok(), "the grace period protects recent objects");
+        assert!(
+            snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok(),
+            "the grace period protects recent objects"
+        );
         std::fs::remove_dir_all(base).ok();
     }
 
@@ -769,7 +1154,9 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join(format!("f{i}.txt")), vec![b'a' + (i % 26) as u8; 1024]).unwrap();
         }
-        let workspace = std::env::var("DRIFT_MEASURE_WORKSPACE").map(PathBuf::from).unwrap_or(generated.clone());
+        let workspace = std::env::var("DRIFT_MEASURE_WORKSPACE")
+            .map(PathBuf::from)
+            .unwrap_or(generated.clone());
         let snapshots = Snapshots::new(&base.join("data"));
         let time = |label: &'static str, started: std::time::Instant| eprintln!("{label}: {:?}", started.elapsed());
         let started = std::time::Instant::now();
@@ -778,11 +1165,16 @@ mod tests {
         for round in 0..3 {
             let started = std::time::Instant::now();
             snapshots.take(&workspace).await.unwrap();
-            time(["unchanged capture 1", "unchanged capture 2", "unchanged capture 3"][round], started);
+            time(
+                ["unchanged capture 1", "unchanged capture 2", "unchanged capture 3"][round],
+                started,
+            );
         }
         let started = std::time::Instant::now();
         let root = workspace.clone();
-        tokio::task::spawn_blocking(move || large_files(&root, MAX_TREE_FILES)).await.unwrap();
+        tokio::task::spawn_blocking(move || large_files(&root, MAX_TREE_FILES))
+            .await
+            .unwrap();
         time("size walk alone", started);
         std::fs::remove_dir_all(base).ok();
     }
@@ -801,14 +1193,22 @@ mod tests {
         std::fs::write(workspace.join("a.txt"), "two\n").unwrap();
         let store = crate::store::tests::store();
         snapshots.put(&store, &workspace, "a.txt", Some(&old)).await.unwrap();
-        assert_eq!(std::fs::read_to_string(workspace.join("a.txt")).unwrap(), "one\n", "history from before the binding is kept");
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("a.txt")).unwrap(),
+            "one\n",
+            "history from before the binding is kept"
+        );
 
         let moved = base.join("moved");
         std::fs::rename(&workspace, &moved).unwrap();
         snapshots.bind("ws_1", &moved);
         std::fs::write(moved.join("a.txt"), "three\n").unwrap();
         snapshots.put(&store, &moved, "a.txt", Some(&old)).await.unwrap();
-        assert_eq!(std::fs::read_to_string(moved.join("a.txt")).unwrap(), "one\n", "a workspace pointed elsewhere keeps its history");
+        assert_eq!(
+            std::fs::read_to_string(moved.join("a.txt")).unwrap(),
+            "one\n",
+            "a workspace pointed elsewhere keeps its history"
+        );
         std::fs::remove_dir_all(base).ok();
     }
 

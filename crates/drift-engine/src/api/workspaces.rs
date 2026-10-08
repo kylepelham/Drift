@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::Engine;
 use crate::event::Event;
 use crate::store::Workspace;
-use crate::Engine;
 
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct NewWorkspace {
@@ -65,10 +65,16 @@ pub async fn files(
     axum::extract::Path(id): axum::extract::Path<String>,
     axum::extract::Query(query): axum::extract::Query<FileQuery>,
 ) -> Result<Json<Vec<String>>, StatusCode> {
-    let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
+    let workspace = engine
+        .store
+        .workspace(&id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
     let root = crate::tool::canonical(std::path::Path::new(&workspace.path));
     let limit = query.limit.unwrap_or(20).clamp(1, 200);
-    let found = tokio::task::spawn_blocking(move || crate::tool::glob::search_names(&root, &query.query, limit)).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let found = tokio::task::spawn_blocking(move || crate::tool::glob::search_names(&root, &query.query, limit))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(found))
 }
 
@@ -81,19 +87,37 @@ pub struct Purged {
 /// Deletes every conversation of a workspace the user removed: the seven-day purge's last step,
 /// after which the shell forgets the workspace. 409 while it is in use again or one of them runs.
 #[utoipa::path(post, path = "/workspaces/{id}/purge", operation_id = "purgeWorkspace", responses((status = 200, body = Purged), (status = 404), (status = 409)))]
-pub async fn purge(State(engine): State<Arc<Engine>>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<Purged>, crate::api::error::ApiError> {
+pub async fn purge(
+    State(engine): State<Arc<Engine>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<Purged>, crate::api::error::ApiError> {
     use crate::api::error::ApiError;
     match engine.purge_removed_workspace(&id)? {
         crate::WorkspacePurge::Purged(deleted) => Ok(Json(Purged { deleted })),
-        crate::WorkspacePurge::InUse => Err(ApiError::new(StatusCode::CONFLICT, "in_use", "the workspace is in use; nothing was deleted")),
-        crate::WorkspacePurge::Busy => Err(ApiError::new(StatusCode::CONFLICT, "busy", "one of its conversations is running")),
+        crate::WorkspacePurge::InUse => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "in_use",
+            "the workspace is in use; nothing was deleted",
+        )),
+        crate::WorkspacePurge::Busy => Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "busy",
+            "one of its conversations is running",
+        )),
         crate::WorkspacePurge::Missing => Err(ApiError::not_found("workspace")),
     }
 }
 
 #[utoipa::path(get, path = "/workspaces/{id}/config", operation_id = "workspaceConfig", responses((status = 200, body = crate::config::Config), (status = 404)))]
-pub async fn config(State(engine): State<Arc<Engine>>, axum::extract::Path(id): axum::extract::Path<String>) -> Result<Json<crate::config::Config>, StatusCode> {
-    let workspace = engine.store.workspace(&id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
+pub async fn config(
+    State(engine): State<Arc<Engine>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Result<Json<crate::config::Config>, StatusCode> {
+    let workspace = engine
+        .store
+        .workspace(&id)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
     let path = crate::tool::canonical(std::path::Path::new(&workspace.path));
     let mut config = engine.workspace_config(&path);
     // As opencode starts a project's MCP servers when it opens, a workspace's stdio servers start when its config is first asked for.

@@ -11,16 +11,19 @@ use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store, UpdateDeadline};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
-use super::{AfterTool, BeforeTool, Compacting, CompactionEvent, Hook, PermissionAsk, PermissionDecision, PromptEvent, PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult, TurnEnd};
+use super::{
+    AfterTool, BeforeTool, Compacting, CompactionEvent, Hook, PermissionAsk, PermissionDecision, PromptEvent,
+    PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult, TurnEnd,
+};
 
 mod bindings {
     wasmtime::component::bindgen!({ world: "plugin", path: "wit", imports: { default: async }, exports: { default: async } });
 }
 
+use bindings::Plugin;
 use bindings::drift::plugin::host::{Host, Level};
 use bindings::drift::plugin::types as wit;
 use bindings::drift::plugin::{files, http, notify, process, store};
-use bindings::Plugin;
 
 /// A hook call gets this much of its own running time; host calls add theirs. The epoch ticks every 100 ms.
 const EPOCH_TICK: Duration = Duration::from_millis(100);
@@ -51,13 +54,19 @@ struct State {
 
 impl WasiView for State {
     fn ctx(&mut self) -> WasiCtxView<'_> {
-        WasiCtxView { ctx: &mut self.wasi, table: &mut self.table }
+        WasiCtxView {
+            ctx: &mut self.wasi,
+            table: &mut self.table,
+        }
     }
 }
 
 impl State {
     fn engine(&self) -> Result<std::sync::Arc<crate::Engine>, String> {
-        self.site.engine.upgrade().ok_or_else(|| "Drift is shutting down".to_owned())
+        self.site
+            .engine
+            .upgrade()
+            .ok_or_else(|| "Drift is shutting down".to_owned())
     }
 
     /// A workspace-relative path that stays inside the workspace, or why it may not be used.
@@ -105,13 +114,23 @@ impl Host for State {
 impl store::Host for State {
     async fn get(&mut self, key: String) -> Option<String> {
         let engine = self.engine().ok()?;
-        let values: serde_json::Map<String, Value> = engine.store.setting(&self.store_key()).ok().flatten().unwrap_or_default();
+        let values: serde_json::Map<String, Value> = engine
+            .store
+            .setting(&self.store_key())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         values.get(&key).and_then(Value::as_str).map(str::to_owned)
     }
 
     async fn set(&mut self, key: String, value: String) {
         let Ok(engine) = self.engine() else { return };
-        let mut values: serde_json::Map<String, Value> = engine.store.setting(&self.store_key()).ok().flatten().unwrap_or_default();
+        let mut values: serde_json::Map<String, Value> = engine
+            .store
+            .setting(&self.store_key())
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         values.insert(key, Value::String(value));
         let _ = engine.store.set_setting(&self.store_key(), &values);
     }
@@ -120,19 +139,34 @@ impl store::Host for State {
 impl files::Host for State {
     async fn read(&mut self, path: String) -> Result<String, String> {
         let file = self.inside(&path)?;
-        self.clocked(async { tokio::fs::read_to_string(&file).await.map_err(|error| format!("{path}: {error}")) }).await
+        self.clocked(async {
+            tokio::fs::read_to_string(&file)
+                .await
+                .map_err(|error| format!("{path}: {error}"))
+        })
+        .await
     }
 
     async fn write(&mut self, path: String, content: String) -> Result<(), String> {
         // A new folder is made for the file, once the path is known not to climb out of the workspace.
-        if Path::new(&path).components().any(|part| matches!(part, std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir)) {
+        if Path::new(&path).components().any(|part| {
+            matches!(
+                part,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir
+            )
+        }) {
             return Err(format!("{path} is outside the workspace"));
         }
         if let Some(parent) = self.workspace.join(&path).parent() {
             let _ = std::fs::create_dir_all(parent);
         }
         let file = self.inside(&path)?;
-        self.clocked(async { tokio::fs::write(&file, content).await.map_err(|error| format!("{path}: {error}")) }).await
+        self.clocked(async {
+            tokio::fs::write(&file, content)
+                .await
+                .map_err(|error| format!("{path}: {error}"))
+        })
+        .await
     }
 }
 
@@ -144,25 +178,45 @@ impl process::Host for State {
             // Resolved as a shell would, with the PATH the engine sees now, which the bare name alone is not on Windows.
             let resolved = crate::platform::process::which(&program).unwrap_or_else(|| PathBuf::from(&program));
             let mut command = tokio::process::Command::new(&resolved);
-            command.args(&args).current_dir(&workspace).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped()).kill_on_drop(true);
+            command
+                .args(&args)
+                .current_dir(&workspace)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .kill_on_drop(true);
             crate::platform::process::use_current_path(&mut command, &Default::default());
             crate::platform::process::prepare(&mut command);
             // No console window for the child, as the shell tool spawns.
             #[cfg(windows)]
             command.creation_flags(0x0800_0000);
             let child = command.spawn().map_err(|error| format!("{program}: {error}"))?;
-            let output = tokio::time::timeout(limit, child.wait_with_output()).await.map_err(|_| format!("{program} ran past {} ms", limit.as_millis()))?.map_err(|error| error.to_string())?;
-            Ok(process::Output { code: output.status.code().unwrap_or(-1), stdout: bounded(output.stdout, OUTPUT_BYTES), stderr: bounded(output.stderr, OUTPUT_BYTES) })
+            let output = tokio::time::timeout(limit, child.wait_with_output())
+                .await
+                .map_err(|_| format!("{program} ran past {} ms", limit.as_millis()))?
+                .map_err(|error| error.to_string())?;
+            Ok(process::Output {
+                code: output.status.code().unwrap_or(-1),
+                stdout: bounded(output.stdout, OUTPUT_BYTES),
+                stderr: bounded(output.stderr, OUTPUT_BYTES),
+            })
         })
         .await
     }
 }
 
 impl http::Host for State {
-    async fn fetch(&mut self, method: String, url: String, headers: Vec<(String, String)>, body: Option<String>) -> Result<http::Response, String> {
+    async fn fetch(
+        &mut self,
+        method: String,
+        url: String,
+        headers: Vec<(String, String)>,
+        body: Option<String>,
+    ) -> Result<http::Response, String> {
         let client = self.engine()?.http.clone();
         self.clocked(async move {
-            let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| format!("unknown method {method}"))?;
+            let method =
+                reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| format!("unknown method {method}"))?;
             let mut request = client.request(method, &url).timeout(FETCH_LIMIT);
             for (name, value) in headers {
                 request = request.header(name, value);
@@ -173,7 +227,10 @@ impl http::Host for State {
             let response = request.send().await.map_err(|error| error.to_string())?;
             let status = response.status().as_u16();
             let bytes = response.bytes().await.map_err(|error| error.to_string())?;
-            Ok(http::Response { status, body: bounded(bytes.to_vec(), BODY_BYTES) })
+            Ok(http::Response {
+                status,
+                body: bounded(bytes.to_vec(), BODY_BYTES),
+            })
         })
         .await
     }
@@ -188,7 +245,12 @@ impl notify::Host for State {
             notify::Tone::Warning => "warning",
             notify::Tone::Error => "error",
         };
-        engine.hub.publish(crate::event::Event::PluginNotice { plugin: self.name.clone(), title, body, tone: tone.into() });
+        engine.hub.publish(crate::event::Event::PluginNotice {
+            plugin: self.name.clone(),
+            title,
+            body,
+            tone: tone.into(),
+        });
     }
 }
 
@@ -209,19 +271,24 @@ impl Runtime {
         config.epoch_interruption(true);
         let mut cache = CacheConfig::new();
         cache.with_directory(cache_dir);
-        config.cache(Some(Cache::new(cache).map_err(|error| format!("plugin cache: {error}"))?));
+        config.cache(Some(
+            Cache::new(cache).map_err(|error| format!("plugin cache: {error}"))?,
+        ));
         let engine = Engine::new(&config).map_err(|error| format!("plugin runtime: {error}"))?;
         let ticker = engine.clone();
         std::thread::Builder::new()
             .name("drift-plugin-epoch".into())
-            .spawn(move || loop {
-                std::thread::sleep(EPOCH_TICK);
-                ticker.increment_epoch();
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(EPOCH_TICK);
+                    ticker.increment_epoch();
+                }
             })
             .map_err(|error| format!("plugin runtime: {error}"))?;
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_async(&mut linker).map_err(|error| format!("plugin runtime: {error}"))?;
-        Plugin::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state).map_err(|error| format!("plugin runtime: {error}"))?;
+        Plugin::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
+            .map_err(|error| format!("plugin runtime: {error}"))?;
         Ok(Self { engine, linker })
     }
 
@@ -233,17 +300,41 @@ impl Runtime {
             .map_err(|error| error.to_string())?
             .map_err(|error| format!("could not compile: {error}"))?;
         let capabilities = capabilities(&self.engine, &component);
-        let state = State { name: file_name(path), site, workspace: PathBuf::new(), deadline: Instant::now() + CALL_BUDGET, wasi: WasiCtxBuilder::new().inherit_stderr().build(), table: ResourceTable::new() };
+        let state = State {
+            name: file_name(path),
+            site,
+            workspace: PathBuf::new(),
+            deadline: Instant::now() + CALL_BUDGET,
+            wasi: WasiCtxBuilder::new().inherit_stderr().build(),
+            table: ResourceTable::new(),
+        };
         let mut store = Store::new(&self.engine, state);
         store.set_epoch_deadline(1);
-        store.epoch_deadline_callback(|store| if Instant::now() < store.data().deadline { Ok(UpdateDeadline::Continue(1)) } else { Err(wasmtime::Error::msg("the plugin ran past its time")) });
-        let bindings = Plugin::instantiate_async(&mut store, &component, &self.linker).await.map_err(|error| format!("could not instantiate: {error}"))?;
-        let name = bindings.call_name(&mut store).await.map_err(|error| format!("name(): {error}"))?;
+        store.epoch_deadline_callback(|store| {
+            if Instant::now() < store.data().deadline {
+                Ok(UpdateDeadline::Continue(1))
+            } else {
+                Err(wasmtime::Error::msg("the plugin ran past its time"))
+            }
+        });
+        let bindings = Plugin::instantiate_async(&mut store, &component, &self.linker)
+            .await
+            .map_err(|error| format!("could not instantiate: {error}"))?;
+        let name = bindings
+            .call_name(&mut store)
+            .await
+            .map_err(|error| format!("name(): {error}"))?;
         if name.trim().is_empty() {
             return Err("name() returned nothing".into());
         }
         store.data_mut().name.clone_from(&name);
-        Ok(WasmPlugin { name, path: path.to_path_buf(), capabilities, store: Mutex::new(store), bindings })
+        Ok(WasmPlugin {
+            name,
+            path: path.to_path_buf(),
+            capabilities,
+            store: Mutex::new(store),
+            bindings,
+        })
     }
 }
 
@@ -261,7 +352,9 @@ fn capabilities(engine: &Engine, component: &Component) -> Vec<String> {
 }
 
 fn file_name(path: &Path) -> String {
-    path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default()
+    path.file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// One loaded component; its calls run one at a time, each with a fresh time budget.
@@ -309,7 +402,10 @@ impl Hook for WasmPlugin {
             Ok(wit::BeforeTool::Replace(json)) => match serde_json::from_str(&json) {
                 Ok(input) => BeforeTool::Replace(input),
                 Err(error) => {
-                    eprintln!("drift: plugin {} replaced a tool input with something that is not JSON: {error}", self.name);
+                    eprintln!(
+                        "drift: plugin {} replaced a tool input with something that is not JSON: {error}",
+                        self.name
+                    );
                     BeforeTool::Allow
                 }
             },
@@ -343,7 +439,12 @@ impl Hook for WasmPlugin {
     }
 
     async fn prompt_submit(&self, prompt: &PromptEvent) -> PromptSubmit {
-        let input = wit::Prompt { session_id: prompt.session_id.clone(), workspace: prompt.workspace.clone(), agent: prompt.agent.clone(), text: prompt.text.clone() };
+        let input = wit::Prompt {
+            session_id: prompt.session_id.clone(),
+            workspace: prompt.workspace.clone(),
+            agent: prompt.agent.clone(),
+            text: prompt.text.clone(),
+        };
         let mut store = self.enter(&prompt.workspace).await;
         match self.bindings.call_prompt_submit(&mut *store, &input).await {
             Ok(wit::PromptSubmit::Keep) => PromptSubmit::Keep,
@@ -358,7 +459,12 @@ impl Hook for WasmPlugin {
     }
 
     async fn turn_end(&self, reply: &ReplyEvent) -> TurnEnd {
-        let input = wit::Reply { session_id: reply.session_id.clone(), workspace: reply.workspace.clone(), agent: reply.agent.clone(), text: reply.text.clone() };
+        let input = wit::Reply {
+            session_id: reply.session_id.clone(),
+            workspace: reply.workspace.clone(),
+            agent: reply.agent.clone(),
+            text: reply.text.clone(),
+        };
         let mut store = self.enter(&reply.workspace).await;
         match self.bindings.call_turn_end(&mut *store, &input).await {
             Ok(wit::TurnEnd::Accept) => TurnEnd::Accept,
@@ -395,7 +501,11 @@ impl Hook for WasmPlugin {
     }
 
     async fn compaction(&self, event: &CompactionEvent) -> Compacting {
-        let input = wit::Compaction { session_id: event.session_id.clone(), workspace: event.workspace.clone(), agent: event.agent.clone() };
+        let input = wit::Compaction {
+            session_id: event.session_id.clone(),
+            workspace: event.workspace.clone(),
+            agent: event.agent.clone(),
+        };
         let mut store = self.enter(&event.workspace).await;
         match self.bindings.call_compaction(&mut *store, &input).await {
             Ok(wit::Compacting::Proceed) => Compacting::Proceed,
@@ -408,7 +518,12 @@ impl Hook for WasmPlugin {
     }
 
     async fn session(&self, event: &SessionEvent) {
-        let session = wit::Session { id: event.id.clone(), workspace: event.workspace.clone(), title: event.title.clone(), agent: event.agent.clone() };
+        let session = wit::Session {
+            id: event.id.clone(),
+            workspace: event.workspace.clone(),
+            title: event.title.clone(),
+            agent: event.agent.clone(),
+        };
         let kind = match event.kind {
             SessionKind::Created => wit::SessionKind::Created,
             SessionKind::Running => wit::SessionKind::Running,
@@ -432,10 +547,18 @@ pub(super) mod tests {
     pub(super) fn guard() -> Option<PathBuf> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let target = root.join("target/plugins");
-        let built = std::process::Command::new("cargo").args(["build", "--release", "--target", "wasm32-wasip2"]).env("CARGO_TARGET_DIR", &target).current_dir(root.join("plugins/guard")).output().expect("cargo runs");
+        let built = std::process::Command::new("cargo")
+            .args(["build", "--release", "--target", "wasm32-wasip2"])
+            .env("CARGO_TARGET_DIR", &target)
+            .current_dir(root.join("plugins/guard"))
+            .output()
+            .expect("cargo runs");
         if !built.status.success() {
             let stderr = String::from_utf8_lossy(&built.stderr);
-            assert!(stderr.contains("wasm32-wasip2"), "guard plugin failed to build: {stderr}");
+            assert!(
+                stderr.contains("wasm32-wasip2"),
+                "guard plugin failed to build: {stderr}"
+            );
             eprintln!("skipping: the wasm32-wasip2 target is not installed");
             return None;
         }
@@ -443,11 +566,21 @@ pub(super) mod tests {
     }
 
     pub(super) fn site() -> Site {
-        Site { entry: "plugins/guard.wasm".into(), config: serde_json::json!({}), engine: Weak::new() }
+        Site {
+            entry: "plugins/guard.wasm".into(),
+            config: serde_json::json!({}),
+            engine: Weak::new(),
+        }
     }
 
     fn call(tool: &str, command: &str) -> ToolCall {
-        ToolCall { session_id: "s1".into(), workspace: "C:/work".into(), agent: "build".into(), tool: tool.into(), input: serde_json::json!({ "command": command }) }
+        ToolCall {
+            session_id: "s1".into(),
+            workspace: "C:/work".into(),
+            agent: "build".into(),
+            tool: tool.into(),
+            input: serde_json::json!({ "command": command }),
+        }
     }
 
     #[tokio::test]
@@ -457,16 +590,57 @@ pub(super) mod tests {
         let runtime = Runtime::new(&cache).unwrap();
         let plugin = runtime.load(&path, site()).await.unwrap();
         assert_eq!(plugin.name(), "guard");
-        assert_eq!(plugin.capabilities, vec!["notify".to_owned(), "process".to_owned()], "guard runs a program and tells the user, nothing else");
+        assert_eq!(
+            plugin.capabilities,
+            vec!["notify".to_owned(), "process".to_owned()],
+            "guard runs a program and tells the user, nothing else"
+        );
         assert_eq!(plugin.before_tool(&call("bash", "git status")).await, BeforeTool::Allow);
-        assert_eq!(plugin.before_tool(&call("bash", "git push --force origin main")).await, BeforeTool::Deny("`git push --force` rewrites history; ask the user to run it".into()));
-        assert_eq!(plugin.before_tool(&call("read", "git push --force")).await, BeforeTool::Allow);
-        let failed = ToolResult { session_id: "s1".into(), workspace: "C:/work".into(), agent: "build".into(), tool: "bash".into(), input: serde_json::json!({}), output: "boom".into(), failed: true };
-        assert_eq!(plugin.after_tool(&failed).await, AfterTool::Note("saw this command fail".into()));
-        assert_eq!(plugin.after_tool(&ToolResult { failed: false, ..failed }).await, AfterTool::Keep);
-        plugin.session(&SessionEvent { id: "s1".into(), workspace: "C:/work".into(), title: String::new(), agent: "build".into(), kind: SessionKind::Created }).await;
+        assert_eq!(
+            plugin.before_tool(&call("bash", "git push --force origin main")).await,
+            BeforeTool::Deny("`git push --force` rewrites history; ask the user to run it".into())
+        );
+        assert_eq!(
+            plugin.before_tool(&call("read", "git push --force")).await,
+            BeforeTool::Allow
+        );
+        let failed = ToolResult {
+            session_id: "s1".into(),
+            workspace: "C:/work".into(),
+            agent: "build".into(),
+            tool: "bash".into(),
+            input: serde_json::json!({}),
+            output: "boom".into(),
+            failed: true,
+        };
+        assert_eq!(
+            plugin.after_tool(&failed).await,
+            AfterTool::Note("saw this command fail".into())
+        );
+        assert_eq!(
+            plugin
+                .after_tool(&ToolResult {
+                    failed: false,
+                    ..failed
+                })
+                .await,
+            AfterTool::Keep
+        );
+        plugin
+            .session(&SessionEvent {
+                id: "s1".into(),
+                workspace: "C:/work".into(),
+                title: String::new(),
+                agent: "build".into(),
+                kind: SessionKind::Created,
+            })
+            .await;
         // A second load of the same file comes from the cache the first one wrote.
-        assert!(std::fs::read_dir(&cache).map(|entries| entries.count() > 0).unwrap_or(false));
+        assert!(
+            std::fs::read_dir(&cache)
+                .map(|entries| entries.count() > 0)
+                .unwrap_or(false)
+        );
         runtime.load(&path, site()).await.unwrap();
         let _ = std::fs::remove_dir_all(&cache);
     }
@@ -483,13 +657,33 @@ pub(super) mod tests {
         let fails_when_marked = "process.exit(require('fs').existsSync(process.argv[1]) ? 1 : 0)";
         site.config = serde_json::json!({ "test": ["node", "-e", fails_when_marked, failing.to_string_lossy()] });
         let plugin = runtime.load(&path, site).await.unwrap();
-        let reply = |text: &str| ReplyEvent { session_id: "s1".into(), workspace: workspace.to_string_lossy().into_owned(), agent: "build".into(), text: text.into() };
-        assert_eq!(plugin.turn_end(&reply("Changed nothing.")).await, TurnEnd::Accept, "a reply without the trigger runs nothing");
-        assert_eq!(plugin.turn_end(&reply("Done. @guard test")).await, TurnEnd::Note("tests passed".into()));
+        let reply = |text: &str| ReplyEvent {
+            session_id: "s1".into(),
+            workspace: workspace.to_string_lossy().into_owned(),
+            agent: "build".into(),
+            text: text.into(),
+        };
+        assert_eq!(
+            plugin.turn_end(&reply("Changed nothing.")).await,
+            TurnEnd::Accept,
+            "a reply without the trigger runs nothing"
+        );
+        assert_eq!(
+            plugin.turn_end(&reply("Done. @guard test")).await,
+            TurnEnd::Note("tests passed".into())
+        );
         std::fs::write(&failing, "").unwrap();
         let outcome = plugin.turn_end(&reply("Done. @guard test")).await;
-        assert!(matches!(&outcome, TurnEnd::Continue(reason) if reason.contains("exit code 1")), "{outcome:?}");
-        let prompt = PromptEvent { session_id: "s1".into(), workspace: workspace.to_string_lossy().into_owned(), agent: "build".into(), text: "hello".into() };
+        assert!(
+            matches!(&outcome, TurnEnd::Continue(reason) if reason.contains("exit code 1")),
+            "{outcome:?}"
+        );
+        let prompt = PromptEvent {
+            session_id: "s1".into(),
+            workspace: workspace.to_string_lossy().into_owned(),
+            agent: "build".into(),
+            text: "hello".into(),
+        };
         assert_eq!(plugin.prompt_submit(&prompt).await, PromptSubmit::Keep);
         let _ = std::fs::remove_dir_all(&cache);
     }
@@ -500,7 +694,12 @@ pub(super) mod tests {
         let bad = cache.join("bad.wasm");
         std::fs::create_dir_all(&cache).unwrap();
         std::fs::write(&bad, b"not wasm").unwrap();
-        let error = Runtime::new(&cache).unwrap().load(&bad, site()).await.err().expect("refused");
+        let error = Runtime::new(&cache)
+            .unwrap()
+            .load(&bad, site())
+            .await
+            .err()
+            .expect("refused");
         assert!(error.starts_with("could not compile:"), "{error}");
         let _ = std::fs::remove_dir_all(&cache);
     }
@@ -517,14 +716,35 @@ mod load_tests {
         let hooks = Hooks::default();
         let entries = || {
             vec![
-                Listed { entry: "plugins/guard.wasm".to_owned(), path: Ok(path.clone()), config: serde_json::json!({}) },
-                Listed { entry: "plugins/x.js".to_owned(), path: Err("a plugin is a .wasm component".to_owned()), config: serde_json::json!({}) },
+                Listed {
+                    entry: "plugins/guard.wasm".to_owned(),
+                    path: Ok(path.clone()),
+                    config: serde_json::json!({}),
+                },
+                Listed {
+                    entry: "plugins/x.js".to_owned(),
+                    path: Err("a plugin is a .wasm component".to_owned()),
+                    config: serde_json::json!({}),
+                },
             ]
         };
-        let listed = hooks.load(&cache, entries(), &["plugins/guard.wasm".to_owned()], std::sync::Weak::new()).await;
+        let listed = hooks
+            .load(
+                &cache,
+                entries(),
+                &["plugins/guard.wasm".to_owned()],
+                std::sync::Weak::new(),
+            )
+            .await;
         assert_eq!(listed.len(), 2);
-        assert_eq!((listed[0].name.as_str(), listed[0].enabled, listed[0].error.as_deref()), ("guard", false, None));
-        assert_eq!((listed[1].name.as_str(), listed[1].enabled, listed[1].error.as_deref()), ("x", true, Some("a plugin is a .wasm component")));
+        assert_eq!(
+            (listed[0].name.as_str(), listed[0].enabled, listed[0].error.as_deref()),
+            ("guard", false, None)
+        );
+        assert_eq!(
+            (listed[1].name.as_str(), listed[1].enabled, listed[1].error.as_deref()),
+            ("x", true, Some("a plugin is a .wasm component"))
+        );
         assert!(hooks.is_empty(), "a plugin that is off is not consulted");
         let listed = hooks.load(&cache, entries(), &[], std::sync::Weak::new()).await;
         assert!(listed[0].enabled && !hooks.is_empty());

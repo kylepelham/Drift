@@ -52,7 +52,10 @@ fn decode(frame: &[u8]) -> Result<Message, String> {
     if headers_end > end {
         return Err("event-stream headers overrun the frame".into());
     }
-    Ok(Message { headers: headers(&frame[PRELUDE..headers_end])?, payload: frame[headers_end..end].to_vec() })
+    Ok(Message {
+        headers: headers(&frame[PRELUDE..headers_end])?,
+        payload: frame[headers_end..end].to_vec(),
+    })
 }
 
 fn headers(mut bytes: &[u8]) -> Result<HashMap<String, String>, String> {
@@ -113,8 +116,17 @@ mod tests {
 
     #[test]
     fn frames_split_anywhere_decode_whole() {
-        let one = frame(&[(":message-type", "event"), (":event-type", "chunk")], br#"{"bytes":"e30="}"#);
-        let two = frame(&[(":message-type", "exception"), (":exception-type", "throttlingException")], br#"{"message":"slow down"}"#);
+        let one = frame(
+            &[(":message-type", "event"), (":event-type", "chunk")],
+            br#"{"bytes":"e30="}"#,
+        );
+        let two = frame(
+            &[
+                (":message-type", "exception"),
+                (":exception-type", "throttlingException"),
+            ],
+            br#"{"message":"slow down"}"#,
+        );
         let stream: Vec<u8> = one.iter().chain(two.iter()).copied().collect();
         for split in 0..stream.len() {
             let mut decoder = Decoder::default();

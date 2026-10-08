@@ -1,10 +1,10 @@
 //! `mcp_resources` and `mcp_read_resource`: what connected servers publish as resources, listed and
 //! read. Offered only while a connected server serves any; reading changes nothing, so neither asks.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::llm::ToolSpec;
-use crate::tool::{required_str, Ask, Context, Output, RunFuture, Tool, ToolError};
+use crate::tool::{Ask, Context, Output, RunFuture, Tool, ToolError, required_str};
 
 pub struct ListResources;
 pub struct ReadResource;
@@ -33,13 +33,31 @@ impl Tool for ListResources {
             };
             let mut lines = Vec::new();
             for server in &servers {
-                for resource in ctx.engine.mcp.list_resources(server, Some(&ctx.workspace)).await.map_err(ToolError)? {
-                    let about = resource.description.as_deref().map(|d| format!(": {d}")).unwrap_or_default();
-                    let kind = resource.mime_type.as_deref().map(|m| format!(" ({m})")).unwrap_or_default();
+                for resource in ctx
+                    .engine
+                    .mcp
+                    .list_resources(server, Some(&ctx.workspace))
+                    .await
+                    .map_err(ToolError)?
+                {
+                    let about = resource
+                        .description
+                        .as_deref()
+                        .map(|d| format!(": {d}"))
+                        .unwrap_or_default();
+                    let kind = resource
+                        .mime_type
+                        .as_deref()
+                        .map(|m| format!(" ({m})"))
+                        .unwrap_or_default();
                     lines.push(format!("{server} {} {}{kind}{about}", resource.uri, resource.name));
                 }
             }
-            let output = if lines.is_empty() { "No resources.".to_string() } else { lines.join("\n") };
+            let output = if lines.is_empty() {
+                "No resources.".to_string()
+            } else {
+                lines.join("\n")
+            };
             Ok(Output::new(format!("Resources of {}", servers.join(", ")), output))
         })
     }
@@ -68,12 +86,21 @@ impl Tool for ReadResource {
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let (server, uri) = (required_str(&input, "server")?, required_str(&input, "uri")?);
-            let answer = ctx.engine.mcp.read_resource(server, Some(&ctx.workspace), uri).await.map_err(ToolError)?;
+            let answer = ctx
+                .engine
+                .mcp
+                .read_resource(server, Some(&ctx.workspace), uri)
+                .await
+                .map_err(ToolError)?;
             let mut metadata = json!({ "server": server, "uri": uri });
             if !answer.images.is_empty() {
                 metadata["images"] = crate::tool::image::metadata(&answer.images);
             }
-            Ok(Output { title: format!("{server}: {uri}"), output: answer.text, metadata })
+            Ok(Output {
+                title: format!("{server}: {uri}"),
+                output: answer.text,
+                metadata,
+            })
         })
     }
 }

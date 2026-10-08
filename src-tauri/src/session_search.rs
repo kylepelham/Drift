@@ -38,10 +38,9 @@ pub struct SessionMatch {
 }
 
 fn open(database: &Path) -> Result<Connection, String> {
-    let conn = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|error| error.to_string())?;
-    conn.busy_timeout(BUSY_TIMEOUT)
-        .map_err(|error| error.to_string())?;
+    let conn =
+        Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| error.to_string())?;
+    conn.busy_timeout(BUSY_TIMEOUT).map_err(|error| error.to_string())?;
     Ok(conn)
 }
 
@@ -84,10 +83,13 @@ pub(crate) fn excerpt(text: &str, query: &str) -> String {
     };
     // Lowercasing can change UTF-8 widths or expand a character. Map the match back before cropping.
     let mut lowercase_end = 0;
-    let start_chars = collapsed.chars().position(|character| {
-        lowercase_end += character.to_lowercase().map(char::len_utf8).sum::<usize>();
-        lowercase_end > found
-    }).unwrap_or(0);
+    let start_chars = collapsed
+        .chars()
+        .position(|character| {
+            lowercase_end += character.to_lowercase().map(char::len_utf8).sum::<usize>();
+            lowercase_end > found
+        })
+        .unwrap_or(0);
     let begin = start_chars.saturating_sub(EXCERPT_RADIUS);
     let length = query.chars().count() + EXCERPT_RADIUS * 2;
     let mut window: String = collapsed.chars().skip(begin).take(length).collect();
@@ -108,11 +110,7 @@ pub fn search(database: &Path, query: &str, directory: &str) -> Result<Vec<Sessi
     search_in(&open(database)?, query, directory)
 }
 
-pub(crate) fn search_in(
-    conn: &Connection,
-    query: &str,
-    directory: &str,
-) -> Result<Vec<SessionMatch>, String> {
+pub(crate) fn search_in(conn: &Connection, query: &str, directory: &str) -> Result<Vec<SessionMatch>, String> {
     let trimmed = query.trim();
     if trimmed.chars().count() < MIN_QUERY_CHARS {
         return Ok(Vec::new());
@@ -160,8 +158,7 @@ pub(crate) fn search_in(
 
     let mut matches: Vec<SessionMatch> = Vec::new();
     for row in rows {
-        let (session_id, message_id, title, directory, updated_at, data) =
-            row.map_err(|error| error.to_string())?;
+        let (session_id, message_id, title, directory, updated_at, data) = row.map_err(|error| error.to_string())?;
         if matches.iter().any(|found| found.session_id == session_id) {
             continue;
         }

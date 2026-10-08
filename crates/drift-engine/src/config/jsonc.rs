@@ -84,7 +84,10 @@ mod tests {
         assert_eq!(value["permissions"][0]["pattern"], "git push*");
         assert_eq!(value["permissions"][0]["note"], "a // in a string, and /* this */");
         let escaped = r#"{ "a": "quote \" then // not a comment", }"#;
-        assert_eq!(serde_json::from_str::<serde_json::Value>(&strip(escaped)).unwrap()["a"], "quote \" then // not a comment");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&strip(escaped)).unwrap()["a"],
+            "quote \" then // not a comment"
+        );
         assert_eq!(strip(r#"[1, 2]"#), "[1, 2]", "a comma between values stays");
     }
 }

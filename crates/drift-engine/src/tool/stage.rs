@@ -24,14 +24,22 @@ pub(crate) async fn replace(store: &Store, path: &Path, bytes: &[u8]) -> io::Res
     }
     let settled = {
         let pair = pair.clone();
-        tokio::task::spawn_blocking(move || settle(&pair)).await.map_err(io::Error::other)?
+        tokio::task::spawn_blocking(move || settle(&pair))
+            .await
+            .map_err(io::Error::other)?
     };
     // An unsettled pair keeps its record, so the next start recovers it.
     if settled.is_ok() {
         let _ = store.forget_replacements(&[&pair.staged]);
     }
     match (swapped, settled) {
-        (Err(error), Err(stuck)) => Err(io::Error::new(error.kind(), format!("{error}; the original could not be put back ({stuck}) and is kept at {}", pair.backup))),
+        (Err(error), Err(stuck)) => Err(io::Error::new(
+            error.kind(),
+            format!(
+                "{error}; the original could not be put back ({stuck}) and is kept at {}",
+                pair.backup
+            ),
+        )),
         (swapped, _) => swapped,
     }
 }
@@ -52,7 +60,11 @@ pub(crate) fn recover_leftovers(store: &Store) -> usize {
 
 /// Moves a backup back over a missing destination, keeping both siblings if that fails, then removes them.
 fn settle(pair: &StagedReplacement) -> io::Result<()> {
-    let (destination, staged, backup) = (Path::new(&pair.destination), Path::new(&pair.staged), Path::new(&pair.backup));
+    let (destination, staged, backup) = (
+        Path::new(&pair.destination),
+        Path::new(&pair.staged),
+        Path::new(&pair.backup),
+    );
     if !pair.swapped && !present(destination)? && present(backup)? {
         #[cfg(test)]
         tests::fault(tests::Fault::Restore, destination)?;
@@ -80,25 +92,56 @@ fn remove_if_present(path: &Path) -> io::Result<()> {
 }
 
 fn beside(path: &Path) -> StagedReplacement {
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let tag = crate::random_hex(4);
-    let sibling = |extension: &str| path.with_file_name(format!(".{name}.drift-{tag}.{extension}")).to_string_lossy().into_owned();
-    StagedReplacement { destination: path.to_string_lossy().into_owned(), staged: sibling("tmp"), backup: sibling("bak"), swapped: false }
+    let sibling = |extension: &str| {
+        path.with_file_name(format!(".{name}.drift-{tag}.{extension}"))
+            .to_string_lossy()
+            .into_owned()
+    };
+    StagedReplacement {
+        destination: path.to_string_lossy().into_owned(),
+        staged: sibling("tmp"),
+        backup: sibling("bak"),
+        swapped: false,
+    }
 }
 
 /// Exactly what [`beside`] would make for this destination, with one tag.
 fn is_pair(pair: &StagedReplacement) -> bool {
     let destination = Path::new(&pair.destination);
-    let Some(name) = destination.file_name().map(|n| n.to_string_lossy().into_owned()) else { return false };
-    let Some(tag) = Path::new(&pair.staged).file_name().and_then(|n| n.to_string_lossy().strip_prefix(&format!(".{name}.drift-")).and_then(|rest| rest.strip_suffix(".tmp")).map(str::to_owned)) else {
+    let Some(name) = destination.file_name().map(|n| n.to_string_lossy().into_owned()) else {
         return false;
     };
-    let expected = |extension: &str| destination.with_file_name(format!(".{name}.drift-{tag}.{extension}")).to_string_lossy().into_owned();
-    tag.len() == 8 && tag.chars().all(|c| c.is_ascii_hexdigit()) && pair.staged == expected("tmp") && pair.backup == expected("bak")
+    let Some(tag) = Path::new(&pair.staged).file_name().and_then(|n| {
+        n.to_string_lossy()
+            .strip_prefix(&format!(".{name}.drift-"))
+            .and_then(|rest| rest.strip_suffix(".tmp"))
+            .map(str::to_owned)
+    }) else {
+        return false;
+    };
+    let expected = |extension: &str| {
+        destination
+            .with_file_name(format!(".{name}.drift-{tag}.{extension}"))
+            .to_string_lossy()
+            .into_owned()
+    };
+    tag.len() == 8
+        && tag.chars().all(|c| c.is_ascii_hexdigit())
+        && pair.staged == expected("tmp")
+        && pair.backup == expected("bak")
 }
 
 async fn swap(pair: &StagedReplacement, bytes: &[u8], original: Option<std::fs::Metadata>) -> io::Result<()> {
-    let (staged, backup, path) = (Path::new(&pair.staged), Path::new(&pair.backup), Path::new(&pair.destination));
+    let (staged, backup, path) = (
+        Path::new(&pair.staged),
+        Path::new(&pair.backup),
+        Path::new(&pair.destination),
+    );
     tokio::fs::write(staged, bytes).await?;
     #[cfg(test)]
     tests::fault(tests::Fault::AfterStaging, path)?;
@@ -119,7 +162,9 @@ async fn replace_existing(staged: &Path, _backup: &Path, path: &Path, meta: std:
 #[cfg(windows)]
 async fn replace_existing(staged: &Path, backup: &Path, path: &Path, _meta: std::fs::Metadata) -> io::Result<()> {
     let (staged, backup, path) = (staged.to_path_buf(), backup.to_path_buf(), path.to_path_buf());
-    tokio::task::spawn_blocking(move || windows::replace_file(&path, &staged, &backup)).await.map_err(io::Error::other)?
+    tokio::task::spawn_blocking(move || windows::replace_file(&path, &staged, &backup))
+        .await
+        .map_err(io::Error::other)?
 }
 
 #[cfg(test)]
@@ -164,7 +209,12 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn leftovers(dir: &Path) -> Vec<String> {
-        std::fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains(".drift-")).collect()
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".drift-"))
+            .collect()
     }
 
     /// What a crash halfway through a Windows swap leaves: the original at the backup name, the new bytes staged, no destination.
@@ -194,7 +244,13 @@ pub(crate) mod tests {
         let file = dir.join("a.txt");
         std::fs::write(&file, "one").unwrap();
         inject(Fault::AfterStaging, &file);
-        assert!(replace(&store, &file, b"two").await.unwrap_err().to_string().contains("injected"));
+        assert!(
+            replace(&store, &file, b"two")
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("injected")
+        );
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "one");
         assert!(leftovers(&dir).is_empty() && store.replacements().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
@@ -244,7 +300,10 @@ pub(crate) mod tests {
         inject(Fault::RemoveBackup, &file);
         replace(&store, &file, b"new").await.unwrap();
         let [left] = store.replacements().unwrap().try_into().unwrap();
-        assert!(left.swapped && Path::new(&left.backup).exists(), "kept on record, marked as past the swap");
+        assert!(
+            left.swapped && Path::new(&left.backup).exists(),
+            "kept on record, marked as past the swap"
+        );
         std::fs::remove_file(&file).unwrap();
         drop(store);
         let store = reopen(&dir);
@@ -259,7 +318,14 @@ pub(crate) mod tests {
         let dir = sandbox("engine");
         let file = dir.join("a.txt");
         stranded(&reopen(&dir), &file, "the original");
-        let engine = crate::Engine::open_with(&dir.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+        let engine = crate::Engine::open_with(
+            &dir.join("data"),
+            crate::Options {
+                file_credentials: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "the original");
         assert!(engine.store.replacements().unwrap().is_empty());
         drop(engine);
@@ -274,8 +340,15 @@ pub(crate) mod tests {
         inject(Fault::Restore, &file);
         let store = reopen(&dir);
         assert_eq!(recover_leftovers(&store), 0);
-        assert!(!file.exists() && Path::new(&pair.backup).exists() && Path::new(&pair.staged).exists(), "nothing deleted");
-        assert_eq!(store.replacements().unwrap(), std::slice::from_ref(&pair), "still on record");
+        assert!(
+            !file.exists() && Path::new(&pair.backup).exists() && Path::new(&pair.staged).exists(),
+            "nothing deleted"
+        );
+        assert_eq!(
+            store.replacements().unwrap(),
+            std::slice::from_ref(&pair),
+            "still on record"
+        );
         drop(store);
 
         let store = reopen(&dir);
@@ -299,15 +372,27 @@ pub(crate) mod tests {
         std::fs::write(&file, "new").unwrap();
         let unrecorded = dir.join(".b.txt.drift-89abcdef.tmp");
         std::fs::write(&unrecorded, "x").unwrap();
-        let foreign = StagedReplacement { destination: file.to_string_lossy().into(), staged: dir.join("notes.tmp").to_string_lossy().into(), backup: dir.join("notes.bak").to_string_lossy().into(), swapped: false };
+        let foreign = StagedReplacement {
+            destination: file.to_string_lossy().into(),
+            staged: dir.join("notes.tmp").to_string_lossy().into(),
+            backup: dir.join("notes.bak").to_string_lossy().into(),
+            swapped: false,
+        };
         std::fs::write(&foreign.staged, "keep").unwrap();
         store.record_replacement(&foreign).unwrap();
         drop(store);
         let store = reopen(&dir);
         assert_eq!(recover_leftovers(&store), 2);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new", "the destination is in place, so the backup was the old copy");
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            "new",
+            "the destination is in place, so the backup was the old copy"
+        );
         assert!(!Path::new(&pair.backup).exists() && !Path::new(&pair.staged).exists());
-        assert!(unrecorded.exists() && Path::new(&foreign.staged).exists(), "never recorded, or not a name the engine gives");
+        assert!(
+            unrecorded.exists() && Path::new(&foreign.staged).exists(),
+            "never recorded, or not a name the engine gives"
+        );
         assert!(store.replacements().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -315,12 +400,27 @@ pub(crate) mod tests {
     #[cfg(windows)]
     fn security(file: &Path) -> String {
         let saved = file.with_extension("acl");
-        let status = std::process::Command::new("icacls").arg(file).arg("/save").arg(&saved).output().unwrap().status;
+        let status = std::process::Command::new("icacls")
+            .arg(file)
+            .arg("/save")
+            .arg(&saved)
+            .output()
+            .unwrap()
+            .status;
         assert!(status.success());
         let raw = std::fs::read(&saved).unwrap();
         let _ = std::fs::remove_file(&saved);
-        let units: Vec<u16> = raw.as_chunks::<2>().0.iter().map(|pair| u16::from_le_bytes(*pair)).collect();
-        String::from_utf16_lossy(&units).lines().nth(1).unwrap_or_default().to_string()
+        let units: Vec<u16> = raw
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u16::from_le_bytes(*pair))
+            .collect();
+        String::from_utf16_lossy(&units)
+            .lines()
+            .nth(1)
+            .unwrap_or_default()
+            .to_string()
     }
 
     #[cfg(windows)]
@@ -329,10 +429,18 @@ pub(crate) mod tests {
         let (store, dir) = (store(), sandbox("acl"));
         let file = dir.join("a.txt");
         std::fs::write(&file, "one").unwrap();
-        let granted = std::process::Command::new("icacls").arg(&file).arg("/grant").arg("*S-1-5-32-545:(R)").output().unwrap();
+        let granted = std::process::Command::new("icacls")
+            .arg(&file)
+            .arg("/grant")
+            .arg("*S-1-5-32-545:(R)")
+            .output()
+            .unwrap();
         assert!(granted.status.success());
         let before = security(&file);
-        assert!(before.contains(";;;BU)"), "the explicit entry is there to keep: {before}");
+        assert!(
+            before.contains(";;;BU)"),
+            "the explicit entry is there to keep: {before}"
+        );
         replace(&store, &file, b"two").await.unwrap();
         assert_eq!(security(&file), before);
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "two");
@@ -347,7 +455,11 @@ pub(crate) mod tests {
         let file = dir.join("a.txt");
         std::fs::write(&file, "one").unwrap();
         // Read and write sharing, but not delete: what many editors and indexers hold.
-        let held = std::fs::OpenOptions::new().read(true).share_mode(0x1 | 0x2).open(&file).unwrap();
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0x1 | 0x2)
+            .open(&file)
+            .unwrap();
         let error = replace(&store, &file, b"two").await.unwrap_err();
         assert!(error.to_string().contains("another program"), "{error}");
         drop(held);
@@ -363,7 +475,10 @@ mod windows {
     use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
 
-    use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_UNABLE_TO_MOVE_REPLACEMENT_2, ERROR_UNABLE_TO_REMOVE_REPLACED};
+    use windows_sys::Win32::Foundation::{
+        ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_UNABLE_TO_MOVE_REPLACEMENT_2,
+        ERROR_UNABLE_TO_REMOVE_REPLACED,
+    };
     use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
 
     fn wide(path: &Path) -> Vec<u16> {
@@ -373,7 +488,16 @@ mod windows {
     pub(super) fn replace_file(path: &Path, staged: &Path, backup: &Path) -> io::Result<()> {
         let (replaced, replacement, saved) = (wide(path), wide(staged), wide(backup));
         // SAFETY: three NUL-terminated paths that outlive the call; the reserved pointers are null.
-        let done = unsafe { ReplaceFileW(replaced.as_ptr(), replacement.as_ptr(), saved.as_ptr(), 0, std::ptr::null(), std::ptr::null()) };
+        let done = unsafe {
+            ReplaceFileW(
+                replaced.as_ptr(),
+                replacement.as_ptr(),
+                saved.as_ptr(),
+                0,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        };
         if done != 0 {
             return Ok(());
         }
@@ -383,8 +507,17 @@ mod windows {
         if code == ERROR_UNABLE_TO_MOVE_REPLACEMENT_2 {
             let _ = std::fs::rename(backup, path);
         }
-        if [ERROR_SHARING_VIOLATION, ERROR_ACCESS_DENIED, ERROR_UNABLE_TO_REMOVE_REPLACED].contains(&code) {
-            return Err(io::Error::new(error.kind(), format!("{error} (another program may have it open without allowing it to be replaced)")));
+        if [
+            ERROR_SHARING_VIOLATION,
+            ERROR_ACCESS_DENIED,
+            ERROR_UNABLE_TO_REMOVE_REPLACED,
+        ]
+        .contains(&code)
+        {
+            return Err(io::Error::new(
+                error.kind(),
+                format!("{error} (another program may have it open without allowing it to be replaced)"),
+            ));
         }
         Err(error)
     }

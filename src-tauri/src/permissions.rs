@@ -1,7 +1,7 @@
 use crate::store::Store;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc,
+    atomic::{AtomicBool, Ordering},
 };
 use tauri::{Manager, State};
 
@@ -58,15 +58,11 @@ pub(crate) fn voice_dictation_set_enabled(
     enabled: bool,
 ) -> Result<(), String> {
     if enabled {
-        store
-            .save_dictation_enabled(true)
-            .map_err(|error| error.to_string())?;
+        store.save_dictation_enabled(true).map_err(|error| error.to_string())?;
         consent.set(true);
     } else {
         consent.set(false);
-        store
-            .save_dictation_enabled(false)
-            .map_err(|error| error.to_string())?;
+        store.save_dictation_enabled(false).map_err(|error| error.to_string())?;
     }
     Ok(())
 }
@@ -92,12 +88,10 @@ fn attach_webview2_handler(
     consent: DictationConsent,
 ) -> windows::core::Result<()> {
     use webview2_com::{
-        take_pwstr,
         Microsoft::Web::WebView2::Win32::{
-            COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
-            COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+            COREWEBVIEW2_PERMISSION_KIND, COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
         },
-        PermissionRequestedEventHandler,
+        PermissionRequestedEventHandler, take_pwstr,
     };
     use windows::core::PWSTR;
 
@@ -115,9 +109,7 @@ fn attach_webview2_handler(
             } else {
                 WebPermissionKind::Other
             };
-            if permission_decision(&uri, kind, consent.enabled(), app_origins())
-                == PermissionDecision::Allow
-            {
+            if permission_decision(&uri, kind, consent.enabled(), app_origins()) == PermissionDecision::Allow {
                 args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
             }
             Ok(())
@@ -156,22 +148,10 @@ mod tests {
             PermissionDecision::Allow
         );
         for (uri, kind, consent) in [
-            (
-                "http://tauri.localhost",
-                WebPermissionKind::Microphone,
-                false,
-            ),
+            ("http://tauri.localhost", WebPermissionKind::Microphone, false),
             ("https://example.com", WebPermissionKind::Microphone, true),
-            (
-                "http://tauri.localhost.evil.test",
-                WebPermissionKind::Microphone,
-                true,
-            ),
-            (
-                "http://tauri.localhost:5180",
-                WebPermissionKind::Microphone,
-                true,
-            ),
+            ("http://tauri.localhost.evil.test", WebPermissionKind::Microphone, true),
+            ("http://tauri.localhost:5180", WebPermissionKind::Microphone, true),
             ("http://tauri.localhost", WebPermissionKind::Other, true),
             ("not a url", WebPermissionKind::Microphone, true),
         ] {

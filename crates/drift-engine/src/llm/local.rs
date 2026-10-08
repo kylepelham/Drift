@@ -13,7 +13,10 @@ use super::catalog::{Limit, Model, ToolProfile};
 const ASK_WITHIN: Duration = Duration::from_secs(2);
 
 /// The local routes and where they listen unless the user's drift.json says otherwise.
-pub const LOCAL: [(&str, &str, &str); 2] = [("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1"), ("ollama", "Ollama", "http://127.0.0.1:11434/v1")];
+pub const LOCAL: [(&str, &str, &str); 2] = [
+    ("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1"),
+    ("ollama", "Ollama", "http://127.0.0.1:11434/v1"),
+];
 
 /// What `/api/show` says of each Ollama model, by the digest of what is installed: asked once per
 /// build of a model, and a model re-created under the same name has a new digest, so it is asked again.
@@ -54,34 +57,52 @@ async fn ollama_details(client: &reqwest::Client, base: &str, shown: &Shown, mod
     let digests = ollama_listing(client, base, "tags", "digest").await;
     let mut kept = Vec::new();
     for mut model in models {
-        let digest = digests.get(&model.id).and_then(Value::as_str).map_or_else(|| format!("{base}|{}", model.id), str::to_string);
+        let digest = digests
+            .get(&model.id)
+            .and_then(Value::as_str)
+            .map_or_else(|| format!("{base}|{}", model.id), str::to_string);
         let showing = shown.describe(client, base, &model.id, &digest).await;
         if !showing.tools {
             continue;
         }
         model.attachment = showing.vision;
-        model.limit.context = running.get(&model.id).and_then(Value::as_u64).or(showing.window).unwrap_or(0);
+        model.limit.context = running
+            .get(&model.id)
+            .and_then(Value::as_u64)
+            .or(showing.window)
+            .unwrap_or(0);
         kept.push(model);
     }
     kept
 }
 
 async fn get(client: &reqwest::Client, url: &str) -> Option<Value> {
-    read(tokio::time::timeout(ASK_WITHIN, client.get(url).send()).await.ok()?.ok()?).await
+    read(
+        tokio::time::timeout(ASK_WITHIN, client.get(url).send())
+            .await
+            .ok()?
+            .ok()?,
+    )
+    .await
 }
 
 async fn read(response: reqwest::Response) -> Option<Value> {
     if !response.status().is_success() {
         return None;
     }
-    tokio::time::timeout(ASK_WITHIN, response.json::<Value>()).await.ok()?.ok()
+    tokio::time::timeout(ASK_WITHIN, response.json::<Value>())
+        .await
+        .ok()?
+        .ok()
 }
 
 /// One field of each model Ollama lists at `/api/<what>` (`ps` for loaded models' windows, `tags`
 /// for installed models' digests), by every name the model goes by.
 async fn ollama_listing(client: &reqwest::Client, base: &str, what: &str, field: &str) -> BTreeMap<String, Value> {
     let root = base.strip_suffix("/v1").unwrap_or(base);
-    let Some(listed) = get(client, &format!("{root}/api/{what}")).await else { return BTreeMap::new() };
+    let Some(listed) = get(client, &format!("{root}/api/{what}")).await else {
+        return BTreeMap::new();
+    };
     let mut by_name = BTreeMap::new();
     for model in listed["models"].as_array().cloned().unwrap_or_default() {
         let value = model[field].clone();
@@ -105,13 +126,39 @@ impl Shown {
             return *known;
         }
         let root = base.strip_suffix("/v1").unwrap_or(base);
-        let shown = async { read(client.post(format!("{root}/api/show")).json(&serde_json::json!({ "model": model })).send().await.ok()?).await };
-        let Some(shown) = tokio::time::timeout(ASK_WITHIN, shown).await.ok().flatten() else { return Showing { tools: true, ..Showing::default() } };
+        let shown = async {
+            read(
+                client
+                    .post(format!("{root}/api/show"))
+                    .json(&serde_json::json!({ "model": model }))
+                    .send()
+                    .await
+                    .ok()?,
+            )
+            .await
+        };
+        let Some(shown) = tokio::time::timeout(ASK_WITHIN, shown).await.ok().flatten() else {
+            return Showing {
+                tools: true,
+                ..Showing::default()
+            };
+        };
         let set = shown["parameters"].as_str().and_then(|parameters| {
-            parameters.lines().find_map(|line| line.trim().strip_prefix("num_ctx").and_then(|value| value.trim().parse::<u64>().ok()))
+            parameters.lines().find_map(|line| {
+                line.trim()
+                    .strip_prefix("num_ctx")
+                    .and_then(|value| value.trim().parse::<u64>().ok())
+            })
         });
-        let trained = shown["model_info"].as_object().and_then(|info| info.iter().find(|(key, _)| key.ends_with(".context_length")).and_then(|(_, value)| value.as_u64()));
-        let capabilities: Vec<&str> = shown["capabilities"].as_array().map(|c| c.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+        let trained = shown["model_info"].as_object().and_then(|info| {
+            info.iter()
+                .find(|(key, _)| key.ends_with(".context_length"))
+                .and_then(|(_, value)| value.as_u64())
+        });
+        let capabilities: Vec<&str> = shown["capabilities"]
+            .as_array()
+            .map(|c| c.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
         let showing = Showing {
             window: set.map(|set| trained.map_or(set, |trained| set.min(trained))),
             tools: capabilities.is_empty() || capabilities.contains(&"tools"),
@@ -125,7 +172,9 @@ impl Shown {
 /// LM Studio's own listing says each model's kind, context and tool support; other servers lack it.
 async fn lm_studio_details(client: &reqwest::Client, base: &str) -> Option<Vec<Value>> {
     let root = base.strip_suffix("/v1").unwrap_or(base);
-    get(client, &format!("{root}/api/v0/models")).await?["data"].as_array().cloned()
+    get(client, &format!("{root}/api/v0/models")).await?["data"]
+        .as_array()
+        .cloned()
 }
 
 /// A model as the catalog holds it; embedding models are left out, since they cannot hold a conversation.
@@ -135,8 +184,13 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         return None;
     }
     // A model LM Studio has not loaded gets its own default window when it loads, not its maximum: unknown.
-    let context = details.filter(|d| d["state"] == "loaded").and_then(|d| d["loaded_context_length"].as_u64()).unwrap_or(0);
-    let capabilities = details.map(|d| d["capabilities"].as_array().cloned().unwrap_or_default()).unwrap_or_default();
+    let context = details
+        .filter(|d| d["state"] == "loaded")
+        .and_then(|d| d["loaded_context_length"].as_u64())
+        .unwrap_or(0);
+    let capabilities = details
+        .map(|d| d["capabilities"].as_array().cloned().unwrap_or_default())
+        .unwrap_or_default();
     if details.is_some() && !capabilities.is_empty() && !capabilities.iter().any(|c| c == "tool_use") {
         return None;
     }
@@ -149,7 +203,11 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         pdf: false,
         temperature: true,
         release_date: String::new(),
-        limit: Limit { context, output: 0, input: 0 },
+        limit: Limit {
+            context,
+            output: 0,
+            input: 0,
+        },
         cost: Default::default(),
         profile: ToolProfile::Edit,
         prompt: Default::default(),
@@ -184,10 +242,25 @@ mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = crate::llm::http::client();
         let models = discover(&client, "lmstudio", &base, &Shown::default()).await.unwrap();
-        let found: Vec<(&str, u64, bool)> = models.iter().map(|m| (m.id.as_str(), m.limit.context, m.attachment)).collect();
-        assert_eq!(found, [("qwen3-coder", 65536, false), ("llava", 0, true)], "a loaded model's window; an unloaded one's is unknown; embeddings and tool-less models stay out");
-        let stopped = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
-        assert!(discover(&client, "lmstudio", &format!("http://{stopped}/v1"), &Shown::default()).await.is_none());
+        let found: Vec<(&str, u64, bool)> = models
+            .iter()
+            .map(|m| (m.id.as_str(), m.limit.context, m.attachment))
+            .collect();
+        assert_eq!(
+            found,
+            [("qwen3-coder", 65536, false), ("llava", 0, true)],
+            "a loaded model's window; an unloaded one's is unknown; embeddings and tool-less models stay out"
+        );
+        let stopped = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .unwrap()
+            .local_addr()
+            .unwrap();
+        assert!(
+            discover(&client, "lmstudio", &format!("http://{stopped}/v1"), &Shown::default())
+                .await
+                .is_none()
+        );
     }
 
     #[tokio::test]
@@ -230,16 +303,32 @@ mod tests {
         let client = crate::llm::http::client();
         let shown = Shown::default();
         let models = discover(&client, "ollama", &base, &shown).await.unwrap();
-        let found: Vec<(&str, u64, bool)> = models.iter().map(|m| (m.id.as_str(), m.limit.context, m.attachment)).collect();
+        let found: Vec<(&str, u64, bool)> = models
+            .iter()
+            .map(|m| (m.id.as_str(), m.limit.context, m.attachment))
+            .collect();
         assert_eq!(
             found,
-            [("loaded:latest", 262144, false), ("set", 32768, true), ("unset", 0, false), ("tiny", 2048, false)],
+            [
+                ("loaded:latest", 262144, false),
+                ("set", 32768, true),
+                ("unset", 0, false),
+                ("tiny", 2048, false)
+            ],
             "loaded as allocated; else num_ctx within the trained length; else unknown; vision read from its capabilities; a model without tools left out"
         );
         discover(&client, "ollama", &base, &shown).await.unwrap();
-        assert_eq!(shows.load(Ordering::SeqCst), 5, "each installed model is shown once, not every poll");
+        assert_eq!(
+            shows.load(Ordering::SeqCst),
+            5,
+            "each installed model is shown once, not every poll"
+        );
         build.store(2, Ordering::SeqCst);
         discover(&client, "ollama", &base, &shown).await.unwrap();
-        assert_eq!(shows.load(Ordering::SeqCst), 6, "a model re-created under its name has a new digest, so it is asked again");
+        assert_eq!(
+            shows.load(Ordering::SeqCst),
+            6,
+            "a model re-created under its name has a new digest, so it is asked again"
+        );
     }
 }

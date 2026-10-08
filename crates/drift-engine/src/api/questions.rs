@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
 use super::error::ApiError;
+use crate::Engine;
 use crate::question::Request;
 use crate::session::clarify::AnswerError;
-use crate::Engine;
 
 #[derive(Deserialize, ToSchema)]
 pub struct AnswerBody {
@@ -24,8 +24,15 @@ pub async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<Request>> {
 
 /// An async question's answer is saved before this returns; resending the same answer is accepted, a different one is 409.
 #[utoipa::path(post, path = "/questions/{id}/reply", operation_id = "answerQuestion", request_body = AnswerBody, responses((status = 204), (status = 404), (status = 409)))]
-pub async fn reply(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<AnswerBody>) -> Result<StatusCode, ApiError> {
-    engine.answer_question(&id, Some(body.answers)).await.map_err(answer_error)?;
+pub async fn reply(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+    Json(body): Json<AnswerBody>,
+) -> Result<StatusCode, ApiError> {
+    engine
+        .answer_question(&id, Some(body.answers))
+        .await
+        .map_err(answer_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -39,7 +46,11 @@ pub async fn reject(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -
 pub(super) fn answer_error(error: AnswerError) -> ApiError {
     match error {
         AnswerError::NotPending => ApiError::not_found("pending question"),
-        AnswerError::Conflict => ApiError::new(StatusCode::CONFLICT, "answered", "this question was already answered differently"),
+        AnswerError::Conflict => ApiError::new(
+            StatusCode::CONFLICT,
+            "answered",
+            "this question was already answered differently",
+        ),
         AnswerError::Turn(error) => error.into(),
     }
 }

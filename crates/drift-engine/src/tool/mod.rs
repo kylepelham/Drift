@@ -33,8 +33,8 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
-use crate::llm::catalog::ToolProfile;
 use crate::llm::ToolSpec;
+use crate::llm::catalog::ToolProfile;
 
 /// Shared across one session: which files the model has read, so edits are never blind, and which
 /// subdirectory instruction files it has already been shown.
@@ -49,8 +49,17 @@ pub struct SessionFiles {
 impl SessionFiles {
     /// A session's files, starting from the reads its earlier runs kept.
     pub fn kept(store: Arc<crate::store::Store>, session_id: &str) -> Self {
-        let read = store.read_files(session_id).unwrap_or_default().into_iter().map(PathBuf::from).collect();
-        Self { read: Mutex::new(read), kept: Some((store, session_id.into())), ..Self::default() }
+        let read = store
+            .read_files(session_id)
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect();
+        Self {
+            read: Mutex::new(read),
+            kept: Some((store, session_id.into())),
+            ..Self::default()
+        }
     }
 
     /// True the first time an instruction file is shown in this session; later reads near it say nothing.
@@ -78,14 +87,21 @@ impl SessionFiles {
     pub fn scratch(&self) -> Self {
         let read = self.read.lock().unwrap().clone();
         let shown = self.shown.lock().unwrap().clone();
-        Self { read: Mutex::new(read), shown: Mutex::new(shown), kept: None }
+        Self {
+            read: Mutex::new(read),
+            shown: Mutex::new(shown),
+            kept: None,
+        }
     }
 
     pub fn absorb(&self, scratch: &SessionFiles) {
         for path in scratch.read.lock().unwrap().iter() {
             self.mark_read(path);
         }
-        self.shown.lock().unwrap().extend(scratch.shown.lock().unwrap().iter().cloned());
+        self.shown
+            .lock()
+            .unwrap()
+            .extend(scratch.shown.lock().unwrap().iter().cloned());
     }
 }
 
@@ -128,7 +144,11 @@ impl Context {
     /// The path a call really touches: absolute, `..` folded, symlinks followed. Permission rules see this.
     pub fn resolve(&self, path: &str) -> PathBuf {
         let path = Path::new(path);
-        canonical(&if path.is_absolute() { path.to_path_buf() } else { self.workspace.join(path) })
+        canonical(&if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.workspace.join(path)
+        })
     }
 
     pub fn inside_workspace(&self, path: &Path) -> bool {
@@ -147,7 +167,15 @@ impl Context {
     /// skills this session was offered (which `skill` names by absolute path) is free to read.
     pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
         if self.owns_output(path) || ((in_scratch(path) || self.in_skill(path)) && !sensitive::is_sensitive(path)) {
-            return Some(Ask::path("read", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace))).allow_by_default());
+            return Some(
+                Ask::path(
+                    "read",
+                    path,
+                    &self.workspace,
+                    format!("{verb} {}", display(path, &self.workspace)),
+                )
+                .allow_by_default(),
+            );
         }
         read_ask(&self.workspace, path, verb)
     }
@@ -155,14 +183,22 @@ impl Context {
     /// Writing evaluates policy. Scratch and workspace files default to allow (undo can put them back),
     /// except files that would widen what the agent may do or hold secrets.
     pub fn ask_to_write(&self, path: &Path, verb: &str) -> Option<Ask> {
-        let mut ask = Ask::path("edit", path, &self.workspace, format!("{verb} {}", display(path, &self.workspace)));
+        let mut ask = Ask::path(
+            "edit",
+            path,
+            &self.workspace,
+            format!("{verb} {}", display(path, &self.workspace)),
+        );
         ask.default_allow = in_scratch(path) || (self.inside_workspace(path) && !guarded(path, &self.workspace));
         Some(ask)
     }
 
     /// Inside the folder of a skill this session's config offers, as opencode allows skill directories.
     fn in_skill(&self, path: &Path) -> bool {
-        self.config.skills.iter().any(|skill| path.starts_with(canonical(Path::new(&skill.path))))
+        self.config
+            .skills
+            .iter()
+            .any(|skill| path.starts_with(canonical(Path::new(&skill.path))))
     }
 
     /// Output this session's own calls spilled to disk, which their results name: reading it back asks
@@ -188,14 +224,26 @@ fn in_scratch(path: &Path) -> bool {
 /// permission rules and agents, version-control internals, and files likely to hold secrets.
 fn guarded(path: &Path, workspace: &Path) -> bool {
     let relative = path.strip_prefix(workspace).unwrap_or(path);
-    let named = |name: &str| relative.components().any(|part| part.as_os_str().eq_ignore_ascii_case(name));
-    sensitive::is_sensitive(path) || named(crate::config::FILE) || named(".drift") || VCS_DIRS.iter().any(|dir| named(dir))
+    let named = |name: &str| {
+        relative
+            .components()
+            .any(|part| part.as_os_str().eq_ignore_ascii_case(name))
+    };
+    sensitive::is_sensitive(path)
+        || named(crate::config::FILE)
+        || named(".drift")
+        || VCS_DIRS.iter().any(|dir| named(dir))
 }
 
 /// The read rule without a call around it, for reads the engine makes itself (@ mentions).
 pub fn read_ask(workspace: &Path, path: &Path, verb: &str) -> Option<Ask> {
     if sensitive::is_sensitive(path) {
-        return Some(Ask::path("read", path, workspace, format!("{verb} {} (it may hold secrets)", display(path, workspace))));
+        return Some(Ask::path(
+            "read",
+            path,
+            workspace,
+            format!("{verb} {} (it may hold secrets)", display(path, workspace)),
+        ));
     }
     let mut ask = Ask::path("read", path, workspace, format!("{verb} {}", display(path, workspace)));
     ask.default_allow = path.starts_with(workspace);
@@ -214,7 +262,10 @@ pub fn walk(root: &Path) -> ignore::Walk {
 /// [`walk`]'s settings, for a walk that runs on several threads.
 pub fn walker(root: &Path) -> ignore::WalkBuilder {
     let mut builder = ignore::WalkBuilder::new(root);
-    builder.hidden(false).require_git(false).filter_entry(|entry| !entry.file_name().to_str().is_some_and(|name| VCS_DIRS.contains(&name)));
+    builder
+        .hidden(false)
+        .require_git(false)
+        .filter_entry(|entry| !entry.file_name().to_str().is_some_and(|name| VCS_DIRS.contains(&name)));
     builder
 }
 
@@ -226,7 +277,9 @@ pub struct FileGlob(ignore::overrides::Override);
 impl FileGlob {
     pub fn new(root: &Path, pattern: &str) -> Result<Self, String> {
         let mut builder = ignore::overrides::OverrideBuilder::new(root);
-        builder.add(pattern.trim_start_matches("./")).map_err(|e| e.to_string())?;
+        builder
+            .add(pattern.trim_start_matches("./"))
+            .map_err(|e| e.to_string())?;
         builder.build().map(Self).map_err(|e| e.to_string())
     }
 
@@ -251,11 +304,16 @@ pub fn canonical(path: &Path) -> PathBuf {
     let mut existing = lexical.as_path();
     let mut rest = Vec::new();
     while !existing.exists() {
-        let Some(parent) = existing.parent() else { return lexical };
+        let Some(parent) = existing.parent() else {
+            return lexical;
+        };
         rest.push(existing.file_name().map(|n| n.to_os_string()).unwrap_or_default());
         existing = parent;
     }
-    let mut out = existing.canonicalize().map(strip_verbatim).unwrap_or_else(|_| existing.to_path_buf());
+    let mut out = existing
+        .canonicalize()
+        .map(strip_verbatim)
+        .unwrap_or_else(|_| existing.to_path_buf());
     for part in rest.into_iter().rev() {
         out.push(part);
     }
@@ -280,7 +338,11 @@ pub struct Output {
 
 impl Output {
     pub fn new(title: impl Into<String>, output: impl Into<String>) -> Self {
-        Self { title: title.into(), output: output.into(), metadata: Value::Null }
+        Self {
+            title: title.into(),
+            output: output.into(),
+            metadata: Value::Null,
+        }
     }
 }
 
@@ -376,7 +438,18 @@ pub enum Reason {
 
 impl Ask {
     pub fn new(kind: &str, pattern: impl Into<String>, title: impl Into<String>) -> Self {
-        Self { kind: kind.into(), pattern: pattern.into(), title: title.into(), commands: None, writes: Vec::new(), canonical: Vec::new(), relative: None, diff: None, default_allow: false, reason: None }
+        Self {
+            kind: kind.into(),
+            pattern: pattern.into(),
+            title: title.into(),
+            commands: None,
+            writes: Vec::new(),
+            canonical: Vec::new(),
+            relative: None,
+            diff: None,
+            default_allow: false,
+            reason: None,
+        }
     }
 
     pub fn allow_by_default(mut self) -> Self {
@@ -392,13 +465,22 @@ impl Ask {
 
     /// An ask about a file: the absolute path, and the workspace-relative one when it is inside.
     pub fn path(kind: &str, path: &Path, workspace: &Path, title: impl Into<String>) -> Self {
-        let relative = path.strip_prefix(workspace).ok().filter(|r| !r.as_os_str().is_empty()).map(|r| r.to_string_lossy().replace('\\', "/"));
-        Self { relative, ..Self::new(kind, path.to_string_lossy(), title) }
+        let relative = path
+            .strip_prefix(workspace)
+            .ok()
+            .filter(|r| !r.as_os_str().is_empty())
+            .map(|r| r.to_string_lossy().replace('\\', "/"));
+        Self {
+            relative,
+            ..Self::new(kind, path.to_string_lossy(), title)
+        }
     }
 
     /// What rules and approvals are matched against: the pattern, then the relative path if there is one.
     pub fn targets(&self) -> Vec<&str> {
-        std::iter::once(self.pattern.as_str()).chain(self.relative.as_deref()).collect()
+        std::iter::once(self.pattern.as_str())
+            .chain(self.relative.as_deref())
+            .collect()
     }
 
     /// A shell ask as the dialect reads `line`.
@@ -416,7 +498,11 @@ impl Ask {
     pub fn retain_commands(&mut self, mut keep: impl FnMut(&str) -> bool) {
         let Some(commands) = self.commands.take() else { return };
         let canonical = std::mem::take(&mut self.canonical);
-        let pairs: Vec<(String, String)> = commands.into_iter().zip(canonical.into_iter().chain(std::iter::repeat(String::new()))).filter(|(command, _)| keep(command)).collect();
+        let pairs: Vec<(String, String)> = commands
+            .into_iter()
+            .zip(canonical.into_iter().chain(std::iter::repeat(String::new())))
+            .filter(|(command, _)| keep(command))
+            .collect();
         self.canonical = pairs.iter().map(|(_, canonical)| canonical.clone()).collect();
         self.commands = Some(pairs.into_iter().map(|(command, _)| command).collect());
     }
@@ -434,7 +520,9 @@ pub trait Tool: Send + Sync {
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask>;
     /// Everything the call must be allowed, each judged on its own; any refusal refuses the call.
     fn asks(&self, ctx: &Context, input: &Value) -> Vec<Ask> {
-        let ask = self.ask(ctx, input).unwrap_or_else(|| Ask::new(&self.spec().name, "*", format!("Use {}", self.spec().name)).allow_by_default());
+        let ask = self.ask(ctx, input).unwrap_or_else(|| {
+            Ask::new(&self.spec().name, "*", format!("Use {}", self.spec().name)).allow_by_default()
+        });
         vec![ask]
     }
     /// Whether this tool can write outside memory, so what its calls change is recorded for undo.
@@ -523,7 +611,11 @@ impl Registry {
             ToolProfile::Edit => &["apply_patch"],
             ToolProfile::ApplyPatch => &["edit", "write"],
         };
-        self.builtin.iter().filter(|tool| !hidden.contains(&tool.spec().name.as_str())).cloned().collect()
+        self.builtin
+            .iter()
+            .filter(|tool| !hidden.contains(&tool.spec().name.as_str()))
+            .cloned()
+            .collect()
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
@@ -534,11 +626,18 @@ impl Registry {
 impl crate::Engine {
     /// Every tool a turn starting now in `workspace` could be offered: the built-ins for the profile, then every server's connected there.
     pub fn offered_tools(&self, profile: ToolProfile, workspace: Option<&std::path::Path>) -> Vec<Arc<dyn Tool>> {
-        self.tools.offered(profile).into_iter().chain(self.mcp.tools(&self.store, workspace)).collect()
+        self.tools
+            .offered(profile)
+            .into_iter()
+            .chain(self.mcp.tools(&self.store, workspace))
+            .collect()
     }
 
     pub fn tool_specs(&self, profile: ToolProfile, workspace: Option<&std::path::Path>) -> Vec<ToolSpec> {
-        self.offered_tools(profile, workspace).iter().map(|tool| tool.spec()).collect()
+        self.offered_tools(profile, workspace)
+            .iter()
+            .map(|tool| tool.spec())
+            .collect()
     }
 }
 
@@ -553,7 +652,11 @@ pub(crate) fn required_str<'a>(input: &'a Value, key: &str) -> Result<&'a str, T
 fn fits_history(name: &str, bytes: usize) -> Result<(), ToolError> {
     let limit = crate::session::snapshot::MAX_RECORDED_BYTES;
     if bytes as u64 > limit {
-        return Err(ToolError(format!("{name} would be {} MB, over the {} MB undo can keep, so it was not written", bytes / 1024 / 1024, limit / 1024 / 1024)));
+        return Err(ToolError(format!(
+            "{name} would be {} MB, over the {} MB undo can keep, so it was not written",
+            bytes / 1024 / 1024,
+            limit / 1024 / 1024
+        )));
     }
     Ok(())
 }
@@ -580,7 +683,14 @@ pub(crate) mod tests {
             let workspace = root.join("ws");
             std::fs::create_dir_all(&workspace).unwrap();
             let workspace = canonical(&workspace);
-            let engine = crate::Engine::open_with(&root.join("data"), crate::Options { file_credentials: true, ..Default::default() }).unwrap();
+            let engine = crate::Engine::open_with(
+                &root.join("data"),
+                crate::Options {
+                    file_credentials: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
             Self {
                 ctx: Context {
                     agent: "build".into(),
@@ -636,11 +746,58 @@ pub(crate) mod tests {
     #[test]
     fn registry_exposes_every_builtin_with_a_schema() {
         let registry = Registry::builtin();
-        let names: Vec<String> = registry.specs(ToolProfile::Edit).into_iter().map(|spec| spec.name).collect();
-        assert_eq!(names, ["read", "write", "edit", "bash", "glob", "grep", "webfetch", "todowrite", "question", "skill", "task", "task_output", "task_stop", "read_thread"]);
-        let patching: Vec<String> = registry.specs(ToolProfile::ApplyPatch).into_iter().map(|spec| spec.name).collect();
-        assert_eq!(patching, ["read", "apply_patch", "bash", "glob", "grep", "webfetch", "todowrite", "question", "skill", "task", "task_output", "task_stop", "read_thread"]);
-        for spec in registry.specs(ToolProfile::Edit).into_iter().chain(registry.specs(ToolProfile::ApplyPatch)) {
+        let names: Vec<String> = registry
+            .specs(ToolProfile::Edit)
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "read",
+                "write",
+                "edit",
+                "bash",
+                "glob",
+                "grep",
+                "webfetch",
+                "todowrite",
+                "question",
+                "skill",
+                "task",
+                "task_output",
+                "task_stop",
+                "read_thread"
+            ]
+        );
+        let patching: Vec<String> = registry
+            .specs(ToolProfile::ApplyPatch)
+            .into_iter()
+            .map(|spec| spec.name)
+            .collect();
+        assert_eq!(
+            patching,
+            [
+                "read",
+                "apply_patch",
+                "bash",
+                "glob",
+                "grep",
+                "webfetch",
+                "todowrite",
+                "question",
+                "skill",
+                "task",
+                "task_output",
+                "task_stop",
+                "read_thread"
+            ]
+        );
+        for spec in registry
+            .specs(ToolProfile::Edit)
+            .into_iter()
+            .chain(registry.specs(ToolProfile::ApplyPatch))
+        {
             assert_eq!(spec.input_schema["type"], "object", "{}", spec.name);
             assert!(!spec.description.is_empty(), "{}", spec.name);
         }
@@ -653,19 +810,44 @@ pub(crate) mod tests {
         let sandbox = Sandbox::new("scratch");
         let scratch = scratch_dir().join(format!("notes-{}.txt", crate::random_hex(4)));
         let elsewhere = canonical(&std::env::temp_dir().join("not-drift").join("notes.txt"));
-        assert!(sandbox.ctx.ask_to_write(&scratch, "Write").unwrap().default_allow && sandbox.ctx.ask_to_read(&scratch, "Read").unwrap().default_allow);
-        assert!(sandbox.ctx.ask_to_write(&elsewhere, "Write").is_some() && sandbox.ctx.ask_to_read(&elsewhere, "Read").is_some());
-        assert!(sandbox.ctx.ask_to_write(&scratch_dir(), "Write").is_some(), "the directory itself is not a file to write");
-        assert!(sandbox.ctx.ask_to_read(&scratch_dir().join(".env"), "Read").is_some(), "a secret is a secret even there");
+        assert!(
+            sandbox.ctx.ask_to_write(&scratch, "Write").unwrap().default_allow
+                && sandbox.ctx.ask_to_read(&scratch, "Read").unwrap().default_allow
+        );
+        assert!(
+            sandbox.ctx.ask_to_write(&elsewhere, "Write").is_some()
+                && sandbox.ctx.ask_to_read(&elsewhere, "Read").is_some()
+        );
+        assert!(
+            sandbox.ctx.ask_to_write(&scratch_dir(), "Write").is_some(),
+            "the directory itself is not a file to write"
+        );
+        assert!(
+            sandbox.ctx.ask_to_read(&scratch_dir().join(".env"), "Read").is_some(),
+            "a secret is a secret even there"
+        );
     }
 
     #[test]
     fn workspace_edits_run_by_default_except_drifts_own_config_vcs_internals_and_secrets() {
         let sandbox = Sandbox::new("edit-defaults");
         let ws = &sandbox.ctx.workspace;
-        let allowed = |relative: &str| sandbox.ctx.ask_to_write(&ws.join(relative), "Edit").unwrap().default_allow;
+        let allowed = |relative: &str| {
+            sandbox
+                .ctx
+                .ask_to_write(&ws.join(relative), "Edit")
+                .unwrap()
+                .default_allow
+        };
         assert!(allowed("src/main.rs") && allowed("README.md"));
-        for guarded in ["drift.json", "sub/drift.json", ".drift/agents/build.md", ".git/config", ".env", "secrets/id_rsa"] {
+        for guarded in [
+            "drift.json",
+            "sub/drift.json",
+            ".drift/agents/build.md",
+            ".git/config",
+            ".env",
+            "secrets/id_rsa",
+        ] {
             assert!(!allowed(guarded), "{guarded}");
         }
         let outside = canonical(&ws.parent().unwrap().join("elsewhere.txt"));
@@ -675,17 +857,51 @@ pub(crate) mod tests {
     #[test]
     fn an_offered_skills_files_read_without_asking_and_its_secrets_still_ask() {
         let mut sandbox = Sandbox::new("skill-read");
-        let skill_dir = canonical(&sandbox.ctx.workspace.parent().unwrap().join("home-skills").join("review"));
+        let skill_dir = canonical(
+            &sandbox
+                .ctx
+                .workspace
+                .parent()
+                .unwrap()
+                .join("home-skills")
+                .join("review"),
+        );
         std::fs::create_dir_all(skill_dir.join("references")).unwrap();
         let mut config = (*sandbox.ctx.config).clone();
-        config.skills.push(crate::config::Skill { name: "review".into(), description: "d".into(), path: skill_dir.to_string_lossy().into_owned(), instructions: String::new(), argument_hint: None });
+        config.skills.push(crate::config::Skill {
+            name: "review".into(),
+            description: "d".into(),
+            path: skill_dir.to_string_lossy().into_owned(),
+            instructions: String::new(),
+            argument_hint: None,
+        });
         sandbox.ctx.config = Arc::new(config);
         let read = |path: &Path| sandbox.ctx.ask_to_read(path, "Read").unwrap().default_allow;
-        assert!(read(&skill_dir.join("references/guide.md")), "a file the skill points at");
+        assert!(
+            read(&skill_dir.join("references/guide.md")),
+            "a file the skill points at"
+        );
         assert!(!read(&skill_dir.join(".env")), "secrets still ask");
-        assert!(!read(&skill_dir.parent().unwrap().join("other/SKILL.md")), "another, unoffered folder asks");
-        assert!(sandbox.ctx.ask_if_outside("read", &skill_dir, "Search").unwrap().default_allow, "and glob may search it");
-        assert!(!sandbox.ctx.ask_if_outside("edit", &skill_dir, "Edit").unwrap().default_allow, "reading only");
+        assert!(
+            !read(&skill_dir.parent().unwrap().join("other/SKILL.md")),
+            "another, unoffered folder asks"
+        );
+        assert!(
+            sandbox
+                .ctx
+                .ask_if_outside("read", &skill_dir, "Search")
+                .unwrap()
+                .default_allow,
+            "and glob may search it"
+        );
+        assert!(
+            !sandbox
+                .ctx
+                .ask_if_outside("edit", &skill_dir, "Edit")
+                .unwrap()
+                .default_allow,
+            "reading only"
+        );
     }
 
     #[test]
@@ -693,16 +909,36 @@ pub(crate) mod tests {
         let mb = |bytes: usize| format!("{} MB", bytes / 1024 / 1024);
         let kb = |bytes: usize| format!("{} KB", bytes / 1024);
         for text in [include_str!("prompts/edit.txt"), include_str!("prompts/write.txt")] {
-            assert!(!text.contains("unified diff") && text.contains("not the diff"), "{text}");
+            assert!(
+                !text.contains("unified diff") && text.contains("not the diff"),
+                "{text}"
+            );
         }
         let fetch = include_str!("prompts/webfetch.txt");
-        assert!(fetch.contains(&kb(spool::MAX_RESULT_BYTES)) && fetch.contains(&kb(spool::HEAD_BYTES)) && fetch.contains(&mb(webfetch::MAX_BYTES)), "{fetch}");
-        assert_eq!(spool::HEAD_BYTES, spool::TAIL_BYTES, "the text says first and last of one size");
+        assert!(
+            fetch.contains(&kb(spool::MAX_RESULT_BYTES))
+                && fetch.contains(&kb(spool::HEAD_BYTES))
+                && fetch.contains(&mb(webfetch::MAX_BYTES)),
+            "{fetch}"
+        );
+        assert_eq!(
+            spool::HEAD_BYTES,
+            spool::TAIL_BYTES,
+            "the text says first and last of one size"
+        );
         let read = include_str!("prompts/read.txt");
-        for promise in [mb(image::MAX_SOURCE_BYTES), format!("{} pixels", image::MAX_SIDE), mb(image::MAX_IMAGE_BYTES), mb(image::MAX_PDF_BYTES)] {
+        for promise in [
+            mb(image::MAX_SOURCE_BYTES),
+            format!("{} pixels", image::MAX_SIDE),
+            mb(image::MAX_IMAGE_BYTES),
+            mb(image::MAX_PDF_BYTES),
+        ] {
             assert!(read.contains(&promise), "read.txt should say {promise}");
         }
         let task = include_str!("prompts/task.txt");
-        assert!(task::DELEGATION.iter().all(|tool| task.contains(&format!("`{tool}`"))) && !task.contains("the same tools"), "{task}");
+        assert!(
+            task::DELEGATION.iter().all(|tool| task.contains(&format!("`{tool}`"))) && !task.contains("the same tools"),
+            "{task}"
+        );
     }
 }

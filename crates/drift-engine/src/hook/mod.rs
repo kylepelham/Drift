@@ -262,24 +262,54 @@ impl Hooks {
     }
 
     /// Replaces the loaded plugins; a failed one is reported with its error, a `disabled` one listed and left alone.
-    pub async fn load(&self, cache_dir: &std::path::Path, entries: Vec<Listed>, disabled: &[String], engine: std::sync::Weak<crate::Engine>) -> Vec<PluginInfo> {
+    pub async fn load(
+        &self,
+        cache_dir: &std::path::Path,
+        entries: Vec<Listed>,
+        disabled: &[String],
+        engine: std::sync::Weak<crate::Engine>,
+    ) -> Vec<PluginInfo> {
         let mut hooks: Vec<Arc<dyn Hook>> = Vec::new();
         let mut loaded = Vec::new();
         for Listed { entry, path, config } in entries {
             if disabled.contains(&entry) {
-                loaded.push(PluginInfo { name: plugin_name(&entry), path: entry, enabled: false, config, capabilities: vec![], error: None });
+                loaded.push(PluginInfo {
+                    name: plugin_name(&entry),
+                    path: entry,
+                    enabled: false,
+                    config,
+                    capabilities: vec![],
+                    error: None,
+                });
                 continue;
             }
             let outcome = match path {
-                Ok(path) => self.load_one(cache_dir, &path, &entry, config.clone(), engine.clone()).await,
+                Ok(path) => {
+                    self.load_one(cache_dir, &path, &entry, config.clone(), engine.clone())
+                        .await
+                }
                 Err(error) => Err(error),
             };
             match outcome {
                 Ok(plugin) => {
-                    loaded.push(PluginInfo { name: plugin.name, path: entry, enabled: true, config, capabilities: plugin.capabilities, error: None });
+                    loaded.push(PluginInfo {
+                        name: plugin.name,
+                        path: entry,
+                        enabled: true,
+                        config,
+                        capabilities: plugin.capabilities,
+                        error: None,
+                    });
                     hooks.push(plugin.hook);
                 }
-                Err(error) => loaded.push(PluginInfo { name: plugin_name(&entry), path: entry, enabled: true, config, capabilities: vec![], error: Some(error) }),
+                Err(error) => loaded.push(PluginInfo {
+                    name: plugin_name(&entry),
+                    path: entry,
+                    enabled: true,
+                    config,
+                    capabilities: vec![],
+                    error: Some(error),
+                }),
             }
         }
         self.set(hooks, loaded.clone());
@@ -287,14 +317,45 @@ impl Hooks {
     }
 
     #[cfg(feature = "wasm-plugins")]
-    async fn load_one(&self, cache_dir: &std::path::Path, path: &std::path::Path, entry: &str, config: Value, engine: std::sync::Weak<crate::Engine>) -> Result<Loaded, String> {
-        let runtime = self.runtime.get_or_init(|| wasm::Runtime::new(cache_dir)).as_ref().map_err(Clone::clone)?;
-        let plugin = runtime.load(path, wasm::Site { entry: entry.to_owned(), config, engine }).await?;
-        Ok(Loaded { name: plugin.name().to_owned(), capabilities: plugin.capabilities.clone(), hook: Arc::new(plugin) })
+    async fn load_one(
+        &self,
+        cache_dir: &std::path::Path,
+        path: &std::path::Path,
+        entry: &str,
+        config: Value,
+        engine: std::sync::Weak<crate::Engine>,
+    ) -> Result<Loaded, String> {
+        let runtime = self
+            .runtime
+            .get_or_init(|| wasm::Runtime::new(cache_dir))
+            .as_ref()
+            .map_err(Clone::clone)?;
+        let plugin = runtime
+            .load(
+                path,
+                wasm::Site {
+                    entry: entry.to_owned(),
+                    config,
+                    engine,
+                },
+            )
+            .await?;
+        Ok(Loaded {
+            name: plugin.name().to_owned(),
+            capabilities: plugin.capabilities.clone(),
+            hook: Arc::new(plugin),
+        })
     }
 
     #[cfg(not(feature = "wasm-plugins"))]
-    async fn load_one(&self, _cache_dir: &std::path::Path, _path: &std::path::Path, _entry: &str, _config: Value, _engine: std::sync::Weak<crate::Engine>) -> Result<Loaded, String> {
+    async fn load_one(
+        &self,
+        _cache_dir: &std::path::Path,
+        _path: &std::path::Path,
+        _entry: &str,
+        _config: Value,
+        _engine: std::sync::Weak<crate::Engine>,
+    ) -> Result<Loaded, String> {
         Err("this build of Drift runs no plugins".into())
     }
 
@@ -336,7 +397,10 @@ impl Hooks {
     }
 
     /// The first refusal wins; a replacement feeds the hooks after it; context collects in order with each plugin's name.
-    pub async fn prompt_submit(&self, mut prompt: PromptEvent) -> Result<(String, Vec<(String, String)>), (String, String)> {
+    pub async fn prompt_submit(
+        &self,
+        mut prompt: PromptEvent,
+    ) -> Result<(String, Vec<(String, String)>), (String, String)> {
         let mut context = Vec::new();
         for hook in self.list() {
             match hook.prompt_submit(&prompt).await {
@@ -399,7 +463,11 @@ const NOTE_CHARS: usize = 160;
 
 /// A plugin's note as the card and the model see it: its first line, bounded, under the plugin's name.
 fn note_line(plugin: &str, note: &str) -> String {
-    let line = note.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or_default();
+    let line = note
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
     let cut = line.char_indices().nth(NOTE_CHARS).map(|(at, _)| at);
     match cut {
         Some(at) => format!("{plugin}: {}...", line[..at].trim_end()),
@@ -409,7 +477,10 @@ fn note_line(plugin: &str, note: &str) -> String {
 
 /// A plugin's name before it has said one: its file's stem.
 fn plugin_name(entry: &str) -> String {
-    std::path::Path::new(entry).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_else(|| entry.to_owned())
+    std::path::Path::new(entry)
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| entry.to_owned())
 }
 
 /// Session events as the hub publishes them, handed to the hooks until the hub closes.
@@ -428,9 +499,19 @@ pub async fn relay_session_events(engine: Arc<crate::Engine>) {
         let event = match envelope.event {
             Event::SessionCreated { session } => session_event(&engine, &session, SessionKind::Created),
             Event::SessionUpdated { session } => session_event(&engine, &session, SessionKind::Updated),
-            Event::SessionDeleted { session_id } => SessionEvent { id: session_id, workspace: String::new(), title: String::new(), agent: String::new(), kind: SessionKind::Deleted },
+            Event::SessionDeleted { session_id } => SessionEvent {
+                id: session_id,
+                workspace: String::new(),
+                title: String::new(),
+                agent: String::new(),
+                kind: SessionKind::Deleted,
+            },
             Event::SessionStatusChanged { session_id, status } => {
-                let kind = if status == SessionStatus::Running { SessionKind::Running } else { SessionKind::Idle };
+                let kind = if status == SessionStatus::Running {
+                    SessionKind::Running
+                } else {
+                    SessionKind::Idle
+                };
                 match engine.store.session(&session_id).ok().flatten() {
                     Some(session) => session_event(&engine, &session, kind),
                     None => continue,
@@ -442,9 +523,25 @@ pub async fn relay_session_events(engine: Arc<crate::Engine>) {
     }
 }
 
-pub(crate) fn session_event(engine: &crate::Engine, session: &crate::session::types::Session, kind: SessionKind) -> SessionEvent {
-    let workspace = engine.store.workspace(&session.workspace_id).ok().flatten().map(|workspace| workspace.path).unwrap_or_default();
-    SessionEvent { id: session.id.clone(), workspace, title: session.title.clone(), agent: session.agent.clone(), kind }
+pub(crate) fn session_event(
+    engine: &crate::Engine,
+    session: &crate::session::types::Session,
+    kind: SessionKind,
+) -> SessionEvent {
+    let workspace = engine
+        .store
+        .workspace(&session.workspace_id)
+        .ok()
+        .flatten()
+        .map(|workspace| workspace.path)
+        .unwrap_or_default();
+    SessionEvent {
+        id: session.id.clone(),
+        workspace,
+        title: session.title.clone(),
+        agent: session.agent.clone(),
+        kind,
+    }
 }
 
 #[cfg(test)]
@@ -467,7 +564,13 @@ mod tests {
     }
 
     fn call() -> ToolCall {
-        ToolCall { session_id: "s".into(), workspace: "w".into(), agent: "build".into(), tool: "bash".into(), input: serde_json::json!({ "command": "ls" }) }
+        ToolCall {
+            session_id: "s".into(),
+            workspace: "w".into(),
+            agent: "build".into(),
+            tool: "bash".into(),
+            input: serde_json::json!({ "command": "ls" }),
+        }
     }
 
     #[tokio::test]
@@ -475,8 +578,16 @@ mod tests {
         let hooks = Hooks::default();
         hooks.set(
             vec![
-                Arc::new(Fixed("a", BeforeTool::Replace(serde_json::json!({ "command": "ls -la" })), AfterTool::Note("seen".into()))),
-                Arc::new(Fixed("b", BeforeTool::Deny("no".into()), AfterTool::Replace("short".into()))),
+                Arc::new(Fixed(
+                    "a",
+                    BeforeTool::Replace(serde_json::json!({ "command": "ls -la" })),
+                    AfterTool::Note("seen".into()),
+                )),
+                Arc::new(Fixed(
+                    "b",
+                    BeforeTool::Deny("no".into()),
+                    AfterTool::Replace("short".into()),
+                )),
                 Arc::new(Fixed("c", BeforeTool::Deny("never asked".into()), AfterTool::Keep)),
             ],
             vec![],
@@ -484,13 +595,27 @@ mod tests {
         let (call, denied) = hooks.before_tool(call()).await;
         assert_eq!(call.input["command"], "ls -la");
         assert_eq!(denied, Some(("b".to_owned(), "no".to_owned())));
-        let result = ToolResult { session_id: "s".into(), workspace: "w".into(), agent: "build".into(), tool: "bash".into(), input: Value::Null, output: "long".into(), failed: false };
-        assert_eq!(hooks.after_tool(result).await, ("short".to_owned(), vec!["a: seen".to_owned()]));
+        let result = ToolResult {
+            session_id: "s".into(),
+            workspace: "w".into(),
+            agent: "build".into(),
+            tool: "bash".into(),
+            input: Value::Null,
+            output: "long".into(),
+            failed: false,
+        };
+        assert_eq!(
+            hooks.after_tool(result).await,
+            ("short".to_owned(), vec!["a: seen".to_owned()])
+        );
     }
 
     #[test]
     fn a_note_is_one_bounded_line_under_the_plugins_name() {
-        assert_eq!(note_line("guard", "\n  saw it fail  \nand more\n"), "guard: saw it fail");
+        assert_eq!(
+            note_line("guard", "\n  saw it fail  \nand more\n"),
+            "guard: saw it fail"
+        );
         let long = "x".repeat(200);
         let line = note_line("guard", &long);
         assert_eq!(line.chars().count(), "guard: ".len() + NOTE_CHARS + 3);

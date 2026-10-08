@@ -41,7 +41,10 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Self { event_history: 4096, file_credentials: false }
+        Self {
+            event_history: 4096,
+            file_credentials: false,
+        }
     }
 }
 
@@ -138,7 +141,9 @@ impl Engine {
         let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
         let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
         let catalog = with_user_providers(Catalog::load(data_dir), &credentials);
-        let permissions = Permissions::new(Policy { rules: store.setting(PERMISSION_RULES_KEY)?.unwrap_or_default() });
+        let permissions = Permissions::new(Policy {
+            rules: store.setting(PERMISSION_RULES_KEY)?.unwrap_or_default(),
+        });
         let saving = store.clone();
         permissions.save_grants_with(Box::new(move |workspace, grants| {
             let _ = saving.set_setting(&grants_key(workspace), &grants);
@@ -176,14 +181,34 @@ impl Engine {
 
     /// Reads drift.json again and loads every plugin that is not switched off.
     pub async fn reload_plugins(&self) -> Vec<hook::PluginInfo> {
-        let disabled: Vec<String> = self.store.setting(DISABLED_PLUGINS_KEY).ok().flatten().unwrap_or_default();
-        self.hooks.load(&self.data_dir.join("plugin-cache"), config::user_plugins(), &disabled, self.me.clone()).await
+        let disabled: Vec<String> = self
+            .store
+            .setting(DISABLED_PLUGINS_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        self.hooks
+            .load(
+                &self.data_dir.join("plugin-cache"),
+                config::user_plugins(),
+                &disabled,
+                self.me.clone(),
+            )
+            .await
     }
 
     pub fn registry_sources(&self) -> Vec<config::sources::RegistrySource> {
-        let mut sources: Vec<config::sources::RegistrySource> = self.store.setting(REGISTRY_SOURCES_KEY).ok().flatten().unwrap_or_default();
+        let mut sources: Vec<config::sources::RegistrySource> = self
+            .store
+            .setting(REGISTRY_SOURCES_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         for source in &mut sources {
-            source.has_token = self.credentials.secret(&config::sources::token_key(&source.id)).is_some();
+            source.has_token = self
+                .credentials
+                .secret(&config::sources::token_key(&source.id))
+                .is_some();
         }
         sources
     }
@@ -205,12 +230,22 @@ impl Engine {
                 source.id = random_hex(8);
             }
             let is_url = matches!(source.source, config::sources::SourceKind::Url);
-            if is_url && !source.url.starts_with("https://") && !(source.allow_http && source.url.starts_with("http://")) {
-                return Err(format!("a URL source needs https (or http allowed for it): {}", source.url));
+            if is_url
+                && !source.url.starts_with("https://")
+                && !(source.allow_http && source.url.starts_with("http://"))
+            {
+                return Err(format!(
+                    "a URL source needs https (or http allowed for it): {}",
+                    source.url
+                ));
             }
             match input.token.as_deref().map(str::trim) {
-                Some("") => self.credentials.remove_secret(&config::sources::token_key(&source.id))?,
-                Some(token) => self.credentials.set_secret(&config::sources::token_key(&source.id), token)?,
+                Some("") => self
+                    .credentials
+                    .remove_secret(&config::sources::token_key(&source.id))?,
+                Some(token) => self
+                    .credentials
+                    .set_secret(&config::sources::token_key(&source.id), token)?,
                 None => {}
             }
             source.has_token = false;
@@ -219,7 +254,9 @@ impl Engine {
         for gone in before.iter().filter(|old| !sources.iter().any(|new| new.id == old.id)) {
             let _ = self.credentials.remove_secret(&config::sources::token_key(&gone.id));
         }
-        self.store.set_setting(REGISTRY_SOURCES_KEY, &sources).map_err(|error| error.to_string())
+        self.store
+            .set_setting(REGISTRY_SOURCES_KEY, &sources)
+            .map_err(|error| error.to_string())
     }
 
     pub fn fetcher(&self) -> config::sources::Fetcher {
@@ -231,7 +268,9 @@ impl Engine {
         let source = install.registry.as_deref().and_then(|id| self.registry_source(id));
         let path = config::plugins::fetch_component(&self.fetcher(), source.as_ref(), &install).await?;
         let dir = config::plugins::config_dir()?;
-        config::plugins::edit_plugins(&dir, |plugins| config::plugins::set_entry(plugins, &path, install.config))?;
+        config::plugins::edit_plugins(&dir, |plugins| {
+            config::plugins::set_entry(plugins, &path, install.config)
+        })?;
         Ok(self.reload_plugins().await)
     }
 
@@ -242,7 +281,11 @@ impl Engine {
     }
 
     /// Replaces a plugin's config in drift.json and reloads, so it reads the new values.
-    pub async fn configure_plugin(&self, path: &str, config: serde_json::Value) -> Result<Vec<hook::PluginInfo>, String> {
+    pub async fn configure_plugin(
+        &self,
+        path: &str,
+        config: serde_json::Value,
+    ) -> Result<Vec<hook::PluginInfo>, String> {
         let dir = config::plugins::config_dir()?;
         config::plugins::edit_plugins(&dir, |plugins| config::plugins::set_entry(plugins, path, config))?;
         Ok(self.reload_plugins().await)
@@ -261,7 +304,14 @@ impl Engine {
 
     /// The skill folders switched off, as the engine compares folders.
     pub fn disabled_skills(&self) -> Vec<PathBuf> {
-        self.store.setting::<Vec<String>>(DISABLED_SKILLS_KEY).ok().flatten().unwrap_or_default().into_iter().map(PathBuf::from).collect()
+        self.store
+            .setting::<Vec<String>>(DISABLED_SKILLS_KEY)
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+            .into_iter()
+            .map(PathBuf::from)
+            .collect()
     }
 
     /// Turns a skill on or off for every workspace and session from the next turn; its files stay as they are.
@@ -288,12 +338,16 @@ impl Engine {
 
     /// How long a shell command may run when the model does not say.
     pub fn shell_timeout(&self) -> Option<std::time::Duration> {
-        self.shell_timeout.read().unwrap().unwrap_or(Some(tool::bash::DEFAULT_TIMEOUT))
+        self.shell_timeout
+            .read()
+            .unwrap()
+            .unwrap_or(Some(tool::bash::DEFAULT_TIMEOUT))
     }
 
     /// Ties a session's permission checks to its workspace's "always" grants, loading them on first use.
     pub(crate) fn bind_permissions(&self, session_id: &str, workspace_id: &str) {
-        self.permissions.bind(session_id, workspace_id, || self.stored_grants(workspace_id));
+        self.permissions
+            .bind(session_id, workspace_id, || self.stored_grants(workspace_id));
     }
 
     /// Whether every session answers its own asks (Settings), else only those that chose to.
@@ -302,8 +356,14 @@ impl Engine {
     }
 
     /// Auto-accept for one session, stored on it; `None` when there is no such session.
-    pub fn set_session_auto_accept(&self, session_id: &str, on: bool) -> rusqlite::Result<Option<session::types::Session>> {
-        let Some(session) = self.store.set_session_auto_accept(session_id, on)? else { return Ok(None) };
+    pub fn set_session_auto_accept(
+        &self,
+        session_id: &str,
+        on: bool,
+    ) -> rusqlite::Result<Option<session::types::Session>> {
+        let Some(session) = self.store.set_session_auto_accept(session_id, on)? else {
+            return Ok(None);
+        };
         self.permissions.set_auto_accept(&self.hub, Some(session_id), on);
         Ok(Some(session))
     }
@@ -317,7 +377,12 @@ impl Engine {
 
     /// A workspace's stored grants, any twin kept by an older build dropped.
     fn stored_grants(&self, workspace_id: &str) -> Vec<permission::Grant> {
-        let stored: Vec<permission::Grant> = self.store.setting(&grants_key(workspace_id)).ok().flatten().unwrap_or_default();
+        let stored: Vec<permission::Grant> = self
+            .store
+            .setting(&grants_key(workspace_id))
+            .ok()
+            .flatten()
+            .unwrap_or_default();
         let mut unique: Vec<permission::Grant> = Vec::with_capacity(stored.len());
         for grant in stored {
             if !unique.contains(&grant) {
@@ -328,7 +393,8 @@ impl Engine {
     }
 
     pub fn permission_grants(&self, workspace_id: &str) -> Vec<permission::Grant> {
-        self.permissions.grants(workspace_id, || self.stored_grants(workspace_id))
+        self.permissions
+            .grants(workspace_id, || self.stored_grants(workspace_id))
     }
 
     /// Drops what the engine keeps for a workspace the shell has forgotten: its "always" grants
@@ -355,7 +421,8 @@ impl Engine {
 
     /// One grant, or all of them with `None`; the stored list is rewritten.
     pub fn revoke_permission_grant(&self, workspace_id: &str, grant: Option<&permission::Grant>) -> bool {
-        self.permissions.revoke(workspace_id, grant, || self.stored_grants(workspace_id))
+        self.permissions
+            .revoke(workspace_id, grant, || self.stored_grants(workspace_id))
     }
 
     /// The workspace's agents, commands and skills with the user's Settings overrides applied.
@@ -391,16 +458,22 @@ impl Engine {
         if self.store.workspace(id)?.is_none() {
             return Ok(WorkspacePurge::Missing);
         }
-        let Some(sessions) = self.store.removed_workspace_sessions(id)? else { return Ok(WorkspacePurge::InUse) };
+        let Some(sessions) = self.store.removed_workspace_sessions(id)? else {
+            return Ok(WorkspacePurge::InUse);
+        };
         if sessions.iter().any(|session| self.turns.is_running(session)) {
             return Ok(WorkspacePurge::Busy);
         }
-        let Some(deleted) = self.store.purge_removed_workspace(id)? else { return Ok(WorkspacePurge::InUse) };
+        let Some(deleted) = self.store.purge_removed_workspace(id)? else {
+            return Ok(WorkspacePurge::InUse);
+        };
         for session in &sessions {
             self.permissions.forget_session(session);
             self.questions.forget_session(session);
             let _ = std::fs::remove_dir_all(self.data_dir.join("tool-output").join(session));
-            self.hub.publish(event::Event::SessionDeleted { session_id: session.clone() });
+            self.hub.publish(event::Event::SessionDeleted {
+                session_id: session.clone(),
+            });
         }
         self.snapshots.forget(id);
         Ok(WorkspacePurge::Purged(deleted))
@@ -412,7 +485,10 @@ impl Engine {
         let Ok(sessions) = std::fs::read_dir(&root) else { return };
         for session in sessions.flatten() {
             for file in std::fs::read_dir(session.path()).into_iter().flatten().flatten() {
-                let old = file.metadata().and_then(|m| m.modified()).is_ok_and(|at| at.elapsed().is_ok_and(|elapsed| elapsed > age));
+                let old = file
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .is_ok_and(|at| at.elapsed().is_ok_and(|elapsed| elapsed > age));
                 if old {
                     let _ = std::fs::remove_file(file.path());
                 }
@@ -424,7 +500,9 @@ impl Engine {
     /// Drops recorded file content no stored call refers to any more; content referenced by any stored
     /// call, archived ones included, is pinned. Failures only mean the store keeps more than it needs.
     pub async fn prune_snapshots(&self) {
-        let (Ok(workspaces), Ok(mut blobs)) = (self.store.workspaces(), self.store.recorded_blobs()) else { return };
+        let (Ok(workspaces), Ok(mut blobs)) = (self.store.workspaces(), self.store.recorded_blobs()) else {
+            return;
+        };
         for workspace in workspaces {
             let keep = blobs.remove(&workspace.id).unwrap_or_default();
             let path = tool::canonical(Path::new(&workspace.path));
@@ -437,9 +515,13 @@ impl Engine {
     pub fn catalog_view(&self) -> Catalog {
         let mut catalog = self.catalog.read().unwrap().clone();
         if let Some(openai) = catalog.providers.get_mut("openai")
-            && matches!(self.credentials.resolve("openai", &openai.env), Some(llm::Credential::OAuth { .. })) {
-                llm::openai::codex::shape(openai);
-            }
+            && matches!(
+                self.credentials.resolve("openai", &openai.env),
+                Some(llm::Credential::OAuth { .. })
+            )
+        {
+            llm::openai::codex::shape(openai);
+        }
         catalog
     }
 
@@ -474,7 +556,14 @@ impl Engine {
     pub(crate) async fn ask_local(&self) {
         let mut changed = false;
         for (id, name, default) in llm::local::LOCAL {
-            let base = self.catalog.read().unwrap().providers.get(id).and_then(|p| p.api.clone()).unwrap_or_else(|| default.into());
+            let base = self
+                .catalog
+                .read()
+                .unwrap()
+                .providers
+                .get(id)
+                .and_then(|p| p.api.clone())
+                .unwrap_or_else(|| default.into());
             let found = llm::local::discover(&self.http, id, &base, &self.local_shown).await;
             self.credentials.set_keyless(id, found.is_some());
             let mut known = self.local_models.lock().unwrap();

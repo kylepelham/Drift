@@ -16,7 +16,11 @@ struct Args {
 /// Where a headless engine keeps its data unless told: `$XDG_DATA_HOME/drift`, else `~/.local/share/drift`.
 fn default_data_dir() -> PathBuf {
     let home = || drift_engine::config::home().map(|home| home.join(".local").join("share"));
-    std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).or_else(home).unwrap_or_else(std::env::temp_dir).join("drift")
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(home)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("drift")
 }
 
 fn parse() -> Result<Args, String> {
@@ -57,16 +61,21 @@ async fn main() {
         println!("{}", drift_engine::api::openapi().to_pretty_json().unwrap());
         return;
     }
-    let options = drift_engine::Options { file_credentials: args.file_credentials, ..Default::default() };
+    let options = drift_engine::Options {
+        file_credentials: args.file_credentials,
+        ..Default::default()
+    };
     let engine = drift_engine::Engine::open_with(&args.data_dir, options).unwrap_or_else(|error| {
         eprintln!("{error}");
         std::process::exit(1);
     });
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
-    let server = drift_engine::listen(engine.clone(), addr).await.unwrap_or_else(|error| {
-        eprintln!("{error}");
-        std::process::exit(1);
-    });
+    let server = drift_engine::listen(engine.clone(), addr)
+        .await
+        .unwrap_or_else(|error| {
+            eprintln!("{error}");
+            std::process::exit(1);
+        });
     println!("url {}", server.url());
     println!("token {}", engine.token);
     // Without a console there is no Ctrl+C to wait for; the parent kills us instead.

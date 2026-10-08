@@ -10,7 +10,11 @@ use tauri::State;
 /// Sessions whose transcript contains `query`. Runs off the UI thread: the scan touches the
 /// engine database, which the engine may be writing to at the same time.
 #[tauri::command]
-pub(crate) async fn session_search(native: State<'_, crate::native::Native>, query: String, directory: String) -> Result<Vec<SessionMatch>, String> {
+pub(crate) async fn session_search(
+    native: State<'_, crate::native::Native>,
+    query: String,
+    directory: String,
+) -> Result<Vec<SessionMatch>, String> {
     let database = native.engine().data_dir.join("drift.db");
     tauri::async_runtime::spawn_blocking(move || session_search::search(&database, &query, &directory))
         .await
@@ -18,12 +22,17 @@ pub(crate) async fn session_search(native: State<'_, crate::native::Native>, que
 }
 
 fn storage_location(native: &crate::native::Native) -> storage::Location {
-    storage::Location { data_dir: native.engine().data_dir.clone() }
+    storage::Location {
+        data_dir: native.engine().data_dir.clone(),
+    }
 }
 
 /// Fast, sampled overview of what is using space: the database and the engine's folders.
 #[tauri::command]
-pub(crate) async fn storage_stats(store: State<'_, Store>, native: State<'_, crate::native::Native>) -> Result<StorageStats, String> {
+pub(crate) async fn storage_stats(
+    store: State<'_, Store>,
+    native: State<'_, crate::native::Native>,
+) -> Result<StorageStats, String> {
     let archived = storage::archived_ids(&store);
     let location = storage_location(&native);
     tauri::async_runtime::spawn_blocking(move || storage::stats(&location, &archived))
@@ -99,26 +108,33 @@ pub(crate) fn store_touch_workspace(store: State<Store>, id: String) -> Result<(
 }
 
 #[tauri::command]
-pub(crate) fn store_remove_workspace(store: State<Store>, native: State<crate::native::Native>, id: String) -> Result<(), String> {
+pub(crate) fn store_remove_workspace(
+    store: State<Store>,
+    native: State<crate::native::Native>,
+    id: String,
+) -> Result<(), String> {
     native.engine().stop_workspace_mcp(&id);
     store.remove_workspace(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub(crate) fn store_expired_removed_workspaces(
-    store: State<Store>,
-    before: i64,
-) -> Result<Vec<Workspace>, String> {
-    store
-        .expired_removed_workspaces(before)
-        .map_err(|e| e.to_string())
+pub(crate) fn store_expired_removed_workspaces(store: State<Store>, before: i64) -> Result<Vec<Workspace>, String> {
+    store.expired_removed_workspaces(before).map_err(|e| e.to_string())
 }
 
 /// The engine's records of a removed workspace (its kept permission grants and trusted commands),
 /// then the shell's. Engine first, so a failure in between leaves the row to retry from.
 #[tauri::command]
-pub(crate) fn store_forget_workspace(store: State<Store>, native: State<crate::native::Native>, id: String) -> Result<(), String> {
-    let removed = store.removed_workspaces().map_err(|e| e.to_string())?.iter().any(|workspace| workspace.id == id);
+pub(crate) fn store_forget_workspace(
+    store: State<Store>,
+    native: State<crate::native::Native>,
+    id: String,
+) -> Result<(), String> {
+    let removed = store
+        .removed_workspaces()
+        .map_err(|e| e.to_string())?
+        .iter()
+        .any(|workspace| workspace.id == id);
     if !removed {
         return Ok(());
     }
@@ -145,9 +161,7 @@ pub(crate) fn store_archive_session(
 
 #[tauri::command]
 pub(crate) fn store_unarchive_session(store: State<Store>, session_id: String) -> Result<(), String> {
-    store
-        .unarchive_session(&session_id)
-        .map_err(|e| e.to_string())
+    store.unarchive_session(&session_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

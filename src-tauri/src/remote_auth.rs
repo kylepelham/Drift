@@ -1,10 +1,10 @@
-use crate::remote::{constant_time_eq, RemoteAccess};
+use crate::remote::{RemoteAccess, constant_time_eq};
 use crate::store::{RemoteDevice, Store};
-use axum::extract::{ConnectInfo, Extension, Path as UrlPath, State};
-use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
-use axum::response::{Html, IntoResponse, Response};
 use axum::Json;
-use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
+use axum::extract::{ConnectInfo, Extension, Path as UrlPath, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::{Html, IntoResponse, Response};
+use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -78,7 +78,10 @@ impl Auth {
             .map_err(|error| error.to_string())?
             .and_then(|value| serde_json::from_str(&value).ok());
         Ok(Self {
-            devices: devices.into_iter().map(|device| (device.token_hash.clone(), device)).collect(),
+            devices: devices
+                .into_iter()
+                .map(|device| (device.token_hash.clone(), device))
+                .collect(),
             links: Vec::new(),
             password,
             failures: HashMap::new(),
@@ -192,7 +195,9 @@ impl Auth {
 
     /// Signs out one device, or every device when `id` is `None`.
     pub(crate) fn revoke(&mut self, id: Option<&str>, store: &Store) -> Result<(), String> {
-        store.delete_remote_devices(id, None).map_err(|error| error.to_string())?;
+        store
+            .delete_remote_devices(id, None)
+            .map_err(|error| error.to_string())?;
         self.devices.retain(|_, device| id.is_some_and(|id| device.id != id));
         Ok(())
     }
@@ -222,7 +227,10 @@ impl Auth {
     }
 
     fn fail(&mut self, address: IpAddr, now: Instant) {
-        let failure = self.failures.entry(address).or_insert(Failure { count: 0, locked_until: None });
+        let failure = self.failures.entry(address).or_insert(Failure {
+            count: 0,
+            locked_until: None,
+        });
         failure.count += 1;
         if failure.count >= FREE_FAILURES {
             let doublings = (failure.count - FREE_FAILURES).min(5);
@@ -236,7 +244,10 @@ impl Auth {
 }
 
 pub(crate) fn token_hash(token: &str) -> String {
-    Sha256::digest(token.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
+    Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn random_bytes<const N: usize>() -> [u8; N] {
@@ -263,7 +274,11 @@ fn random_code() -> String {
 }
 
 pub(crate) fn normalize_code(input: &str) -> String {
-    input.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_uppercase()).collect()
+    input
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_uppercase())
+        .collect()
 }
 
 fn display_code(code: &str) -> String {
@@ -375,7 +390,10 @@ pub(crate) async fn certificate(State(app): State<tauri::AppHandle>) -> Response
     let der = app.state::<RemoteAccess>().certificate();
     let mut response = der.into_response();
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/x-x509-ca-cert"));
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/x-x509-ca-cert"),
+    );
     headers.insert(
         header::CONTENT_DISPOSITION,
         HeaderValue::from_static("attachment; filename=\"drift-remote-access.cer\""),
@@ -398,7 +416,10 @@ pub(crate) async fn start_link(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Json(request): Json<LinkRequest>,
 ) -> Response {
-    let started = app.state::<RemoteAccess>().auth().request_link(peer.ip(), device_name(request.name));
+    let started = app
+        .state::<RemoteAccess>()
+        .auth()
+        .request_link(peer.ip(), device_name(request.name));
     match started {
         Ok((id, code)) => {
             notify(&app);
@@ -415,7 +436,10 @@ pub(crate) async fn poll_link(State(app): State<tauri::AppHandle>, UrlPath(id): 
         Ok(Poll::Expired) => (StatusCode::NOT_FOUND, Json(json!({ "status": "expired" }))).into_response(),
         Ok(Poll::Approved(token)) => {
             notify(&app);
-            with_cookie(Json(json!({ "status": "approved" })).into_response(), session_cookie(&token))
+            with_cookie(
+                Json(json!({ "status": "approved" })).into_response(),
+                session_cookie(&token),
+            )
         }
         Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error),
     }
@@ -480,7 +504,10 @@ pub(crate) async fn me(Extension(device): Extension<RemoteDevice>) -> Response {
     Json(device).into_response()
 }
 
-pub(crate) async fn logout(State(app): State<tauri::AppHandle>, Extension(device): Extension<RemoteDevice>) -> Response {
+pub(crate) async fn logout(
+    State(app): State<tauri::AppHandle>,
+    Extension(device): Extension<RemoteDevice>,
+) -> Response {
     let access = app.state::<RemoteAccess>();
     if let Err(error) = access.auth().revoke(Some(&device.id), &app.state::<Store>()) {
         return failure(StatusCode::INTERNAL_SERVER_ERROR, &error);

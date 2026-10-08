@@ -44,15 +44,12 @@ fn position_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     let monitor_size = monitor.size();
     let window_size = window.outer_size()?;
     let x = monitor_position.x as i64 + (monitor_size.width as i64 - window_size.width as i64) / 2;
-    let y =
-        monitor_position.y as i64 + (monitor_size.height as i64 - window_size.height as i64) / 2;
+    let y = monitor_position.y as i64 + (monitor_size.height as i64 - window_size.height as i64) / 2;
     window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32))
 }
 
 fn reveal_main_window(window: &tauri::WebviewWindow) {
-    if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst)
-        && position_main_window(window).is_err()
-    {
+    if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) && position_main_window(window).is_err() {
         return;
     }
     if window.show().is_err() {
@@ -162,16 +159,14 @@ fn main() {
             let engine = native::start(app.handle(), &data_dir).expect("failed to open the drift engine");
             let store = store::attach(engine.store.clone()).expect("failed to open drift store");
             native::push_agent_overrides(app.handle(), &store).expect("failed to load agent settings");
-            let ui_state = ui_state::UiStateAuthority::load(&store)
-                .expect("failed to load UI mirror state");
-            let shell_timeout = ui_state::ShellTimeoutAuthority::load(&store)
-                .expect("failed to load shell timeout policy");
+            let ui_state = ui_state::UiStateAuthority::load(&store).expect("failed to load UI mirror state");
+            let shell_timeout =
+                ui_state::ShellTimeoutAuthority::load(&store).expect("failed to load shell timeout policy");
             if let Some(policy) = shell_timeout.current() {
                 native::push_shell_timeout(app.handle(), policy.timeout_ms);
             }
             let dictation_enabled = store.dictation_enabled().unwrap_or(false);
-            app.state::<permissions::DictationConsent>()
-                .set(dictation_enabled);
+            app.state::<permissions::DictationConsent>().set(dictation_enabled);
             app.manage(store);
             app.manage(ui_state);
             app.manage(shell_timeout);

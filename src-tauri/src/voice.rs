@@ -111,9 +111,10 @@ fn vulkan_ready() -> bool {
 
 pub(crate) fn whisper_binary() -> Option<PathBuf> {
     if vulkan_ready()
-        && let Some(accelerated) = sidecar("whisper-cli-vulkan") {
-            return Some(accelerated);
-        }
+        && let Some(accelerated) = sidecar("whisper-cli-vulkan")
+    {
+        return Some(accelerated);
+    }
     sidecar("whisper-cli")
 }
 
@@ -206,7 +207,11 @@ async fn fetch_model(
         announced = received;
         let _ = app.emit(
             PROGRESS_EVENT,
-            VoiceProgress { id: model.id.to_string(), received, total },
+            VoiceProgress {
+                id: model.id.to_string(),
+                received,
+                total,
+            },
         );
     }
     file.flush().map_err(|error| error.to_string())?;
@@ -261,7 +266,11 @@ fn run_whisper(
     language: &str,
     prompt: &str,
 ) -> Result<String, String> {
-    let wav = std::env::temp_dir().join(format!("drift-voice-{}-{:?}.wav", std::process::id(), std::thread::current().id()));
+    let wav = std::env::temp_dir().join(format!(
+        "drift-voice-{}-{:?}.wav",
+        std::process::id(),
+        std::thread::current().id()
+    ));
     write_wav(&wav, samples)?;
     let mut command = std::process::Command::new(binary);
     command

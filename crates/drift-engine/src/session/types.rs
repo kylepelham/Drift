@@ -82,7 +82,11 @@ impl Revert {
             Some(from) => Some(FilesAt::Before(from.into())),
             None => Some(FilesAt::Current),
         };
-        Self { message_id: message_id.into(), kept, files }
+        Self {
+            message_id: message_id.into(),
+            kept,
+            files,
+        }
     }
 
     /// The prompt whose turns and later ones are undone on disk; none when the files are as the conversation left them.
@@ -391,7 +395,13 @@ mod tests {
             message_id: "msg_1".into(),
             session_id: "ses_parent".into(),
             provider_signature: None,
-            part: Part::TaskResult { task_id: "task_1".into(), worker_session_id: "ses_worker".into(), description: "d".into(), outcome: "replied".into(), text: "t".into() },
+            part: Part::TaskResult {
+                task_id: "task_1".into(),
+                worker_session_id: "ses_worker".into(),
+                description: "d".into(),
+                outcome: "replied".into(),
+                text: "t".into(),
+            },
         };
         let text = serde_json::to_string(&row).unwrap();
         assert_eq!(text.matches("\"sessionId\"").count(), 1, "{text}");

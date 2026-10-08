@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use drift_engine::session::snapshot::FileChange;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::map::Records;
 use crate::source::{OcSession, Source};
@@ -43,11 +43,28 @@ struct Write<'a> {
 pub fn records(source: &Source, planned: &[Planned], now: i64, blobs: &mut dyn Blobs) -> rusqlite::Result<Records> {
     let mut writes = Vec::new();
     for plan in planned {
-        for message in source.newest_messages(&plan.session.id, RECENT_MESSAGES)?.into_iter().filter(|message| message.created >= now - RECENT_MS) {
+        for message in source
+            .newest_messages(&plan.session.id, RECENT_MESSAGES)?
+            .into_iter()
+            .filter(|message| message.created >= now - RECENT_MS)
+        {
             for part in source.part_ids(&message.id)? {
-                let Some(data) = source.small_part(&part)?.and_then(|text| serde_json::from_str::<Value>(&text).ok()) else { continue };
-                if data["type"] == "tool" && data["state"]["status"] == "completed" && WRITERS.contains(&data["tool"].as_str().unwrap_or_default()) {
-                    writes.push(Write { created: message.created, part, data, plan });
+                let Some(data) = source
+                    .small_part(&part)?
+                    .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                else {
+                    continue;
+                };
+                if data["type"] == "tool"
+                    && data["state"]["status"] == "completed"
+                    && WRITERS.contains(&data["tool"].as_str().unwrap_or_default())
+                {
+                    writes.push(Write {
+                        created: message.created,
+                        part,
+                        data,
+                        plan,
+                    });
                 }
             }
         }
@@ -102,7 +119,12 @@ struct Change {
 /// The call's record, every file or none; a call that cannot be rebuilt loses the history of its files.
 fn record(write: &Write, files: &mut Files, blobs: &mut dyn Blobs) -> Option<Value> {
     let changes = changes(write, files);
-    let stored = changes.as_ref().and_then(|changes| changes.iter().map(|change| stored(change, write.plan, blobs)).collect::<Option<Vec<_>>>());
+    let stored = changes.as_ref().and_then(|changes| {
+        changes
+            .iter()
+            .map(|change| stored(change, write.plan, blobs))
+            .collect::<Option<Vec<_>>>()
+    });
     let Some(stored) = stored else {
         for path in touched(write) {
             files.set(&path, None);
@@ -120,7 +142,12 @@ fn stored(change: &Change, plan: &Planned, blobs: &mut dyn Blobs) -> Option<File
         Some(text) => blobs.store(&plan.owner, &plan.root, text.as_bytes()).map(Some),
         None => Some(None),
     };
-    Some(FileChange { path: relative(&change.path, &plan.root), before: blob(&change.before)?, after: blob(&change.after)?, observed: false })
+    Some(FileChange {
+        path: relative(&change.path, &plan.root),
+        before: blob(&change.before)?,
+        after: blob(&change.after)?,
+        observed: false,
+    })
 }
 
 /// Inside the workspace a path is relative with `/`, as a native record's is; outside it stays absolute.
@@ -129,14 +156,21 @@ fn relative(path: &Path, root: &Path) -> String {
     let root = root.to_string_lossy().replace('\\', "/");
     let root = root.trim_end_matches('/');
     match path.get(..root.len()) {
-        Some(prefix) if prefix.eq_ignore_ascii_case(root) && path[root.len()..].starts_with('/') => path[root.len() + 1..].to_string(),
+        Some(prefix) if prefix.eq_ignore_ascii_case(root) && path[root.len()..].starts_with('/') => {
+            path[root.len() + 1..].to_string()
+        }
         _ => path,
     }
 }
 
 fn resolve(path: &str, write: &Write) -> PathBuf {
     let path = Path::new(path);
-    if path.is_absolute() || path.to_string_lossy().get(1..3).is_some_and(|drive| drive == ":\\" || drive == ":/") {
+    if path.is_absolute()
+        || path
+            .to_string_lossy()
+            .get(1..3)
+            .is_some_and(|drive| drive == ":\\" || drive == ":/")
+    {
         return path.to_path_buf();
     }
     Path::new(&write.plan.session.directory).join(path)
@@ -159,9 +193,20 @@ fn changes(write: &Write, files: &mut Files) -> Option<Vec<Change>> {
         "write" if state["metadata"]["exists"] == false => {
             let path = resolve(state["input"]["filePath"].as_str()?, write);
             let content = state["input"]["content"].as_str()?;
-            (files.current(&path)?.as_deref() == Some(content)).then(|| vec![Change { path, before: None, after: Some(content.into()) }])
+            (files.current(&path)?.as_deref() == Some(content)).then(|| {
+                vec![Change {
+                    path,
+                    before: None,
+                    after: Some(content.into()),
+                }]
+            })
         }
-        "apply_patch" => state["metadata"]["files"].as_array()?.iter().map(|file| patched(write, file, files)).collect::<Option<Vec<_>>>().map(|all| all.into_iter().flatten().collect()),
+        "apply_patch" => state["metadata"]["files"]
+            .as_array()?
+            .iter()
+            .map(|file| patched(write, file, files))
+            .collect::<Option<Vec<_>>>()
+            .map(|all| all.into_iter().flatten().collect()),
         _ => None,
     }
 }
@@ -171,28 +216,58 @@ fn edit(write: &Write, state: &Value, files: &mut Files) -> Option<Change> {
     let diff = &state["metadata"]["filediff"];
     let after = files.current(&path)??;
     if let (Some(before), Some(recorded)) = (diff["before"].as_str(), diff["after"].as_str()) {
-        return (recorded == after).then(|| Change { path, before: Some(before.into()), after: Some(after) });
+        return (recorded == after).then(|| Change {
+            path,
+            before: Some(before.into()),
+            after: Some(after),
+        });
     }
     let before = reverse(diff["patch"].as_str().or(state["metadata"]["diff"].as_str())?, &after)?;
     // An edit with nothing to replace made the file.
     let made = state["input"]["oldString"] == "" && before.is_empty();
-    Some(Change { path, before: (!made).then_some(before), after: Some(after) })
+    Some(Change {
+        path,
+        before: (!made).then_some(before),
+        after: Some(after),
+    })
 }
 
 /// One file of a patch, two for a move: its new path appears and its old path goes.
 fn patched(write: &Write, file: &Value, files: &mut Files) -> Option<Vec<Change>> {
     let path = resolve(file["filePath"].as_str()?, write);
     let kind = file["type"].as_str()?;
-    let moved = file["movePath"].as_str().filter(|_| kind == "move").map(|to| resolve(to, write));
+    let moved = file["movePath"]
+        .as_str()
+        .filter(|_| kind == "move")
+        .map(|to| resolve(to, write));
     let now = files.current(moved.as_ref().unwrap_or(&path))?;
     let before = match (file["before"].as_str(), file["after"].as_str()) {
-        (Some(before), Some(recorded)) if (kind == "delete" && now.is_none()) || now.as_deref() == Some(recorded) => (kind != "add").then(|| before.to_string()),
+        (Some(before), Some(recorded)) if (kind == "delete" && now.is_none()) || now.as_deref() == Some(recorded) => {
+            (kind != "add").then(|| before.to_string())
+        }
         (Some(_), Some(_)) => return None,
         _ => original(file["patch"].as_str().or(file["diff"].as_str())?, kind, now.as_deref())?,
     };
     match moved {
-        Some(to) => files.current(&path)?.is_none().then(|| vec![Change { path: to, before: None, after: now }, Change { path, before, after: None }]),
-        None => Some(vec![Change { path, before, after: now }]),
+        Some(to) => files.current(&path)?.is_none().then(|| {
+            vec![
+                Change {
+                    path: to,
+                    before: None,
+                    after: now,
+                },
+                Change {
+                    path,
+                    before,
+                    after: None,
+                },
+            ]
+        }),
+        None => Some(vec![Change {
+            path,
+            before,
+            after: now,
+        }]),
     }
 }
 
@@ -225,7 +300,11 @@ pub fn reverse(diff: &str, current: &str) -> Option<String> {
     let eol = if current.contains("\r\n") { "\r\n" } else { "\n" };
     let mut lines: Vec<String> = current.split_inclusive('\n').map(String::from).collect();
     for hunk in hunks.iter().rev() {
-        let start = if hunk.new_len == 0 { hunk.new_start } else { hunk.new_start.checked_sub(1)? };
+        let start = if hunk.new_len == 0 {
+            hunk.new_start
+        } else {
+            hunk.new_start.checked_sub(1)?
+        };
         let end = start.checked_add(hunk.new_len).filter(|end| *end <= lines.len())?;
         let mut at = start;
         let mut replacement = Vec::new();
@@ -257,7 +336,9 @@ fn parse(diff: &str) -> Option<Vec<Hunk>> {
     let mut lines = diff.split('\n').peekable();
     let mut hunks = Vec::new();
     while let Some(line) = lines.next() {
-        let Some(header) = line.strip_prefix("@@ -") else { continue };
+        let Some(header) = line.strip_prefix("@@ -") else {
+            continue;
+        };
         let (old, rest) = header.split_once(" +")?;
         let (_, mut old_left) = range(old)?;
         let (new_start, new_len) = range(rest.split_once(" @@")?.0)?;
@@ -277,14 +358,22 @@ fn parse(diff: &str) -> Option<Vec<Hunk>> {
                 _ => return None,
             }
             let text = line.get(1..).unwrap_or_default();
-            body.push(Line { kind, text: text.strip_suffix('\r').unwrap_or(text).to_string(), newline: true });
+            body.push(Line {
+                kind,
+                text: text.strip_suffix('\r').unwrap_or(text).to_string(),
+                newline: true,
+            });
         }
         while lines.next_if(|line| line.starts_with('\\')).is_some() {
             if let Some(last) = body.last_mut() {
                 last.newline = false;
             }
         }
-        hunks.push(Hunk { new_start, new_len, lines: body });
+        hunks.push(Hunk {
+            new_start,
+            new_len,
+            lines: body,
+        });
     }
     Some(hunks)
 }
@@ -306,14 +395,24 @@ mod tests {
     #[test]
     fn a_diff_is_undone_where_it_says_in_the_files_own_line_endings() {
         let now = "one\nTWO\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n";
-        assert_eq!(reverse(DIFF, now).as_deref(), Some("one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n"));
+        assert_eq!(
+            reverse(DIFF, now).as_deref(),
+            Some("one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\n")
+        );
         let crlf = now.replace('\n', "\r\n");
-        assert_eq!(reverse(DIFF, &crlf).as_deref(), Some("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven\r\neight\r\nnine\r\n"));
+        assert_eq!(
+            reverse(DIFF, &crlf).as_deref(),
+            Some("one\r\ntwo\r\nthree\r\nfour\r\nfive\r\nsix\r\nseven\r\neight\r\nnine\r\n")
+        );
     }
 
     #[test]
     fn a_file_changed_since_the_diff_is_not_undone() {
-        assert_eq!(reverse(DIFF, "one\nTWO\nthree\nFOUR\nfive\nsix\nseven\neight\nnine\nten\n"), None, "a context line differs");
+        assert_eq!(
+            reverse(DIFF, "one\nTWO\nthree\nFOUR\nfive\nsix\nseven\neight\nnine\nten\n"),
+            None,
+            "a context line differs"
+        );
         assert_eq!(reverse(DIFF, "one\nTWO\n"), None, "the file is shorter than the diff");
     }
 
@@ -324,18 +423,31 @@ mod tests {
         let deleted = "--- b.rs\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-x\n-y\n\\ No newline at end of file\n";
         assert_eq!(reverse(deleted, "").as_deref(), Some("x\ny"));
         let tail = "@@ -1,2 +1,2 @@\n a\n-b\n\\ No newline at end of file\n+c\n";
-        assert_eq!(reverse(tail, "a\nc\n").as_deref(), Some("a\nb"), "the old last line had no newline");
+        assert_eq!(
+            reverse(tail, "a\nc\n").as_deref(),
+            Some("a\nb"),
+            "the old last line had no newline"
+        );
     }
 
     #[test]
     fn lines_that_look_like_headers_are_read_as_content() {
         let diff = "@@ -1,2 +1,2 @@\n--- old dashes\n+++ new pluses\n keep\n";
-        assert_eq!(reverse(diff, "++ new pluses\nkeep\n").as_deref(), Some("-- old dashes\nkeep\n"));
+        assert_eq!(
+            reverse(diff, "++ new pluses\nkeep\n").as_deref(),
+            Some("-- old dashes\nkeep\n")
+        );
     }
 
     #[test]
     fn paths_inside_the_workspace_become_relative_ignoring_case_and_slashes() {
-        assert_eq!(relative(Path::new("C:\\Repo\\src\\a.rs"), Path::new("c:/repo")), "src/a.rs");
-        assert_eq!(relative(Path::new("C:/Repo2/a.rs"), Path::new("C:/Repo")), "C:/Repo2/a.rs");
+        assert_eq!(
+            relative(Path::new("C:\\Repo\\src\\a.rs"), Path::new("c:/repo")),
+            "src/a.rs"
+        );
+        assert_eq!(
+            relative(Path::new("C:/Repo2/a.rs"), Path::new("C:/Repo")),
+            "C:/Repo2/a.rs"
+        );
     }
 }

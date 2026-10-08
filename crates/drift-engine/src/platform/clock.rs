@@ -24,7 +24,11 @@ fn local() -> Option<(i64, u32, u32)> {
     if unsafe { libc::localtime_r(&libc::time(std::ptr::null_mut()), &mut now) }.is_null() {
         return None;
     }
-    Some((i64::from(now.tm_year) + 1900, u32::try_from(now.tm_mon + 1).ok()?, u32::try_from(now.tm_mday).ok()?))
+    Some((
+        i64::from(now.tm_year) + 1900,
+        u32::try_from(now.tm_mon + 1).ok()?,
+        u32::try_from(now.tm_mday).ok()?,
+    ))
 }
 
 #[cfg(not(any(windows, unix)))]
@@ -33,7 +37,10 @@ fn local() -> Option<(i64, u32, u32)> {
 }
 
 fn utc() -> (i64, u32, u32) {
-    let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     civil_from_days(i64::try_from(seconds / 86_400).unwrap_or(0))
 }
 
@@ -58,7 +65,10 @@ mod tests {
     #[test]
     fn the_date_is_the_local_one_and_well_formed() {
         let date = local_date();
-        assert!(date.len() == 10 && date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-', "{date}");
+        assert!(
+            date.len() == 10 && date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-',
+            "{date}"
+        );
         assert!(local().is_some(), "the system gives a local date");
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(20_000), (2024, 10, 4));

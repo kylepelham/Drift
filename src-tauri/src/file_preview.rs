@@ -1,6 +1,6 @@
 //! Read-only, size-bounded previews within the originating workspace.
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::Serialize;
 use std::fs::{self, File};
 use std::io::{self, Read};
@@ -15,11 +15,7 @@ pub(crate) struct FilePreview {
 }
 
 #[tauri::command]
-pub(crate) async fn read_file_preview(
-    path: String,
-    directory: String,
-    max_bytes: u64,
-) -> Result<FilePreview, String> {
+pub(crate) async fn read_file_preview(path: String, directory: String, max_bytes: u64) -> Result<FilePreview, String> {
     tauri::async_runtime::spawn_blocking(move || read_preview(&path, &directory, max_bytes))
         .await
         .map_err(|error| format!("File preview task failed: {error}"))?
@@ -58,9 +54,7 @@ fn read_preview_with_open(
         return Err("File preview path is not a regular file".into());
     }
     if metadata.len() > max_bytes {
-        return Err(format!(
-            "File preview is too large: limit is {max_bytes} bytes"
-        ));
+        return Err(format!("File preview is too large: limit is {max_bytes} bytes"));
     }
     let file = open(&path).map_err(io_error)?;
     // A checked pathname can be replaced before open. Validate the handle we will read,
@@ -74,9 +68,7 @@ fn read_preview_with_open(
         return Err("File preview path is not a regular file".into());
     }
     if metadata.len() > max_bytes {
-        return Err(format!(
-            "File preview is too large: limit is {max_bytes} bytes"
-        ));
+        return Err(format!("File preview is too large: limit is {max_bytes} bytes"));
     }
     read_bounded(file, max_bytes)
 }
@@ -85,9 +77,7 @@ fn read_preview_with_open(
 fn opened_file_path(file: &File) -> Result<PathBuf, String> {
     use std::ffi::OsString;
     use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
-    use windows_sys::Win32::Storage::FileSystem::{
-        GetFinalPathNameByHandleW, FILE_NAME_NORMALIZED, VOLUME_NAME_DOS,
-    };
+    use windows_sys::Win32::Storage::FileSystem::{FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW, VOLUME_NAME_DOS};
 
     // DOS + NORMALIZED uses the same extended \\?\ namespace as Path::canonicalize.
     // Bound the path buffer too; an overlong or unavailable final path fails closed.
@@ -134,14 +124,9 @@ fn opened_file_path(_file: &File) -> Result<PathBuf, String> {
 fn read_bounded(reader: impl Read, max_bytes: u64) -> Result<FilePreview, String> {
     // The extra byte detects growth after metadata without an unbounded allocation/read.
     let mut bytes = Vec::new();
-    reader
-        .take(max_bytes + 1)
-        .read_to_end(&mut bytes)
-        .map_err(io_error)?;
+    reader.take(max_bytes + 1).read_to_end(&mut bytes).map_err(io_error)?;
     if bytes.len() as u64 > max_bytes {
-        return Err(format!(
-            "File preview is too large: limit is {max_bytes} bytes"
-        ));
+        return Err(format!("File preview is too large: limit is {max_bytes} bytes"));
     }
     Ok(FilePreview {
         size: bytes.len() as u64,
@@ -161,9 +146,7 @@ fn io_error(error: io::Error) -> String {
 #[test]
 fn file_preview_handle_validation_fails_closed_on_unsupported_platforms() {
     let file = File::open(std::env::current_exe().unwrap()).unwrap();
-    assert!(opened_file_path(&file)
-        .unwrap_err()
-        .contains("on this platform"));
+    assert!(opened_file_path(&file).unwrap_err().contains("on this platform"));
 }
 
 #[cfg(all(test, any(windows, target_os = "linux")))]
@@ -220,59 +203,48 @@ mod tests {
     #[test]
     fn file_preview_rejects_missing_files_and_non_files() {
         let fixture = Fixture::new();
-        assert!(fixture
-            .read("missing.txt", 100)
-            .unwrap_err()
-            .contains("missing"));
+        assert!(fixture.read("missing.txt", 100).unwrap_err().contains("missing"));
         assert!(fixture.read("", 100).unwrap_err().contains("missing"));
-        assert!(fixture
-            .read(".", 100)
-            .unwrap_err()
-            .contains("not a regular file"));
+        assert!(fixture.read(".", 100).unwrap_err().contains("not a regular file"));
     }
 
     #[test]
     fn file_preview_requires_an_absolute_existing_workspace_directory() {
         let fixture = Fixture::new();
         for directory in ["", ".", "workspace", "../workspace"] {
-            assert!(read_preview("file", directory, 1)
-                .unwrap_err()
-                .contains("absolute"));
+            assert!(read_preview("file", directory, 1).unwrap_err().contains("absolute"));
         }
         let missing = fixture.0.join("missing");
-        assert!(read_preview("file", missing.to_str().unwrap(), 1)
-            .unwrap_err()
-            .contains("missing"));
+        assert!(
+            read_preview("file", missing.to_str().unwrap(), 1)
+                .unwrap_err()
+                .contains("missing")
+        );
         let file = fixture.0.join("file");
         fs::write(&file, b"").unwrap();
-        assert!(read_preview("file", file.to_str().unwrap(), 1)
-            .unwrap_err()
-            .contains("not a directory"));
+        assert!(
+            read_preview("file", file.to_str().unwrap(), 1)
+                .unwrap_err()
+                .contains("not a directory")
+        );
     }
 
     #[test]
     fn file_preview_rejects_oversize_metadata_and_unsafe_limits() {
         let fixture = Fixture::new();
         let path = fixture.workspace().join("large.bin");
-        File::create(&path)
-            .unwrap()
-            .set_len(MAX_PREVIEW_BYTES + 1)
-            .unwrap();
-        assert!(fixture
-            .read("large.bin", MAX_PREVIEW_BYTES)
-            .unwrap_err()
-            .contains("too large"));
+        File::create(&path).unwrap().set_len(MAX_PREVIEW_BYTES + 1).unwrap();
+        assert!(
+            fixture
+                .read("large.bin", MAX_PREVIEW_BYTES)
+                .unwrap_err()
+                .contains("too large")
+        );
         fs::write(&path, b"12").unwrap();
         for limit in [0, 1, MAX_PREVIEW_BYTES + 1, u64::MAX] {
-            assert!(fixture
-                .read("large.bin", limit)
-                .unwrap_err()
-                .contains("too large"));
+            assert!(fixture.read("large.bin", limit).unwrap_err().contains("too large"));
         }
-        assert_eq!(
-            fixture.read("large.bin", MAX_PREVIEW_BYTES).unwrap().size,
-            2
-        );
+        assert_eq!(fixture.read("large.bin", MAX_PREVIEW_BYTES).unwrap().size, 2);
     }
 
     #[test]
@@ -282,20 +254,11 @@ mod tests {
         fs::write(&path, b"1").unwrap();
         let file = File::open(&path).unwrap();
         let limit = file.metadata().unwrap().len();
-        File::options()
-            .write(true)
-            .open(&path)
-            .unwrap()
-            .set_len(100)
-            .unwrap();
+        File::options().write(true).open(&path).unwrap().set_len(100).unwrap();
         let mut reader = file;
-        assert!(read_bounded(&mut reader, limit)
-            .unwrap_err()
-            .contains("too large"));
+        assert!(read_bounded(&mut reader, limit).unwrap_err().contains("too large"));
         assert_eq!(io::Seek::stream_position(&mut reader).unwrap(), limit + 1);
-        assert!(read_bounded(io::repeat(0), 1)
-            .unwrap_err()
-            .contains("too large"));
+        assert!(read_bounded(io::repeat(0), 1).unwrap_err().contains("too large"));
     }
 
     #[test]
@@ -310,10 +273,12 @@ mod tests {
             fixture.0.join("secret"),
             sibling.join("secret"),
         ] {
-            assert!(fixture
-                .read(path.to_str().unwrap(), 100)
-                .unwrap_err()
-                .contains("outside the workspace"));
+            assert!(
+                fixture
+                    .read(path.to_str().unwrap(), 100)
+                    .unwrap_err()
+                    .contains("outside the workspace")
+            );
         }
     }
 
@@ -328,10 +293,7 @@ mod tests {
             fs::write(outside.join("file"), b"secret").unwrap();
             fs::write(outside.join("nested/file"), b"secret").unwrap();
             let (replaced, target) = match swap {
-                "file" => (
-                    fixture.workspace().join("nested/file"),
-                    outside.join("file"),
-                ),
+                "file" => (fixture.workspace().join("nested/file"), outside.join("file")),
                 "ancestor" => (fixture.workspace().join("nested"), outside.clone()),
                 _ => (fixture.workspace(), outside.clone()),
             };
@@ -350,39 +312,35 @@ mod tests {
                 .err()
                 .is_some_and(|error| error.raw_os_error() == Some(1314))
             {
-                eprintln!(
-                    "swap fixture skipped: Windows requires Developer Mode or symlink privilege"
-                );
+                eprintln!("swap fixture skipped: Windows requires Developer Mode or symlink privilege");
                 return;
             }
             result.unwrap();
 
             let saved = fixture.0.join("saved");
             let mut witness = None;
-            let error = read_preview_with_open(
-                "nested/file",
-                fixture.workspace().to_str().unwrap(),
-                6,
-                |path| {
-                    fs::rename(&replaced, &saved)?;
-                    fs::rename(&link, &replaced)?;
-                    let opened = File::open(path);
-                    // Restore the checked pathname before validation. Only the handle
-                    // still identifies the outside file, not a fresh canonicalize(path).
-                    fs::rename(&replaced, &link)?;
-                    fs::rename(&saved, &replaced)?;
-                    let file = opened?;
-                    assert!(path
-                        .canonicalize()
+            let error = read_preview_with_open("nested/file", fixture.workspace().to_str().unwrap(), 6, |path| {
+                fs::rename(&replaced, &saved)?;
+                fs::rename(&link, &replaced)?;
+                let opened = File::open(path);
+                // Restore the checked pathname before validation. Only the handle
+                // still identifies the outside file, not a fresh canonicalize(path).
+                fs::rename(&replaced, &link)?;
+                fs::rename(&saved, &replaced)?;
+                let file = opened?;
+                assert!(
+                    path.canonicalize()
                         .unwrap()
-                        .starts_with(fixture.workspace().canonicalize().unwrap()));
-                    assert!(opened_file_path(&file)
+                        .starts_with(fixture.workspace().canonicalize().unwrap())
+                );
+                assert!(
+                    opened_file_path(&file)
                         .unwrap()
-                        .starts_with(outside.canonicalize().unwrap()));
-                    witness = Some(file.try_clone()?);
-                    Ok(file)
-                },
-            )
+                        .starts_with(outside.canonicalize().unwrap())
+                );
+                witness = Some(file.try_clone()?);
+                Ok(file)
+            })
             .unwrap_err();
             assert!(
                 error.contains("opened file is outside the workspace"),
@@ -409,8 +367,7 @@ mod tests {
             path.canonicalize().unwrap()
         );
         for directory in [fixture.workspace(), root] {
-            let preview =
-                read_preview(path.to_str().unwrap(), directory.to_str().unwrap(), 9).unwrap();
+            let preview = read_preview(path.to_str().unwrap(), directory.to_str().unwrap(), 9).unwrap();
             assert_eq!(STANDARD.decode(preview.content).unwrap(), b"long path");
         }
     }
@@ -420,13 +377,12 @@ mod tests {
     fn file_preview_rejects_deleted_opened_files() {
         let fixture = Fixture::new();
         fs::write(fixture.workspace().join("file"), b"public").unwrap();
-        let error =
-            read_preview_with_open("file", fixture.workspace().to_str().unwrap(), 6, |path| {
-                let file = File::open(path)?;
-                fs::remove_file(path)?;
-                Ok(file)
-            })
-            .unwrap_err();
+        let error = read_preview_with_open("file", fixture.workspace().to_str().unwrap(), 6, |path| {
+            let file = File::open(path)?;
+            fs::remove_file(path)?;
+            Ok(file)
+        })
+        .unwrap_err();
         assert!(error.contains("cannot validate opened file path: file was deleted"));
     }
 
@@ -447,26 +403,28 @@ mod tests {
             .err()
             .is_some_and(|error| error.raw_os_error() == Some(1314))
         {
-            eprintln!(
-                "symlink fixture skipped: Windows requires Developer Mode or symlink privilege"
-            );
+            eprintln!("symlink fixture skipped: Windows requires Developer Mode or symlink privilege");
             return;
         }
         result.unwrap();
-        assert!(fixture
-            .read("escape", 100)
-            .unwrap_err()
-            .contains("outside the workspace"));
+        assert!(
+            fixture
+                .read("escape", 100)
+                .unwrap_err()
+                .contains("outside the workspace")
+        );
 
         let directory_link = fixture.workspace().join("outside");
         #[cfg(unix)]
         std::os::unix::fs::symlink(&fixture.0, &directory_link).unwrap();
         #[cfg(windows)]
         std::os::windows::fs::symlink_dir(&fixture.0, &directory_link).unwrap();
-        assert!(fixture
-            .read("outside/secret", 100)
-            .unwrap_err()
-            .contains("outside the workspace"));
+        assert!(
+            fixture
+                .read("outside/secret", 100)
+                .unwrap_err()
+                .contains("outside the workspace")
+        );
 
         fs::write(fixture.workspace().join("inside"), b"inside").unwrap();
         let root_link = fixture.0.join("root-link");
@@ -474,25 +432,16 @@ mod tests {
         std::os::unix::fs::symlink(fixture.workspace(), &root_link).unwrap();
         #[cfg(windows)]
         std::os::windows::fs::symlink_dir(fixture.workspace(), &root_link).unwrap();
-        assert_eq!(
-            read_preview("inside", root_link.to_str().unwrap(), 6)
-                .unwrap()
-                .size,
-            6
-        );
+        assert_eq!(read_preview("inside", root_link.to_str().unwrap(), 6).unwrap().size, 6);
     }
 
     #[tokio::test]
     async fn file_preview_async_command_returns_serializable_bytes() {
         let fixture = Fixture::new();
         fs::write(fixture.workspace().join("file"), b"\0\xff \n").unwrap();
-        let preview = read_file_preview(
-            "file".into(),
-            fixture.workspace().to_str().unwrap().into(),
-            4,
-        )
-        .await
-        .unwrap();
+        let preview = read_file_preview("file".into(), fixture.workspace().to_str().unwrap().into(), 4)
+            .await
+            .unwrap();
         assert_eq!(preview.size, 4);
         assert_eq!(STANDARD.decode(preview.content).unwrap(), b"\0\xff \n");
     }

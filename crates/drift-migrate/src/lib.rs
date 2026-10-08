@@ -7,7 +7,7 @@ mod settings;
 mod source;
 mod undo;
 
-pub use settings::{import_settings, mcp_config, LeftOut, OcConfig, OcServer, Settings, SettingsReport, REPORT};
+pub use settings::{LeftOut, OcConfig, OcServer, REPORT, Settings, SettingsReport, import_settings, mcp_config};
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -25,7 +25,10 @@ pub struct History<'a> {
 
 impl<'a> History<'a> {
     pub fn new(snapshots: &'a drift_engine::session::snapshot::Snapshots) -> std::io::Result<Self> {
-        Ok(Self { snapshots, runtime: tokio::runtime::Builder::new_current_thread().enable_all().build()? })
+        Ok(Self {
+            snapshots,
+            runtime: tokio::runtime::Builder::new_current_thread().enable_all().build()?,
+        })
     }
 }
 
@@ -72,9 +75,24 @@ pub enum Progress<'a> {
 /// Imports every conversation in `source` not yet brought in, telling `progress` how far it has got.
 /// `archived` names conversations Drift itself archived; those and the ones opencode archived arrive
 /// archived as of now. Rebuilt versions for undo go to `blobs`.
-pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>, blobs: &mut dyn Blobs, progress: &mut dyn FnMut(Progress)) -> rusqlite::Result<Report> {
+pub fn import_sessions(
+    store: &Store,
+    source: &Path,
+    archived: &HashSet<String>,
+    blobs: &mut dyn Blobs,
+    progress: &mut dyn FnMut(Progress),
+) -> rusqlite::Result<Report> {
     let source = source::Source::open(source)?;
-    let workspaces: HashMap<String, (String, PathBuf)> = store.workspaces()?.into_iter().map(|workspace| (directory_key(&workspace.path), (workspace.id, PathBuf::from(workspace.path)))).collect();
+    let workspaces: HashMap<String, (String, PathBuf)> = store
+        .workspaces()?
+        .into_iter()
+        .map(|workspace| {
+            (
+                directory_key(&workspace.path),
+                (workspace.id, PathBuf::from(workspace.path)),
+            )
+        })
+        .collect();
     let now = drift_engine::id::now_ms();
     let mut report = Report::default();
     let sessions = source.sessions()?;
@@ -101,9 +119,17 @@ pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>,
     let checkpoints = store.import_checkpoints();
     let mut failed: HashSet<&str> = HashSet::new();
     for plan in &planned {
-        if plan.session.parent_id.as_deref().is_some_and(|parent| failed.contains(parent)) {
+        if plan
+            .session
+            .parent_id
+            .as_deref()
+            .is_some_and(|parent| failed.contains(parent))
+        {
             failed.insert(&plan.session.id);
-            report.failed.push((plan.session.id.clone(), "the conversation that started it did not import".into()));
+            report.failed.push((
+                plan.session.id.clone(),
+                "the conversation that started it did not import".into(),
+            ));
             progress(Progress::Finished(None));
             continue;
         }
@@ -132,27 +158,51 @@ pub fn import_sessions(store: &Store, source: &Path, archived: &HashSet<String>,
 }
 
 /// A subagent goes with its parent; anything else to the workspace it ran in, else the one holding its repository.
-fn workspace_for(store: &Store, session: &source::OcSession, workspaces: &HashMap<String, (String, PathBuf)>, placed: &HashMap<&str, usize>, planned: &[undo::Planned]) -> Option<(String, PathBuf)> {
+fn workspace_for(
+    store: &Store,
+    session: &source::OcSession,
+    workspaces: &HashMap<String, (String, PathBuf)>,
+    placed: &HashMap<&str, usize>,
+    planned: &[undo::Planned],
+) -> Option<(String, PathBuf)> {
     if let Some(parent) = &session.parent_id {
         if let Some(&at) = placed.get(parent.as_str()) {
             return Some((planned[at].owner.clone(), planned[at].root.clone()));
         }
-        let stored = store.session(parent).ok().flatten().and_then(|parent| store.workspace(&parent.workspace_id).ok().flatten());
+        let stored = store
+            .session(parent)
+            .ok()
+            .flatten()
+            .and_then(|parent| store.workspace(&parent.workspace_id).ok().flatten());
         if let Some(workspace) = stored {
             return Some((workspace.id, PathBuf::from(workspace.path)));
         }
     }
     let by = |path: &str| workspaces.get(&directory_key(path)).cloned();
-    by(&session.directory).or_else(|| session.worktree.as_deref().filter(|root| !matches!(*root, "" | "/")).and_then(by))
+    by(&session.directory).or_else(|| {
+        session
+            .worktree
+            .as_deref()
+            .filter(|root| !matches!(*root, "" | "/"))
+            .and_then(by)
+    })
 }
 
 /// The conversation, listed, with how many of its calls can be undone; `None` when it was already here.
-fn import_one(store: &Store, source: &source::Source, plan: &undo::Planned, archived_at: Option<i64>, records: &map::Records, checkpoints: &drift_engine::store::ImportCheckpoints) -> rusqlite::Result<Option<(Session, usize)>> {
+fn import_one(
+    store: &Store,
+    source: &source::Source,
+    plan: &undo::Planned,
+    archived_at: Option<i64>,
+    records: &map::Records,
+    checkpoints: &drift_engine::store::ImportCheckpoints,
+) -> rusqlite::Result<Option<(Session, usize)>> {
     let session = map::session(plan.session, &plan.owner);
     if !store.begin_import(&session)? {
         return Ok(None);
     }
-    let written = write_pages(store, source, &session.id, records, checkpoints).and_then(|undoable| Ok((undoable, source.todos(&session.id)?)));
+    let written = write_pages(store, source, &session.id, records, checkpoints)
+        .and_then(|undoable| Ok((undoable, source.todos(&session.id)?)));
     let (undoable, todos) = match written {
         Ok(written) => written,
         Err(error) => {
@@ -161,11 +211,19 @@ fn import_one(store: &Store, source: &source::Source, plan: &undo::Planned, arch
         }
     };
     let todos: Vec<_> = todos.iter().filter_map(map::todo).collect();
-    Ok(store.finish_import(&session.id, archived_at, &todos)?.map(|session| (session, undoable)))
+    Ok(store
+        .finish_import(&session.id, archived_at, &todos)?
+        .map(|session| (session, undoable)))
 }
 
 /// Reads and writes the conversation a page at a time; the number of its calls given undo records.
-fn write_pages(store: &Store, source: &source::Source, session_id: &str, records: &map::Records, checkpoints: &drift_engine::store::ImportCheckpoints) -> rusqlite::Result<usize> {
+fn write_pages(
+    store: &Store,
+    source: &source::Source,
+    session_id: &str,
+    records: &map::Records,
+    checkpoints: &drift_engine::store::ImportCheckpoints,
+) -> rusqlite::Result<usize> {
     let mut ids = map::Ids::default();
     let (mut batch, mut bytes, mut undoable) = (Vec::new(), 0, 0);
     let mut after = None;

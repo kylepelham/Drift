@@ -15,7 +15,13 @@ fn password_hashes_verify_only_the_original_password() {
     assert!(hash.starts_with("pbkdf2-sha256$1000$"));
     assert!(verify_password("correct horse", &hash));
     assert!(!verify_password("correct horsf", &hash));
-    for malformed in ["", "pbkdf2-sha256$0$AA$AA", "md5$1000$AA$AA", "pbkdf2-sha256$x$AA$AA", "a$b$c"] {
+    for malformed in [
+        "",
+        "pbkdf2-sha256$0$AA$AA",
+        "md5$1000$AA$AA",
+        "pbkdf2-sha256$x$AA$AA",
+        "a$b$c",
+    ] {
         assert!(!verify_password("correct horse", malformed), "{malformed}");
     }
     let vector = hash_password("passwd", b"salt", 1);
@@ -59,10 +65,18 @@ fn a_device_links_only_after_its_code_is_entered_on_the_desktop() {
     assert_eq!(auth.approve(&typed).unwrap(), "Android Chrome");
     assert!(auth.approve(&code).is_err(), "a code approves once");
     assert!(auth.pending().is_empty());
-    let Poll::Approved(token) = auth.poll(&handle, &store).unwrap() else { panic!("expected approval") };
-    assert!(matches!(auth.poll(&handle, &store).unwrap(), Poll::Expired), "the token is delivered once");
+    let Poll::Approved(token) = auth.poll(&handle, &store).unwrap() else {
+        panic!("expected approval")
+    };
+    assert!(
+        matches!(auth.poll(&handle, &store).unwrap(), Poll::Expired),
+        "the token is delivered once"
+    );
     let device = auth.device(&token, &store).unwrap();
-    assert_eq!((device.name.as_str(), device.method.as_str()), ("Android Chrome", "link"));
+    assert_eq!(
+        (device.name.as_str(), device.method.as_str()),
+        ("Android Chrome", "link")
+    );
     assert!(auth.device("not-a-token", &store).is_none());
     let reloaded = Auth::load(&store).unwrap().devices();
     assert_eq!(reloaded, vec![device.clone()]);
@@ -109,7 +123,8 @@ fn revoking_signs_out_one_device_or_all() {
 fn changing_the_password_signs_out_only_password_sessions() {
     let (store, directory) = store();
     let mut auth = Auth::load(&store).unwrap();
-    auth.set_password(Some(("kyle".into(), hash_password("longenough", b"salt", 1))), &store).unwrap();
+    auth.set_password(Some(("kyle".into(), hash_password("longenough", b"salt", 1))), &store)
+        .unwrap();
     let linked = auth.create_device("Linked".into(), "link", &store).unwrap();
     let signed_in = auth.create_device("Signed in".into(), "password", &store).unwrap();
     assert_eq!(Auth::load(&store).unwrap().password_username().as_deref(), Some("kyle"));
@@ -125,13 +140,21 @@ fn changing_the_password_signs_out_only_password_sessions() {
 fn a_password_verified_before_a_change_is_no_longer_current() {
     let (store, directory) = store();
     let mut auth = Auth::load(&store).unwrap();
-    auth.set_password(Some(("kyle".into(), hash_password("first-pass", b"salt", 1))), &store).unwrap();
+    auth.set_password(Some(("kyle".into(), hash_password("first-pass", b"salt", 1))), &store)
+        .unwrap();
     let verified = auth.password.clone().unwrap();
     assert!(auth.password_is_current(&verified));
-    auth.set_password(Some(("kyle".into(), hash_password("second-pass", b"salt", 1))), &store).unwrap();
-    assert!(!auth.password_is_current(&verified), "a rotated password rejects the in-flight check");
+    auth.set_password(Some(("kyle".into(), hash_password("second-pass", b"salt", 1))), &store)
+        .unwrap();
+    assert!(
+        !auth.password_is_current(&verified),
+        "a rotated password rejects the in-flight check"
+    );
     auth.set_password(None, &store).unwrap();
-    assert!(!auth.password_is_current(&verified), "turning sign-in off rejects it too");
+    assert!(
+        !auth.password_is_current(&verified),
+        "turning sign-in off rejects it too"
+    );
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -149,12 +172,18 @@ fn repeated_failures_lock_an_address_with_growing_delays() {
     let first = auth.locked_for(address(40), now).unwrap();
     auth.fail(address(40), now);
     assert!(auth.locked_for(address(40), now).unwrap() > first);
-    assert!(auth.locked_for(address(41), now).is_none(), "other addresses are unaffected");
+    assert!(
+        auth.locked_for(address(41), now).is_none(),
+        "other addresses are unaffected"
+    );
     for _ in 0..20 {
         auth.fail(address(40), now);
     }
     assert!(auth.locked_for(address(40), now).unwrap() <= MAX_LOCK);
-    assert!(auth.locked_for(address(40), now + MAX_LOCK + Duration::from_secs(1)).is_none());
+    assert!(
+        auth.locked_for(address(40), now + MAX_LOCK + Duration::from_secs(1))
+            .is_none()
+    );
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -177,10 +206,23 @@ fn session_tokens_come_from_bearer_or_cookie_only() {
 
 #[test]
 fn only_sign_in_routes_are_public() {
-    for path in ["/auth/options", "/auth/link", "/auth/link/abc", "/auth/login", "/auth/certificate"] {
+    for path in [
+        "/auth/options",
+        "/auth/link",
+        "/auth/link/abc",
+        "/auth/login",
+        "/auth/certificate",
+    ] {
         assert!(public_path(path), "{path}");
     }
-    for path in ["/auth/logout", "/auth/me", "/engine/session", "/api/invoke", "/companion", "/assets/app.js"] {
+    for path in [
+        "/auth/logout",
+        "/auth/me",
+        "/engine/session",
+        "/api/invoke",
+        "/companion",
+        "/assets/app.js",
+    ] {
         assert!(!public_path(path), "{path}");
     }
     assert!(sign_in_path("/") && sign_in_path("/companion") && sign_in_path("/companion/x"));

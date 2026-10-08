@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 
 use super::error::ApiError;
-use crate::permission::{Grant, ReplyBody, Request, Rule};
 use crate::Engine;
+use crate::permission::{Grant, ReplyBody, Request, Rule};
 
 /// Every rule is checked on every call; past this the list is a mistake, not a policy.
 const MAX_RULES: usize = 200;
@@ -20,9 +20,16 @@ pub async fn rules(State(engine): State<Arc<Engine>>) -> Json<Vec<Rule>> {
 
 /// Replaces the whole ordered list; calls checked from now on follow it. A rule that could never match is refused, naming it.
 #[utoipa::path(put, path = "/permission-rules", operation_id = "savePermissionRules", request_body = Vec<Rule>, responses((status = 200, body = Vec<Rule>), (status = 400)))]
-pub async fn save_rules(State(engine): State<Arc<Engine>>, Json(rules): Json<Vec<Rule>>) -> Result<Json<Vec<Rule>>, ApiError> {
+pub async fn save_rules(
+    State(engine): State<Arc<Engine>>,
+    Json(rules): Json<Vec<Rule>>,
+) -> Result<Json<Vec<Rule>>, ApiError> {
     if rules.len() > MAX_RULES {
-        return Err(ApiError::new(StatusCode::BAD_REQUEST, "too_many", format!("at most {MAX_RULES} rules")));
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "too_many",
+            format!("at most {MAX_RULES} rules"),
+        ));
     }
     if let Some(problem) = rules.iter().find_map(Rule::problem) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", problem));
@@ -48,7 +55,11 @@ pub async fn revoke_all(State(engine): State<Arc<Engine>>, Path(id): Path<String
 
 /// Takes back one "always" grant, as listed; 404 when the workspace is unknown or holds no such grant.
 #[utoipa::path(post, path = "/workspaces/{id}/permission-grants/revoke", operation_id = "revokePermissionGrant", request_body = Grant, responses((status = 204), (status = 404)))]
-pub async fn revoke(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(grant): Json<Grant>) -> Result<StatusCode, ApiError> {
+pub async fn revoke(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+    Json(grant): Json<Grant>,
+) -> Result<StatusCode, ApiError> {
     known(&engine, &id)?;
     if !engine.revoke_permission_grant(&id, Some(&grant)) {
         return Err(ApiError::not_found("permission grant"));
@@ -71,7 +82,14 @@ pub async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<Request>> {
 }
 
 #[utoipa::path(post, path = "/permissions/{id}/reply", operation_id = "replyPermission", request_body = ReplyBody, responses((status = 204), (status = 404)))]
-pub async fn reply(State(engine): State<Arc<Engine>>, Path(id): Path<String>, Json(body): Json<ReplyBody>) -> Result<StatusCode, ApiError> {
-    engine.permissions.reply(&engine.hub, &id, body).map_err(|_| ApiError::not_found("pending permission"))?;
+pub async fn reply(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+    Json(body): Json<ReplyBody>,
+) -> Result<StatusCode, ApiError> {
+    engine
+        .permissions
+        .reply(&engine.hub, &id, body)
+        .map_err(|_| ApiError::not_found("pending permission"))?;
     Ok(StatusCode::NO_CONTENT)
 }

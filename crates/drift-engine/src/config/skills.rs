@@ -70,7 +70,11 @@ pub struct Pack {
 }
 
 fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64 && id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
 pub fn packs_dir() -> Result<PathBuf, String> {
@@ -78,30 +82,68 @@ pub fn packs_dir() -> Result<PathBuf, String> {
 }
 
 /// Fetches the archive and unpacks the wanted folders under `skills/<id>`, replacing what was there.
-pub async fn install(fetcher: &super::sources::Fetcher, source: Option<&super::sources::RegistrySource>, pack: InstallPack) -> Result<Pack, String> {
+pub async fn install(
+    fetcher: &super::sources::Fetcher,
+    source: Option<&super::sources::RegistrySource>,
+    pack: InstallPack,
+) -> Result<Pack, String> {
     if !valid_id(&pack.id) {
         return Err("a pack id is letters, digits, dashes and underscores".into());
     }
     let bytes = match source {
         Some(source) => {
             let token = fetcher.token(source);
-            let location = if pack.archive.trim().is_empty() { source.archive(token.as_deref())? } else { source.file(&pack.archive, token.as_deref())? };
+            let location = if pack.archive.trim().is_empty() {
+                source.archive(token.as_deref())?
+            } else {
+                source.file(&pack.archive, token.as_deref())?
+            };
             fetcher.read(source, location, MAX_ARCHIVE_BYTES).await?
         }
         None => {
             if !pack.archive.starts_with("https://") {
                 return Err("a pack is fetched over https only".into());
             }
-            let drift = super::sources::RegistrySource { id: String::new(), name: "Drift".into(), kind: super::sources::RegistryKind::Plugins, source: Default::default(), url: pack.archive.clone(), r#ref: String::new(), path: String::new(), has_token: false, allow_http: false, ca_pem: None };
-            fetcher.read(&drift, super::sources::Location::Http { url: pack.archive.clone(), headers: Vec::new() }, MAX_ARCHIVE_BYTES).await?
+            let drift = super::sources::RegistrySource {
+                id: String::new(),
+                name: "Drift".into(),
+                kind: super::sources::RegistryKind::Plugins,
+                source: Default::default(),
+                url: pack.archive.clone(),
+                r#ref: String::new(),
+                path: String::new(),
+                has_token: false,
+                allow_http: false,
+                ca_pem: None,
+            };
+            fetcher
+                .read(
+                    &drift,
+                    super::sources::Location::Http {
+                        url: pack.archive.clone(),
+                        headers: Vec::new(),
+                    },
+                    MAX_ARCHIVE_BYTES,
+                )
+                .await?
         }
     };
     let dir = packs_dir()?.join(&pack.id);
     let into = dir.clone();
     let subdirs = pack.subdirs.clone();
     let wanted = pack.skills.clone();
-    let skills = tokio::task::spawn_blocking(move || unpack_any(&bytes, &into, &subdirs, &wanted)).await.map_err(|error| error.to_string())??;
-    let installed = Pack { id: pack.id, name: pack.name, source: pack.source, image: pack.image, archive: pack.archive, skills, installed_at: crate::id::now_ms() };
+    let skills = tokio::task::spawn_blocking(move || unpack_any(&bytes, &into, &subdirs, &wanted))
+        .await
+        .map_err(|error| error.to_string())??;
+    let installed = Pack {
+        id: pack.id,
+        name: pack.name,
+        source: pack.source,
+        image: pack.image,
+        archive: pack.archive,
+        skills,
+        installed_at: crate::id::now_ms(),
+    };
     let marker = serde_json::to_string_pretty(&installed).map_err(|error| error.to_string())?;
     std::fs::write(dir.join(MARKER), marker).map_err(|error| format!("could not write {}: {error}", dir.display()))?;
     Ok(installed)
@@ -121,7 +163,8 @@ fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
         std::fs::remove_dir_all(into).map_err(|error| format!("could not replace {}: {error}", into.display()))?;
     }
     std::fs::create_dir_all(into).map_err(|error| format!("could not create {}: {error}", into.display()))?;
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| format!("not a zip archive: {error}"))?;
+    let mut archive =
+        zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| format!("not a zip archive: {error}"))?;
     let mut skills = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
@@ -133,20 +176,26 @@ fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
         if !subdirs.is_empty() && !subdirs.iter().any(|sub| relative.starts_with(sub.trim_matches('/'))) {
             continue;
         }
-        if !wanted.is_empty() && !relative.components().any(|part| wanted.iter().any(|skill| part.as_os_str() == skill.as_str())) {
+        if !wanted.is_empty()
+            && !relative
+                .components()
+                .any(|part| wanted.iter().any(|skill| part.as_os_str() == skill.as_str()))
+        {
             continue;
         }
         let target = into.join(&relative);
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
         }
         let mut content = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut content).map_err(|error| error.to_string())?;
         std::fs::write(&target, content).map_err(|error| format!("could not write {}: {error}", target.display()))?;
         if relative.file_name().is_some_and(|name| name == "SKILL.md")
-            && let Some(skill) = relative.parent().and_then(Path::file_name) {
-                skills.push(skill.to_string_lossy().into_owned());
-            }
+            && let Some(skill) = relative.parent().and_then(Path::file_name)
+        {
+            skills.push(skill.to_string_lossy().into_owned());
+        }
     }
     if skills.is_empty() {
         let _ = std::fs::remove_dir_all(into);
@@ -163,7 +212,9 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
     }
     std::fs::create_dir_all(into).map_err(|error| format!("could not create {}: {error}", into.display()))?;
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
-    let entries = archive.entries().map_err(|error| format!("not a tar.gz archive: {error}"))?;
+    let entries = archive
+        .entries()
+        .map_err(|error| format!("not a tar.gz archive: {error}"))?;
     let mut skills = Vec::new();
     for entry in entries {
         let mut entry = entry.map_err(|error| format!("could not read the archive: {error}"))?;
@@ -171,21 +222,29 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
             continue;
         }
         let path = entry.path().map_err(|error| error.to_string())?.into_owned();
-        let Some(relative) = inner_path(&path, subdirs) else { continue };
-        if !wanted.is_empty() && !relative.components().any(|part| wanted.iter().any(|skill| part.as_os_str() == skill.as_str())) {
+        let Some(relative) = inner_path(&path, subdirs) else {
+            continue;
+        };
+        if !wanted.is_empty()
+            && !relative
+                .components()
+                .any(|part| wanted.iter().any(|skill| part.as_os_str() == skill.as_str()))
+        {
             continue;
         }
         let target = into.join(&relative);
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
         }
         let mut content = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut content).map_err(|error| error.to_string())?;
         std::fs::write(&target, content).map_err(|error| format!("could not write {}: {error}", target.display()))?;
         if relative.file_name().is_some_and(|name| name == "SKILL.md")
-            && let Some(skill) = relative.parent().and_then(Path::file_name) {
-                skills.push(skill.to_string_lossy().into_owned());
-            }
+            && let Some(skill) = relative.parent().and_then(Path::file_name)
+        {
+            skills.push(skill.to_string_lossy().into_owned());
+        }
     }
     if skills.is_empty() {
         let _ = std::fs::remove_dir_all(into);
@@ -212,7 +271,9 @@ fn inner_path(path: &Path, subdirs: &[String]) -> Option<PathBuf> {
 /// Every pack installed this way, by its marker.
 pub fn list() -> Vec<Pack> {
     let Ok(dir) = packs_dir() else { return Vec::new() };
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
     let mut packs: Vec<Pack> = entries
         .flatten()
         .filter_map(|entry| std::fs::read_to_string(entry.path().join(MARKER)).ok())
@@ -225,7 +286,10 @@ pub fn list() -> Vec<Pack> {
 /// The folders skills are read from, as the engine walks them: the workspace's up to its repository root, then the user's.
 fn skill_dirs(workspace: Option<&Path>) -> Vec<(PathBuf, bool)> {
     let home = super::home();
-    let user: Vec<PathBuf> = home.iter().flat_map(|home| super::HOME_SKILL_DIRS.map(|skills| home.join(skills))).collect();
+    let user: Vec<PathBuf> = home
+        .iter()
+        .flat_map(|home| super::HOME_SKILL_DIRS.map(|skills| home.join(skills)))
+        .collect();
     let mut dirs: Vec<(PathBuf, bool)> = workspace
         .map(|workspace| super::skill_folders(workspace, home.as_deref(), Vec::new()))
         .unwrap_or_default()
@@ -243,12 +307,27 @@ pub fn list_skills(workspace: Option<&Path>, off: &[PathBuf]) -> Vec<UserSkill> 
     let mut skills = Vec::new();
     for (dir, in_workspace) in skill_dirs(workspace) {
         for file in super::skill_files(&dir) {
-            let Ok(text) = std::fs::read_to_string(&file) else { continue };
+            let Ok(text) = std::fs::read_to_string(&file) else {
+                continue;
+            };
             let folder = file.parent().unwrap_or(&dir);
             let doc = super::frontmatter::parse(&text);
-            let name = doc.field("name").unwrap_or_else(|| folder.file_name().unwrap_or_default().to_string_lossy().into_owned());
-            let pack = folder.strip_prefix(&packs).ok().and_then(|rest| rest.components().next()).map(|part| part.as_os_str().to_string_lossy().into_owned());
-            skills.push(UserSkill { name, description: doc.field("description").unwrap_or_default(), path: folder.to_string_lossy().into_owned(), pack, workspace: in_workspace, enabled: !off.contains(&crate::tool::canonical(folder)) });
+            let name = doc
+                .field("name")
+                .unwrap_or_else(|| folder.file_name().unwrap_or_default().to_string_lossy().into_owned());
+            let pack = folder
+                .strip_prefix(&packs)
+                .ok()
+                .and_then(|rest| rest.components().next())
+                .map(|part| part.as_os_str().to_string_lossy().into_owned());
+            skills.push(UserSkill {
+                name,
+                description: doc.field("description").unwrap_or_default(),
+                path: folder.to_string_lossy().into_owned(),
+                pack,
+                workspace: in_workspace,
+                enabled: !off.contains(&crate::tool::canonical(folder)),
+            });
         }
     }
     skills.sort_by(|a, b| a.pack.cmp(&b.pack).then(a.name.cmp(&b.name)));
@@ -282,7 +361,10 @@ mod tests {
     use std::io::Write;
 
     fn archive(files: &[(&str, &str)]) -> Vec<u8> {
-        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()));
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            Vec::new(),
+            flate2::Compression::default(),
+        ));
         for (path, text) in files {
             let mut header = tar::Header::new_gnu();
             header.set_size(text.len() as u64);
@@ -298,24 +380,50 @@ mod tests {
         let root = std::env::temp_dir().join(format!("drift-skill-list-{}", crate::random_hex(4)));
         let ws = root.join("ws");
         std::fs::create_dir_all(ws.join(".drift/skills/review")).unwrap();
-        std::fs::write(ws.join(".drift/skills/review/SKILL.md"), "---
+        std::fs::write(
+            ws.join(".drift/skills/review/SKILL.md"),
+            "---
 name: review
 description: Reviews a diff.
 ---
-body").unwrap();
+body",
+        )
+        .unwrap();
         std::fs::create_dir_all(ws.join(".claude/skills/plain")).unwrap();
         std::fs::write(ws.join(".claude/skills/plain/SKILL.md"), "no front matter").unwrap();
         let listed = list_skills(Some(&ws), &[]);
-        let names: Vec<(&str, bool, bool)> = listed.iter().map(|skill| (skill.name.as_str(), skill.workspace, skill.enabled)).collect();
-        assert_eq!(names, vec![("plain", true, true), ("review", true, true)], "both layouts, the folder name standing in for a missing one");
+        let names: Vec<(&str, bool, bool)> = listed
+            .iter()
+            .map(|skill| (skill.name.as_str(), skill.workspace, skill.enabled))
+            .collect();
+        assert_eq!(
+            names,
+            vec![("plain", true, true), ("review", true, true)],
+            "both layouts, the folder name standing in for a missing one"
+        );
         assert_eq!(listed[1].description, "Reviews a diff.");
         let off = skill_folder(&listed[1].path, Some(&ws)).unwrap();
-        assert_eq!(list_skills(Some(&ws), std::slice::from_ref(&off)).iter().map(|skill| skill.enabled).collect::<Vec<_>>(), vec![true, false]);
-        assert!(ws.join(".drift/skills/review/SKILL.md").is_file(), "the skill's own file is left as it is");
+        assert_eq!(
+            list_skills(Some(&ws), std::slice::from_ref(&off))
+                .iter()
+                .map(|skill| skill.enabled)
+                .collect::<Vec<_>>(),
+            vec![true, false]
+        );
+        assert!(
+            ws.join(".drift/skills/review/SKILL.md").is_file(),
+            "the skill's own file is left as it is"
+        );
         let config = crate::config::Config::load_skipping(&ws, std::slice::from_ref(&off));
-        assert!(config.skill("review").is_none() && config.commands.iter().all(|command| command.name != "review"), "off, the model and the slash menu never see it");
+        assert!(
+            config.skill("review").is_none() && config.commands.iter().all(|command| command.name != "review"),
+            "off, the model and the slash menu never see it"
+        );
         assert!(config.skill("plain").is_some());
-        assert!(skill_folder(&root.join("elsewhere").to_string_lossy(), Some(&ws)).is_err(), "only a skill folder may be switched");
+        assert!(
+            skill_folder(&root.join("elsewhere").to_string_lossy(), Some(&ws)).is_err(),
+            "only a skill folder may be switched"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -333,13 +441,29 @@ body").unwrap();
         assert!(into.join("skills/grill-me/SKILL.md").is_file());
         assert!(into.join("skills/grill-me/notes.md").is_file());
         assert!(!into.join("README.md").exists() && !into.join("docs").exists());
-        assert_eq!(inner_path(Path::new("repo-main/skills/../../escape.md"), &[]), None, "a climbing path is dropped");
-        assert_eq!(inner_path(Path::new("repo-main"), &[]), None, "the top folder itself is nothing");
+        assert_eq!(
+            inner_path(Path::new("repo-main/skills/../../escape.md"), &[]),
+            None,
+            "a climbing path is dropped"
+        );
+        assert_eq!(
+            inner_path(Path::new("repo-main"), &[]),
+            None,
+            "the top folder itself is nothing"
+        );
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         gz.write_all(b"junk").unwrap();
         assert!(unpack(&gz.finish().unwrap(), &into, &[], &[]).is_err());
-        let bytes = archive(&[("r/skills/a/SKILL.md", "a"), ("r/skills/b/SKILL.md", "b"), ("r/skills/b/extra.md", "e")]);
-        assert_eq!(unpack(&bytes, &into, &[], &["b".to_owned()]).unwrap(), vec!["b".to_owned()], "only the wanted skill lands");
+        let bytes = archive(&[
+            ("r/skills/a/SKILL.md", "a"),
+            ("r/skills/b/SKILL.md", "b"),
+            ("r/skills/b/extra.md", "e"),
+        ]);
+        assert_eq!(
+            unpack(&bytes, &into, &[], &["b".to_owned()]).unwrap(),
+            vec!["b".to_owned()],
+            "only the wanted skill lands"
+        );
         assert!(!into.join("skills/a").exists() && into.join("skills/b/extra.md").is_file());
         let _ = std::fs::remove_dir_all(&into);
     }

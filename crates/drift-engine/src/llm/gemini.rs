@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use futures_util::StreamExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::catalog::Reasoning;
 use super::sse;
@@ -27,11 +27,18 @@ impl Default for Gemini {
 
 impl Gemini {
     pub fn new(base_url: &str) -> Self {
-        Self { base_url: base_url.trim_end_matches('/').to_string(), client: super::http::client(), timeouts: super::http::Timeouts::default() }
+        Self {
+            base_url: base_url.trim_end_matches('/').to_string(),
+            client: super::http::client(),
+            timeouts: super::http::Timeouts::default(),
+        }
     }
 
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
-        let url = format!("{}/models/{}:streamGenerateContent?alt=sse", self.base_url, request.model);
+        let url = format!(
+            "{}/models/{}:streamGenerateContent?alt=sse",
+            self.base_url, request.model
+        );
         let http = match credential {
             Credential::ApiKey { key } => self.client.post(url).header("x-goog-api-key", key),
             Credential::OAuth { access, .. } => self.client.post(url).bearer_auth(access),
@@ -42,12 +49,22 @@ impl Gemini {
 }
 
 /// Sends a generateContent request already addressed and authorised (the Gemini API or Vertex) and reads its events.
-pub(super) async fn stream_from(http: reqwest::RequestBuilder, request: &Request, timeouts: &super::http::Timeouts) -> Result<ChunkStream, Error> {
-    let response = super::http::send(http.header("accept", "text/event-stream").json(&body(request)), timeouts).await?;
+pub(super) async fn stream_from(
+    http: reqwest::RequestBuilder,
+    request: &Request,
+    timeouts: &super::http::Timeouts,
+) -> Result<ChunkStream, Error> {
+    let response = super::http::send(
+        http.header("accept", "text/event-stream").json(&body(request)),
+        timeouts,
+    )
+    .await?;
     let status = response.status();
     if !status.is_success() {
         let headers = response.headers().clone();
-        return Err(api_error(status.as_u16(), &super::http::bounded_body(response, timeouts).await).with_headers(&headers));
+        return Err(
+            api_error(status.as_u16(), &super::http::bounded_body(response, timeouts).await).with_headers(&headers),
+        );
     }
     let mut state = StreamState::default();
     let events = sse::events(response.bytes_stream(), timeouts.idle);
@@ -85,12 +102,20 @@ fn body(request: &Request) -> Value {
     }
     let config = &mut body["generationConfig"];
     match &request.reasoning {
-        Some(Reasoning::Budget { tokens }) => config["thinkingConfig"] = json!({ "thinkingBudget": tokens, "includeThoughts": true }),
-        Some(Reasoning::Effort { level }) => config["thinkingConfig"] = json!({ "thinkingLevel": level, "includeThoughts": true }),
+        Some(Reasoning::Budget { tokens }) => {
+            config["thinkingConfig"] = json!({ "thinkingBudget": tokens, "includeThoughts": true })
+        }
+        Some(Reasoning::Effort { level }) => {
+            config["thinkingConfig"] = json!({ "thinkingLevel": level, "includeThoughts": true })
+        }
         None if request.show_thinking => config["thinkingConfig"] = json!({ "includeThoughts": true }),
         None => {}
     }
-    let sampling = [("temperature", request.temperature.map(Value::from)), ("topP", request.top_p.map(Value::from)), ("topK", request.top_k.map(Value::from))];
+    let sampling = [
+        ("temperature", request.temperature.map(Value::from)),
+        ("topP", request.top_p.map(Value::from)),
+        ("topK", request.top_k.map(Value::from)),
+    ];
     for (key, value) in sampling {
         if let Some(value) = value {
             config[key] = value;
@@ -114,19 +139,28 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
             Block::Image { mime, base64 } => parts.push(json!({ "inlineData": { "mimeType": mime, "data": base64 } })),
             Block::Reasoning { text, signature, .. } => {
                 let mut part = json!({ "text": text, "thought": true });
-                if let Some(signature) = signature { part["thoughtSignature"] = json!(signature); }
+                if let Some(signature) = signature {
+                    part["thoughtSignature"] = json!(signature);
+                }
                 parts.push(part);
             }
-            Block::Pdf { base64 } => parts.push(json!({ "inlineData": { "mimeType": "application/pdf", "data": base64 } })),
+            Block::Pdf { base64 } => {
+                parts.push(json!({ "inlineData": { "mimeType": "application/pdf", "data": base64 } }))
+            }
             Block::Stored { .. } => {}
             Block::ToolUse { id, name, input } => {
                 names.insert(id.clone(), name.clone());
                 parts.push(json!({ "functionCall": { "id": id, "name": name, "args": input } }));
             }
-            Block::ToolResult { call_id, content, is_error } => {
+            Block::ToolResult {
+                call_id,
+                content,
+                is_error,
+            } => {
                 let name = names.get(call_id).cloned().unwrap_or_default();
                 let key = if *is_error { "error" } else { "output" };
-                parts.push(json!({ "functionResponse": { "id": call_id, "name": name, "response": { key: content } } }));
+                parts
+                    .push(json!({ "functionResponse": { "id": call_id, "name": name, "response": { key: content } } }));
             }
         }
         if let (Block::Signed { signature, .. }, Some(part)) = (block, parts.get_mut(first)) {
@@ -185,7 +219,9 @@ impl StreamState {
                 "MAX_TOKENS" => StopReason::MaxTokens,
                 "STOP" if self.called_tools => StopReason::ToolUse,
                 "STOP" => StopReason::EndTurn,
-                "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" | "IMAGE_SAFETY" => StopReason::Refused,
+                "SAFETY" | "RECITATION" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" | "IMAGE_SAFETY" => {
+                    StopReason::Refused
+                }
                 _ => StopReason::Other,
             }));
         }
@@ -198,10 +234,20 @@ impl StreamState {
         if let Some(call) = part.get("functionCall") {
             out.extend(self.close());
             self.called_tools = true;
-            let id = call["id"].as_str().filter(|id| !id.is_empty()).map_or_else(|| crate::id::new("call"), str::to_string);
-            out.push(Chunk::ToolUseStart { id, name: call["name"].as_str().unwrap_or_default().into() });
-            out.push(Chunk::ToolInputDelta(call.get("args").cloned().unwrap_or_else(|| json!({})).to_string()));
-            if let Some(signature) = signature { out.push(Chunk::PartSignature(signature.into())); }
+            let id = call["id"]
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .map_or_else(|| crate::id::new("call"), str::to_string);
+            out.push(Chunk::ToolUseStart {
+                id,
+                name: call["name"].as_str().unwrap_or_default().into(),
+            });
+            out.push(Chunk::ToolInputDelta(
+                call.get("args").cloned().unwrap_or_else(|| json!({})).to_string(),
+            ));
+            if let Some(signature) = signature {
+                out.push(Chunk::PartSignature(signature.into()));
+            }
             out.push(Chunk::BlockStop);
             return out;
         }
@@ -210,13 +256,25 @@ impl StreamState {
             (None, Some(_)) => "",
             _ => return out,
         };
-        let kind = if part["thought"].as_bool().unwrap_or(false) { Open::Thought } else { Open::Text };
+        let kind = if part["thought"].as_bool().unwrap_or(false) {
+            Open::Thought
+        } else {
+            Open::Text
+        };
         if self.open != Some(kind) || signature.is_some() {
             out.extend(self.close());
-            out.push(if kind == Open::Thought { Chunk::ReasoningStart } else { Chunk::TextStart });
+            out.push(if kind == Open::Thought {
+                Chunk::ReasoningStart
+            } else {
+                Chunk::TextStart
+            });
             self.open = Some(kind);
         }
-        out.push(if self.open == Some(Open::Thought) { Chunk::ReasoningDelta(text.into()) } else { Chunk::TextDelta(text.into()) });
+        out.push(if self.open == Some(Open::Thought) {
+            Chunk::ReasoningDelta(text.into())
+        } else {
+            Chunk::TextDelta(text.into())
+        });
         if let Some(signature) = signature {
             out.push(Chunk::PartSignature(signature.into()));
             out.extend(self.close());
@@ -243,25 +301,67 @@ mod tests {
 
     #[test]
     fn a_pdf_is_inline_data() {
-        let sent = content(&ChatMessage { role: Role::User, blocks: vec![Block::Pdf { base64: "JVBERi0=".into() }] }, &mut HashMap::new());
-        assert_eq!(sent["parts"][0], json!({ "inlineData": { "mimeType": "application/pdf", "data": "JVBERi0=" } }));
+        let sent = content(
+            &ChatMessage {
+                role: Role::User,
+                blocks: vec![Block::Pdf {
+                    base64: "JVBERi0=".into(),
+                }],
+            },
+            &mut HashMap::new(),
+        );
+        assert_eq!(
+            sent["parts"][0],
+            json!({ "inlineData": { "mimeType": "application/pdf", "data": "JVBERi0=" } })
+        );
     }
 
     #[test]
     fn thoughts_are_asked_for_at_the_default_level_and_sampling_is_sent() {
-        assert!(body(&Request { reasoning: None, ..request() }).pointer("/generationConfig/thinkingConfig").is_none());
-        let built = body(&Request { reasoning: None, show_thinking: true, temperature: Some(1.0), top_p: Some(0.95), top_k: Some(64), ..request() });
+        assert!(
+            body(&Request {
+                reasoning: None,
+                ..request()
+            })
+            .pointer("/generationConfig/thinkingConfig")
+            .is_none()
+        );
+        let built = body(&Request {
+            reasoning: None,
+            show_thinking: true,
+            temperature: Some(1.0),
+            top_p: Some(0.95),
+            top_k: Some(64),
+            ..request()
+        });
         let config = &built["generationConfig"];
         assert_eq!(config["thinkingConfig"], json!({ "includeThoughts": true }));
-        assert_eq!((config["temperature"].as_f64(), config["topP"].as_f64(), config["topK"].as_u64()), (Some(1.0), Some(0.95), Some(64)));
+        assert_eq!(
+            (
+                config["temperature"].as_f64(),
+                config["topP"].as_f64(),
+                config["topK"].as_u64()
+            ),
+            (Some(1.0), Some(0.95), Some(64))
+        );
     }
 
     #[test]
     fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
         assert!(body(&request()).get("toolConfig").is_none());
-        let built = body(&Request { no_tool_calls: true, ..request() });
-        assert_eq!(built["toolConfig"], json!({ "functionCallingConfig": { "mode": "NONE" } }));
-        assert!(built["tools"][0]["functionDeclarations"].as_array().is_some_and(|tools| !tools.is_empty()));
+        let built = body(&Request {
+            no_tool_calls: true,
+            ..request()
+        });
+        assert_eq!(
+            built["toolConfig"],
+            json!({ "functionCallingConfig": { "mode": "NONE" } })
+        );
+        assert!(
+            built["tools"][0]["functionDeclarations"]
+                .as_array()
+                .is_some_and(|tools| !tools.is_empty())
+        );
     }
 
     fn request() -> Request {
@@ -269,17 +369,39 @@ mod tests {
             model: "gemini-2.5-pro".into(),
             system: "sys".into(),
             messages: vec![
-                ChatMessage { role: Role::User, blocks: vec![Block::Text("hi".into())] },
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::Text("hi".into())],
+                },
                 ChatMessage {
                     role: Role::Assistant,
                     blocks: vec![
-                        Block::Reasoning { text: "hm".into(), signature: Some("sig".into()), redacted: None },
-                        Block::ToolUse { id: "call_1".into(), name: "read".into(), input: json!({ "path": "a" }) },
+                        Block::Reasoning {
+                            text: "hm".into(),
+                            signature: Some("sig".into()),
+                            redacted: None,
+                        },
+                        Block::ToolUse {
+                            id: "call_1".into(),
+                            name: "read".into(),
+                            input: json!({ "path": "a" }),
+                        },
                     ],
                 },
-                ChatMessage { role: Role::User, blocks: vec![Block::ToolResult { call_id: "call_1".into(), content: "1: x".into(), is_error: false }] },
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::ToolResult {
+                        call_id: "call_1".into(),
+                        content: "1: x".into(),
+                        is_error: false,
+                    }],
+                },
             ],
-            tools: vec![ToolSpec { name: "read".into(), description: "r".into(), input_schema: json!({ "type": "object", "additionalProperties": false, "properties": {} }) }],
+            tools: vec![ToolSpec {
+                name: "read".into(),
+                description: "r".into(),
+                input_schema: json!({ "type": "object", "additionalProperties": false, "properties": {} }),
+            }],
             max_tokens: 500,
             reasoning: Some(Reasoning::Budget { tokens: 2048 }),
             temperature: None,
@@ -296,8 +418,13 @@ mod tests {
     #[test]
     fn a_level_is_sent_as_gemini_3_names_it() {
         let mut request = request();
-        request.reasoning = Some(Reasoning::Effort { level: "minimal".into() });
-        assert_eq!(body(&request)["generationConfig"]["thinkingConfig"], json!({ "thinkingLevel": "minimal", "includeThoughts": true }));
+        request.reasoning = Some(Reasoning::Effort {
+            level: "minimal".into(),
+        });
+        assert_eq!(
+            body(&request)["generationConfig"]["thinkingConfig"],
+            json!({ "thinkingLevel": "minimal", "includeThoughts": true })
+        );
     }
 
     #[test]
@@ -310,7 +437,10 @@ mod tests {
         assert_eq!(contents[1]["parts"][1]["functionCall"]["name"], "read");
         assert_eq!(contents[1]["parts"][0]["thoughtSignature"], "sig");
         assert_eq!(contents[2]["parts"][0]["functionResponse"]["name"], "read");
-        assert_eq!(contents[2]["parts"][0]["functionResponse"]["response"]["output"], "1: x");
+        assert_eq!(
+            contents[2]["parts"][0]["functionResponse"]["response"]["output"],
+            "1: x"
+        );
         let declaration = &built["tools"][0]["functionDeclarations"][0];
         assert_eq!(declaration["parametersJsonSchema"]["additionalProperties"], false);
     }
@@ -329,50 +459,113 @@ mod tests {
         let mut request = request();
         request.tools[0].input_schema = input.clone();
         let out = body(&request);
-        assert_eq!(out["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"], input);
-        assert!(crate::tool::schema::problems(&input, &json!({ "default":"x", "level":1, "examples":null })).is_empty());
+        assert_eq!(
+            out["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"],
+            input
+        );
+        assert!(
+            crate::tool::schema::problems(&input, &json!({ "default":"x", "level":1, "examples":null })).is_empty()
+        );
         assert!(!crate::tool::schema::problems(&input, &json!({ "default":"x", "level":"1" })).is_empty());
         let union = json!({ "type": ["string", "number", "null"] });
         request.tools[0].input_schema = union.clone();
-        assert_eq!(body(&request)["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"], union);
+        assert_eq!(
+            body(&request)["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"],
+            union
+        );
     }
 
     #[test]
     fn stream_signatures_stay_on_the_function_call() {
         let mut state = StreamState::default();
         let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
-        assert_eq!(feed(&mut state, r#"{"candidates":[{"content":{"parts":[{"text":"th","thought":true}]}}]}"#), vec![Chunk::ReasoningStart, Chunk::ReasoningDelta("th".into())]);
-        let mut call = feed(&mut state, r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}},"thoughtSignature":"sig"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"thoughtsTokenCount":4}}"#);
-        let Chunk::ToolUseStart { id, .. } = &mut call[1] else { panic!("{call:?}") };
-        assert!(id.starts_with("call_") && id.len() > "call_1".len(), "a missing id is an engine id, unique across streams: {id}");
+        assert_eq!(
+            feed(
+                &mut state,
+                r#"{"candidates":[{"content":{"parts":[{"text":"th","thought":true}]}}]}"#
+            ),
+            vec![Chunk::ReasoningStart, Chunk::ReasoningDelta("th".into())]
+        );
+        let mut call = feed(
+            &mut state,
+            r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}},"thoughtSignature":"sig"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"thoughtsTokenCount":4}}"#,
+        );
+        let Chunk::ToolUseStart { id, .. } = &mut call[1] else {
+            panic!("{call:?}")
+        };
+        assert!(
+            id.starts_with("call_") && id.len() > "call_1".len(),
+            "a missing id is an engine id, unique across streams: {id}"
+        );
         *id = "call_1".into();
         assert_eq!(
             call,
             vec![
                 Chunk::BlockStop,
-                Chunk::ToolUseStart { id: "call_1".into(), name: "read".into() },
+                Chunk::ToolUseStart {
+                    id: "call_1".into(),
+                    name: "read".into()
+                },
                 Chunk::ToolInputDelta(r#"{"path":"a"}"#.into()),
                 Chunk::PartSignature("sig".into()),
                 Chunk::BlockStop,
-                Chunk::Usage(Usage { input: 10, output: 7, cache_read: 0, cache_write: 0 }),
+                Chunk::Usage(Usage {
+                    input: 10,
+                    output: 7,
+                    cache_read: 0,
+                    cache_write: 0
+                }),
                 Chunk::Stop(StopReason::ToolUse),
             ]
         );
         let mut plain = StreamState::default();
-        assert_eq!(feed(&mut plain, r#"{"candidates":[{"content":{"parts":[{"text":"Hi"}]}}]}"#), vec![Chunk::TextStart, Chunk::TextDelta("Hi".into())]);
-        assert_eq!(feed(&mut plain, r#"{"candidates":[{"content":{"parts":[]},"finishReason":"MAX_TOKENS"}]}"#), vec![Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]);
-        assert!(matches!(StreamState::default().chunks(r#"{"error":{"status":"UNAVAILABLE","message":"x"}}"#), Err(Error::Api { retryable: true, .. })));
-        assert!(matches!(StreamState::default().chunks(r#"{"error":{"status":"INVALID_ARGUMENT","message":"x"}}"#), Err(Error::Api { retryable: false, .. })));
+        assert_eq!(
+            feed(&mut plain, r#"{"candidates":[{"content":{"parts":[{"text":"Hi"}]}}]}"#),
+            vec![Chunk::TextStart, Chunk::TextDelta("Hi".into())]
+        );
+        assert_eq!(
+            feed(
+                &mut plain,
+                r#"{"candidates":[{"content":{"parts":[]},"finishReason":"MAX_TOKENS"}]}"#
+            ),
+            vec![Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]
+        );
+        assert!(matches!(
+            StreamState::default().chunks(r#"{"error":{"status":"UNAVAILABLE","message":"x"}}"#),
+            Err(Error::Api { retryable: true, .. })
+        ));
+        assert!(matches!(
+            StreamState::default().chunks(r#"{"error":{"status":"INVALID_ARGUMENT","message":"x"}}"#),
+            Err(Error::Api { retryable: false, .. })
+        ));
     }
 
     #[test]
     fn a_call_signature_without_thought_text_round_trips_on_its_own_part() {
         let chunks = StreamState::default().chunks(r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}},"thoughtSignature":"call-sig"}]},"finishReason":"STOP"}]}"#).unwrap();
         assert!(chunks.contains(&Chunk::PartSignature("call-sig".into())));
-        assert!(!chunks.iter().any(|chunk| matches!(chunk, Chunk::ReasoningSignature(_) | Chunk::ReasoningStart)));
-        let sent = content(&ChatMessage { role: Role::Assistant, blocks: vec![Block::Text("before".into()), Block::Signed {
-            part: Box::new(Block::ToolUse { id: "call_1".into(), name: "read".into(), input: json!({ "path":"a" }) }), signature: "call-sig".into(),
-        }] }, &mut HashMap::new());
+        assert!(
+            !chunks
+                .iter()
+                .any(|chunk| matches!(chunk, Chunk::ReasoningSignature(_) | Chunk::ReasoningStart))
+        );
+        let sent = content(
+            &ChatMessage {
+                role: Role::Assistant,
+                blocks: vec![
+                    Block::Text("before".into()),
+                    Block::Signed {
+                        part: Box::new(Block::ToolUse {
+                            id: "call_1".into(),
+                            name: "read".into(),
+                            input: json!({ "path":"a" }),
+                        }),
+                        signature: "call-sig".into(),
+                    },
+                ],
+            },
+            &mut HashMap::new(),
+        );
         assert!(sent["parts"][0].get("thoughtSignature").is_none());
         assert_eq!(sent["parts"][1]["thoughtSignature"], "call-sig");
         assert_eq!(sent["parts"][1]["functionCall"]["name"], "read");

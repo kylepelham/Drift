@@ -2,8 +2,8 @@
 
 use rusqlite::params;
 
-use super::sessions::transaction;
 use super::Store;
+use super::sessions::transaction;
 use crate::id;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -26,7 +26,9 @@ impl Store {
 
     /// Recorded the moment a swap succeeds, before its backup is removed.
     pub fn mark_swapped(&self, staged: &str) -> rusqlite::Result<()> {
-        self.lock().prepare_cached("UPDATE staged_replacement SET swapped = 1 WHERE staged = ?1")?.execute([staged])?;
+        self.lock()
+            .prepare_cached("UPDATE staged_replacement SET swapped = 1 WHERE staged = ?1")?
+            .execute([staged])?;
         Ok(())
     }
 
@@ -37,7 +39,8 @@ impl Store {
         }
         transaction(&self.lock(), |conn| {
             for path in staged {
-                conn.prepare_cached("DELETE FROM staged_replacement WHERE staged = ?1")?.execute([path])?;
+                conn.prepare_cached("DELETE FROM staged_replacement WHERE staged = ?1")?
+                    .execute([path])?;
             }
             Ok(())
         })
@@ -45,8 +48,17 @@ impl Store {
 
     pub fn replacements(&self) -> rusqlite::Result<Vec<StagedReplacement>> {
         self.lock()
-            .prepare_cached("SELECT destination, staged, backup, swapped FROM staged_replacement ORDER BY created_at, staged")?
-            .query_map([], |row| Ok(StagedReplacement { destination: row.get(0)?, staged: row.get(1)?, backup: row.get(2)?, swapped: row.get(3)? }))?
+            .prepare_cached(
+                "SELECT destination, staged, backup, swapped FROM staged_replacement ORDER BY created_at, staged",
+            )?
+            .query_map([], |row| {
+                Ok(StagedReplacement {
+                    destination: row.get(0)?,
+                    staged: row.get(1)?,
+                    backup: row.get(2)?,
+                    swapped: row.get(3)?,
+                })
+            })?
             .collect()
     }
 }

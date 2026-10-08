@@ -27,30 +27,66 @@ pub struct Install {
 
 /// The user's config directory, where plugins and drift.json live.
 pub fn config_dir() -> Result<PathBuf, String> {
-    super::home().map(|home| home.join(".config/drift")).ok_or_else(|| "no home directory".to_owned())
+    super::home()
+        .map(|home| home.join(".config/drift"))
+        .ok_or_else(|| "no home directory".to_owned())
 }
 
 fn valid_id(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 64 && id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
 /// Fetches, checks and writes the component; returns its drift.json entry path. With a source, the
 /// download goes through it: a path inside its repository or folder, or a URL with its token on its host.
-pub async fn fetch_component(fetcher: &super::sources::Fetcher, source: Option<&super::sources::RegistrySource>, install: &Install) -> Result<String, String> {
+pub async fn fetch_component(
+    fetcher: &super::sources::Fetcher,
+    source: Option<&super::sources::RegistrySource>,
+    install: &Install,
+) -> Result<String, String> {
     if !valid_id(&install.id) {
         return Err("a plugin id is letters, digits, dashes and underscores".into());
     }
     let bytes = match source {
         Some(source) => {
             let token = fetcher.token(source);
-            fetcher.read(source, source.file(&install.url, token.as_deref())?, MAX_COMPONENT_BYTES).await?
+            fetcher
+                .read(
+                    source,
+                    source.file(&install.url, token.as_deref())?,
+                    MAX_COMPONENT_BYTES,
+                )
+                .await?
         }
         None => {
             if !install.url.starts_with("https://") {
                 return Err("a plugin is fetched over https only".into());
             }
-            let drift = super::sources::RegistrySource { id: String::new(), name: "Drift".into(), kind: super::sources::RegistryKind::Plugins, source: Default::default(), url: install.url.clone(), r#ref: String::new(), path: String::new(), has_token: false, allow_http: false, ca_pem: None };
-            fetcher.read(&drift, super::sources::Location::Http { url: install.url.clone(), headers: Vec::new() }, MAX_COMPONENT_BYTES).await?
+            let drift = super::sources::RegistrySource {
+                id: String::new(),
+                name: "Drift".into(),
+                kind: super::sources::RegistryKind::Plugins,
+                source: Default::default(),
+                url: install.url.clone(),
+                r#ref: String::new(),
+                path: String::new(),
+                has_token: false,
+                allow_http: false,
+                ca_pem: None,
+            };
+            fetcher
+                .read(
+                    &drift,
+                    super::sources::Location::Http {
+                        url: install.url.clone(),
+                        headers: Vec::new(),
+                    },
+                    MAX_COMPONENT_BYTES,
+                )
+                .await?
         }
     };
     let digest = hex(&ring::digest::digest(&ring::digest::SHA256, &bytes));
@@ -86,9 +122,18 @@ fn read_file(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
 pub fn edit_plugins(dir: &Path, change: impl FnOnce(&mut Vec<PluginEntry>)) -> Result<(), String> {
     let path = dir.join(super::FILE);
     let mut file = read_file(&path)?;
-    let mut plugins: Vec<PluginEntry> = file.get("plugins").cloned().map(serde_json::from_value).transpose().map_err(|error| format!("plugins in {}: {error}", path.display()))?.unwrap_or_default();
+    let mut plugins: Vec<PluginEntry> = file
+        .get("plugins")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| format!("plugins in {}: {error}", path.display()))?
+        .unwrap_or_default();
     change(&mut plugins);
-    file.insert("plugins".into(), serde_json::to_value(&plugins).map_err(|error| error.to_string())?);
+    file.insert(
+        "plugins".into(),
+        serde_json::to_value(&plugins).map_err(|error| error.to_string())?,
+    );
     std::fs::create_dir_all(dir).map_err(|error| format!("could not create {}: {error}", dir.display()))?;
     let text = serde_json::to_string_pretty(&Value::Object(file)).map_err(|error| error.to_string())?;
     std::fs::write(&path, format!("{text}\n")).map_err(|error| format!("could not write {}: {error}", path.display()))
@@ -98,7 +143,10 @@ pub fn edit_plugins(dir: &Path, change: impl FnOnce(&mut Vec<PluginEntry>)) -> R
 pub fn set_entry(plugins: &mut Vec<PluginEntry>, path: &str, config: Value) {
     plugins.retain(|entry| entry.path() != path);
     let entry = match config {
-        Value::Object(map) if !map.is_empty() => PluginEntry::Configured { path: path.to_owned(), config: Value::Object(map) },
+        Value::Object(map) if !map.is_empty() => PluginEntry::Configured {
+            path: path.to_owned(),
+            config: Value::Object(map),
+        },
         _ => PluginEntry::Path(path.to_owned()),
     };
     plugins.push(entry);
@@ -123,19 +171,46 @@ mod tests {
     fn install_and_remove_edit_the_plugins_list_and_keep_the_rest_of_the_file() {
         let dir = std::env::temp_dir().join(format!("drift-plugin-install-{}", crate::random_hex(4)));
         std::fs::create_dir_all(dir.join(PLUGINS_DIR)).unwrap();
-        std::fs::write(dir.join(super::super::FILE), "{\n  // mine\n  \"model\": \"anthropic/claude\",\n  \"plugins\": [\"plugins/old.wasm\"]\n}\n").unwrap();
+        std::fs::write(
+            dir.join(super::super::FILE),
+            "{\n  // mine\n  \"model\": \"anthropic/claude\",\n  \"plugins\": [\"plugins/old.wasm\"]\n}\n",
+        )
+        .unwrap();
         std::fs::write(dir.join("plugins/guard.wasm"), b"wasm").unwrap();
-        edit_plugins(&dir, |plugins| set_entry(plugins, "plugins/guard.wasm", serde_json::json!({ "test": ["cargo", "test"] }))).unwrap();
-        let file: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(super::super::FILE)).unwrap()).unwrap();
+        edit_plugins(&dir, |plugins| {
+            set_entry(
+                plugins,
+                "plugins/guard.wasm",
+                serde_json::json!({ "test": ["cargo", "test"] }),
+            )
+        })
+        .unwrap();
+        let file: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(super::super::FILE)).unwrap()).unwrap();
         assert_eq!(file["model"], "anthropic/claude", "other settings stay");
-        assert_eq!(file["plugins"], serde_json::json!(["plugins/old.wasm", { "path": "plugins/guard.wasm", "config": { "test": ["cargo", "test"] } }]));
-        edit_plugins(&dir, |plugins| set_entry(plugins, "plugins/guard.wasm", serde_json::json!({}))).unwrap();
-        let file: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(super::super::FILE)).unwrap()).unwrap();
-        assert_eq!(file["plugins"], serde_json::json!(["plugins/old.wasm", "plugins/guard.wasm"]), "an empty config is a bare path");
+        assert_eq!(
+            file["plugins"],
+            serde_json::json!(["plugins/old.wasm", { "path": "plugins/guard.wasm", "config": { "test": ["cargo", "test"] } }])
+        );
+        edit_plugins(&dir, |plugins| {
+            set_entry(plugins, "plugins/guard.wasm", serde_json::json!({}))
+        })
+        .unwrap();
+        let file: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(super::super::FILE)).unwrap()).unwrap();
+        assert_eq!(
+            file["plugins"],
+            serde_json::json!(["plugins/old.wasm", "plugins/guard.wasm"]),
+            "an empty config is a bare path"
+        );
         remove(&dir, "plugins/guard.wasm").unwrap();
-        let file: Value = serde_json::from_str(&std::fs::read_to_string(dir.join(super::super::FILE)).unwrap()).unwrap();
+        let file: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join(super::super::FILE)).unwrap()).unwrap();
         assert_eq!(file["plugins"], serde_json::json!(["plugins/old.wasm"]));
-        assert!(!dir.join("plugins/guard.wasm").exists(), "the component goes with its entry");
+        assert!(
+            !dir.join("plugins/guard.wasm").exists(),
+            "the component goes with its entry"
+        );
         assert!(!valid_id("../x") && valid_id("git-context"));
         let _ = std::fs::remove_dir_all(&dir);
     }

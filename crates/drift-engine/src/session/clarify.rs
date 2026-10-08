@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use super::turn::{Admission, Prompt, TurnError};
 use super::types::{Clarified, Part};
-use crate::question::{Answers, Request};
 use crate::Engine;
+use crate::question::{Answers, Request};
 
 #[derive(Debug, PartialEq)]
 pub enum AnswerError {
@@ -27,16 +27,27 @@ impl Engine {
         // One decision per request at a time: an answer and a dismissal never both go through.
         let decision = self.questions.decision(request_id);
         let _deciding = decision.lock().await;
-        let Some(request) = self.questions.lookup(request_id) else { return self.already_answered(request_id, answers) };
+        let Some(request) = self.questions.lookup(request_id) else {
+            return self.already_answered(request_id, answers);
+        };
         if !request.is_async {
-            return self.questions.reply(&self.hub, request_id, answers).map_err(|_| AnswerError::NotPending);
+            return self
+                .questions
+                .reply(&self.hub, request_id, answers)
+                .map_err(|_| AnswerError::NotPending);
         }
         // Dismissed: the card closes and nothing is said or started.
         let Some(answers) = answers else {
             self.questions.settle_async(&self.hub, &request);
             return Ok(());
         };
-        let prompt = Prompt { parts: vec![answer_part(&request, &answers)], model: None, variant: None, agent: None, submission_id: Some(format!("answer:{}", request.id)) };
+        let prompt = Prompt {
+            parts: vec![answer_part(&request, &answers)],
+            model: None,
+            variant: None,
+            agent: None,
+            submission_id: Some(format!("answer:{}", request.id)),
+        };
         self.deliver_answer(&request, prompt).await?;
         self.questions.settle_async(&self.hub, &request);
         Ok(())
@@ -44,9 +55,19 @@ impl Engine {
 
     /// A question no longer pending, settled by its saved answer, which outlives the card and a restart.
     fn already_answered(&self, request_id: &str, answers: Answers) -> Result<(), AnswerError> {
-        let Some(saved) = self.store.submission(&format!("answer:{request_id}")).map_err(TurnError::from)? else { return Err(AnswerError::NotPending) };
+        let Some(saved) = self
+            .store
+            .submission(&format!("answer:{request_id}"))
+            .map_err(TurnError::from)?
+        else {
+            return Err(AnswerError::NotPending);
+        };
         let transcript = self.store.transcript(&saved.session_id).map_err(TurnError::from)?;
-        let parts = transcript.into_iter().find(|m| m.info.id == saved.message_id).map(|m| m.parts).unwrap_or_default();
+        let parts = transcript
+            .into_iter()
+            .find(|m| m.info.id == saved.message_id)
+            .map(|m| m.parts)
+            .unwrap_or_default();
         let given = parts.into_iter().find_map(|row| match row.part {
             Part::Clarification { items, .. } => Some(items.into_iter().map(|item| item.answers).collect::<Vec<_>>()),
             _ => None,
@@ -60,7 +81,17 @@ impl Engine {
     /// Joins the running turn, or starts one; after a Stop since the question, or with the session busy, it is only saved.
     async fn deliver_answer(self: &Arc<Self>, request: &Request, prompt: Prompt) -> Result<(), AnswerError> {
         if let Some(scope) = self.scope_at(&request.session_id, request.generation) {
-            match self.admit(&request.session_id, prompt.clone(), Admission { parent: Some(&scope), ..Admission::default() }).await {
+            match self
+                .admit(
+                    &request.session_id,
+                    prompt.clone(),
+                    Admission {
+                        parent: Some(&scope),
+                        ..Admission::default()
+                    },
+                )
+                .await
+            {
                 Ok(_) => return Ok(()),
                 Err(TurnError::Stopped | TurnError::Busy) => {}
                 Err(TurnError::SubmissionReused) => return Err(AnswerError::Conflict),
@@ -75,12 +106,24 @@ impl Engine {
         let hash = super::turn::payload_hash(&prompt);
         let submission = prompt.submission_id.as_deref().map(|id| (id, hash.as_str()));
         if let Some((id, hash)) = submission
-            && self.replayed_receipt(id, session_id, hash)?.is_some() {
-                return Ok(());
-            }
-        let session = self.store.session(session_id).map_err(TurnError::from)?.ok_or(TurnError::NoSession)?;
+            && self.replayed_receipt(id, session_id, hash)?.is_some()
+        {
+            return Ok(());
+        }
+        let session = self
+            .store
+            .session(session_id)
+            .map_err(TurnError::from)?
+            .ok_or(TurnError::NoSession)?;
         let model = session.model.ok_or(TurnError::NoModel)?;
-        match self.admit_fenced(session_id, crate::store::Pick::model(&model), prompt.parts, submission, None, None) {
+        match self.admit_fenced(
+            session_id,
+            crate::store::Pick::model(&model),
+            prompt.parts,
+            submission,
+            None,
+            None,
+        ) {
             Ok(admitted) => {
                 self.announce(session_id, admitted);
                 Ok(())
@@ -97,9 +140,16 @@ fn answer_part(request: &Request, answers: &[Vec<String>]) -> Part {
         .questions
         .iter()
         .zip(answers.iter().chain(std::iter::repeat(&Vec::new())))
-        .map(|(question, chosen)| Clarified { header: question.header.clone(), question: question.question.clone(), answers: chosen.clone() })
+        .map(|(question, chosen)| Clarified {
+            header: question.header.clone(),
+            question: question.question.clone(),
+            answers: chosen.clone(),
+        })
         .collect();
-    Part::Clarification { request_id: request.id.clone(), items }
+    Part::Clarification {
+        request_id: request.id.clone(),
+        items,
+    }
 }
 
 #[cfg(test)]

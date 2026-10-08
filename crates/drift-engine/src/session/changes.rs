@@ -41,7 +41,11 @@ pub(super) struct Lost {
 }
 
 impl Engine {
-    pub(super) async fn capture_before(&self, workspace: &Path, touched: Option<Vec<PathBuf>>) -> Result<Capture, String> {
+    pub(super) async fn capture_before(
+        &self,
+        workspace: &Path,
+        touched: Option<Vec<PathBuf>>,
+    ) -> Result<Capture, String> {
         let Some(paths) = touched else {
             return Ok(match self.snapshots.take(workspace).await {
                 Ok(tree) => Capture::Tree(tree),
@@ -52,7 +56,11 @@ impl Engine {
         let mut before = Vec::new();
         for path in paths {
             let path = relative(workspace, &path);
-            let blob = self.snapshots.record(workspace, &path).await.map_err(|e| e.to_string())?;
+            let blob = self
+                .snapshots
+                .record(workspace, &path)
+                .await
+                .map_err(|e| e.to_string())?;
             before.push((path, blob));
         }
         Ok(Capture::Paths(before))
@@ -73,7 +81,11 @@ impl Engine {
         };
         let Some(paths) = before else {
             let note = format!("Drift could not record what this command changed ({error}); undo cannot put it back.");
-            return Err(Lost { note, put_back: false, unrecorded: Vec::new() });
+            return Err(Lost {
+                note,
+                put_back: false,
+                unrecorded: Vec::new(),
+            });
         };
         let mut stuck = Vec::new();
         for (path, blob) in paths {
@@ -82,11 +94,27 @@ impl Engine {
             }
         }
         if stuck.is_empty() {
-            return Err(Lost { note: format!("Drift could not record what this call wrote ({error}), so it put the files back as they were."), put_back: true, unrecorded: Vec::new() });
+            return Err(Lost {
+                note: format!(
+                    "Drift could not record what this call wrote ({error}), so it put the files back as they were."
+                ),
+                put_back: true,
+                unrecorded: Vec::new(),
+            });
         }
-        let named: Vec<String> = stuck.iter().map(|(path, failure)| format!("{path} ({failure})")).collect();
-        let note = format!("Drift could not record what this call wrote ({error}) and could not put back {}; undo cannot restore them.", named.join("; "));
-        Err(Lost { note, put_back: false, unrecorded: stuck.into_iter().map(|(path, _)| path).collect() })
+        let named: Vec<String> = stuck
+            .iter()
+            .map(|(path, failure)| format!("{path} ({failure})"))
+            .collect();
+        let note = format!(
+            "Drift could not record what this call wrote ({error}) and could not put back {}; undo cannot restore them.",
+            named.join("; ")
+        );
+        Err(Lost {
+            note,
+            put_back: false,
+            unrecorded: stuck.into_iter().map(|(path, _)| path).collect(),
+        })
     }
 
     /// Only paths whose content actually changed; an untouched file is never part of an undo.
@@ -96,19 +124,47 @@ impl Engine {
             Capture::Skipped => Ok(Recorded::default()),
             Capture::Tree(before) => {
                 let after = self.snapshots.take(workspace).await.map_err(|e| e.to_string())?;
-                let diff = self.snapshots.changes_between(workspace, &before, &after).await.map_err(|e| e.to_string())?;
-                let changes = diff.changes.into_iter().map(|change| FileChange { observed: true, ..change }).collect();
-                Ok(Recorded { changes, unrecorded: diff.unrecorded, tree: Some(after), ..Recorded::default() })
+                let diff = self
+                    .snapshots
+                    .changes_between(workspace, &before, &after)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let changes = diff
+                    .changes
+                    .into_iter()
+                    .map(|change| FileChange {
+                        observed: true,
+                        ..change
+                    })
+                    .collect();
+                Ok(Recorded {
+                    changes,
+                    unrecorded: diff.unrecorded,
+                    tree: Some(after),
+                    ..Recorded::default()
+                })
             }
             Capture::Paths(paths) => {
                 let mut changes = Vec::new();
                 for (path, before) in paths {
-                    let after = self.snapshots.record(workspace, &path).await.map_err(|e| e.to_string())?;
+                    let after = self
+                        .snapshots
+                        .record(workspace, &path)
+                        .await
+                        .map_err(|e| e.to_string())?;
                     if after != before && !changes.iter().any(|c: &FileChange| c.path == path) {
-                        changes.push(FileChange { path, before, after, observed: false });
+                        changes.push(FileChange {
+                            path,
+                            before,
+                            after,
+                            observed: false,
+                        });
                     }
                 }
-                Ok(Recorded { changes, ..Recorded::default() })
+                Ok(Recorded {
+                    changes,
+                    ..Recorded::default()
+                })
             }
         }
     }
@@ -132,7 +188,11 @@ mod tests {
         let h = harness().await;
         let ws = h._dir.join("ws");
         std::fs::write(ws.join("a.txt"), "before\n").unwrap();
-        let capture = h.engine.capture_before(&ws, Some(vec![ws.join("a.txt"), ws.join("new.txt")])).await.unwrap();
+        let capture = h
+            .engine
+            .capture_before(&ws, Some(vec![ws.join("a.txt"), ws.join("new.txt")]))
+            .await
+            .unwrap();
         // Written past what the store keeps, so the after state cannot be recorded.
         std::fs::write(ws.join("a.txt"), vec![b'x'; MAX_RECORDED_BYTES as usize + 1]).unwrap();
         std::fs::write(ws.join("new.txt"), "created\n").unwrap();
@@ -152,6 +212,9 @@ mod tests {
         std::fs::remove_dir_all(h._dir.join("data/snapshots")).unwrap();
         std::fs::write(h._dir.join("data/snapshots"), "not a directory").unwrap();
         let lost = h.engine.record_call(&ws, capture).await.unwrap_err();
-        assert!(!lost.put_back && lost.note.contains("undo cannot put it back"), "{lost:?}");
+        assert!(
+            !lost.put_back && lost.note.contains("undo cannot put it back"),
+            "{lost:?}"
+        );
     }
 }

@@ -37,7 +37,11 @@ pub fn auth() -> Option<Auth> {
         return Some(Auth::Bearer(token));
     }
     if let (Some(access_key), Some(secret_key)) = (env("AWS_ACCESS_KEY_ID"), env("AWS_SECRET_ACCESS_KEY")) {
-        return Some(Auth::Signed(Keys { access_key, secret_key, session_token: env("AWS_SESSION_TOKEN") }));
+        return Some(Auth::Signed(Keys {
+            access_key,
+            secret_key,
+            session_token: env("AWS_SESSION_TOKEN"),
+        }));
     }
     profile_keys(&profile_name()).map(Auth::Signed)
 }
@@ -48,8 +52,14 @@ pub fn region() -> String {
         .or_else(|| env("AWS_DEFAULT_REGION"))
         .or_else(|| {
             let profile = profile_name();
-            let section = if profile == "default" { profile } else { format!("profile {profile}") };
-            ini(&aws_file("AWS_CONFIG_FILE", "config")).remove(&section)?.remove("region")
+            let section = if profile == "default" {
+                profile
+            } else {
+                format!("profile {profile}")
+            };
+            ini(&aws_file("AWS_CONFIG_FILE", "config"))
+                .remove(&section)?
+                .remove("region")
         })
         .unwrap_or_else(|| "us-east-1".into())
 }
@@ -63,16 +73,25 @@ fn profile_name() -> String {
 }
 
 fn aws_file(variable: &str, name: &str) -> PathBuf {
-    env(variable).map(PathBuf::from).unwrap_or_else(|| home().join(".aws").join(name))
+    env(variable)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join(".aws").join(name))
 }
 
 fn home() -> PathBuf {
-    env("USERPROFILE").or_else(|| env("HOME")).map(PathBuf::from).unwrap_or_default()
+    env("USERPROFILE")
+        .or_else(|| env("HOME"))
+        .map(PathBuf::from)
+        .unwrap_or_default()
 }
 
 fn profile_keys(profile: &str) -> Option<Keys> {
     let mut section = ini(&aws_file("AWS_SHARED_CREDENTIALS_FILE", "credentials")).remove(profile)?;
-    Some(Keys { access_key: section.remove("aws_access_key_id")?, secret_key: section.remove("aws_secret_access_key")?, session_token: section.remove("aws_session_token") })
+    Some(Keys {
+        access_key: section.remove("aws_access_key_id")?,
+        secret_key: section.remove("aws_secret_access_key")?,
+        session_token: section.remove("aws_session_token"),
+    })
 }
 
 /// The shared files' INI: `[section]` headers and `key = value` lines; comments and anything else skipped.
@@ -83,7 +102,10 @@ fn ini(path: &std::path::Path) -> HashMap<String, HashMap<String, String>> {
         if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             current = name.trim().to_string();
         } else if let Some((key, value)) = line.split_once('=').filter(|_| !line.starts_with(['#', ';'])) {
-            sections.entry(current.clone()).or_default().insert(key.trim().to_lowercase(), value.trim().to_string());
+            sections
+                .entry(current.clone())
+                .or_default()
+                .insert(key.trim().to_lowercase(), value.trim().to_string());
         }
     }
     sections
@@ -104,22 +126,50 @@ pub struct Signing<'a> {
 /// The headers that make a signed request: `x-amz-date`, `x-amz-content-sha256`, the session token if any, and `authorization`.
 pub fn sign(request: &Signing, keys: &Keys) -> Vec<(String, String)> {
     let payload = hex(digest::digest(&digest::SHA256, request.body).as_ref());
-    let mut headers = vec![("host", request.host.to_string()), ("x-amz-content-sha256", payload.clone()), ("x-amz-date", request.amz_date.to_string())];
+    let mut headers = vec![
+        ("host", request.host.to_string()),
+        ("x-amz-content-sha256", payload.clone()),
+        ("x-amz-date", request.amz_date.to_string()),
+    ];
     if let Some(token) = &keys.session_token {
         headers.push(("x-amz-security-token", token.clone()));
     }
     let signed = headers.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(";");
-    let canonical_headers: String = headers.iter().map(|(name, value)| format!("{name}:{}\n", value.trim())).collect();
+    let canonical_headers: String = headers
+        .iter()
+        .map(|(name, value)| format!("{name}:{}\n", value.trim()))
+        .collect();
     // Services other than S3 take each path segment encoded twice: once on the wire, once here.
     let canonical_path = request.path.split('/').map(encode).collect::<Vec<_>>().join("/");
-    let canonical = format!("{}\n{canonical_path}\n\n{canonical_headers}\n{signed}\n{payload}", request.method);
+    let canonical = format!(
+        "{}\n{canonical_path}\n\n{canonical_headers}\n{signed}\n{payload}",
+        request.method
+    );
     let day = &request.amz_date[..8];
     let scope = format!("{day}/{}/{}/aws4_request", request.region, request.service);
-    let to_sign = format!("AWS4-HMAC-SHA256\n{}\n{scope}\n{}", request.amz_date, hex(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref()));
-    let key = [day, request.region, request.service, "aws4_request"].iter().fold(format!("AWS4{}", keys.secret_key).into_bytes(), |key, part| mac(&key, part.as_bytes()));
+    let to_sign = format!(
+        "AWS4-HMAC-SHA256\n{}\n{scope}\n{}",
+        request.amz_date,
+        hex(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref())
+    );
+    let key = [day, request.region, request.service, "aws4_request"]
+        .iter()
+        .fold(format!("AWS4{}", keys.secret_key).into_bytes(), |key, part| {
+            mac(&key, part.as_bytes())
+        });
     let signature = hex(&mac(&key, to_sign.as_bytes()));
-    let mut out: Vec<(String, String)> = headers.into_iter().filter(|(name, _)| *name != "host").map(|(name, value)| (name.to_string(), value)).collect();
-    out.push(("authorization".into(), format!("AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={signed}, Signature={signature}", keys.access_key)));
+    let mut out: Vec<(String, String)> = headers
+        .into_iter()
+        .filter(|(name, _)| *name != "host")
+        .map(|(name, value)| (name.to_string(), value))
+        .collect();
+    out.push((
+        "authorization".into(),
+        format!(
+            "AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={signed}, Signature={signature}",
+            keys.access_key
+        ),
+    ));
     out
 }
 
@@ -134,7 +184,9 @@ pub fn encode(text: &str) -> String {
 }
 
 fn mac(key: &[u8], data: &[u8]) -> Vec<u8> {
-    hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, key), data).as_ref().to_vec()
+    hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, key), data)
+        .as_ref()
+        .to_vec()
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -143,10 +195,18 @@ fn hex(bytes: &[u8]) -> String {
 
 /// Now as SigV4 writes it.
 pub fn amz_date() -> String {
-    let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let (days, rest) = (seconds / 86_400, seconds % 86_400);
     let (year, month, day) = civil(days as i64);
-    format!("{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z", rest / 3600, rest % 3600 / 60, rest % 60)
+    format!(
+        "{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
 }
 
 /// Days since 1970-01-01 to a calendar date (Howard Hinnant's algorithm).
@@ -167,30 +227,75 @@ mod tests {
     use super::*;
 
     fn example() -> Keys {
-        Keys { access_key: "AKIDEXAMPLE".into(), secret_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into(), session_token: None }
+        Keys {
+            access_key: "AKIDEXAMPLE".into(),
+            secret_key: "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY".into(),
+            session_token: None,
+        }
     }
 
     /// The signing key and string-to-sign steps from AWS's published SigV4 example.
     #[test]
     fn the_derived_key_matches_the_published_example() {
-        let key = ["20150830", "us-east-1", "iam", "aws4_request"].iter().fold(format!("AWS4{}", example().secret_key).into_bytes(), |key, part| mac(&key, part.as_bytes()));
-        assert_eq!(hex(&key), "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9");
+        let key = ["20150830", "us-east-1", "iam", "aws4_request"]
+            .iter()
+            .fold(format!("AWS4{}", example().secret_key).into_bytes(), |key, part| {
+                mac(&key, part.as_bytes())
+            });
+        assert_eq!(
+            hex(&key),
+            "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9"
+        );
         let to_sign = "AWS4-HMAC-SHA256\n20150830T123600Z\n20150830/us-east-1/iam/aws4_request\nf536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59";
-        assert_eq!(hex(&mac(&key, to_sign.as_bytes())), "5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7");
+        assert_eq!(
+            hex(&mac(&key, to_sign.as_bytes())),
+            "5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7"
+        );
     }
 
     #[test]
     fn a_request_is_signed_over_its_doubly_encoded_path_and_body() {
-        let path = format!("/model/{}/invoke-with-response-stream", encode("anthropic.claude-sonnet-4-5-v1:0"));
-        assert_eq!(path, "/model/anthropic.claude-sonnet-4-5-v1%3A0/invoke-with-response-stream");
-        let request = Signing { method: "POST", host: "bedrock-runtime.us-east-1.amazonaws.com", path: &path, body: b"{}", region: "us-east-1", service: "bedrock", amz_date: "20260101T000000Z" };
+        let path = format!(
+            "/model/{}/invoke-with-response-stream",
+            encode("anthropic.claude-sonnet-4-5-v1:0")
+        );
+        assert_eq!(
+            path,
+            "/model/anthropic.claude-sonnet-4-5-v1%3A0/invoke-with-response-stream"
+        );
+        let request = Signing {
+            method: "POST",
+            host: "bedrock-runtime.us-east-1.amazonaws.com",
+            path: &path,
+            body: b"{}",
+            region: "us-east-1",
+            service: "bedrock",
+            amz_date: "20260101T000000Z",
+        };
         let headers: HashMap<String, String> = sign(&request, &example()).into_iter().collect();
-        assert_eq!(headers["x-amz-content-sha256"], "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a");
+        assert_eq!(
+            headers["x-amz-content-sha256"],
+            "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+        );
         let authorization = &headers["authorization"];
         assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260101/us-east-1/bedrock/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature="));
-        let with_token = sign(&request, &Keys { session_token: Some("tok".into()), ..example() });
-        assert!(with_token.iter().any(|(name, value)| name == "x-amz-security-token" && value == "tok"));
-        assert!(with_token.iter().any(|(name, value)| name == "authorization" && value.contains("x-amz-date;x-amz-security-token")));
+        let with_token = sign(
+            &request,
+            &Keys {
+                session_token: Some("tok".into()),
+                ..example()
+            },
+        );
+        assert!(
+            with_token
+                .iter()
+                .any(|(name, value)| name == "x-amz-security-token" && value == "tok")
+        );
+        assert!(
+            with_token
+                .iter()
+                .any(|(name, value)| name == "authorization" && value.contains("x-amz-date;x-amz-security-token"))
+        );
     }
 
     #[test]

@@ -61,7 +61,11 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::install_plugin))
         .routes(routes!(settings::remove_plugin))
         .routes(routes!(settings::configure_plugin))
-        .routes(routes!(settings::skill_packs, settings::install_skill_pack, settings::remove_skill_pack))
+        .routes(routes!(
+            settings::skill_packs,
+            settings::install_skill_pack,
+            settings::remove_skill_pack
+        ))
         .routes(routes!(settings::skills))
         .routes(routes!(settings::set_skill_enabled))
         .routes(routes!(prompts::list))
@@ -101,7 +105,10 @@ pub fn router(engine: Arc<Engine>) -> Router {
     router
         .route("/openapi.json", get(move || async move { Json(openapi) }))
         .layer(axum::extract::DefaultBodyLimit::max(MAX_REQUEST_BYTES))
-        .layer(axum::middleware::from_fn_with_state(engine.clone(), auth::require_token))
+        .layer(axum::middleware::from_fn_with_state(
+            engine.clone(),
+            auth::require_token,
+        ))
         // Outside auth so browser preflights, which carry no token, are answered.
         .layer(cors::layer())
         .with_state(engine)

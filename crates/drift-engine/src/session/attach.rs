@@ -37,29 +37,51 @@ pub struct Prepared {
 impl Attach<'_> {
     pub fn prepare(&self, parts: Vec<Part>) -> Result<Prepared, TurnError> {
         let mut read = Vec::new();
-        let parts = parts.into_iter().map(|part| self.part(part, &mut read)).collect::<Result<_, _>>()?;
+        let parts = parts
+            .into_iter()
+            .map(|part| self.part(part, &mut read))
+            .collect::<Result<_, _>>()?;
         Ok(Prepared { parts, read })
     }
 
     fn part(&self, part: Part, read: &mut Vec<PathBuf>) -> Result<Part, TurnError> {
-        let Part::File { mime, name, url, .. } = part else { return Ok(part) };
+        let Part::File { mime, name, url, .. } = part else {
+            return Ok(part);
+        };
         if let Some(path) = file_path(&url) {
             let shown = display_name(self.workspace, &path);
             return Ok(mention_part(&shown, &self.mention(&path, read)));
         }
         let refuse = |why: String| Err(TurnError::Attachment(format!("{name}: {why}")));
-        let Some(data) = DataUrl::parse(&url) else { return refuse("only files and data URLs can be attached".into()) };
+        let Some(data) = DataUrl::parse(&url) else {
+            return refuse("only files and data URLs can be attached".into());
+        };
         if !data.mime.is_empty() && !data.mime.eq_ignore_ascii_case(&mime) {
             return refuse(format!("it says it is {mime} but its data is {}", data.mime));
         }
         match mime.split('/').next().unwrap_or_default() {
-            "text" if data.text().is_some() => Ok(Part::File { mime, name, url, path: None }),
+            "text" if data.text().is_some() => Ok(Part::File {
+                mime,
+                name,
+                url,
+                path: None,
+            }),
             "text" => refuse("its text could not be decoded".into()),
             "image" if !data.base64 || data.bytes().is_none() => refuse("its image data is not valid base64".into()),
-            "image" if self.model.attachment => Ok(Part::File { mime, name, url, path: None }),
-            "image" => Err(TurnError::Attachment(format!("{} cannot read images; pick a model that can, or remove {name}", self.model.name))),
+            "image" if self.model.attachment => Ok(Part::File {
+                mime,
+                name,
+                url,
+                path: None,
+            }),
+            "image" => Err(TurnError::Attachment(format!(
+                "{} cannot read images; pick a model that can, or remove {name}",
+                self.model.name
+            ))),
             _ if mime.eq_ignore_ascii_case(crate::tool::image::PDF) => self.pdf(mime, name, &url, &data),
-            _ => refuse(format!("{mime} cannot be sent to a model yet; attach it as text, or as an image the model can read")),
+            _ => refuse(format!(
+                "{mime} cannot be sent to a model yet; attach it as text, or as an image the model can read"
+            )),
         }
     }
 
@@ -69,8 +91,16 @@ impl Attach<'_> {
         match data.bytes().filter(|_| data.base64) {
             None => refuse("its PDF data is not valid base64".into()),
             Some(bytes) if !bytes.starts_with(b"%PDF-") => refuse("it says it is a PDF but its data is not one".into()),
-            Some(_) if !self.model.pdf => Err(TurnError::Attachment(format!("{} cannot read PDFs; pick a model that can, or remove {name}", self.model.name))),
-            Some(_) => Ok(Part::File { mime, name, url: url.to_string(), path: None }),
+            Some(_) if !self.model.pdf => Err(TurnError::Attachment(format!(
+                "{} cannot read PDFs; pick a model that can, or remove {name}",
+                self.model.name
+            ))),
+            Some(_) => Ok(Part::File {
+                mime,
+                name,
+                url: url.to_string(),
+                path: None,
+            }),
         }
     }
 
@@ -78,10 +108,19 @@ impl Attach<'_> {
     fn mention(&self, path: &Path, read_whole: &mut Vec<PathBuf>) -> String {
         let shown = display_name(self.workspace, path);
         if let Some(ask) = crate::tool::read_ask(self.workspace, path, "Read") {
-            match self.engine.permissions.decide_under(self.session_id, self.policy, self.agent_policy, &ask) {
+            match self
+                .engine
+                .permissions
+                .decide_under(self.session_id, self.policy, self.agent_policy, &ask)
+            {
                 Decision::Allow => {}
                 Decision::Deny => return format!("[@{shown} was mentioned but a rule forbids reading it.]"),
-                Decision::Ask => return format!("[@{shown} was mentioned but not read: {}. Use the read tool, which asks the user first.]", why(self.workspace, path)),
+                Decision::Ask => {
+                    return format!(
+                        "[@{shown} was mentioned but not read: {}. Use the read tool, which asks the user first.]",
+                        why(self.workspace, path)
+                    );
+                }
             }
         }
         match read(path) {
@@ -120,7 +159,9 @@ impl<'a> DataUrl<'a> {
 
     fn bytes(&self) -> Option<Vec<u8>> {
         if self.base64 {
-            return base64::engine::general_purpose::STANDARD.decode(self.payload.trim()).ok();
+            return base64::engine::general_purpose::STANDARD
+                .decode(self.payload.trim())
+                .ok();
         }
         Some(percent_encoding::percent_decode_str(self.payload).collect())
     }
@@ -150,7 +191,9 @@ fn read(path: &Path) -> Result<Read, String> {
     }
     let file = std::fs::File::open(path).map_err(|e| format!("it could not be read ({e})"))?;
     let mut bytes = Vec::new();
-    file.take(MAX_MENTION_BYTES as u64 + 1).read_to_end(&mut bytes).map_err(|e| format!("it could not be read ({e})"))?;
+    file.take(MAX_MENTION_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| format!("it could not be read ({e})"))?;
     if bytes.iter().take(8000).any(|b| *b == 0) {
         return Err("it is binary".into());
     }
@@ -160,7 +203,11 @@ fn read(path: &Path) -> Result<Read, String> {
     let text = String::from_utf8_lossy(&bytes[..MAX_MENTION_BYTES]);
     let cut = text.rfind('\n').unwrap_or(0);
     let shown_lines = text[..cut].lines().count();
-    Ok(Read::Partial(format!("{}\n\n(cut after {shown_lines} lines; read with offset {} for the rest)", &text[..cut], shown_lines + 1)))
+    Ok(Read::Partial(format!(
+        "{}\n\n(cut after {shown_lines} lines; read with offset {} for the rest)",
+        &text[..cut],
+        shown_lines + 1
+    )))
 }
 
 fn list(path: &Path) -> String {
@@ -168,19 +215,37 @@ fn list(path: &Path) -> String {
         .into_iter()
         .flatten()
         .flatten()
-        .map(|entry| format!("{}{}", entry.file_name().to_string_lossy(), if entry.path().is_dir() { "/" } else { "" }))
+        .map(|entry| {
+            format!(
+                "{}{}",
+                entry.file_name().to_string_lossy(),
+                if entry.path().is_dir() { "/" } else { "" }
+            )
+        })
         .collect();
     names.sort();
     let total = names.len();
     names.truncate(MAX_LISTED);
-    let more = if total > MAX_LISTED { format!("\n({} more entries)", total - MAX_LISTED) } else { String::new() };
+    let more = if total > MAX_LISTED {
+        format!("\n({} more entries)", total - MAX_LISTED)
+    } else {
+        String::new()
+    };
     format!("{}{more}", names.join("\n"))
 }
 
 /// A mention as the model reads it, a text file, that remembers which workspace file it was.
 fn mention_part(shown: &str, text: &str) -> Part {
-    let url = format!("data:text/plain;base64,{}", base64::engine::general_purpose::STANDARD.encode(text));
-    Part::File { mime: "text/plain".into(), name: shown.into(), url, path: Some(shown.into()) }
+    let url = format!(
+        "data:text/plain;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(text)
+    );
+    Part::File {
+        mime: "text/plain".into(),
+        name: shown.into(),
+        url,
+        path: Some(shown.into()),
+    }
 }
 
 fn display_name(workspace: &Path, path: &Path) -> String {
@@ -208,10 +273,19 @@ mod tests {
     #[test]
     fn file_urls_resolve_on_both_platforms_and_data_urls_decode() {
         let windows = file_path("file:///C:/repo/my%20notes.md").unwrap();
-        assert!(windows.to_string_lossy().replace('\\', "/").ends_with("repo/my notes.md"), "{windows:?}");
+        assert!(
+            windows
+                .to_string_lossy()
+                .replace('\\', "/")
+                .ends_with("repo/my notes.md"),
+            "{windows:?}"
+        );
         assert!(file_path("https://example.com/a").is_none());
         assert_eq!(data_text("data:text/plain;base64,aGVsbG8="), Some("hello".into()));
-        assert_eq!(data_text("data:text/plain;charset=utf-8;base64,aGVsbG8="), Some("hello".into()));
+        assert_eq!(
+            data_text("data:text/plain;charset=utf-8;base64,aGVsbG8="),
+            Some("hello".into())
+        );
         assert_eq!(data_text("data:text/plain,a%20b"), Some("a b".into()));
         assert_eq!(data_text("data:text/plain;base64,not base64!"), None);
         assert_eq!(data_text("data:text/plain;base64,/w=="), None, "not UTF-8");
@@ -223,7 +297,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let big = dir.join("big.txt");
         std::fs::write(&big, "line\n".repeat(MAX_MENTION_BYTES)).unwrap();
-        let Ok(Read::Partial(text)) = read(&big) else { panic!("a file past the bound is partial") };
+        let Ok(Read::Partial(text)) = read(&big) else {
+            panic!("a file past the bound is partial")
+        };
         assert!(text.len() < MAX_MENTION_BYTES + 200 && text.ends_with("for the rest)"));
         std::fs::write(&big, "small\n").unwrap();
         assert!(matches!(read(&big), Ok(Read::Whole(text)) if text == "small\n"));

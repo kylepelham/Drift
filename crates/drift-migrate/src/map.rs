@@ -2,7 +2,10 @@
 
 use std::collections::HashMap;
 
-use drift_engine::session::types::{Ending, Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, Todo, TodoStatus, ToolStatus, Usage, Visibility};
+use drift_engine::session::types::{
+    Ending, Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, Todo, TodoStatus,
+    ToolStatus, Usage, Visibility,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -17,12 +20,20 @@ pub type Records = HashMap<String, Value>;
 
 /// The conversation as listed; it stays hidden until its last page is written.
 pub fn session(session: &OcSession, workspace_id: &str) -> Session {
-    let model: Value = session.model.as_deref().and_then(|json| serde_json::from_str(json).ok()).unwrap_or(Value::Null);
+    let model: Value = session
+        .model
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or(Value::Null);
     Session {
         id: session.id.clone(),
         workspace_id: workspace_id.into(),
         parent_id: session.parent_id.clone(),
-        visibility: if session.parent_id.is_some() { Visibility::Hidden } else { Visibility::Sibling },
+        visibility: if session.parent_id.is_some() {
+            Visibility::Hidden
+        } else {
+            Visibility::Sibling
+        },
         title: session.title.clone(),
         agent: session.agent.clone().unwrap_or_else(|| "build".into()),
         model: model_ref(&model["providerID"], &model["id"]),
@@ -57,10 +68,19 @@ impl Ids {
 /// Deterministic, so importing the same row twice mints the same id.
 fn native_id(prefix: &str, stamp: i64, old: &str) -> String {
     let hash = Sha256::digest(old.as_bytes());
-    format!("{prefix}_{stamp:016x}{:02x}{:02x}{:02x}{:02x}", hash[0], hash[1], hash[2], hash[3])
+    format!(
+        "{prefix}_{stamp:016x}{:02x}{:02x}{:02x}{:02x}",
+        hash[0], hash[1], hash[2], hash[3]
+    )
 }
 
-pub fn message(message: &OcMessage, parts: &[OcPart], session_id: &str, ids: &mut Ids, records: &Records) -> MessageWithParts {
+pub fn message(
+    message: &OcMessage,
+    parts: &[OcPart],
+    session_id: &str,
+    ids: &mut Ids,
+    records: &Records,
+) -> MessageWithParts {
     let (id, stamp) = ids.mint(&message.id, message.created);
     let data: Value = serde_json::from_str(&message.data).unwrap_or(Value::Null);
     let anthropic = data["providerID"] == "anthropic";
@@ -68,27 +88,70 @@ pub fn message(message: &OcMessage, parts: &[OcPart], session_id: &str, ids: &mu
         .iter()
         .filter_map(|part| part_of(part, &ids.minted, anthropic))
         .enumerate()
-        .map(|(at, (old, part))| PartRow { id: native_id("prt", stamp + at as i64, old), message_id: id.clone(), session_id: session_id.into(), provider_signature: None, part: with_record(part, records.get(old), &id) })
+        .map(|(at, (old, part))| PartRow {
+            id: native_id("prt", stamp + at as i64, old),
+            message_id: id.clone(),
+            session_id: session_id.into(),
+            provider_signature: None,
+            part: with_record(part, records.get(old), &id),
+        })
         .collect();
-    MessageWithParts { info: info(&data, id, session_id, message.created), parts }
+    MessageWithParts {
+        info: info(&data, id, session_id, message.created),
+        parts,
+    }
 }
 
 /// A call's undo record goes in its metadata as a native call's does, stamped with its message.
 fn with_record(part: Part, record: Option<&Value>, message_id: &str) -> Part {
-    let (Part::ToolCall { call_id, name, input, status, title, output, metadata, started_at, finished_at }, Some(record)) = (part.clone(), record) else { return part };
+    let (
+        Part::ToolCall {
+            call_id,
+            name,
+            input,
+            status,
+            title,
+            output,
+            metadata,
+            started_at,
+            finished_at,
+        },
+        Some(record),
+    ) = (part.clone(), record)
+    else {
+        return part;
+    };
     let mut metadata = metadata.unwrap_or_else(|| Value::Object(Default::default()));
     for (key, value) in record.as_object().into_iter().flatten() {
         metadata[key] = value.clone();
     }
     metadata["at"] = Value::String(message_id.into());
-    Part::ToolCall { call_id, name, input, status, title, output, metadata: Some(metadata), started_at, finished_at }
+    Part::ToolCall {
+        call_id,
+        name,
+        input,
+        status,
+        title,
+        output,
+        metadata: Some(metadata),
+        started_at,
+        finished_at,
+    }
 }
 
 fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
     let user = data["role"] == "user";
     let created = data["time"]["created"].as_i64().unwrap_or(created);
-    let model = if user { model_ref(&data["model"]["providerID"], &data["model"]["modelID"]) } else { model_ref(&data["providerID"], &data["modelID"]) };
-    let (status, error, ending) = if user { (MessageStatus::Done, None, None) } else { outcome(data) };
+    let model = if user {
+        model_ref(&data["model"]["providerID"], &data["model"]["modelID"])
+    } else {
+        model_ref(&data["providerID"], &data["modelID"])
+    };
+    let (status, error, ending) = if user {
+        (MessageStatus::Done, None, None)
+    } else {
+        outcome(data)
+    };
     let tokens = &data["tokens"];
     let count = |value: &Value| value.as_u64().unwrap_or(0);
     Message {
@@ -98,11 +161,20 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
         status,
         model,
         agent: data["agent"].as_str().or(data["mode"].as_str()).map(String::from),
-        usage: Usage { input: count(&tokens["input"]), output: count(&tokens["output"]) + count(&tokens["reasoning"]), cache_read: count(&tokens["cache"]["read"]), cache_write: count(&tokens["cache"]["write"]) },
+        usage: Usage {
+            input: count(&tokens["input"]),
+            output: count(&tokens["output"]) + count(&tokens["reasoning"]),
+            cache_read: count(&tokens["cache"]["read"]),
+            cache_write: count(&tokens["cache"]["write"]),
+        },
         cost: data["cost"].as_f64().unwrap_or(0.0),
         error,
         created_at: created,
-        finished_at: if user { Some(created) } else { data["time"]["completed"].as_i64() },
+        finished_at: if user {
+            Some(created)
+        } else {
+            data["time"]["completed"].as_i64()
+        },
         summary: data["summary"] == true,
         ending,
     }
@@ -111,7 +183,10 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
 /// How an assistant reply ended: opencode marks a stop with an error, a cut-off one with `finish`.
 fn outcome(data: &Value) -> (MessageStatus, Option<String>, Option<Ending>) {
     let error = &data["error"];
-    let said = error["data"]["message"].as_str().or(error["name"].as_str()).map(String::from);
+    let said = error["data"]["message"]
+        .as_str()
+        .or(error["name"].as_str())
+        .map(String::from);
     match error["name"].as_str() {
         Some("MessageAbortedError") => (MessageStatus::Aborted, said, None),
         Some("MessageOutputLengthError") => (MessageStatus::Done, said, Some(Ending::Length)),
@@ -125,13 +200,17 @@ fn outcome(data: &Value) -> (MessageStatus, Option<String>, Option<Ending>) {
 /// A part with no native shape, its original text inside an envelope no native part type matches,
 /// so it reads back as unknown even when it looks like one (opencode's synthetic `text`).
 pub fn kept(data: &str) -> Part {
-    Part::Unknown { raw: serde_json::json!({ "type": "opencode", "data": data }).to_string() }
+    Part::Unknown {
+        raw: serde_json::json!({ "type": "opencode", "data": data }).to_string(),
+    }
 }
 
 /// The part as this engine stores it, `None` for bookkeeping.
 fn part_of<'a>(part: &'a OcPart, minted: &HashMap<String, String>, anthropic: bool) -> Option<(&'a str, Part)> {
     let unknown = || Some((part.id.as_str(), kept(&part.data)));
-    let Ok(data) = serde_json::from_str::<Value>(&part.data) else { return unknown() };
+    let Ok(data) = serde_json::from_str::<Value>(&part.data) else {
+        return unknown();
+    };
     let kind = data["type"].as_str().unwrap_or_default();
     if DROPPED.contains(&kind) {
         return None;
@@ -141,7 +220,10 @@ fn part_of<'a>(part: &'a OcPart, minted: &HashMap<String, String>, anthropic: bo
         "reasoning" => reasoning(&data, anthropic),
         "tool" => tool_call(&data),
         "file" => file(&data),
-        "compaction" => Some(Part::Compaction { auto: data["auto"] == true, tail_from: data["tail_start_id"].as_str().and_then(|old| minted.get(old)).cloned() }),
+        "compaction" => Some(Part::Compaction {
+            auto: data["auto"] == true,
+            tail_from: data["tail_start_id"].as_str().and_then(|old| minted.get(old)).cloned(),
+        }),
         _ => None,
     };
     match mapped {
@@ -155,8 +237,17 @@ fn part_of<'a>(part: &'a OcPart, minted: &HashMap<String, String>, anthropic: bo
 fn reasoning(data: &Value, anthropic: bool) -> Option<Part> {
     let text = data["text"].as_str()?.to_string();
     let signed = &data["metadata"]["anthropic"];
-    let field = |key: &str| signed[key].as_str().filter(|value| anthropic && !value.is_empty()).map(String::from);
-    Some(Part::Reasoning { text, signature: field("signature"), redacted: field("redactedData") })
+    let field = |key: &str| {
+        signed[key]
+            .as_str()
+            .filter(|value| anthropic && !value.is_empty())
+            .map(String::from)
+    };
+    Some(Part::Reasoning {
+        text,
+        signature: field("signature"),
+        redacted: field("redactedData"),
+    })
 }
 
 fn tool_call(data: &Value) -> Option<Part> {
@@ -166,7 +257,11 @@ fn tool_call(data: &Value) -> Option<Part> {
         Some("error") => (ToolStatus::Error, state["error"].as_str()),
         _ => (ToolStatus::Error, None),
     };
-    let input = if state["input"].is_object() { state["input"].clone() } else { Value::Object(Default::default()) };
+    let input = if state["input"].is_object() {
+        state["input"].clone()
+    } else {
+        Value::Object(Default::default())
+    };
     Some(Part::ToolCall {
         call_id: data["callID"].as_str()?.into(),
         name: data["tool"].as_str()?.into(),
@@ -187,7 +282,9 @@ const MAX_DIFF_BYTES: usize = 1_000_000;
 /// text, oversized diffs), which were most of opencode's tool metadata; a patched file's diff becomes
 /// the `patch` its panel draws.
 fn slim(tool: &str, mut metadata: Value) -> Value {
-    let Some(fields) = metadata.as_object_mut() else { return metadata };
+    let Some(fields) = metadata.as_object_mut() else {
+        return metadata;
+    };
     drop_oversized(fields, "diff");
     match tool {
         "read" => {
@@ -215,21 +312,39 @@ fn slim_file(file: &mut Value) {
 }
 
 fn drop_oversized(fields: &mut serde_json::Map<String, Value>, key: &str) {
-    if fields.get(key).and_then(Value::as_str).is_some_and(|text| text.len() > MAX_DIFF_BYTES) {
+    if fields
+        .get(key)
+        .and_then(Value::as_str)
+        .is_some_and(|text| text.len() > MAX_DIFF_BYTES)
+    {
         fields.remove(key);
     }
 }
 
 fn file(data: &Value) -> Option<Part> {
-    let path = (data["source"]["type"] == "file").then(|| data["source"]["path"].as_str().map(String::from)).flatten();
-    Some(Part::File { mime: data["mime"].as_str()?.into(), name: data["filename"].as_str().unwrap_or_default().into(), url: data["url"].as_str()?.into(), path })
+    let path = (data["source"]["type"] == "file")
+        .then(|| data["source"]["path"].as_str().map(String::from))
+        .flatten();
+    Some(Part::File {
+        mime: data["mime"].as_str()?.into(),
+        name: data["filename"].as_str().unwrap_or_default().into(),
+        url: data["url"].as_str()?.into(),
+        path,
+    })
 }
 
 pub fn todo(todo: &OcTodo) -> Option<Todo> {
     let status = serde_json::from_value::<TodoStatus>(Value::String(todo.status.clone())).ok()?;
-    Some(Todo { content: todo.content.clone(), status, priority: todo.priority.clone() })
+    Some(Todo {
+        content: todo.content.clone(),
+        status,
+        priority: todo.priority.clone(),
+    })
 }
 
 fn model_ref(provider: &Value, model: &Value) -> Option<ModelRef> {
-    Some(ModelRef { provider: provider.as_str()?.into(), model: model.as_str()?.into() })
+    Some(ModelRef {
+        provider: provider.as_str()?.into(),
+        model: model.as_str()?.into(),
+    })
 }

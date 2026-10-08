@@ -49,7 +49,8 @@ impl Parser {
                 Err(error) => error,
             };
             let valid = error.valid_up_to();
-            self.buffer.push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
+            self.buffer
+                .push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
             let Some(bad) = error.error_len() else {
                 self.pending.drain(..valid);
                 return;
@@ -112,7 +113,10 @@ where
             Ok(Some(Ok(chunk))) => Some((Ok(chunk), Some(bytes))),
             Ok(Some(Err(error))) => Some((Err(error.to_string()), None)),
             Ok(None) => None,
-            Err(_) => Some((Err(format!("the stream stalled: nothing for {} s", idle.as_secs())), None)),
+            Err(_) => Some((
+                Err(format!("the stream stalled: nothing for {} s", idle.as_secs())),
+                None,
+            )),
         }
     })
 }
@@ -129,8 +133,14 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                SseEvent { event: "message_start".into(), data: "{\"a\":1}".into() },
-                SseEvent { event: "ping".into(), data: "{}".into() },
+                SseEvent {
+                    event: "message_start".into(),
+                    data: "{\"a\":1}".into()
+                },
+                SseEvent {
+                    event: "ping".into(),
+                    data: "{}".into()
+                },
             ]
         );
     }
@@ -149,7 +159,10 @@ mod tests {
         }
         let one_by_one: Vec<SseEvent> = {
             let mut parser = Parser::default();
-            bytes.iter().flat_map(|b| parser.feed(std::slice::from_ref(b))).collect()
+            bytes
+                .iter()
+                .flat_map(|b| parser.feed(std::slice::from_ref(b)))
+                .collect()
         };
         assert_eq!(one_by_one, whole, "one byte per read");
         assert!(whole[0].data.contains("LEFT € RIGHT 日本 🎉") && whole[1].data.contains("café"));
@@ -168,7 +181,11 @@ mod tests {
         let stalled = futures_util::stream::iter([first]).chain(futures_util::stream::pending());
         let mut events = Box::pin(events(stalled, Duration::from_millis(100)));
         assert_eq!(events.next().await.unwrap().unwrap().data, "one");
-        let error = tokio::time::timeout(Duration::from_secs(2), events.next()).await.expect("the idle limit ends the wait").unwrap().unwrap_err();
+        let error = tokio::time::timeout(Duration::from_secs(2), events.next())
+            .await
+            .expect("the idle limit ends the wait")
+            .unwrap()
+            .unwrap_err();
         assert!(error.contains("stalled"), "{error}");
         assert!(events.next().await.is_none(), "and nothing follows");
     }
@@ -177,6 +194,12 @@ mod tests {
     fn joins_multiline_data_and_ignores_comments() {
         let mut parser = Parser::default();
         let events = parser.feed(b": keepalive\r\ndata: a\r\ndata: b\r\n\r\n");
-        assert_eq!(events, vec![SseEvent { event: String::new(), data: "a\nb".into() }]);
+        assert_eq!(
+            events,
+            vec![SseEvent {
+                event: String::new(),
+                data: "a\nb".into()
+            }]
+        );
     }
 }

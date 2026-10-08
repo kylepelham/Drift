@@ -21,20 +21,38 @@ impl SseTransport {
     /// Opens the stream and waits for the server to say where messages go.
     pub async fn connect(client: reqwest::Client, url: &str, headers: HeaderMap) -> Result<Self, super::Failure> {
         let base = reqwest::Url::parse(url).map_err(|e| format!("{url} is not a URL: {e}"))?;
-        let response = client.get(base.clone()).headers(headers.clone()).header("accept", "text/event-stream").send().await.map_err(|e| e.to_string())?;
+        let response = client
+            .get(base.clone())
+            .headers(headers.clone())
+            .header("accept", "text/event-stream")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         if !response.status().is_success() {
-            let needs_sign_in = matches!(response.status(), reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN);
-            return Err(super::Failure { message: format!("{url} answered {}", response.status()), needs_sign_in });
+            let needs_sign_in = matches!(
+                response.status(),
+                reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+            );
+            return Err(super::Failure {
+                message: format!("{url} answered {}", response.status()),
+                needs_sign_in,
+            });
         }
         let mut bytes = response.bytes_stream();
         let mut parser = Parser::default();
         let mut pending: Vec<String> = Vec::new();
         let endpoint = loop {
-            let chunk = bytes.next().await.ok_or("the stream ended before the server named its message endpoint")?.map_err(|e| e.to_string())?;
+            let chunk = bytes
+                .next()
+                .await
+                .ok_or("the stream ended before the server named its message endpoint")?
+                .map_err(|e| e.to_string())?;
             let events = parser.feed(&chunk);
             if let Some(at) = events.iter().position(|e| e.event == "endpoint") {
                 pending.extend(events[at + 1..].iter().map(|e| e.data.clone()));
-                break base.join(events[at].data.trim()).map_err(|e| format!("bad message endpoint: {e}"))?;
+                break base
+                    .join(events[at].data.trim())
+                    .map_err(|e| format!("bad message endpoint: {e}"))?;
             }
         };
         let (tx, incoming) = mpsc::channel(64);
@@ -43,12 +61,22 @@ impl SseTransport {
                 forward(&tx, &data).await;
             }
             while let Some(Ok(chunk)) = bytes.next().await {
-                for event in parser.feed(&chunk).into_iter().filter(|e| e.event == "message" || e.event.is_empty()) {
+                for event in parser
+                    .feed(&chunk)
+                    .into_iter()
+                    .filter(|e| e.event == "message" || e.event.is_empty())
+                {
                     forward(&tx, &event.data).await;
                 }
             }
         });
-        Ok(Self { client, endpoint, headers, incoming, reader })
+        Ok(Self {
+            client,
+            endpoint,
+            headers,
+            incoming,
+            reader,
+        })
     }
 }
 
@@ -68,14 +96,24 @@ impl Drop for SseTransport {
 impl rmcp::transport::Transport<RoleClient> for SseTransport {
     type Error = std::io::Error;
 
-    fn send(&mut self, item: ClientJsonRpcMessage) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send + 'static {
-        let request = self.client.post(self.endpoint.clone()).headers(self.headers.clone()).json(&item);
+    fn send(
+        &mut self,
+        item: ClientJsonRpcMessage,
+    ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send + 'static {
+        let request = self
+            .client
+            .post(self.endpoint.clone())
+            .headers(self.headers.clone())
+            .json(&item);
         async move {
             let response = request.send().await.map_err(std::io::Error::other)?;
             if response.status().is_success() {
                 Ok(())
             } else {
-                Err(std::io::Error::other(format!("the server refused a message: {}", response.status())))
+                Err(std::io::Error::other(format!(
+                    "the server refused a message: {}",
+                    response.status()
+                )))
             }
         }
     }

@@ -1,6 +1,6 @@
 //! Worker records, one per launching call, and each owner's durable count of Stops.
 
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 use super::sessions::{insert_session, session_from, session_in, transaction};
 use super::{NewSession, Store};
@@ -33,18 +33,34 @@ impl Store {
     /// Records a launch and its child session in one write, or returns the pair this call already made.
     pub fn launch_task(&self, new: NewTask, child: NewSession) -> rusqlite::Result<Launch> {
         transaction(&self.lock(), |conn| {
-            if let Some(task) = query_one(conn, "parent_session_id = ?1 AND call_id = ?2", &[new.parent_session_id, new.call_id])? {
+            if let Some(task) = query_one(
+                conn,
+                "parent_session_id = ?1 AND call_id = ?2",
+                &[new.parent_session_id, new.call_id],
+            )? {
                 let child = session_in(conn, &task.session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-                return Ok(Launch { task, child, created: false });
+                return Ok(Launch {
+                    task,
+                    child,
+                    created: false,
+                });
             }
             let session = session_from(child, None);
             insert_session(conn, &session)?;
             let task_id = id::new("task");
-            let state = if new.mode == Mode::Background { TaskState::Queued } else { TaskState::Running };
+            let state = if new.mode == Mode::Background {
+                TaskState::Queued
+            } else {
+                TaskState::Running
+            };
             conn.prepare_cached(&format!("INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL)"))?
                 .execute(params![task_id, new.parent_session_id, session.id, new.call_id, new.description, new.agent, new.mode.as_str(), new.reason, state.as_str(), id::now_ms(), new.generation])?;
             let task = query_one(conn, "id = ?1", &[&task_id])?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-            Ok(Launch { task, child: session, created: true })
+            Ok(Launch {
+                task,
+                child: session,
+                created: true,
+            })
         })
     }
 
@@ -52,17 +68,33 @@ impl Store {
     /// this call already made. The worker's conversation goes on; only the task row is new.
     pub fn resume_task(&self, new: NewTask, session_id: &str) -> rusqlite::Result<Launch> {
         transaction(&self.lock(), |conn| {
-            if let Some(task) = query_one(conn, "parent_session_id = ?1 AND call_id = ?2", &[new.parent_session_id, new.call_id])? {
+            if let Some(task) = query_one(
+                conn,
+                "parent_session_id = ?1 AND call_id = ?2",
+                &[new.parent_session_id, new.call_id],
+            )? {
                 let child = session_in(conn, &task.session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-                return Ok(Launch { task, child, created: false });
+                return Ok(Launch {
+                    task,
+                    child,
+                    created: false,
+                });
             }
             let child = session_in(conn, session_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
             let task_id = id::new("task");
-            let state = if new.mode == Mode::Background { TaskState::Queued } else { TaskState::Running };
+            let state = if new.mode == Mode::Background {
+                TaskState::Queued
+            } else {
+                TaskState::Running
+            };
             conn.prepare_cached(&format!("INSERT INTO task({COLUMNS}) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, 0, ?10, NULL, ?11, 0, NULL)"))?
                 .execute(params![task_id, new.parent_session_id, session_id, new.call_id, new.description, new.agent, new.mode.as_str(), new.reason, state.as_str(), id::now_ms(), new.generation])?;
             let task = query_one(conn, "id = ?1", &[&task_id])?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-            Ok(Launch { task, child, created: true })
+            Ok(Launch {
+                task,
+                child,
+                created: true,
+            })
         })
     }
 
@@ -77,12 +109,20 @@ impl Store {
 
     /// Every worker a session launched, oldest first.
     pub fn tasks_of(&self, parent: &str) -> rusqlite::Result<Vec<TaskRecord>> {
-        self.lock().prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE parent_session_id = ?1 ORDER BY id"))?.query_map([parent], row)?.collect()
+        self.lock()
+            .prepare_cached(&format!(
+                "SELECT {COLUMNS} FROM task WHERE parent_session_id = ?1 ORDER BY id"
+            ))?
+            .query_map([parent], row)?
+            .collect()
     }
 
     /// Moves a queued worker to running; nothing else moves backwards or sideways.
     pub fn start_task(&self, task_id: &str) -> rusqlite::Result<bool> {
-        let changed = self.lock().prepare_cached("UPDATE task SET state = 'running' WHERE id = ?1 AND state = 'queued'")?.execute([task_id])?;
+        let changed = self
+            .lock()
+            .prepare_cached("UPDATE task SET state = 'running' WHERE id = ?1 AND state = 'queued'")?
+            .execute([task_id])?;
         Ok(changed == 1)
     }
 
@@ -97,19 +137,28 @@ impl Store {
 
     /// Records that a call's own result already holds this one, for a row from before that was transactional.
     pub fn mark_task_delivered(&self, task_id: &str) -> rusqlite::Result<()> {
-        self.lock().prepare_cached("UPDATE task SET delivered = 1 WHERE id = ?1")?.execute([task_id])?;
+        self.lock()
+            .prepare_cached("UPDATE task SET delivered = 1 WHERE id = ?1")?
+            .execute([task_id])?;
         Ok(())
     }
 
     /// Keeps a finished result from waking its parent; it stays owed for the parent's next prompt.
     pub fn hold_task(&self, task_id: &str) -> rusqlite::Result<bool> {
-        let changed = self.lock().prepare_cached("UPDATE task SET held = 1, delivery_error = NULL WHERE id = ?1 AND delivered = 0 AND held = 0")?.execute([task_id])?;
+        let changed = self
+            .lock()
+            .prepare_cached(
+                "UPDATE task SET held = 1, delivery_error = NULL WHERE id = ?1 AND delivered = 0 AND held = 0",
+            )?
+            .execute([task_id])?;
         Ok(changed == 1)
     }
 
     /// Why an owed result could not be handed over yet; it stays owed.
     pub fn set_delivery_error(&self, task_id: &str, reason: &str) -> rusqlite::Result<()> {
-        self.lock().prepare_cached("UPDATE task SET delivery_error = ?2 WHERE id = ?1 AND delivered = 0")?.execute(params![task_id, reason])?;
+        self.lock()
+            .prepare_cached("UPDATE task SET delivery_error = ?2 WHERE id = ?1 AND delivered = 0")?
+            .execute(params![task_id, reason])?;
         Ok(())
     }
 
@@ -159,7 +208,11 @@ impl Store {
 
     /// How many times the session has been stopped, ever.
     pub fn stop_generation(&self, session_id: &str) -> rusqlite::Result<i64> {
-        let found = self.lock().prepare_cached("SELECT generation FROM stop_generation WHERE session_id = ?1")?.query_row([session_id], |r| r.get(0)).optional()?;
+        let found = self
+            .lock()
+            .prepare_cached("SELECT generation FROM stop_generation WHERE session_id = ?1")?
+            .query_row([session_id], |r| r.get(0))
+            .optional()?;
         Ok(found.unwrap_or(0))
     }
 
@@ -180,7 +233,9 @@ pub(super) fn acknowledge(conn: &Connection, task_id: &str, parent: &str) -> rus
 }
 
 fn query_one(conn: &Connection, filter: &str, args: &[&str]) -> rusqlite::Result<Option<TaskRecord>> {
-    conn.prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE {filter}"))?.query_row(rusqlite::params_from_iter(args), row).optional()
+    conn.prepare_cached(&format!("SELECT {COLUMNS} FROM task WHERE {filter}"))?
+        .query_row(rusqlite::params_from_iter(args), row)
+        .optional()
 }
 
 fn row(row: &Row) -> rusqlite::Result<TaskRecord> {
@@ -211,41 +266,102 @@ pub(crate) mod tests {
     use crate::store::tests::store;
 
     pub(crate) fn child<'a>(parent: &'a Session) -> NewSession<'a> {
-        NewSession { workspace_id: &parent.workspace_id, parent_id: Some(&parent.id), visibility: Visibility::Hidden, title: "worker", agent: "general", model: None }
+        NewSession {
+            workspace_id: &parent.workspace_id,
+            parent_id: Some(&parent.id),
+            visibility: Visibility::Hidden,
+            title: "worker",
+            agent: "general",
+            model: None,
+        }
     }
 
     pub(crate) fn new_task<'a>(parent: &'a str, call_id: &'a str, mode: Mode) -> NewTask<'a> {
-        NewTask { parent_session_id: parent, call_id, description: call_id, agent: "general", mode, reason: "requested", generation: 0 }
+        NewTask {
+            parent_session_id: parent,
+            call_id,
+            description: call_id,
+            agent: "general",
+            mode,
+            reason: "requested",
+            generation: 0,
+        }
     }
 
     #[test]
     fn a_call_launches_one_worker_and_one_transcript_and_it_ends_once() {
         let store = store();
-        let parent = store.create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
-        let first = store.launch_task(new_task(&parent.id, "call_1", Mode::Background), child(&parent)).unwrap();
+        let parent = store
+            .create_session(NewSession {
+                workspace_id: "w",
+                parent_id: None,
+                visibility: Visibility::Sibling,
+                title: "",
+                agent: "build",
+                model: None,
+            })
+            .unwrap();
+        let first = store
+            .launch_task(new_task(&parent.id, "call_1", Mode::Background), child(&parent))
+            .unwrap();
         assert!(first.created && first.task.state == TaskState::Queued && first.task.session_id == first.child.id);
-        let again = store.launch_task(new_task(&parent.id, "call_1", Mode::Foreground), child(&parent)).unwrap();
-        assert!(!again.created && again.task.id == first.task.id && again.child.id == first.child.id, "the same call resolves to the same worker and transcript");
-        assert_eq!(again.task.mode, Mode::Background, "as it was launched, not as the replay asked");
-        let children = store.sessions(crate::store::SessionFilter { workspace_id: Some("w"), archived: false, before: None, limit: 10 }).unwrap();
-        assert_eq!(children.iter().filter(|s| s.parent_id.as_deref() == Some(parent.id.as_str())).count(), 1, "no orphan transcript");
+        let again = store
+            .launch_task(new_task(&parent.id, "call_1", Mode::Foreground), child(&parent))
+            .unwrap();
+        assert!(
+            !again.created && again.task.id == first.task.id && again.child.id == first.child.id,
+            "the same call resolves to the same worker and transcript"
+        );
+        assert_eq!(
+            again.task.mode,
+            Mode::Background,
+            "as it was launched, not as the replay asked"
+        );
+        let children = store
+            .sessions(crate::store::SessionFilter {
+                workspace_id: Some("w"),
+                archived: false,
+                before: None,
+                limit: 10,
+            })
+            .unwrap();
+        assert_eq!(
+            children
+                .iter()
+                .filter(|s| s.parent_id.as_deref() == Some(parent.id.as_str()))
+                .count(),
+            1,
+            "no orphan transcript"
+        );
 
         let id = &first.task.id;
         assert!(store.start_task(id).unwrap() && !store.start_task(id).unwrap());
         assert!(store.finish_task(id, TaskState::Replied, "done").unwrap());
-        assert!(!store.finish_task(id, TaskState::Stopped, "late").unwrap(), "a late ending does not overwrite the first");
+        assert!(
+            !store.finish_task(id, TaskState::Stopped, "late").unwrap(),
+            "a late ending does not overwrite the first"
+        );
         let done = store.task(id).unwrap().unwrap();
-        assert_eq!((done.state, done.result.as_deref(), done.delivered), (TaskState::Replied, Some("done"), false));
+        assert_eq!(
+            (done.state, done.result.as_deref(), done.delivered),
+            (TaskState::Replied, Some("done"), false)
+        );
         assert_eq!(store.undelivered_tasks().unwrap().len(), 1);
         store.mark_task_delivered(id).unwrap();
         assert!(store.undelivered_tasks().unwrap().is_empty());
         assert_eq!(store.task_for_session(&first.child.id).unwrap().unwrap().id, *id);
 
-        let second = store.launch_task(new_task(&parent.id, "call_2", Mode::Background), child(&parent)).unwrap();
+        let second = store
+            .launch_task(new_task(&parent.id, "call_2", Mode::Background), child(&parent))
+            .unwrap();
         store.start_task(&second.task.id).unwrap();
         assert_eq!(store.interrupt_unfinished_tasks().unwrap(), 1);
         let gone = store.task(&second.task.id).unwrap().unwrap();
-        assert_eq!((gone.state, gone.delivered), (TaskState::Interrupted, true), "never rerun, and it wakes no one");
+        assert_eq!(
+            (gone.state, gone.delivered),
+            (TaskState::Interrupted, true),
+            "never rerun, and it wakes no one"
+        );
         assert!(store.undelivered_tasks().unwrap().is_empty());
     }
 
@@ -253,7 +369,16 @@ pub(crate) mod tests {
     fn stops_are_counted_durably_per_session() {
         let store = store();
         assert_eq!(store.stop_generation("ses_a").unwrap(), 0);
-        let parent = store.create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
+        let parent = store
+            .create_session(NewSession {
+                workspace_id: "w",
+                parent_id: None,
+                visibility: Visibility::Sibling,
+                title: "",
+                agent: "build",
+                model: None,
+            })
+            .unwrap();
         assert_eq!(store.bump_stop_generation(&parent.id).unwrap(), 1);
         assert_eq!(store.bump_stop_generation(&parent.id).unwrap(), 2);
         assert_eq!(store.stop_generation(&parent.id).unwrap(), 2);

@@ -18,7 +18,10 @@ pub struct Timeouts {
 
 impl Default for Timeouts {
     fn default() -> Self {
-        Self { headers: Duration::from_secs(120), idle: Duration::from_secs(300) }
+        Self {
+            headers: Duration::from_secs(120),
+            idle: Duration::from_secs(300),
+        }
     }
 }
 
@@ -29,7 +32,10 @@ impl Timeouts {
     /// The limits a route starts with; drift.json `timeouts` can change any of them.
     pub fn for_route(provider: &str) -> Self {
         if LOCAL_ROUTES.contains(&provider) {
-            return Self { headers: Duration::from_secs(600), idle: Duration::from_secs(600) };
+            return Self {
+                headers: Duration::from_secs(600),
+                idle: Duration::from_secs(600),
+            };
         }
         Self::default()
     }
@@ -41,7 +47,13 @@ const CONNECT: Duration = Duration::from_secs(15);
 pub fn client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT
-        .get_or_init(|| reqwest::Client::builder().connect_timeout(CONNECT).tcp_keepalive(Duration::from_secs(30)).build().unwrap_or_default())
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .connect_timeout(CONNECT)
+                .tcp_keepalive(Duration::from_secs(30))
+                .build()
+                .unwrap_or_default()
+        })
         .clone()
 }
 
@@ -71,6 +83,9 @@ pub async fn bounded_body(response: reqwest::Response, timeouts: &Timeouts) -> S
 pub async fn send(request: reqwest::RequestBuilder, timeouts: &Timeouts) -> Result<reqwest::Response, Error> {
     match tokio::time::timeout(timeouts.headers, request.send()).await {
         Ok(response) => Ok(response?),
-        Err(_) => Err(Error::Transport(format!("no response within {} s", timeouts.headers.as_secs()))),
+        Err(_) => Err(Error::Transport(format!(
+            "no response within {} s",
+            timeouts.headers.as_secs()
+        ))),
     }
 }

@@ -1,4 +1,4 @@
-use rusqlite::{params, types::Type, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params, types::Type};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
@@ -181,12 +181,9 @@ fn now() -> i64 {
 
 impl Store {
     pub fn app_setting(&self, key: &str) -> rusqlite::Result<Option<String>> {
-        self.0.lock()
-            .query_row(
-                "SELECT value FROM app_setting WHERE key = ?1",
-                [key],
-                |row| row.get(0),
-            )
+        self.0
+            .lock()
+            .query_row("SELECT value FROM app_setting WHERE key = ?1", [key], |row| row.get(0))
             .optional()
     }
 
@@ -197,11 +194,7 @@ impl Store {
             "INSERT OR IGNORE INTO app_setting(key, value) VALUES(?1, ?2)",
             params![key, value],
         )?;
-        let stored = transaction.query_row(
-            "SELECT value FROM app_setting WHERE key = ?1",
-            [key],
-            |row| row.get(0),
-        )?;
+        let stored = transaction.query_row("SELECT value FROM app_setting WHERE key = ?1", [key], |row| row.get(0))?;
         transaction.commit()?;
         Ok(stored)
     }
@@ -216,8 +209,7 @@ impl Store {
     }
 
     pub fn delete_app_setting(&self, key: &str) -> rusqlite::Result<()> {
-        self.0.lock()
-            .execute("DELETE FROM app_setting WHERE key = ?1", [key])?;
+        self.0.lock().execute("DELETE FROM app_setting WHERE key = ?1", [key])?;
         Ok(())
     }
 
@@ -231,7 +223,9 @@ impl Store {
     }
 
     pub fn remote_access_enabled(&self) -> rusqlite::Result<bool> {
-        let enabled = self.0.lock()
+        let enabled = self
+            .0
+            .lock()
             .query_row("SELECT enabled FROM remote_access WHERE id = 1", [], |row| {
                 row.get::<_, i64>(0)
             })
@@ -303,26 +297,19 @@ impl Store {
 
     pub fn prompt_overrides(&self) -> rusqlite::Result<Vec<PromptOverride>> {
         let conn = self.0.lock();
-        let mut stmt = conn.prepare_cached(
-            "SELECT key, value_json, original_json, updated_at FROM prompt_override ORDER BY key",
-        )?;
+        let mut stmt =
+            conn.prepare_cached("SELECT key, value_json, original_json, updated_at FROM prompt_override ORDER BY key")?;
         let rows = stmt.query_map([], |row| {
             let value: String = row.get(1)?;
             let original: Option<String> = row.get(2)?;
             Ok(PromptOverride {
                 key: row.get(0)?,
-                value: serde_json::from_str(&value).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error))
-                })?,
+                value: serde_json::from_str(&value)
+                    .map_err(|error| rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error)))?,
                 original: original
                     .map(|item| {
-                        serde_json::from_str(&item).map_err(|error| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                2,
-                                Type::Text,
-                                Box::new(error),
-                            )
-                        })
+                        serde_json::from_str(&item)
+                            .map_err(|error| rusqlite::Error::FromSqlConversionFailure(2, Type::Text, Box::new(error)))
                     })
                     .transpose()?,
                 updated_at: row.get(3)?,
@@ -331,12 +318,7 @@ impl Store {
         rows.collect()
     }
 
-    pub fn save_prompt_override(
-        &self,
-        key: &str,
-        value: &Value,
-        original: Option<&Value>,
-    ) -> rusqlite::Result<()> {
+    pub fn save_prompt_override(&self, key: &str, value: &Value, original: Option<&Value>) -> rusqlite::Result<()> {
         let conn = self.0.lock();
         conn.prepare_cached(
             "INSERT INTO prompt_override(key, value_json, original_json, updated_at) VALUES(?1, ?2, ?3, ?4)
@@ -353,7 +335,8 @@ impl Store {
     }
 
     pub fn reset_prompt_override(&self, key: &str) -> rusqlite::Result<()> {
-        self.0.lock()
+        self.0
+            .lock()
             .prepare_cached("DELETE FROM prompt_override WHERE key = ?1")?
             .execute([key])?;
         Ok(())
@@ -427,20 +410,12 @@ impl Store {
 
     fn query_workspaces(&self, filter: &str) -> rusqlite::Result<Vec<Workspace>> {
         let conn = self.0.lock();
-        let mut stmt = conn.prepare_cached(&format!(
-            "SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}"
-        ))?;
+        let mut stmt = conn.prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace {filter}"))?;
         let rows = stmt.query_map([], map_workspace)?;
         rows.collect()
     }
 
-    pub fn add_workspace(
-        &self,
-        id: &str,
-        path: &str,
-        name: &str,
-        icon: &str,
-    ) -> rusqlite::Result<Workspace> {
+    pub fn add_workspace(&self, id: &str, path: &str, name: &str, icon: &str) -> rusqlite::Result<Workspace> {
         let conn = self.0.lock();
         // Canonical match so re-adding a directory restores its row instead of minting a variant.
         let existing: Option<String> = conn
@@ -453,33 +428,25 @@ impl Store {
             .optional()?;
         let target = match existing {
             Some(found) => {
-                conn.prepare_cached(
-                    "UPDATE workspace SET removed_at = NULL, last_used = ?2 WHERE id = ?1",
-                )?
-                .execute((&found, now()))?;
+                conn.prepare_cached("UPDATE workspace SET removed_at = NULL, last_used = ?2 WHERE id = ?1")?
+                    .execute((&found, now()))?;
                 found
             }
             None => {
-                conn.prepare_cached("INSERT INTO workspace(id, path, name, icon, last_used) VALUES(?1, ?2, ?3, ?4, ?5)")?
-                    .execute((id, path, name, icon, now()))?;
+                conn.prepare_cached(
+                    "INSERT INTO workspace(id, path, name, icon, last_used) VALUES(?1, ?2, ?3, ?4, ?5)",
+                )?
+                .execute((id, path, name, icon, now()))?;
                 id.to_string()
             }
         };
         let workspace = conn
-            .prepare_cached(&format!(
-                "SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE id = ?1"
-            ))?
+            .prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE id = ?1"))?
             .query_row([&target], map_workspace)?;
         Ok(workspace)
     }
 
-    pub fn save_workspace(
-        &self,
-        id: &str,
-        path: &str,
-        name: &str,
-        icon: &str,
-    ) -> rusqlite::Result<()> {
+    pub fn save_workspace(&self, id: &str, path: &str, name: &str, icon: &str) -> rusqlite::Result<()> {
         let conn = self.0.lock();
         // Editing a path onto another row's directory merges that row into this one.
         let clashes: Vec<String> = conn
@@ -559,7 +526,8 @@ impl Store {
         let conn = self.0.lock();
         conn.prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
             .execute([id])?;
-        let removed = conn.prepare_cached("DELETE FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL")?
+        let removed = conn
+            .prepare_cached("DELETE FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL")?
             .execute([id])?;
         Ok(removed > 0)
     }
@@ -601,9 +569,8 @@ impl Store {
     /// the session is gone, so a failed engine deletion is retried on a later purge.
     pub fn expired_archived(&self, before: i64) -> rusqlite::Result<Vec<String>> {
         let conn = self.0.lock();
-        let mut stmt = conn.prepare_cached(
-            "SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1",
-        )?;
+        let mut stmt = conn
+            .prepare_cached("SELECT session_id FROM session_meta WHERE archived_at IS NOT NULL AND archived_at < ?1")?;
         let rows = stmt.query_map([before], |row| row.get(0))?;
         rows.collect()
     }
@@ -611,17 +578,11 @@ impl Store {
     pub fn mcp_state(&self) -> rusqlite::Result<McpState> {
         let conn = self.0.lock();
         let servers = conn
-            .prepare_cached(
-                "SELECT name, config_json, updated_at FROM mcp_server ORDER BY name COLLATE NOCASE",
-            )?
+            .prepare_cached("SELECT name, config_json, updated_at FROM mcp_server ORDER BY name COLLATE NOCASE")?
             .query_map([], |row| {
                 let raw: String = row.get(1)?;
                 let config = serde_json::from_str(&raw).map_err(|error| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        raw.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(error),
-                    )
+                    rusqlite::Error::FromSqlConversionFailure(raw.len(), rusqlite::types::Type::Text, Box::new(error))
                 })?;
                 Ok(McpServer {
                     name: row.get(0)?,
@@ -631,9 +592,7 @@ impl Store {
             })?
             .collect::<Result<_, _>>()?;
         let decisions = conn
-            .prepare_cached(
-                "SELECT name, fingerprint, decision, decided_at FROM mcp_decision ORDER BY decided_at",
-            )?
+            .prepare_cached("SELECT name, fingerprint, decision, decided_at FROM mcp_decision ORDER BY decided_at")?
             .query_map([], |row| {
                 Ok(McpDecision {
                     name: row.get(0)?,

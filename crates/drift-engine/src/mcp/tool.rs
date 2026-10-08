@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::{Answer, CallError, Key, Live, Slot, REPLACEMENT_WAIT};
+use super::{Answer, CallError, Key, Live, REPLACEMENT_WAIT, Slot};
 use crate::llm::ToolSpec;
 use crate::tool::{Ask, Context, Output, RunFuture, Tool, ToolError};
 
@@ -21,11 +21,22 @@ pub struct McpTool {
 
 impl McpTool {
     pub(super) fn new(key: &Key, tool: rmcp::model::Tool, pinned: Arc<Live>, slot: Arc<Slot>, name: String) -> Self {
-        Self { server: key.server.clone(), key: key.clone(), tool, pinned, slot, name }
+        Self {
+            server: key.server.clone(),
+            key: key.clone(),
+            tool,
+            pinned,
+            slot,
+            name,
+        }
     }
 
     fn read_only(&self) -> bool {
-        self.tool.annotations.as_ref().and_then(|a| a.read_only_hint).unwrap_or(false)
+        self.tool
+            .annotations
+            .as_ref()
+            .and_then(|a| a.read_only_hint)
+            .unwrap_or(false)
     }
 
     fn closed(&self) -> ToolError {
@@ -37,7 +48,10 @@ impl McpTool {
         if client.tools().iter().any(|tool| behaves_alike(tool, &self.tool)) {
             return Ok(());
         }
-        Err(ToolError(format!("{} changed its {} tool since this turn began, so it was not run; the next turn sees the new one", self.server, self.tool.name)))
+        Err(ToolError(format!(
+            "{} changed its {} tool since this turn began, so it was not run; the next turn sees the new one",
+            self.server, self.tool.name
+        )))
     }
 
     async fn call(&self, ctx: &Context, client: &Live, input: Value) -> Result<Answer, CallError> {
@@ -57,11 +71,21 @@ impl McpTool {
 
     /// A call cut off by a lost connection: a read-only one is asked again once of the reconnected server, never one that may have changed something.
     async fn after_loss(&self, ctx: &Context, lost: &Arc<Live>, input: Value) -> Result<Answer, ToolError> {
-        let uncertain = || ToolError(format!("the connection to {} closed during the call; it may or may not have taken effect and was not retried", self.server));
+        let uncertain = || {
+            ToolError(format!(
+                "the connection to {} closed during the call; it may or may not have taken effect and was not retried",
+                self.server
+            ))
+        };
         if !self.read_only() {
             return Err(uncertain());
         }
-        let lost_again = || ToolError(format!("the connection to {} closed during the call and it did not come back", self.server));
+        let lost_again = || {
+            ToolError(format!(
+                "the connection to {} closed during the call and it did not come back",
+                self.server
+            ))
+        };
         let next = match lost.holds_nothing_open() && lost.is_open() {
             // Only the request failed; the client stands, so it is asked again there.
             true => lost.clone(),
@@ -69,7 +93,10 @@ impl McpTool {
                 if lost.holds_nothing_open() {
                     ctx.engine.recheck_mcp(&self.key, lost);
                 }
-                self.slot.replacement(lost, REPLACEMENT_WAIT).await.ok_or_else(lost_again)?
+                self.slot
+                    .replacement(lost, REPLACEMENT_WAIT)
+                    .await
+                    .ok_or_else(lost_again)?
             }
         };
         self.unchanged_on(&next)?;
@@ -83,7 +110,11 @@ impl McpTool {
 
 /// Same name, input and safety hints, judged by the defaults MCP gives missing ones; a new description or title changes nothing a call relies on.
 fn behaves_alike(a: &rmcp::model::Tool, b: &rmcp::model::Tool) -> bool {
-    let hints = |tool: &rmcp::model::Tool| tool.annotations.as_ref().map_or((false, true), |hint| (hint.read_only_hint.unwrap_or(false), hint.is_destructive()));
+    let hints = |tool: &rmcp::model::Tool| {
+        tool.annotations.as_ref().map_or((false, true), |hint| {
+            (hint.read_only_hint.unwrap_or(false), hint.is_destructive())
+        })
+    };
     a.name == b.name && a.input_schema == b.input_schema && hints(a) == hints(b)
 }
 
@@ -91,7 +122,14 @@ fn behaves_alike(a: &rmcp::model::Tool, b: &rmcp::model::Tool) -> bool {
 const MAX_NAME: usize = 60;
 
 /// Built-in tool names a server's `<server>_<tool>` could spell; providers refuse two tools of one name.
-pub(crate) const RESERVED: [&str; 6] = ["apply_patch", "task_output", "task_stop", "read_thread", "mcp_resources", "mcp_read_resource"];
+pub(crate) const RESERVED: [&str; 6] = [
+    "apply_patch",
+    "task_output",
+    "task_stop",
+    "read_thread",
+    "mcp_resources",
+    "mcp_read_resource",
+];
 
 /// Names already given, by `(server, tool)`; a name once given is never given to another tool.
 pub type Given = HashMap<(String, String), String>;
@@ -103,14 +141,27 @@ pub type Given = HashMap<(String, String), String>;
 pub fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
     let taken: HashSet<&str> = given.values().map(String::as_str).collect();
     let known = |server: &str, tool: &str| given.get(&(server.to_string(), tool.to_string()));
-    let plain: Vec<String> = tools.iter().map(|(server, tool)| wire_name(server, tool, false)).collect();
-    let fresh = |name: &String| tools.iter().zip(&plain).filter(|((server, tool), other)| *other == name && known(server, tool).is_none()).count();
+    let plain: Vec<String> = tools
+        .iter()
+        .map(|(server, tool)| wire_name(server, tool, false))
+        .collect();
+    let fresh = |name: &String| {
+        tools
+            .iter()
+            .zip(&plain)
+            .filter(|((server, tool), other)| *other == name && known(server, tool).is_none())
+            .count()
+    };
     let name = |(server, tool): &(&str, &str), plain: &String| match known(server, tool) {
         Some(name) => name.clone(),
         None if taken.contains(plain.as_str()) || fresh(plain) > 1 => wire_name(server, tool, true),
         None => plain.clone(),
     };
-    tools.iter().zip(&plain).map(|(pair, plain)| name(pair, plain)).collect()
+    tools
+        .iter()
+        .zip(&plain)
+        .map(|(pair, plain)| name(pair, plain))
+        .collect()
 }
 
 /// The name the model calls a server's tool by, in the characters every provider accepts
@@ -119,13 +170,26 @@ pub fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
 /// original, keeping every name apart.
 pub fn wire_name(server: &str, tool: &str, clashes: bool) -> String {
     let raw = format!("{server}_{tool}");
-    let clean: String = raw.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
+    let clean: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     if clean == raw && clean.len() <= MAX_NAME && !RESERVED.contains(&clean.as_str()) && !clashes {
         return clean;
     }
     use sha2::Digest;
     // Server and tool apart, so `a_b` + `c` and `a` + `b_c` hash differently.
-    let hash: String = sha2::Sha256::digest(format!("{server}\0{tool}").as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect();
+    let hash: String = sha2::Sha256::digest(format!("{server}\0{tool}").as_bytes())
+        .iter()
+        .take(4)
+        .map(|b| format!("{b:02x}"))
+        .collect();
     let keep = clean.len().min(MAX_NAME - hash.len() - 1);
     format!("{}_{hash}", &clean[..keep])
 }
@@ -139,26 +203,44 @@ impl Tool for McpTool {
     /// it only for a server the user trusts in its settings, and only while the definition this
     /// connection was opened from is the one they trusted.
     fn stays_read_only(&self, ctx: &Context, _input: &Value) -> bool {
-        let trusted = ctx.engine.store.mcp_server(&self.server).ok().flatten().is_some_and(|row| row.read_only_trusted && row.hash == self.pinned.hash);
+        let trusted = ctx
+            .engine
+            .store
+            .mcp_server(&self.server)
+            .ok()
+            .flatten()
+            .is_some_and(|row| row.read_only_trusted && row.hash == self.pinned.hash);
         self.read_only() && trusted
     }
 
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: self.name.clone(),
-            description: format!("[{} MCP server] {}", self.server, self.tool.description.clone().unwrap_or_default()),
+            description: format!(
+                "[{} MCP server] {}",
+                self.server,
+                self.tool.description.clone().unwrap_or_default()
+            ),
             input_schema: Value::Object((*self.tool.input_schema).clone()),
         }
     }
 
     /// As opencode: a call runs without asking unless a rule says otherwise; the read-only hint matters to read-only agents.
     fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
-        Some(Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), format!("Call {} on {}", self.tool.name, self.server)).allow_by_default())
+        Some(
+            Ask::new(
+                "mcp",
+                format!("{}/{}", self.server, self.tool.name),
+                format!("Call {} on {}", self.tool.name, self.server),
+            )
+            .allow_by_default(),
+        )
     }
 
     /// Every call asks the same thing, so a rule denying it denies the tool.
     fn denied_outright(&self, rules: &crate::permission::Compiled) -> bool {
-        rules.explicit(&Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), "")) == Some(crate::permission::Decision::Deny)
+        rules.explicit(&Ask::new("mcp", format!("{}/{}", self.server, self.tool.name), ""))
+            == Some(crate::permission::Decision::Deny)
     }
 
     fn mutates(&self) -> bool {
@@ -184,7 +266,11 @@ impl Tool for McpTool {
             if !answer.images.is_empty() {
                 metadata["images"] = crate::tool::image::metadata(&answer.images);
             }
-            Ok(Output { title: format!("{}: {}", self.server, self.tool.name), output: answer.text, metadata })
+            Ok(Output {
+                title: format!("{}: {}", self.server, self.tool.name),
+                output: answer.text,
+                metadata,
+            })
         })
     }
 }
@@ -194,7 +280,7 @@ mod tests {
     use rmcp::model::{Tool, ToolAnnotations};
     use serde_json::json;
 
-    use super::{behaves_alike, wire_names, Given};
+    use super::{Given, behaves_alike, wire_names};
 
     fn wire_name(server: &str, tool: &str) -> String {
         super::wire_name(server, tool, false)
@@ -207,22 +293,53 @@ mod tests {
         assert_eq!(names[0], "a_b_c", "the tool the transcript calls keeps its name");
         assert!(names[1].starts_with("a_b_c_"), "the newcomer gets the hash: {names:?}");
         let alone = wire_names(&given, &[("a_b", "c")]);
-        assert!(alone[0].starts_with("a_b_c_"), "a name stays taken while its tool is away: {alone:?}");
+        assert!(
+            alone[0].starts_with("a_b_c_"),
+            "a name stays taken while its tool is away: {alone:?}"
+        );
     }
 
     #[test]
     fn tool_names_are_what_providers_accept() {
         assert_eq!(wire_name("echo", "shout"), "echo_shout");
-        assert!(wire_name("gh", "repos/list.all").starts_with("gh_repos_list_all_"), "a changed name carries a hash");
-        assert_ne!(wire_name("s", "a.b"), wire_name("s", "a_b"), "names that clean to the same string stay apart");
+        assert!(
+            wire_name("gh", "repos/list.all").starts_with("gh_repos_list_all_"),
+            "a changed name carries a hash"
+        );
+        assert_ne!(
+            wire_name("s", "a.b"),
+            wire_name("s", "a_b"),
+            "names that clean to the same string stay apart"
+        );
         assert_eq!(wire_name("s", "a_b"), "s_a_b");
-        assert_ne!(wire_name("task", "output"), "task_output", "never a built-in tool's name");
-        assert_eq!(wire_name("my_server", "search"), "my_server_search", "a `_` in a server's name alone changes nothing");
+        assert_ne!(
+            wire_name("task", "output"),
+            "task_output",
+            "never a built-in tool's name"
+        );
+        assert_eq!(
+            wire_name("my_server", "search"),
+            "my_server_search",
+            "a `_` in a server's name alone changes nothing"
+        );
         let names = wire_names(&Given::new(), &[("a_b", "c"), ("a", "b_c"), ("a", "d")]);
-        assert!(names[0] != names[1] && names[0].starts_with("a_b_c_") && names[1].starts_with("a_b_c_"), "only names that meet get a hash: {names:?}");
+        assert!(
+            names[0] != names[1] && names[0].starts_with("a_b_c_") && names[1].starts_with("a_b_c_"),
+            "only names that meet get a hash: {names:?}"
+        );
         assert_eq!(names[2], "a_d");
-        let builtin: Vec<String> = crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::Edit).into_iter().chain(crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::ApplyPatch)).map(|s| s.name).chain(["mcp_resources".into(), "mcp_read_resource".into()]).filter(|n| n.contains('_')).collect();
-        assert!(builtin.iter().all(|name| super::RESERVED.contains(&name.as_str())), "every built-in name an MCP tool could spell is reserved: {builtin:?}");
+        let builtin: Vec<String> = crate::tool::Registry::builtin()
+            .specs(crate::llm::catalog::ToolProfile::Edit)
+            .into_iter()
+            .chain(crate::tool::Registry::builtin().specs(crate::llm::catalog::ToolProfile::ApplyPatch))
+            .map(|s| s.name)
+            .chain(["mcp_resources".into(), "mcp_read_resource".into()])
+            .filter(|n| n.contains('_'))
+            .collect();
+        assert!(
+            builtin.iter().all(|name| super::RESERVED.contains(&name.as_str())),
+            "every built-in name an MCP tool could spell is reserved: {builtin:?}"
+        );
         let long = wire_name("server", &"x".repeat(80));
         assert_eq!(long.len(), 60, "room left for the subscription route's mcp_ prefix");
         assert_ne!(long, wire_name("server", &"x".repeat(81)), "cut names stay apart");
@@ -230,19 +347,42 @@ mod tests {
     }
 
     fn tool(description: &'static str, schema: serde_json::Value) -> Tool {
-        Tool::new("search", description, std::sync::Arc::new(schema.as_object().unwrap().clone()))
+        Tool::new(
+            "search",
+            description,
+            std::sync::Arc::new(schema.as_object().unwrap().clone()),
+        )
     }
 
     #[test]
     fn a_reworded_tool_is_the_same_tool_but_new_input_or_hints_are_not() {
         let schema = json!({ "type": "object", "properties": { "q": { "type": "string" } } });
         let read_only = tool("Searches", schema.clone()).annotate(ToolAnnotations::new().read_only(true));
-        let reworded = tool("Searches the docs", schema.clone()).annotate(ToolAnnotations::with_title("Search").read_only(true));
+        let reworded =
+            tool("Searches the docs", schema.clone()).annotate(ToolAnnotations::with_title("Search").read_only(true));
         assert!(behaves_alike(&read_only, &reworded));
-        assert!(!behaves_alike(&read_only, &tool("Searches", schema.clone())), "no longer read-only");
-        assert!(!behaves_alike(&read_only, &tool("Searches", json!({ "type": "object" })).annotate(ToolAnnotations::new().read_only(true))), "another input");
+        assert!(
+            !behaves_alike(&read_only, &tool("Searches", schema.clone())),
+            "no longer read-only"
+        );
+        assert!(
+            !behaves_alike(
+                &read_only,
+                &tool("Searches", json!({ "type": "object" })).annotate(ToolAnnotations::new().read_only(true))
+            ),
+            "another input"
+        );
         let plain = tool("Searches", schema.clone());
-        assert!(behaves_alike(&plain, &plain.clone().annotate(ToolAnnotations::new().destructive(true))), "a hint stated as its default");
-        assert!(!behaves_alike(&plain, &plain.clone().annotate(ToolAnnotations::new().destructive(false))));
+        assert!(
+            behaves_alike(
+                &plain,
+                &plain.clone().annotate(ToolAnnotations::new().destructive(true))
+            ),
+            "a hint stated as its default"
+        );
+        assert!(!behaves_alike(
+            &plain,
+            &plain.clone().annotate(ToolAnnotations::new().destructive(false))
+        ));
     }
 }

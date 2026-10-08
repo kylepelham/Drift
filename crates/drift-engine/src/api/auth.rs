@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::extract::{Query, Request, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::middleware::Next;
 use axum::response::Response;
 use serde::Deserialize;

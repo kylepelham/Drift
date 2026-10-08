@@ -13,11 +13,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
-use rmcp::model::{CallToolRequestParams, ClientCapabilities, ClientConfig, ContentBlock, Implementation, ProtocolVersion};
+use rmcp::RoleClient;
+use rmcp::model::{
+    CallToolRequestParams, ClientCapabilities, ClientConfig, ContentBlock, Implementation, ProtocolVersion,
+};
 use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RunningService, ServiceError};
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
-use rmcp::RoleClient;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
@@ -26,7 +28,7 @@ use crate::event::{Event, Hub};
 use crate::platform::process::Tree;
 use crate::store::Store;
 use crate::tool::image::Image;
-pub(crate) use tool::{wire_names, Given};
+pub(crate) use tool::{Given, wire_names};
 
 pub use oauth::{forget as forget_sign_in, forget_if_moved, move_sign_in};
 pub use tool::McpTool;
@@ -98,14 +100,22 @@ impl ServerConfig {
 
     /// How long one tool call may take before it fails; unset, it runs until done or stopped.
     pub fn timeout(&self) -> Option<Duration> {
-        let (Self::Stdio { timeout_seconds, .. } | Self::Http { timeout_seconds, .. } | Self::Sse { timeout_seconds, .. }) = self;
+        let (Self::Stdio { timeout_seconds, .. }
+        | Self::Http { timeout_seconds, .. }
+        | Self::Sse { timeout_seconds, .. }) = self;
         timeout_seconds.filter(|s| *s > 0).map(Duration::from_secs)
     }
 }
 
 /// A server whose saved definition does not parse: shown empty and failed, so the editor can save a new one over it.
 fn unreadable(name: String) -> ServerStatus {
-    let config = view::ServerConfigView::Stdio { command: String::new(), args: Vec::new(), env: Vec::new(), cwd: None, timeout_seconds: None };
+    let config = view::ServerConfigView::Stdio {
+        command: String::new(),
+        args: Vec::new(),
+        env: Vec::new(),
+        cwd: None,
+        timeout_seconds: None,
+    };
     ServerStatus {
         server: ServerView { name, config, enabled: false, read_only_trusted: false, updated_at: 0, workspaces: Vec::new() },
         state: State::Failed,
@@ -154,7 +164,10 @@ pub struct WorkspaceChoice {
 impl ServerRow {
     /// Whether turns in `workspace` (a canonical folder) are offered this server.
     pub fn on_in(&self, workspace: &Path) -> bool {
-        let chosen = self.workspaces.iter().find(|choice| crate::tool::canonical(Path::new(&choice.path)) == workspace);
+        let chosen = self
+            .workspaces
+            .iter()
+            .find(|choice| crate::tool::canonical(Path::new(&choice.path)) == workspace);
         chosen.map_or(self.enabled, |choice| choice.enabled)
     }
 
@@ -243,7 +256,9 @@ impl Era {
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        [Self::Stateless, Self::Legacy].into_iter().find(|era| era.as_str() == text)
+        [Self::Stateless, Self::Legacy]
+            .into_iter()
+            .find(|era| era.as_str() == text)
     }
 
     fn other(self) -> Self {
@@ -257,8 +272,13 @@ impl Era {
 /// How a connect begins: a probe when the server's era is unknown, else straight to the one it speaks.
 fn lifecycle(known: Option<Era>) -> ClientLifecycleMode {
     match known {
-        None => ClientLifecycleMode::Auto { preferred_versions: vec![ProtocolVersion::V_2026_07_28], legacy_version: Some(ProtocolVersion::V_2025_11_25) },
-        Some(Era::Stateless) => ClientLifecycleMode::Discover { preferred_versions: vec![ProtocolVersion::V_2026_07_28] },
+        None => ClientLifecycleMode::Auto {
+            preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+            legacy_version: Some(ProtocolVersion::V_2025_11_25),
+        },
+        Some(Era::Stateless) => ClientLifecycleMode::Discover {
+            preferred_versions: vec![ProtocolVersion::V_2026_07_28],
+        },
         Some(Era::Legacy) => ClientLifecycleMode::Initialize,
     }
 }
@@ -272,7 +292,8 @@ fn client_info(roots: bool) -> ClientConfig {
     if roots {
         capabilities.roots = Some(rmcp::model::RootsCapabilities::default());
     }
-    ClientConfig::new(capabilities, Implementation::new("Drift", env!("CARGO_PKG_VERSION"))).with_protocol_version(ProtocolVersion::V_2025_11_25)
+    ClientConfig::new(capabilities, Implementation::new("Drift", env!("CARGO_PKG_VERSION")))
+        .with_protocol_version(ProtocolVersion::V_2025_11_25)
 }
 
 /// The client side of one connection: the workspace it was opened for, as a `file:` URI, is its only root.
@@ -283,7 +304,12 @@ struct DriftClient {
 
 impl DriftClient {
     fn rooted(workspace: Option<&Path>) -> Self {
-        Self { root: workspace.map(|path| reqwest::Url::from_directory_path(path).map_or_else(|()| path.to_string_lossy().into_owned(), String::from)) }
+        Self {
+            root: workspace.map(|path| {
+                reqwest::Url::from_directory_path(path)
+                    .map_or_else(|()| path.to_string_lossy().into_owned(), String::from)
+            }),
+        }
     }
 }
 
@@ -293,8 +319,13 @@ impl rmcp::ClientHandler for DriftClient {
         client_info(self.root.is_some())
     }
 
-    async fn list_roots(&self, _context: rmcp::service::RequestContext<RoleClient>) -> Result<rmcp::model::ListRootsResult, rmcp::ErrorData> {
-        Ok(rmcp::model::ListRootsResult::new(self.root.iter().map(rmcp::model::Root::new).collect()))
+    async fn list_roots(
+        &self,
+        _context: rmcp::service::RequestContext<RoleClient>,
+    ) -> Result<rmcp::model::ListRootsResult, rmcp::ErrorData> {
+        Ok(rmcp::model::ListRootsResult::new(
+            self.root.iter().map(rmcp::model::Root::new).collect(),
+        ))
     }
 }
 
@@ -336,7 +367,10 @@ struct Listing {
 
 impl Listing {
     fn new(tools: Vec<rmcp::model::Tool>, ttl: Option<Duration>) -> Self {
-        Self { tools, stale_at: ttl.map(|ttl| Instant::now() + ttl) }
+        Self {
+            tools,
+            stale_at: ttl.map(|ttl| Instant::now() + ttl),
+        }
     }
 }
 
@@ -349,7 +383,10 @@ pub(super) struct Failure {
 
 impl From<String> for Failure {
     fn from(message: String) -> Self {
-        Self { message, needs_sign_in: false }
+        Self {
+            message,
+            needs_sign_in: false,
+        }
     }
 }
 
@@ -361,7 +398,10 @@ impl From<&str> for Failure {
 
 impl From<rmcp::service::ClientInitializeError> for Failure {
     fn from(error: rmcp::service::ClientInitializeError) -> Self {
-        Self { needs_sign_in: error.is_authorization_required(), message: error.to_string() }
+        Self {
+            needs_sign_in: error.is_authorization_required(),
+            message: error.to_string(),
+        }
     }
 }
 
@@ -375,7 +415,11 @@ struct Transient {
 
 impl Transient {
     fn new(state: State, error: Option<String>) -> Self {
-        Self { state, error, needs_sign_in: false }
+        Self {
+            state,
+            error,
+            needs_sign_in: false,
+        }
     }
 }
 
@@ -445,7 +489,9 @@ impl Slot {
     /// The client a tool opened as `pinned` calls now: the current one when it serves the same definition.
     fn client_for(&self, pinned: &Arc<Live>) -> Arc<Live> {
         self.touch();
-        self.current().filter(|current| current.hash == pinned.hash && current.is_open()).unwrap_or_else(|| pinned.clone())
+        self.current()
+            .filter(|current| current.hash == pinned.hash && current.is_open())
+            .unwrap_or_else(|| pinned.clone())
     }
 
     /// Waits, at most `limit`, for a client of the same definition to take over from `lost`.
@@ -453,7 +499,10 @@ impl Slot {
         let deadline = tokio::time::Instant::now() + limit;
         loop {
             let published = self.published.notified();
-            if let Some(next) = self.current().filter(|next| next.hash == lost.hash && !Arc::ptr_eq(next, lost) && next.is_open()) {
+            if let Some(next) = self
+                .current()
+                .filter(|next| next.hash == lost.hash && !Arc::ptr_eq(next, lost) && next.is_open())
+            {
                 return Some(next);
             }
             tokio::select! {
@@ -524,11 +573,17 @@ pub(crate) struct Key {
 
 impl Key {
     pub(crate) fn shared(server: &str) -> Self {
-        Self { server: server.into(), workspace: None }
+        Self {
+            server: server.into(),
+            workspace: None,
+        }
     }
 
     fn of(server: &str, workspace: Option<&Path>) -> Self {
-        Self { server: server.into(), workspace: workspace.map(Path::to_path_buf) }
+        Self {
+            server: server.into(),
+            workspace: workspace.map(Path::to_path_buf),
+        }
     }
 }
 
@@ -558,7 +613,14 @@ impl Slots {
 
     /// Every connection of `server` this registry holds: live, kept for a reconnect, connecting or failed.
     fn keys_of(&self, server: &str) -> Vec<Key> {
-        let mut keys: Vec<Key> = self.servers.keys().chain(self.attempts.keys()).chain(self.transient.keys()).filter(|key| key.server == server).cloned().collect();
+        let mut keys: Vec<Key> = self
+            .servers
+            .keys()
+            .chain(self.attempts.keys())
+            .chain(self.transient.keys())
+            .filter(|key| key.server == server)
+            .cloned()
+            .collect();
         keys.sort();
         keys.dedup();
         keys
@@ -573,7 +635,9 @@ impl Slots {
         let own = workspace.map(|workspace| Key::of(server, Some(workspace)));
         own.into_iter().chain([Key::shared(server)]).find_map(|key| {
             let slot = self.servers.get(&key)?;
-            let live = slot.current().filter(|live| key.workspace.is_some() || live.transport != Transport::Stdio)?;
+            let live = slot
+                .current()
+                .filter(|live| key.workspace.is_some() || live.transport != Transport::Stdio)?;
             slot.touch();
             Some((key, live))
         })
@@ -584,10 +648,13 @@ impl Slots {
         let mut names: Vec<&String> = self.servers.keys().map(|key| &key.server).collect();
         names.sort();
         names.dedup();
-        names.into_iter().filter_map(|name| {
-            let (key, live) = self.live_for(name, workspace, shown)?;
-            Some((key.clone(), self.servers.get(&key)?.clone(), live))
-        }).collect()
+        names
+            .into_iter()
+            .filter_map(|name| {
+                let (key, live) = self.live_for(name, workspace, shown)?;
+                Some((key.clone(), self.servers.get(&key)?.clone(), live))
+            })
+            .collect()
     }
 }
 
@@ -596,8 +663,15 @@ struct Shown(Option<std::collections::HashSet<String>>);
 
 impl Shown {
     fn of(store: Option<&Store>, workspace: Option<&Path>) -> Self {
-        let Some(rows) = store.and_then(|store| store.mcp_servers().ok()) else { return Self(None) };
-        Self(Some(rows.into_iter().filter(|row| workspace.map_or(row.on_anywhere(), |workspace| row.on_in(workspace))).map(|row| row.name).collect()))
+        let Some(rows) = store.and_then(|store| store.mcp_servers().ok()) else {
+            return Self(None);
+        };
+        Self(Some(
+            rows.into_iter()
+                .filter(|row| workspace.map_or(row.on_anywhere(), |workspace| row.on_in(workspace)))
+                .map(|row| row.name)
+                .collect(),
+        ))
     }
 
     fn allows(&self, server: &str) -> bool {
@@ -644,7 +718,11 @@ enum Watch {
 
 impl Servers {
     pub fn new(sign_ins: Arc<crate::llm::credentials::Credentials>, store: Arc<Store>) -> Self {
-        Self { sign_ins: Some(sign_ins), store: Some(store), ..Self::default() }
+        Self {
+            sign_ins: Some(sign_ins),
+            store: Some(store),
+            ..Self::default()
+        }
     }
 
     fn shown(&self, workspace: Option<&Path>) -> Shown {
@@ -657,7 +735,11 @@ impl Servers {
 
     /// Every saved server, those this build cannot read included, as failed rows to save again or remove.
     pub fn statuses(&self, store: &Store) -> rusqlite::Result<Vec<ServerStatus>> {
-        let mut statuses: Vec<ServerStatus> = store.mcp_servers()?.into_iter().map(|row| self.status_of(row)).collect();
+        let mut statuses: Vec<ServerStatus> = store
+            .mcp_servers()?
+            .into_iter()
+            .map(|row| self.status_of(row))
+            .collect();
         statuses.extend(store.unreadable_mcp_servers()?.into_iter().map(unreadable));
         statuses.sort_by(|a, b| a.server.name.cmp(&b.server.name));
         Ok(statuses)
@@ -668,20 +750,49 @@ impl Servers {
         let slots = self.lock();
         let keys = slots.keys_of(&row.name);
         let live = keys.iter().find_map(|key| slots.live(key));
-        let Transient { state, error, needs_sign_in } = if !row.on_anywhere() {
+        let Transient {
+            state,
+            error,
+            needs_sign_in,
+        } = if !row.on_anywhere() {
             Transient::new(State::Disabled, None)
         } else if live.is_some() {
             Transient::new(State::Connected, None)
         } else {
             let states: Vec<&Transient> = keys.iter().filter_map(|key| slots.transient.get(key)).collect();
-            states.iter().find(|transient| transient.state == State::Connecting).or(states.first()).map(|transient| (*transient).clone()).unwrap_or(Transient::new(State::Disconnected, None))
+            states
+                .iter()
+                .find(|transient| transient.state == State::Connecting)
+                .or(states.first())
+                .map(|transient| (*transient).clone())
+                .unwrap_or(Transient::new(State::Disconnected, None))
         };
-        let protocol = live.as_ref().and_then(|live| live.service.peer_info()).map(|info| info.protocol_version.to_string());
+        let protocol = live
+            .as_ref()
+            .and_then(|live| live.service.peer_info())
+            .map(|info| info.protocol_version.to_string());
         let era = live.as_ref().map(|live| live.era);
-        let tools = live.map(|live| live.tools().iter().map(tool_info).collect()).unwrap_or_default();
+        let tools = live
+            .map(|live| live.tools().iter().map(tool_info).collect())
+            .unwrap_or_default();
         let needs_sign_in = needs_sign_in && state == State::Failed;
-        let signed_in = row.config.is_remote() && self.sign_ins.as_ref().is_some_and(|store| oauth::has_sign_in(store, &row.name));
-        ServerStatus { transport: Transport::of(&row.config), protocol, era, needs_sign_in, signed_in, server: ServerView::of(&row), state, error, tools, unreadable: false }
+        let signed_in = row.config.is_remote()
+            && self
+                .sign_ins
+                .as_ref()
+                .is_some_and(|store| oauth::has_sign_in(store, &row.name));
+        ServerStatus {
+            transport: Transport::of(&row.config),
+            protocol,
+            era,
+            needs_sign_in,
+            signed_in,
+            server: ServerView::of(&row),
+            state,
+            error,
+            tools,
+            unreadable: false,
+        }
     }
 
     /// A sign-in that did not finish: the server, unless it connected meanwhile, shows why and still asks to sign in.
@@ -691,10 +802,19 @@ impl Servers {
         if slots.live(&key).is_some() || slots.attempts.contains_key(&key) {
             return;
         }
-        slots.transient.insert(key, Transient { state: State::Failed, error: Some(format!("Sign-in did not finish: {why}")), needs_sign_in: true });
+        slots.transient.insert(
+            key,
+            Transient {
+                state: State::Failed,
+                error: Some(format!("Sign-in did not finish: {why}")),
+                needs_sign_in: true,
+            },
+        );
         drop(slots);
         if let Ok(Some(row)) = store.mcp_server(name) {
-            hub.publish(Event::McpUpdated { server: self.status_of(row) });
+            hub.publish(Event::McpUpdated {
+                server: self.status_of(row),
+            });
         }
     }
 
@@ -705,10 +825,28 @@ impl Servers {
     }
 
     /// The rest of a connect `begin` started: opens the server and publishes what it opened.
-    async fn complete(&self, row: ServerRow, key: Key, attempt: Attempt, store: &Store, hub: &Hub) -> Result<Arc<Live>, String> {
-        let _settle = Settle { servers: self, hub, row: &row, key: &key, id: attempt.id };
-        hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
-        let sign_in = SignIn { server: &row.name, credentials: self.sign_ins.as_ref() };
+    async fn complete(
+        &self,
+        row: ServerRow,
+        key: Key,
+        attempt: Attempt,
+        store: &Store,
+        hub: &Hub,
+    ) -> Result<Arc<Live>, String> {
+        let _settle = Settle {
+            servers: self,
+            hub,
+            row: &row,
+            key: &key,
+            id: attempt.id,
+        };
+        hub.publish(Event::McpUpdated {
+            server: self.status_of(row.clone()),
+        });
+        let sign_in = SignIn {
+            server: &row.name,
+            credentials: self.sign_ins.as_ref(),
+        };
         let opened = tokio::select! {
             opened = open(&row.config, row.hash.clone(), sign_in, row.era, key.workspace.as_deref()) => opened,
             () = attempt.cancel.cancelled() => Err(Failure::from("server definition changed during connect".to_string())),
@@ -722,9 +860,17 @@ impl Servers {
     /// own connects never retry one that failed; the user's connect does.
     fn begin(&self, key: &Key, store: &Store, start: Start) -> Result<(ServerRow, Attempt), String> {
         let mut slots = self.lock();
-        let row = store.mcp_server(&key.server).map_err(|e| e.to_string())?.ok_or("no such server")?;
+        let row = store
+            .mcp_server(&key.server)
+            .map_err(|e| e.to_string())?
+            .ok_or("no such server")?;
         if row.config.is_remote() != key.workspace.is_none() {
-            return Err(if key.workspace.is_none() { NEEDS_WORKSPACE } else { "a remote server has one shared connection" }.into());
+            return Err(if key.workspace.is_none() {
+                NEEDS_WORKSPACE
+            } else {
+                "a remote server has one shared connection"
+            }
+            .into());
         }
         let generation = slots.generation_of(key);
         if matches!(start, Start::Reconnect(expected) if expected != generation) {
@@ -733,7 +879,12 @@ impl Servers {
         if start != Start::User && (slots.attempts.contains_key(key) || slots.live(key).is_some()) {
             return Err("already connected or connecting".into());
         }
-        if start == Start::Startup && slots.transient.get(key).is_some_and(|transient| transient.state == State::Failed) {
+        if start == Start::Startup
+            && slots
+                .transient
+                .get(key)
+                .is_some_and(|transient| transient.state == State::Failed)
+        {
             return Err("it failed to connect; connect it again in Settings".into());
         }
         match start {
@@ -741,19 +892,41 @@ impl Servers {
             _ if slots.held.contains(&key.server) => return Err("the user disconnected it".into()),
             _ => {}
         }
-        if !key.workspace.as_deref().map_or(row.on_anywhere(), |workspace| row.on_in(workspace)) {
-            return Err(if row.on_anywhere() { "it is off in this workspace" } else { "server is disabled" }.into());
+        if !key
+            .workspace
+            .as_deref()
+            .map_or(row.on_anywhere(), |workspace| row.on_in(workspace))
+        {
+            return Err(if row.on_anywhere() {
+                "it is off in this workspace"
+            } else {
+                "server is disabled"
+            }
+            .into());
         }
-        let attempt = Attempt { id: self.next_attempt.fetch_add(1, Ordering::Relaxed), generation, cancel: CancellationToken::new() };
+        let attempt = Attempt {
+            id: self.next_attempt.fetch_add(1, Ordering::Relaxed),
+            generation,
+            cancel: CancellationToken::new(),
+        };
         if let Some(earlier) = slots.attempts.insert(key.clone(), attempt.clone()) {
             earlier.cancel.cancel();
         }
-        slots.transient.insert(key.clone(), Transient::new(State::Connecting, None));
+        slots
+            .transient
+            .insert(key.clone(), Transient::new(State::Connecting, None));
         Ok((row, attempt))
     }
 
     /// Publishes what the attempt opened, unless it was overtaken; then what it opened is dropped, killing it.
-    fn finish(&self, row: &ServerRow, key: &Key, hub: &Hub, attempt: &Attempt, opened: Result<Live, Failure>) -> Result<Arc<Live>, String> {
+    fn finish(
+        &self,
+        row: &ServerRow,
+        key: &Key,
+        hub: &Hub,
+        attempt: &Attempt,
+        opened: Result<Live, Failure>,
+    ) -> Result<Arc<Live>, String> {
         let mut slots = self.lock();
         if !slots.is_current(key, attempt) {
             return Err("server definition changed during connect".into());
@@ -767,22 +940,44 @@ impl Servers {
                 Ok(live)
             }
             Err(Failure { message, needs_sign_in }) => {
-                slots.transient.insert(key.clone(), Transient { state: State::Failed, error: Some(message.clone()), needs_sign_in });
+                slots.transient.insert(
+                    key.clone(),
+                    Transient {
+                        state: State::Failed,
+                        error: Some(message.clone()),
+                        needs_sign_in,
+                    },
+                );
                 Err(message)
             }
         };
         drop(slots);
-        hub.publish(Event::McpUpdated { server: self.status_of(row.clone()) });
+        hub.publish(Event::McpUpdated {
+            server: self.status_of(row.clone()),
+        });
         result
     }
 
     /// Writes the server's row and, in the same step, ends every connection of it and any connect in flight. A write that refuses changes nothing.
-    fn detach<R, E>(&self, name: &str, store: &Store, ending: Ending, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<(Vec<Arc<Live>>, R), E> {
+    fn detach<R, E>(
+        &self,
+        name: &str,
+        store: &Store,
+        ending: Ending,
+        write: impl FnOnce(&Store) -> Result<R, E>,
+    ) -> Result<(Vec<Arc<Live>>, R), E> {
         self.detach_where(name, store, ending, |_| true, write)
     }
 
     /// [`Self::detach`] for the connections `ends` picks.
-    fn detach_where<R, E>(&self, name: &str, store: &Store, ending: Ending, ends: impl Fn(&Key) -> bool, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<(Vec<Arc<Live>>, R), E> {
+    fn detach_where<R, E>(
+        &self,
+        name: &str,
+        store: &Store,
+        ending: Ending,
+        ends: impl Fn(&Key) -> bool,
+        write: impl FnOnce(&Store) -> Result<R, E>,
+    ) -> Result<(Vec<Arc<Live>>, R), E> {
         let mut slots = self.lock();
         let written = write(store)?;
         let mut lives = Vec::new();
@@ -792,7 +987,11 @@ impl Servers {
                 attempt.cancel.cancel();
             }
             slots.transient.remove(&key);
-            let slot = if ending == Ending::Close { slots.servers.remove(&key) } else { slots.servers.get(&key).cloned() };
+            let slot = if ending == Ending::Close {
+                slots.servers.remove(&key)
+            } else {
+                slots.servers.get(&key).cloned()
+            };
             lives.extend(slot.as_ref().and_then(|slot| slot.take()));
             if ending == Ending::Close {
                 slot.inspect(|slot| slot.close());
@@ -802,14 +1001,26 @@ impl Servers {
     }
 
     /// A save: the write and the end of the old connections are one step; running turns keep their client.
-    pub async fn change<R, E>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<R, E> {
+    pub async fn change<R, E>(
+        &self,
+        name: &str,
+        store: &Store,
+        hub: &Hub,
+        write: impl FnOnce(&Store) -> Result<R, E>,
+    ) -> Result<R, E> {
         let (lives, written) = self.detach(name, store, Ending::Keep, write)?;
         self.retire(name, store, hub, lives).await;
         Ok(written)
     }
 
     /// A disable, remove or rename: as [`Self::change`], and every client the server served is closed, running turns' too.
-    pub async fn close<R, E>(&self, name: &str, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> Result<R, E>) -> Result<R, E> {
+    pub async fn close<R, E>(
+        &self,
+        name: &str,
+        store: &Store,
+        hub: &Hub,
+        write: impl FnOnce(&Store) -> Result<R, E>,
+    ) -> Result<R, E> {
         let (lives, written) = self.detach(name, store, Ending::Close, write)?;
         self.retire(name, store, hub, lives).await;
         Ok(written)
@@ -818,7 +1029,9 @@ impl Servers {
     /// The user's disconnect: every connection of the server ends, and none starts again by itself until the user connects it.
     pub async fn disconnect(&self, name: &str, store: &Store, hub: &Hub) -> bool {
         self.lock().held.insert(name.into());
-        let Ok((lives, ())) = self.detach(name, store, Ending::Keep, |_| Ok::<_, rusqlite::Error>(())) else { return false };
+        let Ok((lives, ())) = self.detach(name, store, Ending::Keep, |_| Ok::<_, rusqlite::Error>(())) else {
+            return false;
+        };
         let was_live = !lives.is_empty();
         self.retire(name, store, hub, lives).await;
         was_live
@@ -826,10 +1039,21 @@ impl Servers {
 
     /// The user turning a server off in one workspace: `write` records it, then its connection there ends; a
     /// remote server's shared one ends only once no workspace has it on. No other workspace is touched.
-    pub async fn disconnect_in<E>(&self, name: &str, workspace: &Path, store: &Store, hub: &Hub, write: impl FnOnce(&Store) -> Result<bool, E>) -> Result<bool, E> {
+    pub async fn disconnect_in<E>(
+        &self,
+        name: &str,
+        workspace: &Path,
+        store: &Store,
+        hub: &Hub,
+        write: impl FnOnce(&Store) -> Result<bool, E>,
+    ) -> Result<bool, E> {
         let ends = |key: &Key| match &key.workspace {
             Some(own) => own == workspace,
-            None => !store.mcp_server(name).ok().flatten().is_some_and(|row| row.on_anywhere()),
+            None => !store
+                .mcp_server(name)
+                .ok()
+                .flatten()
+                .is_some_and(|row| row.on_anywhere()),
         };
         let (lives, found) = self.detach_where(name, store, Ending::Keep, ends, write)?;
         self.retire(name, store, hub, lives).await;
@@ -849,13 +1073,21 @@ impl Servers {
         drop(slots);
         drop(live);
         if let Ok(Some(row)) = store.mcp_server(&key.server) {
-            hub.publish(Event::McpUpdated { server: self.status_of(row) });
+            hub.publish(Event::McpUpdated {
+                server: self.status_of(row),
+            });
         }
     }
 
     /// Stops every connection running in `workspace`.
     pub fn stop_workspace(&self, workspace: &Path, store: &Store, hub: &Hub) {
-        let keys: Vec<Key> = self.lock().servers.keys().filter(|key| key.workspace.as_deref() == Some(workspace)).cloned().collect();
+        let keys: Vec<Key> = self
+            .lock()
+            .servers
+            .keys()
+            .filter(|key| key.workspace.as_deref() == Some(workspace))
+            .cloned()
+            .collect();
         for key in keys {
             self.stop(&key, store, hub);
         }
@@ -877,7 +1109,18 @@ impl Servers {
     /// Stops each workspace's connection that no client has open and nothing has used for `limit`,
     /// as opencode keeps a project's servers while the project is open; a remote server's shared one stays.
     pub fn stop_idle(&self, limit: Duration, store: &Store, hub: &Hub) {
-        let idle: Vec<Key> = self.lock().servers.iter().filter(|(key, slot)| key.workspace.as_deref().is_some_and(|workspace| !self.is_open(workspace)) && slot.idle_for(limit)).map(|(key, _)| key.clone()).collect();
+        let idle: Vec<Key> = self
+            .lock()
+            .servers
+            .iter()
+            .filter(|(key, slot)| {
+                key.workspace
+                    .as_deref()
+                    .is_some_and(|workspace| !self.is_open(workspace))
+                    && slot.idle_for(limit)
+            })
+            .map(|(key, _)| key.clone())
+            .collect();
         for key in idle {
             self.stop(&key, store, hub);
         }
@@ -890,7 +1133,9 @@ impl Servers {
         }
         self.settled.notify_waiters();
         if let Ok(Some(row)) = store.mcp_server(name) {
-            hub.publish(Event::McpUpdated { server: self.status_of(row) });
+            hub.publish(Event::McpUpdated {
+                server: self.status_of(row),
+            });
         }
     }
 
@@ -925,14 +1170,24 @@ impl Servers {
     /// Whether `live` is still the connection at `key`; one whose transport closed by itself is dropped here.
     fn check(&self, key: &Key, live: &Weak<Live>) -> Watch {
         let mut slots = self.lock();
-        let Some(slot) = slots.servers.get(key).cloned() else { return Watch::Gone };
-        let Some(current) = slot.current().filter(|current| Arc::downgrade(current).ptr_eq(live)) else { return Watch::Gone };
+        let Some(slot) = slots.servers.get(key).cloned() else {
+            return Watch::Gone;
+        };
+        let Some(current) = slot.current().filter(|current| Arc::downgrade(current).ptr_eq(live)) else {
+            return Watch::Gone;
+        };
         if current.is_open() {
             return Watch::Holding;
         }
         slot.take();
-        slots.transient.insert(key.clone(), Transient::new(State::Connecting, Some("the connection closed; reconnecting".into())));
-        Watch::Lost { generation: slots.generation_of(key), lived: current.since.elapsed() }
+        slots.transient.insert(
+            key.clone(),
+            Transient::new(State::Connecting, Some("the connection closed; reconnecting".into())),
+        );
+        Watch::Lost {
+            generation: slots.generation_of(key),
+            lived: current.since.elapsed(),
+        }
     }
 
     /// Every tool of every server connected for `workspace` (its own stdio connection, else the
@@ -942,12 +1197,29 @@ impl Servers {
         let shown = self.shown(workspace);
         let lives = self.lock().lives_for(workspace, &shown);
         let resources = lives.iter().any(|(_, _, live)| live.resources);
-        let listed: Vec<(Key, rmcp::model::Tool, Arc<Live>, Arc<Slot>)> =
-            lives.into_iter().flat_map(|(key, slot, live)| live.tools().into_iter().map(move |tool| (key.clone(), tool, live.clone(), slot.clone()))).collect();
-        let pairs: Vec<(&str, &str)> = listed.iter().map(|(key, tool, ..)| (key.server.as_str(), tool.name.as_ref())).collect();
-        let names = store.name_mcp_tools(&pairs).unwrap_or_else(|_| wire_names(&Given::new(), &pairs));
-        let mut tools: Vec<Arc<dyn crate::tool::Tool>> =
-            listed.iter().zip(names).map(|((key, tool, live, slot), name)| Arc::new(McpTool::new(key, tool.clone(), live.clone(), slot.clone(), name)) as Arc<dyn crate::tool::Tool>).collect();
+        let listed: Vec<(Key, rmcp::model::Tool, Arc<Live>, Arc<Slot>)> = lives
+            .into_iter()
+            .flat_map(|(key, slot, live)| {
+                live.tools()
+                    .into_iter()
+                    .map(move |tool| (key.clone(), tool, live.clone(), slot.clone()))
+            })
+            .collect();
+        let pairs: Vec<(&str, &str)> = listed
+            .iter()
+            .map(|(key, tool, ..)| (key.server.as_str(), tool.name.as_ref()))
+            .collect();
+        let names = store
+            .name_mcp_tools(&pairs)
+            .unwrap_or_else(|_| wire_names(&Given::new(), &pairs));
+        let mut tools: Vec<Arc<dyn crate::tool::Tool>> = listed
+            .iter()
+            .zip(names)
+            .map(|((key, tool, live, slot), name)| {
+                Arc::new(McpTool::new(key, tool.clone(), live.clone(), slot.clone(), name))
+                    as Arc<dyn crate::tool::Tool>
+            })
+            .collect();
         if resources {
             tools.push(Arc::new(resources::ListResources));
             tools.push(Arc::new(resources::ReadResource));
@@ -957,7 +1229,13 @@ impl Servers {
 
     /// Lists again the tools of each connection whose last list has gone stale by its `ttlMs`, one short request each, so a turn sees what changed.
     pub async fn refresh_stale(&self, store: &Store, hub: &Hub) {
-        let due: Vec<(String, Arc<Live>)> = self.lock().servers.iter().filter_map(|(key, slot)| Some((key.server.clone(), slot.current()?))).filter(|(_, live)| live.listing_due()).collect();
+        let due: Vec<(String, Arc<Live>)> = self
+            .lock()
+            .servers
+            .iter()
+            .filter_map(|(key, slot)| Some((key.server.clone(), slot.current()?)))
+            .filter(|(_, live)| live.listing_due())
+            .collect();
         let relist = |name: String, live: Arc<Live>| async move {
             match tokio::time::timeout(READY_WAIT, list_tools(&live.service)).await {
                 Ok(Ok((tools, ttl))) => live.relisted(tools, ttl).then_some(name),
@@ -970,7 +1248,9 @@ impl Servers {
         let changed = futures_util::future::join_all(due.into_iter().map(|(name, live)| relist(name, live))).await;
         for name in changed.into_iter().flatten() {
             if let Ok(Some(row)) = store.mcp_server(&name) {
-                hub.publish(Event::McpUpdated { server: self.status_of(row) });
+                hub.publish(Event::McpUpdated {
+                    server: self.status_of(row),
+                });
             }
         }
     }
@@ -978,38 +1258,82 @@ impl Servers {
     /// The own instructions of each server connected for `workspace`, by server name.
     pub fn instructions(&self, workspace: Option<&Path>) -> Vec<(String, String)> {
         let shown = self.shown(workspace);
-        self.lock().lives_for(workspace, &shown).into_iter().filter_map(|(key, _, live)| Some((key.server, live.instructions.clone()?))).collect()
+        self.lock()
+            .lives_for(workspace, &shown)
+            .into_iter()
+            .filter_map(|(key, _, live)| Some((key.server, live.instructions.clone()?)))
+            .collect()
     }
 
     fn live(&self, server: &str, workspace: Option<&Path>) -> Result<Arc<Live>, String> {
         let shown = self.shown(workspace);
-        self.lock().live_for(server, workspace, &shown).map(|(_, live)| live).ok_or_else(|| format!("the {server} MCP server is not connected"))
+        self.lock()
+            .live_for(server, workspace, &shown)
+            .map(|(_, live)| live)
+            .ok_or_else(|| format!("the {server} MCP server is not connected"))
     }
 
     /// Servers connected for `workspace` that serve resources, by name.
     pub fn with_resources(&self, workspace: Option<&Path>) -> Vec<String> {
         let shown = self.shown(workspace);
-        self.lock().lives_for(workspace, &shown).into_iter().filter(|(_, _, live)| live.resources).map(|(key, _, _)| key.server).collect()
+        self.lock()
+            .lives_for(workspace, &shown)
+            .into_iter()
+            .filter(|(_, _, live)| live.resources)
+            .map(|(key, _, _)| key.server)
+            .collect()
     }
 
     /// The prompts of every server connected for `workspace`, as `(server, prompt)`.
     pub fn prompts(&self, workspace: Option<&Path>) -> Vec<(String, rmcp::model::Prompt)> {
         let shown = self.shown(workspace);
-        let mut all: Vec<(String, rmcp::model::Prompt)> = self.lock().lives_for(workspace, &shown).into_iter().flat_map(|(key, _, live)| live.prompts.iter().map(|prompt| (key.server.clone(), prompt.clone())).collect::<Vec<_>>()).collect();
+        let mut all: Vec<(String, rmcp::model::Prompt)> = self
+            .lock()
+            .lives_for(workspace, &shown)
+            .into_iter()
+            .flat_map(|(key, _, live)| {
+                live.prompts
+                    .iter()
+                    .map(|prompt| (key.server.clone(), prompt.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
         all.sort_by(|a, b| (&a.0, &a.1.name).cmp(&(&b.0, &b.1.name)));
         all
     }
 
-    pub async fn list_resources(&self, server: &str, workspace: Option<&Path>) -> Result<Vec<rmcp::model::Resource>, String> {
+    pub async fn list_resources(
+        &self,
+        server: &str,
+        workspace: Option<&Path>,
+    ) -> Result<Vec<rmcp::model::Resource>, String> {
         let live = self.live(server, workspace)?;
-        within("list its resources", async { live.service.list_all_resources().await.map_err(|e| e.to_string()) }).await
+        within("list its resources", async {
+            live.service.list_all_resources().await.map_err(|e| e.to_string())
+        })
+        .await
     }
 
     /// A resource's contents: text inline, images and PDFs as files, other binaries named.
-    pub(crate) async fn read_resource(&self, server: &str, workspace: Option<&Path>, uri: &str) -> Result<Answer, String> {
+    pub(crate) async fn read_resource(
+        &self,
+        server: &str,
+        workspace: Option<&Path>,
+        uri: &str,
+    ) -> Result<Answer, String> {
         let live = self.live(server, workspace)?;
-        let read = within("read the resource", async { live.service.read_resource(rmcp::model::ReadResourceRequestParams::new(uri)).await.map_err(|e| e.to_string()) }).await?;
-        let mut answer = Answer { text: String::new(), is_error: false, images: Vec::new() };
+        let read = within("read the resource", async {
+            live.service
+                .read_resource(rmcp::model::ReadResourceRequestParams::new(uri))
+                .await
+                .map_err(|e| e.to_string())
+        })
+        .await?;
+        let mut answer = Answer {
+            text: String::new(),
+            is_error: false,
+            images: Vec::new(),
+        };
         let mut lines = Vec::new();
         for content in &read.contents {
             take_resource(content, &mut answer.images, &mut lines);
@@ -1023,20 +1347,38 @@ impl Servers {
         self.prompts(workspace)
             .into_iter()
             .map(|(server, prompt)| {
-                let description = prompt.description.clone().unwrap_or_else(|| format!("A prompt from the {server} MCP server"));
-                let mut command = crate::config::Command::new(format!("{server}:{}", prompt.name), description, String::new());
-                command.arguments = prompt.arguments.iter().flatten().map(|argument| argument.name.clone()).collect();
+                let description = prompt
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| format!("A prompt from the {server} MCP server"));
+                let mut command =
+                    crate::config::Command::new(format!("{server}:{}", prompt.name), description, String::new());
+                command.arguments = prompt
+                    .arguments
+                    .iter()
+                    .flatten()
+                    .map(|argument| argument.name.clone())
+                    .collect();
                 command.server = Some(server);
                 command
             })
             .collect()
     }
     /// A prompt filled with `arguments`, as the text of its messages.
-    pub async fn get_prompt(&self, server: &str, workspace: Option<&Path>, name: &str, arguments: serde_json::Map<String, serde_json::Value>) -> Result<String, String> {
+    pub async fn get_prompt(
+        &self,
+        server: &str,
+        workspace: Option<&Path>,
+        name: &str,
+        arguments: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<String, String> {
         let live = self.live(server, workspace)?;
         let mut params = rmcp::model::GetPromptRequestParams::new(name);
         params.arguments = Some(arguments);
-        let got = within("fill the prompt", async { live.service.get_prompt(params).await.map_err(|e| e.to_string()) }).await?;
+        let got = within("fill the prompt", async {
+            live.service.get_prompt(params).await.map_err(|e| e.to_string())
+        })
+        .await?;
         let texts: Vec<String> = got
             .messages
             .iter()
@@ -1076,7 +1418,9 @@ impl Drop for Settle<'_> {
         }
         drop(slots);
         if abandoned {
-            self.hub.publish(Event::McpUpdated { server: self.servers.status_of(self.row.clone()) });
+            self.hub.publish(Event::McpUpdated {
+                server: self.servers.status_of(self.row.clone()),
+            });
         }
         self.servers.settled.notify_waiters();
     }
@@ -1089,26 +1433,57 @@ struct SignIn<'a> {
     credentials: Option<&'a Arc<crate::llm::credentials::Credentials>>,
 }
 
-async fn open(config: &ServerConfig, hash: String, sign_in: SignIn<'_>, known: Option<Era>, workspace: Option<&Path>) -> Result<Live, Failure> {
+async fn open(
+    config: &ServerConfig,
+    hash: String,
+    sign_in: SignIn<'_>,
+    known: Option<Era>,
+    workspace: Option<&Path>,
+) -> Result<Live, Failure> {
     let (service, tree) = begin(config, sign_in, known, workspace).await?;
     let (tools, ttl) = within("list its tools", list_tools(&service)).await?;
     let info = service.peer_info();
-    let era = info.as_ref().map_or(Era::Legacy, |info| Era::of(&info.protocol_version));
-    let instructions = info.as_ref().and_then(|info| info.instructions.clone()).map(|text| text.trim().to_string()).filter(|text| !text.is_empty());
+    let era = info
+        .as_ref()
+        .map_or(Era::Legacy, |info| Era::of(&info.protocol_version));
+    let instructions = info
+        .as_ref()
+        .and_then(|info| info.instructions.clone())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
     let resources = info.as_ref().is_some_and(|info| info.capabilities.resources.is_some());
     // A server whose prompts cannot be listed still serves its tools; it simply offers no commands.
     let prompts = match info.as_ref().is_some_and(|info| info.capabilities.prompts.is_some()) {
-        true => within("list its prompts", async { service.list_all_prompts().await.map_err(|e| e.to_string()) }).await.unwrap_or_default(),
+        true => within("list its prompts", async {
+            service.list_all_prompts().await.map_err(|e| e.to_string())
+        })
+        .await
+        .unwrap_or_default(),
         false => Vec::new(),
     };
-    Ok(Live { service, era, transport: Transport::of(config), listing: Mutex::new(Listing::new(tools, ttl)), instructions, prompts, resources, timeout: config.timeout(), hash, since: Instant::now(), tree })
+    Ok(Live {
+        service,
+        era,
+        transport: Transport::of(config),
+        listing: Mutex::new(Listing::new(tools, ttl)),
+        instructions,
+        prompts,
+        resources,
+        timeout: config.timeout(),
+        hash,
+        since: Instant::now(),
+        tree,
+    })
 }
 
 /// Every page of the server's tools, and the shortest freshness any page gave.
 async fn list_tools(service: &Client) -> Result<(Vec<rmcp::model::Tool>, Option<Duration>), String> {
     let (mut tools, mut ttl, mut cursor) = (Vec::new(), None::<u64>, None);
     loop {
-        let page = service.list_tools(Some(rmcp::model::PaginatedRequestParams::default().with_cursor(cursor))).await.map_err(|e| format!("tools/list failed: {e}"))?;
+        let page = service
+            .list_tools(Some(rmcp::model::PaginatedRequestParams::default().with_cursor(cursor)))
+            .await
+            .map_err(|e| format!("tools/list failed: {e}"))?;
         ttl = match (ttl, page.ttl_ms) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
@@ -1134,11 +1509,20 @@ fn attempts(config: &ServerConfig, known: Option<Era>) -> (Vec<Option<Era>>, boo
 }
 
 /// Starts in each era `attempts` gives until one answers; the last failure is the one reported.
-async fn begin(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>, workspace: Option<&Path>) -> Result<(Client, Option<Tree>), Failure> {
+async fn begin(
+    config: &ServerConfig,
+    sign_in: SignIn<'_>,
+    known: Option<Era>,
+    workspace: Option<&Path>,
+) -> Result<(Client, Option<Tree>), Failure> {
     let (tries, past_timeouts) = attempts(config, known);
     let mut failed = Failure::from(String::new());
     for era in tries {
-        let limit = if era.is_none() { STEP_LIMIT + PROBE_WAIT } else { STEP_LIMIT };
+        let limit = if era.is_none() {
+            STEP_LIMIT + PROBE_WAIT
+        } else {
+            STEP_LIMIT
+        };
         match tokio::time::timeout(limit, start(config, sign_in, era, workspace)).await {
             Ok(Ok(started)) => return Ok(started),
             Ok(Err(error)) => failed = error,
@@ -1157,21 +1541,44 @@ async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) ->
     within_for(STEP_LIMIT, what, step).await
 }
 
-async fn within_for<T>(limit: Duration, what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {
-    tokio::time::timeout(limit, step).await.unwrap_or_else(|_| Err(format!("the server did not {what} within {limit:?}")))
+async fn within_for<T>(
+    limit: Duration,
+    what: &str,
+    step: impl Future<Output = Result<T, String>>,
+) -> Result<T, String> {
+    tokio::time::timeout(limit, step)
+        .await
+        .unwrap_or_else(|_| Err(format!("the server did not {what} within {limit:?}")))
 }
 
 /// Opens the transport and begins the session in the server's era, probing for it when `known` is `None`; HTTP+SSE predates the probe.
 /// A stdio server for a workspace runs there (its own `cwd` wins) and is told it as its root.
-async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>, workspace: Option<&Path>) -> Result<(Client, Option<Tree>), Failure> {
+async fn start(
+    config: &ServerConfig,
+    sign_in: SignIn<'_>,
+    known: Option<Era>,
+    workspace: Option<&Path>,
+) -> Result<(Client, Option<Tree>), Failure> {
     match config {
-        ServerConfig::Stdio { command, args, env, cwd, .. } => {
+        ServerConfig::Stdio {
+            command,
+            args,
+            env,
+            cwd,
+            ..
+        } => {
             // Found on the PATH as it is now, so a program installed while Drift runs is found without a restart.
-            let program = crate::platform::process::which(command).ok_or_else(|| format!("{command} was not found on PATH; install it, or give its full path"))?;
+            let program = crate::platform::process::which(command)
+                .ok_or_else(|| format!("{command} was not found on PATH; install it, or give its full path"))?;
             let mut cmd = tokio::process::Command::new(program);
             crate::platform::process::use_current_path(&mut cmd, env);
             cmd.args(args).envs(env);
-            if let Some(dir) = cwd.as_deref().filter(|cwd| !cwd.trim().is_empty()).map(PathBuf::from).or_else(|| workspace.map(Path::to_path_buf)) {
+            if let Some(dir) = cwd
+                .as_deref()
+                .filter(|cwd| !cwd.trim().is_empty())
+                .map(PathBuf::from)
+                .or_else(|| workspace.map(Path::to_path_buf))
+            {
                 cmd.current_dir(dir);
             }
             crate::platform::process::prepare(&mut cmd);
@@ -1180,10 +1587,17 @@ async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>, w
             let transport = TokioChildProcess::new(cmd).map_err(|e| format!("could not start {command}: {e}"))?;
             // Adopted before it answers, so a start cut short takes the server's children with it.
             let tree = transport.id().and_then(|pid| Tree::adopt(pid).ok());
-            let service = DriftClient::rooted(workspace).serve_with_lifecycle(transport, lifecycle(known)).await?;
+            let service = DriftClient::rooted(workspace)
+                .serve_with_lifecycle(transport, lifecycle(known))
+                .await?;
             Ok((service, tree))
         }
-        ServerConfig::Http { url, headers, oauth: app, .. } => {
+        ServerConfig::Http {
+            url,
+            headers,
+            oauth: app,
+            ..
+        } => {
             let config = http_config(url, headers);
             // A server signed in to goes through rmcp's authorized client, which refreshes the token itself.
             let signed_in = match sign_in.credentials {
@@ -1191,30 +1605,62 @@ async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>, w
                 None => None,
             };
             let service = match signed_in {
-                Some(client) => DriftClient::rooted(None).serve_with_lifecycle(StreamableHttpClientTransport::with_client(client, config), lifecycle(known)).await,
-                None => DriftClient::rooted(None).serve_with_lifecycle(StreamableHttpClientTransport::with_client(crate::llm::http::client(), config), lifecycle(known)).await,
+                Some(client) => {
+                    DriftClient::rooted(None)
+                        .serve_with_lifecycle(
+                            StreamableHttpClientTransport::with_client(client, config),
+                            lifecycle(known),
+                        )
+                        .await
+                }
+                None => {
+                    DriftClient::rooted(None)
+                        .serve_with_lifecycle(
+                            StreamableHttpClientTransport::with_client(crate::llm::http::client(), config),
+                            lifecycle(known),
+                        )
+                        .await
+                }
             };
             Ok((service?, None))
         }
-        ServerConfig::Sse { url, headers, oauth: app, .. } => {
+        ServerConfig::Sse {
+            url,
+            headers,
+            oauth: app,
+            ..
+        } => {
             let mut headers = header_map(headers);
             // rmcp's authorized client speaks only streamable HTTP, so a signed-in SSE server gets its token, refreshed when due, as a header.
             if let Some(token) = match sign_in.credentials {
                 Some(credentials) => oauth::signed_in_token(credentials, sign_in.server, url, app.as_ref()).await,
                 None => None,
+            } && let Ok(value) = format!("Bearer {token}").parse()
+            {
+                headers.insert(http::header::AUTHORIZATION, value);
             }
-                && let Ok(value) = format!("Bearer {token}").parse() {
-                    headers.insert(http::header::AUTHORIZATION, value);
-                }
             let transport = sse::SseTransport::connect(crate::llm::http::client(), url, headers).await?;
-            Ok((DriftClient::rooted(None).serve_with_lifecycle(transport, ClientLifecycleMode::Initialize).await?, None))
+            Ok((
+                DriftClient::rooted(None)
+                    .serve_with_lifecycle(transport, ClientLifecycleMode::Initialize)
+                    .await?,
+                None,
+            ))
         }
     }
 }
 
 /// Headers as given, any that are not valid HTTP left out.
 fn header_map(headers: &BTreeMap<String, String>) -> http::HeaderMap {
-    headers.iter().filter_map(|(name, value)| Some((name.parse::<http::HeaderName>().ok()?, value.parse::<http::HeaderValue>().ok()?))).collect()
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            Some((
+                name.parse::<http::HeaderName>().ok()?,
+                value.parse::<http::HeaderValue>().ok()?,
+            ))
+        })
+        .collect()
 }
 
 fn http_config(url: &str, headers: &BTreeMap<String, String>) -> StreamableHttpClientTransportConfig {
@@ -1225,7 +1671,9 @@ fn http_config(url: &str, headers: &BTreeMap<String, String>) -> StreamableHttpC
             config = config.auth_header(value.trim_start_matches("Bearer ").to_string());
             continue;
         }
-        let (Ok(name), Ok(value)) = (name.parse::<http::HeaderName>(), value.parse::<http::HeaderValue>()) else { continue };
+        let (Ok(name), Ok(value)) = (name.parse::<http::HeaderName>(), value.parse::<http::HeaderValue>()) else {
+            continue;
+        };
         custom.insert(name, value);
     }
     config.custom_headers(custom)
@@ -1233,11 +1681,7 @@ fn http_config(url: &str, headers: &BTreeMap<String, String>) -> StreamableHttpC
 
 /// The wait before reconnecting: the first again after a connection that held, else the one carried over.
 fn after_loss(lived: Duration, carried: Duration) -> Duration {
-    if lived >= STABLE {
-        FIRST_RETRY
-    } else {
-        carried
-    }
+    if lived >= STABLE { FIRST_RETRY } else { carried }
 }
 
 impl crate::Engine {
@@ -1250,7 +1694,12 @@ impl crate::Engine {
     /// server's for `workspace` (the active one) and for every other workspace it runs in, all at once.
     /// A stdio server running nowhere and given no workspace is refused with [`NEEDS_WORKSPACE`].
     pub async fn connect_mcp_in(self: &Arc<Self>, name: &str, workspace: Option<&Path>) -> Result<(), String> {
-        let stdio = self.store.mcp_server(name).ok().flatten().is_some_and(|row| !row.config.is_remote());
+        let stdio = self
+            .store
+            .mcp_server(name)
+            .ok()
+            .flatten()
+            .is_some_and(|row| !row.config.is_remote());
         if !stdio {
             return self.connect_mcp_at(&Key::shared(name), Start::User, FIRST_RETRY).await;
         }
@@ -1262,7 +1711,11 @@ impl crate::Engine {
         if keys.is_empty() {
             return Err(NEEDS_WORKSPACE.into());
         }
-        let connected = futures_util::future::join_all(keys.iter().map(|key| self.connect_mcp_at(key, Start::User, FIRST_RETRY))).await;
+        let connected = futures_util::future::join_all(
+            keys.iter()
+                .map(|key| self.connect_mcp_at(key, Start::User, FIRST_RETRY)),
+        )
+        .await;
         connected.into_iter().find(Result::is_err).unwrap_or(Ok(()))
     }
 
@@ -1283,7 +1736,10 @@ impl crate::Engine {
     fn recheck_mcp(self: &Arc<Self>, key: &Key, live: &Arc<Live>) {
         if let Watch::Lost { generation, lived } = self.mcp.check(key, &Arc::downgrade(live)) {
             self.lost_mcp(&key.server);
-            tokio::spawn(self.clone().reconnect_mcp(key.clone(), generation, after_loss(lived, FIRST_RETRY)));
+            tokio::spawn(
+                self.clone()
+                    .reconnect_mcp(key.clone(), generation, after_loss(lived, FIRST_RETRY)),
+            );
         }
     }
 
@@ -1292,7 +1748,10 @@ impl crate::Engine {
     /// turn there is planned ([`Self::start_workspace_mcp`]).
     pub fn connect_all_mcp(self: &Arc<Self>) {
         let Ok(rows) = self.store.mcp_servers() else { return };
-        for row in rows.into_iter().filter(|row| row.on_anywhere() && row.config.is_remote()) {
+        for row in rows
+            .into_iter()
+            .filter(|row| row.on_anywhere() && row.config.is_remote())
+        {
             self.begin_mcp(Key::shared(&row.name));
         }
     }
@@ -1300,7 +1759,10 @@ impl crate::Engine {
     /// Starts each enabled stdio server's connection for `workspace` that is not live, connecting or failed.
     pub(crate) fn start_workspace_mcp(self: &Arc<Self>, workspace: &Path) {
         let Ok(rows) = self.store.mcp_servers() else { return };
-        for row in rows.into_iter().filter(|row| !row.config.is_remote() && row.on_in(workspace)) {
+        for row in rows
+            .into_iter()
+            .filter(|row| !row.config.is_remote() && row.on_in(workspace))
+        {
             self.begin_mcp(Key::of(&row.name, Some(workspace)));
         }
     }
@@ -1308,7 +1770,11 @@ impl crate::Engine {
     /// Stops the stdio servers running in a workspace the user removed; using it again starts them again.
     pub fn stop_workspace_mcp(&self, workspace_id: &str) {
         if let Ok(Some(workspace)) = self.store.workspace(workspace_id) {
-            self.mcp.stop_workspace(&crate::tool::canonical(Path::new(&workspace.path)), &self.store, &self.hub);
+            self.mcp.stop_workspace(
+                &crate::tool::canonical(Path::new(&workspace.path)),
+                &self.store,
+                &self.hub,
+            );
         }
     }
 
@@ -1325,10 +1791,16 @@ impl crate::Engine {
     }
 
     fn begin_mcp(self: &Arc<Self>, key: Key) {
-        let Ok((row, attempt)) = self.mcp.begin(&key, &self.store, Start::Startup) else { return };
+        let Ok((row, attempt)) = self.mcp.begin(&key, &self.store, Start::Startup) else {
+            return;
+        };
         let engine = self.clone();
         tokio::spawn(async move {
-            if let Ok(live) = engine.mcp.complete(row, key.clone(), attempt, &engine.store, &engine.hub).await {
+            if let Ok(live) = engine
+                .mcp
+                .complete(row, key.clone(), attempt, &engine.store, &engine.hub)
+                .await
+            {
                 engine.watch_if_open(&key, &live, FIRST_RETRY);
             }
         });
@@ -1355,7 +1827,9 @@ impl crate::Engine {
 
     fn lost_mcp(&self, name: &str) {
         if let Ok(Some(row)) = self.store.mcp_server(name) {
-            self.hub.publish(Event::McpUpdated { server: self.mcp.status_of(row) });
+            self.hub.publish(Event::McpUpdated {
+                server: self.mcp.status_of(row),
+            });
         }
     }
 
@@ -1370,7 +1844,11 @@ impl crate::Engine {
                 return;
             }
             wait = (wait * 2).min(MAX_RETRY);
-            if engine.connect_mcp_at(&key, Start::Reconnect(generation), wait).await.is_ok() {
+            if engine
+                .connect_mcp_at(&key, Start::Reconnect(generation), wait)
+                .await
+                .is_ok()
+            {
                 return;
             }
         }
@@ -1386,7 +1864,11 @@ impl Live {
     }
 
     fn listing_due(&self) -> bool {
-        self.listing.lock().unwrap().stale_at.is_some_and(|at| at <= Instant::now())
+        self.listing
+            .lock()
+            .unwrap()
+            .stale_at
+            .is_some_and(|at| at <= Instant::now())
     }
 
     /// Takes a fresh list; whether the tools changed.
@@ -1425,13 +1907,20 @@ impl Live {
             }
             other => CallError::Failed(other.to_string()),
         })?;
-        let mut answer = Answer { text: String::new(), is_error: result.is_error.unwrap_or(false), images: Vec::new() };
+        let mut answer = Answer {
+            text: String::new(),
+            is_error: result.is_error.unwrap_or(false),
+            images: Vec::new(),
+        };
         let mut lines = Vec::new();
         for block in &result.content {
             match block {
                 ContentBlock::Text(text) => lines.push(text.text.clone()),
                 ContentBlock::Image(image) => match sendable(&image.mime_type, &image.data) {
-                    Ok(()) => answer.images.push(Image { mime: image.mime_type.clone(), base64: image.data.clone() }),
+                    Ok(()) => answer.images.push(Image {
+                        mime: image.mime_type.clone(),
+                        base64: image.data.clone(),
+                    }),
                     Err(why) => lines.push(format!("[an image ({}) not shown: {why}]", image.mime_type)),
                 },
                 ContentBlock::Resource(resource) => take_resource(&resource.resource, &mut answer.images, &mut lines),
@@ -1456,8 +1945,15 @@ fn only_png_jpeg_gif_and_webp_within_the_limit_are_sent() {
     assert!(sendable("image/png", "AAAA").is_ok() && sendable("image/webp", "AAAA").is_ok());
     assert!(sendable("image/svg+xml", "AAAA").unwrap_err().contains("only PNG"));
     assert!(sendable("image/bmp", "AAAA").is_err());
-    assert!(sendable("image/png", &"A".repeat(8 * 1024 * 1024)).is_ok(), "scaled down when kept");
-    assert!(sendable("image/png", &"A".repeat(44 * 1024 * 1024)).unwrap_err().contains("32 MB"));
+    assert!(
+        sendable("image/png", &"A".repeat(8 * 1024 * 1024)).is_ok(),
+        "scaled down when kept"
+    );
+    assert!(
+        sendable("image/png", &"A".repeat(44 * 1024 * 1024))
+            .unwrap_err()
+            .contains("32 MB")
+    );
 }
 
 #[cfg(test)]
@@ -1465,12 +1961,34 @@ fn only_png_jpeg_gif_and_webp_within_the_limit_are_sent() {
 fn an_embedded_image_or_pdf_is_attached_and_anything_else_is_text() {
     let resource = |json: serde_json::Value| serde_json::from_value::<rmcp::model::ResourceContents>(json).unwrap();
     let (mut images, mut lines) = (Vec::new(), Vec::new());
-    take_resource(&resource(serde_json::json!({ "uri": "shot://1", "mimeType": "image/png", "blob": "AAAA" })), &mut images, &mut lines);
-    take_resource(&resource(serde_json::json!({ "uri": "doc://1", "mimeType": "application/pdf", "blob": "JVBE" })), &mut images, &mut lines);
-    take_resource(&resource(serde_json::json!({ "uri": "zip://1", "mimeType": "application/zip", "blob": "UEsD" })), &mut images, &mut lines);
-    take_resource(&resource(serde_json::json!({ "uri": "note://1", "text": "hello" })), &mut images, &mut lines);
-    assert_eq!(images.iter().map(|image| image.mime.as_str()).collect::<Vec<_>>(), ["image/png", "application/pdf"]);
-    assert!(lines[0].starts_with("[binary resource zip://1") && lines[1].contains("hello"), "{lines:?}");
+    take_resource(
+        &resource(serde_json::json!({ "uri": "shot://1", "mimeType": "image/png", "blob": "AAAA" })),
+        &mut images,
+        &mut lines,
+    );
+    take_resource(
+        &resource(serde_json::json!({ "uri": "doc://1", "mimeType": "application/pdf", "blob": "JVBE" })),
+        &mut images,
+        &mut lines,
+    );
+    take_resource(
+        &resource(serde_json::json!({ "uri": "zip://1", "mimeType": "application/zip", "blob": "UEsD" })),
+        &mut images,
+        &mut lines,
+    );
+    take_resource(
+        &resource(serde_json::json!({ "uri": "note://1", "text": "hello" })),
+        &mut images,
+        &mut lines,
+    );
+    assert_eq!(
+        images.iter().map(|image| image.mime.as_str()).collect::<Vec<_>>(),
+        ["image/png", "application/pdf"]
+    );
+    assert!(
+        lines[0].starts_with("[binary resource zip://1") && lines[1].contains("hello"),
+        "{lines:?}"
+    );
 }
 
 /// Whether an MCP image can go to a model: a format every provider takes, within the size limit.
@@ -1488,8 +2006,15 @@ fn sendable(mime: &str, base64: &str) -> Result<(), &'static str> {
 /// model can take is attached, anything else becomes text.
 fn take_resource(resource: &rmcp::model::ResourceContents, images: &mut Vec<Image>, lines: &mut Vec<String>) {
     match resource {
-        rmcp::model::ResourceContents::BlobResourceContents { mime_type: Some(mime), blob, .. } if sendable(mime, blob).is_ok() || mime == crate::tool::image::PDF => {
-            images.push(Image { mime: mime.clone(), base64: blob.clone() });
+        rmcp::model::ResourceContents::BlobResourceContents {
+            mime_type: Some(mime),
+            blob,
+            ..
+        } if sendable(mime, blob).is_ok() || mime == crate::tool::image::PDF => {
+            images.push(Image {
+                mime: mime.clone(),
+                base64: blob.clone(),
+            });
         }
         other => lines.push(resource_text(other)),
     }
@@ -1498,9 +2023,17 @@ fn take_resource(resource: &rmcp::model::ResourceContents, images: &mut Vec<Imag
 /// An embedded resource as the model reads it: its text, or a line naming a binary one.
 fn resource_text(resource: &rmcp::model::ResourceContents) -> String {
     match resource {
-        rmcp::model::ResourceContents::TextResourceContents { uri, text, .. } => format!("<resource uri=\"{uri}\">\n{text}\n</resource>"),
-        rmcp::model::ResourceContents::BlobResourceContents { uri, mime_type, blob, .. } => {
-            format!("[binary resource {uri} ({}, {} bytes), not shown]", mime_type.as_deref().unwrap_or("unknown type"), blob.len() * 3 / 4)
+        rmcp::model::ResourceContents::TextResourceContents { uri, text, .. } => {
+            format!("<resource uri=\"{uri}\">\n{text}\n</resource>")
+        }
+        rmcp::model::ResourceContents::BlobResourceContents {
+            uri, mime_type, blob, ..
+        } => {
+            format!(
+                "[binary resource {uri} ({}, {} bytes), not shown]",
+                mime_type.as_deref().unwrap_or("unknown type"),
+                blob.len() * 3 / 4
+            )
         }
         other => serde_json::to_string(other).unwrap_or_default(),
     }
@@ -1510,7 +2043,11 @@ fn tool_info(tool: &rmcp::model::Tool) -> ToolInfo {
     ToolInfo {
         name: tool.name.to_string(),
         description: tool.description.clone().unwrap_or_default().to_string(),
-        read_only: tool.annotations.as_ref().and_then(|a| a.read_only_hint).unwrap_or(false),
+        read_only: tool
+            .annotations
+            .as_ref()
+            .and_then(|a| a.read_only_hint)
+            .unwrap_or(false),
     }
 }
 

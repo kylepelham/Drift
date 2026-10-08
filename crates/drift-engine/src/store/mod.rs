@@ -2,8 +2,8 @@
 
 mod blobs;
 mod import;
-mod migrations;
 mod mcp;
+mod migrations;
 mod reads;
 mod sessions;
 mod settings;
@@ -40,7 +40,10 @@ pub struct Store {
 
 impl Store {
     fn new(conn: Connection) -> Self {
-        Self { conn: Mutex::new(conn), streaming: Mutex::default() }
+        Self {
+            conn: Mutex::new(conn),
+            streaming: Mutex::default(),
+        }
     }
 }
 
@@ -129,22 +132,34 @@ impl Store {
     /// The workspace's conversations, archived and subagents included; `None` when it is not a removed workspace.
     pub fn removed_workspace_sessions(&self, id: &str) -> rusqlite::Result<Option<Vec<String>>> {
         let conn = self.lock();
-        let removed: Option<bool> = conn.prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?.query_row([id], |row| row.get(0)).optional()?;
+        let removed: Option<bool> = conn
+            .prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?
+            .query_row([id], |row| row.get(0))
+            .optional()?;
         if removed != Some(true) {
             return Ok(None);
         }
-        let ids = conn.prepare_cached("SELECT id FROM session WHERE workspace_id = ?1")?.query_map([id], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let ids = conn
+            .prepare_cached("SELECT id FROM session WHERE workspace_id = ?1")?
+            .query_map([id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
         Ok(Some(ids))
     }
 
     /// Deletes every conversation of a removed workspace in one write; `None`, deleting nothing, once it is in use again.
     pub fn purge_removed_workspace(&self, id: &str) -> rusqlite::Result<Option<usize>> {
         sessions::transaction(&self.lock(), |conn| {
-            let removed: Option<bool> = conn.prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?.query_row([id], |row| row.get(0)).optional()?;
+            let removed: Option<bool> = conn
+                .prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?
+                .query_row([id], |row| row.get(0))
+                .optional()?;
             if removed != Some(true) {
                 return Ok(None);
             }
-            Ok(Some(conn.prepare_cached("DELETE FROM session WHERE workspace_id = ?1")?.execute([id])?))
+            Ok(Some(
+                conn.prepare_cached("DELETE FROM session WHERE workspace_id = ?1")?
+                    .execute([id])?,
+            ))
         })
     }
 }
@@ -208,15 +223,26 @@ pub(crate) mod tests {
     #[test]
     fn widening_the_ending_check_keeps_the_endings_already_stored() {
         let conn = Connection::open_in_memory().unwrap();
-        let widening = migrations::MIGRATIONS.iter().position(|sql| sql.contains("RENAME COLUMN ended TO ending")).unwrap();
+        let widening = migrations::MIGRATIONS
+            .iter()
+            .position(|sql| sql.contains("RENAME COLUMN ended TO ending"))
+            .unwrap();
         for (index, sql) in migrations::MIGRATIONS.iter().take(widening).enumerate() {
-            conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {}; COMMIT;", index + 1)).unwrap();
+            conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {}; COMMIT;", index + 1))
+                .unwrap();
         }
         conn.execute_batch("PRAGMA foreign_keys = OFF; INSERT INTO message(id, session_id, role, status, usage_json, cost, created_at, summary, ending) VALUES('m', 's', 'assistant', 'done', '{}', 0, 0, 0, 'length');").unwrap();
         migrations::apply(&conn).unwrap();
-        let kept: String = conn.query_row("SELECT ending FROM message WHERE id = 'm'", [], |row| row.get(0)).unwrap();
+        let kept: String = conn
+            .query_row("SELECT ending FROM message WHERE id = 'm'", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(kept, "length");
-        conn.execute_batch("UPDATE message SET ending = 'limit' WHERE id = 'm';").unwrap();
-        assert!(conn.execute_batch("UPDATE message SET ending = 'other' WHERE id = 'm';").is_err(), "the check still holds");
+        conn.execute_batch("UPDATE message SET ending = 'limit' WHERE id = 'm';")
+            .unwrap();
+        assert!(
+            conn.execute_batch("UPDATE message SET ending = 'other' WHERE id = 'm';")
+                .is_err(),
+            "the check still holds"
+        );
     }
 }

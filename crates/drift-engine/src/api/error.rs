@@ -1,6 +1,6 @@
+use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -23,7 +23,13 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(status: StatusCode, code: &str, message: impl Into<String>) -> Self {
-        Self { status, body: ErrorBody { code: code.into(), message: message.into() } }
+        Self {
+            status,
+            body: ErrorBody {
+                code: code.into(),
+                message: message.into(),
+            },
+        }
     }
 
     pub fn not_found(what: &str) -> Self {
@@ -71,8 +77,16 @@ impl From<BranchError> for ApiError {
     fn from(error: BranchError) -> Self {
         match error {
             BranchError::NoSession => Self::not_found("session"),
-            BranchError::FromSubagent => Self::new(StatusCode::BAD_REQUEST, "subagent", "subagents cannot spawn threads; spawn from the conversation instead"),
-            BranchError::EmptyInstruction => Self::new(StatusCode::BAD_REQUEST, "instruction", "say what the new thread should do"),
+            BranchError::FromSubagent => Self::new(
+                StatusCode::BAD_REQUEST,
+                "subagent",
+                "subagents cannot spawn threads; spawn from the conversation instead",
+            ),
+            BranchError::EmptyInstruction => Self::new(
+                StatusCode::BAD_REQUEST,
+                "instruction",
+                "say what the new thread should do",
+            ),
             BranchError::Changed => changed(),
             BranchError::Turn(error) => error.into(),
             BranchError::Store(error) => error.into(),
@@ -84,10 +98,26 @@ impl From<RevertError> for ApiError {
     fn from(error: RevertError) -> Self {
         match error {
             RevertError::NoSession => Self::not_found("session"),
-            RevertError::NotAPrompt => Self::new(StatusCode::BAD_REQUEST, "not_a_prompt", "undo goes back to a prompt you sent"),
-            RevertError::Busy => Self::new(StatusCode::CONFLICT, "busy", "the running turn did not stop in time; try again"),
-            RevertError::Stopped => Self::new(StatusCode::CONFLICT, "stopped", "undo was stopped while waiting for file writers; no files changed"),
-            RevertError::Files(message) => Self::new(StatusCode::INTERNAL_SERVER_ERROR, "files", format!("the files could not be restored: {message}")),
+            RevertError::NotAPrompt => Self::new(
+                StatusCode::BAD_REQUEST,
+                "not_a_prompt",
+                "undo goes back to a prompt you sent",
+            ),
+            RevertError::Busy => Self::new(
+                StatusCode::CONFLICT,
+                "busy",
+                "the running turn did not stop in time; try again",
+            ),
+            RevertError::Stopped => Self::new(
+                StatusCode::CONFLICT,
+                "stopped",
+                "undo was stopped while waiting for file writers; no files changed",
+            ),
+            RevertError::Files(message) => Self::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "files",
+                format!("the files could not be restored: {message}"),
+            ),
             RevertError::Store(error) => error.into(),
         }
     }
@@ -98,9 +128,21 @@ impl From<TreeError> for ApiError {
         match error {
             TreeError::NoSession => Self::not_found("session"),
             TreeError::NoWorkspace => Self::not_found("workspace"),
-            TreeError::Busy => Self::new(StatusCode::CONFLICT, "busy", "stop the running turn first; it keeps the workspace it started in"),
-            TreeError::BadMessage => Self::new(StatusCode::BAD_REQUEST, "message", "fork from a finished message of this session"),
-            TreeError::Empty => Self::new(StatusCode::BAD_REQUEST, "empty", "there is nothing finished to fork yet"),
+            TreeError::Busy => Self::new(
+                StatusCode::CONFLICT,
+                "busy",
+                "stop the running turn first; it keeps the workspace it started in",
+            ),
+            TreeError::BadMessage => Self::new(
+                StatusCode::BAD_REQUEST,
+                "message",
+                "fork from a finished message of this session",
+            ),
+            TreeError::Empty => Self::new(
+                StatusCode::BAD_REQUEST,
+                "empty",
+                "there is nothing finished to fork yet",
+            ),
             TreeError::Changed => changed(),
             TreeError::Store(error) => error.into(),
         }
@@ -108,7 +150,11 @@ impl From<TreeError> for ApiError {
 }
 
 fn changed() -> ApiError {
-    ApiError::new(StatusCode::CONFLICT, "changed", "the conversation changed while it was being copied; try again")
+    ApiError::new(
+        StatusCode::CONFLICT,
+        "changed",
+        "the conversation changed while it was being copied; try again",
+    )
 }
 
 impl From<crate::session::command::CommandError> for ApiError {

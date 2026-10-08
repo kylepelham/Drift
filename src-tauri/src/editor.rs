@@ -39,8 +39,7 @@ pub(crate) fn open_file(
     line: Option<u32>,
     column: Option<u32>,
 ) -> Result<OpenFileResult, String> {
-    let positioned =
-        line.is_some_and(|line| open_positioned(&path, line.max(1), column.unwrap_or(1).max(1)));
+    let positioned = line.is_some_and(|line| open_positioned(&path, line.max(1), column.unwrap_or(1).max(1)));
     if positioned {
         return Ok(OpenFileResult { positioned });
     }
@@ -68,10 +67,7 @@ fn open_positioned(path: &str, line: u32, column: u32) -> bool {
     let Some(editor) = EDITOR.get_or_init(detect_editor) else {
         return false;
     };
-    match spawn_editor(
-        &editor.executable,
-        &editor_arguments(editor.kind, path, line, column),
-    ) {
+    match spawn_editor(&editor.executable, &editor_arguments(editor.kind, path, line, column)) {
         Ok(mut child) => {
             std::thread::spawn(move || {
                 let _ = child.wait();
@@ -116,22 +112,12 @@ fn detect_editor() -> Option<Editor> {
         local
             .as_ref()
             .map(|root| root.join("Programs/Microsoft VS Code Insiders/Code - Insiders.exe")),
-        local
-            .as_ref()
-            .map(|root| root.join("Programs/Cursor/Cursor.exe")),
-        local
-            .as_ref()
-            .map(|root| root.join("Programs/Windsurf/Windsurf.exe")),
+        local.as_ref().map(|root| root.join("Programs/Cursor/Cursor.exe")),
+        local.as_ref().map(|root| root.join("Programs/Windsurf/Windsurf.exe")),
         local.as_ref().map(|root| root.join("Programs/Zed/Zed.exe")),
-        program
-            .as_ref()
-            .map(|root| root.join("Microsoft VS Code/Code.exe")),
-        program
-            .as_ref()
-            .map(|root| root.join("Sublime Text/sublime_text.exe")),
-        program
-            .as_ref()
-            .map(|root| root.join("Notepad++/notepad++.exe")),
+        program.as_ref().map(|root| root.join("Microsoft VS Code/Code.exe")),
+        program.as_ref().map(|root| root.join("Sublime Text/sublime_text.exe")),
+        program.as_ref().map(|root| root.join("Notepad++/notepad++.exe")),
     ];
     candidates
         .into_iter()
@@ -194,12 +180,7 @@ mod tests {
     fn editor_only_open_fails_closed_with_or_without_a_position() {
         // NUL is rejected before process creation, even if this machine has an editor.
         let path = "unlaunchable\0.cmd";
-        for (line, column) in [
-            (None, None),
-            (None, Some(3)),
-            (Some(24), Some(3)),
-            (Some(0), Some(0)),
-        ] {
+        for (line, column) in [(None, None), (None, Some(3)), (Some(24), Some(3)), (Some(0), Some(0))] {
             let result = open_file_in_editor(path.into(), line, column);
             assert_eq!(
                 result.err().as_deref(),

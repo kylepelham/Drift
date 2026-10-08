@@ -2,9 +2,9 @@ use rcgen::{
     BasicConstraints, CertificateParams, CidrSubnet, DnType, ExtendedKeyUsagePurpose, GeneralSubtree, IsCa, Issuer,
     KeyPair, KeyUsagePurpose, NameConstraints, SanType,
 };
+use rustls::ServerConfig;
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
-use rustls::ServerConfig;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -89,14 +89,19 @@ impl Tls {
         let now = OffsetDateTime::now_utc();
         let mut params = CertificateParams::default();
         params.distinguished_name.push(DnType::CommonName, address.to_string());
-        params.subject_alt_names = vec![SanType::IpAddress(address), SanType::DnsName("localhost".try_into().unwrap())];
+        params.subject_alt_names = vec![
+            SanType::IpAddress(address),
+            SanType::DnsName("localhost".try_into().unwrap()),
+        ];
         params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
         params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
         params.use_authority_key_identifier_extension = true;
         params.not_before = now - Duration::days(1);
         params.not_after = now + Duration::days(LEAF_DAYS);
         let key = KeyPair::generate().map_err(|error| error.to_string())?;
-        let leaf = params.signed_by(&key, &self.issuer).map_err(|error| error.to_string())?;
+        let leaf = params
+            .signed_by(&key, &self.issuer)
+            .map_err(|error| error.to_string())?;
         let chain = vec![leaf.der().clone(), self.ca.clone()];
         Ok((chain, PrivatePkcs8KeyDer::from(key.serialize_der())))
     }
@@ -113,7 +118,10 @@ fn ca_params(now: OffsetDateTime) -> CertificateParams {
         permitted_subtrees: PERMITTED_V4
             .iter()
             .map(|(address, mask)| GeneralSubtree::IpAddress(CidrSubnet::V4(*address, *mask)))
-            .chain([GeneralSubtree::DnsName("localhost".into()), GeneralSubtree::DnsName("local".into())])
+            .chain([
+                GeneralSubtree::DnsName("localhost".into()),
+                GeneralSubtree::DnsName("local".into()),
+            ])
             .collect(),
         excluded_subtrees: Vec::new(),
     });
@@ -132,15 +140,23 @@ fn read_pair(directory: &Path) -> Option<(String, String)> {
 
 fn create_pair(directory: &Path) -> Result<(String, String), String> {
     let key = KeyPair::generate().map_err(|error| error.to_string())?;
-    let ca = ca_params(OffsetDateTime::now_utc()).self_signed(&key).map_err(|error| error.to_string())?;
+    let ca = ca_params(OffsetDateTime::now_utc())
+        .self_signed(&key)
+        .map_err(|error| error.to_string())?;
     let (ca_pem, key_pem) = (ca.pem(), key.serialize_pem());
-    drift_engine::platform::private_file::write(&directory.join(CA_KEY_FILE), key_pem.as_bytes()).map_err(|error| error.to_string())?;
-    drift_engine::platform::private_file::write(&directory.join(CA_FILE), ca_pem.as_bytes()).map_err(|error| error.to_string())?;
+    drift_engine::platform::private_file::write(&directory.join(CA_KEY_FILE), key_pem.as_bytes())
+        .map_err(|error| error.to_string())?;
+    drift_engine::platform::private_file::write(&directory.join(CA_FILE), ca_pem.as_bytes())
+        .map_err(|error| error.to_string())?;
     Ok((ca_pem, key_pem))
 }
 
 fn fingerprint(certificate: &[u8]) -> String {
-    Sha256::digest(certificate).iter().map(|byte| format!("{byte:02X}")).collect::<Vec<_>>().join(":")
+    Sha256::digest(certificate)
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 #[cfg(test)]

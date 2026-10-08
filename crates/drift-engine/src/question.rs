@@ -74,12 +74,17 @@ impl Questions {
     pub async fn ask(&self, hub: &Hub, request: Request, abort: &CancellationToken) -> Answers {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().unwrap().push((request.clone(), Some(tx)));
-        hub.publish(Event::QuestionAsked { request: request.clone() });
+        hub.publish(Event::QuestionAsked {
+            request: request.clone(),
+        });
         let answers = tokio::select! {
             answers = rx => answers.ok().flatten(),
             () = abort.cancelled() => None,
         };
-        self.pending.lock().unwrap().retain(|(pending, _)| pending.id != request.id);
+        self.pending
+            .lock()
+            .unwrap()
+            .retain(|(pending, _)| pending.id != request.id);
         answers
     }
 
@@ -90,26 +95,43 @@ impl Questions {
     }
 
     pub fn lookup(&self, request_id: &str) -> Option<Request> {
-        self.pending.lock().unwrap().iter().find(|(request, _)| request.id == request_id).map(|(request, _)| request.clone())
+        self.pending
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|(request, _)| request.id == request_id)
+            .map(|(request, _)| request.clone())
     }
 
     /// Answers or declines a blocking question: its call gets the answer and goes on.
     pub fn reply(&self, hub: &Hub, request_id: &str, answers: Answers) -> Result<(), NotPending> {
         let mut pending = self.pending.lock().unwrap();
-        let index = pending.iter().position(|(request, tx)| request.id == request_id && tx.is_some()).ok_or(NotPending)?;
+        let index = pending
+            .iter()
+            .position(|(request, tx)| request.id == request_id && tx.is_some())
+            .ok_or(NotPending)?;
         let (request, tx) = pending.remove(index);
         drop(pending);
         if let Some(tx) = tx {
             let _ = tx.send(answers);
         }
-        hub.publish(Event::QuestionReplied { request_id: request.id, session_id: request.session_id });
+        hub.publish(Event::QuestionReplied {
+            request_id: request.id,
+            session_id: request.session_id,
+        });
         Ok(())
     }
 
     /// Closes an async question once its answer is saved (or it was dismissed).
     pub fn settle_async(&self, hub: &Hub, request: &Request) {
-        self.pending.lock().unwrap().retain(|(pending, _)| pending.id != request.id);
-        hub.publish(Event::QuestionReplied { request_id: request.id.clone(), session_id: request.session_id.clone() });
+        self.pending
+            .lock()
+            .unwrap()
+            .retain(|(pending, _)| pending.id != request.id);
+        hub.publish(Event::QuestionReplied {
+            request_id: request.id.clone(),
+            session_id: request.session_id.clone(),
+        });
     }
 
     /// The lock a decision on `request_id` holds; the same one for every caller while any holds it.
@@ -122,11 +144,19 @@ impl Questions {
 
     /// A deleted session's async questions go with it; blocking ones end with their turn.
     pub fn forget_session(&self, session_id: &str) {
-        self.pending.lock().unwrap().retain(|(request, tx)| request.session_id != session_id || tx.is_some());
+        self.pending
+            .lock()
+            .unwrap()
+            .retain(|(request, tx)| request.session_id != session_id || tx.is_some());
     }
 
     pub fn pending(&self) -> Vec<Request> {
-        self.pending.lock().unwrap().iter().map(|(request, _)| request.clone()).collect()
+        self.pending
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(request, _)| request.clone())
+            .collect()
     }
 }
 
@@ -148,7 +178,18 @@ mod tests {
     use super::*;
 
     fn request() -> Request {
-        new_request("ses", "msg", "call", vec![Question { question: "Which?".into(), header: "Pick".into(), options: vec![], multiple: false, custom: true }])
+        new_request(
+            "ses",
+            "msg",
+            "call",
+            vec![Question {
+                question: "Which?".into(),
+                header: "Pick".into(),
+                options: vec![],
+                multiple: false,
+                custom: true,
+            }],
+        )
     }
 
     #[tokio::test]
@@ -160,7 +201,9 @@ mod tests {
         let (answers, ()) = tokio::join!(questions.ask(&hub, request.clone(), &abort), async {
             tokio::task::yield_now().await;
             assert_eq!(questions.pending().len(), 1);
-            questions.reply(&hub, &request.id, Some(vec![vec!["a".into()]])).unwrap();
+            questions
+                .reply(&hub, &request.id, Some(vec![vec!["a".into()]]))
+                .unwrap();
         });
         assert_eq!(answers, Some(vec![vec!["a".into()]]));
         assert!(questions.pending().is_empty());

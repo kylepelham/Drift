@@ -13,10 +13,7 @@ pub(crate) struct ConfigRoot(pub(crate) PathBuf);
 
 pub(crate) fn config_path(root: &Path, path: &str) -> Result<PathBuf, String> {
     let relative = Path::new(path);
-    if relative
-        .components()
-        .any(|part| !matches!(part, Component::Normal(_)))
-    {
+    if relative.components().any(|part| !matches!(part, Component::Normal(_))) {
         return Err("config path must be relative".into());
     }
     Ok(root.join(relative))
@@ -36,7 +33,5 @@ pub(crate) fn config_read(config: State<ConfigRoot>, path: String) -> Result<Opt
     if requested.metadata().map_err(|e| e.to_string())?.len() > MAX_CONFIG_FILE_BYTES {
         return Err("config file exceeds 1 MiB".into());
     }
-    std::fs::read_to_string(requested)
-        .map(Some)
-        .map_err(|e| e.to_string())
+    std::fs::read_to_string(requested).map(Some).map_err(|e| e.to_string())
 }

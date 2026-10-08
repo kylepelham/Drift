@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
@@ -48,20 +48,31 @@ impl Tool for Question {
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
-            let items: Vec<Item> = serde_json::from_value(input["questions"].clone()).map_err(|e| ToolError(format!("invalid questions: {e}")))?;
+            let items: Vec<Item> = serde_json::from_value(input["questions"].clone())
+                .map_err(|e| ToolError(format!("invalid questions: {e}")))?;
             if items.is_empty() {
                 return Err(ToolError("at least one question is required".into()));
             }
             let mut request = question::new_request(&ctx.session_id, &ctx.message_id, &ctx.call_id, items.clone());
             // A subagent's turn ends before a late answer could reach its parent, so it always waits.
-            let subagent = ctx.engine.store.session(&ctx.session_id)?.is_some_and(|s| s.visibility == crate::session::types::Visibility::Hidden);
+            let subagent = ctx
+                .engine
+                .store
+                .session(&ctx.session_id)?
+                .is_some_and(|s| s.visibility == crate::session::types::Visibility::Hidden);
             if input["async"].as_bool().unwrap_or(true) && !subagent {
                 request.is_async = true;
                 request.generation = ctx.engine.worker_scope(&ctx.session_id).1;
                 let id = request.id.clone();
                 ctx.engine.questions.ask_async(&ctx.engine.hub, request);
-                let output = format!("Asked the user ({id}). Their answer will arrive in this conversation as its own message. Carry on with work that does not depend on it; if nothing else can be done, finish your turn and wait.");
-                return Ok(Output { title: items[0].header.clone(), output, metadata: json!({ "requestId": id, "async": true }) });
+                let output = format!(
+                    "Asked the user ({id}). Their answer will arrive in this conversation as its own message. Carry on with work that does not depend on it; if nothing else can be done, finish your turn and wait."
+                );
+                return Ok(Output {
+                    title: items[0].header.clone(),
+                    output,
+                    metadata: json!({ "requestId": id, "async": true }),
+                });
             }
             let answers = ctx.engine.questions.ask(&ctx.engine.hub, request, &ctx.abort).await;
             let Some(answers) = answers else {
@@ -72,7 +83,11 @@ impl Tool for Question {
                 .zip(answers.iter())
                 .map(|(item, chosen)| format!("{}: {}", item.header, chosen.join(", ")))
                 .collect();
-            Ok(Output { title: items[0].header.clone(), output: lines.join("\n"), metadata: json!({ "answers": answers }) })
+            Ok(Output {
+                title: items[0].header.clone(),
+                output: lines.join("\n"),
+                metadata: json!({ "answers": answers }),
+            })
         })
     }
 }
@@ -91,9 +106,14 @@ mod tests {
         let input = json!({ "async": false, "questions": [{ "question": "Which db?", "header": "Database", "options": [{ "label": "sqlite" }, { "label": "postgres" }] }] });
         let (out, ()) = tokio::join!(Question.run(&ctx, input), async {
             let asked = rx.recv().await.unwrap();
-            let Event::QuestionAsked { request } = asked.event else { panic!() };
+            let Event::QuestionAsked { request } = asked.event else {
+                panic!()
+            };
             assert_eq!(request.questions[0].header, "Database");
-            ctx.engine.questions.reply(&ctx.engine.hub, &request.id, Some(vec![vec!["sqlite".into()]])).unwrap();
+            ctx.engine
+                .questions
+                .reply(&ctx.engine.hub, &request.id, Some(vec![vec!["sqlite".into()]]))
+                .unwrap();
         });
         let out = out.unwrap();
         assert_eq!(out.output, "Database: sqlite");
@@ -106,7 +126,9 @@ mod tests {
         let mut rx = ctx.engine.hub.attach(None).rx;
         let input = json!({ "async": false, "questions": [{ "question": "Go?", "header": "Go", "options": [] }] });
         let (out, ()) = tokio::join!(Question.run(&ctx, input), async {
-            let Event::QuestionAsked { request } = rx.recv().await.unwrap().event else { panic!() };
+            let Event::QuestionAsked { request } = rx.recv().await.unwrap().event else {
+                panic!()
+            };
             ctx.engine.questions.reply(&ctx.engine.hub, &request.id, None).unwrap();
         });
         assert!(out.unwrap_err().0.contains("declined"));

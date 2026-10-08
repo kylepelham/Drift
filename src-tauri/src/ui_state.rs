@@ -95,11 +95,7 @@ impl UiStateAuthority {
         self.events.subscribe()
     }
 
-    fn initialize(
-        &self,
-        store: &Store,
-        mut snapshot: UiMirrorSnapshot,
-    ) -> Result<UiMirrorSnapshot, String> {
+    fn initialize(&self, store: &Store, mut snapshot: UiMirrorSnapshot) -> Result<UiMirrorSnapshot, String> {
         snapshot.schema = 1;
         snapshot.revision = 0;
         validate_snapshot(&snapshot)?;
@@ -107,24 +103,16 @@ impl UiStateAuthority {
         let stored = store
             .initialize_app_setting(UI_STATE_KEY, &encoded)
             .map_err(|error| error.to_string())?;
-        let current: UiMirrorSnapshot =
-            serde_json::from_str(&stored).map_err(|error| error.to_string())?;
+        let current: UiMirrorSnapshot = serde_json::from_str(&stored).map_err(|error| error.to_string())?;
         validate_snapshot(&current)?;
         self.inner.lock().unwrap().snapshot = Some(current.clone());
         Ok(current)
     }
 
-    fn update(
-        &self,
-        store: &Store,
-        mutation: UiStateMutation,
-    ) -> Result<(UiMirrorSnapshot, bool), String> {
+    fn update(&self, store: &Store, mutation: UiStateMutation) -> Result<(UiMirrorSnapshot, bool), String> {
         validate_identifier("clientId", &mutation.client_id)?;
         validate_identifier("mutationId", &mutation.mutation_id)?;
-        if mutation.theme.is_none()
-            && mutation.selection.is_none()
-            && mutation.workspace_order.is_none()
-        {
+        if mutation.theme.is_none() && mutation.selection.is_none() && mutation.workspace_order.is_none() {
             return Err("UI state mutation is empty".into());
         }
         let key = (mutation.client_id, mutation.mutation_id);
@@ -183,9 +171,7 @@ pub(crate) fn ui_state_initialize(
 }
 
 #[tauri::command]
-pub(crate) fn ui_state_snapshot(
-    authority: tauri::State<'_, UiStateAuthority>,
-) -> Result<UiMirrorSnapshot, String> {
+pub(crate) fn ui_state_snapshot(authority: tauri::State<'_, UiStateAuthority>) -> Result<UiMirrorSnapshot, String> {
     authority.snapshot()
 }
 
@@ -213,18 +199,13 @@ pub(crate) struct ShellTimeoutAuthority(Mutex<Option<ShellTimeoutPolicy>>);
 
 impl ShellTimeoutAuthority {
     pub(crate) fn load(store: &Store) -> Result<Self, String> {
-        let policy =
-            load_valid_setting(store, SHELL_TIMEOUT_KEY, |policy: &ShellTimeoutPolicy| {
-                validate_timeout(policy.timeout_ms)
-            })?;
+        let policy = load_valid_setting(store, SHELL_TIMEOUT_KEY, |policy: &ShellTimeoutPolicy| {
+            validate_timeout(policy.timeout_ms)
+        })?;
         Ok(Self(Mutex::new(policy)))
     }
 
-    fn initialize(
-        &self,
-        store: &Store,
-        policy: ShellTimeoutPolicy,
-    ) -> Result<ShellTimeoutPolicy, String> {
+    fn initialize(&self, store: &Store, policy: ShellTimeoutPolicy) -> Result<ShellTimeoutPolicy, String> {
         validate_timeout(policy.timeout_ms)?;
         let stored = store
             .initialize_app_setting(
@@ -232,8 +213,7 @@ impl ShellTimeoutAuthority {
                 &serde_json::to_string(&policy).map_err(|error| error.to_string())?,
             )
             .map_err(|error| error.to_string())?;
-        let current: ShellTimeoutPolicy =
-            serde_json::from_str(&stored).map_err(|error| error.to_string())?;
+        let current: ShellTimeoutPolicy = serde_json::from_str(&stored).map_err(|error| error.to_string())?;
         *self.0.lock().unwrap() = Some(current.clone());
         Ok(current)
     }
@@ -251,11 +231,7 @@ impl ShellTimeoutAuthority {
             .ok_or_else(|| "shell timeout policy has not been initialized".into())
     }
 
-    fn update(
-        &self,
-        store: &Store,
-        policy: ShellTimeoutPolicy,
-    ) -> Result<ShellTimeoutPolicy, String> {
+    fn update(&self, store: &Store, policy: ShellTimeoutPolicy) -> Result<ShellTimeoutPolicy, String> {
         validate_timeout(policy.timeout_ms)?;
         store
             .save_app_setting(
@@ -282,9 +258,7 @@ fn load_valid_setting<T: DeserializeOwned>(
     match parsed {
         Ok(value) => Ok(Some(value)),
         Err(_) => {
-            store
-                .delete_app_setting(key)
-                .map_err(|error| error.to_string())?;
+            store.delete_app_setting(key).map_err(|error| error.to_string())?;
             Ok(None)
         }
     }
@@ -346,10 +320,7 @@ fn validate_snapshot(snapshot: &UiMirrorSnapshot) -> Result<(), String> {
         ("text", &snapshot.theme.custom.text),
         ("accent", &snapshot.theme.custom.accent),
     ] {
-        if color.len() != 7
-            || !color.starts_with('#')
-            || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
-        {
+        if color.len() != 7 || !color.starts_with('#') || !color[1..].bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(format!("invalid custom theme {name} color"));
         }
     }

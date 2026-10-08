@@ -5,12 +5,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use drift_engine::llm::credentials::Credentials;
 use drift_engine::llm::Credential;
+use drift_engine::llm::credentials::Credentials;
 use drift_engine::mcp::{OAuthClient, ServerConfig};
 use drift_engine::store::Store;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 /// What was brought in before, so a sign-in the user removed or a server they deleted stays gone.
 const LEDGER: &str = "opencodeImported";
@@ -115,7 +115,13 @@ struct Ledger {
 }
 
 /// opencode's folders under its config directory, with the folder Drift reads the same things from.
-const FOLDERS: [(&str, &str); 5] = [("agents", "agents"), ("agent", "agents"), ("commands", "commands"), ("command", "commands"), ("skills", "skills")];
+const FOLDERS: [(&str, &str); 5] = [
+    ("agents", "agents"),
+    ("agent", "agents"),
+    ("commands", "commands"),
+    ("command", "commands"),
+    ("skills", "skills"),
+];
 
 #[derive(Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,7 +169,13 @@ impl SettingsReport {
     }
 }
 
-pub fn import_settings(store: &Store, credentials: &Credentials, providers: &[String], home: &Path, settings: &Settings) -> rusqlite::Result<SettingsReport> {
+pub fn import_settings(
+    store: &Store,
+    credentials: &Credentials,
+    providers: &[String],
+    home: &Path,
+    settings: &Settings,
+) -> rusqlite::Result<SettingsReport> {
     let mut ledger: Ledger = store.setting(LEDGER)?.unwrap_or_default();
     let mut report = SettingsReport::default();
     if let Some(auth) = settings.auth.as_ref().and_then(Value::as_object) {
@@ -174,7 +186,9 @@ pub fn import_settings(store: &Store, credentials: &Credentials, providers: &[St
             match credential(credentials, providers, provider, entry) {
                 Ok(()) => report.credentials.push(provider.clone()),
                 Err(Some(Left::Kept(why))) => report.skipped.push(format!("sign-in for {provider}: {why}")),
-                Err(Some(Left::Out(why))) => report.left(provider, format!("sign-in for {provider}: {why}"), |left| &mut left.sign_ins),
+                Err(Some(Left::Out(why))) => report.left(provider, format!("sign-in for {provider}: {why}"), |left| {
+                    &mut left.sign_ins
+                }),
                 Err(None) => continue,
             }
             ledger.credentials.insert(provider.clone());
@@ -193,7 +207,9 @@ pub fn import_settings(store: &Store, credentials: &Credentials, providers: &[St
                 }
             }
             Err(Left::Kept(why)) => report.skipped.push(format!("MCP server {}: {why}", server.name)),
-            Err(Left::Out(why)) => report.left(&server.name, format!("MCP server {}: {why}", server.name), |left| &mut left.servers),
+            Err(Left::Out(why)) => report.left(&server.name, format!("MCP server {}: {why}", server.name), |left| {
+                &mut left.servers
+            }),
         }
         ledger.servers.insert(server.name.clone());
     }
@@ -212,14 +228,25 @@ pub fn import_settings(store: &Store, credentials: &Credentials, providers: &[St
 }
 
 /// `Err(None)` for a key that means nothing to record (a local server's placeholder); `Err(Some)` says why it was left.
-fn credential(credentials: &Credentials, providers: &[String], provider: &str, entry: &Value) -> Result<(), Option<Left>> {
+fn credential(
+    credentials: &Credentials,
+    providers: &[String],
+    provider: &str,
+    entry: &Value,
+) -> Result<(), Option<Left>> {
     let out = |why: &str| Some(Left::Out(why.into()));
     let field = |key: &str| entry[key].as_str().filter(|value| !value.is_empty()).map(String::from);
     let needed = |key: &str, what: &str| field(key).ok_or_else(|| Some(Left::Out(format!("it has no {what}"))));
     let found = match entry["type"].as_str() {
         Some("api") if KEYLESS.contains(&provider) => return Err(None),
-        Some("api") if providers.iter().any(|known| known == provider) => Credential::ApiKey { key: needed("key", "key")? },
-        Some("api") => return Err(out("Drift has no provider by that name; add it to drift.json's providers to use the key")),
+        Some("api") if providers.iter().any(|known| known == provider) => Credential::ApiKey {
+            key: needed("key", "key")?,
+        },
+        Some("api") => {
+            return Err(out(
+                "Drift has no provider by that name; add it to drift.json's providers to use the key",
+            ));
+        }
         Some("oauth") if SIGN_INS.contains(&provider) => Credential::OAuth {
             access: needed("access", "access token")?,
             refresh: needed("refresh", "refresh token")?,
@@ -238,11 +265,20 @@ fn credential(credentials: &Credentials, providers: &[String], provider: &str, e
 /// Saves the server; whether it was left switched on.
 fn server(store: &Store, server: &OcServer, config_dir: &Path) -> Result<bool, Left> {
     let failed = |error: rusqlite::Error| Left::Out(error.to_string());
-    if store.mcp_server(&server.name).map_err(failed)?.is_some() || store.unreadable_mcp_servers().map_err(failed)?.contains(&server.name) {
+    if store.mcp_server(&server.name).map_err(failed)?.is_some()
+        || store.unreadable_mcp_servers().map_err(failed)?.contains(&server.name)
+    {
         return Err(Left::Kept("Drift already has a server by that name, kept".into()));
     }
-    if server.name.is_empty() || !server.name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')) {
-        return Err(Left::Out("its name has characters Drift does not allow in a server name".into()));
+    if server.name.is_empty()
+        || !server
+            .name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
+    {
+        return Err(Left::Out(
+            "its name has characters Drift does not allow in a server name".into(),
+        ));
     }
     let config = mcp_config(&server.definition, config_dir).map_err(Left::Out)?;
     let enabled = server.definition["enabled"] != false && server.approved;
@@ -255,13 +291,36 @@ fn server(store: &Store, server: &OcServer, config_dir: &Path) -> Result<bool, L
 pub fn mcp_config(definition: &Value, config_dir: &Path) -> Result<ServerConfig, String> {
     let text = |value: &Value| value.as_str().map(|text| substitute(text, config_dir)).transpose();
     let table = |value: &Value| -> Result<BTreeMap<String, String>, String> {
-        value.as_object().into_iter().flatten().filter_map(|(key, value)| text(value).transpose().map(|value| value.map(|value| (key.clone(), value)))).collect()
+        value
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(key, value)| {
+                text(value)
+                    .transpose()
+                    .map(|value| value.map(|value| (key.clone(), value)))
+            })
+            .collect()
     };
     match definition["type"].as_str() {
         Some("local") => {
-            let command: Vec<String> = definition["command"].as_array().into_iter().flatten().map(text).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
+            let command: Vec<String> = definition["command"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(text)
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect();
             let (program, args) = command.split_first().ok_or("it has no command")?;
-            Ok(ServerConfig::Stdio { command: program.clone(), args: args.to_vec(), env: table(&definition["environment"])?, cwd: None, timeout_seconds: None })
+            Ok(ServerConfig::Stdio {
+                command: program.clone(),
+                args: args.to_vec(),
+                env: table(&definition["environment"])?,
+                cwd: None,
+                timeout_seconds: None,
+            })
         }
         Some("remote") => {
             let url = text(&definition["url"])?.ok_or("it has no url")?;
@@ -269,10 +328,19 @@ pub fn mcp_config(definition: &Value, config_dir: &Path) -> Result<ServerConfig,
                 Some(OAuthClient {
                     client_id: client.get("clientId")?.as_str()?.into(),
                     client_secret: client.get("clientSecret").and_then(Value::as_str).map(String::from),
-                    scopes: client.get("scope").and_then(Value::as_str).map(|scope| scope.split_whitespace().map(String::from).collect()).unwrap_or_default(),
+                    scopes: client
+                        .get("scope")
+                        .and_then(Value::as_str)
+                        .map(|scope| scope.split_whitespace().map(String::from).collect())
+                        .unwrap_or_default(),
                 })
             });
-            Ok(ServerConfig::Http { url, headers: table(&definition["headers"])?, oauth, timeout_seconds: None })
+            Ok(ServerConfig::Http {
+                url,
+                headers: table(&definition["headers"])?,
+                oauth,
+                timeout_seconds: None,
+            })
         }
         _ => Err("it is neither a local nor a remote server".into()),
     }
@@ -283,14 +351,21 @@ fn substitute(text: &str, config_dir: &Path) -> Result<String, String> {
     let mut out = String::new();
     let mut rest = text;
     while let Some(start) = rest.find('{') {
-        let Some(end) = rest[start..].find('}').map(|end| start + end) else { break };
+        let Some(end) = rest[start..].find('}').map(|end| start + end) else {
+            break;
+        };
         out.push_str(&rest[..start]);
         let token = &rest[start + 1..end];
         let value = match token.split_once(':') {
-            Some(("env", name)) => std::env::var(name).map_err(|_| format!("the environment variable {name} is not set"))?,
+            Some(("env", name)) => {
+                std::env::var(name).map_err(|_| format!("the environment variable {name} is not set"))?
+            }
             Some(("file", path)) => {
                 let path = expand(path, config_dir);
-                std::fs::read_to_string(&path).map_err(|_| format!("{} could not be read", path.display()))?.trim().to_string()
+                std::fs::read_to_string(&path)
+                    .map_err(|_| format!("{} could not be read", path.display()))?
+                    .trim()
+                    .to_string()
             }
             _ => rest[start..=end].to_string(),
         };
@@ -316,15 +391,29 @@ fn config(config: &OcConfig, config_dir: &Path, report: &mut SettingsReport) -> 
         match key.as_str() {
             "$schema" | "mcp" => {}
             "model" => match value.as_str().and_then(|model| model.split_once('/')) {
-                Some((provider, model)) => drop(file.insert("model".into(), json!({ "provider": provider, "model": model }))),
-                None => report.left("model", "config model: not written as provider/model".into(), |left| &mut left.settings),
+                Some((provider, model)) => {
+                    drop(file.insert("model".into(), json!({ "provider": provider, "model": model })))
+                }
+                None => report.left("model", "config model: not written as provider/model".into(), |left| {
+                    &mut left.settings
+                }),
             },
             "default_agent" => match value.as_str() {
                 Some(agent) => drop(file.insert("defaultAgent".into(), json!(agent))),
-                None => report.left("default_agent", "config default_agent: not an agent's name".into(), |left| &mut left.settings),
+                None => report.left(
+                    "default_agent",
+                    "config default_agent: not an agent's name".into(),
+                    |left| &mut left.settings,
+                ),
             },
             "instructions" => {
-                let paths: Vec<Value> = value.as_array().into_iter().flatten().filter_map(Value::as_str).map(|path| json!(instruction(path, config_dir))).collect();
+                let paths: Vec<Value> = value
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(|path| json!(instruction(path, config_dir)))
+                    .collect();
                 file.insert("instructions".into(), Value::Array(paths));
             }
             "permission" => match &config.permission {
@@ -334,14 +423,24 @@ fn config(config: &OcConfig, config_dir: &Path, report: &mut SettingsReport) -> 
                         file.insert("permissions".into(), Value::Array(rules));
                     }
                 }
-                None => report.left("permission", "config permission: neither a decision nor a map of them".into(), |left| &mut left.settings),
+                None => report.left(
+                    "permission",
+                    "config permission: neither a decision nor a map of them".into(),
+                    |left| &mut left.settings,
+                ),
             },
             "plugin" => {
                 for plugin in value.as_array().into_iter().flatten().filter_map(Value::as_str) {
-                    report.left(plugin, format!("plugin {plugin}: opencode plugins are JavaScript and Drift runs none"), |left| &mut left.plugins);
+                    report.left(
+                        plugin,
+                        format!("plugin {plugin}: opencode plugins are JavaScript and Drift runs none"),
+                        |left| &mut left.plugins,
+                    );
                 }
             }
-            other => report.left(other, format!("config {other}: Drift has no setting for it"), |left| &mut left.settings),
+            other => report.left(other, format!("config {other}: Drift has no setting for it"), |left| {
+                &mut left.settings
+            }),
         }
     }
     file
@@ -362,18 +461,33 @@ fn permissions(kinds: &[(String, Setting)], report: &mut SettingsReport) -> Vec<
     let mut rules = Vec::new();
     for (kind, setting) in kinds {
         if !matches!(kind.as_str(), "*" | "read" | "edit" | "bash" | "webfetch") {
-            report.left(&format!("permission.{kind}"), format!("config permission.{kind}: Drift has no such permission"), |left| &mut left.settings);
+            report.left(
+                &format!("permission.{kind}"),
+                format!("config permission.{kind}: Drift has no such permission"),
+                |left| &mut left.settings,
+            );
             continue;
         }
         let patterns: Vec<(&str, Value)> = match setting {
             Setting::One(decision) => vec![("*", Value::String(decision.clone()))],
-            Setting::Patterns(entries) => entries.0.iter().map(|(pattern, decision)| (pattern.as_str(), decision.clone())).collect(),
+            Setting::Patterns(entries) => entries
+                .0
+                .iter()
+                .map(|(pattern, decision)| (pattern.as_str(), decision.clone()))
+                .collect(),
             Setting::Other(_) => Vec::new(),
         };
         for (pattern, decision) in patterns {
-            match decision.as_str().filter(|decision| matches!(*decision, "allow" | "ask" | "deny")) {
+            match decision
+                .as_str()
+                .filter(|decision| matches!(*decision, "allow" | "ask" | "deny"))
+            {
                 Some(decision) => rules.push(json!({ "kind": kind, "pattern": pattern, "decision": decision })),
-                None => report.left(&format!("permission.{kind} {pattern}"), format!("config permission.{kind} {pattern}: not allow, ask or deny"), |left| &mut left.settings),
+                None => report.left(
+                    &format!("permission.{kind} {pattern}"),
+                    format!("config permission.{kind} {pattern}: not allow, ask or deny"),
+                    |left| &mut left.settings,
+                ),
             }
         }
     }
@@ -391,7 +505,11 @@ fn copy_home(from: &Path, to: &Path, report: &mut SettingsReport) {
     for folder in ["plugins", "plugin"] {
         for entry in std::fs::read_dir(from.join(folder)).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
-            report.left(&name, format!("plugin {name}: opencode plugins are JavaScript and Drift runs none"), |left| &mut left.plugins);
+            report.left(
+                &name,
+                format!("plugin {name}: opencode plugins are JavaScript and Drift runs none"),
+                |left| &mut left.plugins,
+            );
         }
     }
 }
@@ -414,13 +532,20 @@ fn copy_file(from: &Path, to: &Path, shown: &str, report: &mut SettingsReport) {
         return;
     }
     if to.exists() {
-        report.skipped.push(format!("{shown}: you already have one in ~/.config/drift, kept"));
+        report
+            .skipped
+            .push(format!("{shown}: you already have one in ~/.config/drift, kept"));
         return;
     }
-    let done = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::copy(from, to));
+    let done = to
+        .parent()
+        .map_or(Ok(()), std::fs::create_dir_all)
+        .and_then(|()| std::fs::copy(from, to));
     match done {
         Ok(_) => report.files.push(shown.to_string()),
-        Err(error) => report.left(shown, format!("{shown}: could not be copied ({error})"), |left| &mut left.failed),
+        Err(error) => report.left(shown, format!("{shown}: could not be copied ({error})"), |left| {
+            &mut left.failed
+        }),
     }
 }
 
@@ -432,14 +557,22 @@ fn write_config(home: &Path, file: Map<String, Value>, report: &mut SettingsRepo
     let path = home.join(".config").join("drift").join(drift_engine::config::FILE);
     let keys = file.keys().cloned().collect::<Vec<_>>().join(", ");
     if path.exists() {
-        report.skipped.push(format!("config {keys}: you already have {}, so it was not changed", path.display()));
+        report.skipped.push(format!(
+            "config {keys}: you already have {}, so it was not changed",
+            path.display()
+        ));
         return None;
     }
-    let written = std::fs::create_dir_all(path.parent()?).and_then(|()| std::fs::write(&path, serde_json::to_string_pretty(&Value::Object(file)).unwrap()));
+    let written = std::fs::create_dir_all(path.parent()?)
+        .and_then(|()| std::fs::write(&path, serde_json::to_string_pretty(&Value::Object(file)).unwrap()));
     match written {
         Ok(()) => Some(path.to_string_lossy().into_owned()),
         Err(error) => {
-            report.left("drift.json", format!("config {keys}: {} could not be written ({error})", path.display()), |left| &mut left.failed);
+            report.left(
+                "drift.json",
+                format!("config {keys}: {} could not be written ({error})", path.display()),
+                |left| &mut left.failed,
+            );
             None
         }
     }
@@ -460,13 +593,25 @@ mod tests {
     fn setup() -> (Dir, std::sync::Arc<drift_engine::Engine>, Vec<String>) {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let dir = Dir(std::env::temp_dir().join(format!("drift-settings-{}", drift_engine::id::new("t"))));
-        let engine = drift_engine::Engine::open_with(&dir.0.join("data"), drift_engine::Options { file_credentials: true, ..Default::default() }).unwrap();
+        let engine = drift_engine::Engine::open_with(
+            &dir.0.join("data"),
+            drift_engine::Options {
+                file_credentials: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let providers = engine.catalog.read().unwrap().providers.keys().cloned().collect();
         (dir, engine, providers)
     }
 
     fn settings(dir: &Path, auth: Value, config: Value, servers: Vec<OcServer>) -> Settings {
-        Settings { auth: Some(auth), config: OcConfig::parse(&config.to_string()), config_dir: dir.to_path_buf(), servers }
+        Settings {
+            auth: Some(auth),
+            config: OcConfig::parse(&config.to_string()),
+            config_dir: dir.to_path_buf(),
+            servers,
+        }
     }
 
     #[test]
@@ -475,16 +620,30 @@ mod tests {
         let (dir, engine, providers) = setup();
         let home = dir.0.join("home");
         let text = r#"{ "permission": { "bash": { "*": "ask", "git *": "allow" }, "read": { "*": "deny", "src/*": "allow", "*.env": "deny" }, "edit": "ask" } }"#;
-        let settings = Settings { auth: None, config: OcConfig::parse(text), config_dir: dir.0.clone(), servers: vec![] };
+        let settings = Settings {
+            auth: None,
+            config: OcConfig::parse(text),
+            config_dir: dir.0.clone(),
+            servers: vec![],
+        };
         import_settings(&engine.store, &engine.credentials, &providers, &home, &settings).unwrap();
-        let written: Value = serde_json::from_str(&std::fs::read_to_string(home.join(".config/drift/drift.json")).unwrap()).unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".config/drift/drift.json")).unwrap()).unwrap();
         let rules: Vec<Rule> = serde_json::from_value(written["permissions"].clone()).unwrap();
         let policy = Policy { rules };
         let decide = |kind: &str, target: &str| policy.explicit(&drift_engine::tool::Ask::new(kind, target, ""));
-        assert_eq!(decide("bash", "git status"), Some(Decision::Allow), "opencode's documented allow-list keeps working");
+        assert_eq!(
+            decide("bash", "git status"),
+            Some(Decision::Allow),
+            "opencode's documented allow-list keeps working"
+        );
         assert_eq!(decide("bash", "rm -rf x"), Some(Decision::Ask));
         assert_eq!(decide("read", "src/a.rs"), Some(Decision::Allow));
-        assert_eq!(decide("read", "src/.env"), Some(Decision::Deny), "a later pattern in opencode overrides an earlier one");
+        assert_eq!(
+            decide("read", "src/.env"),
+            Some(Decision::Deny),
+            "a later pattern in opencode overrides an earlier one"
+        );
         assert_eq!(decide("read", "notes.txt"), Some(Decision::Deny));
         assert_eq!(decide("edit", "a.rs"), Some(Decision::Ask));
     }
@@ -495,27 +654,51 @@ mod tests {
         let import = |text: &str| {
             let (dir, engine, providers) = setup();
             let home = dir.0.join("home");
-            let settings = Settings { auth: None, config: OcConfig::parse(text), config_dir: dir.0.clone(), servers: vec![] };
+            let settings = Settings {
+                auth: None,
+                config: OcConfig::parse(text),
+                config_dir: dir.0.clone(),
+                servers: vec![],
+            };
             let report = import_settings(&engine.store, &engine.credentials, &providers, &home, &settings).unwrap();
-            let written: Value = std::fs::read_to_string(home.join(".config/drift/drift.json")).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+            let written: Value = std::fs::read_to_string(home.join(".config/drift/drift.json"))
+                .ok()
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_default();
             let rules: Vec<Rule> = serde_json::from_value(written["permissions"].clone()).unwrap_or_default();
             (Policy { rules }, report)
         };
-        let decide = |policy: &Policy, kind: &str, target: &str| policy.explicit(&drift_engine::tool::Ask::new(kind, target, ""));
+        let decide = |policy: &Policy, kind: &str, target: &str| {
+            policy.explicit(&drift_engine::tool::Ask::new(kind, target, ""))
+        };
         let (everything, _) = import(r#"{ "permission": "allow" }"#);
-        assert_eq!(decide(&everything, "bash", "rm -rf x"), Some(Decision::Allow), "a single decision is opencode's \"*\" for every permission");
+        assert_eq!(
+            decide(&everything, "bash", "rm -rf x"),
+            Some(Decision::Allow),
+            "a single decision is opencode's \"*\" for every permission"
+        );
         let (mixed, _) = import(r#"{ "permission": { "*": "ask", "bash": "allow", "read": { "*.env": "deny" } } }"#);
-        assert_eq!(decide(&mixed, "bash", "ls"), Some(Decision::Allow), "bash, written after *, wins");
+        assert_eq!(
+            decide(&mixed, "bash", "ls"),
+            Some(Decision::Allow),
+            "bash, written after *, wins"
+        );
         assert_eq!(decide(&mixed, "edit", "a.rs"), Some(Decision::Ask));
         assert_eq!(decide(&mixed, "read", ".env"), Some(Decision::Deny));
         let (none, report) = import(r#"{ "permission": 7 }"#);
-        assert!(none.rules.is_empty() && report.left_out.settings.contains(&"permission".to_string()), "an unreadable value is reported, not dropped in silence");
+        assert!(
+            none.rules.is_empty() && report.left_out.settings.contains(&"permission".to_string()),
+            "an unreadable value is reported, not dropped in silence"
+        );
     }
 
     #[test]
     fn keys_and_renewable_sign_ins_come_in_once_and_never_over_drifts_own() {
         let (dir, engine, providers) = setup();
-        engine.credentials.set("openai", &Credential::ApiKey { key: "mine".into() }).unwrap();
+        engine
+            .credentials
+            .set("openai", &Credential::ApiKey { key: "mine".into() })
+            .unwrap();
         let auth = json!({
             "anthropic": { "type": "oauth", "access": "a", "refresh": "r", "expires": 123 },
             "openai": { "type": "oauth", "access": "a", "refresh": "r", "expires": 1, "accountId": "acc" },
@@ -525,19 +708,70 @@ mod tests {
             "nvidia": { "type": "api", "key": "n-key" },
             "lmstudio": { "type": "api", "key": "lm" },
         });
-        let report = import_settings(&engine.store, &engine.credentials, &providers, &dir.0, &settings(&dir.0, auth.clone(), json!({}), vec![])).unwrap();
+        let report = import_settings(
+            &engine.store,
+            &engine.credentials,
+            &providers,
+            &dir.0,
+            &settings(&dir.0, auth.clone(), json!({}), vec![]),
+        )
+        .unwrap();
         assert_eq!(report.credentials, ["anthropic", "xai", "zai"]);
-        assert_eq!(engine.credentials.get("xai"), Some(Credential::OAuth { access: "x".into(), refresh: "xr".into(), expires_at: 7, account: None }), "SuperGrok, which Drift renews");
-        assert_eq!(engine.credentials.get("anthropic"), Some(Credential::OAuth { access: "a".into(), refresh: "r".into(), expires_at: 123, account: None }));
-        assert_eq!(engine.credentials.get("openai"), Some(Credential::ApiKey { key: "mine".into() }), "a sign-in made in Drift stays");
-        assert_eq!(engine.credentials.get("zai"), Some(Credential::ApiKey { key: "z-key".into() }));
+        assert_eq!(
+            engine.credentials.get("xai"),
+            Some(Credential::OAuth {
+                access: "x".into(),
+                refresh: "xr".into(),
+                expires_at: 7,
+                account: None
+            }),
+            "SuperGrok, which Drift renews"
+        );
+        assert_eq!(
+            engine.credentials.get("anthropic"),
+            Some(Credential::OAuth {
+                access: "a".into(),
+                refresh: "r".into(),
+                expires_at: 123,
+                account: None
+            })
+        );
+        assert_eq!(
+            engine.credentials.get("openai"),
+            Some(Credential::ApiKey { key: "mine".into() }),
+            "a sign-in made in Drift stays"
+        );
+        assert_eq!(
+            engine.credentials.get("zai"),
+            Some(Credential::ApiKey { key: "z-key".into() })
+        );
         let said = report.skipped.join("\n");
-        assert!(said.contains("openai: already signed in") && said.contains("github-copilot: Drift cannot renew") && said.contains("nvidia: Drift has no provider") && !said.contains("lmstudio"), "{said}");
-        assert_eq!(report.left_out.sign_ins, ["github-copilot", "nvidia"], "a sign-in Drift already had is kept, not left out");
+        assert!(
+            said.contains("openai: already signed in")
+                && said.contains("github-copilot: Drift cannot renew")
+                && said.contains("nvidia: Drift has no provider")
+                && !said.contains("lmstudio"),
+            "{said}"
+        );
+        assert_eq!(
+            report.left_out.sign_ins,
+            ["github-copilot", "nvidia"],
+            "a sign-in Drift already had is kept, not left out"
+        );
         engine.credentials.remove("anthropic").unwrap();
-        let again = import_settings(&engine.store, &engine.credentials, &providers, &dir.0, &settings(&dir.0, auth, json!({}), vec![])).unwrap();
+        let again = import_settings(
+            &engine.store,
+            &engine.credentials,
+            &providers,
+            &dir.0,
+            &settings(&dir.0, auth, json!({}), vec![]),
+        )
+        .unwrap();
         assert_eq!((again.credentials.len(), again.skipped.len()), (0, 0), "{again:?}");
-        assert!(engine.credentials.get("anthropic").is_none(), "a sign-in the user removed stays removed");
+        assert!(
+            engine.credentials.get("anthropic").is_none(),
+            "a sign-in the user removed stays removed"
+        );
     }
 
     #[test]
@@ -546,29 +780,118 @@ mod tests {
         std::fs::write(dir.0.join("token.txt"), "file-secret\n").unwrap();
         // PATH is always set, so `{env:}` is read without changing the process environment.
         let path_value = std::env::var("PATH").unwrap();
-        engine.store.save_mcp_server("mine", &ServerConfig::Http { url: "https://mine.example".into(), headers: BTreeMap::new(), oauth: None, timeout_seconds: None }).unwrap();
-        let server = |name: &str, definition: Value, approved: bool| OcServer { name: name.into(), definition, approved };
+        engine
+            .store
+            .save_mcp_server(
+                "mine",
+                &ServerConfig::Http {
+                    url: "https://mine.example".into(),
+                    headers: BTreeMap::new(),
+                    oauth: None,
+                    timeout_seconds: None,
+                },
+            )
+            .unwrap();
+        let server = |name: &str, definition: Value, approved: bool| OcServer {
+            name: name.into(),
+            definition,
+            approved,
+        };
         let servers = vec![
-            server("local", json!({ "type": "local", "command": ["npx", "-y", "tool"], "environment": { "KEY": "{env:PATH}" }, "enabled": true }), true),
-            server("remote", json!({ "type": "remote", "url": "https://r.example/mcp", "headers": { "Authorization": "Bearer {file:token.txt}" }, "oauth": { "clientId": "app", "scope": "a b" } }), true),
-            server("unapproved", json!({ "type": "remote", "url": "https://u.example" }), false),
-            server("off", json!({ "type": "local", "command": ["x"], "enabled": false }), true),
+            server(
+                "local",
+                json!({ "type": "local", "command": ["npx", "-y", "tool"], "environment": { "KEY": "{env:PATH}" }, "enabled": true }),
+                true,
+            ),
+            server(
+                "remote",
+                json!({ "type": "remote", "url": "https://r.example/mcp", "headers": { "Authorization": "Bearer {file:token.txt}" }, "oauth": { "clientId": "app", "scope": "a b" } }),
+                true,
+            ),
+            server(
+                "unapproved",
+                json!({ "type": "remote", "url": "https://u.example" }),
+                false,
+            ),
+            server(
+                "off",
+                json!({ "type": "local", "command": ["x"], "enabled": false }),
+                true,
+            ),
             server("mine", json!({ "type": "local", "command": ["other"] }), true),
             server("bad name", json!({ "type": "local", "command": ["x"] }), true),
-            server("missing", json!({ "type": "local", "command": ["x"], "environment": { "K": "{env:DRIFT_MIGRATE_UNSET_VAR}" } }), true),
+            server(
+                "missing",
+                json!({ "type": "local", "command": ["x"], "environment": { "K": "{env:DRIFT_MIGRATE_UNSET_VAR}" } }),
+                true,
+            ),
             server("local", json!({ "type": "local", "command": ["duplicate"] }), true),
         ];
-        let report = import_settings(&engine.store, &engine.credentials, &providers, &dir.0, &settings(&dir.0, json!({}), json!({}), servers)).unwrap();
-        assert_eq!((report.servers, report.disabled_servers), (vec!["local".to_string(), "remote".into(), "unapproved".into(), "off".into()], vec!["unapproved".to_string(), "off".into()]));
-        let saved: BTreeMap<String, (ServerConfig, bool)> = engine.store.mcp_servers().unwrap().into_iter().map(|row| (row.name, (row.config, row.enabled))).collect();
-        assert_eq!(saved["local"], (ServerConfig::Stdio { command: "npx".into(), args: vec!["-y".into(), "tool".into()], env: BTreeMap::from([("KEY".into(), path_value)]), cwd: None, timeout_seconds: None }, true));
-        let oauth = Some(OAuthClient { client_id: "app".into(), client_secret: None, scopes: vec!["a".into(), "b".into()] });
-        assert_eq!(saved["remote"], (ServerConfig::Http { url: "https://r.example/mcp".into(), headers: BTreeMap::from([("Authorization".into(), "Bearer file-secret".into())]), oauth, timeout_seconds: None }, true));
-        assert!(matches!(&saved["mine"].0, ServerConfig::Http { url, .. } if url == "https://mine.example"), "Drift's own server is kept");
+        let report = import_settings(
+            &engine.store,
+            &engine.credentials,
+            &providers,
+            &dir.0,
+            &settings(&dir.0, json!({}), json!({}), servers),
+        )
+        .unwrap();
+        assert_eq!(
+            (report.servers, report.disabled_servers),
+            (
+                vec!["local".to_string(), "remote".into(), "unapproved".into(), "off".into()],
+                vec!["unapproved".to_string(), "off".into()]
+            )
+        );
+        let saved: BTreeMap<String, (ServerConfig, bool)> = engine
+            .store
+            .mcp_servers()
+            .unwrap()
+            .into_iter()
+            .map(|row| (row.name, (row.config, row.enabled)))
+            .collect();
+        assert_eq!(
+            saved["local"],
+            (
+                ServerConfig::Stdio {
+                    command: "npx".into(),
+                    args: vec!["-y".into(), "tool".into()],
+                    env: BTreeMap::from([("KEY".into(), path_value)]),
+                    cwd: None,
+                    timeout_seconds: None
+                },
+                true
+            )
+        );
+        let oauth = Some(OAuthClient {
+            client_id: "app".into(),
+            client_secret: None,
+            scopes: vec!["a".into(), "b".into()],
+        });
+        assert_eq!(
+            saved["remote"],
+            (
+                ServerConfig::Http {
+                    url: "https://r.example/mcp".into(),
+                    headers: BTreeMap::from([("Authorization".into(), "Bearer file-secret".into())]),
+                    oauth,
+                    timeout_seconds: None
+                },
+                true
+            )
+        );
+        assert!(
+            matches!(&saved["mine"].0, ServerConfig::Http { url, .. } if url == "https://mine.example"),
+            "Drift's own server is kept"
+        );
         assert!(!saved.contains_key("missing") && !saved.contains_key("bad name"));
         let said = report.skipped.join("\n");
         assert_eq!(report.left_out.servers, ["bad name", "missing"]);
-        assert!(said.contains("DRIFT_MIGRATE_UNSET_VAR is not set") && said.contains("bad name: its name") && said.contains("mine: Drift already has"), "{said}");
+        assert!(
+            said.contains("DRIFT_MIGRATE_UNSET_VAR is not set")
+                && said.contains("bad name: its name")
+                && said.contains("mine: Drift already has"),
+            "{said}"
+        );
     }
 
     #[test]
@@ -581,33 +904,83 @@ mod tests {
             std::fs::write(path, text).unwrap();
         };
         write(opencode.join("AGENTS.md"), "Be brief.");
-        write(opencode.join("agents/reviewer.md"), "---\ndescription: Reviews\nmode: subagent\n---\nReview.");
-        write(opencode.join("command/ship.md"), "---\ndescription: Ship it\n---\nShip $ARGUMENTS.");
-        write(opencode.join("skills/impeccable/SKILL.md"), "---\nname: impeccable\ndescription: Design\n---\nDesign well.");
+        write(
+            opencode.join("agents/reviewer.md"),
+            "---\ndescription: Reviews\nmode: subagent\n---\nReview.",
+        );
+        write(
+            opencode.join("command/ship.md"),
+            "---\ndescription: Ship it\n---\nShip $ARGUMENTS.",
+        );
+        write(
+            opencode.join("skills/impeccable/SKILL.md"),
+            "---\nname: impeccable\ndescription: Design\n---\nDesign well.",
+        );
         write(opencode.join("skills/impeccable/reference/colour.md"), "notes");
-        write(opencode.join("skills/unslop/SKILL.md"), "---\nname: unslop\ndescription: Mine\n---\nTheirs.");
+        write(
+            opencode.join("skills/unslop/SKILL.md"),
+            "---\nname: unslop\ndescription: Mine\n---\nTheirs.",
+        );
         write(opencode.join("plugins/gk-hooks.js"), "export default {}");
-        write(home.join(".config/drift/skills/unslop/SKILL.md"), "---\nname: unslop\ndescription: Mine\n---\nMine.");
-        let settings = Settings { auth: None, config: None, config_dir: opencode.clone(), servers: vec![] };
+        write(
+            home.join(".config/drift/skills/unslop/SKILL.md"),
+            "---\nname: unslop\ndescription: Mine\n---\nMine.",
+        );
+        let settings = Settings {
+            auth: None,
+            config: None,
+            config_dir: opencode.clone(),
+            servers: vec![],
+        };
 
         let report = import_settings(&engine.store, &engine.credentials, &providers, &home, &settings).unwrap();
         let mut files = report.files.clone();
         files.sort();
-        assert_eq!(files, ["AGENTS.md", "agents/reviewer.md", "commands/ship.md", "skills/impeccable/SKILL.md", "skills/impeccable/reference/colour.md"]);
+        assert_eq!(
+            files,
+            [
+                "AGENTS.md",
+                "agents/reviewer.md",
+                "commands/ship.md",
+                "skills/impeccable/SKILL.md",
+                "skills/impeccable/reference/colour.md"
+            ]
+        );
         let said = report.skipped.join("\n");
-        assert!(said.contains("skills/unslop/SKILL.md: you already have one") && said.contains("plugin gk-hooks.js"), "{said}");
-        assert!(std::fs::read_to_string(home.join(".config/drift/skills/unslop/SKILL.md")).unwrap().contains("Mine."), "the user's own copy wins");
-        assert_eq!((report.left_out.plugins.clone(), report.left_out.failed.len()), (vec!["gk-hooks.js".to_string()], 0));
+        assert!(
+            said.contains("skills/unslop/SKILL.md: you already have one") && said.contains("plugin gk-hooks.js"),
+            "{said}"
+        );
+        assert!(
+            std::fs::read_to_string(home.join(".config/drift/skills/unslop/SKILL.md"))
+                .unwrap()
+                .contains("Mine."),
+            "the user's own copy wins"
+        );
+        assert_eq!(
+            (report.left_out.plugins.clone(), report.left_out.failed.len()),
+            (vec!["gk-hooks.js".to_string()], 0)
+        );
 
         let workspace = dir.0.join("ws");
         std::fs::create_dir_all(&workspace).unwrap();
         let config = drift_engine::config::Config::load_with_home(&workspace, Some(&home));
-        assert!(config.agent("reviewer").is_some() && config.commands.iter().any(|c| c.name == "ship") && config.skill("impeccable").is_some());
-        assert!(config.instructions.iter().any(|i| i.text.contains("Be brief.")), "the global instructions apply");
+        assert!(
+            config.agent("reviewer").is_some()
+                && config.commands.iter().any(|c| c.name == "ship")
+                && config.skill("impeccable").is_some()
+        );
+        assert!(
+            config.instructions.iter().any(|i| i.text.contains("Be brief.")),
+            "the global instructions apply"
+        );
 
         std::fs::remove_file(home.join(".config/drift/agents/reviewer.md")).unwrap();
         let again = import_settings(&engine.store, &engine.credentials, &providers, &home, &settings).unwrap();
-        assert!(again.files.is_empty() && !home.join(".config/drift/agents/reviewer.md").exists(), "a copied file the user deleted stays deleted");
+        assert!(
+            again.files.is_empty() && !home.join(".config/drift/agents/reviewer.md").exists(),
+            "a copied file the user deleted stays deleted"
+        );
     }
 
     #[test]
@@ -624,28 +997,70 @@ mod tests {
             "plugin": ["opencode-foo@1"],
             "mcp": {},
         });
-        let report = import_settings(&engine.store, &engine.credentials, &providers, &home, &settings(&dir.0, json!({}), config.clone(), vec![])).unwrap();
-        let written: Value = serde_json::from_str(&std::fs::read_to_string(home.join(".config/drift/drift.json")).unwrap()).unwrap();
-        assert_eq!(written["model"], json!({ "provider": "anthropic", "model": "claude-opus-5-5" }));
+        let report = import_settings(
+            &engine.store,
+            &engine.credentials,
+            &providers,
+            &home,
+            &settings(&dir.0, json!({}), config.clone(), vec![]),
+        )
+        .unwrap();
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(home.join(".config/drift/drift.json")).unwrap()).unwrap();
+        assert_eq!(
+            written["model"],
+            json!({ "provider": "anthropic", "model": "claude-opus-5-5" })
+        );
         assert_eq!(written["defaultAgent"], "plan");
-        assert_eq!(written["instructions"], json!([dir.0.join("rules.md").to_string_lossy().replace('\\', "/"), "~/style.md"]));
-        assert_eq!(written["permissions"], json!([
-            { "kind": "edit", "pattern": "*", "decision": "ask" },
-            { "kind": "bash", "pattern": "rm *", "decision": "deny" },
-            { "kind": "bash", "pattern": "git *", "decision": "allow" },
-        ]));
+        assert_eq!(
+            written["instructions"],
+            json!([
+                dir.0.join("rules.md").to_string_lossy().replace('\\', "/"),
+                "~/style.md"
+            ])
+        );
+        assert_eq!(
+            written["permissions"],
+            json!([
+                { "kind": "edit", "pattern": "*", "decision": "ask" },
+                { "kind": "bash", "pattern": "rm *", "decision": "deny" },
+                { "kind": "bash", "pattern": "git *", "decision": "allow" },
+            ])
+        );
         let file: drift_engine::config::File = serde_json::from_value(written).unwrap();
         assert_eq!(file.permissions.len(), 3, "Drift reads what was written");
         let said = report.skipped.join("\n");
-        assert!(said.contains("config tools") && said.contains("plugin opencode-foo@1") && said.contains("permission.doom_loop"), "{said}");
+        assert!(
+            said.contains("config tools")
+                && said.contains("plugin opencode-foo@1")
+                && said.contains("permission.doom_loop"),
+            "{said}"
+        );
         assert!(report.config_written.is_some());
-        assert_eq!((report.left_out.settings.clone(), report.left_out.plugins.clone()), (vec!["permission.doom_loop".to_string(), "tools".into()], vec!["opencode-foo@1".to_string()]));
+        assert_eq!(
+            (report.left_out.settings.clone(), report.left_out.plugins.clone()),
+            (
+                vec!["permission.doom_loop".to_string(), "tools".into()],
+                vec!["opencode-foo@1".to_string()]
+            )
+        );
         let other = dir.0.join("other");
         std::fs::create_dir_all(other.join(".config/drift")).unwrap();
         std::fs::write(other.join(".config/drift/drift.json"), "{}").unwrap();
         engine.store.remove_setting(LEDGER).unwrap();
-        let kept = import_settings(&engine.store, &engine.credentials, &providers, &other, &settings(&dir.0, json!({}), config, vec![])).unwrap();
-        assert_eq!(std::fs::read_to_string(other.join(".config/drift/drift.json")).unwrap(), "{}", "the user's own file is never changed");
+        let kept = import_settings(
+            &engine.store,
+            &engine.credentials,
+            &providers,
+            &other,
+            &settings(&dir.0, json!({}), config, vec![]),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(other.join(".config/drift/drift.json")).unwrap(),
+            "{}",
+            "the user's own file is never changed"
+        );
         assert!(kept.config_written.is_none() && kept.skipped.iter().any(|line| line.contains("you already have")));
     }
 }

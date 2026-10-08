@@ -4,7 +4,7 @@ pub mod claude_code;
 pub mod oauth;
 
 use futures_util::StreamExt;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::catalog::Reasoning;
 use super::sse;
@@ -40,17 +40,40 @@ impl Anthropic {
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         let mut body = body(request);
         let subscription = matches!(credential, Credential::OAuth { .. });
-        let url = format!("{}/v1/messages{}", self.base_url, if subscription { "?beta=true" } else { "" });
-        let http = self.client.post(url).header("anthropic-version", API_VERSION).header("accept", "text/event-stream");
+        let url = format!(
+            "{}/v1/messages{}",
+            self.base_url,
+            if subscription { "?beta=true" } else { "" }
+        );
+        let http = self
+            .client
+            .post(url)
+            .header("anthropic-version", API_VERSION)
+            .header("accept", "text/event-stream");
         let (http, betas) = match credential {
-            Credential::ApiKey { key } => (http.header("x-api-key", key), if interleaves(request) { vec![INTERLEAVED_THINKING] } else { Vec::new() }),
+            Credential::ApiKey { key } => (
+                http.header("x-api-key", key),
+                if interleaves(request) {
+                    vec![INTERLEAVED_THINKING]
+                } else {
+                    Vec::new()
+                },
+            ),
             Credential::OAuth { access, .. } => {
                 claude_code::transform(&mut body);
-                (http.bearer_auth(access).header("user-agent", claude_code::user_agent()), claude_code::BETAS.split(',').collect())
+                (
+                    http.bearer_auth(access).header("user-agent", claude_code::user_agent()),
+                    claude_code::BETAS.split(',').collect(),
+                )
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
-        stream_from(super::mode_headers(http, request, betas).json(&body), &self.timeouts, subscription).await
+        stream_from(
+            super::mode_headers(http, request, betas).json(&body),
+            &self.timeouts,
+            subscription,
+        )
+        .await
     }
 }
 
@@ -63,12 +86,18 @@ pub(super) fn interleaves(request: &Request) -> bool {
 }
 
 /// Sends a Messages request already addressed, authorised and given its body (the API or Vertex) and reads its events.
-pub(super) async fn stream_from(http: reqwest::RequestBuilder, timeouts: &super::http::Timeouts, subscription: bool) -> Result<ChunkStream, Error> {
+pub(super) async fn stream_from(
+    http: reqwest::RequestBuilder,
+    timeouts: &super::http::Timeouts,
+    subscription: bool,
+) -> Result<ChunkStream, Error> {
     let response = super::http::send(http, timeouts).await?;
     let status = response.status();
     if !status.is_success() {
         let headers = response.headers().clone();
-        return Err(api_error(status.as_u16(), &super::http::bounded_body(response, timeouts).await).with_headers(&headers));
+        return Err(
+            api_error(status.as_u16(), &super::http::bounded_body(response, timeouts).await).with_headers(&headers),
+        );
     }
     let events = sse::events(response.bytes_stream(), timeouts.idle);
     Ok(Box::pin(events.flat_map(move |event| {
@@ -98,7 +127,10 @@ pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> Valu
 
 fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
     match chunk {
-        Chunk::ToolUseStart { id, name } if subscription => Chunk::ToolUseStart { id, name: claude_code::original_name(&name) },
+        Chunk::ToolUseStart { id, name } if subscription => Chunk::ToolUseStart {
+            id,
+            name: claude_code::original_name(&name),
+        },
         other => other,
     }
 }
@@ -123,7 +155,9 @@ fn body(request: &Request) -> Value {
         let mut tools: Vec<Value> = request
             .tools
             .iter()
-            .map(|tool| json!({ "name": tool.name, "description": tool.description, "input_schema": tool.input_schema }))
+            .map(
+                |tool| json!({ "name": tool.name, "description": tool.description, "input_schema": tool.input_schema }),
+            )
             .collect();
         if let Some(last) = tools.last_mut() {
             last["cache_control"] = ephemeral();
@@ -158,8 +192,15 @@ fn ephemeral() -> Value {
 /// before it sits exactly where the previous request wrote, so a step that adds more blocks than the
 /// cache lookback still hits.
 fn mark_conversation(messages: &mut [Value]) {
-    for message in messages.iter_mut().rev().filter(|m| m["role"] == "user").take(CONVERSATION_BREAKPOINTS) {
-        let last = message["content"].as_array_mut().and_then(|blocks| blocks.iter_mut().rev().find(|b| cacheable(b)));
+    for message in messages
+        .iter_mut()
+        .rev()
+        .filter(|m| m["role"] == "user")
+        .take(CONVERSATION_BREAKPOINTS)
+    {
+        let last = message["content"]
+            .as_array_mut()
+            .and_then(|blocks| blocks.iter_mut().rev().find(|b| cacheable(b)));
         if let Some(block) = last {
             block["cache_control"] = ephemeral();
         }
@@ -181,12 +222,29 @@ fn message(message: &ChatMessage) -> Value {
 
 /// Thinking without a signature (another wire's reasoning text) is refused by Anthropic, so it stays home.
 fn sendable(block: &Block) -> bool {
-    !matches!(block.unsigned(), Block::Stored { .. } | Block::Reasoning { signature: None, redacted: None, .. })
+    !matches!(
+        block.unsigned(),
+        Block::Stored { .. }
+            | Block::Reasoning {
+                signature: None,
+                redacted: None,
+                ..
+            }
+    )
 }
 
 /// A call id as Anthropic accepts it (`[a-zA-Z0-9_-]+`); ids from other providers (`functions.read:0`) are mapped the same way on both sides.
 fn wire_id(id: &str) -> String {
-    let id: String = id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).collect();
+    let id: String = id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     if id.is_empty() { "call".into() } else { id }
 }
 
@@ -194,18 +252,28 @@ fn block(block: &Block) -> Value {
     match block {
         Block::Signed { part, .. } => self::block(part),
         Block::Text(text) => json!({ "type": "text", "text": text }),
-        Block::Reasoning { redacted: Some(data), .. } => json!({ "type": "redacted_thinking", "data": data }),
+        Block::Reasoning {
+            redacted: Some(data), ..
+        } => json!({ "type": "redacted_thinking", "data": data }),
         Block::Reasoning { text, signature, .. } => {
             json!({ "type": "thinking", "thinking": text, "signature": signature.clone().unwrap_or_default() })
         }
-        Block::ToolUse { id, name, input } => json!({ "type": "tool_use", "id": wire_id(id), "name": name, "input": input }),
-        Block::ToolResult { call_id, content, is_error } => {
+        Block::ToolUse { id, name, input } => {
+            json!({ "type": "tool_use", "id": wire_id(id), "name": name, "input": input })
+        }
+        Block::ToolResult {
+            call_id,
+            content,
+            is_error,
+        } => {
             json!({ "type": "tool_result", "tool_use_id": wire_id(call_id), "content": content, "is_error": is_error })
         }
         Block::Image { mime, base64 } => {
             json!({ "type": "image", "source": { "type": "base64", "media_type": mime, "data": base64 } })
         }
-        Block::Pdf { base64 } => json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": base64 } }),
+        Block::Pdf { base64 } => {
+            json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": base64 } })
+        }
         Block::Stored { .. } => json!({ "type": "text", "text": "[file not loaded]" }),
     }
 }
@@ -293,29 +361,63 @@ mod tests {
 
     #[test]
     fn a_pdf_is_a_base64_document() {
-        let sent = block(&Block::Pdf { base64: "JVBERi0=".into() });
-        assert_eq!(sent, json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBERi0=" } }));
+        let sent = block(&Block::Pdf {
+            base64: "JVBERi0=".into(),
+        });
+        assert_eq!(
+            sent,
+            json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBERi0=" } })
+        );
     }
 
     #[test]
     fn call_ids_from_other_providers_are_made_acceptable_on_both_sides() {
         let request = Request {
             messages: vec![
-                ChatMessage { role: Role::Assistant, blocks: vec![Block::ToolUse { id: "functions.read:0".into(), name: "read".into(), input: json!({}) }] },
-                ChatMessage { role: Role::User, blocks: vec![Block::ToolResult { call_id: "functions.read:0".into(), content: "ok".into(), is_error: false }] },
+                ChatMessage {
+                    role: Role::Assistant,
+                    blocks: vec![Block::ToolUse {
+                        id: "functions.read:0".into(),
+                        name: "read".into(),
+                        input: json!({}),
+                    }],
+                },
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::ToolResult {
+                        call_id: "functions.read:0".into(),
+                        content: "ok".into(),
+                        is_error: false,
+                    }],
+                },
             ],
             ..request()
         };
         let built = body(&request);
-        let (used, answered) = (&built["messages"][0]["content"][0]["id"], &built["messages"][1]["content"][0]["tool_use_id"]);
-        assert_eq!((used.as_str(), answered.as_str()), (Some("functions_read_0"), Some("functions_read_0")));
+        let (used, answered) = (
+            &built["messages"][0]["content"][0]["id"],
+            &built["messages"][1]["content"][0]["tool_use_id"],
+        );
+        assert_eq!(
+            (used.as_str(), answered.as_str()),
+            (Some("functions_read_0"), Some("functions_read_0"))
+        );
     }
 
     #[test]
     fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
         assert!(body(&request()).get("tool_choice").is_none());
-        let built = body(&Request { no_tool_calls: true, ..request() });
-        assert_eq!((built["tool_choice"].clone(), built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0), (json!({ "type": "none" }), true));
+        let built = body(&Request {
+            no_tool_calls: true,
+            ..request()
+        });
+        assert_eq!(
+            (
+                built["tool_choice"].clone(),
+                built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0
+            ),
+            (json!({ "type": "none" }), true)
+        );
     }
 
     fn request() -> Request {
@@ -323,20 +425,39 @@ mod tests {
             model: "claude-sonnet-4-5".into(),
             system: "You are Drift.".into(),
             messages: vec![
-                ChatMessage { role: Role::User, blocks: vec![Block::Text("hi".into())] },
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::Text("hi".into())],
+                },
                 ChatMessage {
                     role: Role::Assistant,
                     blocks: vec![
-                        Block::Reasoning { text: "think".into(), signature: Some("sig".into()), redacted: None },
-                        Block::ToolUse { id: "toolu_1".into(), name: "read".into(), input: json!({ "path": "a" }) },
+                        Block::Reasoning {
+                            text: "think".into(),
+                            signature: Some("sig".into()),
+                            redacted: None,
+                        },
+                        Block::ToolUse {
+                            id: "toolu_1".into(),
+                            name: "read".into(),
+                            input: json!({ "path": "a" }),
+                        },
                     ],
                 },
                 ChatMessage {
                     role: Role::User,
-                    blocks: vec![Block::ToolResult { call_id: "toolu_1".into(), content: "ok".into(), is_error: false }],
+                    blocks: vec![Block::ToolResult {
+                        call_id: "toolu_1".into(),
+                        content: "ok".into(),
+                        is_error: false,
+                    }],
                 },
             ],
-            tools: vec![ToolSpec { name: "read".into(), description: "Reads".into(), input_schema: json!({ "type": "object" }) }],
+            tools: vec![ToolSpec {
+                name: "read".into(),
+                description: "Reads".into(),
+                input_schema: json!({ "type": "object" }),
+            }],
             max_tokens: 1000,
             reasoning: Some(Reasoning::Budget { tokens: 2048 }),
             temperature: Some(0.5),
@@ -357,7 +478,10 @@ mod tests {
         assert_eq!(body["system"][0]["cache_control"]["type"], "ephemeral");
         assert_eq!(body["tools"][0]["cache_control"]["type"], "ephemeral");
         assert_eq!(body["thinking"]["budget_tokens"], 2048);
-        assert!(body.get("temperature").is_none(), "temperature is dropped when thinking is on");
+        assert!(
+            body.get("temperature").is_none(),
+            "temperature is dropped when thinking is on"
+        );
         assert_eq!(body["messages"][1]["content"][0]["type"], "thinking");
         assert_eq!(body["messages"][1]["content"][0]["signature"], "sig");
         assert_eq!(body["messages"][1]["content"][1]["id"], "toolu_1");
@@ -367,7 +491,11 @@ mod tests {
     #[test]
     fn unsigned_thinking_is_never_sent() {
         let mut request = request();
-        request.messages[1].blocks[0] = Block::Reasoning { text: "think".into(), signature: None, redacted: None };
+        request.messages[1].blocks[0] = Block::Reasoning {
+            text: "think".into(),
+            signature: None,
+            redacted: None,
+        };
         assert_eq!(body(&request)["messages"][1]["content"][0]["type"], "tool_use");
     }
 
@@ -376,7 +504,13 @@ mod tests {
     }
 
     fn marked(body: &Value, index: usize) -> bool {
-        body["messages"][index]["content"].as_array().unwrap().last().unwrap().get("cache_control").is_some()
+        body["messages"][index]["content"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()
+            .get("cache_control")
+            .is_some()
     }
 
     #[test]
@@ -388,15 +522,39 @@ mod tests {
         assert_eq!(breakpoints(&first), 3, "system, tools and the only user message");
 
         let mut next = request();
-        next.messages.push(ChatMessage { role: Role::Assistant, blocks: vec![Block::ToolUse { id: "toolu_2".into(), name: "read".into(), input: json!({}) }] });
-        next.messages.push(ChatMessage { role: Role::User, blocks: vec![Block::ToolResult { call_id: "toolu_2".into(), content: "ok".into(), is_error: false }] });
+        next.messages.push(ChatMessage {
+            role: Role::Assistant,
+            blocks: vec![Block::ToolUse {
+                id: "toolu_2".into(),
+                name: "read".into(),
+                input: json!({}),
+            }],
+        });
+        next.messages.push(ChatMessage {
+            role: Role::User,
+            blocks: vec![Block::ToolResult {
+                call_id: "toolu_2".into(),
+                content: "ok".into(),
+                is_error: false,
+            }],
+        });
         let previous = body(&request());
         let next = body(&next);
         assert_eq!(breakpoints(&next), 4, "never more than Anthropic allows");
         assert!(marked(&next, 4) && marked(&next, 2) && !marked(&next, 0) && !marked(&next, 1) && !marked(&next, 3));
-        assert!(marked(&previous, 2), "the step before wrote at the block this one reads from");
-        let unmarked = |body: &Value| body["messages"].to_string().replace(r#""cache_control":{"type":"ephemeral"},"#, "");
-        assert!(unmarked(&next).starts_with(unmarked(&previous).trim_end_matches(']')), "and the content up to it is unchanged");
+        assert!(
+            marked(&previous, 2),
+            "the step before wrote at the block this one reads from"
+        );
+        let unmarked = |body: &Value| {
+            body["messages"]
+                .to_string()
+                .replace(r#""cache_control":{"type":"ephemeral"},"#, "")
+        };
+        assert!(
+            unmarked(&next).starts_with(unmarked(&previous).trim_end_matches(']')),
+            "and the content up to it is unchanged"
+        );
     }
 
     #[test]
@@ -404,7 +562,10 @@ mod tests {
         let mut request = request();
         request.messages[0].blocks = vec![Block::Text("look".into()), Block::Text(String::new())];
         let mut body = body(&request);
-        assert!(body["messages"][0]["content"][0].get("cache_control").is_some(), "empty text is skipped for the block before it");
+        assert!(
+            body["messages"][0]["content"][0].get("cache_control").is_some(),
+            "empty text is skipped for the block before it"
+        );
         assert!(body["messages"][0]["content"][1].get("cache_control").is_none());
         claude_code::transform(&mut body);
         assert_eq!(breakpoints(&body), 4);
@@ -431,37 +592,117 @@ mod tests {
     #[test]
     fn stream_events_map_to_chunks() {
         let cases = [
-            ("message_start", r#"{"message":{"usage":{"input_tokens":10,"cache_read_input_tokens":4}}}"#, Some(Chunk::Usage(Usage { input: 10, output: 0, cache_read: 4, cache_write: 0 }))),
-            ("content_block_start", r#"{"content_block":{"type":"tool_use","id":"t1","name":"read"}}"#, Some(Chunk::ToolUseStart { id: "t1".into(), name: "read".into() })),
-            ("content_block_delta", r#"{"delta":{"type":"input_json_delta","partial_json":"{\"pa"}}"#, Some(Chunk::ToolInputDelta("{\"pa".into()))),
-            ("content_block_delta", r#"{"delta":{"type":"signature_delta","signature":"s"}}"#, Some(Chunk::ReasoningSignature("s".into()))),
-            ("content_block_start", r#"{"content_block":{"type":"redacted_thinking","data":"xyz"}}"#, Some(Chunk::ReasoningRedacted("xyz".into()))),
+            (
+                "message_start",
+                r#"{"message":{"usage":{"input_tokens":10,"cache_read_input_tokens":4}}}"#,
+                Some(Chunk::Usage(Usage {
+                    input: 10,
+                    output: 0,
+                    cache_read: 4,
+                    cache_write: 0,
+                })),
+            ),
+            (
+                "content_block_start",
+                r#"{"content_block":{"type":"tool_use","id":"t1","name":"read"}}"#,
+                Some(Chunk::ToolUseStart {
+                    id: "t1".into(),
+                    name: "read".into(),
+                }),
+            ),
+            (
+                "content_block_delta",
+                r#"{"delta":{"type":"input_json_delta","partial_json":"{\"pa"}}"#,
+                Some(Chunk::ToolInputDelta("{\"pa".into())),
+            ),
+            (
+                "content_block_delta",
+                r#"{"delta":{"type":"signature_delta","signature":"s"}}"#,
+                Some(Chunk::ReasoningSignature("s".into())),
+            ),
+            (
+                "content_block_start",
+                r#"{"content_block":{"type":"redacted_thinking","data":"xyz"}}"#,
+                Some(Chunk::ReasoningRedacted("xyz".into())),
+            ),
             ("content_block_stop", r#"{}"#, Some(Chunk::BlockStop)),
-            ("message_delta", r#"{"delta":{},"usage":{"output_tokens":7}}"#, Some(Chunk::Usage(Usage { output: 7, ..Usage::default() }))),
+            (
+                "message_delta",
+                r#"{"delta":{},"usage":{"output_tokens":7}}"#,
+                Some(Chunk::Usage(Usage {
+                    output: 7,
+                    ..Usage::default()
+                })),
+            ),
             ("ping", r#"{}"#, None),
             ("message_stop", r#"{}"#, None),
-            ("content_block_start", r#"{"content_block":{"type":"server_tool_use","id":"s1","name":"web_search"}}"#, None),
-            ("content_block_delta", r#"{"delta":{"type":"citations_delta","citation":{}}}"#, None),
+            (
+                "content_block_start",
+                r#"{"content_block":{"type":"server_tool_use","id":"s1","name":"web_search"}}"#,
+                None,
+            ),
+            (
+                "content_block_delta",
+                r#"{"delta":{"type":"citations_delta","citation":{}}}"#,
+                None,
+            ),
         ];
         for (event, data, expected) in cases {
             assert_eq!(chunks(event, data).unwrap().into_iter().next(), expected, "{event}");
         }
-        let both = chunks("message_delta", r#"{"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}"#).unwrap();
-        assert_eq!(both, vec![Chunk::Usage(Usage { output: 7, ..Usage::default() }), Chunk::Stop(StopReason::ToolUse)]);
-        let stop = |reason: &str| chunks("message_delta", &format!(r#"{{"delta":{{"stop_reason":"{reason}"}}}}"#)).unwrap().pop();
+        let both = chunks(
+            "message_delta",
+            r#"{"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            both,
+            vec![
+                Chunk::Usage(Usage {
+                    output: 7,
+                    ..Usage::default()
+                }),
+                Chunk::Stop(StopReason::ToolUse)
+            ]
+        );
+        let stop = |reason: &str| {
+            chunks("message_delta", &format!(r#"{{"delta":{{"stop_reason":"{reason}"}}}}"#))
+                .unwrap()
+                .pop()
+        };
         assert_eq!(stop("refusal"), Some(Chunk::Stop(StopReason::Refused)));
-        assert_eq!(stop("model_context_window_exceeded"), Some(Chunk::Stop(StopReason::ContextFull)));
+        assert_eq!(
+            stop("model_context_window_exceeded"),
+            Some(Chunk::Stop(StopReason::ContextFull))
+        );
     }
 
     #[test]
     fn error_frames_and_statuses_classify() {
-        let error = chunks("error", r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#).unwrap_err();
-        assert!(matches!(error, Error::Api { ref kind, retryable: true, .. } if kind == "overloaded_error"), "an overload mid-stream retries");
-        let invalid = chunks("error", r#"{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}"#).unwrap_err();
+        let error = chunks(
+            "error",
+            r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(error, Error::Api { ref kind, retryable: true, .. } if kind == "overloaded_error"),
+            "an overload mid-stream retries"
+        );
+        let invalid = chunks(
+            "error",
+            r#"{"type":"error","error":{"type":"invalid_request_error","message":"bad"}}"#,
+        )
+        .unwrap_err();
         assert!(matches!(invalid, Error::Api { retryable: false, .. }));
         assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
         assert!(matches!(api_error(400, "{}"), Error::Api { retryable: false, .. }));
-        let expired = api_error(401, r#"{"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}"#);
-        assert!(matches!(expired, Error::Unauthenticated(ref m) if m == "OAuth token has expired."), "the provider's words are kept: {expired:?}");
+        let expired = api_error(
+            401,
+            r#"{"type":"error","error":{"type":"authentication_error","message":"OAuth token has expired."}}"#,
+        );
+        assert!(
+            matches!(expired, Error::Unauthenticated(ref m) if m == "OAuth token has expired."),
+            "the provider's words are kept: {expired:?}"
+        );
     }
 }

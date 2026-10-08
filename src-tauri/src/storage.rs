@@ -80,7 +80,12 @@ impl Location {
     fn total_bytes(&self) -> i64 {
         let database = self.database();
         let log = PathBuf::from(format!("{}-wal", database.display()));
-        file_bytes(&database) + file_bytes(&log) + FOLDERS.iter().map(|(_, folder)| folder_bytes(&self.data_dir.join(folder))).sum::<i64>()
+        file_bytes(&database)
+            + file_bytes(&log)
+            + FOLDERS
+                .iter()
+                .map(|(_, folder)| folder_bytes(&self.data_dir.join(folder)))
+                .sum::<i64>()
     }
 }
 
@@ -100,7 +105,11 @@ fn folder_bytes(path: &Path) -> i64 {
 }
 
 fn open(database: &Path, read_only: bool) -> Result<Connection, String> {
-    let flags = if read_only { OpenFlags::SQLITE_OPEN_READ_ONLY } else { OpenFlags::SQLITE_OPEN_READ_WRITE };
+    let flags = if read_only {
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+    } else {
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+    };
     let conn = Connection::open_with_flags(database, flags).map_err(|error| error.to_string())?;
     conn.busy_timeout(BUSY_TIMEOUT).map_err(|error| error.to_string())?;
     Ok(conn)
@@ -132,7 +141,9 @@ fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f6
              )"
         );
         let (bytes, counted): (i64, i64) = conn
-            .query_row(&sql, (stratum * stride, SAMPLE_ROWS_PER_STRATUM), |row| Ok((row.get(0)?, row.get(1)?)))
+            .query_row(&sql, (stratum * stride, SAMPLE_ROWS_PER_STRATUM), |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
             .map_err(|error| error.to_string())?;
         total += bytes;
         rows += counted;
@@ -143,12 +154,19 @@ fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f6
 /// A conversation counts as archived when the engine marks it or Drift's archive list names it.
 fn session_counts(conn: &Connection, archived: &[String]) -> Result<SessionCounts, String> {
     let listed = quote_list(archived);
-    let extra = if listed.is_empty() { String::new() } else { format!(" OR id IN ({listed})") };
+    let extra = if listed.is_empty() {
+        String::new()
+    } else {
+        format!(" OR id IN ({listed})")
+    };
     Ok(SessionCounts {
         total: scalar(conn, "SELECT COUNT(*) FROM session")?,
         top_level: scalar(conn, "SELECT COUNT(*) FROM session WHERE visibility = 'sibling'")?,
         subagent: scalar(conn, "SELECT COUNT(*) FROM session WHERE visibility = 'hidden'")?,
-        archived: scalar(conn, &format!("SELECT COUNT(*) FROM session WHERE archived_at IS NOT NULL{extra}"))?,
+        archived: scalar(
+            conn,
+            &format!("SELECT COUNT(*) FROM session WHERE archived_at IS NOT NULL{extra}"),
+        )?,
     })
 }
 
@@ -167,10 +185,18 @@ pub fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, S
     for (table, column) in PAYLOAD_TABLES {
         let rows = scalar(&conn, &format!("SELECT COUNT(*) FROM \"{table}\""))?;
         let mean = sampled_mean_bytes(&conn, table, column)?;
-        tables.push(TableUsage { table: table.into(), rows, bytes: (rows as f64 * mean) as i64 });
+        tables.push(TableUsage {
+            table: table.into(),
+            rows,
+            bytes: (rows as f64 * mean) as i64,
+        });
     }
     for (name, folder) in FOLDERS {
-        tables.push(TableUsage { table: name.into(), rows: 0, bytes: folder_bytes(&location.data_dir.join(folder)) });
+        tables.push(TableUsage {
+            table: name.into(),
+            rows: 0,
+            bytes: folder_bytes(&location.data_dir.join(folder)),
+        });
     }
     Ok(StorageStats {
         path: location.database().to_string_lossy().into_owned(),
@@ -185,7 +211,11 @@ pub fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, S
 /// What a cleanup took away, measured around it.
 pub fn cleaned(location: &Location, before: i64, images: usize) -> Result<PruneResult, String> {
     let conn = open(&location.database(), true)?;
-    Ok(PruneResult { removed_rows: images as i64, freed_bytes: (before - location.total_bytes()).max(0), free_bytes: free_bytes(&conn)? })
+    Ok(PruneResult {
+        removed_rows: images as i64,
+        freed_bytes: (before - location.total_bytes()).max(0),
+        free_bytes: free_bytes(&conn)?,
+    })
 }
 
 pub fn total_bytes(location: &Location) -> i64 {
@@ -197,15 +227,23 @@ pub fn total_bytes(location: &Location) -> i64 {
 pub fn compact(location: &Location) -> Result<PruneResult, String> {
     let before = location.total_bytes();
     let conn = open(&location.database(), false)?;
-    conn.execute_batch("VACUUM").map_err(|error| format!("could not compact the database (it is in use): {error}"))?;
+    conn.execute_batch("VACUUM")
+        .map_err(|error| format!("could not compact the database (it is in use): {error}"))?;
     // The rewrite went through the log; folding it back is what makes the file smaller on disk.
     let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
-    Ok(PruneResult { removed_rows: 0, freed_bytes: (before - location.total_bytes()).max(0), free_bytes: free_bytes(&conn)? })
+    Ok(PruneResult {
+        removed_rows: 0,
+        freed_bytes: (before - location.total_bytes()).max(0),
+        free_bytes: free_bytes(&conn)?,
+    })
 }
 
 /// Session ids Drift has archived, counted as archived beside the engine's own flag.
 pub fn archived_ids(store: &Store) -> Vec<String> {
-    store.archived().map(|rows| rows.into_iter().map(|row| row.session_id).collect()).unwrap_or_default()
+    store
+        .archived()
+        .map(|rows| rows.into_iter().map(|row| row.session_id).collect())
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

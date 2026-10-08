@@ -31,15 +31,31 @@ struct Open {
 
 impl<'a> Assembler<'a> {
     pub fn new(store: &'a Store, hub: &'a Hub, message: &'a Message) -> Self {
-        Self { store, hub, message, open: None, usage: Usage::default(), stop: None, calls: Vec::new() }
+        Self {
+            store,
+            hub,
+            message,
+            open: None,
+            usage: Usage::default(),
+            stop: None,
+            calls: Vec::new(),
+        }
     }
 
     pub fn apply(&mut self, chunk: Chunk) -> rusqlite::Result<()> {
         match chunk {
             Chunk::TextStart => self.start(Part::Text { text: String::new() }),
-            Chunk::ReasoningStart => self.start(Part::Reasoning { text: String::new(), signature: None, redacted: None }),
+            Chunk::ReasoningStart => self.start(Part::Reasoning {
+                text: String::new(),
+                signature: None,
+                redacted: None,
+            }),
             Chunk::ReasoningRedacted(data) => {
-                self.start(Part::Reasoning { text: String::new(), signature: None, redacted: Some(data) })?;
+                self.start(Part::Reasoning {
+                    text: String::new(),
+                    signature: None,
+                    redacted: Some(data),
+                })?;
                 self.stop_block()
             }
             Chunk::ToolUseStart { id, name } => self.start(Part::ToolCall {
@@ -60,7 +76,9 @@ impl<'a> Assembler<'a> {
                 }
             }),
             Chunk::PartSignature(signature) => {
-                if let Some(open) = &mut self.open { open.row.provider_signature = Some(signature); }
+                if let Some(open) = &mut self.open {
+                    open.row.provider_signature = Some(signature);
+                }
                 Ok(())
             }
             Chunk::ToolInputDelta(json) => {
@@ -85,7 +103,12 @@ impl<'a> Assembler<'a> {
         self.stop_block()?;
         let row = self.store.add_part(&self.message.id, &self.message.session_id, part)?;
         self.hub.publish(Event::PartCreated { part: row.clone() });
-        self.open = Some(Open { row, tool_json: String::new(), length: 0, saved: std::time::Instant::now() });
+        self.open = Some(Open {
+            row,
+            tool_json: String::new(),
+            length: 0,
+            saved: std::time::Instant::now(),
+        });
         Ok(())
     }
 
@@ -122,7 +145,9 @@ impl<'a> Assembler<'a> {
 
     /// Persists the open block; tool calls are queued for execution once the message ends.
     pub fn stop_block(&mut self) -> rusqlite::Result<()> {
-        let Some(mut open) = self.open.take() else { return Ok(()) };
+        let Some(mut open) = self.open.take() else {
+            return Ok(());
+        };
         if let Part::ToolCall { input, .. } = &mut open.row.part {
             *input = parse_input(&open.tool_json);
         }
@@ -146,20 +171,30 @@ fn parse_input(json: &str) -> Value {
 mod tests {
     use super::*;
     use crate::session::types::{Role, Visibility};
-    use crate::store::{tests::store, NewSession};
+    use crate::store::{NewSession, tests::store};
 
     #[test]
     fn assembles_text_reasoning_and_tool_calls() {
         let store = store();
         let hub = Hub::new(64);
         let session = store
-            .create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None })
+            .create_session(NewSession {
+                workspace_id: "w",
+                parent_id: None,
+                visibility: Visibility::Sibling,
+                title: "",
+                agent: "build",
+                model: None,
+            })
             .unwrap();
         let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
         let mut rx = hub.attach(None).rx;
         let mut assembler = Assembler::new(&store, &hub, &message);
         for chunk in [
-            Chunk::Usage(Usage { input: 5, ..Usage::default() }),
+            Chunk::Usage(Usage {
+                input: 5,
+                ..Usage::default()
+            }),
             Chunk::ReasoningStart,
             Chunk::ReasoningDelta("hm".into()),
             Chunk::ReasoningSignature("sig".into()),
@@ -168,22 +203,45 @@ mod tests {
             Chunk::TextDelta("Hel".into()),
             Chunk::TextDelta("lo".into()),
             Chunk::BlockStop,
-            Chunk::ToolUseStart { id: "t1".into(), name: "read".into() },
+            Chunk::ToolUseStart {
+                id: "t1".into(),
+                name: "read".into(),
+            },
             Chunk::ToolInputDelta("{\"path\":".into()),
             Chunk::ToolInputDelta(" \"a\"}".into()),
             Chunk::BlockStop,
-            Chunk::Usage(Usage { output: 9, ..Usage::default() }),
+            Chunk::Usage(Usage {
+                output: 9,
+                ..Usage::default()
+            }),
             Chunk::Stop(StopReason::ToolUse),
         ] {
             assembler.apply(chunk).unwrap();
         }
-        assert_eq!(assembler.usage, Usage { input: 5, output: 9, cache_read: 0, cache_write: 0 });
+        assert_eq!(
+            assembler.usage,
+            Usage {
+                input: 5,
+                output: 9,
+                cache_read: 0,
+                cache_write: 0
+            }
+        );
         assert_eq!(assembler.stop, Some(StopReason::ToolUse));
         assert_eq!(assembler.calls.len(), 1);
         let parts = store.transcript(&session.id).unwrap().remove(0).parts;
-        assert_eq!(parts[0].part, Part::Reasoning { text: "hm".into(), signature: Some("sig".into()), redacted: None });
+        assert_eq!(
+            parts[0].part,
+            Part::Reasoning {
+                text: "hm".into(),
+                signature: Some("sig".into()),
+                redacted: None
+            }
+        );
         assert_eq!(parts[1].part, Part::Text { text: "Hello".into() });
-        let Part::ToolCall { input, status, .. } = &parts[2].part else { panic!() };
+        let Part::ToolCall { input, status, .. } = &parts[2].part else {
+            panic!()
+        };
         assert_eq!(input, &serde_json::json!({ "path": "a" }));
         assert_eq!(*status, ToolStatus::Pending);
 
@@ -196,7 +254,12 @@ mod tests {
                 _ => "other",
             });
         }
-        assert_eq!(kinds, ["created", "delta", "updated", "created", "delta", "delta", "updated", "created", "updated"]);
+        assert_eq!(
+            kinds,
+            [
+                "created", "delta", "updated", "created", "delta", "delta", "updated", "created", "updated"
+            ]
+        );
     }
 
     #[test]
@@ -204,25 +267,51 @@ mod tests {
         let store = store();
         let hub = Hub::new(64);
         let session = store
-            .create_session(NewSession { workspace_id: "w", parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None })
+            .create_session(NewSession {
+                workspace_id: "w",
+                parent_id: None,
+                visibility: Visibility::Sibling,
+                title: "",
+                agent: "build",
+                model: None,
+            })
             .unwrap();
         let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
         let mut rx = hub.attach(None).rx;
         let mut assembler = Assembler::new(&store, &hub, &message);
-        for chunk in [Chunk::TextStart, Chunk::TextDelta("héllo ".into()), Chunk::TextDelta("wörld".into())] {
+        for chunk in [
+            Chunk::TextStart,
+            Chunk::TextDelta("héllo ".into()),
+            Chunk::TextDelta("wörld".into()),
+        ] {
             assembler.apply(chunk).unwrap();
         }
         let parts = store.transcript(&session.id).unwrap().remove(0).parts;
-        assert_eq!(parts[0].part, Part::Text { text: "héllo wörld".into() }, "a reader mid-stream sees every published delta");
-        let offsets: Vec<usize> = std::iter::from_fn(|| rx.try_recv().ok()).filter_map(|envelope| match envelope.event {
-            Event::PartDelta { offset, .. } => Some(offset),
-            _ => None,
-        }).collect();
+        assert_eq!(
+            parts[0].part,
+            Part::Text {
+                text: "héllo wörld".into()
+            },
+            "a reader mid-stream sees every published delta"
+        );
+        let offsets: Vec<usize> = std::iter::from_fn(|| rx.try_recv().ok())
+            .filter_map(|envelope| match envelope.event {
+                Event::PartDelta { offset, .. } => Some(offset),
+                _ => None,
+            })
+            .collect();
         assert_eq!(offsets, [0, 6], "in UTF-16 units, as a browser counts");
         assembler.apply(Chunk::BlockStop).unwrap();
-        store.lock().execute("UPDATE part SET json = '{\"type\":\"text\",\"text\":\"on disk\"}'", []).unwrap();
+        store
+            .lock()
+            .execute("UPDATE part SET json = '{\"type\":\"text\",\"text\":\"on disk\"}'", [])
+            .unwrap();
         let parts = store.transcript(&session.id).unwrap().remove(0).parts;
-        assert_eq!(parts[0].part, Part::Text { text: "on disk".into() }, "a closed part is read from disk again");
+        assert_eq!(
+            parts[0].part,
+            Part::Text { text: "on disk".into() },
+            "a closed part is read from disk again"
+        );
     }
 
     #[test]
@@ -230,13 +319,35 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("drift-signature-{}", crate::random_hex(4)));
         let store = crate::store::open(&dir).unwrap();
         let workspace = store.add_workspace("ws", "ws", "").unwrap();
-        let session = store.create_session(NewSession { workspace_id: &workspace.id, parent_id: None, visibility: Visibility::Sibling, title: "", agent: "build", model: None }).unwrap();
-        let model = crate::session::types::ModelRef { provider: "google".into(), model: "gemini-3-pro".into() };
-        let mut message = store.create_message(&session.id, Role::Assistant, Some(&model)).unwrap();
+        let session = store
+            .create_session(NewSession {
+                workspace_id: &workspace.id,
+                parent_id: None,
+                visibility: Visibility::Sibling,
+                title: "",
+                agent: "build",
+                model: None,
+            })
+            .unwrap();
+        let model = crate::session::types::ModelRef {
+            provider: "google".into(),
+            model: "gemini-3-pro".into(),
+        };
+        let mut message = store
+            .create_message(&session.id, Role::Assistant, Some(&model))
+            .unwrap();
         let hub = Hub::new(64);
         {
             let mut assembler = Assembler::new(&store, &hub, &message);
-            for chunk in [Chunk::ToolUseStart { id: "c".into(), name: "read".into() }, Chunk::ToolInputDelta(r#"{"path":"a"}"#.into()), Chunk::PartSignature("opaque-signature".into()), Chunk::BlockStop] {
+            for chunk in [
+                Chunk::ToolUseStart {
+                    id: "c".into(),
+                    name: "read".into(),
+                },
+                Chunk::ToolInputDelta(r#"{"path":"a"}"#.into()),
+                Chunk::PartSignature("opaque-signature".into()),
+                Chunk::BlockStop,
+            ] {
                 assembler.apply(chunk).unwrap();
             }
         }
@@ -245,14 +356,46 @@ mod tests {
         drop(store);
         let store = crate::store::open(&dir).unwrap();
         let transcript = store.transcript(&session.id).unwrap();
-        assert_eq!(transcript[0].parts[0].provider_signature.as_deref(), Some("opaque-signature"));
+        assert_eq!(
+            transcript[0].parts[0].provider_signature.as_deref(),
+            Some("opaque-signature")
+        );
         let mut sent = Vec::new();
         super::super::convert::append(&mut sent, &transcript, &model);
-        assert!(matches!(&sent[0].blocks[0], crate::llm::Block::Signed { part, signature } if signature == "opaque-signature" && matches!(part.as_ref(), crate::llm::Block::ToolUse { .. })));
-        let fork = store.fork_session(&session.id, NewSession { workspace_id: &workspace.id, parent_id: None, visibility: Visibility::Sibling, title: "fork", agent: "build", model: None }, &message.id, None).unwrap().unwrap();
-        assert_eq!(store.transcript(&fork.id).unwrap()[0].parts[0].provider_signature.as_deref(), Some("opaque-signature"));
+        assert!(
+            matches!(&sent[0].blocks[0], crate::llm::Block::Signed { part, signature } if signature == "opaque-signature" && matches!(part.as_ref(), crate::llm::Block::ToolUse { .. }))
+        );
+        let fork = store
+            .fork_session(
+                &session.id,
+                NewSession {
+                    workspace_id: &workspace.id,
+                    parent_id: None,
+                    visibility: Visibility::Sibling,
+                    title: "fork",
+                    agent: "build",
+                    model: None,
+                },
+                &message.id,
+                None,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            store.transcript(&fork.id).unwrap()[0].parts[0]
+                .provider_signature
+                .as_deref(),
+            Some("opaque-signature")
+        );
         let mut switched = Vec::new();
-        super::super::convert::append(&mut switched, &transcript, &crate::session::types::ModelRef { provider: "openai".into(), model: "gpt".into() });
+        super::super::convert::append(
+            &mut switched,
+            &transcript,
+            &crate::session::types::ModelRef {
+                provider: "openai".into(),
+                model: "gpt".into(),
+            },
+        );
         assert!(matches!(switched[0].blocks[0], crate::llm::Block::ToolUse { .. }));
         drop(store);
         std::fs::remove_dir_all(dir).unwrap();

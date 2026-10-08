@@ -1,30 +1,30 @@
 use crate::remote_auth::{self, Auth, PendingLink};
+use crate::remote_tls::Tls;
 use crate::store::{RemoteDevice, Store};
 use crate::{commands, config, editor, file_preview, prompts, ui_state, voice};
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::extract::{DefaultBodyLimit, Extension, Request, State};
-use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::service::TowerToHyperService;
 use rust_embed::RustEmbed;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use crate::remote_tls::Tls;
-use axum::extract::ConnectInfo;
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use hyper_util::service::TowerToHyperService;
+use serde_json::{Value, json};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Component, Path};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::Manager;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, watch, Mutex as AsyncMutex};
+use tokio::sync::{Mutex as AsyncMutex, broadcast, watch};
 use tokio::task::JoinHandle;
 use tokio_rustls::TlsAcceptor;
 use tower::ServiceExt;
@@ -134,7 +134,12 @@ impl RemoteAccess {
             .map_err(|error| error.to_string())?;
         let (shutdown, http_shutdown) = watch::channel(false);
         let discovery_shutdown = shutdown.subscribe();
-        let http = tokio::spawn(accept_loop(http_listener, router(app.clone()), self.tls.clone(), http_shutdown));
+        let http = tokio::spawn(accept_loop(
+            http_listener,
+            router(app.clone()),
+            self.tls.clone(),
+            http_shutdown,
+        ));
         let fingerprint = self.tls.fingerprint().to_string();
         let discovery = tokio::spawn(discovery_loop(discovery_socket, fingerprint, discovery_shutdown));
         *running = Some(Running {
@@ -156,12 +161,9 @@ impl RemoteAccess {
             {
                 running.http.abort();
             }
-            if tokio::time::timeout(
-                std::time::Duration::from_millis(500),
-                &mut running.discovery,
-            )
-            .await
-            .is_err()
+            if tokio::time::timeout(std::time::Duration::from_millis(500), &mut running.discovery)
+                .await
+                .is_err()
             {
                 running.discovery.abort();
             }
@@ -170,9 +172,10 @@ impl RemoteAccess {
 
     pub(crate) fn stop_on_exit(&self) {
         if let Ok(running) = self.running.try_lock()
-            && let Some(running) = running.as_ref() {
-                let _ = running.shutdown.send(true);
-            }
+            && let Some(running) = running.as_ref()
+        {
+            let _ = running.shutdown.send(true);
+        }
     }
 
     async fn status(&self) -> RemoteStatus {
@@ -321,9 +324,7 @@ fn address_qr(url: &str) -> Option<String> {
 }
 
 #[tauri::command]
-pub(crate) async fn remote_access_status(
-    access: tauri::State<'_, RemoteAccess>,
-) -> Result<RemoteStatus, String> {
+pub(crate) async fn remote_access_status(access: tauri::State<'_, RemoteAccess>) -> Result<RemoteStatus, String> {
     Ok(access.status().await)
 }
 
@@ -423,15 +424,17 @@ fn router(app: tauri::AppHandle) -> Router {
         .route("/auth/logout", post(remote_auth::logout))
         .route("/auth/me", get(remote_auth::me))
         // Nested rather than routed by a `{*path}` capture, which the engine's own `Path` extractors would also see.
-        .nest_service("/engine", any(native_engine).layer(DefaultBodyLimit::max(MAX_ENGINE_BODY)).with_state(app.clone()))
+        .nest_service(
+            "/engine",
+            any(native_engine)
+                .layer(DefaultBodyLimit::max(MAX_ENGINE_BODY))
+                .with_state(app.clone()),
+        )
         .route("/api/invoke", post(invoke_rpc))
         .route("/api/ui-state/events", get(ui_state_events))
         .fallback(static_asset)
         .layer(DefaultBodyLimit::max(MAX_RPC_BODY))
-        .layer(middleware::from_fn_with_state(
-            app.clone(),
-            gateway_middleware,
-        ))
+        .layer(middleware::from_fn_with_state(app.clone(), gateway_middleware))
         .layer(middleware::from_fn(host_guard))
         .with_state(app)
 }
@@ -454,10 +457,7 @@ async fn ui_state_events(
         |(initial, mut receiver, mut auth)| async move {
             if let Some(snapshot) = initial {
                 let event = Event::default().json_data(snapshot).ok()?;
-                return Some((
-                    Ok::<_, std::convert::Infallible>(event),
-                    (None, receiver, auth),
-                ));
+                return Some((Ok::<_, std::convert::Infallible>(event), (None, receiver, auth)));
             }
             loop {
                 tokio::select! {
@@ -477,16 +477,10 @@ async fn ui_state_events(
             }
         },
     );
-    Sse::new(stream)
-        .keep_alive(KeepAlive::default())
-        .into_response()
+    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
 }
 
-async fn gateway_middleware(
-    State(app): State<tauri::AppHandle>,
-    mut request: Request,
-    next: Next,
-) -> Response {
+async fn gateway_middleware(State(app): State<tauri::AppHandle>, mut request: Request, next: Next) -> Response {
     let access = app.state::<RemoteAccess>();
     let path = request.uri().path().to_string();
     let enabled = access.config.lock().unwrap().enabled;
@@ -522,29 +516,19 @@ fn valid_host_origin(headers: &HeaderMap, authority: Option<&str>) -> bool {
     if host.is_empty() || host.contains(['/', '\\', '@']) {
         return false;
     }
-    let Some(origin) = headers
-        .get(header::ORIGIN)
-        .and_then(|value| value.to_str().ok())
-    else {
+    let Some(origin) = headers.get(header::ORIGIN).and_then(|value| value.to_str().ok()) else {
         return true;
     };
     let Ok(origin) = url::Url::parse(origin) else {
         return false;
     };
-    origin.scheme() == "https"
-        && origin[url::Position::BeforeHost..url::Position::AfterPort] == *host
+    origin.scheme() == "https" && origin[url::Position::BeforeHost..url::Position::AfterPort] == *host
 }
 
 fn secure(mut response: Response) -> Response {
     let headers = response.headers_mut();
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
-    );
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
+    headers.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     headers.insert(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static("frame-ancestors 'self'"),
@@ -566,14 +550,14 @@ async fn static_asset(uri: Uri) -> Response {
     } else {
         path
     };
-    let content =
-        dev_asset(path).or_else(|| FrontendAssets::get(path).map(|asset| asset.data.into_owned()));
+    let content = dev_asset(path).or_else(|| FrontendAssets::get(path).map(|asset| asset.data.into_owned()));
     let Some(content) = content.or_else(|| {
-        Path::new(path).extension().is_none()
+        Path::new(path)
+            .extension()
+            .is_none()
             .then(|| {
-                dev_asset("index.html").or_else(|| {
-                    FrontendAssets::get("index.html").map(|asset| asset.data.into_owned())
-                })
+                dev_asset("index.html")
+                    .or_else(|| FrontendAssets::get("index.html").map(|asset| asset.data.into_owned()))
             })
             .flatten()
     }) else {
@@ -581,10 +565,9 @@ async fn static_asset(uri: Uri) -> Response {
     };
     let mime = mime_guess::from_path(path).first_or_octet_stream();
     let mut response = Body::from(content).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(mime.as_ref()).unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, HeaderValue::from_str(mime.as_ref()).unwrap());
     response
 }
 
@@ -592,17 +575,14 @@ fn dev_asset(path: &str) -> Option<Vec<u8>> {
     if !cfg!(debug_assertions) {
         return None;
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("dist");
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("dist");
     std::fs::read(root.join(path)).ok()
 }
 
 fn static_path(path: &str) -> Option<&str> {
     let raw = path.trim_start_matches('/');
     let lower = raw.to_ascii_lowercase();
-    if raw.contains('\\') || lower.contains("%2e") || lower.contains("%2f") || lower.contains("%5c")
-    {
+    if raw.contains('\\') || lower.contains("%2e") || lower.contains("%2f") || lower.contains("%5c") {
         return None;
     }
     if Path::new(raw)
@@ -645,15 +625,15 @@ async fn native_engine(
         response = router.oneshot(request) => response.into_response(),
     };
     let (parts, body) = response.into_parts();
-    Response::from_parts(parts, Body::from_stream(revoke_on_auth_change(body.into_data_stream(), auth)))
+    Response::from_parts(
+        parts,
+        Body::from_stream(revoke_on_auth_change(body.into_data_stream(), auth)),
+    )
 }
 
 static ENGINE_ROUTER: OnceLock<Router> = OnceLock::new();
 
-fn revoke_on_auth_change<S>(
-    stream: S,
-    mut auth: watch::Receiver<u64>,
-) -> impl futures_util::Stream<Item = S::Item>
+fn revoke_on_auth_change<S>(stream: S, mut auth: watch::Receiver<u64>) -> impl futures_util::Stream<Item = S::Item>
 where
     S: futures_util::Stream,
 {
@@ -908,8 +888,7 @@ fn local_ipv4() -> Option<Ipv4Addr> {
 pub(crate) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut difference = left.len() ^ right.len();
     for index in 0..left.len().max(right.len()) {
-        difference |= left.get(index).copied().unwrap_or(0) as usize
-            ^ right.get(index).copied().unwrap_or(0) as usize;
+        difference |= left.get(index).copied().unwrap_or(0) as usize ^ right.get(index).copied().unwrap_or(0) as usize;
     }
     difference == 0
 }
@@ -923,25 +902,52 @@ mod tests {
     #[tokio::test]
     async fn the_engine_mounted_under_the_gateway_sees_only_its_own_path_parameters() {
         use axum::extract::Path;
-        let engine = || Router::new().route("/sessions/{id}/messages", get(|Path(id): Path<String>| async move { id }));
-        let ask = |router: Router| async move {
-            let request = Request::builder().uri("/engine/sessions/ses_1/messages?limit=5").body(Body::empty()).unwrap();
-            let response = router.oneshot(request).await.unwrap();
-            (response.status(), String::from_utf8(axum::body::to_bytes(response.into_body(), 1024).await.unwrap().to_vec()).unwrap())
+        let engine = || {
+            Router::new().route(
+                "/sessions/{id}/messages",
+                get(|Path(id): Path<String>| async move { id }),
+            )
         };
-        let nested = Router::new().nest_service("/engine", any(move |request: Request| async move { engine().oneshot(request).await.unwrap() }));
+        let ask = |router: Router| async move {
+            let request = Request::builder()
+                .uri("/engine/sessions/ses_1/messages?limit=5")
+                .body(Body::empty())
+                .unwrap();
+            let response = router.oneshot(request).await.unwrap();
+            (
+                response.status(),
+                String::from_utf8(axum::body::to_bytes(response.into_body(), 1024).await.unwrap().to_vec()).unwrap(),
+            )
+        };
+        let nested = Router::new().nest_service(
+            "/engine",
+            any(move |request: Request| async move { engine().oneshot(request).await.unwrap() }),
+        );
         assert_eq!(ask(nested).await, (StatusCode::OK, "ses_1".to_string()));
-        let captured = Router::new().route("/engine/{*path}", any(move |request: Request| async move {
-            let (mut parts, body) = request.into_parts();
-            parts.uri = parts.uri.path().trim_start_matches("/engine").parse().unwrap();
-            engine().oneshot(Request::from_parts(parts, body)).await.unwrap()
-        }));
-        assert_eq!(ask(captured).await.0, StatusCode::INTERNAL_SERVER_ERROR, "a capture route leaks its parameter, which is what broke history on the phone");
+        let captured = Router::new().route(
+            "/engine/{*path}",
+            any(move |request: Request| async move {
+                let (mut parts, body) = request.into_parts();
+                parts.uri = parts.uri.path().trim_start_matches("/engine").parse().unwrap();
+                engine().oneshot(Request::from_parts(parts, body)).await.unwrap()
+            }),
+        );
+        assert_eq!(
+            ask(captured).await.0,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "a capture route leaks its parameter, which is what broke history on the phone"
+        );
     }
 
     #[test]
     fn disabled_status_has_no_listening_urls_or_code() {
-        let status = status_for(&RemoteConfig { enabled: false, error: None }, false);
+        let status = status_for(
+            &RemoteConfig {
+                enabled: false,
+                error: None,
+            },
+            false,
+        );
         assert!(!status.enabled);
         assert!(!status.listening);
         assert!(status.urls.is_empty());
@@ -1024,9 +1030,7 @@ mod tests {
             for key in ["path", "directory"] {
                 let mut args = valid.clone();
                 args[key] = invalid.clone();
-                assert!(arg::<String>(&args, key)
-                    .unwrap_err()
-                    .contains("invalid argument"));
+                assert!(arg::<String>(&args, key).unwrap_err().contains("invalid argument"));
             }
         }
         for invalid in [
@@ -1041,9 +1045,7 @@ mod tests {
         ] {
             let mut args = valid.clone();
             args["maxBytes"] = invalid;
-            assert!(arg::<u64>(&args, "maxBytes")
-                .unwrap_err()
-                .contains("invalid argument"));
+            assert!(arg::<u64>(&args, "maxBytes").unwrap_err().contains("invalid argument"));
         }
         assert!(arg::<u64>(&json!({ "max_bytes": 1 }), "maxBytes").is_err());
         for limit in [40 * 1024 * 1024 + 1, u64::MAX] {
@@ -1064,10 +1066,7 @@ mod tests {
         assert_eq!(static_path("/assets/app.js"), Some("assets/app.js"));
         assert_eq!(static_path("/../secret"), None);
         assert_eq!(static_path("/%2e%2e/secret"), None);
-        assert_eq!(
-            mime_guess::from_path("font.woff2").first_raw(),
-            Some("font/woff2")
-        );
+        assert_eq!(mime_guess::from_path("font.woff2").first_raw(), Some("font/woff2"));
     }
 
     #[test]
@@ -1101,13 +1100,29 @@ mod tests {
         let server = tokio::spawn(accept_loop(listener, router, tls.clone(), receiver));
 
         let mut roots = rustls::RootCertStore::empty();
-        roots.add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec())).unwrap();
-        let mut config = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
+        roots
+            .add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec()))
+            .unwrap();
+        let mut config = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-        let client = reqwest::Client::builder().use_preconfigured_tls(config).redirect(Policy::none()).build().unwrap();
-        let secure = client.get(format!("https://127.0.0.1:{port}/peer")).send().await.unwrap();
+        let client = reqwest::Client::builder()
+            .use_preconfigured_tls(config)
+            .redirect(Policy::none())
+            .build()
+            .unwrap();
+        let secure = client
+            .get(format!("https://127.0.0.1:{port}/peer"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(secure.version(), reqwest::Version::HTTP_2);
-        assert_eq!(secure.text().await.unwrap(), "127.0.0.1", "HTTP/2 requests pass the host guard");
+        assert_eq!(
+            secure.text().await.unwrap(),
+            "127.0.0.1",
+            "HTTP/2 requests pass the host guard"
+        );
         let forged = client
             .get(format!("https://127.0.0.1:{port}/peer"))
             .header(header::ORIGIN, "https://evil.example")
@@ -1118,19 +1133,38 @@ mod tests {
         let http1 = reqwest::Client::builder()
             .use_preconfigured_tls({
                 let mut roots = rustls::RootCertStore::empty();
-                roots.add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec())).unwrap();
-                rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth()
+                roots
+                    .add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec()))
+                    .unwrap();
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(roots)
+                    .with_no_client_auth()
             })
             .http1_only()
             .build()
             .unwrap();
-        let legacy = http1.get(format!("https://127.0.0.1:{port}/peer")).send().await.unwrap();
+        let legacy = http1
+            .get(format!("https://127.0.0.1:{port}/peer"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(legacy.version(), reqwest::Version::HTTP_11);
-        assert_eq!(legacy.status(), reqwest::StatusCode::OK, "HTTP/1.1 requests pass with a Host header");
+        assert_eq!(
+            legacy.status(),
+            reqwest::StatusCode::OK,
+            "HTTP/1.1 requests pass with a Host header"
+        );
 
-        let plain = client.get(format!("http://127.0.0.1:{port}/companion?a=1")).send().await.unwrap();
+        let plain = client
+            .get(format!("http://127.0.0.1:{port}/companion?a=1"))
+            .send()
+            .await
+            .unwrap();
         assert_eq!(plain.status(), reqwest::StatusCode::PERMANENT_REDIRECT);
-        assert_eq!(plain.headers()["location"], format!("https://127.0.0.1:{port}/companion?a=1"));
+        assert_eq!(
+            plain.headers()["location"],
+            format!("https://127.0.0.1:{port}/companion?a=1")
+        );
 
         let untrusted = reqwest::Client::builder()
             .use_preconfigured_tls(
@@ -1140,11 +1174,26 @@ mod tests {
             )
             .build()
             .unwrap();
-        assert!(untrusted.get(format!("https://127.0.0.1:{port}/peer")).send().await.is_err());
+        assert!(
+            untrusted
+                .get(format!("https://127.0.0.1:{port}/peer"))
+                .send()
+                .await
+                .is_err()
+        );
 
         shutdown.send(true).unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(2), server).await.unwrap().unwrap();
-        assert!(client.get(format!("https://127.0.0.1:{port}/peer")).send().await.is_err());
+        tokio::time::timeout(std::time::Duration::from_secs(2), server)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            client
+                .get(format!("https://127.0.0.1:{port}/peer"))
+                .send()
+                .await
+                .is_err()
+        );
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -1164,7 +1213,10 @@ mod tests {
     #[test]
     fn origins_must_match_the_https_host() {
         let mut headers = HeaderMap::new();
-        assert!(!valid_host_origin(&headers, None), "a request without any host is rejected");
+        assert!(
+            !valid_host_origin(&headers, None),
+            "a request without any host is rejected"
+        );
         headers.insert(header::HOST, HeaderValue::from_static("192.168.1.20:41718"));
         assert!(valid_host_origin(&headers, None));
         headers.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
@@ -1175,7 +1227,10 @@ mod tests {
         assert!(!valid_host_origin(&headers, None));
         let mut h2 = HeaderMap::new();
         h2.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
-        assert!(valid_host_origin(&h2, Some("192.168.1.20:41718")), "HTTP/2 sends the host as :authority");
+        assert!(
+            valid_host_origin(&h2, Some("192.168.1.20:41718")),
+            "HTTP/2 sends the host as :authority"
+        );
         assert!(!valid_host_origin(&h2, Some("evil.example")));
     }
 }

@@ -45,13 +45,7 @@ fn snapshot_initialization_is_insert_only_and_survives_reopen() {
     drop(authority);
     drop(store);
     let reopened = crate::store::open(&dir).unwrap();
-    assert_eq!(
-        UiStateAuthority::load(&reopened)
-            .unwrap()
-            .snapshot()
-            .unwrap(),
-        first
-    );
+    assert_eq!(UiStateAuthority::load(&reopened).unwrap().snapshot().unwrap(), first);
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -59,9 +53,7 @@ fn snapshot_initialization_is_insert_only_and_survives_reopen() {
 fn invalid_persisted_settings_are_discarded_before_initialization() {
     let (dir, store) = test_store("invalid-persisted");
     store.save_app_setting(UI_STATE_KEY, "not json").unwrap();
-    store
-        .save_app_setting(SHELL_TIMEOUT_KEY, r#"{"timeoutMs":1}"#)
-        .unwrap();
+    store.save_app_setting(SHELL_TIMEOUT_KEY, r#"{"timeoutMs":1}"#).unwrap();
 
     let ui = UiStateAuthority::load(&store).unwrap();
     let timeout = ShellTimeoutAuthority::load(&store).unwrap();
@@ -81,10 +73,7 @@ fn invalid_persisted_settings_are_discarded_before_initialization() {
         Some(60_000)
     );
     assert!(UiStateAuthority::load(&store).unwrap().snapshot().is_ok());
-    assert!(ShellTimeoutAuthority::load(&store)
-        .unwrap()
-        .snapshot()
-        .is_ok());
+    assert!(ShellTimeoutAuthority::load(&store).unwrap().snapshot().is_ok());
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -131,10 +120,7 @@ fn workspace_selection_is_a_soft_reference() {
     let selected = authority
         .initialize(&store, snapshot(Some("not-hydrated-yet")))
         .unwrap();
-    assert_eq!(
-        selected.selection.workspace_id.as_deref(),
-        Some("not-hydrated-yet")
-    );
+    assert_eq!(selected.selection.workspace_id.as_deref(), Some("not-hydrated-yet"));
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -181,12 +167,6 @@ fn shell_timeout_is_insert_only_then_mutable_and_persistent() {
         timeout_ms: Some(300_000),
     };
     authority.update(&store, five.clone()).unwrap();
-    assert_eq!(
-        ShellTimeoutAuthority::load(&store)
-            .unwrap()
-            .snapshot()
-            .unwrap(),
-        five
-    );
+    assert_eq!(ShellTimeoutAuthority::load(&store).unwrap().snapshot().unwrap(), five);
     std::fs::remove_dir_all(dir).ok();
 }

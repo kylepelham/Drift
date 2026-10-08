@@ -18,10 +18,14 @@ fn roots(tls: &Tls) -> Arc<rustls::RootCertStore> {
 
 fn verify(tls: &Tls, address: IpAddr) -> Result<(), rustls::Error> {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let verifier = rustls::client::WebPkiServerVerifier::builder_with_provider(roots(tls), provider).build().unwrap();
+    let verifier = rustls::client::WebPkiServerVerifier::builder_with_provider(roots(tls), provider)
+        .build()
+        .unwrap();
     let (chain, _) = tls.leaf(address).unwrap();
     let name = ServerName::IpAddress(address.into());
-    verifier.verify_server_cert(&chain[0], &chain[1..], &name, &[], UnixTime::now()).map(|_| ())
+    verifier
+        .verify_server_cert(&chain[0], &chain[1..], &name, &[], UnixTime::now())
+        .map(|_| ())
 }
 
 #[test]
@@ -33,11 +37,19 @@ fn the_authority_is_created_once_and_reloaded() {
     assert_eq!(first.fingerprint().split(':').count(), 32);
     std::fs::write(root.join(CA_FILE), "corrupt").unwrap();
     let replaced = Tls::load_or_create(&root).unwrap();
-    assert_ne!(replaced.fingerprint(), first.fingerprint(), "an unreadable certificate is regenerated");
+    assert_ne!(
+        replaced.fingerprint(),
+        first.fingerprint(),
+        "an unreadable certificate is regenerated"
+    );
     let replaced_fingerprint = replaced.fingerprint().to_string();
     std::fs::write(root.join(CA_KEY_FILE), "corrupt").unwrap();
     let replaced = Tls::load_or_create(&root).unwrap();
-    assert_ne!(replaced.fingerprint(), replaced_fingerprint, "an unreadable key pair is regenerated");
+    assert_ne!(
+        replaced.fingerprint(),
+        replaced_fingerprint,
+        "an unreadable key pair is regenerated"
+    );
     std::fs::remove_dir_all(root).unwrap();
 }
 
@@ -59,7 +71,10 @@ fn name_constraints_stop_the_authority_vouching_for_public_addresses() {
     let root = directory();
     let tls = Tls::load_or_create(&root).unwrap();
     for address in [[8, 8, 8, 8], [172, 32, 0, 1], [1, 1, 1, 1]] {
-        assert!(verify(&tls, IpAddr::V4(Ipv4Addr::from(address))).is_err(), "{address:?}");
+        assert!(
+            verify(&tls, IpAddr::V4(Ipv4Addr::from(address))).is_err(),
+            "{address:?}"
+        );
     }
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -87,7 +102,10 @@ async fn a_client_trusting_the_authority_completes_an_encrypted_exchange() {
         stream.flush().await.unwrap();
         request
     });
-    let mut stream = connector.connect(ServerName::IpAddress(address.into()), client_io).await.unwrap();
+    let mut stream = connector
+        .connect(ServerName::IpAddress(address.into()), client_io)
+        .await
+        .unwrap();
     assert_eq!(stream.get_ref().1.alpn_protocol(), Some(b"http/1.1".as_slice()));
     stream.write_all(b"ping").await.unwrap();
     let mut reply = [0u8; 4];

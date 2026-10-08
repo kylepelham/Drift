@@ -3,11 +3,11 @@ use std::path::Path;
 use grep::regex::RegexMatcherBuilder;
 use grep::searcher::sinks::UTF8;
 use grep::searcher::{BinaryDetection, SearcherBuilder};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use super::sensitive::is_sensitive;
-use super::{display, required_str, Ask, Context, FileGlob, Output, RunFuture, Tool, ToolError};
+use super::{Ask, Context, FileGlob, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
 
 const MAX_MATCHES: usize = 200;
@@ -44,7 +44,14 @@ impl Tool for Grep {
     }
 
     fn asks(&self, ctx: &Context, input: &Value) -> Vec<Ask> {
-        self.ask(ctx, input).into_iter().chain(input["pattern"].as_str().map(|pattern| Ask::new("grep", pattern, format!("Search for {pattern}")).allow_by_default())).collect()
+        self.ask(ctx, input)
+            .into_iter()
+            .chain(
+                input["pattern"]
+                    .as_str()
+                    .map(|pattern| Ask::new("grep", pattern, format!("Search for {pattern}")).allow_by_default()),
+            )
+            .collect()
     }
 
     fn starts_early(&self) -> bool {
@@ -57,29 +64,54 @@ impl Tool for Grep {
             let root = ctx.resolve(input["path"].as_str().unwrap_or("."));
             let include = input["include"].as_str().map(str::to_string);
             let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
-            let (engine, session, policy, read_root) = (ctx.engine.clone(), ctx.session_id.clone(), ctx.config.policy(), workspace.clone());
+            let (engine, session, policy, read_root) = (
+                ctx.engine.clone(),
+                ctx.session_id.clone(),
+                ctx.config.policy(),
+                workspace.clone(),
+            );
             let agent_policy = ctx.config.agent_policy(&ctx.agent);
             let rules = engine.permissions.compiled(&policy, &agent_policy);
             let allowed = move |path: &Path| {
-                super::read_ask(&read_root, path, "Search").is_none_or(|ask| engine.permissions.covered_by_approval(&session, &rules, &policy, &agent_policy, &ask))
+                super::read_ask(&read_root, path, "Search").is_none_or(|ask| {
+                    engine
+                        .permissions
+                        .covered_by_approval(&session, &rules, &policy, &agent_policy, &ask)
+                })
             };
-            let found = tokio::task::spawn_blocking(move || search(&root, &pattern, include.as_deref(), &workspace, &stop, &allowed))
-                .await
-                .map_err(|e| ToolError(e.to_string()))??;
-            let mut output = if found.lines.is_empty() { "No matches".to_string() } else { found.lines.join("\n") };
+            let found = tokio::task::spawn_blocking(move || {
+                search(&root, &pattern, include.as_deref(), &workspace, &stop, &allowed)
+            })
+            .await
+            .map_err(|e| ToolError(e.to_string()))??;
+            let mut output = if found.lines.is_empty() {
+                "No matches".to_string()
+            } else {
+                found.lines.join("\n")
+            };
             if found.total > MAX_COUNTED {
                 output.push_str(&format!("\n(more than {MAX_COUNTED} matches, so the search stopped; these {MAX_MATCHES} are sorted from the files it reached and earlier files may be missing. Narrow the pattern, `path` or `include`)"));
             } else if found.total > found.lines.len() {
                 output.push_str(&format!("\n({} matches; these are the first {MAX_MATCHES} by file and line. Narrow the pattern, `path` or `include` to see the rest)", found.total));
             }
             if found.withheld > 0 {
-                output.push_str(&format!("\n({} files that may hold secrets were not searched; read one directly and the user is asked)", found.withheld));
+                output.push_str(&format!(
+                    "\n({} files that may hold secrets were not searched; read one directly and the user is asked)",
+                    found.withheld
+                ));
             }
             if found.restricted > 0 {
-                output.push_str(&format!("\n({} files were excluded by read policy or need read approval; use read on an allowed file)", found.restricted));
+                output.push_str(&format!(
+                    "\n({} files were excluded by read policy or need read approval; use read on an allowed file)",
+                    found.restricted
+                ));
             }
             let metadata = json!({ "count": found.lines.len(), "total": found.total.min(MAX_COUNTED), "capped": found.total > MAX_COUNTED, "truncated": found.total > found.lines.len(), "withheld": found.withheld, "restricted": found.restricted });
-            Ok(Output { title: input["pattern"].as_str().unwrap_or_default().into(), output, metadata })
+            Ok(Output {
+                title: input["pattern"].as_str().unwrap_or_default().into(),
+                output,
+                metadata,
+            })
         })
     }
 }
@@ -122,20 +154,38 @@ impl First {
 /// line, with how many there were in all, up to [`MAX_COUNTED`], where it stops. Binary files end
 /// their search at the first NUL; files that may hold secrets are skipped unless the search names
 /// one directly, which has already asked. A Stop ends the walk and every file search in it.
-fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, stop: &CancellationToken, allowed: &(dyn Fn(&Path) -> bool + Sync)) -> Result<Found, ToolError> {
+fn search(
+    root: &Path,
+    pattern: &str,
+    include: Option<&str>,
+    workspace: &Path,
+    stop: &CancellationToken,
+    allowed: &(dyn Fn(&Path) -> bool + Sync),
+) -> Result<Found, ToolError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let matcher = RegexMatcherBuilder::new()
         .line_terminator(Some(b'\n'))
         .build(pattern)
         .map_err(|e| ToolError(format!("invalid regex: {e}")))?;
-    let base = if root.is_file() { root.parent().unwrap_or(root) } else { root };
-    let include = include.map(|glob| FileGlob::new(base, glob)).transpose().map_err(|e| ToolError(format!("invalid include glob: {e}")))?;
+    let base = if root.is_file() {
+        root.parent().unwrap_or(root)
+    } else {
+        root
+    };
+    let include = include
+        .map(|glob| FileGlob::new(base, glob))
+        .transpose()
+        .map_err(|e| ToolError(format!("invalid include glob: {e}")))?;
     let first = First::default();
     let (total, withheld) = (AtomicUsize::new(0), AtomicUsize::new(0));
     let restricted = AtomicUsize::new(0);
     super::walker(root).build_parallel().run(|| {
-        let mut searcher = SearcherBuilder::new().line_number(true).binary_detection(BinaryDetection::quit(0)).build();
-        let (matcher, include, first, total, withheld, restricted) = (&matcher, &include, &first, &total, &withheld, &restricted);
+        let mut searcher = SearcherBuilder::new()
+            .line_number(true)
+            .binary_detection(BinaryDetection::quit(0))
+            .build();
+        let (matcher, include, first, total, withheld, restricted) =
+            (&matcher, &include, &first, &total, &withheld, &restricted);
         Box::new(move |entry| {
             use ignore::WalkState;
             if stop.is_cancelled() || total.load(Ordering::Relaxed) > MAX_COUNTED {
@@ -177,8 +227,17 @@ fn search(root: &Path, pattern: &str, include: Option<&str>, workspace: &Path, s
     if stop.is_cancelled() {
         return Err(ToolError("stopped".into()));
     }
-    let lines = first.into_sorted().into_iter().map(|(name, line, text)| format!("{name}:{line}: {text}")).collect();
-    Ok(Found { lines, total: total.into_inner(), withheld: withheld.into_inner(), restricted: restricted.into_inner() })
+    let lines = first
+        .into_sorted()
+        .into_iter()
+        .map(|(name, line, text)| format!("{name}:{line}: {text}"))
+        .collect();
+    Ok(Found {
+        lines,
+        total: total.into_inner(),
+        withheld: withheld.into_inner(),
+        restricted: restricted.into_inner(),
+    })
 }
 fn clip(line: &str) -> String {
     if line.chars().count() <= MAX_LINE_CHARS {
@@ -201,7 +260,10 @@ mod tests {
         let mut lines: Vec<&str> = out.output.lines().collect();
         lines.sort();
         assert_eq!(lines, ["notes.md:1: alpha in prose", "src/a.rs:1: fn alpha() {}"]);
-        let only = Grep.run(&sandbox.ctx, json!({ "pattern": "alpha", "include": "*.rs" })).await.unwrap();
+        let only = Grep
+            .run(&sandbox.ctx, json!({ "pattern": "alpha", "include": "*.rs" }))
+            .await
+            .unwrap();
         assert_eq!(only.output, "src/a.rs:1: fn alpha() {}");
         let none = Grep.run(&sandbox.ctx, json!({ "pattern": "gamma" })).await.unwrap();
         assert_eq!(none.output, "No matches");
@@ -219,14 +281,28 @@ mod tests {
         let mut lines: Vec<&str> = out.output.lines().filter(|line| !line.starts_with('(')).collect();
         lines.sort();
         assert_eq!(lines, [".env.example:1: token = changeme", "src/a.rs:1: token = 1"]);
-        assert!(out.output.contains("1 files that may hold secrets were not searched"), "{}", out.output);
-        assert!(!out.output.contains("hunter2") && !out.output.contains("internal") && !out.output.contains("blob.bin"), "{}", out.output);
+        assert!(
+            out.output.contains("1 files that may hold secrets were not searched"),
+            "{}",
+            out.output
+        );
+        assert!(
+            !out.output.contains("hunter2") && !out.output.contains("internal") && !out.output.contains("blob.bin"),
+            "{}",
+            out.output
+        );
         assert_eq!(out.metadata["withheld"], 1);
 
         let named = json!({ "pattern": "token", "path": ".env" });
-        assert!(Grep.ask(&sandbox.ctx, &named).is_some_and(|ask| ask.title.contains("may hold secrets")));
+        assert!(
+            Grep.ask(&sandbox.ctx, &named)
+                .is_some_and(|ask| ask.title.contains("may hold secrets"))
+        );
         let direct = Grep.run(&sandbox.ctx, named).await.unwrap();
-        assert_eq!(direct.output, ".env:1: token = hunter2", "a secret named directly is searched once approved");
+        assert_eq!(
+            direct.output, ".env:1: token = hunter2",
+            "a secret named directly is searched once approved"
+        );
     }
 
     #[tokio::test]
@@ -235,20 +311,46 @@ mod tests {
         for i in 0..60 {
             sandbox.file(&format!("f{i:02}.txt"), "hit\nmiss\nhit\n");
         }
-        let few = Grep.run(&sandbox.ctx, json!({ "pattern": "hit", "include": "f0*.txt" })).await.unwrap();
+        let few = Grep
+            .run(&sandbox.ctx, json!({ "pattern": "hit", "include": "f0*.txt" }))
+            .await
+            .unwrap();
         let lines: Vec<&str> = few.output.lines().collect();
         assert_eq!(lines.len(), 20);
-        assert!(lines.windows(2).all(|pair| pair[0] < pair[1]) && lines[0] == "f00.txt:1: hit", "by file then line: {lines:?}");
+        assert!(
+            lines.windows(2).all(|pair| pair[0] < pair[1]) && lines[0] == "f00.txt:1: hit",
+            "by file then line: {lines:?}"
+        );
         let all = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
-        assert_eq!((all.metadata["count"].as_u64(), all.metadata["truncated"].as_bool()), (Some(120), Some(false)), "120 matches fit");
+        assert_eq!(
+            (all.metadata["count"].as_u64(), all.metadata["truncated"].as_bool()),
+            (Some(120), Some(false)),
+            "120 matches fit"
+        );
         for i in 60..110 {
             sandbox.file(&format!("g{i}.txt"), "hit\nhit\n");
         }
         let past = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
-        assert_eq!((past.metadata["count"].as_u64(), past.metadata["total"].as_u64(), past.metadata["truncated"].as_bool()), (Some(MAX_MATCHES as u64), Some(220), Some(true)));
+        assert_eq!(
+            (
+                past.metadata["count"].as_u64(),
+                past.metadata["total"].as_u64(),
+                past.metadata["truncated"].as_bool()
+            ),
+            (Some(MAX_MATCHES as u64), Some(220), Some(true))
+        );
         let lines: Vec<&str> = past.output.lines().collect();
-        assert_eq!((lines[0], lines[MAX_MATCHES - 1]), ("f00.txt:1: hit", "g89.txt:2: hit"), "the first by file and line, not the first found");
-        assert!(past.output.contains("220 matches; these are the first 200 by file and line"), "{}", past.output);
+        assert_eq!(
+            (lines[0], lines[MAX_MATCHES - 1]),
+            ("f00.txt:1: hit", "g89.txt:2: hit"),
+            "the first by file and line, not the first found"
+        );
+        assert!(
+            past.output
+                .contains("220 matches; these are the first 200 by file and line"),
+            "{}",
+            past.output
+        );
     }
 
     #[tokio::test]
@@ -258,8 +360,19 @@ mod tests {
             sandbox.file(&format!("f{i:02}.txt"), &"hit\n".repeat(100));
         }
         let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
-        assert_eq!((out.metadata["capped"].as_bool(), out.metadata["total"].as_u64(), out.metadata["count"].as_u64()), (Some(true), Some(MAX_COUNTED as u64), Some(MAX_MATCHES as u64)));
-        assert!(out.output.contains("more than 2000 matches, so the search stopped"), "{}", out.output);
+        assert_eq!(
+            (
+                out.metadata["capped"].as_bool(),
+                out.metadata["total"].as_u64(),
+                out.metadata["count"].as_u64()
+            ),
+            (Some(true), Some(MAX_COUNTED as u64), Some(MAX_MATCHES as u64))
+        );
+        assert!(
+            out.output.contains("more than 2000 matches, so the search stopped"),
+            "{}",
+            out.output
+        );
     }
 
     #[tokio::test]
@@ -277,7 +390,11 @@ mod tests {
         sandbox.file("allowed.txt", "hit public");
         sandbox.file("blocked.txt", "hit restricted");
         sandbox.ctx.engine.permissions.set_policy(crate::permission::Policy {
-            rules: vec![crate::permission::Rule { kind: "read".into(), pattern: "blocked.txt".into(), decision: crate::permission::Decision::Deny }],
+            rules: vec![crate::permission::Rule {
+                kind: "read".into(),
+                pattern: "blocked.txt".into(),
+                decision: crate::permission::Decision::Deny,
+            }],
         });
         let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
         assert!(out.output.contains("hit public") && !out.output.contains("hit restricted"));
@@ -292,14 +409,29 @@ mod tests {
         std::fs::write(outside.join("deep/a.txt"), "hit outside").unwrap();
         std::fs::write(outside.join("held.txt"), "hit held").unwrap();
         let input = json!({ "pattern": "hit", "path": outside.to_string_lossy() });
-        assert!(Grep.ask(&sandbox.ctx, &input).is_some_and(|ask| !ask.default_allow), "searching outside asks first");
+        assert!(
+            Grep.ask(&sandbox.ctx, &input).is_some_and(|ask| !ask.default_allow),
+            "searching outside asks first"
+        );
         let out = Grep.run(&sandbox.ctx, input.clone()).await.unwrap();
-        assert!(out.output.contains("hit outside") && out.output.contains("hit held"), "{}", out.output);
+        assert!(
+            out.output.contains("hit outside") && out.output.contains("hit held"),
+            "{}",
+            out.output
+        );
         sandbox.ctx.engine.permissions.set_policy(crate::permission::Policy {
-            rules: vec![crate::permission::Rule { kind: "read".into(), pattern: "*held.txt".into(), decision: crate::permission::Decision::Ask }],
+            rules: vec![crate::permission::Rule {
+                kind: "read".into(),
+                pattern: "*held.txt".into(),
+                decision: crate::permission::Decision::Ask,
+            }],
         });
         let ruled = Grep.run(&sandbox.ctx, input).await.unwrap();
-        assert!(ruled.output.contains("hit outside") && !ruled.output.contains("hit held"), "{}", ruled.output);
+        assert!(
+            ruled.output.contains("hit outside") && !ruled.output.contains("hit held"),
+            "{}",
+            ruled.output
+        );
         assert_eq!(ruled.metadata["restricted"], 1);
     }
 

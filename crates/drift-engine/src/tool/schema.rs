@@ -12,7 +12,11 @@ pub fn problems(schema: &Value, input: &Value) -> Vec<String> {
 }
 
 fn check(schema: &Value, value: &Value, at: &str, found: &mut Vec<String>) {
-    let name = if at.is_empty() { "the arguments".to_string() } else { format!("`{at}`") };
+    let name = if at.is_empty() {
+        "the arguments".to_string()
+    } else {
+        format!("`{at}`")
+    };
     if let Some(expected) = types(schema).filter(|types| !types.iter().any(|t| is(value, t))) {
         found.push(format!("{name} must be {}, not {}", expected.join(" or "), kind(value)));
         return;
@@ -22,11 +26,20 @@ fn check(schema: &Value, value: &Value, at: &str, found: &mut Vec<String>) {
         found.push(format!("{name} must be one of {}", listed.join(", ")));
     }
     if let Value::Object(fields) = value {
-        for missing in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|key| !fields.contains_key(*key)) {
+        for missing in schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|key| !fields.contains_key(*key))
+        {
             found.push(format!("`{}` is required", path(at, missing)));
         }
         for (key, inner) in schema["properties"].as_object().into_iter().flatten() {
-            if let Some(given) = fields.get(key).filter(|given| !given.is_null() || !optional_null(inner)) {
+            if let Some(given) = fields
+                .get(key)
+                .filter(|given| !given.is_null() || !optional_null(inner))
+            {
                 check(inner, given, &path(at, key), found);
             }
         }
@@ -76,7 +89,11 @@ fn kind(value: &Value) -> &'static str {
 }
 
 fn path(at: &str, key: &str) -> String {
-    if at.is_empty() { key.to_string() } else { format!("{at}.{key}") }
+    if at.is_empty() {
+        key.to_string()
+    } else {
+        format!("{at}.{key}")
+    }
 }
 
 #[cfg(test)]
@@ -98,11 +115,36 @@ mod tests {
             "required": ["path"]
         });
         assert!(problems(&schema, &json!({ "path": "a", "limit": 20, "format": "text" })).is_empty());
-        assert!(problems(&schema, &json!({ "path": "a", "limit": 20.0 })).is_empty(), "a whole float is an integer");
-        assert!(problems(&schema, &json!({ "path": "a", "limit": null })).is_empty(), "a null is read as left out");
-        assert_eq!(problems(&schema, &json!({ "limit": "20" })), ["`path` is required", "`limit` must be integer, not a string"]);
-        assert_eq!(problems(&schema, &json!({ "path": "a", "format": "html" })), [r#"`format` must be one of "markdown", "text""#]);
-        assert_eq!(problems(&schema, &json!({ "path": "a", "todos": [{ "content": 1 }, {}] })), ["`todos[0].content` must be string, not a number", "`todos[1].content` is required"]);
-        assert!(problems(&json!({ "type": "object", "properties": { "x": { "anyOf": [] } } }), &json!({ "x": [1] })).is_empty(), "keywords it does not check pass");
+        assert!(
+            problems(&schema, &json!({ "path": "a", "limit": 20.0 })).is_empty(),
+            "a whole float is an integer"
+        );
+        assert!(
+            problems(&schema, &json!({ "path": "a", "limit": null })).is_empty(),
+            "a null is read as left out"
+        );
+        assert_eq!(
+            problems(&schema, &json!({ "limit": "20" })),
+            ["`path` is required", "`limit` must be integer, not a string"]
+        );
+        assert_eq!(
+            problems(&schema, &json!({ "path": "a", "format": "html" })),
+            [r#"`format` must be one of "markdown", "text""#]
+        );
+        assert_eq!(
+            problems(&schema, &json!({ "path": "a", "todos": [{ "content": 1 }, {}] })),
+            [
+                "`todos[0].content` must be string, not a number",
+                "`todos[1].content` is required"
+            ]
+        );
+        assert!(
+            problems(
+                &json!({ "type": "object", "properties": { "x": { "anyOf": [] } } }),
+                &json!({ "x": [1] })
+            )
+            .is_empty(),
+            "keywords it does not check pass"
+        );
     }
 }

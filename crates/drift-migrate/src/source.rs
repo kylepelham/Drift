@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
-use serde_json::{json, Value};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use serde_json::{Value, json};
 
 /// A stored part past this is cut down inside SQLite: a tool call keeps its name, input and the start
 /// of its output; anything else is read whole. Eight parts in a 19 GB database were over it, the
@@ -67,15 +67,20 @@ struct BigState {
 
 impl BigCall {
     fn kept(self) -> Value {
-        let cut = |text: Option<String>| text.map(|mut text| {
-            let mut at = (KEPT_BYTES as usize).min(text.len());
-            while !text.is_char_boundary(at) {
-                at -= 1;
-            }
-            text.truncate(at);
-            text
-        });
-        let input = self.state.input.filter(|input| input.to_string().len() <= KEPT_BYTES as usize);
+        let cut = |text: Option<String>| {
+            text.map(|mut text| {
+                let mut at = (KEPT_BYTES as usize).min(text.len());
+                while !text.is_char_boundary(at) {
+                    at -= 1;
+                }
+                text.truncate(at);
+                text
+            })
+        };
+        let input = self
+            .state
+            .input
+            .filter(|input| input.to_string().len() <= KEPT_BYTES as usize);
         json!({ "type": "tool", "tool": self.tool, "callID": self.call_id, "state": {
             "status": self.state.status, "title": self.state.title, "time": self.state.time,
             "input": input, "output": cut(self.state.output), "error": cut(self.state.error),
@@ -92,7 +97,8 @@ pub struct OcTodo {
 impl Source {
     /// Opens read-only and holds one read transaction, so every row comes from the same moment even while opencode writes.
     pub fn open(path: &Path) -> rusqlite::Result<Self> {
-        let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        let conn =
+            Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         conn.execute_batch("BEGIN")?;
         conn.query_row("SELECT count(*) FROM session", [], |_| Ok(()))?;
@@ -125,7 +131,12 @@ impl Source {
 
     /// Up to `limit` messages after `after` (their creation time and id), in written order. A user
     /// message's per-file diff summary is left in the database: nothing here reads it.
-    pub fn messages_after(&self, session_id: &str, after: Option<&OcMessage>, limit: usize) -> rusqlite::Result<Vec<OcMessage>> {
+    pub fn messages_after(
+        &self,
+        session_id: &str,
+        after: Option<&OcMessage>,
+        limit: usize,
+    ) -> rusqlite::Result<Vec<OcMessage>> {
         let (created, id) = after.map_or((i64::MIN, ""), |message| (message.created, message.id.as_str()));
         self.conn
             .prepare_cached(
@@ -168,30 +179,48 @@ impl Source {
         let stream = self.conn.blob_open("main", "part", "data", rowid, true)?;
         match serde_json::from_reader::<_, BigCall>(std::io::BufReader::new(stream)) {
             Ok(call) if call.kind.as_deref() == Some("tool") => Ok(call.kept().to_string()),
-            _ => self.conn.prepare_cached("SELECT data FROM part WHERE rowid = ?1")?.query_row([rowid], |row| row.get(0)),
+            _ => self
+                .conn
+                .prepare_cached("SELECT data FROM part WHERE rowid = ?1")?
+                .query_row([rowid], |row| row.get(0)),
         }
     }
 
     /// A part's stored text when it is within [`OVERSIZED_PART_BYTES`].
     pub fn small_part(&self, id: &str) -> rusqlite::Result<Option<String>> {
-        self.conn.prepare_cached("SELECT data FROM part WHERE id = ?1 AND octet_length(data) <= ?2")?.query_row(params![id, OVERSIZED_PART_BYTES], |row| row.get(0)).optional()
+        self.conn
+            .prepare_cached("SELECT data FROM part WHERE id = ?1 AND octet_length(data) <= ?2")?
+            .query_row(params![id, OVERSIZED_PART_BYTES], |row| row.get(0))
+            .optional()
     }
 
     /// The ids of a message's parts, without reading their text.
     pub fn part_ids(&self, message_id: &str) -> rusqlite::Result<Vec<String>> {
-        self.conn.prepare_cached("SELECT id FROM part WHERE message_id = ?1 ORDER BY id")?.query_map([message_id], |row| row.get(0))?.collect()
+        self.conn
+            .prepare_cached("SELECT id FROM part WHERE message_id = ?1 ORDER BY id")?
+            .query_map([message_id], |row| row.get(0))?
+            .collect()
     }
 
     /// Conversations holding prompts opencode admitted but never ran; none when its database predates the queue.
     pub fn pending_inputs(&self) -> std::collections::HashSet<String> {
-        let ids = self.conn.prepare("SELECT DISTINCT session_id FROM session_input WHERE promoted_seq IS NULL").and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect());
+        let ids = self
+            .conn
+            .prepare("SELECT DISTINCT session_id FROM session_input WHERE promoted_seq IS NULL")
+            .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect());
         ids.unwrap_or_default()
     }
 
     pub fn todos(&self, session_id: &str) -> rusqlite::Result<Vec<OcTodo>> {
         self.conn
             .prepare_cached("SELECT content, status, priority FROM todo WHERE session_id = ?1 ORDER BY position")?
-            .query_map([session_id], |row| Ok(OcTodo { content: row.get(0)?, status: row.get(1)?, priority: row.get(2)? }))?
+            .query_map([session_id], |row| {
+                Ok(OcTodo {
+                    content: row.get(0)?,
+                    status: row.get(1)?,
+                    priority: row.get(2)?,
+                })
+            })?
             .collect()
     }
 }

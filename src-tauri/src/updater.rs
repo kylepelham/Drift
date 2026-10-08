@@ -4,8 +4,7 @@ use std::path::Path;
 
 /// True when the executable sits in an NSIS-installed location next to its uninstaller.
 pub(crate) fn installed_alongside_uninstaller(exe: &Path) -> bool {
-    exe.parent()
-        .is_some_and(|dir| dir.join("uninstall.exe").is_file())
+    exe.parent().is_some_and(|dir| dir.join("uninstall.exe").is_file())
 }
 
 /// Debug builds and local release builds cannot update themselves.
@@ -47,10 +46,7 @@ pub(crate) async fn install_update(app: tauri::AppHandle) -> Result<(), String> 
         .await
         .map_err(|e| e.to_string())?
         .ok_or("no update available")?;
-    let bytes = update
-        .download(|_, _| {}, || {})
-        .await
-        .map_err(|e| e.to_string())?;
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(|e| e.to_string())?;
     if let Err(error) = update.install(bytes) {
         return Err(error.to_string());
     }

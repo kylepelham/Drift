@@ -1,9 +1,9 @@
 //! Fork and move: whole-session operations that never touch a turn in flight.
 
 use super::types::{MessageStatus, Role, Session, Visibility};
+use crate::Engine;
 use crate::event::Event;
 use crate::store::NewSession;
-use crate::Engine;
 
 #[derive(Debug)]
 pub enum TreeError {
@@ -32,18 +32,37 @@ impl Engine {
     pub fn fork(&self, source_id: &str, at: Option<&str>) -> Result<Session, TreeError> {
         let source = self.store.session(source_id)?.ok_or(TreeError::NoSession)?;
         let through = match at {
-            Some(id) => self.finished(&source)?.into_iter().find(|finished| finished == id).ok_or(TreeError::BadMessage)?,
+            Some(id) => self
+                .finished(&source)?
+                .into_iter()
+                .find(|finished| finished == id)
+                .ok_or(TreeError::BadMessage)?,
             None => self.finished(&source)?.pop().ok_or(TreeError::Empty)?,
         };
-        let title = if source.title.is_empty() { "Fork".to_string() } else { format!("{} (fork)", source.title) };
-        let session = self.store.fork_session(
-            source_id,
-            NewSession { workspace_id: &source.workspace_id, parent_id: None, visibility: Visibility::Sibling, title: &title, agent: &source.agent, model: source.model.as_ref() },
-            &through,
-            None,
-        )?
-        .ok_or(TreeError::Changed)?;
-        self.hub.publish(Event::SessionCreated { session: session.clone() });
+        let title = if source.title.is_empty() {
+            "Fork".to_string()
+        } else {
+            format!("{} (fork)", source.title)
+        };
+        let session = self
+            .store
+            .fork_session(
+                source_id,
+                NewSession {
+                    workspace_id: &source.workspace_id,
+                    parent_id: None,
+                    visibility: Visibility::Sibling,
+                    title: &title,
+                    agent: &source.agent,
+                    model: source.model.as_ref(),
+                },
+                &through,
+                None,
+            )?
+            .ok_or(TreeError::Changed)?;
+        self.hub.publish(Event::SessionCreated {
+            session: session.clone(),
+        });
         Ok(session)
     }
 
@@ -54,11 +73,21 @@ impl Engine {
         let stable = match self.turns.began(&source.id) {
             Some(began) => messages.iter().position(|m| m.id >= began).unwrap_or(messages.len()),
             // Another job, such as a compaction, is unstable from the last prompt.
-            None if self.turns.is_running(&source.id) => messages.iter().rposition(|m| m.role == Role::User).unwrap_or(0),
+            None if self.turns.is_running(&source.id) => {
+                messages.iter().rposition(|m| m.role == Role::User).unwrap_or(0)
+            }
             None => messages.len(),
         };
-        let visible = source.revert.as_ref().and_then(|r| messages.iter().position(|m| m.id >= r.message_id)).unwrap_or(messages.len());
-        Ok(messages[..stable.min(visible)].iter().filter(|m| m.status != MessageStatus::Streaming).map(|m| m.id.clone()).collect())
+        let visible = source
+            .revert
+            .as_ref()
+            .and_then(|r| messages.iter().position(|m| m.id >= r.message_id))
+            .unwrap_or(messages.len());
+        Ok(messages[..stable.min(visible)]
+            .iter()
+            .filter(|m| m.status != MessageStatus::Streaming)
+            .map(|m| m.id.clone())
+            .collect())
     }
 
     /// Moves a session and its subagents to another workspace. Refused while any of them is running or
@@ -68,7 +97,9 @@ impl Engine {
         self.store.session(id)?.ok_or(TreeError::NoSession)?;
         self.store.workspace(workspace_id)?.ok_or(TreeError::NoWorkspace)?;
         let tree = self.store.session_tree(id)?;
-        self.turns.while_idle(&tree, || self.store.move_sessions(&tree, workspace_id)).ok_or(TreeError::Busy)??;
+        self.turns
+            .while_idle(&tree, || self.store.move_sessions(&tree, workspace_id))
+            .ok_or(TreeError::Busy)??;
         for member in &tree {
             if let Some(session) = self.store.session(member)? {
                 self.hub.publish(Event::SessionUpdated { session });

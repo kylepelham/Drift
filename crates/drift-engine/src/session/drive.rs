@@ -35,7 +35,9 @@ fn state(text: &str) -> Option<State> {
     if !body[end + "</orchestrator_status>".len()..].trim().is_empty() {
         return None;
     }
-    serde_json::from_str::<Status>(body[..end].trim()).ok().map(|status| status.state)
+    serde_json::from_str::<Status>(body[..end].trim())
+        .ok()
+        .map(|status| status.state)
 }
 
 /// The nudge to send after `reply`, the last reply of a top-level orchestrator turn, given the
@@ -46,10 +48,14 @@ pub(super) fn next(session: &Session, reply: &MessageWithParts, rounds: usize) -
     if session.agent != AGENT || session.parent_id.is_some() || !answered || rounds >= MAX_ROUNDS {
         return None;
     }
-    let text: String = reply.parts.iter().filter_map(|row| match &row.part {
-        Part::Text { text } => Some(text.as_str()),
-        _ => None,
-    }).collect();
+    let text: String = reply
+        .parts
+        .iter()
+        .filter_map(|row| match &row.part {
+            Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
     match state(&text) {
         Some(State::Working) => Some(PROCEED),
         None => Some(REMINDER),
@@ -63,10 +69,26 @@ mod tests {
 
     #[test]
     fn only_a_final_well_formed_block_counts() {
-        assert_eq!(state("did a thing\n<orchestrator_status>{\"state\":\"working\",\"headline\":\"x\"}</orchestrator_status>"), Some(State::Working));
-        assert_eq!(state("<orchestrator_status>{\"state\":\"done\"}</orchestrator_status>\n<orchestrator_status>{\"state\":\"blocked\"}</orchestrator_status>"), Some(State::Blocked), "the last block wins");
-        assert_eq!(state("<orchestrator_status>{\"state\":\"done\"}</orchestrator_status> and then prose"), None, "the block must come last");
-        assert_eq!(state("<orchestrator_status>{\"state\":\"thinking\"}</orchestrator_status>"), None);
+        assert_eq!(
+            state("did a thing\n<orchestrator_status>{\"state\":\"working\",\"headline\":\"x\"}</orchestrator_status>"),
+            Some(State::Working)
+        );
+        assert_eq!(
+            state(
+                "<orchestrator_status>{\"state\":\"done\"}</orchestrator_status>\n<orchestrator_status>{\"state\":\"blocked\"}</orchestrator_status>"
+            ),
+            Some(State::Blocked),
+            "the last block wins"
+        );
+        assert_eq!(
+            state("<orchestrator_status>{\"state\":\"done\"}</orchestrator_status> and then prose"),
+            None,
+            "the block must come last"
+        );
+        assert_eq!(
+            state("<orchestrator_status>{\"state\":\"thinking\"}</orchestrator_status>"),
+            None
+        );
         assert_eq!(state("<orchestrator_status>not json</orchestrator_status>"), None);
         assert_eq!(state("no block"), None);
     }
