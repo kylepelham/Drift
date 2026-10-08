@@ -44,13 +44,13 @@ pub(crate) struct Harness {
     pub(crate) _dir: PathBuf,
 }
 
-struct ToolView<'a> {
-    name: &'a str,
-    status: ToolStatus,
-    output: Option<&'a str>,
-    title: Option<&'a str>,
-    input: &'a serde_json::Value,
-    metadata: Option<&'a ToolMetadata>,
+pub(crate) struct ToolView<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) status: ToolStatus,
+    pub(crate) output: Option<&'a str>,
+    pub(crate) title: Option<&'a str>,
+    pub(crate) input: &'a serde_json::Value,
+    pub(crate) metadata: Option<&'a ToolMetadata>,
 }
 
 trait AwaitOk {
@@ -235,7 +235,7 @@ fn call_block(id: &str, name: &str, input: &str) -> Vec<Chunk> {
     ]
 }
 
-fn tool(row: &PartRow) -> ToolView<'_> {
+pub(crate) fn tool(row: &PartRow) -> ToolView<'_> {
     let Part::ToolCall {
         name,
         status,
