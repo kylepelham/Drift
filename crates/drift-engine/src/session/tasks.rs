@@ -16,9 +16,12 @@ use super::types::{Ending, MessageStatus, Part, PartRow, Role, ToolStatus};
 use crate::Engine;
 use crate::event::Event;
 
-/// Background workers running at once across the engine; more wait their turn.
-pub const MAX_BACKGROUND: usize = 4;
+/// Background workers running at once across the engine unless Settings say otherwise; more wait their turn.
+pub const DEFAULT_BACKGROUND_LIMIT: usize = 4;
+/// The most background workers Settings may allow at once.
+pub const MAX_BACKGROUND_LIMIT: usize = 16;
 pub const BACKGROUND_TASKS_KEY: &str = "backgroundTasks";
+pub const BACKGROUND_LIMIT_KEY: &str = "backgroundTaskLimit";
 /// How much of a worker's final reply comes back verbatim.
 const RESULT_CHARS: usize = 20_000;
 /// The longest `task_output` may wait for a worker to finish.
@@ -145,6 +148,7 @@ pub fn resolve_mode(
 /// Shared slots, owners' stop scopes, each worker's own stop, and who is handing each result over.
 pub struct Workers {
     slots: tokio::sync::Semaphore,
+    limit: Mutex<SlotLimit>,
     /// Also the fence: a Stop and the last check before a prompt is admitted both hold it.
     owners: Mutex<HashMap<String, Owner>>,
     tokens: Mutex<HashMap<String, CancellationToken>>,
@@ -158,6 +162,21 @@ pub(crate) struct Owner {
 }
 
 pub(crate) type Owners = HashMap<String, Owner>;
+
+/// The slot count Settings ask for, and how many slots still held by running workers must be retired to reach it.
+struct SlotLimit {
+    size: usize,
+    owed: usize,
+}
+
+/// Why a new background limit was not applied.
+#[derive(Debug, thiserror::Error)]
+pub enum LimitError {
+    #[error("the background task limit must be from 1 to {MAX_BACKGROUND_LIMIT}")]
+    OutOfRange,
+    #[error(transparent)]
+    Store(#[from] rusqlite::Error),
+}
 
 /// Who is handing a finished result to its parent. One at a time, so it lands once.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -177,18 +196,49 @@ impl Claimant {
     }
 }
 
-impl Default for Workers {
-    fn default() -> Self {
+impl Workers {
+    /// Workers with `limit` slots; [`Workers::resize`] changes it later.
+    pub(crate) fn new(limit: usize) -> Self {
         Self {
-            slots: tokio::sync::Semaphore::new(MAX_BACKGROUND),
+            slots: tokio::sync::Semaphore::new(limit),
+            limit: Mutex::new(SlotLimit { size: limit, owed: 0 }),
             owners: Mutex::default(),
             tokens: Mutex::default(),
             claims: Mutex::default(),
         }
     }
-}
 
-impl Workers {
+    /// Changes how many workers run at once. Running workers are never stopped: a smaller limit takes
+    /// its slots back as they finish, and a larger one starts queued workers at once.
+    pub(crate) fn resize(&self, size: usize) {
+        let mut limit = self.limit.lock().unwrap();
+        let current = limit.size;
+        limit.size = size;
+
+        // Growing first cancels slots still owed from an earlier shrink, then adds the rest.
+        if size > current {
+            let extra = size - current;
+            let repaid = extra.min(limit.owed);
+            limit.owed -= repaid;
+            self.slots.add_permits(extra - repaid);
+            return;
+        }
+
+        // Shrinking takes free slots now and the rest from workers as they finish.
+        let surplus = current - size;
+        let taken = self.slots.forget_permits(surplus);
+        limit.owed += surplus - taken;
+    }
+
+    /// Gives a finished worker's slot back, or retires it while a smaller limit is still owed slots.
+    fn release(&self, permit: tokio::sync::SemaphorePermit<'_>) {
+        let mut limit = self.limit.lock().unwrap();
+        if limit.owed > 0 {
+            limit.owed -= 1;
+            permit.forget();
+        }
+    }
+
     pub(crate) fn fence(&self) -> std::sync::MutexGuard<'_, Owners> {
         self.owners.lock().unwrap()
     }
@@ -284,9 +334,33 @@ fn owner_entry<'a>(owners: &'a mut Owners, store: &crate::store::Store, owner: &
     })
 }
 
+/// The background limit saved in Settings, or the default when none is saved or it is out of range.
+pub(crate) fn stored_background_limit(store: &crate::store::Store) -> usize {
+    let saved: Option<usize> = store.setting(BACKGROUND_LIMIT_KEY).ok().flatten();
+    saved
+        .filter(|limit| (1..=MAX_BACKGROUND_LIMIT).contains(limit))
+        .unwrap_or(DEFAULT_BACKGROUND_LIMIT)
+}
+
 impl Engine {
     pub fn background_enabled(&self) -> bool {
         self.store.setting(BACKGROUND_TASKS_KEY).ok().flatten().unwrap_or(true)
+    }
+
+    /// How many background workers run at once.
+    pub fn background_limit(&self) -> usize {
+        stored_background_limit(&self.store)
+    }
+
+    /// Saves a new background limit and applies it to the slots straight away.
+    pub fn set_background_limit(&self, limit: usize) -> Result<(), LimitError> {
+        if !(1..=MAX_BACKGROUND_LIMIT).contains(&limit) {
+            return Err(LimitError::OutOfRange);
+        }
+
+        self.store.set_setting(BACKGROUND_LIMIT_KEY, &limit)?;
+        self.workers.resize(limit);
+        Ok(())
     }
 
     /// The token a new background worker of `owner` descends from, and the owner's Stop count now.
@@ -356,7 +430,9 @@ impl Engine {
             self.end_task(&task.id, TaskState::Stopped, STOPPED);
             self.workers.forget(&task.id);
         }
-        drop(permit);
+        if let Some(permit) = permit {
+            self.workers.release(permit);
+        }
         self.deliver(&task.id).await;
     }
 

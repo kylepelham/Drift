@@ -225,21 +225,82 @@ async fn workers_finish_out_of_order_each_with_its_own_result() {
 }
 
 #[tokio::test]
-async fn background_slots_are_bounded_and_session_stop_ends_them_even_when_idle() {
+async fn a_smaller_limit_takes_slots_back_only_as_running_workers_finish() {
+    let workers = Workers::new(2);
+    let first = workers.slots.acquire().await.unwrap();
+    let second = workers.slots.acquire().await.unwrap();
+
+    // Both slots are in use, so shrinking to one retires the next slot handed back.
+    workers.resize(1);
+    workers.release(first);
+    assert_eq!(workers.slots.available_permits(), 0, "the first slot back is retired");
+    workers.release(second);
+    assert_eq!(workers.slots.available_permits(), 1, "the second is free again");
+
+    // Growing past a pending shrink cancels what is still owed before adding slots.
+    let held = workers.slots.acquire().await.unwrap();
+    workers.resize(0);
+    workers.resize(3);
+    workers.release(held);
+    assert_eq!(workers.slots.available_permits(), 3);
+}
+
+#[tokio::test]
+async fn raising_the_background_limit_starts_a_queued_worker_at_once() {
     let h = harness().await;
-    let launched: Vec<_> = (0..MAX_BACKGROUND + 1)
+    h.engine.set_background_limit(1).unwrap();
+    let launched: Vec<_> = (0..2)
         .map(|i| background(&format!("Job {i}"), &format!("CHILD {i} wait")))
         .collect();
     h.provider
         .push_for("PARENT", launches(&launched))
         .push_for("PARENT", text("carrying on"));
-    for i in 0..=MAX_BACKGROUND {
+    for i in 0..2 {
+        h.provider.push_stall_for(&format!("CHILD {i} wait"));
+    }
+
+    // One slot: one runs and one waits.
+    h.engine.submit(&h.session.id, prompt("PARENT two")).await.unwrap();
+    until("one runs and one waits", || {
+        let all = tasks(&h);
+        let running = all.iter().filter(|t| t.state == TaskState::Running).count();
+        let queued = all.iter().filter(|t| t.state == TaskState::Queued).count();
+        running == 1 && queued == 1
+    })
+    .await;
+
+    // Two slots: the waiting one starts without anything finishing.
+    h.engine.set_background_limit(2).unwrap();
+    until("both run", || {
+        tasks(&h).iter().filter(|t| t.state == TaskState::Running).count() == 2
+    })
+    .await;
+
+    assert!(matches!(h.engine.set_background_limit(0), Err(LimitError::OutOfRange)));
+    assert!(matches!(
+        h.engine.set_background_limit(MAX_BACKGROUND_LIMIT + 1),
+        Err(LimitError::OutOfRange)
+    ));
+    assert_eq!(h.engine.background_limit(), 2, "a refused limit leaves the saved one");
+    h.engine.abort(&h.session.id);
+}
+
+#[tokio::test]
+async fn background_slots_are_bounded_and_session_stop_ends_them_even_when_idle() {
+    let h = harness().await;
+    let launched: Vec<_> = (0..DEFAULT_BACKGROUND_LIMIT + 1)
+        .map(|i| background(&format!("Job {i}"), &format!("CHILD {i} wait")))
+        .collect();
+    h.provider
+        .push_for("PARENT", launches(&launched))
+        .push_for("PARENT", text("carrying on"));
+    for i in 0..=DEFAULT_BACKGROUND_LIMIT {
         h.provider.push_stall_for(&format!("CHILD {i} wait"));
     }
     h.engine.submit(&h.session.id, prompt("PARENT many")).await.unwrap();
     until("the parent's turn ends", || !h.engine.turns.is_running(&h.session.id)).await;
     until("the slots fill", || {
-        tasks(&h).iter().filter(|t| t.state == TaskState::Running).count() == MAX_BACKGROUND
+        tasks(&h).iter().filter(|t| t.state == TaskState::Running).count() == DEFAULT_BACKGROUND_LIMIT
     })
     .await;
     assert_eq!(
@@ -254,7 +315,7 @@ async fn background_slots_are_bounded_and_session_stop_ends_them_even_when_idle(
         "Stop has something to stop with the parent idle"
     );
     until("all stopped and held", || {
-        tasks(&h).len() == MAX_BACKGROUND + 1
+        tasks(&h).len() == DEFAULT_BACKGROUND_LIMIT + 1
             && tasks(&h)
                 .iter()
                 .all(|t| t.state == TaskState::Stopped && t.held && !t.delivered)
@@ -978,18 +1039,18 @@ async fn a_foreground_result_left_owed_by_a_restart_goes_to_its_own_call_never_a
 #[tokio::test]
 async fn a_worker_stopped_between_its_start_and_its_turn_never_runs() {
     let h = harness().await;
-    let launched: Vec<_> = (0..=MAX_BACKGROUND)
+    let launched: Vec<_> = (0..=DEFAULT_BACKGROUND_LIMIT)
         .map(|i| background(&format!("Job {i}"), &format!("CHILD {i} wait")))
         .collect();
     h.provider
         .push_for("PARENT", launches(&launched))
         .push_for("PARENT", text("carrying on"));
-    for i in 0..=MAX_BACKGROUND {
+    for i in 0..=DEFAULT_BACKGROUND_LIMIT {
         h.provider.push_stall_for(&format!("CHILD {i} wait"));
     }
     h.engine.submit(&h.session.id, prompt("PARENT many")).await.unwrap();
     until("one waits for a slot", || {
-        tasks(&h).iter().filter(|t| t.state == TaskState::Running).count() == MAX_BACKGROUND
+        tasks(&h).iter().filter(|t| t.state == TaskState::Running).count() == DEFAULT_BACKGROUND_LIMIT
             && tasks(&h).iter().any(|t| t.state == TaskState::Queued)
     })
     .await;
@@ -1041,7 +1102,7 @@ async fn a_queued_worker_runs_as_it_was_admitted_not_as_settings_changed_since()
         h.engine.set_agent_overrides(overrides);
     };
     set_prompt("PROMPT-ALPHA");
-    let mut launched: Vec<_> = (0..MAX_BACKGROUND)
+    let mut launched: Vec<_> = (0..DEFAULT_BACKGROUND_LIMIT)
         .map(|i| background(&format!("Job {i}"), &format!("CHILD {i} wait")))
         .collect();
     launched.push(background("Queued", "CHILD queued work"));
@@ -1049,7 +1110,7 @@ async fn a_queued_worker_runs_as_it_was_admitted_not_as_settings_changed_since()
         .push_for("PARENT", launches(&launched))
         .push_for("PARENT", text("carrying on"))
         .push_for("CHILD queued", text("queued result"));
-    for i in 0..MAX_BACKGROUND {
+    for i in 0..DEFAULT_BACKGROUND_LIMIT {
         h.provider.push_stall_for(&format!("CHILD {i} wait"));
     }
     h.engine.submit(&h.session.id, prompt("PARENT many")).await.unwrap();
@@ -1057,7 +1118,7 @@ async fn a_queued_worker_runs_as_it_was_admitted_not_as_settings_changed_since()
         tasks(&h)
             .iter()
             .any(|t| t.description == "Queued" && t.state == TaskState::Queued)
-            && tasks(&h).iter().filter(|t| t.state == TaskState::Running).count() == MAX_BACKGROUND
+            && tasks(&h).iter().filter(|t| t.state == TaskState::Running).count() == DEFAULT_BACKGROUND_LIMIT
     })
     .await;
     set_prompt("PROMPT-BETA");

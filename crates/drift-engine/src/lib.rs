@@ -157,6 +157,7 @@ impl Engine {
             permissions.set_auto_accept(&Hub::new(0), None, true);
         }
         let mcp = mcp::Servers::new(credentials.clone(), store.clone());
+        let background_limit = session::tasks::stored_background_limit(&store);
         Ok(Arc::new_cyclic(|me| Self {
             me: me.clone(),
             data_dir: data_dir.to_path_buf(),
@@ -171,7 +172,7 @@ impl Engine {
             catalog: RwLock::new(catalog),
             snapshots: Snapshots::new(data_dir),
             turns: Turns::default(),
-            workers: Default::default(),
+            workers: session::tasks::Workers::new(background_limit),
             http: llm::http::client(),
             oauth: Default::default(),
             agent_overrides: Default::default(),

@@ -464,7 +464,7 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 #### Shell time limit
 
 - A shell call runs for the model's explicit `timeout` if it gives one (capped at 24 hours, the
-  Settings ceiling), otherwise for the user's Settings value (Settings > Tool execution). "No
+  Settings ceiling), otherwise for the user's Settings value (Settings > Execution). "No
   timeout" means none. Until the shell reports the setting the engine uses two minutes.
 - The shell pushes the value with `Engine::set_shell_timeout` at startup and on every change; it
   applies to calls that start afterwards.
@@ -771,9 +771,11 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   workspace fails it (`TurnError::Moved`) instead of quietly re-planning.
 - Foreground: runs to its end within the call (`Task` stops itself, so a Stop waits for the worker
   to wind down and be recorded), and its result is the call's result.
-- Background: the call returns a receipt at once (`outcome: launched`). The worker waits for one
-  of four slots (`MAX_BACKGROUND`) or its token, whichever comes first, and checks its token again
-  after getting a slot, before it is marked running. Its turn's abort token descends from the
+- Background: the call returns a receipt at once (`outcome: launched`). The worker waits for a
+  slot or its token, whichever comes first, and checks its token again after getting a slot,
+  before it is marked running. Settings > Execution sets the slot count (`backgroundTaskLimit`,
+  1 to 16, default 4). Raising it starts queued workers at once; lowering it never stops a
+  running one, and its slots are taken back as running workers finish. Its turn's abort token descends from the
   worker's, so Stop reaches it while queued, starting (before its turn claims the session),
   planning and running.
 - Handing a result over is claimed and transactional. A claim (`Workers::claim`, in memory: the

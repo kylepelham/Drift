@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::State;
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::error::ApiError;
 use crate::Engine;
 use crate::session::compaction::AUTO_COMPACT_KEY;
-use crate::session::tasks::BACKGROUND_TASKS_KEY;
+use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
 
 /// Engine-wide preferences the user changes in Settings.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -20,6 +21,9 @@ pub struct EngineSettings {
     /// Let `task` run subagents in the background. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_tasks: Option<bool>,
+    /// How many background subagents run at once, 1 to 16; more wait for a slot. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_task_limit: Option<usize>,
     /// Every session answers its own asks; only a deny rule still refuses. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_accept_all: Option<bool>,
@@ -39,6 +43,8 @@ pub struct EngineSettingsInput {
     #[serde(default)]
     pub background_tasks: Option<bool>,
     #[serde(default)]
+    pub background_task_limit: Option<usize>,
+    #[serde(default)]
     pub auto_accept_all: Option<bool>,
     #[serde(default)]
     pub registry_sources: Option<Vec<SourceInput>>,
@@ -48,6 +54,7 @@ fn current(engine: &Engine) -> EngineSettings {
     EngineSettings {
         auto_compact: Some(engine.auto_compact()),
         background_tasks: Some(engine.background_enabled()),
+        background_task_limit: Some(engine.background_limit()),
         auto_accept_all: Some(engine.auto_accept_all()),
         registry_sources: Some(engine.registry_sources()),
     }
@@ -68,6 +75,14 @@ pub async fn put(
     }
     if let Some(enabled) = body.background_tasks {
         engine.store.set_setting(BACKGROUND_TASKS_KEY, &enabled)?;
+    }
+    if let Some(limit) = body.background_task_limit {
+        engine.set_background_limit(limit).map_err(|error| match error {
+            LimitError::OutOfRange => {
+                ApiError::new(StatusCode::BAD_REQUEST, "background_task_limit", error.to_string())
+            }
+            LimitError::Store(error) => error.into(),
+        })?;
     }
     if let Some(on) = body.auto_accept_all {
         engine.set_auto_accept_all(on)?;

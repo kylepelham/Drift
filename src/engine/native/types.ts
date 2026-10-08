@@ -1166,6 +1166,8 @@ export interface components {
             autoAcceptAll?: boolean | null;
             /** @description Compact a conversation automatically when it nears its model's context window. Left out of a PUT, it stays as it is. */
             autoCompact?: boolean | null;
+            /** @description How many background subagents run at once, 1 to 16; more wait for a slot. Left out of a PUT, it stays as it is. */
+            backgroundTaskLimit?: number | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
             /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
@@ -1175,6 +1177,7 @@ export interface components {
         EngineSettingsInput: {
             autoAcceptAll?: boolean | null;
             autoCompact?: boolean | null;
+            backgroundTaskLimit?: number | null;
             backgroundTasks?: boolean | null;
             registrySources?: components["schemas"]["SourceInput"][] | null;
         };
