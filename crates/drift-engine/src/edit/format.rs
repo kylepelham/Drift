@@ -113,8 +113,8 @@ pub fn resolve(overrides: &BTreeMap<String, FormatterConfig>) -> Vec<Formatter> 
         // Whether it is installed is asked per file, since the project's own copy counts.
         out.push(Formatter {
             name: builtin.name.into(),
-            command: builtin.command.iter().map(|s| s.to_string()).collect(),
-            extensions: builtin.extensions.iter().map(|s| s.to_string()).collect(),
+            command: builtin.command.iter().map(ToString::to_string).collect(),
+            extensions: builtin.extensions.iter().map(ToString::to_string).collect(),
             uses,
             stdin: builtin.stdin,
         });
@@ -179,7 +179,7 @@ async fn run(
             .status()
             .await
             .ok()
-            .filter(|status| status.success())
+            .filter(std::process::ExitStatus::success)
             .map(|_| ());
     };
     let before = tokio::fs::read(path).await.ok()?;
@@ -413,7 +413,7 @@ mod tests {
             ("sh", vec!["-c", "echo formatted > $FILE"])
         };
         let mut command = vec![program.to_string()];
-        command.extend(args.iter().map(|s| s.to_string()));
+        command.extend(args.iter().map(ToString::to_string));
         let ok = vec![Formatter::custom("echo", &command, &[".txt".into()])];
         assert_eq!(format(&file, &dir, &ok).await.as_deref(), Some("echo"));
         assert!(std::fs::read_to_string(&file).unwrap().starts_with("formatted"));

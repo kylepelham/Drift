@@ -1046,7 +1046,7 @@ fn builtin_agents() -> Vec<Agent> {
         description: description.into(),
         prompt: prompt.trim().into(),
         model: None,
-        tools: tools.iter().map(|t| t.to_string()).collect(),
+        tools: tools.iter().map(ToString::to_string).collect(),
         builtin: true,
         kind,
         steps: None,

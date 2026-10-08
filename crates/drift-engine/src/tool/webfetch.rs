@@ -257,7 +257,7 @@ fn strip_tags(html: &str) -> String {
                 || tag.starts_with("/div")
                 || tag.starts_with("/h") =>
             {
-                out.push('\n')
+                out.push('\n');
             }
             _ => {}
         }

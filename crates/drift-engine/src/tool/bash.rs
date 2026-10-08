@@ -595,6 +595,7 @@ fn resume_main_thread(child: &tokio::process::Child) {
     };
     use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
     let Some(pid) = child.id() else { return };
+    // SAFETY: entry is correctly sized; the snapshot and every opened thread handle are closed after use.
     unsafe {
         let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
         let mut entry: THREADENTRY32 = std::mem::zeroed();

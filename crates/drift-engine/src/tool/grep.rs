@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::path::Path;
 
 use grep::regex::RegexMatcherBuilder;
@@ -81,7 +82,14 @@ impl Tool for Grep {
                 })
             };
             let found = tokio::task::spawn_blocking(move || {
-                search(&root, &pattern, include.as_deref(), &workspace, &stop, &allowed)
+                search(Search {
+                    root: &root,
+                    pattern: &pattern,
+                    include: include.as_deref(),
+                    workspace: &workspace,
+                    stop: &stop,
+                    allowed: &allowed,
+                })
             })
             .await
             .map_err(|e| ToolError(e.to_string()))??;
@@ -91,21 +99,25 @@ impl Tool for Grep {
                 found.lines.join("\n")
             };
             if found.total > MAX_COUNTED {
-                output.push_str(&format!("\n(more than {MAX_COUNTED} matches, so the search stopped; these {MAX_MATCHES} are sorted from the files it reached and earlier files may be missing. Narrow the pattern, `path` or `include`)"));
+                write!(output, "\n(more than {MAX_COUNTED} matches, so the search stopped; these {MAX_MATCHES} are sorted from the files it reached and earlier files may be missing. Narrow the pattern, `path` or `include`)").expect("writing to a String cannot fail");
             } else if found.total > found.lines.len() {
-                output.push_str(&format!("\n({} matches; these are the first {MAX_MATCHES} by file and line. Narrow the pattern, `path` or `include` to see the rest)", found.total));
+                write!(output, "\n({} matches; these are the first {MAX_MATCHES} by file and line. Narrow the pattern, `path` or `include` to see the rest)", found.total).expect("writing to a String cannot fail");
             }
             if found.withheld > 0 {
-                output.push_str(&format!(
+                write!(
+                    output,
                     "\n({} files that may hold secrets were not searched; read one directly and the user is asked)",
                     found.withheld
-                ));
+                )
+                .expect("writing to a String cannot fail");
             }
             if found.restricted > 0 {
-                output.push_str(&format!(
+                write!(
+                    output,
                     "\n({} files were excluded by read policy or need read approval; use read on an allowed file)",
                     found.restricted
-                ));
+                )
+                .expect("writing to a String cannot fail");
             }
             let metadata = ToolMetadata {
                 count: Some(found.lines.len()),
@@ -137,6 +149,15 @@ struct Found {
 /// One matching line: the file as shown, its line number, and the line.
 type Hit = (String, u64, String);
 
+struct Search<'a> {
+    root: &'a Path,
+    pattern: &'a str,
+    include: Option<&'a str>,
+    workspace: &'a Path,
+    stop: &'a CancellationToken,
+    allowed: &'a (dyn Fn(&Path) -> bool + Sync),
+}
+
 /// The first [`MAX_MATCHES`] hits by file then line, whatever order the threads find them in.
 #[derive(Default)]
 struct First(std::sync::Mutex<Vec<Hit>>);
@@ -163,15 +184,17 @@ impl First {
 /// line, with how many there were in all, up to [`MAX_COUNTED`], where it stops. Binary files end
 /// their search at the first NUL; files that may hold secrets are skipped unless the search names
 /// one directly, which has already asked. A Stop ends the walk and every file search in it.
-fn search(
-    root: &Path,
-    pattern: &str,
-    include: Option<&str>,
-    workspace: &Path,
-    stop: &CancellationToken,
-    allowed: &(dyn Fn(&Path) -> bool + Sync),
-) -> Result<Found, ToolError> {
+fn search(search: Search<'_>) -> Result<Found, ToolError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    let Search {
+        root,
+        pattern,
+        include,
+        workspace,
+        stop,
+        allowed,
+    } = search;
+
     let matcher = RegexMatcherBuilder::new()
         .line_terminator(Some(b'\n'))
         .build(pattern)

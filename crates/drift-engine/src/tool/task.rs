@@ -83,21 +83,7 @@ impl Tool for Task {
                 |earlier| earlier.agent.as_str(),
             );
             let config = &ctx.config;
-            let background_default = match config.agent(agent) {
-                Some(found) if found.kind != AgentKind::Action => found.usable().map_err(ToolError)?.background,
-                Some(_) => {
-                    return Err(ToolError(format!(
-                        "{agent} is an engine action, not an agent that can take a task"
-                    )));
-                }
-                None => return Err(ToolError(format!("no agent named {agent}"))),
-            };
-            let (mode, reason) = resolve_mode(
-                input["run_in_background"].as_bool(),
-                background_default,
-                ctx.engine.background_enabled(),
-            )
-            .map_err(ToolError)?;
+            let (mode, reason) = task_mode(ctx, &input, agent)?;
             // A user's command may choose the model; else the agent's pin from Settings or its definition; else the parent's model.
             let model = ctx
                 .command_model
@@ -169,6 +155,25 @@ impl Tool for Task {
     fn failed(&self, output: &Output) -> bool {
         !matches!(output.metadata.outcome.as_deref(), Some("replied" | "launched"))
     }
+}
+
+fn task_mode(ctx: &Context, input: &Value, agent: &str) -> Result<(Mode, &'static str), ToolError> {
+    let background_default = match ctx.config.agent(agent) {
+        Some(found) if found.kind != AgentKind::Action => found.usable().map_err(ToolError)?.background,
+        Some(_) => {
+            return Err(ToolError(format!(
+                "{agent} is an engine action, not an agent that can take a task"
+            )));
+        }
+        None => return Err(ToolError(format!("no agent named {agent}"))),
+    };
+
+    resolve_mode(
+        input["run_in_background"].as_bool(),
+        background_default,
+        ctx.engine.background_enabled(),
+    )
+    .map_err(ToolError)
 }
 
 /// The earlier task a call asks to continue: one of this conversation's, finished.
@@ -463,7 +468,7 @@ impl Tool for ReadThread {
             }
             match last_attempt(&ctx.engine.store, id) {
                 Attempt::Replied(reply) if !reply.is_empty() => {
-                    lines.push(format!("Latest reply:\n{}", clip(&reply, SUMMARY_CHARS)))
+                    lines.push(format!("Latest reply:\n{}", clip(&reply, SUMMARY_CHARS)));
                 }
                 Attempt::Failed(error) => lines.push(format!("Its last attempt failed: {error}")),
                 Attempt::Incomplete(partial) => lines.push(format!(
