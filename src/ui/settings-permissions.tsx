@@ -1,37 +1,13 @@
 import { createEffect, createMemo, createSignal, For, on, onMount, Show } from "solid-js";
-import { IconArrowDown, IconArrowUp, IconPlus, IconTrash } from "./icons";
+import { AddRule, newRule, RuleList } from "./settings-permission-rules";
 import { activeWorkspace, workspaces } from "../state/workspaces";
 import { SettingsGroup } from "./settings-controls";
 import { useEngine } from "../engine";
+import { IconTrash } from "./icons";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
 
 import type { PermissionGrant, PermissionRule } from "../engine/native/client";
-import type { JSX } from "solid-js";
-
-/** The kinds tools ask with; `*` covers them all. */
-export const permissionKinds = [
-    "*",
-    "bash",
-    "edit",
-    "read",
-    "glob",
-    "grep",
-    "webfetch",
-    "mcp",
-    "skill",
-    "task",
-    "project-commands",
-] as const;
-const decisions = ["allow", "ask", "deny"] as const;
-
-/** `rules` with the rule at `index` moved `by` places, kept inside the list. */
-export function moveRule(rules: PermissionRule[], index: number, by: number) {
-    const to = Math.min(Math.max(index + by, 0), rules.length - 1);
-    const next = [...rules];
-    next.splice(to, 0, ...next.splice(index, 1));
-    return next;
-}
 
 /** What a grant covers, as the user approved it. */
 export function grantLabel(grant: PermissionGrant) {
@@ -64,6 +40,7 @@ function RulesGroup() {
     async function run(action: () => Promise<PermissionRule[]>, announce: boolean) {
         setBusy(true);
         setError("");
+
         try {
             const next = await action();
             setSaved(next);
@@ -127,7 +104,7 @@ function RulesGroup() {
     );
 }
 
-/** Which part of the page a grant belongs to: by what it lets through, not by the tool that asked. */
+/** Groups grants by the access they allow rather than the tool that requested them. */
 export function grantGroup(grant: PermissionGrant): "shell" | "files" | "web" | "mcp" | "other" {
     const kind = grant.grant === "subcommand" ? "bash" : grant.kind;
     if (kind === "bash") return "shell";
@@ -161,8 +138,10 @@ function GrantsGroup() {
     async function run(action: () => Promise<unknown>) {
         const folder = directory();
         if (!folder) return;
+
         setBusy(true);
         setError("");
+
         try {
             await action();
             setGrants(await engine.actions.workspaceGrants(folder));
@@ -182,13 +161,15 @@ function GrantsGroup() {
 
     const shown = createMemo(() => {
         const words = filter().trim().toLowerCase();
-        const matching = grants().filter(
-            (grant) =>
-                !words ||
-                `${grant.grant === "subcommand" ? "bash" : grant.kind} ${grantText(grant)}`
-                    .toLowerCase()
-                    .includes(words),
-        );
+        const matching = grants().filter((grant) => {
+            if (!words) return true;
+
+            const kind = grant.grant === "subcommand" ? "bash" : grant.kind;
+            const text = `${kind} ${grantText(grant)}`.toLowerCase();
+
+            return text.includes(words);
+        });
+
         return grantGroups
             .map((group) => ({ group, grants: matching.filter((grant) => grantGroup(grant) === group) }))
             .filter((entry) => entry.grants.length);
@@ -291,110 +272,4 @@ function GrantsGroup() {
 
 function Empty(props: { text: string }) {
     return <div class="px-1 py-3 text-xs text-ink-faint">{props.text}</div>;
-}
-
-export const newRule = (): PermissionRule => ({ kind: "bash", pattern: "", decision: "ask" });
-
-/** Rules as editable rows: kind, pattern, decision, and moving or removing each. */
-export function RuleList(props: { rules: PermissionRule[]; onChange: (rules: PermissionRule[]) => void }) {
-    const update = (index: number, change: Partial<PermissionRule>) =>
-        props.onChange(props.rules.map((rule, at) => (at === index ? { ...rule, ...change } : rule)));
-    return (
-        <Show when={props.rules.length > 0} fallback={<Empty text={t("drift.permissions.empty")} />}>
-            <div>
-                <For each={props.rules}>
-                    {(rule, index) => (
-                        <div class="flex items-center gap-2 border-b border-edge/70 px-1 py-2">
-                            <Picker
-                                label={t("drift.permissions.kind")}
-                                items={permissionKinds.map((kind) => ({
-                                    id: kind,
-                                    label: kind === "*" ? t("drift.permissions.kind.all") : kind,
-                                }))}
-                                selected={rule.kind}
-                                fallbackLabel={rule.kind}
-                                floating
-                                bordered
-                                chevronAtEnd
-                                placement="below"
-                                width="9.5rem"
-                                onPick={(kind) => update(index(), { kind })}
-                            />
-                            <input
-                                aria-label={t("drift.permissions.pattern")}
-                                class="h-8 min-w-0 flex-1 rounded-md border border-edge bg-raised/45 px-2.5 font-mono text-xs text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
-                                placeholder="git push*"
-                                value={rule.pattern}
-                                onInput={(event) => update(index(), { pattern: event.currentTarget.value })}
-                            />
-                            <Picker
-                                label={t("drift.permissions.decision")}
-                                items={decisions.map((decision) => ({
-                                    id: decision,
-                                    label: t(`drift.permissions.decision.${decision}`),
-                                }))}
-                                selected={rule.decision}
-                                floating
-                                bordered
-                                chevronAtEnd
-                                placement="below"
-                                width="6.5rem"
-                                onPick={(decision) =>
-                                    update(index(), { decision: decision as PermissionRule["decision"] })
-                                }
-                            />
-                            <RowButton
-                                title={t("drift.permissions.moveUp")}
-                                disabled={index() === 0}
-                                onClick={() => props.onChange(moveRule(props.rules, index(), -1))}
-                            >
-                                <IconArrowUp class="size-3.5" />
-                            </RowButton>
-                            <RowButton
-                                title={t("drift.permissions.moveDown")}
-                                disabled={index() === props.rules.length - 1}
-                                onClick={() => props.onChange(moveRule(props.rules, index(), 1))}
-                            >
-                                <IconArrowDown class="size-3.5" />
-                            </RowButton>
-                            <RowButton
-                                title={t("drift.permissions.remove")}
-                                onClick={() => props.onChange(props.rules.filter((_, at) => at !== index()))}
-                            >
-                                <IconTrash class="size-3.5" />
-                            </RowButton>
-                        </div>
-                    )}
-                </For>
-            </div>
-        </Show>
-    );
-}
-
-export function AddRule(props: { disabled?: boolean; onAdd: () => void }) {
-    return (
-        <button
-            class="flex h-8 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-            disabled={props.disabled}
-            onClick={() => props.onAdd()}
-        >
-            <IconPlus class="size-3.5" />
-            {t("drift.permissions.add")}
-        </button>
-    );
-}
-
-function RowButton(props: { title: string; disabled?: boolean; onClick: () => void; children: JSX.Element }) {
-    return (
-        <button
-            type="button"
-            title={props.title}
-            aria-label={props.title}
-            disabled={props.disabled}
-            class="flex size-8 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-30"
-            onClick={() => props.onClick()}
-        >
-            {props.children}
-        </button>
-    );
 }

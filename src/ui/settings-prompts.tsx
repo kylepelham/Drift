@@ -1,43 +1,30 @@
+import { agentConfig, agentGroups, configOf, draftOf, reasoningLevels, sameDraft } from "./settings-agent-drafts";
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
 import { agentModelCapability, agentModelOptions } from "../state/agent-models";
-import { modelInfo, type AgentInfo, type EngineState } from "../engine/store";
-import { AddRule, newRule, RuleList } from "./settings-permissions";
+import { AddRule, newRule, RuleList } from "./settings-permission-rules";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { ServerRows, ToolRows } from "./settings-prompt-tools";
+import { ListGroup, ListItem } from "./settings-prompt-list";
 import { reasoningLevelLabel, t } from "../state/i18n";
 import { activeWorkspace } from "../state/workspaces";
 import { createStore } from "solid-js/store";
 import { useEngine } from "../engine";
-import { Toggle } from "./controls";
 import { Picker } from "./picker";
 import {
-    agentBehaviorIssue,
     agentOverrideValue,
     applicableOverride,
     loadPromptSnapshot,
     resetPromptOverride,
     savePromptOverride,
-    type PromptOverride,
     type PromptSnapshot,
 } from "../state/prompts";
 
-import type { PermissionRule } from "../engine/native/client";
+import type { AgentDraft } from "./settings-agent-drafts";
 import type { components } from "../engine/native/types";
+import type { AgentInfo } from "../engine/store";
 
 type BasePrompts = components["schemas"]["BasePrompts"];
 type ToolName = components["schemas"]["ToolName"];
-
-export type ToolMode = "all" | "only" | "except";
-
-/** An agent's editable fields as the form holds them, so a half-made choice is never lost. */
-export type AgentDraft = {
-    prompt: string;
-    model: string;
-    variant: string;
-    steps: string;
-    toolMode: ToolMode;
-    tools: string[];
-    permissions: PermissionRule[];
-};
 
 const familyLabels: Record<string, string> = {
     all: "drift.settings.prompts.family.all",
@@ -47,13 +34,12 @@ const familyLabels: Record<string, string> = {
     default: "drift.settings.prompts.family.default",
 };
 
-const levelOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 const stepPresets = ["10", "25", "50", "100", "200", "500"];
 const pickerWidth = "13rem";
 const editorClass =
     "w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent";
 
-/** Every prompt Drift sends, base prompts and agents, beside one editor; edits are kept per item until saved. */
+/** Edits base prompts and agents, retaining each item's changes until they are saved. */
 export function PromptsSection() {
     const engine = useEngine();
     const [base, setBase] = createSignal<BasePrompts | null>(null);
@@ -89,6 +75,7 @@ export function PromptsSection() {
         setSaving(true);
         setError("");
         setSaved(false);
+
         try {
             await action();
             setSaved(announce);
@@ -107,6 +94,7 @@ export function PromptsSection() {
 
     function saveBase(id: string) {
         const content = baseDraft(id);
+
         void run(async () => {
             setBase(await engine.actions.saveBasePrompt(id, content));
             setBaseDrafts(id, undefined!);
@@ -115,6 +103,7 @@ export function PromptsSection() {
 
     function resetBase(id: string) {
         if (basePrompt(id)?.custom === undefined) return setBaseDrafts(id, undefined!);
+
         void run(async () => {
             setBase(await engine.actions.resetBasePrompt(id));
             setBaseDrafts(id, undefined!);
@@ -126,12 +115,13 @@ export function PromptsSection() {
         const baseline = agentConfig(agent(name), stored);
         const built = configOf(agentDraft(name), baseline);
         if (typeof built === "string") return setError(built);
+
         const existing =
             stored?.value && typeof stored.value === "object"
                 ? applicableOverride(stored.value as Record<string, unknown>)
                 : {};
         const value = agentOverrideValue(built, baseline, existing);
-        // A baseline stored before the engine narrowed agent overrides still names retired fields, which the shell now refuses.
+        // Older baselines can contain retired fields that the shell now rejects.
         const recorded = stored?.original;
         const original =
             recorded && typeof recorded === "object"
@@ -140,6 +130,7 @@ export function PromptsSection() {
         const write = Object.keys(value).length
             ? () => savePromptOverride(`agent:${name}`, value, original)
             : () => resetPromptOverride(`agent:${name}`);
+
         void run(async () => {
             await write();
             await engine.actions.refreshAgents();
@@ -150,6 +141,7 @@ export function PromptsSection() {
 
     function resetAgent(name: string) {
         if (!override(name)) return setAgentDrafts(name, undefined!);
+
         void run(async () => {
             await resetPromptOverride(`agent:${name}`);
             await engine.actions.refreshAgents();
@@ -249,54 +241,7 @@ export function PromptsSection() {
     );
 }
 
-/** A section of the list, ruled off from the one above so each reads as its own. */
-function ListGroup(props: { title: string; first?: boolean; children: JSX.Element }) {
-    return (
-        <div classList={{ "mt-4 border-t border-edge pt-4": !props.first }}>
-            <div class="mb-2 px-2 text-[0.68rem] font-semibold tracking-wider text-ink-muted uppercase">
-                {props.title}
-            </div>
-            <div class="space-y-0.5">{props.children}</div>
-        </div>
-    );
-}
-
-function ListItem(props: {
-    label: string;
-    active: boolean;
-    customized: boolean;
-    unsaved: boolean;
-    problem?: boolean;
-    onSelect: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.82rem] outline-none transition-colors focus-visible:bg-raised/60"
-            classList={{
-                "bg-raised text-ink": props.active,
-                "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active,
-            }}
-            aria-current={props.active ? "true" : undefined}
-            onClick={() => props.onSelect()}
-        >
-            <span class="min-w-0 flex-1 truncate">{props.label}</span>
-            <Show when={props.problem}>
-                <span class="size-1.5 shrink-0 rounded-full bg-danger" />
-            </Show>
-            <Show when={props.unsaved}>
-                <span class="shrink-0 text-[0.65rem] text-warn" title={t("drift.settings.prompts.unsaved")}>
-                    {t("drift.settings.prompts.unsavedShort")}
-                </span>
-            </Show>
-            <Show when={props.customized && !props.unsaved}>
-                <span class="size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.settings.prompts.customized")} />
-            </Show>
-        </button>
-    );
-}
-
-/** The item's name and what it is on the left, Save and Reset on the right. */
+/** Shows the selected item's title, description, and save/reset actions. */
 function EditorHeader(props: { title: string; description?: string; actions: JSX.Element }) {
     return (
         <div class="mb-6 flex items-start gap-4">
@@ -404,6 +349,7 @@ function AgentEditor(props: {
     const changed = () => props.draft.prompt !== props.baseline.prompt;
     // Background jobs only answer in text, so they have no reasoning level, steps, tools or permissions.
     const runsTools = () => capability() !== "text";
+
     return (
         <div class="space-y-6">
             <div>
@@ -508,7 +454,7 @@ function AgentEditor(props: {
                             width={pickerWidth}
                             onPick={(mode) =>
                                 props.onChange({
-                                    toolMode: mode as ToolMode,
+                                    toolMode: mode as AgentDraft["toolMode"],
                                     tools: mode === "all" ? [] : props.draft.tools,
                                 })
                             }
@@ -551,85 +497,6 @@ function AgentEditor(props: {
     );
 }
 
-/** One row per built-in tool, two to a line; a listed name the engine does not offer here keeps a row so it can be switched off. */
-function ToolRows(props: { names: ToolName[]; chosen: string[]; onChange: (tools: string[]) => void }) {
-    const builtIn = createMemo(() => {
-        const known = new Set(props.names.map((tool) => tool.name));
-        return [
-            ...props.names.filter((tool) => !tool.server).map((tool) => tool.name),
-            ...props.chosen.filter((name) => !known.has(name)),
-        ];
-    });
-    const toggle = (name: string) =>
-        props.onChange(
-            props.chosen.includes(name) ? props.chosen.filter((item) => item !== name) : [...props.chosen, name],
-        );
-    return (
-        <div class="grid border-t border-edge/70 sm:grid-cols-2 sm:gap-x-8">
-            <For each={builtIn()}>
-                {(name) => <ToolRow label={name} on={props.chosen.includes(name)} onToggle={() => toggle(name)} />}
-            </For>
-        </div>
-    );
-}
-
-/** An MCP server is one row for all its tools, since a server can bring dozens; one tool is narrowed with a permission rule. */
-function ServerRows(props: { names: ToolName[]; chosen: string[]; onChange: (tools: string[]) => void }) {
-    const servers = createMemo(() => {
-        const names = [...new Set(props.names.flatMap((tool) => (tool.server ? [tool.server] : [])))].sort();
-        return names.map((server) => ({
-            server,
-            tools: props.names.filter((tool) => tool.server === server).map((tool) => tool.name),
-        }));
-    });
-    const toggle = (tools: string[]) => {
-        const all = tools.every((tool) => props.chosen.includes(tool));
-        props.onChange(
-            all ? props.chosen.filter((name) => !tools.includes(name)) : [...new Set([...props.chosen, ...tools])],
-        );
-    };
-    return (
-        <Show when={servers().length}>
-            <SettingsGroup title={t("drift.settings.prompts.mcpTools")}>
-                <div class="grid sm:grid-cols-2 sm:gap-x-8">
-                    <For each={servers()}>
-                        {(entry) => {
-                            const picked = () => entry.tools.filter((tool) => props.chosen.includes(tool)).length;
-                            const count = () =>
-                                picked() && picked() < entry.tools.length
-                                    ? `${picked()} / ${entry.tools.length}`
-                                    : String(entry.tools.length);
-                            return (
-                                <ToolRow
-                                    label={entry.server}
-                                    count={count()}
-                                    on={picked() === entry.tools.length}
-                                    onToggle={() => toggle(entry.tools)}
-                                />
-                            );
-                        }}
-                    </For>
-                </div>
-            </SettingsGroup>
-        </Show>
-    );
-}
-
-function ToolRow(props: { label: string; count?: string; on: boolean; onToggle: () => void }) {
-    return (
-        <div
-            class="flex min-h-10 cursor-pointer items-center gap-3 border-b border-edge/70 px-1 py-1.5 hover:bg-raised/40"
-            onClick={() => props.onToggle()}
-        >
-            <span class="min-w-0 flex-1 truncate text-[0.82rem] text-ink">{props.label}</span>
-            <Show when={props.count}>
-                <span class="shrink-0 text-[0.72rem] text-ink-faint">{props.count}</span>
-            </Show>
-            <Toggle label={props.label} checked={props.on} onChange={props.onToggle} />
-        </div>
-    );
-}
-
 function Actions(props: {
     saving: boolean;
     dirty: boolean;
@@ -659,113 +526,9 @@ function Actions(props: {
     );
 }
 
-/** The pinned model's reasoning levels, or every connected model's when none is pinned; a saved level is always kept. */
-export function reasoningLevels(state: Pick<EngineState, "providers" | "connected">, model: string, current: string) {
-    const [providerID, ...rest] = model.split("/");
-    const pinned = model
-        ? modelInfo(state as EngineState, { providerID: providerID!, modelID: rest.join("/") })
-        : undefined;
-    const models = pinned
-        ? [pinned]
-        : state.providers
-              .filter((provider) => state.connected.includes(provider.id))
-              .flatMap((provider) => Object.values(provider.models));
-    const found = new Set(models.flatMap((info) => Object.keys(info.variants ?? {})));
-    if (current) found.add(current);
-    const rank = (level: string) => (levelOrder.includes(level) ? levelOrder.indexOf(level) : levelOrder.length);
-    return [...found].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-}
-
-/** Agents in the order they are met: picked in the composer, delegated to, then run by Drift itself. */
-export function agentGroups(agents: AgentInfo[]) {
-    const named = [...agents].sort((a, b) => a.name.localeCompare(b.name));
-    return [
-        { title: "settings.agents.title", agents: named.filter((agent) => !agent.hidden && agent.mode !== "subagent") },
-        {
-            title: "drift.settings.prompts.group.subagents",
-            agents: named.filter((agent) => !agent.hidden && agent.mode === "subagent"),
-        },
-        { title: "drift.settings.prompts.group.background", agents: named.filter((agent) => agent.hidden) },
-    ].filter((group) => group.agents.length);
-}
-
-/** The agent as the engine runs it, in the fields Settings can change: nothing shown here goes unapplied. */
-export function agentConfig(agent: AgentInfo | undefined, stored?: PromptOverride): Record<string, unknown> {
-    const restored =
-        stored?.value && typeof stored.value === "object"
-            ? applicableOverride(stored.value as Record<string, unknown>)
-            : undefined;
-    if (!agent) return restored ? { ...restored } : {};
-    return {
-        prompt: agent.prompt,
-        model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
-        steps: agent.steps,
-        permissions: agent.permissions?.length ? agent.permissions : undefined,
-        variant: agent.variant,
-        // An empty list is every tool; showing none keeps the editor from offering an override that would mean the same.
-        tools: agent.tools.length ? agent.tools : undefined,
-        ...restored,
-    };
-}
-
-/** A config as the form shows it. A tools list of `!name` entries only is every tool except those. */
-export function draftOf(config: Record<string, unknown>): AgentDraft {
-    const text = (value: unknown) => (typeof value === "string" ? value : "");
-    const listed = Array.isArray(config.tools)
-        ? config.tools.filter((tool): tool is string => typeof tool === "string" && tool !== "*")
-        : [];
-    const excluding = listed.length > 0 && listed.every((tool) => tool.startsWith("!"));
-    const toolMode = draftToolMode(listed, excluding);
-    return {
-        prompt: text(config.prompt),
-        model: text(config.model),
-        variant: text(config.variant),
-        steps: typeof config.steps === "number" ? String(config.steps) : "",
-        toolMode,
-        tools: excluding ? listed.map((tool) => tool.slice(1)) : listed.filter((tool) => !tool.startsWith("!")),
-        permissions: Array.isArray(config.permissions) ? (config.permissions as PermissionRule[]) : [],
-    };
-}
-
-/** The config a draft stands for, or why it cannot be saved; a cleared model or level that was set saves as "", all tools as `*`. */
-export function configOf(draft: AgentDraft, baseline: Record<string, unknown>): Record<string, unknown> | string {
-    const config: Record<string, unknown> = { prompt: draft.prompt };
-    if (draft.model || baseline.model !== undefined) config.model = draft.model;
-    if (draft.variant || baseline.variant !== undefined) config.variant = draft.variant;
-    if (draft.steps) config.steps = Number(draft.steps);
-    if (draft.toolMode !== "all" && !draft.tools.length) return t("drift.settings.prompts.tools.none");
-    if (draft.toolMode === "only") config.tools = draft.tools;
-    if (draft.toolMode === "except") config.tools = draft.tools.map((tool) => `!${tool}`);
-    if (draft.toolMode === "all" && baseline.tools !== undefined) config.tools = ["*"];
-    const rules = draft.permissions.filter((rule) => rule.pattern.trim());
-    if (rules.length || baseline.permissions !== undefined) config.permissions = rules;
-    const { prompt: _prompt, ...behavior } = config;
-    const issue = agentBehaviorIssue(behavior);
-    return issue ? t("drift.settings.prompts.behaviorRefused", { field: issue }) : config;
-}
-
-function sameDraft(a: AgentDraft, b: AgentDraft) {
-    const same = (x: unknown, y: unknown) => JSON.stringify(x) === JSON.stringify(y);
-    return (
-        a.prompt === b.prompt &&
-        a.model === b.model &&
-        a.variant === b.variant &&
-        a.steps === b.steps &&
-        a.toolMode === b.toolMode &&
-        same(a.tools, b.tools) &&
-        same(a.permissions, b.permissions)
-    );
-}
-
 function inheritedModelLabel(agent: string) {
     if (agent === "title") return "drift.settings.agents.automaticSmallModel";
     if (agent === "compaction") return "drift.settings.agents.currentSessionModel";
 
     return "drift.settings.agents.currentModel";
-}
-
-function draftToolMode(listed: string[], excluding: boolean): ToolMode {
-    if (!listed.length) return "all";
-
-    return excluding ? "except" : "only";
 }

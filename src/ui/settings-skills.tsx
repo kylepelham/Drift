@@ -1,11 +1,11 @@
-import { IconArrowUp, IconArrowUpRight, IconCheck, IconPlus, IconSearch, IconSliders, IconTrash } from "./icons";
 import { loadRegistrySources, registrySources, sourcesOf } from "../state/registry-sources";
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
+import { IconCheck, IconSearch, IconSliders, IconTrash } from "./icons";
+import { PackSheet, skillsFolder } from "./settings-skill-pack";
 import { RegistrySourcesSheet } from "./registry-sources";
 import { activeWorkspace } from "../state/workspaces";
 import { Badge, Tab } from "./settings-plugins";
 import { Chevron, Toggle } from "./controls";
-import { openExternal } from "../shell";
 import { LogoTile } from "./logo-tile";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
@@ -19,9 +19,8 @@ import {
 import type { SkillPack, UserSkill } from "../engine/native/client";
 
 type View = "installed" | "registry";
-const skillsFolder = "~/.config/drift/skills";
 
-/** Every skill the user has, each with a switch, and a registry of packs to install more from. */
+/** Manages installed skills and installation of skill packs from registries. */
 export function SkillsSection() {
     const engine = useEngine();
     const [view, setView] = createSignal<View>("installed");
@@ -39,6 +38,7 @@ export function SkillsSection() {
         setLoading(true);
         setFailure("");
         setMessage("");
+
         try {
             await action();
             if (success) setMessage(success);
@@ -50,8 +50,10 @@ export function SkillsSection() {
             setLoading(false);
         }
     };
+
     const refresh = async () => {
         const [list, installed] = await Promise.all([engine.actions.skills(here()), engine.actions.skillPacks()]);
+
         setSkills(list);
         setPacks(installed);
     };
@@ -59,6 +61,7 @@ export function SkillsSection() {
 
     const install = async (pack: RegistryPlugin, chosen: string[]) => {
         setBusy(pack.id);
+
         const done = await run(
             async () => {
                 await engine.actions.installSkillPack({
@@ -75,12 +78,15 @@ export function SkillsSection() {
             },
             t("drift.skills.installed", { name: pack.name, count: chosen.length || pack.skills?.length || 0 }),
         );
+
         setBusy("");
         if (done) setView("installed");
         return done;
     };
+
     const removePack = async (pack: SkillPack) => {
         if (confirmRemove() !== pack.id) return setConfirmRemove(pack.id);
+
         setBusy(pack.id);
         await run(
             async () => {
@@ -92,6 +98,7 @@ export function SkillsSection() {
         setBusy("");
         setConfirmRemove("");
     };
+
     const toggleAll = (list: UserSkill[], on: boolean) => {
         setBusy("all");
         void run(async () => {
@@ -112,12 +119,15 @@ export function SkillsSection() {
 
     const groups = createMemo(() => {
         const byPack = new Map<string, UserSkill[]>();
+
         for (const skill of skills()) {
             const key = skill.pack ?? "";
             byPack.set(key, [...(byPack.get(key) ?? []), skill]);
         }
+
         const named = packs().map((pack) => ({ pack, skills: byPack.get(pack.id) ?? [] }));
         const loose = byPack.get("") ?? [];
+
         return {
             named,
             project: loose.filter((skill) => skill.workspace),
@@ -241,7 +251,7 @@ export function SkillsSection() {
     );
 }
 
-/** A collapsible group, closed at first, with one switch: on when every skill is, off when none is, dimmed when mixed. */
+/** Shows a collapsed skill group with a dimmed switch when only some skills are enabled. */
 function SkillGroup(props: {
     title: string;
     image?: string;
@@ -256,6 +266,7 @@ function SkillGroup(props: {
     const on = () => props.skills.filter((skill) => skill.enabled).length;
     const all = () => on() === props.skills.length;
     const mixed = () => on() > 0 && !all();
+
     return (
         <div class="border-b border-edge/70 last:border-b-0">
             <div
@@ -341,14 +352,17 @@ function SkillRegistry(props: {
     const [error, setError] = createSignal("");
     const [selected, setSelected] = createSignal<RegistryPlugin>();
     const [sourcesOpen, setSourcesOpen] = createSignal(false);
+
     const load = async (fresh = false) => {
         setLoading(true);
         setError("");
+
         try {
             await loadRegistrySources({
                 settings: () => engine.actions.engineSettings(),
                 putSettings: (body) => engine.actions.putEngineSettings(body),
             }).catch(() => undefined);
+
             const loaded = await loadRegistries(sourcesOf("plugins"), fresh, (id) => engine.actions.fetchRegistry(id));
             setPacks(loaded.plugins.filter((plugin) => plugin.kind === "skill" || plugin.kind === "skills"));
             setFailures(loaded.failures);
@@ -507,128 +521,4 @@ function SkillRegistry(props: {
             </Show>
         </Show>
     );
-}
-
-/** A pack's skills, each chosen or not before install; all are chosen to begin with. */
-function PackSheet(props: {
-    pack: RegistryPlugin;
-    installed: boolean;
-    disabled: boolean;
-    busy: boolean;
-    onBack: () => void;
-    onInstall: (skills: string[]) => Promise<void>;
-}) {
-    const all = () => props.pack.skills ?? [];
-    const [off, setOff] = createSignal(new Set<string>());
-    const chosen = () =>
-        all()
-            .filter((skill) => !off().has(skill.name))
-            .map((skill) => skill.name);
-    const flip = (name: string) =>
-        setOff((current) => {
-            const next = new Set(current);
-            if (next.has(name)) next.delete(name);
-            else next.add(name);
-            return next;
-        });
-    const everyOn = () => off().size === 0;
-    return (
-        <div class="space-y-4">
-            <button
-                class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink"
-                onClick={() => props.onBack()}
-            >
-                <IconArrowUp class="size-3.5 -rotate-90" />
-                {t("drift.mcp.registry.back")}
-            </button>
-            <div class="flex items-start gap-3">
-                <LogoTile image={props.pack.image} title={props.pack.name} large />
-                <div class="min-w-0 flex-1">
-                    <div class="text-base font-semibold text-ink">{props.pack.name}</div>
-                    <div class="text-[0.7rem] text-ink-faint">
-                        {props.pack.author} · {props.pack.version}
-                    </div>
-                    <div class="mt-2 text-sm text-ink-muted">{props.pack.description}</div>
-                    <div class="mt-2 flex flex-wrap items-center gap-3 text-xs">
-                        <button
-                            class="flex items-center gap-0.5 text-accent hover:underline"
-                            onClick={() => openExternal(props.pack.source)}
-                        >
-                            {t("drift.plugins.source")}
-                            <IconArrowUpRight class="size-3" />
-                        </button>
-                        <span class="font-mono text-ink-faint">
-                            {skillsFolder}/{props.pack.id}/
-                        </span>
-                    </div>
-                </div>
-            </div>
-            <div class="rounded-lg border border-edge bg-surface">
-                <Show when={all().length > 1}>
-                    <div class="flex items-center justify-between gap-3 border-b border-edge/70 px-3 py-2">
-                        <div class="text-xs text-ink-muted">
-                            {t("drift.skills.choose", { on: chosen().length, count: all().length })}
-                        </div>
-                        <button
-                            class="text-xs text-accent hover:underline"
-                            onClick={() => setOff(everyOn() ? new Set(all().map((skill) => skill.name)) : new Set())}
-                        >
-                            {t(everyOn() ? "drift.skills.none" : "drift.skills.all")}
-                        </button>
-                    </div>
-                </Show>
-                <For each={all()}>
-                    {(skill) => (
-                        <div
-                            class="flex min-h-11 cursor-pointer items-center gap-3 border-b border-edge/70 px-3 py-2 last:border-b-0 hover:bg-raised/40"
-                            classList={{ "opacity-60": off().has(skill.name) }}
-                            onClick={() => flip(skill.name)}
-                        >
-                            <div class="min-w-0 flex-1">
-                                <div class="truncate text-[0.82rem] font-medium text-ink">{skill.name}</div>
-                                <Show when={skill.description}>
-                                    <div class="truncate text-xs text-ink-faint" title={skill.description}>
-                                        {skill.description}
-                                    </div>
-                                </Show>
-                            </div>
-                            <Show when={all().length > 1}>
-                                <Toggle
-                                    label={skill.name}
-                                    checked={!off().has(skill.name)}
-                                    onChange={() => flip(skill.name)}
-                                />
-                            </Show>
-                        </div>
-                    )}
-                </For>
-            </div>
-            <div class="text-[0.7rem] text-ink-faint">
-                {t("drift.plugins.packNote", { folder: `${skillsFolder}/${props.pack.id}` })}
-            </div>
-            <div class="flex items-center justify-end gap-2">
-                <button
-                    class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink"
-                    onClick={() => props.onBack()}
-                >
-                    {t("common.cancel")}
-                </button>
-                <button
-                    class="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
-                    disabled={props.disabled || props.busy || !chosen().length}
-                    onClick={() => void props.onInstall(chosen())}
-                >
-                    {props.installed ? <IconCheck class="size-3.5" /> : <IconPlus class="size-3.5" />}
-                    {t(packInstallLabel(props.busy, props.installed))}
-                </button>
-            </div>
-        </div>
-    );
-}
-
-function packInstallLabel(busy: boolean, installed: boolean) {
-    if (busy) return "drift.plugins.installing";
-    if (installed) return "drift.skills.reinstall";
-
-    return "drift.plugins.install";
 }

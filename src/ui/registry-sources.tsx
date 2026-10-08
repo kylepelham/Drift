@@ -1,24 +1,18 @@
 import { IconArrowUp, IconKey, IconPlus, IconSquarePen, IconTrash } from "./icons";
 import { createSignal, For, onMount, Show } from "solid-js";
+import { SourceForm } from "./registry-source-form";
 import { useEngine } from "../engine";
-import { Toggle } from "./controls";
 import { t } from "../state/i18n";
-import { Picker } from "./picker";
 import {
     loadRegistrySources,
     registrySources,
     saveRegistrySources,
-    sourceProblem,
     type RegistryKind,
     type RegistrySource,
     type SourceKind,
 } from "../state/registry-sources";
 
-import type { JSX } from "solid-js";
-
-const sourceKinds: SourceKind[] = ["url", "github", "azure_devops", "folder"];
-
-type Draft = {
+export type Draft = {
     id: string;
     name: string;
     source: SourceKind;
@@ -32,7 +26,7 @@ type Draft = {
     hasToken: boolean;
 };
 
-const blank = (): Draft => ({
+const blankDraft = (): Draft => ({
     id: "",
     name: "",
     source: "url",
@@ -59,7 +53,7 @@ const fromSource = (source: RegistrySource): Draft => ({
     hasToken: !!source.hasToken,
 });
 
-/** Registries of one kind the user added, each editable; shared by the plugin, skill and MCP pages. */
+/** Lists and edits user registries for the plugin, skill, or MCP page. */
 export function RegistrySourcesSheet(props: { kind: RegistryKind; onBack: () => void }) {
     const engine = useEngine();
     const [draft, setDraft] = createSignal<Draft>();
@@ -71,11 +65,13 @@ export function RegistrySourcesSheet(props: { kind: RegistryKind; onBack: () => 
             engine.actions.putEngineSettings(body),
     });
     onMount(() => void loadRegistrySources(client()).catch(() => setError(t("drift.registry.sources.loadFailed"))));
-    const mine = () => registrySources().filter((source) => source.kind === props.kind);
+
+    const ownSources = () => registrySources().filter((source) => source.kind === props.kind);
 
     const save = async (next: RegistrySource[], tokens: Record<string, string>) => {
         setBusy(true);
         setError("");
+
         try {
             await saveRegistrySources(client(), next, tokens);
             return true;
@@ -86,6 +82,7 @@ export function RegistrySourcesSheet(props: { kind: RegistryKind; onBack: () => 
             setBusy(false);
         }
     };
+
     const submit = async (edited: Draft) => {
         const id = edited.id || crypto.randomUUID().replaceAll("-", "").slice(0, 16);
         const source: RegistrySource = {
@@ -100,8 +97,10 @@ export function RegistrySourcesSheet(props: { kind: RegistryKind; onBack: () => 
             caPem: edited.caPem.trim() || null,
             hasToken: edited.hasToken,
         };
+
         const rest = registrySources().filter((item) => item.id !== id);
         const tokens = edited.tokenTouched ? { [id]: edited.token.trim() } : {};
+
         if (await save([...rest, source], tokens)) setDraft(undefined);
     };
     const remove = (source: RegistrySource) =>
@@ -139,7 +138,7 @@ export function RegistrySourcesSheet(props: { kind: RegistryKind; onBack: () => 
                             </div>
                         </div>
                         <div class="border-y border-edge/80">
-                            <For each={mine()}>
+                            <For each={ownSources()}>
                                 {(source) => (
                                     <div class="flex items-center gap-3 border-b border-edge/70 px-3 py-2.5 last:border-b-0">
                                         <div class="min-w-0 flex-1">
@@ -183,14 +182,14 @@ export function RegistrySourcesSheet(props: { kind: RegistryKind; onBack: () => 
                                     </div>
                                 )}
                             </For>
-                            <Show when={!mine().length}>
+                            <Show when={!ownSources().length}>
                                 <div class="px-3 py-4 text-sm text-ink-faint">{t("drift.registry.sources.empty")}</div>
                             </Show>
                         </div>
                         <button
                             class="flex h-8 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted hover:border-edge-strong hover:text-ink disabled:opacity-40"
                             disabled={busy()}
-                            onClick={() => setDraft(blank())}
+                            onClick={() => setDraft(blankDraft())}
                         >
                             <IconPlus class="size-3.5" />
                             {t("drift.registry.sources.add")}
@@ -210,189 +209,5 @@ export function RegistrySourcesSheet(props: { kind: RegistryKind; onBack: () => 
                 )}
             </Show>
         </div>
-    );
-}
-
-function SourceForm(props: {
-    kind: RegistryKind;
-    draft: Draft;
-    busy: boolean;
-    onChange: (draft: Draft) => void;
-    onCancel: () => void;
-    onSave: () => void;
-}) {
-    const set = (change: Partial<Draft>) => props.onChange({ ...props.draft, ...change });
-    const problem = () => sourceProblem(props.draft.source, props.draft.url, props.draft.allowHttp);
-    const canSave = () => props.draft.name.trim().length > 0 && problem() === undefined && !props.busy;
-    const isRepo = () => props.draft.source === "github" || props.draft.source === "azure_devops";
-    const isHttp = () => props.draft.source !== "folder";
-    const placeholder = () =>
-        ({
-            url: "https://registry.example.com/plugins.json",
-            github: "https://github.com/acme/drift-plugins",
-            azure_devops: "https://dev.azure.com/acme/Tools/_git/drift-plugins",
-            folder: "\\\\fileserver\\drift\\registry",
-        })[props.draft.source];
-    return (
-        <div class="space-y-4">
-            <div class="text-base font-semibold text-ink">
-                {t(props.draft.id ? "drift.registry.sources.editTitle" : "drift.registry.sources.add")}
-            </div>
-            <div class="space-y-3 rounded-lg border border-edge bg-surface p-3">
-                <Field label={t("drift.registry.sources.name")}>
-                    <input
-                        class={input}
-                        value={props.draft.name}
-                        onInput={(event) => set({ name: event.currentTarget.value })}
-                    />
-                </Field>
-                <Field
-                    label={t("drift.registry.sources.kindLabel")}
-                    hint={t(`drift.registry.sources.kindHint.${props.draft.source}`)}
-                >
-                    <Picker
-                        label={t("drift.registry.sources.kindLabel")}
-                        items={sourceKinds.map((kind) => ({
-                            id: kind,
-                            label: t(`drift.registry.sources.kind.${kind}`),
-                        }))}
-                        selected={props.draft.source}
-                        floating
-                        bordered
-                        chevronAtEnd
-                        placement="below"
-                        width="13rem"
-                        onPick={(kind) => set({ source: kind as SourceKind })}
-                    />
-                </Field>
-                <Field
-                    label={t(`drift.registry.sources.location.${props.draft.source}`)}
-                    problem={
-                        problem() && problem() !== "empty"
-                            ? t(`drift.registry.sources.problem.${problem()}`)
-                            : undefined
-                    }
-                >
-                    <input
-                        class={`${input} font-mono`}
-                        spellcheck={false}
-                        placeholder={placeholder()}
-                        value={props.draft.url}
-                        onInput={(event) => set({ url: event.currentTarget.value })}
-                    />
-                </Field>
-                <Show when={isRepo()}>
-                    <div class="grid gap-3 sm:grid-cols-2">
-                        <Field label={t("drift.registry.sources.ref")} hint={t("drift.registry.sources.refHint")}>
-                            <input
-                                class={`${input} font-mono`}
-                                spellcheck={false}
-                                placeholder="main"
-                                value={props.draft.ref}
-                                onInput={(event) => set({ ref: event.currentTarget.value })}
-                            />
-                        </Field>
-                        <Field label={t("drift.registry.sources.path")} hint={t("drift.registry.sources.pathHint")}>
-                            <input
-                                class={`${input} font-mono`}
-                                spellcheck={false}
-                                placeholder="registry.json"
-                                value={props.draft.path}
-                                onInput={(event) => set({ path: event.currentTarget.value })}
-                            />
-                        </Field>
-                    </div>
-                </Show>
-                <Show when={props.draft.source === "folder"}>
-                    <Field label={t("drift.registry.sources.path")} hint={t("drift.registry.sources.pathHint")}>
-                        <input
-                            class={`${input} font-mono`}
-                            spellcheck={false}
-                            placeholder="registry.json"
-                            value={props.draft.path}
-                            onInput={(event) => set({ path: event.currentTarget.value })}
-                        />
-                    </Field>
-                </Show>
-                <Show when={isHttp()}>
-                    <Field
-                        label={t(`drift.registry.sources.token.${props.draft.source}`)}
-                        hint={
-                            props.draft.hasToken && !props.draft.tokenTouched
-                                ? t("drift.registry.sources.tokenKept")
-                                : t("drift.registry.sources.tokenHint")
-                        }
-                    >
-                        <input
-                            type="password"
-                            autocomplete="off"
-                            class={`${input} font-mono`}
-                            placeholder={props.draft.hasToken && !props.draft.tokenTouched ? "••••••••" : ""}
-                            value={props.draft.token}
-                            onInput={(event) => set({ token: event.currentTarget.value, tokenTouched: true })}
-                        />
-                    </Field>
-                </Show>
-                <Show when={props.draft.source === "url"}>
-                    <div class="flex items-center justify-between gap-3">
-                        <div class="min-w-0">
-                            <div class="text-xs font-medium text-ink">{t("drift.registry.sources.allowHttp")}</div>
-                            <div class="text-[0.7rem] text-warn">{t("drift.registry.sources.allowHttpHint")}</div>
-                        </div>
-                        <Toggle
-                            label={t("drift.registry.sources.allowHttp")}
-                            checked={props.draft.allowHttp}
-                            onChange={() => set({ allowHttp: !props.draft.allowHttp })}
-                        />
-                    </div>
-                </Show>
-                <Show when={isHttp()}>
-                    <Field label={t("drift.registry.sources.caPem")} hint={t("drift.registry.sources.caPemHint")}>
-                        <textarea
-                            spellcheck={false}
-                            class="h-24 w-full resize-y rounded-md border border-edge bg-raised/45 p-2.5 font-mono text-[0.7rem] text-ink outline-none focus:border-accent"
-                            placeholder={"-----BEGIN CERTIFICATE-----"}
-                            value={props.draft.caPem}
-                            onInput={(event) => set({ caPem: event.currentTarget.value })}
-                        />
-                    </Field>
-                </Show>
-            </div>
-            <div class="flex items-center justify-end gap-2">
-                <button
-                    class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink"
-                    onClick={() => props.onCancel()}
-                >
-                    {t("common.cancel")}
-                </button>
-                <button
-                    class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
-                    disabled={!canSave()}
-                    onClick={() => props.onSave()}
-                >
-                    {t(props.busy ? "drift.plugins.saving" : "common.save")}
-                </button>
-            </div>
-        </div>
-    );
-}
-
-const input =
-    "h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent";
-
-function Field(props: { label: string; hint?: string; problem?: string; children: JSX.Element }) {
-    return (
-        <label class="block space-y-1">
-            <div class="text-xs font-medium text-ink">{props.label}</div>
-            {props.children}
-            <Show
-                when={props.problem}
-                fallback={
-                    <Show when={props.hint}>{(hint) => <div class="text-[0.7rem] text-ink-faint">{hint()}</div>}</Show>
-                }
-            >
-                {(problem) => <div class="text-[0.7rem] text-danger">{problem()}</div>}
-            </Show>
-        </label>
     );
 }

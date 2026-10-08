@@ -80,7 +80,7 @@ test("utility agent choices include text models without tool calling and exclude
 });
 
 test("picking a model changes only the model and keeps every other field", async () => {
-    const { configOf, draftOf } = await import("../src/ui/settings-prompts");
+    const { configOf, draftOf } = await import("../src/ui/settings-agent-drafts");
     const baseline = {
         prompt: "Review carefully",
         permissions: [{ kind: "edit", pattern: "*", decision: "deny" }],
@@ -93,7 +93,7 @@ test("picking a model changes only the model and keeps every other field", async
 });
 
 test("Current model is dynamic inheritance and explicitly masks an underlying model pin", async () => {
-    const { configOf, draftOf } = await import("../src/ui/settings-prompts");
+    const { configOf, draftOf } = await import("../src/ui/settings-agent-drafts");
     expect(draftOf({}).model).toBe("");
     const baseline = { model: "provider/smart", prompt: "Keep prompt" };
     const config = configOf({ ...draftOf(baseline), model: "" }, baseline) as Record<string, unknown>;
@@ -106,12 +106,12 @@ test("Current model is dynamic inheritance and explicitly masks an underlying mo
 });
 
 test("a saved model no longer offered still shows as the selection", async () => {
-    const { draftOf } = await import("../src/ui/settings-prompts");
+    const { draftOf } = await import("../src/ui/settings-agent-drafts");
     expect(draftOf({ model: "removed-provider/old-model" }).model).toBe("removed-provider/old-model");
 });
 
 test("tools read as all, only these, or all except these, and go back the same way", async () => {
-    const { configOf, draftOf } = await import("../src/ui/settings-prompts");
+    const { configOf, draftOf } = await import("../src/ui/settings-agent-drafts");
     expect(draftOf({}).toolMode).toBe("all");
     const only = draftOf({ tools: ["read", "grep"] });
     expect([only.toolMode, only.tools]).toEqual(["only", ["read", "grep"]]);
@@ -127,7 +127,7 @@ test("tools read as all, only these, or all except these, and go back the same w
 });
 
 test("the form refuses what the engine would not apply and drops rules left blank", async () => {
-    const { configOf, draftOf } = await import("../src/ui/settings-prompts");
+    const { configOf, draftOf } = await import("../src/ui/settings-agent-drafts");
     expect(configOf({ ...draftOf({}), steps: "0" }, {}), "steps must be positive").toBeString();
     expect(configOf({ ...draftOf({}), steps: "50", variant: "high" }, {})).toEqual({
         prompt: "",
@@ -142,7 +142,7 @@ test("the form refuses what the engine would not apply and drops rules left blan
 });
 
 test("reasoning levels come from the pinned model, else from every connected model, in order", async () => {
-    const { reasoningLevels } = await import("../src/ui/settings-prompts");
+    const { reasoningLevels } = await import("../src/ui/settings-agent-drafts");
     const withLevels = (id: string, levels: string[]) => ({
         ...model(id),
         variants: Object.fromEntries(levels.map((level) => [level, {}])),
@@ -157,7 +157,7 @@ test("reasoning levels come from the pinned model, else from every connected mod
 });
 
 test("agents are listed as picked in the composer, delegated to, then run by Drift itself", async () => {
-    const { agentGroups } = await import("../src/ui/settings-prompts");
+    const { agentGroups } = await import("../src/ui/settings-agent-drafts");
     const agent = (name: string, mode: "primary" | "subagent" | "all", hidden = false) => ({
         name,
         description: "",

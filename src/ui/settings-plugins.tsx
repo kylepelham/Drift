@@ -1,5 +1,6 @@
 import { loadRegistrySources, registrySources, sourcesOf } from "../state/registry-sources";
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
+import { ConfigFields, EditSheet } from "./settings-plugin-config";
 import { RegistrySourcesSheet } from "./registry-sources";
 import { openExternal } from "../shell";
 import { LogoTile } from "./logo-tile";
@@ -8,13 +9,11 @@ import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 import {
     buildConfig,
-    fieldText,
     installedPath,
     isSkillEntry,
     loadRegistries,
     matchesRegistryQuery,
     registryCategories,
-    type ConfigField,
     type RegistryFailure,
     type RegistryPlugin,
 } from "../state/plugin-registry";
@@ -34,7 +33,7 @@ import type { PluginInfo } from "../engine/native/client";
 type View = "installed" | "registry";
 const configFile = "~/.config/drift/drift.json";
 
-/** Plugins as MCP servers are shown: what is installed, and a registry to install from. */
+/** Manages installed plugins and installation from registries. */
 export function PluginsSection() {
     const engine = useEngine();
     const [view, setView] = createSignal<View>("installed");
@@ -51,6 +50,7 @@ export function PluginsSection() {
         setLoading(true);
         setFailure("");
         setMessage("");
+
         try {
             setPlugins(await action());
             if (success) setMessage(success);
@@ -66,6 +66,7 @@ export function PluginsSection() {
 
     const install = async (plugin: RegistryPlugin, config: Record<string, unknown>) => {
         setBusy(plugin.id);
+
         const done = await run(
             () =>
                 engine.actions.installPlugin({
@@ -77,19 +78,23 @@ export function PluginsSection() {
                 }),
             t("drift.plugins.installed.one", { name: plugin.name }),
         );
+
         setBusy("");
         if (done) setView("installed");
         return done;
     };
+
     const remove = async (plugin: PluginInfo) => {
         if (confirmRemove() !== plugin.path) return setConfirmRemove(plugin.path);
+
         setBusy(plugin.path);
         await run(() => engine.actions.removePlugin(plugin.path), t("drift.plugins.removed", { name: plugin.name }));
         setBusy("");
         setConfirmRemove("");
     };
+
     const installedPaths = createMemo(() => new Set(plugins().map((plugin) => plugin.path)));
-    // Installed rows show the registry's picture and edit with its fields, for the plugin at their path.
+    // Registry metadata supplies images and editable config fields for installed plugins.
     const [known, setKnown] = createSignal<Record<string, RegistryPlugin>>({});
     onMount(() => {
         void loadRegistrySources({
@@ -105,10 +110,12 @@ export function PluginsSection() {
     });
     const save = async (plugin: PluginInfo, config: unknown) => {
         setBusy(plugin.path);
+
         const done = await run(
             () => engine.actions.configurePlugin(plugin.path, config),
             t("drift.plugins.saved", { name: plugin.name }),
         );
+
         setBusy("");
         if (done) setEditing(undefined);
     };
@@ -199,6 +206,7 @@ function PluginRow(props: {
 }) {
     const status = () =>
         !props.plugin.enabled ? t("drift.plugins.off") : (props.plugin.error ?? t("drift.plugins.loaded"));
+
     return (
         <div class="flex items-center gap-3 border-b border-edge/70 px-3 py-2.5 last:border-b-0 hover:bg-raised/40">
             <LogoTile image={props.image} title={props.plugin.name} />
@@ -272,14 +280,17 @@ function PluginRegistry(props: {
     const [error, setError] = createSignal("");
     const [selected, setSelected] = createSignal<RegistryPlugin>();
     const [sourcesOpen, setSourcesOpen] = createSignal(false);
+
     const load = async (fresh = false) => {
         setLoading(true);
         setError("");
+
         try {
             await loadRegistrySources({
                 settings: () => engine.actions.engineSettings(),
                 putSettings: (body) => engine.actions.putEngineSettings(body),
             }).catch(() => undefined);
+
             const loaded = await loadRegistries(sourcesOf("plugins"), fresh, (id) => engine.actions.fetchRegistry(id));
             setPlugins(loaded.plugins.filter((plugin) => !isSkillEntry(plugin)));
             setFailures(loaded.failures);
@@ -291,11 +302,12 @@ function PluginRegistry(props: {
         }
     };
     onMount(() => void load());
-    // Sources changed in the sheet: the list reflects them when it comes back.
+    // Closing the source editor must reload the registry list after source changes.
     const closeSources = () => {
         setSourcesOpen(false);
         void load(true);
     };
+
     const visible = createMemo(() =>
         plugins().filter(
             (plugin) =>
@@ -463,165 +475,6 @@ function RegistryCard(props: { plugin: RegistryPlugin; installed: boolean; onOpe
                 <For each={props.plugin.hooks}>{(hook) => <Badge>{hook}</Badge>}</For>
             </div>
         </button>
-    );
-}
-
-/** The fields of a plugin's config as inputs; `values` are what is stored now, the defaults stand in for the rest. */
-function ConfigFields(props: {
-    fields: ConfigField[];
-    typed: Record<string, string>;
-    values: Record<string, unknown>;
-    onTyped: (typed: Record<string, string>) => void;
-}) {
-    const value = (field: ConfigField) =>
-        props.typed[field.key] ?? fieldText(field, field.key in props.values ? props.values[field.key] : field.default);
-    const set = (field: ConfigField, text: string) => props.onTyped({ ...props.typed, [field.key]: text });
-    return (
-        <div class="space-y-3 rounded-lg border border-edge bg-surface p-3">
-            <div class="text-xs text-ink-muted">{t("drift.plugins.configNote")}</div>
-            <For each={props.fields}>
-                {(field) => (
-                    <Show
-                        when={field.type !== "boolean"}
-                        fallback={
-                            <div class="flex items-center justify-between gap-3">
-                                <div class="min-w-0">
-                                    <div class="text-xs font-medium text-ink">{field.label}</div>
-                                    <Show when={field.description}>
-                                        {(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}
-                                    </Show>
-                                </div>
-                                <Toggle
-                                    label={field.label}
-                                    checked={value(field) === "true"}
-                                    onChange={() => set(field, value(field) === "true" ? "false" : "true")}
-                                />
-                            </div>
-                        }
-                    >
-                        <label class="block space-y-1">
-                            <div class="flex items-baseline gap-2 text-xs">
-                                <span class="font-medium text-ink">{field.label}</span>
-                                <span class="text-ink-faint">{t(`drift.plugins.fieldType.${field.type}`)}</span>
-                            </div>
-                            <Show
-                                when={field.type === "json"}
-                                fallback={
-                                    <input
-                                        type="text"
-                                        autocomplete="off"
-                                        spellcheck={false}
-                                        class="h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 font-mono text-xs text-ink outline-none focus:border-accent"
-                                        value={value(field)}
-                                        onInput={(event) => set(field, event.currentTarget.value)}
-                                    />
-                                }
-                            >
-                                <textarea
-                                    spellcheck={false}
-                                    class="h-32 w-full resize-y rounded-md border border-edge bg-raised/45 p-2.5 font-mono text-xs text-ink outline-none focus:border-accent"
-                                    value={value(field)}
-                                    onInput={(event) => set(field, event.currentTarget.value)}
-                                />
-                            </Show>
-                            <Show when={field.description}>
-                                {(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}
-                            </Show>
-                        </label>
-                    </Show>
-                )}
-            </For>
-        </div>
-    );
-}
-
-/** An installed plugin's settings: the registry's fields when a registry describes it, the raw object otherwise. */
-function EditSheet(props: {
-    plugin: PluginInfo;
-    registry?: RegistryPlugin;
-    busy: boolean;
-    onBack: () => void;
-    onSave: (config: unknown) => Promise<void>;
-}) {
-    const stored = () =>
-        props.plugin.config && typeof props.plugin.config === "object"
-            ? (props.plugin.config as Record<string, unknown>)
-            : {};
-    const [typed, setTyped] = createSignal<Record<string, string>>({});
-    const [raw, setRaw] = createSignal(JSON.stringify(stored(), null, 2));
-    const rawValid = () => {
-        try {
-            const parsed: unknown = JSON.parse(raw());
-            return !!parsed && typeof parsed === "object" && !Array.isArray(parsed);
-        } catch {
-            return false;
-        }
-    };
-    const config = () =>
-        props.registry
-            ? buildConfig(props.registry.config, {
-                  ...Object.fromEntries(
-                      props.registry.config.map((field) => [
-                          field.key,
-                          fieldText(field, field.key in stored() ? stored()[field.key] : field.default),
-                      ]),
-                  ),
-                  ...typed(),
-              })
-            : JSON.parse(raw());
-    return (
-        <div class="space-y-4">
-            <button
-                class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink"
-                onClick={() => props.onBack()}
-            >
-                <IconArrowUp class="size-3.5 -rotate-90" />
-                {t("drift.mcp.registry.back")}
-            </button>
-            <div class="flex items-start gap-3">
-                <LogoTile image={props.registry?.image} title={props.plugin.name} large />
-                <div class="min-w-0 flex-1">
-                    <div class="text-base font-semibold text-ink">{props.plugin.name}</div>
-                    <div class="font-mono text-[0.7rem] text-ink-faint">{props.plugin.path}</div>
-                    <Show when={props.registry?.description}>
-                        {(text) => <div class="mt-2 text-sm text-ink-muted">{text()}</div>}
-                    </Show>
-                </div>
-            </div>
-            <Show
-                when={props.registry?.config.length}
-                fallback={
-                    <div class="space-y-2 rounded-lg border border-edge bg-surface p-3">
-                        <div class="text-xs text-ink-muted">{t("drift.plugins.configRaw")}</div>
-                        <textarea
-                            spellcheck={false}
-                            aria-label={t("drift.plugins.configRaw")}
-                            class="h-48 w-full resize-y rounded-md border border-edge bg-raised/45 p-2.5 font-mono text-xs text-ink outline-none focus:border-accent"
-                            classList={{ "border-danger/60": !rawValid() }}
-                            value={raw()}
-                            onInput={(event) => setRaw(event.currentTarget.value)}
-                        />
-                    </div>
-                }
-            >
-                <ConfigFields fields={props.registry!.config} typed={typed()} onTyped={setTyped} values={stored()} />
-            </Show>
-            <div class="flex items-center justify-end gap-2">
-                <button
-                    class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink"
-                    onClick={() => props.onBack()}
-                >
-                    {t("common.cancel")}
-                </button>
-                <button
-                    class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
-                    disabled={props.busy || (!props.registry?.config.length && !rawValid())}
-                    onClick={() => void props.onSave(config())}
-                >
-                    {t(props.busy ? "drift.plugins.saving" : "common.save")}
-                </button>
-            </div>
-        </div>
     );
 }
 

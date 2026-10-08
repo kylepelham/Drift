@@ -659,7 +659,8 @@ test("the About mascot stays light: preloaded from the nav, compiled off-thread,
 test("permission rules reorder within the list and grants read as what was approved", async () => {
     const { loadDictionary } = await import("../src/state/i18n");
     await loadDictionary("en");
-    const { moveRule, grantLabel } = await import("../src/ui/settings-permissions");
+    const { moveRule } = await import("../src/ui/settings-permission-rules");
+    const { grantLabel } = await import("../src/ui/settings-permissions");
     const rule = (pattern: string) => ({ kind: "bash", pattern, decision: "ask" as const });
     const rules = [rule("a"), rule("b"), rule("c")];
     expect(moveRule(rules, 2, -1).map((r) => r.pattern)).toEqual(["a", "c", "b"]);
