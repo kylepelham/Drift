@@ -2,14 +2,20 @@
 
 pub mod claude_code;
 pub mod oauth;
+mod request;
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
 
 use super::catalog::Reasoning;
 use super::sse;
-use super::{Block, ChatMessage, Chunk, ChunkStream, Credential, Error, Request, Role, StopReason};
+#[cfg(test)]
+use super::{Block, ChatMessage, Role};
+use super::{Chunk, ChunkStream, Credential, Error, Request, StopReason};
 use crate::session::types::Usage;
+#[cfg(test)]
+use request::block;
+use request::body;
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
@@ -40,16 +46,15 @@ impl Anthropic {
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         let mut body = body(request);
         let subscription = matches!(credential, Credential::OAuth { .. });
-        let url = format!(
-            "{}/v1/messages{}",
-            self.base_url,
-            if subscription { "?beta=true" } else { "" }
-        );
+        let query = if subscription { "?beta=true" } else { "" };
+        let url = format!("{}/v1/messages{query}", self.base_url);
+
         let http = self
             .client
             .post(url)
             .header("anthropic-version", API_VERSION)
             .header("accept", "text/event-stream");
+
         let (http, betas) = match credential {
             Credential::ApiKey { key } => (
                 http.header("x-api-key", key),
@@ -68,6 +73,7 @@ impl Anthropic {
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
+
         stream_from(
             super::mode_headers(http, request, betas).json(&body),
             &self.timeouts,
@@ -95,10 +101,11 @@ pub(super) async fn stream_from(
     let status = response.status();
     if !status.is_success() {
         let headers = response.headers().clone();
-        return Err(
-            api_error(status.as_u16(), &super::http::bounded_body(response, timeouts).await).with_headers(&headers),
-        );
+        let text = super::http::bounded_body(response, timeouts).await;
+
+        return Err(api_error(status.as_u16(), &text).with_headers(&headers));
     }
+
     let events = sse::events(response.bytes_stream(), timeouts.idle);
     Ok(Box::pin(events.flat_map(move |event| {
         let items: Vec<Result<Chunk, Error>> = match event {
@@ -122,6 +129,7 @@ pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> Valu
         }
         fields.insert("anthropic_version".into(), json!(version));
     }
+
     body
 }
 
@@ -135,153 +143,11 @@ fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
     }
 }
 
-/// Anthropic allows four breakpoints: tools, system, and these two in the conversation.
-const CONVERSATION_BREAKPOINTS: usize = 2;
-
-/// Shared by every Anthropic route (key, subscription, gateway base URLs), so all of them cache.
-fn body(request: &Request) -> Value {
-    let mut messages: Vec<Value> = request.messages.iter().map(message).collect();
-    mark_conversation(&mut messages);
-    let mut body = json!({
-        "model": request.model,
-        "max_tokens": request.max_tokens,
-        "stream": true,
-        "messages": messages,
-    });
-    if !request.system.is_empty() {
-        body["system"] = json!([{ "type": "text", "text": request.system, "cache_control": ephemeral() }]);
-    }
-    if !request.tools.is_empty() {
-        let mut tools: Vec<Value> = request
-            .tools
-            .iter()
-            .map(
-                |tool| json!({ "name": tool.name, "description": tool.description, "input_schema": tool.input_schema }),
-            )
-            .collect();
-        if let Some(last) = tools.last_mut() {
-            last["cache_control"] = ephemeral();
-        }
-        body["tools"] = Value::Array(tools);
-        if request.no_tool_calls {
-            body["tool_choice"] = json!({ "type": "none" });
-        }
-    }
-    match &request.reasoning {
-        Some(Reasoning::Budget { tokens }) => body["thinking"] = json!({ "type": "enabled", "budget_tokens": tokens }),
-        // Summarized, since the models that think adaptively otherwise send their thinking blank.
-        Some(Reasoning::Effort { level }) => {
-            body["thinking"] = json!({ "type": "adaptive", "display": "summarized" });
-            body["output_config"] = json!({ "effort": level });
-        }
-        None => {
-            if let Some(temperature) = request.temperature {
-                body["temperature"] = json!(temperature);
-            }
-        }
-    }
-    super::apply_mode(&mut body, request);
-    body
-}
-
-fn ephemeral() -> Value {
-    json!({ "type": "ephemeral" })
-}
-
-/// Rolling breakpoints on the last two user messages: the newest writes the whole prefix, and the one
-/// before it sits exactly where the previous request wrote, so a step that adds more blocks than the
-/// cache lookback still hits.
-fn mark_conversation(messages: &mut [Value]) {
-    for message in messages
-        .iter_mut()
-        .rev()
-        .filter(|m| m["role"] == "user")
-        .take(CONVERSATION_BREAKPOINTS)
-    {
-        let last = message["content"]
-            .as_array_mut()
-            .and_then(|blocks| blocks.iter_mut().rev().find(|b| cacheable(b)));
-        if let Some(block) = last {
-            block["cache_control"] = ephemeral();
-        }
-    }
-}
-
-/// Thinking blocks and empty text cannot carry a breakpoint.
-fn cacheable(block: &Value) -> bool {
-    !matches!(block["type"].as_str(), Some("thinking" | "redacted_thinking")) && block["text"] != ""
-}
-
-fn message(message: &ChatMessage) -> Value {
-    let role = match message.role {
-        Role::User => "user",
-        Role::Assistant => "assistant",
-    };
-    json!({ "role": role, "content": message.blocks.iter().filter(|b| sendable(b)).map(block).collect::<Vec<_>>() })
-}
-
-/// Thinking without a signature (another wire's reasoning text) is refused by Anthropic, so it stays home.
-fn sendable(block: &Block) -> bool {
-    !matches!(
-        block.unsigned(),
-        Block::Stored { .. }
-            | Block::Reasoning {
-                signature: None,
-                redacted: None,
-                ..
-            }
-    )
-}
-
-/// A call id as Anthropic accepts it (`[a-zA-Z0-9_-]+`); ids from other providers (`functions.read:0`) are mapped the same way on both sides.
-fn wire_id(id: &str) -> String {
-    let id: String = id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if id.is_empty() { "call".into() } else { id }
-}
-
-fn block(block: &Block) -> Value {
-    match block {
-        Block::Signed { part, .. } => self::block(part),
-        Block::Text(text) => json!({ "type": "text", "text": text }),
-        Block::Reasoning {
-            redacted: Some(data), ..
-        } => json!({ "type": "redacted_thinking", "data": data }),
-        Block::Reasoning { text, signature, .. } => {
-            json!({ "type": "thinking", "thinking": text, "signature": signature.clone().unwrap_or_default() })
-        }
-        Block::ToolUse { id, name, input } => {
-            json!({ "type": "tool_use", "id": wire_id(id), "name": name, "input": input })
-        }
-        Block::ToolResult {
-            call_id,
-            content,
-            is_error,
-        } => {
-            json!({ "type": "tool_result", "tool_use_id": wire_id(call_id), "content": content, "is_error": is_error })
-        }
-        Block::Image { mime, base64 } => {
-            json!({ "type": "image", "source": { "type": "base64", "media_type": mime, "data": base64 } })
-        }
-        Block::Pdf { base64 } => {
-            json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": base64 } })
-        }
-        Block::Stored { .. } => json!({ "type": "text", "text": "[file not loaded]" }),
-    }
-}
-
 pub(super) fn api_error(status: u16, text: &str) -> Error {
     let parsed: Value = serde_json::from_str(text).unwrap_or_default();
     let kind = parsed["error"]["type"].as_str().unwrap_or("api_error").to_string();
     let message = parsed["error"]["message"].as_str().unwrap_or(text).to_string();
+
     match status {
         401 | 403 => Error::Unauthenticated(message),
         _ => Error::api(status, kind, message),
@@ -291,6 +157,7 @@ pub(super) fn api_error(status: u16, text: &str) -> Error {
 /// Maps one SSE event to its chunks; most frames give one, message_delta carries usage and the stop.
 pub(super) fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
     let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
+
     let chunk = match event {
         "message_start" => Some(Chunk::Usage(usage(&value["message"]["usage"]))),
         "content_block_start" => block_start(&value["content_block"]),
@@ -300,11 +167,12 @@ pub(super) fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
         "error" => return Err(api_error(super::STREAMED, data)),
         _ => None,
     };
+
     Ok(chunk.into_iter().collect())
 }
 
-/// A block of a kind this adapter does not know (server tools, citations, ones yet to come) is
-/// skipped: no block opens, so its deltas and its stop fall on nothing, and the turn goes on.
+/// Skips unknown block kinds such as server tools and citations.
+/// Without an open block, their deltas and stop frames produce no content.
 fn block_start(block: &Value) -> Option<Chunk> {
     Some(match block["type"].as_str().unwrap_or_default() {
         "text" => Chunk::TextStart,

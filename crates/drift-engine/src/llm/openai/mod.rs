@@ -2,16 +2,26 @@
 
 pub mod codex;
 pub mod oauth;
-
-use std::collections::HashSet;
+mod request;
+mod stream;
 
 use futures_util::StreamExt;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(test)]
+use serde_json::json;
 
+#[cfg(test)]
 use super::catalog::Reasoning;
 use super::sse;
-use super::{Block, ChatMessage, Chunk, ChunkStream, Credential, Error, Request, Role, StopReason};
+#[cfg(test)]
+use super::{Block, ChatMessage, Role, StopReason};
+use super::{Chunk, ChunkStream, Credential, Error, Request};
+#[cfg(test)]
 use crate::session::types::Usage;
+use request::body;
+#[cfg(test)]
+use request::items;
+use stream::StreamState;
 
 const API_BASE_URL: &str = "https://api.openai.com/v1";
 const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
@@ -47,10 +57,12 @@ impl OpenAi {
         let subscription = matches!(credential, Credential::OAuth { .. });
         let default_base = if subscription { CODEX_BASE_URL } else { API_BASE_URL };
         let base = self.base_url.as_deref().unwrap_or(default_base);
+
         let mut http = self
             .client
             .post(format!("{base}/responses"))
             .header("accept", "text/event-stream");
+
         http = match credential {
             Credential::ApiKey { key } => http.bearer_auth(key),
             Credential::OAuth { access, account, .. } => {
@@ -58,7 +70,7 @@ impl OpenAi {
                 if let Some(account) = account {
                     http = http.header("chatgpt-account-id", account);
                 }
-                // The conversation, so the backend keeps its requests together, as Codex sends it.
+                // Codex groups requests from the same conversation with this session header.
                 if let Some(session) = &request.cache_key {
                     http = http.header("session-id", session);
                 }
@@ -66,10 +78,12 @@ impl OpenAi {
                 if let Some(residency) = residency(access) {
                     http = http.header("x-openai-internal-codex-residency", residency);
                 }
+
                 http
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
+
         let response = super::http::send(
             super::mode_headers(http, request, Vec::new()).json(&body(request, subscription)),
             &self.timeouts,
@@ -78,12 +92,11 @@ impl OpenAi {
         let status = response.status();
         if !status.is_success() {
             let headers = response.headers().clone();
-            return Err(api_error(
-                status.as_u16(),
-                &super::http::bounded_body(response, &self.timeouts).await,
-            )
-            .with_headers(&headers));
+            let text = super::http::bounded_body(response, &self.timeouts).await;
+
+            return Err(api_error(status.as_u16(), &text).with_headers(&headers));
         }
+
         let mut state = StreamState::default();
         let events = sse::events(response.bytes_stream(), self.timeouts.idle);
         Ok(Box::pin(events.flat_map(move |event| {
@@ -112,82 +125,8 @@ fn residency(access: &str) -> Option<String> {
     let found = claims["https://api.openai.com/auth"]["chatgpt_compute_residency"]
         .as_str()
         .or(claims["chatgpt_compute_residency"].as_str())?;
+
     (!found.is_empty() && found != "no_constraint").then(|| found.to_string())
-}
-
-fn body(request: &Request, subscription: bool) -> Value {
-    let mut body = json!({
-        "model": request.model,
-        "instructions": request.system,
-        "input": request.messages.iter().flat_map(items).collect::<Vec<_>>(),
-        "stream": true,
-        "store": false,
-        "include": ["reasoning.encrypted_content"],
-    });
-    if !request.tools.is_empty() {
-        body["tools"] = request
-            .tools
-            .iter()
-            .map(|tool| json!({ "type": "function", "name": tool.name, "description": tool.description, "parameters": tool.input_schema, "strict": false }))
-            .collect();
-        body["tool_choice"] = json!(if request.no_tool_calls { "none" } else { "auto" });
-    }
-    if let Some(Reasoning::Effort { level }) = &request.reasoning {
-        body["reasoning"] = json!({ "effort": level, "summary": "auto" });
-    }
-    if let Some(verbosity) = request.verbosity {
-        body["text"] = json!({ "verbosity": verbosity });
-    }
-    // One key per conversation, as Codex itself sends, so its requests share a cache.
-    if let Some(key) = &request.cache_key {
-        body["prompt_cache_key"] = json!(key);
-    }
-    if !subscription {
-        body["max_output_tokens"] = json!(request.max_tokens);
-        if let Some(temperature) = request.temperature {
-            body["temperature"] = json!(temperature);
-        }
-    }
-    super::apply_mode(&mut body, request);
-    body
-}
-
-fn items(message: &ChatMessage) -> Vec<Value> {
-    let role = match message.role {
-        Role::User => "user",
-        Role::Assistant => "assistant",
-    };
-    let mut out = Vec::new();
-    let mut content: Vec<Value> = Vec::new();
-    let flush = |content: &mut Vec<Value>, out: &mut Vec<Value>| {
-        if !content.is_empty() {
-            out.push(json!({ "role": role, "content": std::mem::take(content) }));
-        }
-    };
-    for block in &message.blocks {
-        match block.unsigned() {
-            Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
-            Block::Text(text) if message.role == Role::User => content.push(json!({ "type": "input_text", "text": text })),
-            Block::Text(text) => content.push(json!({ "type": "output_text", "text": text })),
-            Block::Image { mime, base64 } => content.push(json!({ "type": "input_image", "image_url": format!("data:{mime};base64,{base64}") })),
-            Block::Reasoning { text, signature: Some(encrypted), .. } => {
-                flush(&mut content, &mut out);
-                out.push(json!({ "type": "reasoning", "summary": [{ "type": "summary_text", "text": text }], "encrypted_content": encrypted }));
-            }
-            Block::Pdf { base64 } => content.push(json!({ "type": "input_file", "filename": "document.pdf", "file_data": format!("data:application/pdf;base64,{base64}") })),
-            Block::Reasoning { .. } | Block::Stored { .. } => {}
-            Block::ToolUse { id, name, input } => {
-                flush(&mut content, &mut out);
-                out.push(json!({ "type": "function_call", "call_id": id, "name": name, "arguments": input.to_string() }));
-            }
-            Block::ToolResult { call_id, content: output, .. } => {
-                flush(&mut content, &mut out);
-                out.push(json!({ "type": "function_call_output", "call_id": call_id, "output": output }));
-            }
-        }
-    }
-    flush(&mut content, &mut out);
-    out
 }
 
 /// `code` names the fault; a streamed `error` event's `type` is just "error".
@@ -204,125 +143,10 @@ fn api_error(status: u16, text: &str) -> Error {
         .unwrap_or("api_error")
         .to_string();
     let message = error["message"].as_str().unwrap_or(text).to_string();
+
     match status {
         401 | 403 => Error::Unauthenticated(message),
         _ => Error::api(status, kind, message),
-    }
-}
-
-/// Which streamed items are open, so item-level events map to the right block kind.
-#[derive(Default)]
-struct StreamState {
-    reasoning: HashSet<String>,
-    messages: HashSet<String>,
-    calls_with_deltas: HashSet<String>,
-    called_tools: bool,
-}
-
-impl StreamState {
-    fn chunks(&mut self, data: &str) -> Result<Vec<Chunk>, Error> {
-        let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
-        let kind = value["type"].as_str().unwrap_or_default();
-        let item_id = value["item_id"].as_str().unwrap_or_default();
-        let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
-        Ok(match kind {
-            "response.output_item.added" => self.item_added(&value["item"]),
-            "response.output_text.delta" => vec![Chunk::TextDelta(text("delta"))],
-            "response.reasoning_summary_part.added" if value["summary_index"].as_u64().unwrap_or(0) > 0 => {
-                vec![Chunk::ReasoningDelta("\n\n".into())]
-            }
-            "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
-                vec![Chunk::ReasoningDelta(text("delta"))]
-            }
-            "response.function_call_arguments.delta" => {
-                self.calls_with_deltas.insert(item_id.into());
-                vec![Chunk::ToolInputDelta(text("delta"))]
-            }
-            "response.output_item.done" => self.item_done(&value["item"]),
-            "response.completed" | "response.incomplete" => {
-                self.finished(&value["response"], kind == "response.incomplete")
-            }
-            "response.failed" => return Err(api_error(super::STREAMED, &value["response"].to_string())),
-            "error" => return Err(api_error(super::STREAMED, data)),
-            _ => Vec::new(),
-        })
-    }
-
-    fn item_added(&mut self, item: &Value) -> Vec<Chunk> {
-        let id = item["id"].as_str().unwrap_or_default().to_string();
-        match item["type"].as_str().unwrap_or_default() {
-            "message" => {
-                self.messages.insert(id);
-                vec![Chunk::TextStart]
-            }
-            "reasoning" => {
-                self.reasoning.insert(id);
-                vec![Chunk::ReasoningStart]
-            }
-            "function_call" => {
-                self.called_tools = true;
-                vec![Chunk::ToolUseStart {
-                    id: item["call_id"].as_str().unwrap_or_default().into(),
-                    name: item["name"].as_str().unwrap_or_default().into(),
-                }]
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    fn item_done(&mut self, item: &Value) -> Vec<Chunk> {
-        let id = item["id"].as_str().unwrap_or_default();
-        match item["type"].as_str().unwrap_or_default() {
-            "message" => {
-                self.messages.remove(id);
-                vec![Chunk::BlockStop]
-            }
-            "reasoning" => {
-                self.reasoning.remove(id);
-                let mut out = Vec::new();
-                if let Some(encrypted) = item["encrypted_content"].as_str() {
-                    out.push(Chunk::ReasoningSignature(encrypted.into()));
-                }
-                out.push(Chunk::BlockStop);
-                out
-            }
-            "function_call" => {
-                let mut out = Vec::new();
-                if !self.calls_with_deltas.remove(id)
-                    && let Some(arguments) = item["arguments"].as_str().filter(|a| !a.is_empty())
-                {
-                    out.push(Chunk::ToolInputDelta(arguments.into()));
-                }
-                out.push(Chunk::BlockStop);
-                out
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    fn finished(&self, response: &Value, incomplete: bool) -> Vec<Chunk> {
-        let usage = &response["usage"];
-        let count = |path: &[&str]| path.iter().fold(usage, |v, key| &v[*key]).as_u64().unwrap_or(0);
-        let cache_read = count(&["input_tokens_details", "cached_tokens"]);
-        let reason = &response["incomplete_details"]["reason"];
-        let stop = if incomplete && reason == "max_output_tokens" {
-            StopReason::MaxTokens
-        } else if incomplete && reason == "content_filter" {
-            StopReason::Refused
-        } else if self.called_tools {
-            StopReason::ToolUse
-        } else {
-            StopReason::EndTurn
-        };
-        vec![
-            Chunk::Usage(Usage {
-                input: count(&["input_tokens"]).saturating_sub(cache_read),
-                output: count(&["output_tokens"]),
-                cache_read,
-                cache_write: 0,
-            }),
-            Chunk::Stop(stop),
-        ]
     }
 }
 
