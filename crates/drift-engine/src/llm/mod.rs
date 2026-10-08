@@ -8,6 +8,8 @@ pub mod compat;
 mod credential_file;
 pub mod credentials;
 mod eventstream;
+mod files;
+pub use files::prepare_files;
 pub mod gemini;
 pub mod google;
 pub mod http;
@@ -75,83 +77,6 @@ pub const MAX_IMAGES_SENT: usize = 10;
 /// Image data a request carries at most, as base64: providers cap the whole request (Anthropic at
 /// 32 MB), and ten images of 5 MB each would pass the count yet fail the size.
 pub const MAX_IMAGE_DATA_SENT: usize = 20 * 1024 * 1024;
-
-/// Makes the request's images and PDFs sendable for `model`: stored ones are loaded, and newest
-/// first they are kept until [`MAX_IMAGES_SENT`] files or [`MAX_IMAGE_DATA_SENT`] of data is
-/// reached, older ones becoming a line; a kind the model cannot read becomes a line too.
-pub fn prepare_files(
-    mut messages: Vec<ChatMessage>,
-    model: &catalog::Model,
-    load: impl Fn(&str) -> Option<Vec<u8>>,
-) -> Vec<ChatMessage> {
-    let mut budget = FileBudget {
-        reads_images: model.attachment,
-        reads_pdfs: model.pdf,
-        sent: 0,
-        data: 0,
-    };
-    for block in messages
-        .iter_mut()
-        .rev()
-        .flat_map(|message| message.blocks.iter_mut().rev())
-    {
-        if matches!(block, Block::Image { .. } | Block::Pdf { .. } | Block::Stored { .. }) {
-            let file = std::mem::replace(block, Block::Text(String::new()));
-            *block = budget.decide(file, &load);
-        }
-    }
-    messages
-}
-
-/// What the request has room for, counted from the newest file back.
-struct FileBudget {
-    reads_images: bool,
-    reads_pdfs: bool,
-    sent: usize,
-    data: usize,
-}
-
-impl FileBudget {
-    fn decide(&mut self, file: Block, load: &impl Fn(&str) -> Option<Vec<u8>>) -> Block {
-        let line = |text: &str| Block::Text(text.into());
-        let pdf = matches!(&file, Block::Pdf { .. })
-            || matches!(&file, Block::Stored { mime, .. } if mime == "application/pdf");
-        if pdf && !self.reads_pdfs {
-            return line("[A PDF was here, but this model cannot read PDFs.]");
-        }
-        if !pdf && !self.reads_images {
-            return line("[An image was here, but this model cannot read images.]");
-        }
-        let earlier = "[An earlier image or PDF was here; only the newest ones are sent.]";
-        if self.sent >= MAX_IMAGES_SENT {
-            return line(earlier);
-        }
-        let file = match file {
-            Block::Stored { mime, hash } => match load(&hash) {
-                Some(bytes) => {
-                    let base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, bytes);
-                    if pdf {
-                        Block::Pdf { base64 }
-                    } else {
-                        Block::Image { base64, mime }
-                    }
-                }
-                None => return line("[An image or PDF was here but is no longer kept.]"),
-            },
-            other => other,
-        };
-        let size = match &file {
-            Block::Image { base64, .. } | Block::Pdf { base64 } => base64.len(),
-            _ => 0,
-        };
-        if self.data + size > MAX_IMAGE_DATA_SENT {
-            return line(earlier);
-        }
-        self.sent += 1;
-        self.data += size;
-        file
-    }
-}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolSpec {
@@ -258,6 +183,7 @@ pub(crate) fn apply_mode(body: &mut serde_json::Value, request: &Request) {
             (into, value) => *into = value.clone(),
         }
     }
+
     for (key, value) in request.mode.iter().flat_map(|mode| &mode.body) {
         merge(&mut body[key.as_str()], value);
     }
@@ -280,9 +206,11 @@ pub(crate) fn mode_headers<'a>(
             http = http.header(name, value);
         }
     }
+
     if !betas.is_empty() {
         http = http.header("anthropic-beta", betas.join(","));
     }
+
     http
 }
 
@@ -370,6 +298,7 @@ impl Error {
         let transient = RETRY_STATUSES.contains(&status)
             || (status == STREAMED && RETRY_KINDS.contains(&kind.to_ascii_lowercase().as_str()));
         let retryable = transient && !permanent(&kind);
+
         Self::Api {
             status,
             kind,
@@ -396,6 +325,7 @@ impl Error {
                 _ => {}
             }
         }
+
         self
     }
 }
@@ -406,13 +336,16 @@ fn requested_wait(headers: &::http::HeaderMap) -> Option<std::time::Duration> {
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim);
     let seconds = |text: &str| text.parse::<f64>().ok().filter(|n| !n.is_nan() && *n >= 0.0);
     let span = |secs: f64| std::time::Duration::try_from_secs_f64(secs).unwrap_or(std::time::Duration::MAX);
+
     if let Some(ms) = header("retry-after-ms").and_then(seconds) {
         return Some(span(ms / 1000.0));
     }
+
     let value = header("retry-after")?;
     if let Some(secs) = seconds(value) {
         return Some(span(secs));
     }
+
     let at = httpdate::parse_http_date(value).ok()?;
     Some(at.duration_since(std::time::SystemTime::now()).unwrap_or_default())
 }
@@ -512,6 +445,7 @@ impl Provider {
         if let Some(slot) = self.timeouts_mut() {
             *slot = timeouts;
         }
+
         self
     }
 
@@ -559,6 +493,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
     let env_name = format!("DRIFT_{}_BASE_URL", id.to_uppercase().replace('-', "_"));
     let override_url = std::env::var(env_name).ok().or_else(|| catalog_api.map(str::to_string));
     let base = |default: &str| override_url.clone().unwrap_or_else(|| default.to_string());
+
     let provider = match id {
         "anthropic" => Provider::Anthropic(
             override_url
@@ -584,5 +519,6 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "google-vertex" | "google-vertex-anthropic" => Provider::Vertex(vertex::Vertex::new(override_url)),
         _ => Provider::Compat(compat::Compat::new(override_url.as_deref()?)),
     };
+
     Some(provider.with_timeouts(http::Timeouts::for_route(id)))
 }
