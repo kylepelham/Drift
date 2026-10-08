@@ -26,6 +26,22 @@ pub fn is_pdf(bytes: &[u8]) -> bool {
 /// The formats every image-reading provider takes; anything else (SVG, BMP, ...) is named, not sent.
 pub const SENDABLE: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
+#[derive(Debug, thiserror::Error)]
+pub enum ImageError {
+    #[error("its data is not valid base64")]
+    InvalidBase64,
+    #[error("it is over {} MB", MAX_SOURCE_BYTES / 1024 / 1024)]
+    TooLarge,
+    #[error("it could not be read ({0})")]
+    ReadIo(std::io::Error),
+    #[error("it could not be read ({0})")]
+    Read(image::ImageError),
+    #[error("it could not be decoded ({0})")]
+    Decode(image::ImageError),
+    #[error("at {width}x{height} it could not be scaled under {} MB", MAX_IMAGE_BYTES / 1024 / 1024)]
+    CannotScale { width: u32, height: u32 },
+}
+
 /// One image as a tool returns it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Image {
@@ -47,40 +63,31 @@ impl Image {
 }
 
 /// `image` as a model can take it, with a note when it had to be scaled; a PDF passes through.
-pub fn normalize(image: Image) -> Result<(Image, Option<String>), String> {
+pub fn normalize(image: Image) -> Result<(Image, Option<String>), ImageError> {
     if image.mime == PDF {
         return Ok((image, None));
     }
-    let bytes = image.bytes().ok_or("its data is not valid base64")?;
+    let bytes = image.bytes().ok_or(ImageError::InvalidBase64)?;
     if bytes.len() > MAX_SOURCE_BYTES {
-        return Err(format!("it is over {} MB", MAX_SOURCE_BYTES / 1024 / 1024));
+        return Err(ImageError::TooLarge);
     }
-    let (width, height) = reader(&bytes)?
-        .into_dimensions()
-        .map_err(|e| format!("it could not be read ({e})"))?;
+    let (width, height) = reader(&bytes)?.into_dimensions().map_err(ImageError::Read)?;
     if width <= MAX_SIDE && height <= MAX_SIDE && image.base64.len() <= MAX_IMAGE_BYTES {
         return Ok((image, None));
     }
-    let decoded = reader(&bytes)?
-        .decode()
-        .map_err(|e| format!("it could not be decoded ({e})"))?;
+    let decoded = reader(&bytes)?.decode().map_err(ImageError::Decode)?;
     sizes(width, height)
         .find_map(|(w, h)| {
             encoded(&decoded.resize_exact(w, h, image::imageops::FilterType::Lanczos3))
                 .map(|image| (image, Some(format!("scaled from {width}x{height} to {w}x{h}"))))
         })
-        .ok_or_else(|| {
-            format!(
-                "at {width}x{height} it could not be scaled under {} MB",
-                MAX_IMAGE_BYTES / 1024 / 1024
-            )
-        })
+        .ok_or(ImageError::CannotScale { width, height })
 }
 
-fn reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, String> {
+fn reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, ImageError> {
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
-        .map_err(|e| format!("it could not be read ({e})"))?;
+        .map_err(ImageError::ReadIo)?;
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_DECODED_SIDE);
     limits.max_image_height = Some(MAX_DECODED_SIDE);
@@ -329,13 +336,19 @@ mod tests {
             mime: "image/png".into(),
             base64: Image::from_bytes("image/png", b"\x89PNG\r\n\x1a\nbroken").base64,
         };
-        assert!(normalize(broken).unwrap_err().starts_with("it could not be"));
+        assert!(
+            normalize(broken)
+                .unwrap_err()
+                .to_string()
+                .starts_with("it could not be")
+        );
         assert_eq!(
             normalize(Image {
                 mime: "image/png".into(),
                 base64: "%%%".into()
             })
-            .unwrap_err(),
+            .unwrap_err()
+            .to_string(),
             "its data is not valid base64"
         );
     }

@@ -2604,7 +2604,7 @@ impl Engine {
         let normalized = tokio::task::spawn_blocking(move || {
             returned
                 .into_iter()
-                .map(crate::tool::image::normalize)
+                .map(|image| crate::tool::image::normalize(image).map_err(|error| error.to_string()))
                 .collect::<Vec<_>>()
         })
         .await
