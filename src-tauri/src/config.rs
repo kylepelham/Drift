@@ -1,9 +1,12 @@
+//! Sandboxed reads of files under the app config directory.
+
 use std::path::{Component, Path, PathBuf};
 use tauri::State;
 
-// Config reads must not allocate an unbounded buffer.
+/// Refuse config files larger than 1 MiB instead of reading an unbounded amount into memory.
 const MAX_CONFIG_FILE_BYTES: u64 = 1_048_576;
 
+/// The app config directory; every config_read path is resolved inside it and must stay there.
 pub(crate) struct ConfigRoot(pub(crate) PathBuf);
 
 #[derive(Debug, thiserror::Error)]
