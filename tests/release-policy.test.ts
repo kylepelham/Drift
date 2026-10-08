@@ -353,7 +353,7 @@ test("native CI installs frontend resource dependencies before running Cargo", (
   const full = workflow.slice(workflow.indexOf("  full:"))
   const install = full.indexOf("          bun install --frozen-lockfile\n")
   expect(install).toBeGreaterThan(0)
-  expect(full.indexOf("cargo test")).toBeGreaterThan(install)
+  expect(full.indexOf("cargo nextest run")).toBeGreaterThan(install)
 })
 
 test("release workflow uses immutable action pins and triggering SHA binding", () => {
