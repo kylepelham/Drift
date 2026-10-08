@@ -253,8 +253,7 @@ impl Transport {
     }
 }
 
-/// Which generation of MCP a server speaks: 2026-07-28 and later, with no handshake and no session,
-/// or the `initialize` handshake before it.
+/// Which generation of MCP a server speaks: 2026-07-28 and later, with no handshake and no session, or the `initialize` handshake before it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Era {
