@@ -1,6 +1,6 @@
+import { modelInfo, normalizeDir, resolveModel, savedChoice, sessionBusy, smallContextTokens } from "../engine/store"
 import { dragHasFiles, dropStagesAttachment, dropTargetActive, nextDragDepth, splitDroppedFiles } from "./drag-drop"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js"
-import { modelInfo, resolveModel, savedChoice, sessionBusy, type QuestionRequest } from "../engine/store"
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit"
 import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
 import { appendDictation, formatDictationElapsed } from "../voice/transcript"
@@ -13,7 +13,6 @@ import { defaultVisibleModelIds, ModelManager } from "./model-manager"
 import { modelInstalled, refreshVoiceModels } from "../voice/models"
 import { selectedSession, selectSession } from "../state/selection"
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n"
-import { normalizeDir, smallContextTokens } from "../engine/store"
 import { interruptResponseAnimations } from "./response-animation"
 import { dictationEnabled, dictationModel } from "../state/voice"
 import { ComposerSlashMenu } from "./composer-slash-menu"
@@ -69,6 +68,7 @@ import {
   updatePrefs,
 } from "../state/prefs"
 
+import type { QuestionRequest } from "../engine/store"
 import type { Permission } from "../engine/shapes"
 
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
@@ -379,6 +379,7 @@ export function Composer() {
 
   const prefs = () => prefsFor(selectedSession(), savedChoice(engine.state, selectedSession()))
   const model = () => resolveModel(engine.state, prefs().model)
+  const modelName = () => modelInfo(engine.state, model())?.name
   const modelId = () => {
     const ref = model()
     return ref ? `${ref.providerID}/${ref.modelID}` : undefined
@@ -472,7 +473,7 @@ export function Composer() {
     }
     if (mention.open() && mention.handleKey(event)) return
     if (slash.active() && slash.handleKey(event)) return
-    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && browseHistory(event)) return
+    if (["ArrowUp", "ArrowDown"].includes(event.key) && browseHistory(event)) return
     if (event.key === "Tab") {
       event.preventDefault()
       cycleAgent(event.shiftKey ? -1 : 1)
@@ -547,6 +548,8 @@ export function Composer() {
   // The engine answers auto-accepted asks itself, with no window open; this only shows and switches it.
   const sessionAutoAccept = () => !!engine.state.sessions[selectedSession() ?? ""]?.autoAccept
   const autoAcceptOn = () => engine.state.autoAcceptAll || sessionAutoAccept()
+  const autoAcceptHint = () =>
+    t(engine.state.autoAcceptAll ? "drift.permissions.autoGlobal" : "drift.permissions.autoThread")
   const toggleAutoAccept = () => {
     const id = selectedSession()
     if (id && !engine.state.autoAcceptAll) void engine.actions.setAutoAccept(id, !sessionAutoAccept())
@@ -578,6 +581,12 @@ export function Composer() {
       selectSession,
     )
   }
+
+  const sendDisabled = () =>
+    (!draft().trim() && staged().length === 0) ||
+    staged().some((file) => file.status === "processing") ||
+    !ready() ||
+    submitting()
 
   return (
     <div class="composer-shell relative z-10">
@@ -781,7 +790,7 @@ export function Composer() {
               items={modelItems()}
               selected={modelId()}
               icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
-              fallbackLabel={modelInfo(engine.state, model())?.name}
+              fallbackLabel={modelName()}
               onManage={() => setManageModels(true)}
               onPick={(id) => {
                 const [providerID, ...rest] = id.split("/")
@@ -801,9 +810,7 @@ export function Composer() {
             <Show when={autoAcceptOn()}>
               <button
                 class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
-                title={
-                  engine.state.autoAcceptAll ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")
-                }
+                title={autoAcceptHint()}
                 aria-label={t("command.permissions.autoaccept.disable")}
                 disabled={engine.state.autoAcceptAll}
                 onClick={toggleAutoAccept}
@@ -860,12 +867,7 @@ export function Composer() {
             <button
               class="composer-submit rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
               title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-              disabled={
-                (!draft().trim() && staged().length === 0) ||
-                staged().some((file) => file.status === "processing") ||
-                !ready() ||
-                submitting()
-              }
+              disabled={sendDisabled()}
               onClick={() => void submit()}
             >
               {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
@@ -898,7 +900,7 @@ function AttachmentChip(props: { file: StagedFile; remove: () => void }) {
     <button
       title={t("prompt.attachment.remove")}
       class="flex size-4 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
-      onClick={props.remove}
+      onClick={() => props.remove()}
     >
       <IconX class="size-3" />
     </button>
@@ -943,7 +945,7 @@ function AttachmentChip(props: { file: StagedFile; remove: () => void }) {
           <button
             title={t("prompt.attachment.remove")}
             class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
-            onClick={props.remove}
+            onClick={() => props.remove()}
           >
             <IconX class="size-3" />
           </button>

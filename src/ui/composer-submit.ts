@@ -88,20 +88,14 @@ export function createComposerSubmit<Prepared>(
       const prepared = environment.prepare(existing)
       const initial = snapshot.text.trim()
       const text = initial ? await environment.transform({ text: initial, sessionId: existing, workspace }) : ""
-      if (
-        text === null ||
-        (!text && snapshot.staged.length === 0) ||
-        !workspace ||
-        !environment.online() ||
-        environment.scope() !== sourceScope
-      )
+      if (text === null || emptySubmission(text, snapshot) || !workspace || staleSubmission(environment, sourceScope))
         return "ignored"
 
       let sessionId = existing
       if (!sessionId) {
         const session = await environment.newSession()
         if (!session) return "failed"
-        if (environment.scope() !== sourceScope || environment.workspace()?.id !== workspace.id) {
+        if (submissionWorkspaceChanged(environment, sourceScope, workspace.id)) {
           await session.discard()
           return "ignored"
         }
@@ -124,4 +118,20 @@ export function createComposerSubmit<Prepared>(
       lease.release()
     }
   }
+}
+
+function emptySubmission(text: string, snapshot: ComposerDraft) {
+  return !text && snapshot.staged.length === 0
+}
+
+function staleSubmission<Prepared>(environment: ComposerSubmitEnvironment<Prepared>, scope: string) {
+  return !environment.online() || environment.scope() !== scope
+}
+
+function submissionWorkspaceChanged<Prepared>(
+  environment: ComposerSubmitEnvironment<Prepared>,
+  scope: string,
+  workspaceId: string,
+) {
+  return environment.scope() !== scope || environment.workspace()?.id !== workspaceId
 }

@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test"
 import { code } from "./source"
 
+import type * as TypeScript from "typescript"
+
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
     value: { getItem: () => null, setItem: () => undefined },
@@ -535,7 +537,8 @@ test("question card uses shared submission state and locks only answer editing f
   expect(source).toContainCode("if (original) return void answer(original)")
   expect(source).toMatch(/<fieldset[^>]*disabled=\{editingDisabled\(\)\}>/)
   expect(source).toContainCode('label={t("common.dismiss")} danger onClick={() => void answer(null)}')
-  expect(source).toContainCode('locked() ? t("session.question.retryOriginal")')
+  expect(source).toContainCode("t(questionSubmitLabel(sending(), locked(), step() + 1 < props.questions.length))")
+  expect(source).toContainCode('if (locked) return "session.question.retryOriginal"')
   expect(source).toContainCode('role={failed() ? "alert" : "status"}')
   expect(source).toContainCode('t("session.question.deliveryUnconfirmed")')
   expect(code(source)).toMatch(
@@ -619,7 +622,7 @@ test("queued question UI routes answers by owner without conditionally mounting 
   const ts = await import("typescript")
   const parsed = ts.createSourceFile("composer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   let textareas = 0
-  function visit(node: import("typescript").Node) {
+  function visit(node: TypeScript.Node) {
     if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(parsed) === "textarea") {
       textareas++
       expect(node.getText(parsed)).toContainCode("disabled={!ready()}")

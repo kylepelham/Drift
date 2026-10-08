@@ -112,52 +112,69 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
     return engine.actions.runCommand(id, item.name, args)
   }
   if (item.name === "new") return selectSession(null)
-  if (item.name === "fork" && current) {
-    const mode = args.toLowerCase() || "active"
-    if (mode !== "active" && mode !== "all") {
-      engine.actions.notice({ message: t("drift.slash.fork.invalid"), variant: "warning" })
-      return
-    }
-    const session = await engine.actions.fork(current)
-    if (session && selectedSession() === current) selectSession(session.id)
-    return
-  }
-  if (item.name === "spawn" && current) {
-    if (!args.trim()) {
-      engine.actions.notice({ message: t("drift.slash.spawn.required"), variant: "warning" })
-      return
-    }
-    const session = await engine.actions.spawn(current, args.trim())
-    if (session && selectedSession() === current) selectSession(session.id)
-    return
-  }
-  if (item.name === "archive" && current) {
-    const workspace = activeWorkspace()
-    if (!workspace) return
-    selectSession(null)
-    return archiveSession(current, workspace.id, engine.actions.setArchived)
-      .then(() => emitThreadArchived(current))
-      .catch((cause: unknown) => archiveFailed(engine, cause))
-  }
-  if (item.name === "compact" && current) {
-    return engine.actions.summarize(
-      current,
-      resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model),
-    )
-  }
-  if (item.name === "undo" && current) {
-    const marker = engine.state.sessions[current]?.revert?.messageID
-    const target = previousUserMessage(engine.state.transcripts[current] ?? [], marker)
-    if (!target) return
-    const restored = draftFromMessage(target)
-    if (await engine.actions.revert(current, target.info.id)) setComposerDraft(composerScope(current), restored)
-    return
-  }
-  if (item.name === "redo" && current) {
-    const marker = engine.state.sessions[current]?.revert?.messageID
-    if (!marker) return
-    return restoreReverted(engine, current, marker)
-  }
   if (item.name === "theme") setTheme(themes[(themes.indexOf(theme()) + 1) % themes.length])
   if (item.name === "mcp") openMcpServers()
+  if (current) return runSessionSlash(engine, current, item.name, args)
+}
+
+function runSessionSlash(engine: Engine, current: string, name: string, args: string) {
+  switch (name) {
+    case "fork":
+      return forkSession(engine, current, args)
+    case "spawn":
+      return spawnSession(engine, current, args)
+    case "archive":
+      return archiveCurrentSession(engine, current)
+    case "compact":
+      return engine.actions.summarize(
+        current,
+        resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model),
+      )
+    case "undo":
+      return undoCurrentSession(engine, current)
+    case "redo": {
+      const marker = engine.state.sessions[current]?.revert?.messageID
+      if (marker) return restoreReverted(engine, current, marker)
+    }
+  }
+}
+
+async function forkSession(engine: Engine, current: string, args: string) {
+  const mode = args.toLowerCase() || "active"
+  if (mode !== "active" && mode !== "all") {
+    engine.actions.notice({ message: t("drift.slash.fork.invalid"), variant: "warning" })
+    return
+  }
+
+  const session = await engine.actions.fork(current)
+  if (session && selectedSession() === current) selectSession(session.id)
+}
+
+async function spawnSession(engine: Engine, current: string, args: string) {
+  if (!args.trim()) {
+    engine.actions.notice({ message: t("drift.slash.spawn.required"), variant: "warning" })
+    return
+  }
+
+  const session = await engine.actions.spawn(current, args.trim())
+  if (session && selectedSession() === current) selectSession(session.id)
+}
+
+function archiveCurrentSession(engine: Engine, current: string) {
+  const workspace = activeWorkspace()
+  if (!workspace) return
+
+  selectSession(null)
+  return archiveSession(current, workspace.id, engine.actions.setArchived)
+    .then(() => emitThreadArchived(current))
+    .catch((cause: unknown) => archiveFailed(engine, cause))
+}
+
+async function undoCurrentSession(engine: Engine, current: string) {
+  const marker = engine.state.sessions[current]?.revert?.messageID
+  const target = previousUserMessage(engine.state.transcripts[current] ?? [], marker)
+  if (!target) return
+
+  const restored = draftFromMessage(target)
+  if (await engine.actions.revert(current, target.info.id)) setComposerDraft(composerScope(current), restored)
 }

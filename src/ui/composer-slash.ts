@@ -127,35 +127,53 @@ export function createSlashMenu(options: SlashMenuOptions) {
 
   /** Returns true when the key was consumed by the menu. */
   function handleKey(event: KeyboardEvent) {
-    if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return false
+    if (modifiedSlashKey(event)) return false
     if (!open() && event.key !== "Enter" && event.key !== "Tab" && event.key !== "Escape") return false
     // Shift+Enter inserts a newline rather than accepting the highlighted entry.
     if (event.key === "Enter" && event.shiftKey) return false
     const item = argumentItem()
     const presets = argumentPresets()
-    if (event.key === "Tab") {
-      if (event.shiftKey) return false
-      const command = item ?? matches()[activeMatchIndex()]
-      if (!command) return false
-      // Tab is completion only, including presets whose Enter action executes immediately.
-      if (!item || presets.length) complete(command, item ? presets[activePresetIndex()] : undefined)
-      event.preventDefault()
-      return true
-    }
+    if (event.key === "Tab") return completeFromKey(event, item, presets)
     // When a command is fixed the menu shows its presets, but a command with no presets still
     // occupies one row so the cursor has something to sit on.
     const count = item ? Math.max(1, presets.length) : matches().length
     const atEnd =
       options.area().selectionStart === options.draft().length && options.area().selectionEnd === options.draft().length
 
-    if (event.key === "ArrowRight" && presets.length && atEnd) {
+    const handled =
+      navigateFromKey(event.key, presets, count, atEnd) || (event.key === "Enter" && acceptFromKey(item, presets))
+    if (!handled) return false
+
+    event.preventDefault()
+    return true
+  }
+
+  function completeFromKey(event: KeyboardEvent, item: SlashItem | undefined, presets: SlashPreset[]) {
+    if (event.shiftKey) return false
+
+    const command = item ?? matches()[activeMatchIndex()]
+    if (!command) return false
+
+    // Tab completes even presets that Enter executes immediately.
+    if (!item || presets.length) complete(command, item ? presets[activePresetIndex()] : undefined)
+    event.preventDefault()
+    return true
+  }
+
+  function navigateFromKey(key: string, presets: SlashPreset[], count: number, atEnd: boolean) {
+    if (key === "ArrowRight" && presets.length && atEnd) {
       setExpandedArgument(presets[activePresetIndex()].value)
-    } else if (event.key === "ArrowLeft" && expandedArgument() && atEnd) setExpandedArgument(undefined)
-    else if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, count - 1))
-    else if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
-    else if (event.key === "Escape") setDismissed(true)
-    else if (event.key !== "Enter") return false
-    else if (!item) {
+    } else if (key === "ArrowLeft" && expandedArgument() && atEnd) setExpandedArgument(undefined)
+    else if (key === "ArrowDown") setCursor(Math.min(cursor() + 1, count - 1))
+    else if (key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0))
+    else if (key === "Escape") setDismissed(true)
+    else return false
+
+    return true
+  }
+
+  function acceptFromKey(item: SlashItem | undefined, presets: SlashPreset[]) {
+    if (!item) {
       const match = matches()[activeMatchIndex()]
       if (!match) return false
       void pick(match)
@@ -164,7 +182,6 @@ export function createSlashMenu(options: SlashMenuOptions) {
     else if (parsed()?.args || !item.requiredArgs) void pick(item)
     else return false
 
-    event.preventDefault()
     return true
   }
 
@@ -199,4 +216,8 @@ export function createSlashMenu(options: SlashMenuOptions) {
     pickPreset,
     handleKey,
   }
+}
+
+function modifiedSlashKey(event: KeyboardEvent) {
+  return event.isComposing || event.ctrlKey || event.altKey || event.metaKey
 }
