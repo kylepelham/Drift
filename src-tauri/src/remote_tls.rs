@@ -17,18 +17,6 @@ const CA_KEY_FILE: &str = "remote-access-ca-key.pem";
 const CA_NAME: &str = "Drift Remote Access";
 const CA_YEARS: i64 = 10;
 
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum TlsError {
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-    #[error(transparent)]
-    Certificate(#[from] rcgen::Error),
-    #[error(transparent)]
-    Pem(#[from] rustls::pki_types::pem::Error),
-    #[error(transparent)]
-    Config(#[from] rustls::Error),
-}
-
 /// Apple rejects TLS leaf certificates valid for more than 825 days, even from user-trusted roots.
 const LEAF_DAYS: i64 = 397;
 /// The CA may only vouch for private-network addresses, so trusting it cannot expose public sites.
@@ -40,6 +28,18 @@ const PERMITTED_V4: [([u8; 4], [u8; 4]); 6] = [
     ([169, 254, 0, 0], [255, 255, 0, 0]),
     ([127, 0, 0, 0], [255, 0, 0, 0]),
 ];
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum TlsError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Certificate(#[from] rcgen::Error),
+    #[error(transparent)]
+    Pem(#[from] rustls::pki_types::pem::Error),
+    #[error(transparent)]
+    Config(#[from] rustls::Error),
+}
 
 /// A per-install certificate authority and the leaf configurations it issues per local address.
 pub(crate) struct Tls {
@@ -81,8 +81,10 @@ impl Tls {
         if let Some(config) = self.configs.lock().unwrap().get(&address) {
             return Ok(config.clone());
         }
+
         let config = Arc::new(self.server_config(address)?);
         self.configs.lock().unwrap().insert(address, config.clone());
+
         Ok(config)
     }
 
@@ -94,6 +96,7 @@ impl Tls {
             .with_no_client_auth()
             .with_single_cert(chain, private.into())?;
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
         Ok(config)
     }
 
@@ -110,9 +113,11 @@ impl Tls {
         params.use_authority_key_identifier_extension = true;
         params.not_before = now - Duration::days(1);
         params.not_after = now + Duration::days(LEAF_DAYS);
+
         let key = KeyPair::generate()?;
         let leaf = params.signed_by(&key, &self.issuer)?;
         let chain = vec![leaf.der().clone(), self.ca.clone()];
+
         Ok((chain, PrivatePkcs8KeyDer::from(key.serialize_der())))
     }
 }
@@ -137,6 +142,7 @@ fn ca_params(now: OffsetDateTime) -> CertificateParams {
     });
     params.not_before = now - Duration::days(1);
     params.not_after = now + Duration::days(365 * CA_YEARS);
+
     params
 }
 

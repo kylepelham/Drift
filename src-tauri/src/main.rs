@@ -25,26 +25,26 @@ use config::ConfigRoot;
 use tauri::{Manager, RunEvent};
 use voice::VoiceDownload;
 
-/// Windows `CREATE_NO_WINDOW`: keeps spawned console processes from flashing a terminal.
+/// Windows CREATE_NO_WINDOW flag; prevents spawned console processes from flashing a terminal.
 #[cfg(windows)]
 pub(crate) const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// Set once the launch window has been placed on screen, so it is only centered once.
+/// Records the first placement of the launch window so it is centered only once.
 static WINDOW_REVEALED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Brings the launch window on screen.
-///
-/// The window starts hidden and is revealed only after the preload reports painted content.
-/// Engine preparation proceeds independently of that first-frame handoff.
+/// Places the launch window on screen before its reveal.
+/// The preload reveals the hidden window after paint, independently of engine startup.
 fn position_main_window(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     let Some(monitor) = window.primary_monitor()? else {
         return window.center();
     };
+
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
     let window_size = window.outer_size()?;
     let x = monitor_position.x as i64 + (monitor_size.width as i64 - window_size.width as i64) / 2;
     let y = monitor_position.y as i64 + (monitor_size.height as i64 - window_size.height as i64) / 2;
+
     window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32))
 }
 
@@ -55,6 +55,7 @@ fn reveal_main_window(window: &tauri::WebviewWindow) {
     if window.show().is_err() {
         return;
     }
+
     if !WINDOW_REVEALED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         startup::mark("window-visible");
     }
@@ -76,6 +77,7 @@ fn main() {
     startup::mark("process-start");
     // Reqwest is built without a bundled provider so the release build needs no extra C toolchain.
     let _ = rustls::crypto::ring::default_provider().install_default();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
@@ -90,8 +92,7 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(VoiceDownload::default())
         .manage(permissions::DictationConsent::default())
-        // Commands are named by full path: generate_handler! resolves helper macros in the
-        // module that defines each command, so a plain `use` re-export is not enough.
+        // generate_handler! resolves command helper macros in their defining module, not through ordinary re-exports.
         .invoke_handler(tauri::generate_handler![
             native::native_engine_status,
             opencode_import::opencode_import_summary,
@@ -134,18 +135,18 @@ fn main() {
             voice::voice_model_cancel,
             voice::voice_transcribe,
             permissions::voice_dictation_set_enabled,
-            remote::remote_access_status,
-            remote::remote_access_enable,
-            remote::remote_access_disable,
-            remote::remote_access_link,
-            remote::remote_access_revoke,
-            remote::remote_access_set_password,
+            remote::access_commands::remote_access_status,
+            remote::access_commands::remote_access_enable,
+            remote::access_commands::remote_access_disable,
+            remote::access_commands::remote_access_link,
+            remote::access_commands::remote_access_revoke,
+            remote::access_commands::remote_access_set_password,
             ui_state::ui_state_initialize,
             ui_state::ui_state_snapshot,
             ui_state::ui_state_update,
-            ui_state::shell_timeout_initialize,
-            ui_state::shell_timeout_snapshot,
-            ui_state::shell_timeout_update
+            ui_state::timeout::shell_timeout_initialize,
+            ui_state::timeout::shell_timeout_snapshot,
+            ui_state::timeout::shell_timeout_update
         ])
         .setup(setup)
         .build(tauri::generate_context!())

@@ -1,10 +1,15 @@
 //! Read-only, size-bounded previews within the originating workspace.
 
+mod opened_path;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use opened_path::opened_file_path;
 use serde::Serialize;
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(test)]
+use std::path::PathBuf;
 
 const MAX_PREVIEW_BYTES: u64 = 40 * 1024 * 1024;
 
@@ -30,6 +35,7 @@ enum PreviewError {
     Missing,
     #[error("File preview could not be read: {0}")]
     Read(#[source] io::Error),
+    #[cfg(any(windows, target_os = "linux"))]
     #[error("File preview cannot validate opened file path: {0}")]
     OpenedPath(#[source] io::Error),
     #[cfg(windows)]
@@ -70,6 +76,7 @@ fn read_preview_with_open(
     if max_bytes > MAX_PREVIEW_BYTES {
         return Err(PreviewError::InvalidLimit);
     }
+
     let root = Path::new(directory);
     if !root.is_absolute() {
         return Err(PreviewError::RelativeDirectory);
@@ -81,10 +88,12 @@ fn read_preview_with_open(
     if path.is_empty() {
         return Err(PreviewError::EmptyPath);
     }
+
     let path = root.join(path).canonicalize().map_err(io_error)?;
     if !path.starts_with(&root) {
         return Err(PreviewError::OutsideWorkspace);
     }
+
     let metadata = fs::metadata(&path).map_err(io_error)?;
     if !metadata.is_file() {
         return Err(PreviewError::NotFile);
@@ -92,12 +101,14 @@ fn read_preview_with_open(
     if metadata.len() > max_bytes {
         return Err(PreviewError::TooLarge(max_bytes));
     }
+
     let file = open(&path).map_err(io_error)?;
     // Validate the open handle because its checked pathname may have been replaced before open.
     let opened_path = opened_file_path(&file)?;
     if !opened_path.is_absolute() || !opened_path.starts_with(&root) {
         return Err(PreviewError::OpenedOutsideWorkspace);
     }
+
     let metadata = file.metadata().map_err(io_error)?;
     if !metadata.is_file() {
         return Err(PreviewError::NotFile);
@@ -105,51 +116,8 @@ fn read_preview_with_open(
     if metadata.len() > max_bytes {
         return Err(PreviewError::TooLarge(max_bytes));
     }
+
     read_bounded(file, max_bytes)
-}
-
-#[cfg(windows)]
-fn opened_file_path(file: &File) -> Result<PathBuf, PreviewError> {
-    use std::ffi::OsString;
-    use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
-    use windows_sys::Win32::Storage::FileSystem::{FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW, VOLUME_NAME_DOS};
-
-    // DOS + NORMALIZED uses the same extended \\?\ namespace as Path::canonicalize.
-    // Bound the path buffer too; an overlong or unavailable final path fails closed.
-    let mut buffer = vec![0u16; 32768];
-    // SAFETY: file owns a live handle, and buffer is writable for the supplied length.
-    let length = unsafe {
-        GetFinalPathNameByHandleW(
-            file.as_raw_handle(),
-            buffer.as_mut_ptr(),
-            buffer.len() as u32,
-            FILE_NAME_NORMALIZED | VOLUME_NAME_DOS,
-        )
-    } as usize;
-    if length == 0 {
-        return Err(PreviewError::OpenedPath(io::Error::last_os_error()));
-    }
-    if length >= buffer.len() {
-        return Err(PreviewError::PathTooLong);
-    }
-    Ok(PathBuf::from(OsString::from_wide(&buffer[..length])))
-}
-
-#[cfg(target_os = "linux")]
-fn opened_file_path(file: &File) -> Result<PathBuf, PreviewError> {
-    use std::os::{fd::AsRawFd, unix::ffi::OsStrExt};
-
-    // read_link gets the kernel's handle path; canonicalize would re-resolve its name.
-    let path = fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(PreviewError::OpenedPath)?;
-    if path.as_os_str().as_bytes().ends_with(b" (deleted)") {
-        return Err(PreviewError::Deleted);
-    }
-    Ok(path)
-}
-
-#[cfg(not(any(windows, target_os = "linux")))]
-fn opened_file_path(_file: &File) -> Result<PathBuf, PreviewError> {
-    Err(PreviewError::UnsupportedPlatform)
 }
 
 fn read_bounded(reader: impl Read, max_bytes: u64) -> Result<FilePreview, PreviewError> {
@@ -159,6 +127,7 @@ fn read_bounded(reader: impl Read, max_bytes: u64) -> Result<FilePreview, Previe
     if bytes.len() as u64 > max_bytes {
         return Err(PreviewError::TooLarge(max_bytes));
     }
+
     Ok(FilePreview {
         size: bytes.len() as u64,
         content: STANDARD.encode(bytes),
@@ -203,8 +172,8 @@ mod tests {
             self.0.join("workspace")
         }
 
-        fn read(&self, path: &str, max_bytes: u64) -> Result<FilePreview, String> {
-            read_preview(path, self.workspace().to_str().unwrap(), max_bytes).map_err(|error| error.to_string())
+        fn read(&self, path: &str, max_bytes: u64) -> Result<FilePreview, PreviewError> {
+            read_preview(path, self.workspace().to_str().unwrap(), max_bytes)
         }
     }
 
@@ -237,9 +206,18 @@ mod tests {
     #[test]
     fn file_preview_rejects_missing_files_and_non_files() {
         let fixture = Fixture::new();
-        assert!(fixture.read("missing.txt", 100).unwrap_err().contains("missing"));
-        assert!(fixture.read("", 100).unwrap_err().contains("missing"));
-        assert!(fixture.read(".", 100).unwrap_err().contains("not a regular file"));
+        assert_eq!(
+            fixture.read("missing.txt", 100).unwrap_err().to_string(),
+            "File preview file or directory is missing"
+        );
+        assert_eq!(
+            fixture.read("", 100).unwrap_err().to_string(),
+            "File preview path is missing"
+        );
+        assert_eq!(
+            fixture.read(".", 100).unwrap_err().to_string(),
+            "File preview path is not a regular file"
+        );
     }
 
     #[test]
@@ -277,11 +255,18 @@ mod tests {
             fixture
                 .read("large.bin", MAX_PREVIEW_BYTES)
                 .unwrap_err()
+                .to_string()
                 .contains("too large")
         );
         fs::write(&path, b"12").unwrap();
         for limit in [0, 1, MAX_PREVIEW_BYTES + 1, u64::MAX] {
-            assert!(fixture.read("large.bin", limit).unwrap_err().contains("too large"));
+            assert!(
+                fixture
+                    .read("large.bin", limit)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("too large")
+            );
         }
         assert_eq!(fixture.read("large.bin", MAX_PREVIEW_BYTES).unwrap().size, 2);
     }
@@ -319,6 +304,7 @@ mod tests {
                 fixture
                     .read(path.to_str().unwrap(), 100)
                     .unwrap_err()
+                    .to_string()
                     .contains("outside the workspace")
             );
         }
@@ -365,8 +351,7 @@ mod tests {
                 fs::rename(&replaced, &saved)?;
                 fs::rename(&link, &replaced)?;
                 let opened = File::open(path);
-                // Restore the checked pathname before validation. Only the handle
-                // still identifies the outside file, not a fresh canonicalize(path).
+                // Restore the pathname so only the open handle can identify the outside file.
                 fs::rename(&replaced, &link)?;
                 fs::rename(&saved, &replaced)?;
                 let file = opened?;
@@ -450,6 +435,7 @@ mod tests {
             fixture
                 .read("escape", 100)
                 .unwrap_err()
+                .to_string()
                 .contains("outside the workspace")
         );
 
@@ -462,6 +448,7 @@ mod tests {
             fixture
                 .read("outside/secret", 100)
                 .unwrap_err()
+                .to_string()
                 .contains("outside the workspace")
         );
 
