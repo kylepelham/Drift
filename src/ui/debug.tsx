@@ -7,6 +7,7 @@ import { refreshUsage } from "../state/usage-limits"
 import { lightTheme } from "../state/theme"
 import { prefsFor } from "../state/prefs"
 import { useEngine } from "../engine"
+import DOMPurify from "dompurify"
 import { t } from "../state/i18n"
 import { IconX } from "./icons"
 
@@ -85,7 +86,7 @@ function JsonView(props: { value: unknown }) {
     if (value.length > 200_000) return setHtml("")
     void import("shiki").then(async (shiki) => {
       const output = await shiki.codeToHtml(value, { lang: "json", theme: shikiTheme }).catch(() => "")
-      if (current === generation) setHtml(output)
+      if (current === generation) setHtml(DOMPurify.sanitize(output))
     })
   })
   return (
@@ -95,6 +96,7 @@ function JsonView(props: { value: unknown }) {
     >
       <div
         class="font-mono text-[0.7rem] leading-relaxed [&_pre]:!bg-transparent [&_pre]:whitespace-pre-wrap"
+        // eslint-disable-next-line solid/no-innerhtml -- Shiki output is sanitised with DOMPurify before setHtml.
         innerHTML={html()}
       />
     </Show>

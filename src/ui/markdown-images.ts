@@ -5,6 +5,8 @@ import { openLightbox } from "./lightbox"
 
 export const markdownImageAttribute = "data-document-image"
 
+type CachedMarkdownImage = { url?: string; blob?: Blob; error?: string }
+
 export function observeMarkdownImages(
   root: HTMLElement,
   input: { parent?: string; directory?: string; enabled: boolean; hash?: string; interactive?: boolean },
@@ -17,7 +19,7 @@ export function observeMarkdownImages(
   let scrolled = false
   let remaining = 20 * 1024 ** 2
   const seen = new WeakSet<HTMLImageElement>()
-  const cache = new Map<string, { url?: string; blob?: Blob; error?: string }>()
+  const cache = new Map<string, CachedMarkdownImage>()
   const urls = new Map<HTMLImageElement, string>()
   const controls = new Map<HTMLImageElement, (string | null)[]>()
   const controlAttributes = ["role", "tabindex", "class"]
@@ -63,13 +65,7 @@ export function observeMarkdownImages(
   }
 
   function activateImage(event: MouseEvent | KeyboardEvent) {
-    if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
-    if (
-      event.type === "click"
-        ? (event as MouseEvent).button !== 0
-        : (event as KeyboardEvent).repeat || !["Enter", " "].includes((event as KeyboardEvent).key)
-    )
-      return
+    if (!imageActivationKey(event)) return
     const image = (event.target as Element | null)?.closest<HTMLImageElement>("img")
     if (
       !image ||
@@ -127,8 +123,7 @@ export function observeMarkdownImages(
     for (const type of interactionEvents)
       ownerDocument.addEventListener(type, stopAlignment, { capture: true, passive: true })
 
-  async function update() {
-    if (disposed) return
+  function refreshImages() {
     if (!scrolled) alignHash()
     for (const [image] of controls) if (!root.contains(image)) restoreControl(image)
     for (const image of root.querySelectorAll<HTMLImageElement>("img")) decorate(image)
@@ -139,6 +134,81 @@ export function observeMarkdownImages(
       image.removeAttribute("src")
       urls.delete(image)
     }
+  }
+
+  function localImagePath(image: HTMLImageElement) {
+    const raw = image.getAttribute(markdownImageAttribute) ?? ""
+    const link = classifyMarkdownLink(raw, parent)
+    if (
+      !enabled ||
+      !parent ||
+      !directory ||
+      link.kind !== "file" ||
+      link.path.startsWith("//") ||
+      filePreviewType(link.path) !== "image"
+    ) {
+      image.title = "Only enabled local workspace images can be previewed"
+      return
+    }
+
+    return link.path
+  }
+
+  function reserveImage(path: string, image: HTMLImageElement) {
+    // Reserve the reader's worst-case allocation once per path, including failed reads.
+    if (cache.size >= 12 || remaining < filePreviewLimits.image) {
+      image.title = "Document image preview limit reached"
+      return
+    }
+    const cached: CachedMarkdownImage = {}
+    cache.set(path, cached)
+    remaining -= filePreviewLimits.image
+
+    return cached
+  }
+
+  function storeImage(path: string, cached: CachedMarkdownImage, result: Awaited<ReturnType<typeof readFilePreview>>) {
+    if (result.kind !== "image" || result.bytes.byteLength > filePreviewLimits.image)
+      throw new Error("Unsupported image preview")
+
+    remaining += filePreviewLimits.image - result.bytes.byteLength
+    // Keep bounded URLs across DOM replacement. SVG is only used in image context.
+    cached.blob = new Blob([result.bytes], { type: filePreviewMime(path) })
+    cached.url = URL.createObjectURL(cached.blob)
+  }
+
+  function publishImage(image: HTMLImageElement, cached: CachedMarkdownImage) {
+    if (!root.contains(image)) return
+    if (cached.error) {
+      image.title = cached.error
+      return
+    }
+
+    const url = cached.url!
+    urls.set(image, url)
+    // The read only supplies bytes. Wait for the image's actual load before re-aligning.
+    image.onload = () => {
+      if (disposed || urls.get(image) !== url || !root.contains(image)) return
+      image.onload = null
+      settleAlignment()
+    }
+    image.onerror = () => {
+      if (disposed || urls.get(image) !== url || !root.contains(image)) return
+      image.onload = null
+      image.onerror = null
+      image.removeAttribute("src")
+      image.title = cached.error = "Image could not be previewed"
+      urls.delete(image)
+      restoreControl(image)
+      settleAlignment()
+    }
+    image.src = url
+    decorate(image)
+  }
+
+  async function update() {
+    if (disposed) return
+    refreshImages()
     if (running) {
       pending = true
       return
@@ -149,68 +219,24 @@ export function observeMarkdownImages(
         if (disposed) return
         if (seen.has(image) || !root.contains(image)) continue
         seen.add(image)
-        const raw = image.getAttribute(markdownImageAttribute) ?? ""
-        const link = classifyMarkdownLink(raw, parent)
-        if (
-          !enabled ||
-          !parent ||
-          !directory ||
-          link.kind !== "file" ||
-          link.path.startsWith("//") ||
-          filePreviewType(link.path) !== "image"
-        ) {
-          image.title = "Only enabled local workspace images can be previewed"
-          continue
-        }
-        let cached = cache.get(link.path)
+        const path = localImagePath(image)
+        if (!path) continue
+
+        let cached = cache.get(path)
         if (!cached) {
-          // Reserve the reader's worst-case allocation once per path, including failed reads.
-          if (cache.size >= 12 || remaining < filePreviewLimits.image) {
-            image.title = "Document image preview limit reached"
-            continue
-          }
-          cached = {}
-          cache.set(link.path, cached)
-          remaining -= filePreviewLimits.image
+          cached = reserveImage(path, image)
+          if (!cached) continue
+
           try {
-            const result = await readFilePreview({ path: link.path, directory })
+            const result = await readFilePreview({ path, directory: directory! })
             if (disposed) return
-            if (result.kind !== "image" || result.bytes.byteLength > filePreviewLimits.image)
-              throw new Error("Unsupported image preview")
-            remaining += filePreviewLimits.image - result.bytes.byteLength
-            // Keep bounded URLs across DOM replacement. SVG is only used in image context.
-            cached.blob = new Blob([result.bytes], { type: filePreviewMime(link.path) })
-            cached.url = URL.createObjectURL(cached.blob)
+            storeImage(path, cached, result)
           } catch {
             cached.error = "Image could not be read within the workspace preview limits"
           }
         }
         if (disposed) return
-        if (!root.contains(image)) continue
-        if (cached.error) {
-          image.title = cached.error
-          continue
-        }
-        const url = cached.url!
-        urls.set(image, url)
-        // The read only supplies bytes. Wait for the image's actual load before re-aligning.
-        image.onload = () => {
-          if (disposed || urls.get(image) !== url || !root.contains(image)) return
-          image.onload = null
-          settleAlignment()
-        }
-        image.onerror = () => {
-          if (disposed || urls.get(image) !== url || !root.contains(image)) return
-          image.onload = null
-          image.onerror = null
-          image.removeAttribute("src")
-          image.title = cached.error = "Image could not be previewed"
-          urls.delete(image)
-          restoreControl(image)
-          settleAlignment()
-        }
-        image.src = url
-        decorate(image)
+        publishImage(image, cached)
       }
     } finally {
       running = false
@@ -248,4 +274,12 @@ export function observeMarkdownImages(
     for (const { url } of cache.values()) if (url) URL.revokeObjectURL(url)
     cache.clear()
   }
+}
+
+function imageActivationKey(event: MouseEvent | KeyboardEvent) {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false
+  if (event.type === "click") return (event as MouseEvent).button === 0
+
+  const key = event as KeyboardEvent
+  return !key.repeat && ["Enter", " "].includes(key.key)
 }

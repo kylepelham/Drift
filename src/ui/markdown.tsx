@@ -1,5 +1,5 @@
 import { AmbiguousCitationError, citationHref, classifyMarkdownLink, resolveMarkdownCitation } from "./markdown-links"
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js"
 import { markdownImageAttribute, observeMarkdownImages } from "./markdown-images"
 import { previewParentDirectory, readFilePreview } from "../file-preview"
 import { animateResponses, responseAnimationSpeed } from "../state/prefs"
@@ -26,10 +26,11 @@ import {
 } from "./response-animation"
 
 import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
+import type * as Shiki from "shiki"
 
 marked.use({ gfm: true, breaks: true })
 
-let shikiModule: Promise<typeof import("shiki")> | undefined
+let shikiModule: Promise<typeof Shiki> | undefined
 let markdownPurifier: ReturnType<typeof DOMPurify> | undefined
 const codeBlocks = new WeakMap<HTMLElement, { button: HTMLButtonElement; code: string }>()
 // How long the code-block copy button shows its "copied" state.
@@ -248,67 +249,81 @@ function mapProseChunks(text: string, transform: (chunk: string) => string) {
 
   while (index < text.length) {
     const lineStart = index === 0 || text[index - 1] === "\n"
-    if (lineStart) {
-      let markerStart = index
-      while (markerStart < index + 3 && text[markerStart] === " ") markerStart++
-      const marker = text[markerStart]
-      if (marker === "`" || marker === "~") {
-        let markerEnd = markerStart
-        while (text[markerEnd] === marker) markerEnd++
-        const markerLength = markerEnd - markerStart
-        const openerEnd = text.indexOf("\n", markerEnd)
-        const infoEnd = openerEnd < 0 ? text.length : openerEnd
-        if (markerLength >= 3 && (marker !== "`" || !text.slice(markerEnd, infoEnd).includes("`"))) {
-          let closeStart = openerEnd < 0 ? text.length : openerEnd + 1
-          let fenceEnd = text.length
-          while (closeStart < text.length) {
-            let closeMarkerStart = closeStart
-            while (closeMarkerStart < closeStart + 3 && text[closeMarkerStart] === " ") closeMarkerStart++
-            let closeMarkerEnd = closeMarkerStart
-            while (text[closeMarkerEnd] === marker) closeMarkerEnd++
-            const closeLineEnd = text.indexOf("\n", closeMarkerEnd)
-            const trailingEnd = closeLineEnd < 0 ? text.length : closeLineEnd
-            if (
-              closeMarkerEnd - closeMarkerStart >= markerLength &&
-              text.slice(closeMarkerEnd, trailingEnd).trim() === ""
-            ) {
-              fenceEnd = closeLineEnd < 0 ? text.length : closeLineEnd + 1
-              break
-            }
-            const nextLine = text.indexOf("\n", closeStart)
-            if (nextLine < 0) break
-            closeStart = nextLine + 1
-          }
-          preserve(index, fenceEnd)
-          continue
-        }
-      }
+    const fenceEnd = lineStart ? proseFenceEnd(text, index) : undefined
+    if (fenceEnd !== undefined) {
+      preserve(index, fenceEnd)
+      continue
     }
 
     if (text[index] === "`") {
-      const start = index
-      let openerEnd = index
-      while (text[openerEnd] === "`") openerEnd++
-      const length = openerEnd - index
-      let cursor = openerEnd
-      while (cursor < text.length) {
-        const close = text.indexOf("`", cursor)
-        if (close < 0) break
-        let closeEnd = close
-        while (text[closeEnd] === "`") closeEnd++
-        if (closeEnd - close === length) {
-          preserve(index, closeEnd)
-          break
-        }
-        cursor = closeEnd
-      }
-      if (index === start) index = openerEnd
+      const openerEnd = markerRunEnd(text, index, "`")
+      const closeEnd = proseCodeEnd(text, openerEnd, openerEnd - index)
+      if (closeEnd !== undefined) preserve(index, closeEnd)
+      else index = openerEnd
       continue
     }
     index++
   }
 
   return result + transform(text.slice(proseStart))
+}
+
+function indentedMarkerStart(text: string, start: number) {
+  let index = start
+  while (index < start + 3 && text[index] === " ") index++
+
+  return index
+}
+
+function markerRunEnd(text: string, start: number, marker: string) {
+  let end = start
+  while (text[end] === marker) end++
+
+  return end
+}
+
+function proseFenceEnd(text: string, start: number) {
+  const markerStart = indentedMarkerStart(text, start)
+  const marker = text[markerStart]
+  if (marker !== "`" && marker !== "~") return
+
+  const markerEnd = markerRunEnd(text, markerStart, marker)
+  const length = markerEnd - markerStart
+  const openerEnd = text.indexOf("\n", markerEnd)
+  const infoEnd = openerEnd < 0 ? text.length : openerEnd
+  if (length < 3 || (marker === "`" && text.slice(markerEnd, infoEnd).includes("`"))) return
+
+  return closingFenceEnd(text, openerEnd < 0 ? text.length : openerEnd + 1, marker, length)
+}
+
+function closingFenceEnd(text: string, start: number, marker: string, length: number) {
+  let closeStart = start
+  while (closeStart < text.length) {
+    const markerStart = indentedMarkerStart(text, closeStart)
+    const markerEnd = markerRunEnd(text, markerStart, marker)
+    const lineEnd = text.indexOf("\n", markerEnd)
+    const trailingEnd = lineEnd < 0 ? text.length : lineEnd
+    if (markerEnd - markerStart >= length && text.slice(markerEnd, trailingEnd).trim() === "")
+      return lineEnd < 0 ? text.length : lineEnd + 1
+
+    const nextLine = text.indexOf("\n", closeStart)
+    if (nextLine < 0) break
+    closeStart = nextLine + 1
+  }
+
+  return text.length
+}
+
+function proseCodeEnd(text: string, start: number, length: number) {
+  let cursor = start
+  while (cursor < text.length) {
+    const close = text.indexOf("`", cursor)
+    if (close < 0) break
+
+    const closeEnd = markerRunEnd(text, close, "`")
+    if (closeEnd - close === length) return closeEnd
+    cursor = closeEnd
+  }
 }
 
 // Model output like **C:\** never closes its emphasis because \ escapes the delimiter.
@@ -652,7 +667,7 @@ export async function openMarkdownLink(
   workspaceDirectory = directory,
   fileGroups?: () => readonly (readonly string[])[],
 ) {
-  if (event.defaultPrevented || (event.button !== 0 && event.button !== 1)) return
+  if (!markdownNavigationClick(event)) return
   const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]")
   if (!anchor) return
   const href = anchor.getAttribute("href") ?? ""
@@ -661,20 +676,12 @@ export async function openMarkdownLink(
   // Cancel navigation before contextual resolution, which can reject an ambiguous citation.
   let link = classifyMarkdownLink(fileGroups ? citationHref(href) : href, directory)
   if (link.kind === "external") {
-    const invoke = shellInvoke()
-    if (!invoke) return
-    event.preventDefault()
-    event.stopPropagation()
-    await invoke("plugin:opener|open_url", { url: link.url })
-    return
+    return openExternalMarkdownLink(event, link.url)
   }
   event.preventDefault()
   event.stopPropagation()
   if (link.kind === "fragment") {
-    const id = decodeURIComponent(link.hash.slice(1))
-    const root = event.currentTarget as HTMLElement
-    const target = [...root.querySelectorAll<HTMLElement>("[id]")].find((item) => item.id === id)
-    target?.scrollIntoView({ block: "nearest" })
+    scrollMarkdownFragment(event.currentTarget as HTMLElement, link.hash)
     return
   }
   if (link.kind === "unsupported") throw new Error("The link is invalid or its workspace directory is unavailable")
@@ -685,6 +692,25 @@ export async function openMarkdownLink(
     workspaceDirectory,
     href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : undefined,
   )
+}
+
+async function openExternalMarkdownLink(event: MouseEvent, url: string) {
+  const invoke = shellInvoke()
+  if (!invoke) return
+
+  event.preventDefault()
+  event.stopPropagation()
+  await invoke("plugin:opener|open_url", { url })
+}
+
+function markdownNavigationClick(event: MouseEvent) {
+  return !event.defaultPrevented && (event.button === 0 || event.button === 1)
+}
+
+function scrollMarkdownFragment(root: HTMLElement, hash: string) {
+  const id = decodeURIComponent(hash.slice(1))
+  const target = [...root.querySelectorAll<HTMLElement>("[id]")].find((item) => item.id === id)
+  target?.scrollIntoView({ block: "nearest" })
 }
 
 /** Opens a file the way a file link in a reply does: images in the lightbox, previewable files in the viewer, anything else in the editor. */
@@ -799,6 +825,7 @@ function CodeView(props: { code: string; lang: string }) {
   })
   return (
     <Show when={html()} fallback={<pre>{props.code}</pre>}>
+      {/* eslint-disable-next-line solid/no-innerhtml -- highlightedCode sanitises Shiki output with DOMPurify. */}
       <div innerHTML={html()} />
     </Show>
   )
@@ -1002,13 +1029,13 @@ export function Markdown(props: {
 }) {
   let root!: HTMLDivElement
   let request = 0
-  let identity = props.responseID
+  let identity = untrack(() => props.responseID)
   const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
   const animationAllowed = () => animateResponses() && !!props.responseID && !reducedMotion()
   let sourceSignatures: string[] = []
   let sourceNodes: ChildNode[] = []
   let renderedTheme: BundledTheme | undefined
-  let renderedRevision = props.revision
+  let renderedRevision = untrack(() => props.revision)
   let previousLength = 0
   let mounted = false
   let revealActive = false
@@ -1077,6 +1104,35 @@ export function Markdown(props: {
     setRevealRevision((value) => value + 1)
   }
 
+  function pendingRevealBurst(
+    textLength: number,
+    live: boolean,
+    done: boolean,
+    canAnimate: boolean,
+    identityChanged: boolean,
+  ) {
+    if (!mounted || identityChanged || !canAnimate) return 0
+
+    return revealDone
+      ? Math.max(0, textLength - previousLength)
+      : responseBurstSize(previousLength, textLength, live, done)
+  }
+
+  function preserveReveal(
+    change: { themeChanged: boolean; identityChanged: boolean; canAnimate: boolean },
+    textLength: number,
+    live: boolean,
+    done: boolean,
+  ) {
+    return (
+      !flushReveal &&
+      !change.themeChanged &&
+      !change.identityChanged &&
+      change.canAnimate &&
+      shouldPreserveResponseReveal(revealActive, previousLength, textLength, live, done)
+    )
+  }
+
   createEffect(() => {
     revealRevision()
     const revision = props.revision
@@ -1089,19 +1145,8 @@ export function Markdown(props: {
     const done = !!props.done
     const canAnimate = animationAllowed()
     const themeChanged = renderedTheme !== theme
-    const burst =
-      mounted && !identityChanged && canAnimate
-        ? revealDone
-          ? Math.max(0, textLength - previousLength)
-          : responseBurstSize(previousLength, textLength, live, done)
-        : 0
-    if (
-      !flushReveal &&
-      !themeChanged &&
-      !identityChanged &&
-      canAnimate &&
-      shouldPreserveResponseReveal(revealActive, previousLength, textLength, live, done)
-    ) {
+    const burst = pendingRevealBurst(textLength, live, done, canAnimate, identityChanged)
+    if (preserveReveal({ themeChanged, identityChanged, canAnimate }, textLength, live, done)) {
       revealQueued ||= shouldQueueResponseRedraw(previousLength, textLength, revisionChanged)
       revealDone ||= done && textLength > previousLength
       return

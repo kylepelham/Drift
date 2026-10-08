@@ -2,6 +2,7 @@ import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { isRemoteRuntime } from "../runtime"
 import { Toggle } from "./controls"
+import DOMPurify from "dompurify"
 import { t } from "../state/i18n"
 import {
   lastSeenLabel,
@@ -160,7 +161,8 @@ function ConnectDevice() {
               class="size-32 shrink-0 self-center rounded-lg bg-white p-1.5 sm:self-start [&>svg]:size-full"
               role="img"
               aria-label={url()}
-              innerHTML={svg()}
+              // eslint-disable-next-line solid/no-innerhtml -- DOMPurify sanitises the host-generated QR SVG.
+              innerHTML={DOMPurify.sanitize(svg())}
             />
           )}
         </Show>
@@ -176,11 +178,7 @@ function ConnectDevice() {
                   class="text-[0.72rem] text-ink-faint underline-offset-2 hover:text-ink hover:underline"
                   onClick={() => void copyAddress()}
                 >
-                  {copyError()
-                    ? t("drift.remote.clipboardError")
-                    : copied()
-                      ? t("drift.remote.copied")
-                      : t("drift.remote.copy")}
+                  {t(addressCopyLabel(copyError(), copied()))}
                 </button>
               </Show>
             </div>
@@ -360,4 +358,11 @@ function Certificate() {
       </div>
     </div>
   )
+}
+
+function addressCopyLabel(error: boolean, copied: boolean) {
+  if (error) return "drift.remote.clipboardError"
+  if (copied) return "drift.remote.copied"
+
+  return "drift.remote.copy"
 }
