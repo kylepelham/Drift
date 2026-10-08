@@ -140,10 +140,11 @@ test("settings lists usage for every linked provider and forced refresh skips th
     await refreshUsage("zai-coding-plan", Date.now(), true);
     expect(invoke.mock.calls.length).toBe(calls + 1);
     const settings = await Bun.file("src/ui/settings.tsx").text();
-    expect(settings).toContain(
+    const navigation = await Bun.file("src/ui/settings-search.ts").text();
+    expect(navigation).toContainCode(
         'items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]',
     );
-    expect(settings).toContain("<UsageLimitsSection />");
+    expect(settings).toContainCode("<UsageLimitsSection />");
     const section = await Bun.file("src/ui/settings-usage.tsx").text();
     expect(section).toContain("engine.state.connected.includes(provider.id)");
     expect(section).toContain("usageFor(provider.id)?.usage !== null");

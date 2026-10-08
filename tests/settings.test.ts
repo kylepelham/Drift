@@ -72,11 +72,12 @@ test("selected language dictionaries translate settings without loading every lo
 
 test("base prompts and agents are one Server setting, with inherited values styled apart and save only for changes", async () => {
     const source = await Bun.file("src/ui/settings.tsx").text();
+    const navigation = await Bun.file("src/ui/settings-search.ts").text();
     const editor = await Bun.file("src/ui/settings-prompts.tsx").text();
-    expect(source).toContain(
+    expect(navigation).toContainCode(
         'items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]',
     );
-    expect(source).toContain("<PromptsSection />");
+    expect(source).toContainCode("<PromptsSection />");
     expect(await Bun.file("src/ui/settings-base-prompts.tsx").exists()).toBeFalse();
     expect(editor).toContain('"text-ink-faint": !props.customized && !changed()');
     expect(editor).toContain("disabled={props.saving || !props.dirty}");
@@ -95,7 +96,7 @@ test("model-family base prompts are edited and reset in the engine, never throug
 
 test("settings search covers every category and finds feature descriptions", async () => {
     const { loadDictionary } = await import("../src/state/i18n");
-    const { settingsSearchResults } = await import("../src/ui/settings");
+    const { settingsSearchResults } = await import("../src/ui/settings-search");
     await loadDictionary("en");
 
     const categories = [
@@ -360,18 +361,14 @@ test("Drift owns explicit app-specific translations for every locale", async () 
 });
 
 test("General settings expose preview modes and custom-only per-type toggles", async () => {
-    const source = await Bun.file("src/ui/settings.tsx").text();
-    const general = source.slice(
-        source.indexOf("function GeneralSection()"),
-        source.indexOf("function RemoteAccessSection()"),
-    );
-    expect(general).toContain('title={t("drift.preview.settings.title")}');
-    expect(general).toContain('(["all", "none", "custom"] as const)');
-    expect(general).toContain("selected={filePreviewPrefs().mode}");
-    expect(general).toContain('<Show when={filePreviewPrefs().mode === "custom"}>');
-    expect(general).toContain("<For each={filePreviewTypes}>");
-    expect(general).toContain("checked={filePreviewPrefs().types[type]}");
-    expect(general).toContain("setFilePreviewType(type, !filePreviewPrefs().types[type])");
+    const general = await Bun.file("src/ui/settings-general.tsx").text();
+    expect(general).toContainCode('title={t("drift.preview.settings.title")}');
+    expect(general).toContainCode('(["all", "none", "custom"] as const)');
+    expect(general).toContainCode("selected={filePreviewPrefs().mode}");
+    expect(general).toContainCode('<Show when={filePreviewPrefs().mode === "custom"}>');
+    expect(general).toContainCode("<For each={filePreviewTypes}>");
+    expect(general).toContainCode("checked={filePreviewPrefs().types[type]}");
+    expect(general).toContainCode("setFilePreviewType(type, !filePreviewPrefs().types[type])");
 });
 
 test("appearance exposes static presets plus custom theming", async () => {
@@ -403,15 +400,15 @@ test("settings elevation and toggle contrast follow their visual state", async (
 test("appearance exposes persisted startup splash controls", async () => {
     const { splashDuration, splashDurations, splashExitAnimation, splashExitAnimations, splashMascotAnimations } =
         await import("../src/state/startup");
-    const settings = await Bun.file("src/ui/settings.tsx").text();
+    const settings = await Bun.file("src/ui/settings-appearance.tsx").text();
     expect(splashMascotAnimations).toEqual(["bounce", "float", "pulse", "still"]);
     expect(splashExitAnimations).toEqual(["wave", "fade", "lift"]);
     expect(splashDurations).toEqual([1500, 3200, 5000]);
     expect(splashExitAnimation()).toBe("fade");
     expect(splashDuration()).toBe(3200);
-    expect(settings).toContain('title={t("startup.settings.title")}');
-    expect(settings).toContain("setSplashEnabled(!splashEnabled())");
-    expect(settings).toContain("value={splashFont()}");
+    expect(settings).toContainCode('title={t("startup.settings.title")}');
+    expect(settings).toContainCode("setSplashEnabled(!splashEnabled())");
+    expect(settings).toContainCode("value={splashFont()}");
 });
 
 test("code display defaults preserve source and diff structure", async () => {
@@ -433,7 +430,7 @@ test("code display defaults preserve source and diff structure", async () => {
     expect(diffWordWrap()).toBeFalse();
     expect(diffLineNumbers()).toBeTrue();
     expect(diffIndicator()).toBe("background");
-    const { codeSettingOptions } = await import("../src/ui/settings");
+    const { codeSettingOptions } = await import("../src/ui/settings-code");
     expect(codeSettingOptions()).toEqual({
         themes: ["automatic", "github", "vitesse", "one", "dracula", "nord"],
         fontSizes: [11, 12, 13, 14, 15, 16],
@@ -625,7 +622,7 @@ test("provider sign-in hides raw URLs, surfaces device codes, and keeps disconne
         text: "Sign in with `az login` before continuing.",
     });
     expect(authorizationPrompt("")).toEqual({});
-    const source = await Bun.file("src/ui/settings.tsx").text();
+    const source = await Bun.file("src/ui/settings-provider-connect.tsx").text();
     expect(source).not.toContain("{auth().url}");
     expect(source).not.toContain("disconnectDescription");
     const connect = source.slice(
