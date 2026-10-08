@@ -63,7 +63,7 @@ test("a snapshot that raced an event never moves a task back", () => {
 });
 
 test("a background task row follows its worker, not the call that launched it", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     const part = receipt("a");
     // The launch receipt is a finished call, but it is not the worker finishing.
@@ -82,7 +82,7 @@ test("a background task row follows its worker, not the call that launched it", 
 });
 
 test("a running foreground call is matched to its task by call id before its metadata lands", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     const running = {
         ...receipt("f"),
@@ -96,7 +96,7 @@ test("a running foreground call is matched to its task by call id before its met
 });
 
 test("a background call is marked as one, by its record or before that by what it asked", async () => {
-    const { backgroundRun } = await import("../src/ui/parts");
+    const { backgroundRun } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     const launched = {
         ...receipt("a"),
@@ -131,7 +131,7 @@ test("a background row times its worker, not the instant its launch returned", (
 });
 
 test("a queued worker shows no running time and its row says it is queued, not running", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     expect(taskTiming(task("a", { createdAt: 1_000, state: "queued" }))).toEqual({ status: "queued", time: {} });
 
     const [state, set] = createEngineState();

@@ -11,7 +11,7 @@ if (!("localStorage" in globalThis))
     });
 
 test("parent delegated status follows ordinary child errors, resumed work, and completion", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     const part = {
         id: "launch",
@@ -50,7 +50,7 @@ test("parent delegated status follows ordinary child errors, resumed work, and c
 });
 
 test("a live delegated part overrides an older completion marker", async () => {
-    const { delegatedTaskClickPolicy, delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskClickPolicy, delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     set("transcripts", "parent", [
         {
@@ -91,7 +91,7 @@ function taskPart(id: string, output: string): ToolPart {
 }
 
 test("finished task cards do not follow a resumed child session's busy, retry, or error state", async () => {
-    const { delegatedTaskStatus, delegatedTaskClickPolicy } = await import("../src/ui/parts");
+    const { delegatedTaskStatus, delegatedTaskClickPolicy } = await import("../src/ui/tool-delegation");
     const { toolElapsedMs } = await import("../src/ui/tool-duration");
     const [state, set] = createEngineState();
     const original = taskPart(
@@ -122,7 +122,7 @@ test("finished task cards do not follow a resumed child session's busy, retry, o
 });
 
 test("failed task cards stay failed when the child is resumed or later completes", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     const failed: ToolPart = {
         ...taskPart("failed", ""),
@@ -140,7 +140,7 @@ test("failed task cards stay failed when the child is resumed or later completes
 });
 
 test("legacy foreground results stay completed without a loaded parent transcript", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     set("status", "child", { type: "busy" });
     const legacy = taskPart("legacy", "task_id: child\n<task_result>Already finished</task_result>");
@@ -148,7 +148,7 @@ test("legacy foreground results stay completed without a loaded parent transcrip
 });
 
 test("background tasks track work while spawned-thread receipts finish at admission", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     const background = taskPart("background", "Background task started");
     background.metadata = { ...background.metadata, background: true };
@@ -168,7 +168,7 @@ test("background tasks track work while spawned-thread receipts finish at admiss
 });
 
 test("spawned-thread rows only track their own pending, running, or failed invocation", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     set("errors", "child", "Unrelated sibling error");
     const spawned = { ...taskPart("spawned", ""), name: "spawn_thread" };
@@ -190,12 +190,12 @@ test("spawned-thread rows only track their own pending, running, or failed invoc
 });
 
 test("only subagent tasks render child activity progress", async () => {
-    const source = await Bun.file(new URL("../src/ui/parts.tsx", import.meta.url)).text();
+    const source = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
     expect(source).toContainCode('const progress = () => { if (props.part.name !== "task") return null;');
 });
 
 test("background completions belong to the invocation preceding them, including after reload", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const original = taskPart("original", '<task id="child" state="running">');
     const resumed = taskPart("resumed", '<task id="child" state="running">');
     const notification = (id: string, status: string) => ({
@@ -232,7 +232,7 @@ test("background completions belong to the invocation preceding them, including 
 });
 
 test("a result from an earlier invocation cannot settle a detached background card", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     set("transcripts", "parent", [
         {
@@ -244,7 +244,7 @@ test("a result from an earlier invocation cannot settle a detached background ca
 });
 
 test("background cards ignore another invocation's tool output while awaiting their own notification", async () => {
-    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     const background = taskPart("background", '<task id="child" state="running">');
     const later = taskPart("later", '<task id="child" state="completed">');
@@ -273,7 +273,8 @@ test("background cards ignore another invocation's tool output while awaiting th
 });
 
 test("a running delegated row recovers its child when parallel task metadata is missing", async () => {
-    const { delegatedChildId, delegatedTaskClickPolicy, delegatedTaskStatus } = await import("../src/ui/parts");
+    const { delegatedChildId, delegatedTaskClickPolicy, delegatedTaskStatus } =
+        await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     set("sessions", "child", {
         id: "child",
@@ -308,11 +309,11 @@ test("a running delegated row recovers its child when parallel task metadata is 
 });
 
 test("running delegated rows navigate while terminal rows expand without lifecycle badges", async () => {
-    const { delegatedTaskClickPolicy } = await import("../src/ui/parts");
+    const { delegatedTaskClickPolicy } = await import("../src/ui/tool-delegation");
     expect(delegatedTaskClickPolicy("running", "child")).toBe("navigate");
     expect(delegatedTaskClickPolicy("completed", "child")).toBe("expand");
     expect(delegatedTaskClickPolicy("error", "child")).toBe("expand");
-    const source = await Bun.file("src/ui/parts.tsx").text();
+    const source = await Bun.file("src/ui/tool-view.tsx").text();
     expect(source).toContain("selectSession(spawnedId()!)");
     expect(source).toContain("function spawnedId()");
     expect(source).not.toContain("const spawnedId =");

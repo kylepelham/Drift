@@ -281,14 +281,12 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     const {
         createFrameCoalescer,
         createShellTranscriptStream,
-        initialToolOpen,
-        initialToolOpenForPart,
-        rememberToolOpen,
         shellAtBottom,
         shellReplaceSegments,
         shellScrollTarget,
         shellTranscript,
-    } = await import("../src/ui/parts");
+    } = await import("../src/ui/shell-output");
+    const { initialToolOpen, initialToolOpenForPart, rememberToolOpen } = await import("../src/ui/tool-view");
     const { shellTimeoutStatus } = await import("../src/ui/tool-labels");
     expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone");
     const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n");
@@ -388,13 +386,13 @@ test("shell transcript preserves a visible command-output gap and normalizes out
 });
 
 test("active tool rows keep their target subtitle visible", async () => {
-    const source = await Bun.file("src/ui/parts.tsx").text();
+    const source = await Bun.file("src/ui/tool-view.tsx").text();
     expect(source).toContainCode('info().subtitle && !(props.part.name === "bash" && expanded())');
     expect(source).not.toContainCode("info().subtitle && !active()");
 });
 
 test("delegated tool headers always toggle while the arrow owns navigation", async () => {
-    const { activateToolHeader, openSpawnedThread, toolChevronVisible } = await import("../src/ui/parts");
+    const { activateToolHeader, openSpawnedThread, toolChevronVisible } = await import("../src/ui/tool-view");
     const toggled: string[] = [];
     for (const lifecycle of ["pending-no-child", "running-with-child", "completed"])
         activateToolHeader(() => toggled.push(lifecycle));
@@ -669,7 +667,7 @@ test("permission cards use an opaque surface like the other composer cards", asy
 });
 
 test("notes Drift adds after a shell's output come off it, to show under the call", async () => {
-    const { splitNotes } = await import("../src/ui/parts");
+    const { splitNotes } = await import("../src/ui/shell-output");
     const notes = [
         "exit code 1",
         "Drift could not record what this command changed (git: boom); undo cannot put it back.",
@@ -693,7 +691,7 @@ test("notes Drift adds after a shell's output come off it, to show under the cal
 });
 
 test("the line where the engine cut a long output comes out, with how much it cut", async () => {
-    const { splitOmitted } = await import("../src/ui/parts");
+    const { splitOmitted } = await import("../src/ui/shell-output");
     const text =
         "1\n2\n3\n\n... 1256127 bytes omitted; the whole output is in C:\Users\me\tool-output\s\call.log ...\n\n197661\n200000";
     expect(splitOmitted(text)).toEqual({ head: "1\n2\n3", omitted: 1256127, tail: "197661\n200000" });

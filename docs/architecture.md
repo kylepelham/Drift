@@ -87,6 +87,13 @@ descriptions to the transcript renderer.
 slots. A split or merge keeps the surviving mounted slot and advances its revision;
 streamed record replacement does not remount the tool body or plugin renderer.
 
+`src/ui/parts.tsx` dispatches a part to its renderer: text, reasoning, plugin rows,
+compaction, files and tools. The tool row and its open state live in `tool-view.tsx`,
+its expanded body in `tool-body.tsx`, streamed shell output in `shell-output.tsx`, and
+diff and patch panels in `diff-panel.tsx`. `tool-delegation.ts` derives a delegated
+call's child session and status (queued, running, completed, error) and whether a
+click navigates or expands. Attachments and `@` mentions render from `file-part.tsx`.
+
 Single-file edit and write tools keep their filename and stats in the clickable summary
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
 status, additions/deletions, and numbered syntax-highlighted diff for every changed

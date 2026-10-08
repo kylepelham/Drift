@@ -96,7 +96,11 @@ test("responsive navigation state round-trips and uses the narrow breakpoint", (
 test("mobile layout keeps scrolling inside the transcript and drawer", async () => {
     const app = await Bun.file("src/app.tsx").text();
     const css = await Bun.file("src/styles/app.css").text();
-    const parts = await Bun.file("src/ui/parts.tsx").text();
+    const parts = (
+        await Promise.all(
+            ["tool-body", "shell-output", "diff-panel"].map((name) => Bun.file(`src/ui/${name}.tsx`).text()),
+        )
+    ).join("\n");
     const markdown = await Bun.file("src/ui/progressive-code.tsx").text();
     const composer = await Bun.file("src/ui/composer.tsx").text();
     const sidebar = await Bun.file("src/ui/sidebar.tsx").text();

@@ -212,7 +212,7 @@ test("progressive code chunks retain the complete file", async () => {
 });
 
 test("diff parsing does not invent a context row for the trailing newline", async () => {
-    const { parseDiff } = await import("../src/ui/parts");
+    const { parseDiff } = await import("../src/ui/diff-panel");
     expect(parseDiff("@@ -4,1 +4,1 @@\n-old\n+new\n")).toEqual([
         { kind: "del", line: 4, text: "old" },
         { kind: "add", line: 4, text: "new" },
@@ -220,7 +220,7 @@ test("diff parsing does not invent a context row for the trailing newline", asyn
 });
 
 test("diff parsing distinguishes file headers from source lines and separates hunks", async () => {
-    const { parseDiff } = await import("../src/ui/parts");
+    const { parseDiff } = await import("../src/ui/diff-panel");
     const diff = [
         "diff --git a/file b/file",
         "--- a/file",
@@ -247,7 +247,7 @@ test("diff parsing distinguishes file headers from source lines and separates hu
 });
 
 test("diff highlighting is keyed by content so redraws keep their colours", async () => {
-    const { diffHighlightKey, parseDiff } = await import("../src/ui/parts");
+    const { diffHighlightKey, parseDiff } = await import("../src/ui/diff-panel");
     const filename = "C:\\repo\\src\\state\\mcp.ts";
     const language = { filename, value: "typescript" };
     const diff = "@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n";
@@ -303,7 +303,7 @@ test("Shiki promise caches evict by approximate size and retry failures", async 
 });
 
 test("taskBody extracts prompt and task_result for task cards", async () => {
-    const { taskBody } = await import("../src/ui/parts");
+    const { taskBody } = await import("../src/ui/tool-body");
     const part = (tool: string, input: Record<string, string>, output: string) =>
         ({ name: tool, status: "done", input, output }) as never;
     expect(

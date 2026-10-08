@@ -1,7 +1,7 @@
 import { selectedSession } from "../state/selection";
 import { grantLabel } from "./settings-permissions";
+import { DiffPanel, parseDiff } from "./diff-panel";
 import { createSignal, For, Show } from "solid-js";
-import { DiffPanel, parseDiff } from "./parts";
 import { RevertDock } from "./revert-dock";
 import { TaskDock } from "./task-dock";
 import { useEngine } from "../engine";

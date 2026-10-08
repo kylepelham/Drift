@@ -669,7 +669,9 @@ test.each(["https://example.com/notes.md", "mailto:help@example.com", "tel:+1555
 
 test("all four Markdown callers pass their owning session directory, including delegated output", async () => {
     const sources = await Promise.all(
-        ["message", "parts"].map((name) => Bun.file(new URL(`../src/ui/${name}.tsx`, import.meta.url)).text()),
+        ["message", "parts", "tool-body"].map((name) =>
+            Bun.file(new URL(`../src/ui/${name}.tsx`, import.meta.url)).text(),
+        ),
     );
     const callers = sources.flatMap((source) => [...source.matchAll(/<Markdown\b[\s\S]*?\/>/g)].map(([tag]) => tag));
     expect(callers).toHaveLength(4);
