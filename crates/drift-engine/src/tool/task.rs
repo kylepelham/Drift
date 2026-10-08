@@ -159,7 +159,7 @@ impl Tool for Task {
 
 fn task_mode(ctx: &Context, input: &Value, agent: &str) -> Result<(Mode, &'static str), ToolError> {
     let background_default = match ctx.config.agent(agent) {
-        Some(found) if found.kind != AgentKind::Action => found.usable().map_err(ToolError)?.background,
+        Some(found) if found.kind != AgentKind::Action => found.usable().map_err(ToolError::from)?.background,
         Some(_) => {
             return Err(ToolError(format!(
                 "{agent} is an engine action, not an agent that can take a task"

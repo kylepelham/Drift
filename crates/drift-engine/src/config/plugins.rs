@@ -19,8 +19,8 @@ pub enum PluginError {
     RequiresHttps,
     #[error("the download does not match the registry's hash; nothing was installed")]
     HashMismatch,
-    #[error("{0}")]
-    Fetch(String),
+    #[error(transparent)]
+    Fetch(#[from] super::sources::SourceError),
     #[error("could not {operation} {}: {source}", path.display())]
     Io {
         operation: &'static str,
@@ -35,12 +35,6 @@ pub enum PluginError {
     Entries { path: PathBuf, source: serde_json::Error },
     #[error(transparent)]
     Json(#[from] serde_json::Error),
-}
-
-impl From<String> for PluginError {
-    fn from(message: String) -> Self {
-        Self::Fetch(message)
-    }
 }
 
 fn file_error(operation: &'static str, path: &Path, source: std::io::Error) -> PluginError {

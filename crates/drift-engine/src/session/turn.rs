@@ -996,7 +996,7 @@ impl Engine {
             session.agent = agent.clone();
         }
         if let Some(agent) = config.agent(&session.agent) {
-            agent.usable().map_err(TurnError::Config)?;
+            agent.usable().map_err(|error| TurnError::Config(error.to_string()))?;
         }
         let agent_model = config.agent(&session.agent).and_then(|a| a.model.clone());
         let model_ref = prompt
@@ -3041,7 +3041,10 @@ fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
 /// Whether a prompt may switch its session to `agent`: only a usable primary agent of the workspace runs a conversation.
 fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
     match config.agent(agent) {
-        Some(found) if found.kind.runs_conversations() => found.usable().map(|_| ()).map_err(TurnError::Config),
+        Some(found) if found.kind.runs_conversations() => found
+            .usable()
+            .map(|_| ())
+            .map_err(|error| TurnError::Config(error.to_string())),
         _ => Err(TurnError::UnknownAgent),
     }
 }

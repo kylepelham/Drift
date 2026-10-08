@@ -162,7 +162,7 @@ pub(super) async fn fetch_registry(
         .document(&source)
         .await
         .map(Json)
-        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_GATEWAY, "source", error))
+        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_GATEWAY, "source", error.to_string()))
 }
 
 /// The plugins the user's drift.json lists, loaded or with why they are not.
@@ -253,7 +253,7 @@ pub(super) async fn install_skill_pack(
     let source = body.registry.as_deref().and_then(|id| engine.registry_source(id));
     crate::config::skills::install(&engine.fetcher(), source.as_ref(), body)
         .await
-        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "pack", error))?;
+        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "pack", error.to_string()))?;
     Ok(Json(crate::config::skills::list()))
 }
 
@@ -306,7 +306,7 @@ pub(super) async fn set_skill_enabled(
 ) -> Result<Json<Vec<crate::config::skills::UserSkill>>, ApiError> {
     let workspace = workspace_path(&engine, body.workspace.as_deref());
     let folder = crate::config::skills::skill_folder(&body.path, workspace.as_deref())
-        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "skill", error))?;
+        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "skill", error.to_string()))?;
     engine.set_skill_enabled(&folder, body.enabled)?;
     Ok(Json(crate::config::skills::list_skills(
         workspace.as_deref(),
@@ -320,7 +320,7 @@ pub(super) async fn remove_skill_pack(
     axum::extract::Query(query): axum::extract::Query<PackId>,
 ) -> Result<Json<Vec<crate::config::skills::Pack>>, ApiError> {
     crate::config::skills::remove(&query.id)
-        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "pack", error))?;
+        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "pack", error.to_string()))?;
     Ok(Json(crate::config::skills::list()))
 }
 

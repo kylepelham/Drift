@@ -117,7 +117,7 @@ impl Engine {
             )
             .await?;
         if let Some(agent) = plan.config.agent(action) {
-            agent.usable().map_err(TurnError::Config)?;
+            agent.usable().map_err(|error| TurnError::Config(error.to_string()))?;
         }
         let chosen = match (plan.config.agent_model(action), fallback) {
             (Some(pinned), _) => pinned,

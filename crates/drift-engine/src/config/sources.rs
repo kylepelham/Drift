@@ -14,6 +14,44 @@ use crate::llm::credentials::Credentials;
 
 const MAX_DOCUMENT_BYTES: usize = 8 * 1024 * 1024;
 
+#[derive(Debug, thiserror::Error)]
+pub enum SourceError {
+    #[error("a folder source names files relative to itself")]
+    NonRelativeFile,
+    #[error("not a GitHub repository URL")]
+    InvalidGithubUrl,
+    #[error("not an Azure DevOps repository URL")]
+    InvalidAzureUrl,
+    #[error("only a repository source has an archive")]
+    NotRepository,
+    #[error("{}: {source}", path.display())]
+    File { path: PathBuf, source: std::io::Error },
+    #[error("{location} is larger than {mib} MiB")]
+    TooLarge { location: String, mib: usize },
+    #[error("plain http is refused for this source; allow it in the source's settings if you must")]
+    HttpRefused,
+    #[error("not a URL: {0}")]
+    InvalidUrl(String),
+    #[error("could not fetch {url}: {source}")]
+    Fetch { url: String, source: reqwest::Error },
+    #[error("could not fetch {url}: {status}{}", status_hint(*status))]
+    HttpStatus { url: String, status: reqwest::StatusCode },
+    #[error("the registry is not valid JSON: {0}")]
+    Document(serde_json::Error),
+    #[error("the source's certificate is not PEM: {0}")]
+    Certificate(reqwest::Error),
+    #[error(transparent)]
+    Client(#[from] reqwest::Error),
+}
+
+fn status_hint(status: reqwest::StatusCode) -> &'static str {
+    match status.as_u16() {
+        401 | 403 => " (a token may be needed, or the one stored may be wrong)",
+        404 => " (not found; for a private repository that can also mean the token lacks access)",
+        _ => "",
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RegistryKind {
@@ -148,7 +186,7 @@ impl RegistrySource {
     }
 
     /// Where the registry document is.
-    pub fn document(&self, token: Option<&str>) -> Result<Location, String> {
+    pub fn document(&self, token: Option<&str>) -> Result<Location, SourceError> {
         match self.source {
             SourceKind::Url => Ok(Location::Http {
                 url: self.url.trim().to_owned(),
@@ -160,7 +198,7 @@ impl RegistrySource {
     }
 
     /// A file inside the source's repository or folder; for a `url` source, an absolute URL as given.
-    pub fn file(&self, path_or_url: &str, token: Option<&str>) -> Result<Location, String> {
+    pub fn file(&self, path_or_url: &str, token: Option<&str>) -> Result<Location, SourceError> {
         match self.source {
             SourceKind::Url => Ok(Location::Http {
                 url: path_or_url.to_owned(),
@@ -176,7 +214,7 @@ impl RegistrySource {
                     .components()
                     .any(|part| !matches!(part, std::path::Component::Normal(_)))
                 {
-                    return Err("a folder source names files relative to itself".into());
+                    return Err(SourceError::NonRelativeFile);
                 }
                 Ok(Location::File(Path::new(self.url.trim()).join(relative)))
             }
@@ -197,10 +235,10 @@ impl RegistrySource {
     }
 
     /// The archive of the source's repository at its ref, for a skill pack kept in the same repository.
-    pub fn archive(&self, token: Option<&str>) -> Result<Location, String> {
+    pub fn archive(&self, token: Option<&str>) -> Result<Location, SourceError> {
         match self.source {
             SourceKind::Github => {
-                let repo = github_repo(&self.url).ok_or("not a GitHub repository URL")?;
+                let repo = github_repo(&self.url).ok_or(SourceError::InvalidGithubUrl)?;
                 let r#ref = if self.r#ref.is_empty() {
                     "HEAD".to_owned()
                 } else {
@@ -215,7 +253,7 @@ impl RegistrySource {
                 })
             }
             SourceKind::AzureDevops => {
-                let repo = azure_repo(&self.url).ok_or("not an Azure DevOps repository URL")?;
+                let repo = azure_repo(&self.url).ok_or(SourceError::InvalidAzureUrl)?;
                 let version = self.azure_version();
                 Ok(Location::Http {
                     url: format!(
@@ -228,15 +266,15 @@ impl RegistrySource {
                     headers: self.repo_headers(token),
                 })
             }
-            _ => Err("only a repository source has an archive".into()),
+            _ => Err(SourceError::NotRepository),
         }
     }
 
-    fn repo_file(&self, path: &str, token: Option<&str>) -> Result<Location, String> {
+    fn repo_file(&self, path: &str, token: Option<&str>) -> Result<Location, SourceError> {
         let path = path.trim_start_matches('/');
         match self.source {
             SourceKind::Github => {
-                let repo = github_repo(&self.url).ok_or("not a GitHub repository URL")?;
+                let repo = github_repo(&self.url).ok_or(SourceError::InvalidGithubUrl)?;
                 let r#ref = if self.r#ref.is_empty() {
                     "HEAD".to_owned()
                 } else {
@@ -252,7 +290,7 @@ impl RegistrySource {
                 Ok(Location::Http { url, headers })
             }
             SourceKind::AzureDevops => {
-                let repo = azure_repo(&self.url).ok_or("not an Azure DevOps repository URL")?;
+                let repo = azure_repo(&self.url).ok_or(SourceError::InvalidAzureUrl)?;
                 let version = self.azure_version();
                 let url = format!(
                     "https://{}/{}/{}/_apis/git/repositories/{}/items?path=/{path}&download=true{version}&api-version=7.1",
@@ -325,52 +363,55 @@ impl Fetcher {
     }
 
     /// The bytes at a location, within `limit`.
-    pub async fn read(&self, source: &RegistrySource, location: Location, limit: usize) -> Result<Vec<u8>, String> {
+    pub async fn read(
+        &self,
+        source: &RegistrySource,
+        location: Location,
+        limit: usize,
+    ) -> Result<Vec<u8>, SourceError> {
         match location {
             Location::File(path) => {
-                let bytes = tokio::fs::read(&path)
-                    .await
-                    .map_err(|error| format!("{}: {error}", path.display()))?;
+                let bytes = tokio::fs::read(&path).await.map_err(|source| SourceError::File {
+                    path: path.clone(),
+                    source,
+                })?;
                 if bytes.len() > limit {
-                    return Err(format!("{} is larger than {} MiB", path.display(), limit / 1024 / 1024));
+                    return Err(SourceError::TooLarge {
+                        location: path.display().to_string(),
+                        mib: limit / 1024 / 1024,
+                    });
                 }
                 Ok(bytes)
             }
             Location::Http { url, headers } => {
                 if url.starts_with("http://") && !source.allow_http {
-                    return Err(
-                        "plain http is refused for this source; allow it in the source's settings if you must".into(),
-                    );
+                    return Err(SourceError::HttpRefused);
                 }
                 if !url.starts_with("http://") && !url.starts_with("https://") {
-                    return Err(format!("not a URL: {url}"));
+                    return Err(SourceError::InvalidUrl(url));
                 }
                 let client = self.client_for(source)?;
                 let mut request = client.get(&url);
                 for (name, value) in headers {
                     request = request.header(name, value);
                 }
-                let response = request
-                    .send()
-                    .await
-                    .map_err(|error| format!("could not fetch {url}: {error}"))?;
+                let response = request.send().await.map_err(|source| SourceError::Fetch {
+                    url: url.clone(),
+                    source,
+                })?;
                 let status = response.status();
                 if !status.is_success() {
-                    let hint = if status.as_u16() == 401 || status.as_u16() == 403 {
-                        " (a token may be needed, or the one stored may be wrong)"
-                    } else if status.as_u16() == 404 {
-                        " (not found; for a private repository that can also mean the token lacks access)"
-                    } else {
-                        ""
-                    };
-                    return Err(format!("could not fetch {url}: {status}{hint}"));
+                    return Err(SourceError::HttpStatus { url, status });
                 }
-                let bytes = response
-                    .bytes()
-                    .await
-                    .map_err(|error| format!("could not fetch {url}: {error}"))?;
+                let bytes = response.bytes().await.map_err(|source| SourceError::Fetch {
+                    url: url.clone(),
+                    source,
+                })?;
                 if bytes.len() > limit {
-                    return Err(format!("{url} is larger than {} MiB", limit / 1024 / 1024));
+                    return Err(SourceError::TooLarge {
+                        location: url,
+                        mib: limit / 1024 / 1024,
+                    });
                 }
                 Ok(bytes.to_vec())
             }
@@ -378,26 +419,25 @@ impl Fetcher {
     }
 
     /// The registry document of a source, as JSON.
-    pub async fn document(&self, source: &RegistrySource) -> Result<serde_json::Value, String> {
+    pub async fn document(&self, source: &RegistrySource) -> Result<serde_json::Value, SourceError> {
         let token = self.token(source);
         let bytes = self
             .read(source, source.document(token.as_deref())?, MAX_DOCUMENT_BYTES)
             .await?;
-        serde_json::from_slice(&bytes).map_err(|error| format!("the registry is not valid JSON: {error}"))
+        serde_json::from_slice(&bytes).map_err(SourceError::Document)
     }
 
     /// The engine's client, or one that also trusts the source's own root certificate.
-    fn client_for(&self, source: &RegistrySource) -> Result<reqwest::Client, String> {
+    fn client_for(&self, source: &RegistrySource) -> Result<reqwest::Client, SourceError> {
         let Some(pem) = source.ca_pem.as_deref().filter(|pem| !pem.trim().is_empty()) else {
             return Ok(self.http.clone());
         };
-        let cert = reqwest::Certificate::from_pem(pem.as_bytes())
-            .map_err(|error| format!("the source's certificate is not PEM: {error}"))?;
+        let cert = reqwest::Certificate::from_pem(pem.as_bytes()).map_err(SourceError::Certificate)?;
         reqwest::Client::builder()
             .add_root_certificate(cert)
             .connect_timeout(std::time::Duration::from_secs(15))
             .build()
-            .map_err(|error| error.to_string())
+            .map_err(SourceError::Client)
     }
 }
 

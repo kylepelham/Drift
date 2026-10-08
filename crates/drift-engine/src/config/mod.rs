@@ -9,6 +9,9 @@ pub mod plugins;
 pub mod skills;
 pub mod sources;
 
+#[cfg(test)]
+mod errors_tests;
+
 pub use engine::RegistryError;
 pub use overrides::{AgentOverride, ModelPin};
 
@@ -112,25 +115,33 @@ fn user_plugins_in(home: &Path) -> Vec<crate::hook::Listed> {
         .into_iter()
         .map(|entry| crate::hook::Listed {
             entry: entry.path().to_owned(),
-            path: plugin_path(&root, entry.path()).map_err(crate::hook::Error::Resolve),
+            path: plugin_path(&root, entry.path()).map_err(|error| crate::hook::Error::Resolve(error.to_string())),
             config: entry.config(),
         })
         .collect()
 }
 
-fn plugin_path(root: &Path, entry: &str) -> Result<PathBuf, String> {
+#[derive(Debug, PartialEq, thiserror::Error)]
+enum PluginPathError {
+    #[error("a plugin path must be relative and stay under the config directory")]
+    OutsideConfig,
+    #[error("a plugin is a .wasm component")]
+    NotComponent,
+}
+
+fn plugin_path(root: &Path, entry: &str) -> Result<PathBuf, PluginPathError> {
     let relative = Path::new(entry);
     if relative
         .components()
         .any(|part| !matches!(part, std::path::Component::Normal(_)))
     {
-        return Err("a plugin path must be relative and stay under the config directory".into());
+        return Err(PluginPathError::OutsideConfig);
     }
     if relative
         .extension()
         .is_none_or(|extension| !extension.eq_ignore_ascii_case("wasm"))
     {
-        return Err("a plugin is a .wasm component".into());
+        return Err(PluginPathError::NotComponent);
     }
     Ok(root.join(relative))
 }
@@ -249,11 +260,20 @@ pub struct Agent {
     pub hidden: bool,
 }
 
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub enum AgentError {
+    #[error("agent {name}: {problem}")]
+    Unusable { name: String, problem: String },
+}
+
 impl Agent {
     /// The agent, unless its definition is broken.
-    pub fn usable(&self) -> Result<&Self, String> {
+    pub fn usable(&self) -> Result<&Self, AgentError> {
         match &self.problem {
-            Some(problem) => Err(format!("agent {}: {problem}", self.name)),
+            Some(problem) => Err(AgentError::Unusable {
+                name: self.name.clone(),
+                problem: problem.clone(),
+            }),
             None => Ok(self),
         }
     }

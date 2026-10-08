@@ -438,7 +438,9 @@ impl Engine {
                 "commands cannot select engine-only action agents".into(),
             ));
         }
-        definition.usable().map_err(TurnError::Config)?;
+        definition
+            .usable()
+            .map_err(|error| TurnError::Config(error.to_string()))?;
         let model = model.or_else(|| command.model.clone());
         // A subagent never holds the conversation, so a command naming one always delegates.
         let delegated = command.subtask == Some(true) || definition.kind == AgentKind::Subagent;

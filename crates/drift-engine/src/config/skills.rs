@@ -11,6 +11,52 @@ const MARKER: &str = ".drift-pack.json";
 const MAX_ARCHIVE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
+#[derive(Debug, thiserror::Error)]
+pub enum SkillError {
+    #[error("a pack id is letters, digits, dashes and underscores")]
+    InvalidId,
+    #[error("a pack is fetched over https only")]
+    RequiresHttps,
+    #[error("the archive holds no SKILL.md in the folders asked for")]
+    NoSkills,
+    #[error("not one of your skills")]
+    OutsideSkillFolders,
+    #[error("no such pack")]
+    NoPack,
+    #[error("could not {operation} {}: {source}", path.display())]
+    File {
+        operation: &'static str,
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("not a zip archive: {0}")]
+    InvalidZip(zip::result::ZipError),
+    #[error("not a tar.gz archive: {0}")]
+    InvalidTar(std::io::Error),
+    #[error("could not read the archive: {0}")]
+    ArchiveEntry(std::io::Error),
+    #[error(transparent)]
+    Zip(#[from] zip::result::ZipError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Worker(#[from] tokio::task::JoinError),
+    #[error(transparent)]
+    Config(#[from] super::plugins::PluginError),
+    #[error(transparent)]
+    Source(#[from] super::sources::SourceError),
+}
+
+fn file_error(operation: &'static str, path: &Path, source: std::io::Error) -> SkillError {
+    SkillError::File {
+        operation,
+        path: path.to_path_buf(),
+        source,
+    }
+}
+
 /// What a registry entry of kind `skills` needs to be installed.
 #[derive(Clone, Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -77,10 +123,8 @@ fn valid_id(id: &str) -> bool {
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
-pub fn packs_dir() -> Result<PathBuf, String> {
-    Ok(super::plugins::config_dir()
-        .map_err(|error| error.to_string())?
-        .join(SKILLS_DIR))
+pub fn packs_dir() -> Result<PathBuf, SkillError> {
+    Ok(super::plugins::config_dir()?.join(SKILLS_DIR))
 }
 
 /// Fetches the archive and unpacks the wanted folders under `skills/<id>`, replacing what was there.
@@ -88,9 +132,9 @@ pub async fn install(
     fetcher: &super::sources::Fetcher,
     source: Option<&super::sources::RegistrySource>,
     pack: InstallPack,
-) -> Result<Pack, String> {
+) -> Result<Pack, SkillError> {
     if !valid_id(&pack.id) {
-        return Err("a pack id is letters, digits, dashes and underscores".into());
+        return Err(SkillError::InvalidId);
     }
     let bytes = match source {
         Some(source) => {
@@ -104,7 +148,7 @@ pub async fn install(
         }
         None => {
             if !pack.archive.starts_with("https://") {
-                return Err("a pack is fetched over https only".into());
+                return Err(SkillError::RequiresHttps);
             }
             let drift = super::sources::RegistrySource {
                 id: String::new(),
@@ -134,9 +178,7 @@ pub async fn install(
     let into = dir.clone();
     let subdirs = pack.subdirs.clone();
     let wanted = pack.skills.clone();
-    let skills = tokio::task::spawn_blocking(move || unpack_any(&bytes, &into, &subdirs, &wanted))
-        .await
-        .map_err(|error| error.to_string())??;
+    let skills = tokio::task::spawn_blocking(move || unpack_any(&bytes, &into, &subdirs, &wanted)).await??;
     let installed = Pack {
         id: pack.id,
         name: pack.name,
@@ -146,13 +188,13 @@ pub async fn install(
         skills,
         installed_at: crate::id::now_ms(),
     };
-    let marker = serde_json::to_string_pretty(&installed).map_err(|error| error.to_string())?;
-    std::fs::write(dir.join(MARKER), marker).map_err(|error| format!("could not write {}: {error}", dir.display()))?;
+    let marker = serde_json::to_string_pretty(&installed)?;
+    std::fs::write(dir.join(MARKER), marker).map_err(|error| file_error("write", &dir, error))?;
     Ok(installed)
 }
 
 /// GitHub serves tar.gz; Azure DevOps serves zip. Either is told apart by its first bytes.
-fn unpack_any(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, String> {
+fn unpack_any(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, SkillError> {
     if bytes.starts_with(b"PK") {
         return unpack_zip(bytes, into, subdirs, wanted);
     }
@@ -160,16 +202,15 @@ fn unpack_any(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
 }
 
 /// A zip archive the same way: Azure's has no top-level folder, so paths are taken as they are.
-fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, String> {
+fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, SkillError> {
     if into.exists() {
-        std::fs::remove_dir_all(into).map_err(|error| format!("could not replace {}: {error}", into.display()))?;
+        std::fs::remove_dir_all(into).map_err(|error| file_error("replace", into, error))?;
     }
-    std::fs::create_dir_all(into).map_err(|error| format!("could not create {}: {error}", into.display()))?;
-    let mut archive =
-        zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| format!("not a zip archive: {error}"))?;
+    std::fs::create_dir_all(into).map_err(|error| file_error("create", into, error))?;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(SkillError::InvalidZip)?;
     let mut skills = Vec::new();
     for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        let mut entry = archive.by_index(index)?;
         if entry.is_dir() || entry.size() > MAX_FILE_BYTES {
             continue;
         }
@@ -187,12 +228,11 @@ fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
         }
         let target = into.join(&relative);
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+            std::fs::create_dir_all(parent).map_err(|error| file_error("create", parent, error))?;
         }
         let mut content = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut content).map_err(|error| error.to_string())?;
-        std::fs::write(&target, content).map_err(|error| format!("could not write {}: {error}", target.display()))?;
+        entry.read_to_end(&mut content)?;
+        std::fs::write(&target, content).map_err(|error| file_error("write", &target, error))?;
         if relative.file_name().is_some_and(|name| name == "SKILL.md")
             && let Some(skill) = relative.parent().and_then(Path::file_name)
         {
@@ -201,29 +241,27 @@ fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
     }
     if skills.is_empty() {
         let _ = std::fs::remove_dir_all(into);
-        return Err("the archive holds no SKILL.md in the folders asked for".into());
+        return Err(SkillError::NoSkills);
     }
     skills.sort();
     Ok(skills)
 }
 
 /// Writes the archive's files under `into` without its top folder, keeping only `subdirs` and `wanted` skills when given.
-fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, String> {
+fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, SkillError> {
     if into.exists() {
-        std::fs::remove_dir_all(into).map_err(|error| format!("could not replace {}: {error}", into.display()))?;
+        std::fs::remove_dir_all(into).map_err(|error| file_error("replace", into, error))?;
     }
-    std::fs::create_dir_all(into).map_err(|error| format!("could not create {}: {error}", into.display()))?;
+    std::fs::create_dir_all(into).map_err(|error| file_error("create", into, error))?;
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
-    let entries = archive
-        .entries()
-        .map_err(|error| format!("not a tar.gz archive: {error}"))?;
+    let entries = archive.entries().map_err(SkillError::InvalidTar)?;
     let mut skills = Vec::new();
     for entry in entries {
-        let mut entry = entry.map_err(|error| format!("could not read the archive: {error}"))?;
+        let mut entry = entry.map_err(SkillError::ArchiveEntry)?;
         if !entry.header().entry_type().is_file() || entry.size() > MAX_FILE_BYTES {
             continue;
         }
-        let path = entry.path().map_err(|error| error.to_string())?.into_owned();
+        let path = entry.path()?.into_owned();
         let Some(relative) = inner_path(&path, subdirs) else {
             continue;
         };
@@ -236,12 +274,11 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
         }
         let target = into.join(&relative);
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+            std::fs::create_dir_all(parent).map_err(|error| file_error("create", parent, error))?;
         }
         let mut content = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut content).map_err(|error| error.to_string())?;
-        std::fs::write(&target, content).map_err(|error| format!("could not write {}: {error}", target.display()))?;
+        entry.read_to_end(&mut content)?;
+        std::fs::write(&target, content).map_err(|error| file_error("write", &target, error))?;
         if relative.file_name().is_some_and(|name| name == "SKILL.md")
             && let Some(skill) = relative.parent().and_then(Path::file_name)
         {
@@ -250,7 +287,7 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
     }
     if skills.is_empty() {
         let _ = std::fs::remove_dir_all(into);
-        return Err("the archive holds no SKILL.md in the folders asked for".into());
+        return Err(SkillError::NoSkills);
     }
     skills.sort();
     Ok(skills)
@@ -337,24 +374,24 @@ pub fn list_skills(workspace: Option<&Path>, off: &[PathBuf]) -> Vec<UserSkill> 
 }
 
 /// The skill folder the switch names, as the engine compares it; only a folder under a skill folder of the user's or the workspace's.
-pub fn skill_folder(folder: &str, workspace: Option<&Path>) -> Result<PathBuf, String> {
+pub fn skill_folder(folder: &str, workspace: Option<&Path>) -> Result<PathBuf, SkillError> {
     let folder = Path::new(folder);
     let allowed = skill_dirs(workspace).iter().any(|(dir, _)| folder.starts_with(dir));
     if !allowed || folder.components().any(|part| matches!(part, Component::ParentDir)) {
-        return Err("not one of your skills".into());
+        return Err(SkillError::OutsideSkillFolders);
     }
     Ok(crate::tool::canonical(folder))
 }
 
-pub fn remove(id: &str) -> Result<(), String> {
+pub fn remove(id: &str) -> Result<(), SkillError> {
     if !valid_id(id) {
-        return Err("no such pack".into());
+        return Err(SkillError::NoPack);
     }
     let dir = packs_dir()?.join(id);
     if !dir.join(MARKER).is_file() {
-        return Err("no such pack".into());
+        return Err(SkillError::NoPack);
     }
-    std::fs::remove_dir_all(&dir).map_err(|error| format!("could not remove {}: {error}", dir.display()))
+    std::fs::remove_dir_all(&dir).map_err(|error| file_error("remove", &dir, error))
 }
 
 #[cfg(test)]
