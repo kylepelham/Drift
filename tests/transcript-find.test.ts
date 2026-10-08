@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test"
 
+import type * as TranscriptFind from "../src/ui/transcript-find"
+import type * as TypeScript from "typescript"
+
 const globalNames = ["document", "NodeFilter", "Range", "Highlight", "CSS", "localStorage"] as const
 let originalGlobals: (PropertyDescriptor | undefined)[]
-let paintFindHighlights: typeof import("../src/ui/transcript-find").paintFindHighlights
-let scrollFindOccurrence: typeof import("../src/ui/transcript-find").scrollFindOccurrence
+let paintFindHighlights: typeof TranscriptFind.paintFindHighlights
+let scrollFindOccurrence: typeof TranscriptFind.scrollFindOccurrence
 
 class ElementDouble {
   open = false
@@ -161,8 +164,8 @@ test("chat gates disclosure navigation by query and occurrence identity rather t
     true,
     ts.ScriptKind.TSX,
   )
-  const calls: import("typescript").CallExpression[] = []
-  function visit(node: import("typescript").Node) {
+  const calls: TypeScript.CallExpression[] = []
+  function visit(node: TypeScript.Node) {
     if (ts.isCallExpression(node)) calls.push(node)
     ts.forEachChild(node, visit)
   }

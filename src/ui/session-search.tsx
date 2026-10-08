@@ -1,11 +1,10 @@
+import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces"
-import { createEffect, For, onCleanup, onMount, Show } from "solid-js"
 import { selectSession } from "../state/selection"
 import { sessionsFor } from "../engine/store"
 import { createStore } from "solid-js/store"
 import { driftStore } from "../state/store"
 import { IconSearch, IconX } from "./icons"
-import { createSignal } from "solid-js"
 import { useEngine } from "../engine"
 import { t } from "../state/i18n"
 import {

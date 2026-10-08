@@ -1,6 +1,8 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
 import { DriftLogo } from "./logo"
 
+import type * as JellyfishModule from "./jelly/jellyfish"
+import type * as Three from "three"
 import type { Mesh } from "three"
 
 /** The About mascot loads three.js lazily and disposes every scene resource on cleanup. */
@@ -41,7 +43,7 @@ const slowFrameMs = 1000 / 40
 const slowFrameLimit = 12
 const degradedFrameMs = 1000 / 30
 
-let modules: Promise<[typeof import("three"), typeof import("./jelly/jellyfish")]> | undefined
+let modules: Promise<[typeof Three, typeof JellyfishModule]> | undefined
 
 /** three.js is ~740 KB to parse, so Settings warms it before About is opened. */
 export function preloadJellyfish() {
@@ -194,7 +196,7 @@ async function createScene(host: HTMLElement, ready: () => void) {
     jelly?.group.traverse((object) => {
       const mesh = object as Mesh
       mesh.geometry?.dispose()
-      const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []
+      const materials = meshMaterials(mesh)
       for (const material of materials) material.dispose()
     })
     scene.clear()
@@ -232,4 +234,10 @@ async function createScene(host: HTMLElement, ready: () => void) {
     dispose()
     throw error
   }
+}
+
+function meshMaterials(mesh: Mesh) {
+  if (Array.isArray(mesh.material)) return mesh.material
+
+  return mesh.material ? [mesh.material] : []
 }

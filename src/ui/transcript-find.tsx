@@ -104,7 +104,8 @@ export function syncTranscriptMatches(entries: MessageEntry[]) {
     syncedNeedle = value
     const anchor = fresh ? undefined : activeFindOccurrence()
     setMatches(found)
-    setCursor(fresh ? (found.length ? 0 : -1) : reanchorMatch(found, anchor, cursor()))
+    const initialCursor = found.length ? 0 : -1
+    setCursor(fresh ? initialCursor : reanchorMatch(found, anchor, cursor()))
   })
 }
 

@@ -112,6 +112,48 @@ function ImageCanvas(props: ImageViewerProps) {
     if (dismiss) props.onBackgroundClick?.()
   }
 
+  function handleImageKey(key: string, step: number) {
+    switch (key) {
+      case "+":
+      case "=":
+        zoom(view().scale * 1.25)
+        break
+      case "-":
+      case "_":
+        zoom(view().scale / 1.25)
+        break
+      case "0":
+      case "Home":
+        reset()
+        break
+      case "1":
+        zoom(1)
+        break
+      case "ArrowLeft":
+        pan(step, 0)
+        break
+      case "ArrowRight":
+        pan(-step, 0)
+        break
+      case "ArrowUp":
+        pan(0, step)
+        break
+      case "ArrowDown":
+        pan(0, -step)
+        break
+      default:
+        return false
+    }
+
+    return true
+  }
+
+  const cursor = () => {
+    if (!natural()) return "default"
+
+    return dragging() ? "grabbing" : "grab"
+  }
+
   onMount(() => {
     measure()
     if (img.complete) loaded()
@@ -143,37 +185,7 @@ function ImageCanvas(props: ImageViewerProps) {
       data-image-viewer
       onKeyDown={(event) => {
         if (event.ctrlKey || event.metaKey || event.altKey || !natural()) return
-        switch (event.key) {
-          case "+":
-          case "=":
-            zoom(view().scale * 1.25)
-            break
-          case "-":
-          case "_":
-            zoom(view().scale / 1.25)
-            break
-          case "0":
-          case "Home":
-            reset()
-            break
-          case "1":
-            zoom(1)
-            break
-          case "ArrowLeft":
-            pan(event.shiftKey ? 160 : 40, 0)
-            break
-          case "ArrowRight":
-            pan(event.shiftKey ? -160 : -40, 0)
-            break
-          case "ArrowUp":
-            pan(0, event.shiftKey ? 160 : 40)
-            break
-          case "ArrowDown":
-            pan(0, event.shiftKey ? -160 : -40)
-            break
-          default:
-            return
-        }
+        if (!handleImageKey(event.key, event.shiftKey ? 160 : 40)) return
         event.preventDefault()
         event.stopPropagation()
       }}
@@ -245,7 +257,7 @@ function ImageCanvas(props: ImageViewerProps) {
         aria-describedby={hintID}
         data-image-viewport
         class="relative min-h-0 min-w-0 flex-1 touch-none overflow-hidden overscroll-contain bg-black/30 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-        style={{ cursor: natural() ? (dragging() ? "grabbing" : "grab") : "default" }}
+        style={{ cursor: cursor() }}
         onPointerDown={(event) => {
           if (!natural() || (event.button !== 0 && event.button !== 1)) return
           event.preventDefault()

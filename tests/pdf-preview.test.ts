@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, test } from "bun:test"
-import { code } from "./source"
 import * as solid from "solid-js/dist/solid.js"
 import * as ts from "typescript"
+import { code } from "./source"
 
 const source = await Bun.file(new URL("../src/ui/pdf-preview.tsx", import.meta.url)).text()
 const parsed = ts.createSourceFile("pdf-preview.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)

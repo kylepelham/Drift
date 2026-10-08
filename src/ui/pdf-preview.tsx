@@ -128,18 +128,9 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
         const page = await document.getPage(number)
         if (!active) return
         const base = page.getViewport({ scale: 1 })
-        if (!Number.isFinite(base.width) || !Number.isFinite(base.height) || base.width <= 0 || base.height <= 0) {
-          throw new Error("Invalid PDF page dimensions")
-        }
+        validateDimensions(base, "Invalid PDF page dimensions")
         const viewport = page.getViewport({ scale: (availableWidth / base.width) * magnification })
-        if (
-          !Number.isFinite(viewport.width) ||
-          !Number.isFinite(viewport.height) ||
-          viewport.width <= 0 ||
-          viewport.height <= 0
-        ) {
-          throw new Error("Invalid PDF viewport")
-        }
+        validateDimensions(viewport, "Invalid PDF viewport")
         const outputScale = Math.min(
           window.devicePixelRatio || 1,
           Math.sqrt(maxCanvasPixels / viewport.width / viewport.height),
@@ -278,4 +269,9 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
       </div>
     </div>
   )
+}
+
+function validateDimensions(size: { width: number; height: number }, message: string) {
+  if (!Number.isFinite(size.width) || !Number.isFinite(size.height) || size.width <= 0 || size.height <= 0)
+    throw new Error(message)
 }

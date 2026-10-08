@@ -103,10 +103,7 @@ export function activateModal(element: HTMLElement, onClose: () => void, options
       lastFocused = event.target
       return
     } else {
-      target =
-        lastFocused?.isConnected && element.contains(lastFocused)
-          ? lastFocused
-          : (modalFocusable(element)[0] ?? element)
+      target = retainedModalFocus(element, lastFocused)
     }
     target.focus({ preventScroll: true })
     if (guards.includes(document.activeElement as HTMLElement) || !element.contains(document.activeElement)) {
@@ -141,13 +138,7 @@ export function activateModal(element: HTMLElement, onClose: () => void, options
       return
     }
     const current = focusable.indexOf(document.activeElement as HTMLElement)
-    const next = event.shiftKey
-      ? current <= 0
-        ? focusable.length - 1
-        : current - 1
-      : current < 0 || current === focusable.length - 1
-        ? 0
-        : current + 1
+    const next = nextModalFocus(current, focusable.length, event.shiftKey)
     event.preventDefault()
     focusable[next].focus()
   }
@@ -204,4 +195,16 @@ function modalFocusable(element: HTMLElement) {
       'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
     ),
   ].filter((item) => !item.hasAttribute("data-modal-focus-guard") && !item.hidden && item.getClientRects().length > 0)
+}
+
+function retainedModalFocus(element: HTMLElement, lastFocused: HTMLElement | undefined) {
+  if (lastFocused?.isConnected && element.contains(lastFocused)) return lastFocused
+
+  return modalFocusable(element)[0] ?? element
+}
+
+function nextModalFocus(current: number, length: number, backward: boolean) {
+  if (backward) return current <= 0 ? length - 1 : current - 1
+
+  return current < 0 || current === length - 1 ? 0 : current + 1
 }
