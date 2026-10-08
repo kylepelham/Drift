@@ -58,7 +58,8 @@ impl Tool for Glob {
             let (workspace, stop) = (ctx.workspace.clone(), ctx.abort.clone());
             let (found, total) = tokio::task::spawn_blocking(move || find(&root, &pattern, &stop))
                 .await
-                .map_err(|e| ToolError(e.to_string()))??;
+                .map_err(|error| ToolError(error.to_string()))??;
+
             let truncated = total > found.len();
             let mut lines: Vec<String> = found.iter().map(|(path, _)| display(path, &workspace)).collect();
             if truncated {
@@ -71,6 +72,7 @@ impl Tool for Glob {
             } else {
                 lines.join("\n")
             };
+
             Ok(Output {
                 title: input["pattern"].as_str().unwrap_or_default().into(),
                 output,
@@ -89,21 +91,23 @@ type Found = Vec<(std::path::PathBuf, SystemTime)>;
 
 /// The newest [`MAX_RESULTS`] matches of the whole walk, newest first, and how many matched in all. A Stop ends the walk.
 fn find(root: &Path, pattern: &str, stop: &CancellationToken) -> Result<(Found, usize), ToolError> {
-    let glob = FileGlob::new(root, pattern).map_err(|e| ToolError(format!("invalid glob: {e}")))?;
+    let glob = FileGlob::new(root, pattern).map_err(|error| ToolError(format!("invalid glob: {error}")))?;
     let mut found: Found = Vec::new();
     let mut total = 0;
+
     for entry in super::walk(root).flatten() {
         if stop.is_cancelled() {
             return Err(ToolError("stopped".into()));
         }
-        if !entry.file_type().is_some_and(|t| t.is_file()) || !glob.matches(entry.path()) {
+        if !entry.file_type().is_some_and(|kind| kind.is_file()) || !glob.matches(entry.path()) {
             continue;
         }
+
         total += 1;
         let modified = entry
             .metadata()
             .ok()
-            .and_then(|m| m.modified().ok())
+            .and_then(|meta| meta.modified().ok())
             .unwrap_or(SystemTime::UNIX_EPOCH);
         let at = found.partition_point(|(_, kept)| *kept >= modified);
         if at < MAX_RESULTS {
@@ -111,6 +115,7 @@ fn find(root: &Path, pattern: &str, stop: &CancellationToken) -> Result<(Found, 
             found.truncate(MAX_RESULTS);
         }
     }
+
     Ok((found, total))
 }
 
@@ -132,7 +137,7 @@ pub fn search_names(root: &Path, query: &str, limit: usize) -> Vec<String> {
                 .ok()?
                 .to_string_lossy()
                 .replace('\\', "/");
-            let shown = if entry.file_type().is_some_and(|t| t.is_dir()) {
+            let shown = if entry.file_type().is_some_and(|kind| kind.is_dir()) {
                 format!("{relative}/")
             } else {
                 relative
@@ -140,7 +145,10 @@ pub fn search_names(root: &Path, query: &str, limit: usize) -> Vec<String> {
             Some((rank(&shown, &query)?, shown))
         })
         .collect();
-    ranked.sort_by(|a, b| (a.0, a.1.len(), &a.1).cmp(&(b.0, b.1.len(), &b.1)));
+
+    ranked.sort_by(|(score, path), (other_score, other)| {
+        (score, path.len(), path).cmp(&(other_score, other.len(), other))
+    });
     ranked.into_iter().take(limit).map(|(_, path)| path).collect()
 }
 
@@ -156,8 +164,12 @@ fn rank(path: &str, query: &str) -> Option<u8> {
     if lower.contains(query) {
         return Some(2);
     }
+
     let mut letters = lower.chars();
-    query.chars().all(|wanted| letters.any(|c| c == wanted)).then_some(3)
+    query
+        .chars()
+        .all(|wanted| letters.any(|letter| letter == wanted))
+        .then_some(3)
 }
 
 #[cfg(test)]
@@ -269,7 +281,9 @@ mod tests {
             "{found:?}"
         );
         assert!(
-            !found.iter().any(|p| p.starts_with("dist/") || p.starts_with(".git/")),
+            !found
+                .iter()
+                .any(|path| path.starts_with("dist/") || path.starts_with(".git/")),
             "{found:?}"
         );
         assert_eq!(

@@ -33,6 +33,7 @@ impl Tool for Write {
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let path = ctx.resolve(input["path"].as_str()?);
         let ask = ctx.ask_to_write(&path, "Write")?;
+
         let before = std::fs::read(&path)
             .map(|bytes| String::from_utf8_lossy(&bytes).replace("\r\n", "\n"))
             .unwrap_or_default();
@@ -44,6 +45,7 @@ impl Tool for Write {
                 &format.normalise(content),
             )
         });
+
         Some(ask.with_diff(proposed))
     }
 
@@ -62,42 +64,24 @@ impl Tool for Write {
                 .as_str()
                 .ok_or(ToolError("`content` is required".into()))?;
             let name = display(&path, &ctx.workspace);
-            // Only a missing file is new; one that cannot be read or decoded still exists.
-            let existing = match tokio::fs::read(&path).await {
-                Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-                Err(error) => {
-                    return Err(ToolError(format!(
-                        "{name} could not be read ({error}), so it was not overwritten"
-                    )));
-                }
-            };
-            if existing.is_some() && !ctx.files.was_read(&path) {
-                return Err(ToolError(format!(
-                    "{name} exists and has not been read this session; read it before overwriting"
-                )));
-            }
+            let existing = existing(ctx, &path, &name).await?;
+
             let ending = existing.as_deref().map(TextFormat::detect).unwrap_or_default();
             let written = ending.apply(content);
             super::fits_history(&name, written.len())?;
             super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
             ctx.files.mark_read(&path);
+
             let created = existing.is_none();
+            let kind = if created { "add" } else { "update" };
             let before = existing.unwrap_or_default();
             let change = Change::new(
                 &path,
                 &name,
-                if created { "add" } else { "update" },
+                kind,
                 &ending.normalise(&before),
                 &ending.normalise(content),
             );
-            let lines = |count: usize| {
-                if count == 1 {
-                    "1 line".to_string()
-                } else {
-                    format!("{count} lines")
-                }
-            };
             let output = if created {
                 format!("Created {name} ({}).", lines(change.additions))
             } else {
@@ -115,6 +99,35 @@ impl Tool for Write {
                 },
             })
         })
+    }
+}
+
+/// The file's current text, or `None` when there is none; an existing file must have been read.
+async fn existing(ctx: &Context, path: &std::path::Path, name: &str) -> Result<Option<String>, ToolError> {
+    // Only a missing file is new; one that cannot be read or decoded still exists.
+    let existing = match tokio::fs::read(path).await {
+        Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => {
+            return Err(ToolError(format!(
+                "{name} could not be read ({error}), so it was not overwritten"
+            )));
+        }
+    };
+
+    if existing.is_some() && !ctx.files.was_read(path) {
+        return Err(ToolError(format!(
+            "{name} exists and has not been read this session; read it before overwriting"
+        )));
+    }
+    Ok(existing)
+}
+
+fn lines(count: usize) -> String {
+    if count == 1 {
+        "1 line".to_string()
+    } else {
+        format!("{count} lines")
     }
 }
 
