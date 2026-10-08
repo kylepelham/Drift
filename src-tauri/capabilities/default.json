@@ -1,15 +1,15 @@
 {
-  "identifier": "default",
-  "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "core:window:allow-minimize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
-    "core:window:allow-start-dragging",
-    "core:window:allow-is-maximized",
-    "core:webview:allow-set-webview-zoom",
-    "notification:default",
-    "opener:default"
-  ]
+    "identifier": "default",
+    "windows": ["main"],
+    "permissions": [
+        "core:default",
+        "core:window:allow-minimize",
+        "core:window:allow-toggle-maximize",
+        "core:window:allow-close",
+        "core:window:allow-start-dragging",
+        "core:window:allow-is-maximized",
+        "core:webview:allow-set-webview-zoom",
+        "notification:default",
+        "opener:default"
+    ]
 }

@@ -1,35 +1,35 @@
-import { lmStudioMinimumContext, lmStudioModelReady } from "./lm-studio"
-import { orderedModelProviderIds } from "./prefs"
+import { lmStudioMinimumContext, lmStudioModelReady } from "./lm-studio";
+import { orderedModelProviderIds } from "./prefs";
 
-import type { EngineState } from "../engine/store"
+import type { EngineState } from "../engine/store";
 
 export function agentModelCapability(agent: { name: string; mode: string } | undefined): "tools" | "text" | undefined {
-  if (agent?.name === "title" || agent?.name === "compaction") return "text"
-  if (agent?.mode === "subagent" || agent?.mode === "all") return "tools"
+    if (agent?.name === "title" || agent?.name === "compaction") return "text";
+    if (agent?.mode === "subagent" || agent?.mode === "all") return "tools";
 }
 
 export function agentModelOptions(
-  state: Pick<EngineState, "providers" | "connected">,
-  capability: "tools" | "text" = "tools",
+    state: Pick<EngineState, "providers" | "connected">,
+    capability: "tools" | "text" = "tools",
 ) {
-  const providers = state.providers.filter((provider) => state.connected.includes(provider.id))
-  return orderedModelProviderIds(providers.map((provider) => provider.id)).flatMap((id) => {
-    const provider = providers.find((item) => item.id === id)!
-    return Object.values(provider.models)
-      .filter((model) => {
-        if (provider.id === "lmstudio") {
-          if (capability === "tools" && !lmStudioModelReady(model)) return false
-          if (capability === "text" && model.limit.context < lmStudioMinimumContext) return false
-        }
-        if (capability === "tools") return model.capabilities.toolcall
-        return model.capabilities.input.text && model.capabilities.output.text
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((model) => ({
-        id: `${provider.id}/${model.id}`,
-        label: model.name,
-        group: provider.name,
-        detail: model.id,
-      }))
-  })
+    const providers = state.providers.filter((provider) => state.connected.includes(provider.id));
+    return orderedModelProviderIds(providers.map((provider) => provider.id)).flatMap((id) => {
+        const provider = providers.find((item) => item.id === id)!;
+        return Object.values(provider.models)
+            .filter((model) => {
+                if (provider.id === "lmstudio") {
+                    if (capability === "tools" && !lmStudioModelReady(model)) return false;
+                    if (capability === "text" && model.limit.context < lmStudioMinimumContext) return false;
+                }
+                if (capability === "tools") return model.capabilities.toolcall;
+                return model.capabilities.input.text && model.capabilities.output.text;
+            })
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .map((model) => ({
+                id: `${provider.id}/${model.id}`,
+                label: model.name,
+                group: provider.name,
+                detail: model.id,
+            }));
+    });
 }

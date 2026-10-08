@@ -29,7 +29,7 @@ void main() {
   vView = normalize(-mv.xyz);
   gl_Position = projectionMatrix * mv;
 }
-`
+`;
 
 export const bellFragment = /* glsl */ `
 uniform vec3 uTop;
@@ -52,7 +52,7 @@ void main() {
   float alpha = 0.4 + fres * 0.38 + vSkirt * 0.08;
   gl_FragColor = vec4(col, alpha);
 }
-`
+`;
 
 export const tentacleVertex = /* glsl */ `
 uniform float uTime;
@@ -75,7 +75,7 @@ void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
 }
-`
+`;
 
 export const tentacleFragment = /* glsl */ `
 uniform vec3 uColor;
@@ -92,7 +92,7 @@ void main() {
   float alpha = (1.0 - vT * uFade) * (0.35 + edge * 0.5) * root;
   gl_FragColor = vec4(col, alpha);
 }
-`
+`;
 
 export const glowVertex = /* glsl */ `
 varying vec3 vNormal;
@@ -104,7 +104,7 @@ void main() {
   vView = normalize(-mv.xyz);
   gl_Position = projectionMatrix * mv;
 }
-`
+`;
 
 export const glowFragment = /* glsl */ `
 uniform vec3 uColor;
@@ -117,7 +117,7 @@ void main() {
   float alpha = core * (0.5 + uPulse * 0.35);
   gl_FragColor = vec4(uColor, alpha);
 }
-`
+`;
 
 export const faceVertex = /* glsl */ `
 varying vec2 vUv;
@@ -126,7 +126,7 @@ void main() {
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
-`
+`;
 
 export const blushFragment = /* glsl */ `
 uniform vec3 uColor;
@@ -137,7 +137,7 @@ void main() {
   float alpha = smoothstep(0.5, 0.05, d) * 0.55;
   gl_FragColor = vec4(uColor, alpha);
 }
-`
+`;
 
 export const waterVertex = /* glsl */ `
 varying vec2 vUv;
@@ -146,7 +146,7 @@ void main() {
   vUv = uv;
   gl_Position = vec4(position.xy, 0.9999, 1.0);
 }
-`
+`;
 
 export const waterFragment = /* glsl */ `
 uniform float uTime;
@@ -173,7 +173,7 @@ void main() {
   col *= 0.65 + vig * 0.35;
   gl_FragColor = vec4(col, 1.0);
 }
-`
+`;
 
 export const bubbleVertex = /* glsl */ `
 uniform float uTime;
@@ -191,7 +191,7 @@ void main() {
   gl_PointSize = (2.0 + aSeed * 5.0) * (3.2 / -mv.z);
   gl_Position = projectionMatrix * mv;
 }
-`
+`;
 
 export const bubbleFragment = /* glsl */ `
 uniform vec3 uColor;
@@ -203,7 +203,7 @@ void main() {
   float ring = smoothstep(0.5, 0.32, d) - smoothstep(0.34, 0.12, d) * 0.6;
   gl_FragColor = vec4(uColor, ring * 0.5 * vFade);
 }
-`
+`;
 
 export const crtVertex = /* glsl */ `
 varying vec2 vUv;
@@ -212,7 +212,7 @@ void main() {
   vUv = uv;
   gl_Position = vec4(position.xy, 0.0, 1.0);
 }
-`
+`;
 
 export const crtFragment = /* glsl */ `
 uniform sampler2D uScene;
@@ -264,4 +264,4 @@ void main() {
 
   gl_FragColor = vec4(col * frame, 1.0);
 }
-`
+`;

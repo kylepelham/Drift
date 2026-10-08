@@ -1,211 +1,225 @@
-import { expect, test } from "bun:test"
+import { expect, test } from "bun:test";
 
-import type { MessageEntry } from "../src/engine/store"
+import type { MessageEntry } from "../src/engine/store";
 
 if (!("localStorage" in globalThis))
-  Object.defineProperty(globalThis, "localStorage", {
-    value: { getItem: () => null, setItem: () => undefined },
-  })
+    Object.defineProperty(globalThis, "localStorage", {
+        value: { getItem: () => null, setItem: () => undefined },
+    });
 
 const tool = (id: string, messageID: string, name = "read") => ({
-  id,
-  messageID,
-  sessionID: "s1",
-  type: "tool",
-  tool: name,
-  state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 1, end: 2 } },
-})
+    id,
+    messageID,
+    sessionID: "s1",
+    type: "tool",
+    tool: name,
+    state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 1, end: 2 } },
+});
 
 const text = (id: string, messageID: string) => ({
-  id,
-  messageID,
-  sessionID: "s1",
-  type: "text",
-  text: id,
-  time: { start: 1, end: 2 },
-})
+    id,
+    messageID,
+    sessionID: "s1",
+    type: "text",
+    text: id,
+    time: { start: 1, end: 2 },
+});
 
 test("question tool names distinguish async input and persisted metadata from blocking questions", async () => {
-  const { toolInfo } = await import("../src/ui/parts")
-  for (const status of ["pending", "running", "completed", "error"]) {
-    for (const [input, metadata, title] of [
-      [{ async: true }, {}, "Async Question"],
-      [{}, { async: true, requestID: "que_saved" }, "Async Question"],
-      [{ async: false }, {}, "Question"],
-      [{}, { answers: [["Yes"]] }, "Question"],
-      [{ async: "true" }, {}, "Question"],
-      [{}, {}, "Question"],
-    ] as const) {
-      const part = tool("q1", "a1", "question")
-      const info = toolInfo({
-        ...part,
-        state: { ...part.state, status, input: { ...input, questions: [{ header: "Output format" }] }, metadata },
-      } as Parameters<typeof toolInfo>[0])
-      expect(info).toEqual({ title, subtitle: "Output format" })
+    const { toolInfo } = await import("../src/ui/parts");
+    for (const status of ["pending", "running", "completed", "error"]) {
+        for (const [input, metadata, title] of [
+            [{ async: true }, {}, "Async Question"],
+            [{}, { async: true, requestID: "que_saved" }, "Async Question"],
+            [{ async: false }, {}, "Question"],
+            [{}, { answers: [["Yes"]] }, "Question"],
+            [{ async: "true" }, {}, "Question"],
+            [{}, {}, "Question"],
+        ] as const) {
+            const part = tool("q1", "a1", "question");
+            const info = toolInfo({
+                ...part,
+                state: {
+                    ...part.state,
+                    status,
+                    input: { ...input, questions: [{ header: "Output format" }] },
+                    metadata,
+                },
+            } as Parameters<typeof toolInfo>[0]);
+            expect(info).toEqual({ title, subtitle: "Output format" });
+        }
     }
-  }
-})
+});
 
 test("all locales distinguish the async question tool name", async () => {
-  for (const locale of [
-    "en",
-    "ar",
-    "br",
-    "bs",
-    "da",
-    "de",
-    "es",
-    "fr",
-    "ja",
-    "ko",
-    "no",
-    "pl",
-    "ru",
-    "th",
-    "tr",
-    "uk",
-    "zh",
-    "zht",
-  ]) {
-    const { dict, drift } = await import(`../src/i18n/${locale}`)
-    expect(drift["drift.tool.asyncQuestion"]).toBeString()
-    expect(drift["drift.tool.asyncQuestion"].length).toBeGreaterThan(0)
-    expect(drift["drift.tool.asyncQuestion"]).not.toBe(dict["notification.question.title"])
-  }
-})
+    for (const locale of [
+        "en",
+        "ar",
+        "br",
+        "bs",
+        "da",
+        "de",
+        "es",
+        "fr",
+        "ja",
+        "ko",
+        "no",
+        "pl",
+        "ru",
+        "th",
+        "tr",
+        "uk",
+        "zh",
+        "zht",
+    ]) {
+        const { dict, drift } = await import(`../src/i18n/${locale}`);
+        expect(drift["drift.tool.asyncQuestion"]).toBeString();
+        expect(drift["drift.tool.asyncQuestion"].length).toBeGreaterThan(0);
+        expect(drift["drift.tool.asyncQuestion"]).not.toBe(dict["notification.question.title"]);
+    }
+});
 
 const assistant = (id: string, parts: unknown[], extra: Record<string, unknown> = {}) =>
-  ({
-    info: { id, sessionID: "s1", role: "assistant", time: { created: 1 }, ...extra },
-    parts,
-  }) as MessageEntry
+    ({
+        info: { id, sessionID: "s1", role: "assistant", time: { created: 1 }, ...extra },
+        parts,
+    }) as MessageEntry;
 
 test("assistant grouping and pitch are invariant to provider message chunking", async () => {
-  const { groupAssistantEntries } = await import("../src/ui/message")
-  const { timelinePitch } = await import("../src/ui/chat")
-  const one = [assistant("a1", [tool("r1", "a1"), tool("r2", "a1"), tool("r3", "a1"), text("answer", "a1")])]
-  const split = [
-    assistant("a1", [tool("r1", "a1"), tool("r2", "a1")]),
-    assistant("a2", [tool("r3", "a2"), text("answer", "a2")]),
-  ]
-  const structure = (entries: MessageEntry[]) => {
-    const grouped = groupAssistantEntries(entries)
-    const visible = entries.flatMap((entry) => (grouped.get(entry.info.id) ?? []).map((group) => ({ entry, group })))
-    return visible.map(({ entry, group }, index) => ({
-      type: "explored" in group ? "context" : group.part.type,
-      parts: "explored" in group ? group.explored.map((part) => part.id) : [group.part.id],
-      pitch: timelinePitch(entry, visible[index + 1]?.entry),
-    }))
-  }
+    const { groupAssistantEntries } = await import("../src/ui/message");
+    const { timelinePitch } = await import("../src/ui/chat");
+    const one = [assistant("a1", [tool("r1", "a1"), tool("r2", "a1"), tool("r3", "a1"), text("answer", "a1")])];
+    const split = [
+        assistant("a1", [tool("r1", "a1"), tool("r2", "a1")]),
+        assistant("a2", [tool("r3", "a2"), text("answer", "a2")]),
+    ];
+    const structure = (entries: MessageEntry[]) => {
+        const grouped = groupAssistantEntries(entries);
+        const visible = entries.flatMap((entry) =>
+            (grouped.get(entry.info.id) ?? []).map((group) => ({ entry, group })),
+        );
+        return visible.map(({ entry, group }, index) => ({
+            type: "explored" in group ? "context" : group.part.type,
+            parts: "explored" in group ? group.explored.map((part) => part.id) : [group.part.id],
+            pitch: timelinePitch(entry, visible[index + 1]?.entry),
+        }));
+    };
 
-  expect(structure(one)).toEqual([
-    { type: "context", parts: ["r1", "r2", "r3"], pitch: "part" },
-    { type: "text", parts: ["answer"], pitch: "none" },
-  ])
-  expect(structure(split)).toEqual(structure(one))
-})
+    expect(structure(one)).toEqual([
+        { type: "context", parts: ["r1", "r2", "r3"], pitch: "part" },
+        { type: "text", parts: ["answer"], pitch: "none" },
+    ]);
+    expect(structure(split)).toEqual(structure(one));
+});
 
 test("context grouping stops at meaningful transcript boundaries", async () => {
-  const { groupAssistantEntries } = await import("../src/ui/message")
-  const first = assistant("a1", [tool("r1", "a1")])
-  const user = {
-    info: { id: "u1", sessionID: "s1", role: "user", time: { created: 2 } },
-    parts: [text("question", "u1")],
-  } as MessageEntry
-  const second = assistant("a2", [tool("r2", "a2")])
-  const grouped = groupAssistantEntries([first, user, second])
+    const { groupAssistantEntries } = await import("../src/ui/message");
+    const first = assistant("a1", [tool("r1", "a1")]);
+    const user = {
+        info: { id: "u1", sessionID: "s1", role: "user", time: { created: 2 } },
+        parts: [text("question", "u1")],
+    } as MessageEntry;
+    const second = assistant("a2", [tool("r2", "a2")]);
+    const grouped = groupAssistantEntries([first, user, second]);
 
-  expect(grouped.get("a1")?.map((group) => ("explored" in group ? group.explored.length : 0))).toEqual([1])
-  expect(grouped.get("a2")?.map((group) => ("explored" in group ? group.explored.length : 0))).toEqual([1])
-})
+    expect(grouped.get("a1")?.map((group) => ("explored" in group ? group.explored.length : 0))).toEqual([1]);
+    expect(grouped.get("a2")?.map((group) => ("explored" in group ? group.explored.length : 0))).toEqual([1]);
+});
 
 test("timeline pitch keeps turn, compaction, and error breaks without trailing space", async () => {
-  const { timelinePitch } = await import("../src/ui/chat")
-  const regular = assistant("a1", [text("one", "a1")])
-  const continuation = assistant("a2", [text("two", "a2")])
-  const summary = assistant("a3", [text("summary", "a3")], { summary: true })
-  const failed = assistant("a4", [], { error: { name: "ProviderError" } })
-  const user = {
-    info: { id: "u1", sessionID: "s1", role: "user", time: { created: 2 } },
-    parts: [text("question", "u1")],
-  } as MessageEntry
+    const { timelinePitch } = await import("../src/ui/chat");
+    const regular = assistant("a1", [text("one", "a1")]);
+    const continuation = assistant("a2", [text("two", "a2")]);
+    const summary = assistant("a3", [text("summary", "a3")], { summary: true });
+    const failed = assistant("a4", [], { error: { name: "ProviderError" } });
+    const user = {
+        info: { id: "u1", sessionID: "s1", role: "user", time: { created: 2 } },
+        parts: [text("question", "u1")],
+    } as MessageEntry;
 
-  expect(timelinePitch(regular, continuation)).toBe("part")
-  expect(timelinePitch(regular, user)).toBe("turn")
-  expect(timelinePitch(regular, summary)).toBe("turn")
-  expect(timelinePitch(regular, failed)).toBe("turn")
-  expect(timelinePitch(regular)).toBe("none")
-})
+    expect(timelinePitch(regular, continuation)).toBe("part");
+    expect(timelinePitch(regular, user)).toBe("turn");
+    expect(timelinePitch(regular, summary)).toBe("turn");
+    expect(timelinePitch(regular, failed)).toBe("turn");
+    expect(timelinePitch(regular)).toBe("none");
+});
 
 test("tokens per second uses generation time, not tool and subagent wall time", async () => {
-  const { generationMs, tokensPerSecond } = await import("../src/ui/message")
-  const entry = {
-    info: {
-      id: "a1",
-      sessionID: "s1",
-      role: "assistant",
-      time: { created: 0, completed: 600_000 },
-      tokens: { input: 10, output: 500, reasoning: 100, cache: { read: 0, write: 0 } },
-      cost: 0,
-      modelID: "m",
-    },
-    parts: [
-      { id: "p1", messageID: "a1", sessionID: "s1", type: "reasoning", text: "r", time: { start: 0, end: 2_000 } },
-      {
-        id: "p2",
-        messageID: "a1",
-        sessionID: "s1",
-        type: "tool",
-        tool: "task",
-        state: {
-          status: "completed",
-          input: {},
-          output: "",
-          title: "",
-          metadata: {},
-          time: { start: 2_000, end: 590_000 },
+    const { generationMs, tokensPerSecond } = await import("../src/ui/message");
+    const entry = {
+        info: {
+            id: "a1",
+            sessionID: "s1",
+            role: "assistant",
+            time: { created: 0, completed: 600_000 },
+            tokens: { input: 10, output: 500, reasoning: 100, cache: { read: 0, write: 0 } },
+            cost: 0,
+            modelID: "m",
         },
-      },
-      {
-        id: "p3",
-        messageID: "a1",
-        sessionID: "s1",
-        type: "text",
-        text: "answer",
-        time: { start: 590_000, end: 600_000 },
-      },
-    ],
-  } as never
-  expect(generationMs(entry)).toBe(12_000)
-  // 600 tokens over 12s of generation, not 600s of wall time.
-  expect(tokensPerSecond(entry)).toBe("50.0")
+        parts: [
+            {
+                id: "p1",
+                messageID: "a1",
+                sessionID: "s1",
+                type: "reasoning",
+                text: "r",
+                time: { start: 0, end: 2_000 },
+            },
+            {
+                id: "p2",
+                messageID: "a1",
+                sessionID: "s1",
+                type: "tool",
+                tool: "task",
+                state: {
+                    status: "completed",
+                    input: {},
+                    output: "",
+                    title: "",
+                    metadata: {},
+                    time: { start: 2_000, end: 590_000 },
+                },
+            },
+            {
+                id: "p3",
+                messageID: "a1",
+                sessionID: "s1",
+                type: "text",
+                text: "answer",
+                time: { start: 590_000, end: 600_000 },
+            },
+        ],
+    } as never;
+    expect(generationMs(entry)).toBe(12_000);
+    // 600 tokens over 12s of generation, not 600s of wall time.
+    expect(tokensPerSecond(entry)).toBe("50.0");
 
-  const openEnded = {
-    info: {
-      id: "a2",
-      sessionID: "s1",
-      role: "assistant",
-      time: { created: 0, completed: 20_000 },
-      tokens: { input: 1, output: 100, reasoning: 0, cache: { read: 0, write: 0 } },
-    },
-    parts: [{ id: "p1", messageID: "a2", sessionID: "s1", type: "text", text: "t", time: { start: 10_000 } }],
-  } as never
-  // An unterminated part falls back to the message completion time.
-  expect(generationMs(openEnded)).toBe(10_000)
-  expect(tokensPerSecond(openEnded)).toBe("10.0")
-})
+    const openEnded = {
+        info: {
+            id: "a2",
+            sessionID: "s1",
+            role: "assistant",
+            time: { created: 0, completed: 20_000 },
+            tokens: { input: 1, output: 100, reasoning: 0, cache: { read: 0, write: 0 } },
+        },
+        parts: [{ id: "p1", messageID: "a2", sessionID: "s1", type: "text", text: "t", time: { start: 10_000 } }],
+    } as never;
+    // An unterminated part falls back to the message completion time.
+    expect(generationMs(openEnded)).toBe(10_000);
+    expect(tokensPerSecond(openEnded)).toBe("10.0");
+});
 
 test("the code view paints its background on the scroller, not on the inner block", async () => {
-  const [markup, css] = await Promise.all([
-    Bun.file("src/ui/markdown.tsx").text(),
-    Bun.file("src/styles/app.css").text(),
-  ])
-  // The wrapper is what scrolls sideways, so only the wrapper's background covers the full width.
-  expect(markup).toContain("code-view code-stream overflow-auto")
-  expect(markup).toContain('classList={{ "max-h-80": !props.fill, "min-h-0 flex-1": props.fill }}')
-  expect(css).toMatch(/\.code-view \{\s*background: var\(--raised\);/)
-  expect(css).toMatch(/\.code-view :where\(pre\) \{\s*background: transparent !important;/)
-  // A themed background has to move with it, otherwise the same seam reappears under that theme.
-  expect(css).not.toContain(".code-view pre.shiki")
-  expect(css).toContain('data-syntax-theme="dracula"] :where(.md pre.shiki, .code-view, .diff-view')
-})
+    const [markup, css] = await Promise.all([
+        Bun.file("src/ui/markdown.tsx").text(),
+        Bun.file("src/styles/app.css").text(),
+    ]);
+    // The wrapper is what scrolls sideways, so only the wrapper's background covers the full width.
+    expect(markup).toContain("code-view code-stream overflow-auto");
+    expect(markup).toContain('classList={{ "max-h-80": !props.fill, "min-h-0 flex-1": props.fill }}');
+    expect(css).toMatch(/\.code-view \{\s*background: var\(--raised\);/);
+    expect(css).toMatch(/\.code-view :where\(pre\) \{\s*background: transparent !important;/);
+    // A themed background has to move with it, otherwise the same seam reappears under that theme.
+    expect(css).not.toContain(".code-view pre.shiki");
+    expect(css).toContain('data-syntax-theme="dracula"] :where(.md pre.shiki, .code-view, .diff-view');
+});

@@ -1,169 +1,183 @@
 <!doctype html>
 <html lang="en" data-theme="drift-dark">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
-    <link rel="icon" href="/src/assets/logo.svg" />
-    <link id="drift-preload-image" rel="preload" as="image" href="/src/assets/logo.svg" />
-    <title>Drift</title>
-    <script>
-      try {
-        const storedTheme = JSON.parse(localStorage.getItem("drift.theme") || "null")
-        if (typeof storedTheme === "string") document.documentElement.dataset.theme = storedTheme
-        const uiFont = JSON.parse(localStorage.getItem("drift.theme.uiFont") || "null")
-        if (typeof uiFont === "string" && uiFont.trim()) document.documentElement.style.setProperty("--ui-font", uiFont)
-        const custom = JSON.parse(localStorage.getItem("drift.theme.custom") || "null")
-        const colors = {
-          background: "--custom-bg",
-          surface: "--custom-surface",
-          text: "--custom-ink",
-          accent: "--custom-accent",
-        }
-        if (custom && typeof custom === "object")
-          for (const [name, property] of Object.entries(colors))
-            if (typeof custom[name] === "string") document.documentElement.style.setProperty(property, custom[name])
-        const splashEnabled = JSON.parse(localStorage.getItem("drift.splash.enabled") || "true")
-        if (splashEnabled === false) document.documentElement.dataset.splash = "hidden"
-        const splashMascot = JSON.parse(localStorage.getItem("drift.splash.mascot") || '"bounce"')
-        if (typeof splashMascot === "string") document.documentElement.dataset.splashMascot = splashMascot
-        const splashFont = JSON.parse(localStorage.getItem("drift.splash.font") || "null")
-        if (typeof splashFont === "string" && splashFont.trim())
-          document.documentElement.style.setProperty("--startup-font", splashFont)
-      } catch {}
-    </script>
-    <style>
-      html,
-      body,
-      #root {
-        height: 100%;
-        margin: 0;
-        background: var(--bg, #141517);
-      }
+    <head>
+        <meta charset="UTF-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
+        />
+        <link rel="icon" href="/src/assets/logo.svg" />
+        <link id="drift-preload-image" rel="preload" as="image" href="/src/assets/logo.svg" />
+        <title>Drift</title>
+        <script>
+            try {
+                const storedTheme = JSON.parse(localStorage.getItem("drift.theme") || "null");
+                if (typeof storedTheme === "string") document.documentElement.dataset.theme = storedTheme;
+                const uiFont = JSON.parse(localStorage.getItem("drift.theme.uiFont") || "null");
+                if (typeof uiFont === "string" && uiFont.trim())
+                    document.documentElement.style.setProperty("--ui-font", uiFont);
+                const custom = JSON.parse(localStorage.getItem("drift.theme.custom") || "null");
+                const colors = {
+                    background: "--custom-bg",
+                    surface: "--custom-surface",
+                    text: "--custom-ink",
+                    accent: "--custom-accent",
+                };
+                if (custom && typeof custom === "object")
+                    for (const [name, property] of Object.entries(colors))
+                        if (typeof custom[name] === "string")
+                            document.documentElement.style.setProperty(property, custom[name]);
+                const splashEnabled = JSON.parse(localStorage.getItem("drift.splash.enabled") || "true");
+                if (splashEnabled === false) document.documentElement.dataset.splash = "hidden";
+                const splashMascot = JSON.parse(localStorage.getItem("drift.splash.mascot") || '"bounce"');
+                if (typeof splashMascot === "string") document.documentElement.dataset.splashMascot = splashMascot;
+                const splashFont = JSON.parse(localStorage.getItem("drift.splash.font") || "null");
+                if (typeof splashFont === "string" && splashFont.trim())
+                    document.documentElement.style.setProperty("--startup-font", splashFont);
+            } catch {}
+        </script>
+        <style>
+            html,
+            body,
+            #root {
+                height: 100%;
+                margin: 0;
+                background: var(--bg, #141517);
+            }
 
-      .drift-preload {
-        display: flex;
-        height: 100%;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 16px;
-        font-family: var(--startup-font, var(--ui-font, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif));
-      }
+            .drift-preload {
+                display: flex;
+                height: 100%;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 16px;
+                font-family: var(
+                    --startup-font,
+                    var(--ui-font, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif)
+                );
+            }
 
-      html[data-splash="hidden"] .drift-preload {
-        display: none;
-      }
+            html[data-splash="hidden"] .drift-preload {
+                display: none;
+            }
 
-      .drift-preload-logo {
-        display: block;
-        width: 64px;
-        height: 64px;
-        background: var(--accent, #8fd9fb);
-        filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--accent, #8fd9fb) 24%, transparent));
-        mask: url("/src/assets/logo.svg") center / contain no-repeat;
-        -webkit-mask: url("/src/assets/logo.svg") center / contain no-repeat;
-      }
+            .drift-preload-logo {
+                display: block;
+                width: 64px;
+                height: 64px;
+                background: var(--accent, #8fd9fb);
+                filter: drop-shadow(0 10px 22px color-mix(in srgb, var(--accent, #8fd9fb) 24%, transparent));
+                mask: url("/src/assets/logo.svg") center / contain no-repeat;
+                -webkit-mask: url("/src/assets/logo.svg") center / contain no-repeat;
+            }
 
-      html[data-splash-mascot="bounce"] .drift-preload-logo {
-        animation: drift-preload-bounce 900ms ease-in-out infinite alternate;
-      }
+            html[data-splash-mascot="bounce"] .drift-preload-logo {
+                animation: drift-preload-bounce 900ms ease-in-out infinite alternate;
+            }
 
-      html[data-splash-mascot="float"] .drift-preload-logo {
-        animation: drift-preload-float 1.7s ease-in-out infinite alternate;
-      }
+            html[data-splash-mascot="float"] .drift-preload-logo {
+                animation: drift-preload-float 1.7s ease-in-out infinite alternate;
+            }
 
-      html[data-splash-mascot="pulse"] .drift-preload-logo {
-        animation: drift-preload-pulse 1.2s ease-in-out infinite alternate;
-      }
+            html[data-splash-mascot="pulse"] .drift-preload-logo {
+                animation: drift-preload-pulse 1.2s ease-in-out infinite alternate;
+            }
 
-      .drift-preload span {
-        color: var(--ink-muted, rgb(189 224 239 / 58%));
-        font-size: 12px;
-        font-weight: 400;
-        line-height: 1.4;
-        letter-spacing: 0.02em;
-      }
+            .drift-preload span {
+                color: var(--ink-muted, rgb(189 224 239 / 58%));
+                font-size: 12px;
+                font-weight: 400;
+                line-height: 1.4;
+                letter-spacing: 0.02em;
+            }
 
-      @keyframes drift-preload-bounce {
-        to {
-          transform: translateY(-5px) rotate(1deg) scale(1.025, 0.975);
-        }
-      }
+            @keyframes drift-preload-bounce {
+                to {
+                    transform: translateY(-5px) rotate(1deg) scale(1.025, 0.975);
+                }
+            }
 
-      @keyframes drift-preload-float {
-        to {
-          transform: translateY(-7px) rotate(2deg);
-        }
-      }
+            @keyframes drift-preload-float {
+                to {
+                    transform: translateY(-7px) rotate(2deg);
+                }
+            }
 
-      @keyframes drift-preload-pulse {
-        from {
-          opacity: 0.72;
-          transform: scale(0.94);
-        }
-        to {
-          opacity: 1;
-          transform: scale(1.04);
-        }
-      }
+            @keyframes drift-preload-pulse {
+                from {
+                    opacity: 0.72;
+                    transform: scale(0.94);
+                }
+                to {
+                    opacity: 1;
+                    transform: scale(1.04);
+                }
+            }
 
-      @media (prefers-reduced-motion: reduce) {
-        .drift-preload-logo {
-          animation: none !important;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="root">
-      <div class="drift-preload" role="status" aria-label="Starting Drift">
-        <span class="drift-preload-logo" aria-hidden="true"></span>
-        <span>Opening Drift...</span>
-      </div>
-    </div>
-    <script>
-      // Animation callbacks alone can precede the renderer's first contentful paint. Keep the
-      // splash mounted until its asset is decoded, content has painted, and reveal has completed.
-      ;(function () {
-        var tauri = window.__TAURI__
-        if (!tauri) return
-        function frames() {
-          return new Promise(function (resolve) {
-            requestAnimationFrame(function () { requestAnimationFrame(resolve) })
-          })
-        }
-        var imageReady = Promise.resolve()
-        if (document.documentElement.dataset.splash !== "hidden") {
-          var image = new Image()
-          image.src = document.getElementById("drift-preload-image").href
-          imageReady = image.decode().catch(function () {})
-        }
-        var contentPainted = new Promise(function (resolve) {
-          function painted(entries) {
-            return entries.some(function (entry) { return entry.name === "first-contentful-paint" })
-          }
-          if (painted(performance.getEntriesByType("paint"))) return resolve()
-          if (window.PerformanceObserver && PerformanceObserver.supportedEntryTypes.indexOf("paint") !== -1) {
-            var observer = new PerformanceObserver(function (list) {
-              if (!painted(list.getEntries())) return
-              observer.disconnect()
-              resolve()
-            })
-            observer.observe({ type: "paint", buffered: true })
-          } else {
-            frames().then(resolve)
-          }
-        })
-        window.__DRIFT_PRELOAD_READY__ = Promise.all([imageReady, contentPainted])
-          .then(frames)
-          .then(function () {
-            performance.mark("drift-preload-painted")
-            return tauri.core.invoke("show_main_window")
-          })
-          .then(frames)
-          .catch(function (error) { console.error("Drift window reveal failed", error) })
-      })()
-    </script>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+            @media (prefers-reduced-motion: reduce) {
+                .drift-preload-logo {
+                    animation: none !important;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div id="root">
+            <div class="drift-preload" role="status" aria-label="Starting Drift">
+                <span class="drift-preload-logo" aria-hidden="true"></span>
+                <span>Opening Drift...</span>
+            </div>
+        </div>
+        <script>
+            // Animation callbacks alone can precede the renderer's first contentful paint. Keep the
+            // splash mounted until its asset is decoded, content has painted, and reveal has completed.
+            (function () {
+                var tauri = window.__TAURI__;
+                if (!tauri) return;
+                function frames() {
+                    return new Promise(function (resolve) {
+                        requestAnimationFrame(function () {
+                            requestAnimationFrame(resolve);
+                        });
+                    });
+                }
+                var imageReady = Promise.resolve();
+                if (document.documentElement.dataset.splash !== "hidden") {
+                    var image = new Image();
+                    image.src = document.getElementById("drift-preload-image").href;
+                    imageReady = image.decode().catch(function () {});
+                }
+                var contentPainted = new Promise(function (resolve) {
+                    function painted(entries) {
+                        return entries.some(function (entry) {
+                            return entry.name === "first-contentful-paint";
+                        });
+                    }
+                    if (painted(performance.getEntriesByType("paint"))) return resolve();
+                    if (window.PerformanceObserver && PerformanceObserver.supportedEntryTypes.indexOf("paint") !== -1) {
+                        var observer = new PerformanceObserver(function (list) {
+                            if (!painted(list.getEntries())) return;
+                            observer.disconnect();
+                            resolve();
+                        });
+                        observer.observe({ type: "paint", buffered: true });
+                    } else {
+                        frames().then(resolve);
+                    }
+                });
+                window.__DRIFT_PRELOAD_READY__ = Promise.all([imageReady, contentPainted])
+                    .then(frames)
+                    .then(function () {
+                        performance.mark("drift-preload-painted");
+                        return tauri.core.invoke("show_main_window");
+                    })
+                    .then(frames)
+                    .catch(function (error) {
+                        console.error("Drift window reveal failed", error);
+                    });
+            })();
+        </script>
+        <script type="module" src="/src/main.tsx"></script>
+    </body>
 </html>

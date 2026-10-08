@@ -8,18 +8,18 @@
 
 /** Disclosure arrow that rotates to point down when its section is open. */
 export function Chevron(props: { open: boolean }) {
-  return (
-    <svg
-      class="size-3 shrink-0 transition-transform duration-150"
-      classList={{ "rotate-90": props.open }}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.5"
-    >
-      <path d="M6 4l4 4-4 4" />
-    </svg>
-  )
+    return (
+        <svg
+            class="size-3 shrink-0 transition-transform duration-150"
+            classList={{ "rotate-90": props.open }}
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+        >
+            <path d="M6 4l4 4-4 4" />
+        </svg>
+    );
 }
 
 /**
@@ -27,29 +27,29 @@ export function Chevron(props: { open: boolean }) {
  * draggable or clickable rows without triggering the row's own handler.
  */
 export function Toggle(props: {
-  label: string
-  title?: string
-  checked: boolean
-  disabled?: boolean
-  onChange: () => void
+    label: string;
+    title?: string;
+    checked: boolean;
+    disabled?: boolean;
+    onChange: () => void;
 }) {
-  return (
-    <button
-      role="switch"
-      aria-label={props.label}
-      title={props.title}
-      aria-checked={props.checked}
-      disabled={props.disabled}
-      class="shrink-0 disabled:opacity-50"
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.stopPropagation()
-        props.onChange()
-      }}
-    >
-      <ToggleTrack checked={props.checked} />
-    </button>
-  )
+    return (
+        <button
+            role="switch"
+            aria-label={props.label}
+            title={props.title}
+            aria-checked={props.checked}
+            disabled={props.disabled}
+            class="shrink-0 disabled:opacity-50"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+                event.stopPropagation();
+                props.onChange();
+            }}
+        >
+            <ToggleTrack checked={props.checked} />
+        </button>
+    );
 }
 
 /**
@@ -57,21 +57,21 @@ export function Toggle(props: {
  * the indicator rather than a nested button.
  */
 export function ToggleTrack(props: { checked: boolean }) {
-  return (
-    <span
-      class="relative block h-4 w-7 shrink-0 rounded-full border transition-colors"
-      classList={{
-        "border-accent bg-accent": props.checked,
-        "border-edge-strong bg-raised": !props.checked,
-      }}
-    >
-      <span
-        class="absolute top-0.5 left-0.5 size-2.5 rounded-full transition-[transform,background-color]"
-        classList={{
-          "translate-x-3 bg-accent-ink": props.checked,
-          "bg-ink-muted": !props.checked,
-        }}
-      />
-    </span>
-  )
+    return (
+        <span
+            class="relative block h-4 w-7 shrink-0 rounded-full border transition-colors"
+            classList={{
+                "border-accent bg-accent": props.checked,
+                "border-edge-strong bg-raised": !props.checked,
+            }}
+        >
+            <span
+                class="absolute top-0.5 left-0.5 size-2.5 rounded-full transition-[transform,background-color]"
+                classList={{
+                    "translate-x-3 bg-accent-ink": props.checked,
+                    "bg-ink-muted": !props.checked,
+                }}
+            />
+        </span>
+    );
 }

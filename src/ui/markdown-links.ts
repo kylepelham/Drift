@@ -1,111 +1,111 @@
 export type MarkdownLink =
-  | { kind: "external"; url: string }
-  | { kind: "file"; path: string; line?: number; column?: number }
-  | { kind: "fragment"; hash: string }
-  | { kind: "unsupported" }
+    | { kind: "external"; url: string }
+    | { kind: "file"; path: string; line?: number; column?: number }
+    | { kind: "fragment"; hash: string }
+    | { kind: "unsupported" };
 
-const driveAbsolute = /^[a-z]:[/\\]/i
-const scheme = /^[a-z][a-z\d+.-]*:/i
-const controls = /[\u0000-\u001f\u007f-\u009f]/
+const driveAbsolute = /^[a-z]:[/\\]/i;
+const scheme = /^[a-z][a-z\d+.-]*:/i;
+const controls = /[\u0000-\u001f\u007f-\u009f]/;
 
 export class AmbiguousCitationError extends Error {
-  constructor(
-    readonly href: string,
-    readonly files: string[],
-  ) {
-    super(`Ambiguous file link "${href}". Matching files: ${files.join(", ")}`)
-  }
+    constructor(
+        readonly href: string,
+        readonly files: string[],
+    ) {
+        super(`Ambiguous file link "${href}". Matching files: ${files.join(", ")}`);
+    }
 }
 
 // Citation locations are separate from ordinary document/image URL semantics.
 export function citationHref(raw: string) {
-  if (/^https?:/i.test(raw) || raw.startsWith("//") || raw.includes("#")) return raw
-  const match = /^(.+\.[\w-]+):([1-9]\d*)(?::([1-9]\d*))?$/.exec(raw)
-  if (
-    !match ||
-    !Number.isSafeInteger(Number(match[2])) ||
-    (match[3] !== undefined && !Number.isSafeInteger(Number(match[3])))
-  )
-    return raw
-  return `${match[1]}#L${match[2]}${match[3] ? `C${match[3]}` : ""}`
+    if (/^https?:/i.test(raw) || raw.startsWith("//") || raw.includes("#")) return raw;
+    const match = /^(.+\.[\w-]+):([1-9]\d*)(?::([1-9]\d*))?$/.exec(raw);
+    if (
+        !match ||
+        !Number.isSafeInteger(Number(match[2])) ||
+        (match[3] !== undefined && !Number.isSafeInteger(Number(match[3])))
+    )
+        return raw;
+    return `${match[1]}#L${match[2]}${match[3] ? `C${match[3]}` : ""}`;
 }
 
 /** Resolve abbreviated transcript citations from the owning task, then older history. */
 export function resolveMarkdownCitation(
-  raw: string,
-  directory?: string,
-  fileGroups: readonly (readonly string[])[] = [],
+    raw: string,
+    directory?: string,
+    fileGroups: readonly (readonly string[])[] = [],
 ): MarkdownLink {
-  const href = citationHref(raw)
-  const link = classifyMarkdownLink(href, directory)
-  if (link.kind !== "file" || !directory || !relativeCitation(href)) return link
-  const relative = decodeURIComponent(href.split("#", 1)[0])
-  const windows = driveAbsolute.test(directory) || directory.startsWith("\\\\") || directory.startsWith("//")
-  // Explicit parent navigation keeps its normal meaning instead of becoming a suffix search.
-  if ((windows ? relative.replaceAll("\\", "/") : relative).split("/").includes("..")) return link
-  const base = normalizeAbsolutePath(directory)
-  if (!base) return link
-  const key = (path: string) => (windows ? path.toLowerCase() : path)
-  const prefix = key(base.endsWith("/") ? base : `${base}/`)
-  const suffix = key(link.path).slice(prefix.length)
-  if (!key(link.path).startsWith(prefix) || !suffix) return link
-  const path = findCitationPath(raw, link.path, { prefix, suffix, key }, fileGroups)
-  return path ? { ...link, path } : link
+    const href = citationHref(raw);
+    const link = classifyMarkdownLink(href, directory);
+    if (link.kind !== "file" || !directory || !relativeCitation(href)) return link;
+    const relative = decodeURIComponent(href.split("#", 1)[0]);
+    const windows = driveAbsolute.test(directory) || directory.startsWith("\\\\") || directory.startsWith("//");
+    // Explicit parent navigation keeps its normal meaning instead of becoming a suffix search.
+    if ((windows ? relative.replaceAll("\\", "/") : relative).split("/").includes("..")) return link;
+    const base = normalizeAbsolutePath(directory);
+    if (!base) return link;
+    const key = (path: string) => (windows ? path.toLowerCase() : path);
+    const prefix = key(base.endsWith("/") ? base : `${base}/`);
+    const suffix = key(link.path).slice(prefix.length);
+    if (!key(link.path).startsWith(prefix) || !suffix) return link;
+    const path = findCitationPath(raw, link.path, { prefix, suffix, key }, fileGroups);
+    return path ? { ...link, path } : link;
 }
 
 function relativeCitation(href: string) {
-  return !driveAbsolute.test(href) && !scheme.test(href) && !href.startsWith("/") && !href.startsWith("\\")
+    return !driveAbsolute.test(href) && !scheme.test(href) && !href.startsWith("/") && !href.startsWith("\\");
 }
 
 function findCitationPath(
-  raw: string,
-  target: string,
-  context: { prefix: string; suffix: string; key: (path: string) => string },
-  fileGroups: readonly (readonly string[])[],
+    raw: string,
+    target: string,
+    context: { prefix: string; suffix: string; key: (path: string) => string },
+    fileGroups: readonly (readonly string[])[],
 ) {
-  const { prefix, suffix, key } = context
-  for (const files of fileGroups) {
-    const matches = new Map<string, string>()
-    for (const file of files) {
-      const path = normalizeAbsolutePath(file)
-      if (!path || !key(path).startsWith(prefix)) continue
-      if (key(path) === key(target)) return path
-      if (key(path).endsWith(`/${suffix}`)) matches.set(key(path), path)
+    const { prefix, suffix, key } = context;
+    for (const files of fileGroups) {
+        const matches = new Map<string, string>();
+        for (const file of files) {
+            const path = normalizeAbsolutePath(file);
+            if (!path || !key(path).startsWith(prefix)) continue;
+            if (key(path) === key(target)) return path;
+            if (key(path).endsWith(`/${suffix}`)) matches.set(key(path), path);
+        }
+        if (matches.size === 1) return matches.values().next().value!;
+        if (matches.size > 1) throw new AmbiguousCitationError(raw, [...matches.values()]);
     }
-    if (matches.size === 1) return matches.values().next().value!
-    if (matches.size > 1) throw new AmbiguousCitationError(raw, [...matches.values()])
-  }
 }
 
 function normalizeAbsolutePath(value: string): string | undefined {
-  if (!value || controls.test(value)) return
-  const windows = driveAbsolute.test(value) || value.startsWith("\\\\") || value.startsWith("//")
-  const path = windows ? value.replaceAll("\\", "/") : value
-  const parsed = absolutePathRoot(path)
-  if (!parsed) return
-  if (windows && /[<>:"|?*]/.test(path.slice(driveAbsolute.test(path) ? 2 : 0))) return
+    if (!value || controls.test(value)) return;
+    const windows = driveAbsolute.test(value) || value.startsWith("\\\\") || value.startsWith("//");
+    const path = windows ? value.replaceAll("\\", "/") : value;
+    const parsed = absolutePathRoot(path);
+    if (!parsed) return;
+    if (windows && /[<>:"|?*]/.test(path.slice(driveAbsolute.test(path) ? 2 : 0))) return;
 
-  const parts: string[] = []
-  for (const part of parsed.rest.split("/")) {
-    if (!part || part === ".") continue
-    // Parent traversal stops at the POSIX/drive root or the UNC share, not the server.
-    if (part === "..") parts.pop()
-    else parts.push(part)
-  }
+    const parts: string[] = [];
+    for (const part of parsed.rest.split("/")) {
+        if (!part || part === ".") continue;
+        // Parent traversal stops at the POSIX/drive root or the UNC share, not the server.
+        if (part === "..") parts.pop();
+        else parts.push(part);
+    }
 
-  return parsed.root + parts.join("/")
+    return parsed.root + parts.join("/");
 }
 
 function absolutePathRoot(path: string) {
-  if (driveAbsolute.test(path)) {
-    return { root: path.slice(0, 3), rest: path.slice(3) }
-  } else if (path.startsWith("//")) {
-    const unc = /^\/\/([^/]+)\/([^/]+)(?:\/(.*))?$/.exec(path)
-    if (!unc || [unc[1], unc[2]].some((part) => part === "." || part === "..")) return
-    return { root: `//${unc[1]}/${unc[2]}/`, rest: unc[3] ?? "" }
-  } else if (path.startsWith("/")) {
-    return { root: "/", rest: path.slice(1) }
-  }
+    if (driveAbsolute.test(path)) {
+        return { root: path.slice(0, 3), rest: path.slice(3) };
+    } else if (path.startsWith("//")) {
+        const unc = /^\/\/([^/]+)\/([^/]+)(?:\/(.*))?$/.exec(path);
+        if (!unc || [unc[1], unc[2]].some((part) => part === "." || part === "..")) return;
+        return { root: `//${unc[1]}/${unc[2]}/`, rest: unc[3] ?? "" };
+    } else if (path.startsWith("/")) {
+        return { root: "/", rest: path.slice(1) };
+    }
 }
 
 /**
@@ -116,100 +116,100 @@ function absolutePathRoot(path: string) {
  * Query-bearing file links and encoded separators are deliberately unsupported.
  */
 export function classifyMarkdownLink(raw: string, directory?: string): MarkdownLink {
-  try {
-    if (!raw || raw.trim() !== raw || controls.test(raw)) {
-      return { kind: "unsupported" }
+    try {
+        if (!raw || raw.trim() !== raw || controls.test(raw)) {
+            return { kind: "unsupported" };
+        }
+
+        if (/^https?:\/\//i.test(raw) || raw.startsWith("//")) return classifyExternalLink(raw);
+
+        // Web URLs keep encoded bytes intact; native paths and fragment IDs must decode safely.
+        if (controls.test(decodeURIComponent(raw))) return { kind: "unsupported" };
+        if (raw.startsWith("#")) return { kind: "fragment", hash: raw };
+
+        return classifyFileLink(raw, directory);
+    } catch {
+        return { kind: "unsupported" };
     }
-
-    if (/^https?:\/\//i.test(raw) || raw.startsWith("//")) return classifyExternalLink(raw)
-
-    // Web URLs keep encoded bytes intact; native paths and fragment IDs must decode safely.
-    if (controls.test(decodeURIComponent(raw))) return { kind: "unsupported" }
-    if (raw.startsWith("#")) return { kind: "fragment", hash: raw }
-
-    return classifyFileLink(raw, directory)
-  } catch {
-    return { kind: "unsupported" }
-  }
 }
 
 function classifyExternalLink(raw: string): MarkdownLink {
-  // Do not let URL's permissive slash repair turn malformed hrefs into hosts.
-  const external = raw.startsWith("//") ? `https:${raw}` : raw
-  if (!/^https?:\/\/[^/\\\s?#]/i.test(external) || external.includes("\\")) return { kind: "unsupported" }
+    // Do not let URL's permissive slash repair turn malformed hrefs into hosts.
+    const external = raw.startsWith("//") ? `https:${raw}` : raw;
+    if (!/^https?:\/\/[^/\\\s?#]/i.test(external) || external.includes("\\")) return { kind: "unsupported" };
 
-  const url = new URL(external)
-  if (url.hostname.toLowerCase().replace(/\.+$/, "") === "tauri.localhost") return { kind: "unsupported" }
+    const url = new URL(external);
+    if (url.hostname.toLowerCase().replace(/\.+$/, "") === "tauri.localhost") return { kind: "unsupported" };
 
-  return { kind: "external", url: url.href }
+    return { kind: "external", url: url.href };
 }
 
 function classifyFileLink(raw: string, directory: string | undefined): MarkdownLink {
-  const fileURI = /^file:/i.test(raw)
-  if (!driveAbsolute.test(raw) && scheme.test(raw) && !fileURI) return { kind: "unsupported" }
+    const fileURI = /^file:/i.test(raw);
+    if (!driveAbsolute.test(raw) && scheme.test(raw) && !fileURI) return { kind: "unsupported" };
 
-  // Split before decoding: %23 is a filename character, not a document fragment.
-  const fragmentStart = raw.indexOf("#")
-  const target = fragmentStart < 0 ? raw : raw.slice(0, fragmentStart)
-  const hash = fragmentStart < 0 ? "" : raw.slice(fragmentStart)
-  if (!target || target.includes("?") || /%2f|%5c/i.test(target)) return { kind: "unsupported" }
+    // Split before decoding: %23 is a filename character, not a document fragment.
+    const fragmentStart = raw.indexOf("#");
+    const target = fragmentStart < 0 ? raw : raw.slice(0, fragmentStart);
+    const hash = fragmentStart < 0 ? "" : raw.slice(fragmentStart);
+    if (!target || target.includes("?") || /%2f|%5c/i.test(target)) return { kind: "unsupported" };
 
-  const path = fileURI ? fileUriPath(target) : nativeLinkPath(target, raw, directory)
-  const normalized = path === undefined ? undefined : normalizeAbsolutePath(path)
-  if (!normalized) return { kind: "unsupported" }
+    const path = fileURI ? fileUriPath(target) : nativeLinkPath(target, raw, directory);
+    const normalized = path === undefined ? undefined : normalizeAbsolutePath(path);
+    if (!normalized) return { kind: "unsupported" };
 
-  return locatedFileLink(normalized, hash)
+    return locatedFileLink(normalized, hash);
 }
 
 function fileUriPath(target: string) {
-  const uri = /^file:\/\/([^/\\]*)(\/[^]*)$/i.exec(target)
-  if (!uri || target.includes("\\")) return
+    const uri = /^file:\/\/([^/\\]*)(\/[^]*)$/i.exec(target);
+    if (!uri || target.includes("\\")) return;
 
-  // Validate URI syntax without adopting URL's host case-folding or path rewrites.
-  new URL(target)
-  const host = decodeURIComponent(uri[1])
-  let path = decodeURIComponent(uri[2])
-  if (path.startsWith("//")) return
-  if (host && host.toLowerCase() !== "localhost") return `//${host}${path}`
-  if (/^\/[a-z]:/i.test(path)) {
-    path = path.slice(1)
-    if (!driveAbsolute.test(path)) return
-  }
+    // Validate URI syntax without adopting URL's host case-folding or path rewrites.
+    new URL(target);
+    const host = decodeURIComponent(uri[1]);
+    let path = decodeURIComponent(uri[2]);
+    if (path.startsWith("//")) return;
+    if (host && host.toLowerCase() !== "localhost") return `//${host}${path}`;
+    if (/^\/[a-z]:/i.test(path)) {
+        path = path.slice(1);
+        if (!driveAbsolute.test(path)) return;
+    }
 
-  return path
+    return path;
 }
 
 function nativeLinkPath(target: string, raw: string, directory: string | undefined) {
-  const path = decodeURIComponent(target)
-  if (!driveAbsolute.test(raw) && scheme.test(path)) return
-  if (driveAbsolute.test(path) || path.startsWith("/") || path.startsWith("\\\\")) return path
+    const path = decodeURIComponent(target);
+    if (!driveAbsolute.test(raw) && scheme.test(path)) return;
+    if (driveAbsolute.test(path) || path.startsWith("/") || path.startsWith("\\\\")) return path;
 
-  // A single leading backslash is drive-root-relative, not an absolute path.
-  if (path.startsWith("\\") || !directory) return
-  const base = normalizeAbsolutePath(directory)
-  if (!base) return
+    // A single leading backslash is drive-root-relative, not an absolute path.
+    if (path.startsWith("\\") || !directory) return;
+    const base = normalizeAbsolutePath(directory);
+    if (!base) return;
 
-  const prefix = base.endsWith("/") ? base : `${base}/`
-  return `${prefix}${path}`
+    const prefix = base.endsWith("/") ? base : `${base}/`;
+    return `${prefix}${path}`;
 }
 
 function locatedFileLink(path: string, hash: string): MarkdownLink {
-  const result: Extract<MarkdownLink, { kind: "file" }> = { kind: "file", path }
-  const location = /^#L([1-9]\d*)(?:-L([1-9]\d*)|C([1-9]\d*))?$/.exec(hash)
-  if (!location) return result
+    const result: Extract<MarkdownLink, { kind: "file" }> = { kind: "file", path };
+    const location = /^#L([1-9]\d*)(?:-L([1-9]\d*)|C([1-9]\d*))?$/.exec(hash);
+    if (!location) return result;
 
-  const line = Number(location[1])
-  const end = location[2] ? Number(location[2]) : line
-  const column = location[3] ? Number(location[3]) : undefined
-  if (
-    Number.isSafeInteger(line) &&
-    Number.isSafeInteger(end) &&
-    end >= line &&
-    (column === undefined || Number.isSafeInteger(column))
-  ) {
-    result.line = line
-    if (column !== undefined) result.column = column
-  }
+    const line = Number(location[1]);
+    const end = location[2] ? Number(location[2]) : line;
+    const column = location[3] ? Number(location[3]) : undefined;
+    if (
+        Number.isSafeInteger(line) &&
+        Number.isSafeInteger(end) &&
+        end >= line &&
+        (column === undefined || Number.isSafeInteger(column))
+    ) {
+        result.line = line;
+        if (column !== undefined) result.column = column;
+    }
 
-  return result
+    return result;
 }

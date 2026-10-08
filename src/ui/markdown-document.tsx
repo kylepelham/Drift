@@ -1,32 +1,32 @@
-import { shouldPreviewFile } from "../state/file-preview-prefs"
-import { observeMarkdownImages } from "./markdown-images"
-import { previewParentDirectory } from "../file-preview"
-import { createEffect, onCleanup } from "solid-js"
-import { Markdown } from "./markdown"
+import { shouldPreviewFile } from "../state/file-preview-prefs";
+import { observeMarkdownImages } from "./markdown-images";
+import { previewParentDirectory } from "../file-preview";
+import { createEffect, onCleanup } from "solid-js";
+import { Markdown } from "./markdown";
 
 export function MarkdownDocument(props: { text: string; path: string; directory: string; hash?: string }) {
-  let root!: HTMLDivElement
-  createEffect(() => {
-    void props.text
-    onCleanup(
-      observeMarkdownImages(root, {
-        parent: previewParentDirectory(props.path),
-        directory: props.directory,
-        enabled: shouldPreviewFile("image.png"),
-        hash: props.hash,
-      }),
-    )
-  })
+    let root!: HTMLDivElement;
+    createEffect(() => {
+        void props.text;
+        onCleanup(
+            observeMarkdownImages(root, {
+                parent: previewParentDirectory(props.path),
+                directory: props.directory,
+                enabled: shouldPreviewFile("image.png"),
+                hash: props.hash,
+            }),
+        );
+    });
 
-  return (
-    <div ref={root}>
-      <Markdown
-        text={props.text}
-        directory={previewParentDirectory(props.path)}
-        workspaceDirectory={props.directory}
-        documentPreview
-        done
-      />
-    </div>
-  )
+    return (
+        <div ref={root}>
+            <Markdown
+                text={props.text}
+                directory={previewParentDirectory(props.path)}
+                workspaceDirectory={props.directory}
+                documentPreview
+                done
+            />
+        </div>
+    );
 }
