@@ -2,6 +2,11 @@
 //! each conversation lands once, in the workspace whose directory it ran in, written a page at a time
 //! and listed only once its last page is in. Recent edits get undo records (`undo`).
 
+#![expect(
+    clippy::too_many_arguments,
+    reason = "parameter structs replace these in the lint pass; remove with it"
+)]
+
 mod map;
 mod settings;
 mod source;

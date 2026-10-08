@@ -74,6 +74,10 @@ pub(crate) fn store_removed_workspaces(store: State<Store>) -> Result<Vec<Worksp
 }
 
 #[tauri::command]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Tauri fills each parameter from the IPC call's named arguments"
+)]
 pub(crate) fn store_add_workspace(
     store: State<Store>,
     importer: State<crate::opencode_import::Importer>,
