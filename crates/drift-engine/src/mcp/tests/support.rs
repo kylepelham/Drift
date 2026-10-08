@@ -12,6 +12,11 @@ pub(super) fn echo_config() -> ServerConfig {
     }
 }
 
+/// The JSON-RPC reply a fake server gives a request for a method it does not serve.
+pub(super) fn method_not_found(id: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "method not found" } })
+}
+
 pub(super) fn engine() -> Arc<crate::Engine> {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let directory = std::env::temp_dir().join(format!("drift-mcp-{}", crate::random_hex(4)));

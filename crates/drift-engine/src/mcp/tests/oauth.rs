@@ -212,6 +212,7 @@ async fn bearer_only(request: axum::extract::Request, next: axum::middleware::Ne
 
 /// Serves authenticated MCP over HTTP and SSE; registers a client only when no app is configured.
 async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
+    use axum::Json;
     use axum::extract::{Path, State as Shared};
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::IntoResponse;
@@ -225,14 +226,14 @@ async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
         let base = base.clone();
         move || {
             let base = base.clone();
-            async move { axum::Json(json!({ "resource": format!("{base}/{path}"), "authorization_servers": [base] })) }
+            async move { Json(json!({ "resource": format!("{base}/{path}"), "authorization_servers": [base] })) }
         }
     };
     let resource_at = {
         let base = base.clone();
         move |Path(path): Path<String>| {
             let base = base.clone();
-            async move { axum::Json(json!({ "resource": format!("{base}/{path}"), "authorization_servers": [base] })) }
+            async move { Json(json!({ "resource": format!("{base}/{path}"), "authorization_servers": [base] })) }
         }
     };
 
@@ -242,8 +243,11 @@ async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
             let base = base.clone();
             async move {
                 let mut metadata = json!({
-                    "issuer": base, "authorization_endpoint": format!("{base}/authorize"), "token_endpoint": format!("{base}/token"),
-                    "response_types_supported": ["code"], "code_challenge_methods_supported": ["S256"],
+                    "issuer": base,
+                    "authorization_endpoint": format!("{base}/authorize"),
+                    "token_endpoint": format!("{base}/token"),
+                    "response_types_supported": ["code"],
+                    "code_challenge_methods_supported": ["S256"],
                     "grant_types_supported": ["authorization_code", "refresh_token"],
                     "token_endpoint_auth_methods_supported": ["none", "client_secret_post", "client_secret_basic"],
                 });
@@ -251,27 +255,37 @@ async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
                     metadata["registration_endpoint"] = json!(format!("{base}/register"));
                 }
 
-                axum::Json(metadata)
+                Json(metadata)
             }
         }
     };
 
     let mcp = post(
-        move |Shared(base): Shared<String>, headers: HeaderMap, axum::Json(message): axum::Json<serde_json::Value>| async move {
+        move |Shared(base): Shared<String>, headers: HeaderMap, Json(message): Json<serde_json::Value>| async move {
             if headers.get("authorization").and_then(|value| value.to_str().ok()) != Some("Bearer good-token") {
                 let challenge = format!("Bearer resource_metadata=\"{base}/.well-known/oauth-protected-resource\"");
                 return (StatusCode::UNAUTHORIZED, [("www-authenticate", challenge)]).into_response();
             }
 
             let result = match message["method"].as_str() {
-            Some("initialize") => json!({ "protocolVersion": "2025-06-18", "capabilities": { "tools": {} }, "serverInfo": { "name": "secure", "version": "0" } }),
-            Some("tools/list") => json!({ "tools": [{ "name": "echo", "inputSchema": { "type": "object" }, "annotations": { "readOnlyHint": true } }] }),
-            Some("tools/call") => json!({ "content": [{ "type": "text", "text": message["params"]["arguments"]["text"] }] }),
-            _ if message.get("id").is_some() => return axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "error": { "code": -32601, "message": "method not found" } })).into_response(),
-            _ => return StatusCode::ACCEPTED.into_response(),
-        };
+                Some("initialize") => json!({
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": { "tools": {} },
+                    "serverInfo": { "name": "secure", "version": "0" }
+                }),
+                Some("tools/list") => json!({ "tools": [{
+                    "name": "echo",
+                    "inputSchema": { "type": "object" },
+                    "annotations": { "readOnlyHint": true }
+                }] }),
+                Some("tools/call") => {
+                    json!({ "content": [{ "type": "text", "text": message["params"]["arguments"]["text"] }] })
+                }
+                _ if message.get("id").is_some() => return Json(method_not_found(&message["id"])).into_response(),
+                _ => return StatusCode::ACCEPTED.into_response(),
+            };
 
-            axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "result": result })).into_response()
+            Json(json!({ "jsonrpc": "2.0", "id": message["id"], "result": result })).into_response()
         },
     );
     let routes = axum::Router::new()
@@ -304,9 +318,11 @@ fn oauth_token_routes(seen: &AuthLog) -> axum::Router<String> {
             seen.lock().unwrap().push("register".into());
             (
                 StatusCode::CREATED,
-                axum::Json(
-                    json!({ "client_id": "drift-test-client", "redirect_uris": body["redirect_uris"], "token_endpoint_auth_method": "none" }),
-                ),
+                axum::Json(json!({
+                    "client_id": "drift-test-client",
+                    "redirect_uris": body["redirect_uris"],
+                    "token_endpoint_auth_method": "none"
+                })),
             )
         })
     };
@@ -336,9 +352,12 @@ fn oauth_token_routes(seen: &AuthLog) -> axum::Router<String> {
                 .unwrap_or_default()
                 .to_string();
             seen.lock().unwrap().push(format!("token {body} {authorization}"));
-            axum::Json(
-                json!({ "access_token": "good-token", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "again" }),
-            )
+            axum::Json(json!({
+                "access_token": "good-token",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "refresh_token": "again"
+            }))
         })
     };
 

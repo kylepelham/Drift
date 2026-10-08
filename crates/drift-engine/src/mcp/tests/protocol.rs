@@ -259,9 +259,16 @@ async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let schema = json!({ "type": "object", "properties": {
-        "text": { "type": "string" }, "region": { "type": "string", "x-mcp-header": "Region" },
+        "text": { "type": "string" },
+        "region": { "type": "string", "x-mcp-header": "Region" },
     } });
-    let tool = |name: &str, read_only: bool| json!({ "name": name, "inputSchema": schema, "annotations": { "readOnlyHint": read_only } });
+    let tool = |name: &str, read_only: bool| {
+        json!({
+            "name": name,
+            "inputSchema": schema,
+            "annotations": { "readOnlyHint": read_only }
+        })
+    };
     let tools = json!([tool("echo", true), tool("flaky", true), tool("risky", false)]);
 
     let handler = {
@@ -290,20 +297,37 @@ async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
                 }
 
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_string();
+                let text = message["params"]["arguments"]["text"].as_str().unwrap_or_default();
                 let result = match rpc.as_str() {
                     "server/discover" => json!({
-                        "resultType": "complete", "supportedVersions": ["2026-07-28"], "capabilities": { "tools": {} },
-                        "ttlMs": 0, "cacheScope": "public", "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "remote", "version": "0" } },
+                        "resultType": "complete",
+                        "supportedVersions": ["2026-07-28"],
+                        "capabilities": { "tools": {} },
+                        "ttlMs": 0,
+                        "cacheScope": "public",
+                        "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "remote", "version": "0" } },
                     }),
-                    "tools/list" => json!({ "resultType": "complete", "tools": tools, "ttlMs": 0, "cacheScope": "public" }),
-                    "tools/call" if name != "echo" && failed.lock().unwrap().insert(name.clone()) => return StatusCode::BAD_GATEWAY.into_response(),
-                    "tools/call" if message["params"]["arguments"]["text"] == "ask" => json!({
-                        "resultType": "input_required", "inputRequests": { "who": { "method": "elicitation/create", "params": {
-                            "message": "Who are you?", "requestedSchema": { "type": "object", "properties": { "name": { "type": "string" } } },
-                        } } }, "requestState": "s",
+                    "tools/list" => {
+                        json!({ "resultType": "complete", "tools": tools, "ttlMs": 0, "cacheScope": "public" })
+                    }
+                    "tools/call" if name != "echo" && failed.lock().unwrap().insert(name.clone()) => {
+                        return StatusCode::BAD_GATEWAY.into_response();
+                    }
+                    "tools/call" if text == "ask" => json!({
+                        "resultType": "input_required",
+                        "inputRequests": { "who": { "method": "elicitation/create", "params": {
+                            "message": "Who are you?",
+                            "requestedSchema": { "type": "object", "properties": { "name": { "type": "string" } } },
+                        } } },
+                        "requestState": "s",
                     }),
-                    "tools/call" => json!({ "resultType": "complete", "content": [{ "type": "text", "text": format!("{name}: {}", message["params"]["arguments"]["text"].as_str().unwrap_or_default()) }] }),
-                    _ if message.get("id").is_some() => return axum::Json(json!({ "jsonrpc": "2.0", "id": message["id"], "error": { "code": -32601, "message": "method not found" } })).into_response(),
+                    "tools/call" => {
+                        let content = json!([{ "type": "text", "text": format!("{name}: {text}") }]);
+                        json!({ "resultType": "complete", "content": content })
+                    }
+                    _ if message.get("id").is_some() => {
+                        return axum::Json(method_not_found(&message["id"])).into_response();
+                    }
                     _ => return StatusCode::ACCEPTED.into_response(),
                 };
 
