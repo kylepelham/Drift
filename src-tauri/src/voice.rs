@@ -110,11 +110,10 @@ fn vulkan_ready() -> bool {
 }
 
 pub(crate) fn whisper_binary() -> Option<PathBuf> {
-    if vulkan_ready() {
-        if let Some(accelerated) = sidecar("whisper-cli-vulkan") {
+    if vulkan_ready()
+        && let Some(accelerated) = sidecar("whisper-cli-vulkan") {
             return Some(accelerated);
         }
-    }
     sidecar("whisper-cli")
 }
 

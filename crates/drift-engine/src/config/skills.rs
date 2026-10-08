@@ -143,11 +143,10 @@ fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
         let mut content = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut content).map_err(|error| error.to_string())?;
         std::fs::write(&target, content).map_err(|error| format!("could not write {}: {error}", target.display()))?;
-        if relative.file_name().is_some_and(|name| name == "SKILL.md") {
-            if let Some(skill) = relative.parent().and_then(Path::file_name) {
+        if relative.file_name().is_some_and(|name| name == "SKILL.md")
+            && let Some(skill) = relative.parent().and_then(Path::file_name) {
                 skills.push(skill.to_string_lossy().into_owned());
             }
-        }
     }
     if skills.is_empty() {
         let _ = std::fs::remove_dir_all(into);
@@ -183,11 +182,10 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
         let mut content = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut content).map_err(|error| error.to_string())?;
         std::fs::write(&target, content).map_err(|error| format!("could not write {}: {error}", target.display()))?;
-        if relative.file_name().is_some_and(|name| name == "SKILL.md") {
-            if let Some(skill) = relative.parent().and_then(Path::file_name) {
+        if relative.file_name().is_some_and(|name| name == "SKILL.md")
+            && let Some(skill) = relative.parent().and_then(Path::file_name) {
                 skills.push(skill.to_string_lossy().into_owned());
             }
-        }
     }
     if skills.is_empty() {
         let _ = std::fs::remove_dir_all(into);

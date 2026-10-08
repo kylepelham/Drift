@@ -19,11 +19,10 @@ pub fn referenced_skill(template: &str) -> Option<String> {
     let mut found: Vec<String> = Vec::new();
     for (at, _) in template.match_indices("skill") {
         let boundary = template[..at].chars().next_back().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
-        if let Some(name) = call_name(&template[at + "skill".len()..]).filter(|_| boundary) {
-            if !found.contains(&name) {
+        if let Some(name) = call_name(&template[at + "skill".len()..]).filter(|_| boundary)
+            && !found.contains(&name) {
                 found.push(name);
             }
-        }
     }
     (found.len() == 1).then(|| found.remove(0))
 }

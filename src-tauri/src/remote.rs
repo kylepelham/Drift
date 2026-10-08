@@ -169,11 +169,10 @@ impl RemoteAccess {
     }
 
     pub(crate) fn stop_on_exit(&self) {
-        if let Ok(running) = self.running.try_lock() {
-            if let Some(running) = running.as_ref() {
+        if let Ok(running) = self.running.try_lock()
+            && let Some(running) = running.as_ref() {
                 let _ = running.shutdown.send(true);
             }
-        }
     }
 
     async fn status(&self) -> RemoteStatus {

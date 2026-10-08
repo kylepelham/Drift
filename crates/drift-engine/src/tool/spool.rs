@@ -76,11 +76,10 @@ impl Spool {
         let excess = self.tail.len().saturating_sub(TAIL_BYTES);
         self.tail.drain(..excess);
         let room = MAX_SPOOLED_BYTES.saturating_sub(self.written).min(bytes.len() as u64) as usize;
-        if let Some(file) = &mut self.file {
-            if room > 0 && file.write_all(&bytes[..room]).is_ok() {
+        if let Some(file) = &mut self.file
+            && room > 0 && file.write_all(&bytes[..room]).is_ok() {
                 self.written += room as u64;
             }
-        }
     }
 
     /// The last `max` bytes so far, for showing while the command still runs; cut text starts `...`.

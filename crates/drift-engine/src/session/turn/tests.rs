@@ -647,11 +647,10 @@ async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() 
     h.engine.submit(&h.session.id, prompt("wait")).await.await_ok();
     let running = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(3), rx.recv()).await.unwrap().unwrap();
-        if let Event::PartUpdated { part } = envelope.event {
-            if let Part::ToolCall { status: ToolStatus::Running, metadata, .. } = part.part {
+        if let Event::PartUpdated { part } = envelope.event
+            && let Part::ToolCall { status: ToolStatus::Running, metadata, .. } = part.part {
                 break metadata;
             }
-        }
     };
     assert_eq!(running.unwrap()["shellTimeoutMs"], 400, "the badge has the limit while the command runs");
     until_idle(&h).await;
@@ -973,11 +972,22 @@ async fn failed_admission_releases_the_session_and_submission_ids_replay() {
     until_idle(&h).await;
 }
 
-/// One fake token endpoint at a time, since they share `DRIFT_ANTHROPIC_TOKEN_URL`.
+/// One fake token endpoint at a time, since they share `oauth::TEST_TOKEN_URL`.
 static TOKEN_ENDPOINT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// Holds the fake endpoint for one test; dropping it points the engine back at the real one.
+struct FakeTokenEndpoint {
+    _turn: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl Drop for FakeTokenEndpoint {
+    fn drop(&mut self) {
+        *crate::llm::anthropic::oauth::TEST_TOKEN_URL.lock().unwrap() = None;
+    }
+}
+
 /// A slow Anthropic token endpoint answering every refresh with `status` and `body`; counts the refreshes.
-async fn token_endpoint(status: u16, body: serde_json::Value) -> (tokio::sync::MutexGuard<'static, ()>, Arc<std::sync::atomic::AtomicUsize>) {
+async fn token_endpoint(status: u16, body: serde_json::Value) -> (FakeTokenEndpoint, Arc<std::sync::atomic::AtomicUsize>) {
     let held = TOKEN_ENDPOINT.lock().await;
     let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counter = hits.clone();
@@ -993,9 +1003,9 @@ async fn token_endpoint(status: u16, body: serde_json::Value) -> (tokio::sync::M
         }),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    std::env::set_var("DRIFT_ANTHROPIC_TOKEN_URL", format!("http://{}/token", listener.local_addr().unwrap()));
+    *crate::llm::anthropic::oauth::TEST_TOKEN_URL.lock().unwrap() = Some(format!("http://{}/token", listener.local_addr().unwrap()));
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (held, hits)
+    (FakeTokenEndpoint { _turn: held }, hits)
 }
 
 fn signed_in(h: &Harness, access: &str) {
@@ -1014,7 +1024,6 @@ async fn a_refused_sign_in_is_renewed_once_and_the_request_sent_again() {
     until_idle(&h).await;
     h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
     until_idle(&h).await;
-    std::env::remove_var("DRIFT_ANTHROPIC_TOKEN_URL");
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     assert_eq!(transcript.len(), 4, "the refusal leaves no failed reply behind");
     assert!(transcript.iter().all(|m| m.info.error.is_none()));
@@ -1030,7 +1039,6 @@ async fn a_sign_in_that_cannot_be_renewed_says_it_expired() {
     h.provider.push_error(llm::Error::Unauthenticated("OAuth token has expired.".into()));
     h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
     until_idle(&h).await;
-    std::env::remove_var("DRIFT_ANTHROPIC_TOKEN_URL");
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let error = transcript[1].info.error.clone().unwrap();
     assert!(error.starts_with("the provider refused the credentials: OAuth token has expired."), "{error}");
@@ -1050,7 +1058,6 @@ async fn concurrent_turns_refresh_an_expired_token_once() {
     first.await_ok();
     second.await_ok();
     until_idle(&h).await;
-    std::env::remove_var("DRIFT_ANTHROPIC_TOKEN_URL");
     assert_eq!(hits.load(Ordering::SeqCst), 1, "one refresh for two turns");
     let stored = h.engine.credentials.get("anthropic").unwrap();
     assert!(matches!(stored, Credential::OAuth { access, refresh, .. } if access == "fresh" && refresh == "r2"));
@@ -2120,13 +2127,11 @@ async fn a_running_command_shows_its_output_before_it_ends() {
     let shown = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             let envelope = events.recv().await.unwrap();
-            if let Event::PartUpdated { part } = envelope.event {
-                if let Part::ToolCall { status: ToolStatus::Running, metadata: Some(metadata), .. } = part.part {
-                    if metadata["output"].as_str().is_some_and(|out| out.contains("early")) {
+            if let Event::PartUpdated { part } = envelope.event
+                && let Part::ToolCall { status: ToolStatus::Running, metadata: Some(metadata), .. } = part.part
+                    && metadata["output"].as_str().is_some_and(|out| out.contains("early")) {
                         return metadata;
                     }
-                }
-            }
         }
     })
     .await

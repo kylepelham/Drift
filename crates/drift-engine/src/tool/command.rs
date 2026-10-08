@@ -190,11 +190,10 @@ fn canonical_words(dialect: Dialect, words: &[String]) -> Vec<String> {
     let assignment = |word: &str| word.split_once('=').is_some_and(|(name, _)| !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') && !name.starts_with(|c: char| c.is_ascii_digit()));
     let skip = if dialect == Dialect::Bash { words.iter().take_while(|w| assignment(w)).count() } else { 0 };
     let mut words: Vec<String> = words[skip..].to_vec();
-    if let (Dialect::PowerShell, Some(first)) = (dialect, words.first_mut()) {
-        if let Some((_, cmdlet)) = POWERSHELL_ALIASES.iter().find(|(alias, _)| alias.eq_ignore_ascii_case(first)) {
+    if let (Dialect::PowerShell, Some(first)) = (dialect, words.first_mut())
+        && let Some((_, cmdlet)) = POWERSHELL_ALIASES.iter().find(|(alias, _)| alias.eq_ignore_ascii_case(first)) {
             *first = (*cmdlet).to_string();
         }
-    }
     words
 }
 

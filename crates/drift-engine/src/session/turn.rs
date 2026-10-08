@@ -387,11 +387,10 @@ impl Engine {
 
     async fn admit_once(self: &Arc<Self>, session_id: &str, prompt: Prompt, how: Admission<'_>) -> Result<Receipt, TurnError> {
         let payload_hash = payload_hash(&prompt);
-        if let Some(id) = prompt.submission_id.as_deref() {
-            if let Some(receipt) = self.replayed_receipt(id, session_id, &payload_hash)? {
+        if let Some(id) = prompt.submission_id.as_deref()
+            && let Some(receipt) = self.replayed_receipt(id, session_id, &payload_hash)? {
                 return Ok(receipt);
             }
-        }
         // Claimed before planning: the plan captures the workspace, so a move must not slip in while it resolves.
         let abort = how.parent.map_or_else(CancellationToken::new, CancellationToken::child_token);
         if abort.is_cancelled() {
@@ -1189,11 +1188,10 @@ impl Engine {
             return self.store.transcript(session_id).ok();
         }
         // A tail kept from inside a turn brings that turn's prompt along, alone, for the view to quote.
-        if window.first().is_some_and(|first| first.info.role == Role::Assistant) {
-            if let Ok(Some(prompt)) = self.store.prompt_before(session_id, &start) {
+        if window.first().is_some_and(|first| first.info.role == Role::Assistant)
+            && let Ok(Some(prompt)) = self.store.prompt_before(session_id, &start) {
                 window.insert(0, prompt);
             }
-        }
         Some(window)
     }
 

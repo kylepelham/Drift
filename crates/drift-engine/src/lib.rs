@@ -436,11 +436,10 @@ impl Engine {
     /// The catalog as the current credentials see it: a ChatGPT sign-in offers only what the Codex backend takes.
     pub fn catalog_view(&self) -> Catalog {
         let mut catalog = self.catalog.read().unwrap().clone();
-        if let Some(openai) = catalog.providers.get_mut("openai") {
-            if matches!(self.credentials.resolve("openai", &openai.env), Some(llm::Credential::OAuth { .. })) {
+        if let Some(openai) = catalog.providers.get_mut("openai")
+            && matches!(self.credentials.resolve("openai", &openai.env), Some(llm::Credential::OAuth { .. })) {
                 llm::openai::codex::shape(openai);
             }
-        }
         catalog
     }
 

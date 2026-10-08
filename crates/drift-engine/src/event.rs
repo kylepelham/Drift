@@ -130,11 +130,10 @@ impl Hub {
         let seq = ring.next_seq;
         ring.next_seq += 1;
         let envelope = Envelope { seq, event };
-        if ring.events.len() == ring.capacity {
-            if let Some(dropped) = ring.events.pop_front() {
+        if ring.events.len() == ring.capacity
+            && let Some(dropped) = ring.events.pop_front() {
                 ring.evicted = dropped.seq;
             }
-        }
         ring.events.push_back(envelope.clone());
         let _ = self.tx.send(envelope);
         seq

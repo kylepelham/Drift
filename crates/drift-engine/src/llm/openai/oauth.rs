@@ -121,10 +121,10 @@ pub fn account_id(jwt: &str) -> Option<String> {
     let payload = jwt.split('.').nth(1)?;
     let bytes = base64url_decode(payload)?;
     let claims: Value = serde_json::from_slice(&bytes).ok()?;
-    let found = [&claims["chatgpt_account_id"], &claims["https://api.openai.com/auth"]["chatgpt_account_id"], &claims["organizations"][0]["id"]]
+    
+    [&claims["chatgpt_account_id"], &claims["https://api.openai.com/auth"]["chatgpt_account_id"], &claims["organizations"][0]["id"]]
         .iter()
-        .find_map(|v| v.as_str().map(str::to_string));
-    found
+        .find_map(|v| v.as_str().map(str::to_string))
 }
 
 fn parse_query(query: &str) -> HashMap<String, String> {

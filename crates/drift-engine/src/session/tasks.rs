@@ -375,11 +375,10 @@ impl Engine {
     pub async fn deliver(self: &Arc<Self>, task_id: &str) {
         while self.workers.claim(task_id, Claimant::Automatic) {
             // Read after claiming: a call may have taken it just before.
-            if let Ok(Some(task)) = self.store.task(task_id) {
-                if !task.delivered && !task.held && task.state.is_terminal() && task.mode == Mode::Background {
+            if let Ok(Some(task)) = self.store.task(task_id)
+                && !task.delivered && !task.held && task.state.is_terminal() && task.mode == Mode::Background {
                     self.deliver_claimed(&task).await;
                 }
-            }
             // A trigger that found it claimed while this attempt failed is not lost: it is tried once more here.
             if !self.workers.release_where_task(task_id, &Claimant::Automatic) {
                 return;

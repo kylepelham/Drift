@@ -301,11 +301,12 @@ mod tests {
     fn env_var_is_the_fallback() {
         let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
         let store = Credentials::in_file(path);
-        let name = format!("DRIFT_TEST_KEY_{}", crate::random_hex(2));
-        assert!(store.resolve("x", std::slice::from_ref(&name)).is_none());
-        std::env::set_var(&name, "from-env");
-        assert_eq!(store.resolve("x", std::slice::from_ref(&name)), Some(Credential::ApiKey { key: "from-env".into() }));
-        std::env::remove_var(&name);
+        let unset = format!("DRIFT_TEST_KEY_{}", crate::random_hex(2));
+        assert!(store.resolve("x", std::slice::from_ref(&unset)).is_none());
+
+        // PATH is always set, so the fallback is tested without changing the process environment.
+        let path_value = std::env::var("PATH").unwrap();
+        assert_eq!(store.resolve("x", &["PATH".to_string()]), Some(Credential::ApiKey { key: path_value }));
     }
 }
 

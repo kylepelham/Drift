@@ -330,11 +330,10 @@ impl Catalog {
     /// The cached download if it is fresh, else the bundled snapshot.
     pub fn load(data_dir: &Path) -> Self {
         let cache = cache_path(data_dir);
-        if Self::cache_is_fresh(data_dir) {
-            if let Ok(catalog) = std::fs::read_to_string(&cache).map_err(drop).and_then(|text| Self::parse(&text).map_err(drop)) {
+        if Self::cache_is_fresh(data_dir)
+            && let Ok(catalog) = std::fs::read_to_string(&cache).map_err(drop).and_then(|text| Self::parse(&text).map_err(drop)) {
                 return catalog;
             }
-        }
         Self::bundled()
     }
 

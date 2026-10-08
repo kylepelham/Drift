@@ -282,11 +282,10 @@ impl Permissions {
             None => kept.clear(),
         }
         let removed = kept.len() != before;
-        if removed {
-            if let Some(saver) = self.saver.get() {
+        if removed
+            && let Some(saver) = self.saver.get() {
                 saver(workspace_id, kept);
             }
-        }
         removed
     }
 

@@ -87,11 +87,10 @@ pub fn forget(credentials: &Credentials, server: &str) -> Result<(), String> {
 
 /// Keeps a renamed server's sign-in under its new name.
 pub fn move_sign_in(credentials: &Credentials, from: &str, to: &str) {
-    if let Some(kept) = credentials.secret(&key(from)) {
-        if credentials.set_secret(&key(to), &kept).is_ok() {
+    if let Some(kept) = credentials.secret(&key(from))
+        && credentials.set_secret(&key(to), &kept).is_ok() {
             let _ = forget(credentials, from);
         }
-    }
 }
 
 /// Forgets a sign-in when a save points the server at another URL or app, so its tokens never reach a different host or client.

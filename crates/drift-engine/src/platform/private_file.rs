@@ -91,18 +91,31 @@ unsafe fn token_sid(token: windows_sys::Win32::Foundation::HANDLE) -> io::Result
     use windows_sys::Win32::Foundation::LocalFree;
     use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
     use windows_sys::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_USER};
-    let mut length = 0;
-    GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut length);
-    let mut buffer = vec![0usize; (length as usize).div_ceil(std::mem::size_of::<usize>())];
-    if GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), length, &mut length) == 0 { return Err(io::Error::last_os_error()); }
-    let sid = (*(buffer.as_ptr().cast::<TOKEN_USER>())).User.Sid;
-    let mut text = std::ptr::null_mut();
-    if ConvertSidToStringSidW(sid, &mut text) == 0 { return Err(io::Error::last_os_error()); }
-    let mut count = 0;
-    while *text.add(count) != 0 { count += 1; }
-    let result = String::from_utf16_lossy(std::slice::from_raw_parts(text, count));
-    LocalFree(text.cast());
-    Ok(result)
+
+    // SAFETY: the caller passes an open token handle; the buffer is sized by the first call and aligned for
+    // TOKEN_USER, and the SID string is read up to its NUL terminator before LocalFree releases it.
+    unsafe {
+        let mut length = 0;
+        GetTokenInformation(token, TokenUser, std::ptr::null_mut(), 0, &mut length);
+        let mut buffer = vec![0usize; (length as usize).div_ceil(std::mem::size_of::<usize>())];
+        if GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), length, &mut length) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let sid = (*(buffer.as_ptr().cast::<TOKEN_USER>())).User.Sid;
+        let mut text = std::ptr::null_mut();
+        if ConvertSidToStringSidW(sid, &mut text) == 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let mut count = 0;
+        while *text.add(count) != 0 {
+            count += 1;
+        }
+        let result = String::from_utf16_lossy(std::slice::from_raw_parts(text, count));
+        LocalFree(text.cast());
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

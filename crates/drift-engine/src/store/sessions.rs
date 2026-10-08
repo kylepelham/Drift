@@ -603,17 +603,15 @@ impl Store {
         let conn = self.lock();
         let Handover { delivery, held } = handover;
         transaction(&conn, |conn| {
-            if let Some((id, hash)) = submission {
-                if let Some(earlier) = submission_in(conn, id)? {
+            if let Some((id, hash)) = submission
+                && let Some(earlier) = submission_in(conn, id)? {
                     let same = earlier.session_id == session_id && earlier.payload_hash == hash;
                     return Ok(if same { Admit::Replayed { message_id: earlier.message_id } } else { Admit::Conflict });
                 }
-            }
-            if let Some(task_id) = delivery {
-                if !super::tasks::acknowledge(conn, task_id, session_id)? {
+            if let Some(task_id) = delivery
+                && !super::tasks::acknowledge(conn, task_id, session_id)? {
                     return Ok(Admit::Delivered);
                 }
-            }
             let carried = held_parts(conn, session_id, held)?;
             admit_in(conn, session_id, pick, carried.into_iter().chain(parts).collect(), submission).map(|admitted| Admit::New(Box::new(admitted)))
         })

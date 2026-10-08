@@ -82,11 +82,10 @@ pub fn resolve(overrides: &BTreeMap<String, FormatterConfig>) -> Vec<Formatter> 
         });
     }
     for (name, config) in overrides {
-        if let FormatterConfig::Custom { command, extensions } = config {
-            if !out.iter().any(|f| &f.name == name) {
+        if let FormatterConfig::Custom { command, extensions } = config
+            && !out.iter().any(|f| &f.name == name) {
                 out.push(Formatter::custom(name, command, extensions));
             }
-        }
     }
     out
 }

@@ -167,11 +167,10 @@ pub async fn connect_route(State(engine): State<Arc<Engine>>, Path(name): Path<S
         engine.store.set_mcp_choice(&name, id, true)?;
     }
     // A stdio server with no workspace to run in is refused; any other failure shows on the status.
-    if let Err(why) = engine.connect_mcp_in(&name, workspace_path(&engine, query.workspace.as_deref()).as_deref()).await {
-        if why == crate::mcp::NEEDS_WORKSPACE {
+    if let Err(why) = engine.connect_mcp_in(&name, workspace_path(&engine, query.workspace.as_deref()).as_deref()).await
+        && why == crate::mcp::NEEDS_WORKSPACE {
             return Err(ApiError::new(StatusCode::CONFLICT, "workspace", why));
         }
-    }
     status(&engine, &name)
 }
 

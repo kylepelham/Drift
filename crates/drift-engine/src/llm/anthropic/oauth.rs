@@ -10,9 +10,17 @@ const AUTHORIZE_CONSOLE: &str = "https://platform.claude.com/oauth/authorize";
 const REDIRECT_URI: &str = "https://platform.claude.com/oauth/code/callback";
 const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 
-/// Tests point the token endpoint at a fake through DRIFT_ANTHROPIC_TOKEN_URL.
+/// A fake token endpoint for the engine's own tests; release builds always use `TOKEN_URL`.
+#[cfg(test)]
+pub(crate) static TEST_TOKEN_URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
 fn token_url() -> String {
-    std::env::var("DRIFT_ANTHROPIC_TOKEN_URL").unwrap_or_else(|_| TOKEN_URL.into())
+    #[cfg(test)]
+    if let Some(url) = TEST_TOKEN_URL.lock().unwrap().clone() {
+        return url;
+    }
+
+    TOKEN_URL.into()
 }
 const SCOPES: &str = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
 /// The token endpoint checks this; it is what the reference client sends.

@@ -1202,11 +1202,10 @@ async fn start(config: &ServerConfig, sign_in: SignIn<'_>, known: Option<Era>, w
             if let Some(token) = match sign_in.credentials {
                 Some(credentials) => oauth::signed_in_token(credentials, sign_in.server, url, app.as_ref()).await,
                 None => None,
-            } {
-                if let Ok(value) = format!("Bearer {token}").parse() {
+            }
+                && let Ok(value) = format!("Bearer {token}").parse() {
                     headers.insert(http::header::AUTHORIZATION, value);
                 }
-            }
             let transport = sse::SseTransport::connect(crate::llm::http::client(), url, headers).await?;
             Ok((DriftClient::rooted(None).serve_with_lifecycle(transport, ClientLifecycleMode::Initialize).await?, None))
         }

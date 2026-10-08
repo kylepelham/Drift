@@ -591,8 +591,8 @@ mod tests {
         let progress = Progress::new(move |_| record.lock().unwrap().push(std::time::Instant::now()));
         let mut spool = Spool::new(None);
         collect(&mut child, &mut spool, &progress).await;
-        let times = shown.lock().unwrap().clone();
-        times
+        
+        shown.lock().unwrap().clone()
     }
 
     #[tokio::test]

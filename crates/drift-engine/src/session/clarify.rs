@@ -74,11 +74,10 @@ impl Engine {
     fn save_without_turn(&self, session_id: &str, prompt: Prompt) -> Result<(), AnswerError> {
         let hash = super::turn::payload_hash(&prompt);
         let submission = prompt.submission_id.as_deref().map(|id| (id, hash.as_str()));
-        if let Some((id, hash)) = submission {
-            if self.replayed_receipt(id, session_id, hash)?.is_some() {
+        if let Some((id, hash)) = submission
+            && self.replayed_receipt(id, session_id, hash)?.is_some() {
                 return Ok(());
             }
-        }
         let session = self.store.session(session_id).map_err(TurnError::from)?.ok_or(TurnError::NoSession)?;
         let model = session.model.ok_or(TurnError::NoModel)?;
         match self.admit_fenced(session_id, crate::store::Pick::model(&model), prompt.parts, submission, None, None) {

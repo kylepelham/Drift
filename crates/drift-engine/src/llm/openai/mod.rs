@@ -246,11 +246,10 @@ impl StreamState {
             }
             "function_call" => {
                 let mut out = Vec::new();
-                if !self.calls_with_deltas.remove(id) {
-                    if let Some(arguments) = item["arguments"].as_str().filter(|a| !a.is_empty()) {
+                if !self.calls_with_deltas.remove(id)
+                    && let Some(arguments) = item["arguments"].as_str().filter(|a| !a.is_empty()) {
                         out.push(Chunk::ToolInputDelta(arguments.into()));
                     }
-                }
                 out.push(Chunk::BlockStop);
                 out
             }

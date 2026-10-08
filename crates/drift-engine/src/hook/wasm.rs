@@ -479,14 +479,15 @@ pub(super) mod tests {
         std::fs::create_dir_all(&workspace).unwrap();
         let runtime = Runtime::new(&cache).unwrap();
         let mut site = site();
-        site.config = serde_json::json!({ "test": ["node", "-e", "process.exit(Number(process.env.FAIL_TESTS || 0))"] });
+        let failing = workspace.join("tests-fail");
+        let fails_when_marked = "process.exit(require('fs').existsSync(process.argv[1]) ? 1 : 0)";
+        site.config = serde_json::json!({ "test": ["node", "-e", fails_when_marked, failing.to_string_lossy()] });
         let plugin = runtime.load(&path, site).await.unwrap();
         let reply = |text: &str| ReplyEvent { session_id: "s1".into(), workspace: workspace.to_string_lossy().into_owned(), agent: "build".into(), text: text.into() };
         assert_eq!(plugin.turn_end(&reply("Changed nothing.")).await, TurnEnd::Accept, "a reply without the trigger runs nothing");
         assert_eq!(plugin.turn_end(&reply("Done. @guard test")).await, TurnEnd::Note("tests passed".into()));
-        std::env::set_var("FAIL_TESTS", "1");
+        std::fs::write(&failing, "").unwrap();
         let outcome = plugin.turn_end(&reply("Done. @guard test")).await;
-        std::env::remove_var("FAIL_TESTS");
         assert!(matches!(&outcome, TurnEnd::Continue(reason) if reason.contains("exit code 1")), "{outcome:?}");
         let prompt = PromptEvent { session_id: "s1".into(), workspace: workspace.to_string_lossy().into_owned(), agent: "build".into(), text: "hello".into() };
         assert_eq!(plugin.prompt_submit(&prompt).await, PromptSubmit::Keep);
