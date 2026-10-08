@@ -1,7 +1,8 @@
-import { createSignal } from "solid-js"
-import { backendInvoke } from "../backend"
 import { shellEvents, type ShellInvoke } from "../shell"
+import { backendInvoke } from "../backend"
+import { createSignal } from "solid-js"
 import { t } from "../state/i18n"
+
 import type { DictationModel } from "../state/voice"
 
 export type VoiceModelInfo = { id: DictationModel; bytes: number; installed: boolean }

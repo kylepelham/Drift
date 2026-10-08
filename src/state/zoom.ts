@@ -1,6 +1,6 @@
+import { createLatestOnly } from "./latest"
 import { shellWebview } from "../shell"
 import { onKeybind } from "./keybinds"
-import { createLatestOnly } from "./latest"
 import { persisted } from "./persist"
 
 const [zoom, setZoom] = persisted<number>("drift.zoom", 1)
@@ -12,8 +12,7 @@ const zoomStep = 0.1
 // Zoom is kept to one decimal so repeated steps do not accumulate floating point drift.
 const zoomPrecision = 10
 
-const clamp = (value: number) =>
-  Math.min(maxZoom, Math.max(minZoom, Math.round(value * zoomPrecision) / zoomPrecision))
+const clamp = (value: number) => Math.min(maxZoom, Math.max(minZoom, Math.round(value * zoomPrecision) / zoomPrecision))
 
 // Viewport units ignore CSS zoom, so the dvh-sized remote shell divides by this factor to keep the
 // zoomed layout exactly one viewport large. Percentage sizing needs no correction.

@@ -1,8 +1,8 @@
 // Drives a real drift-engined over HTTP and WS against a fake Anthropic that replays recorded streams.
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
-import os from "node:os"
-import path from "node:path"
 import { randomBytes } from "node:crypto"
+import path from "node:path"
+import os from "node:os"
 
 const root = path.resolve(import.meta.dir, "../..")
 const binary = path.join(root, "target", "debug", process.platform === "win32" ? "drift-engined.exe" : "drift-engined")
@@ -16,9 +16,13 @@ export function fixture(name: string) {
   return readFileSync(path.join(import.meta.dir, "fixtures", `${name}.sse`), "utf8")
 }
 
-const event = (type: string, data: Record<string, unknown>) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
-const opening = event("message_start", { message: { id: "msg_s", role: "assistant", content: [], usage: { input_tokens: 5, output_tokens: 1 } } })
-const closing = (stop: string) => event("message_delta", { delta: { stop_reason: stop }, usage: { output_tokens: 3 } }) + event("message_stop", {})
+const event = (type: string, data: Record<string, unknown>) =>
+  `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`
+const opening = event("message_start", {
+  message: { id: "msg_s", role: "assistant", content: [], usage: { input_tokens: 5, output_tokens: 1 } },
+})
+const closing = (stop: string) =>
+  event("message_delta", { delta: { stop_reason: stop }, usage: { output_tokens: 3 } }) + event("message_stop", {})
 
 /** Streams built on the spot: a plain reply, and one tool call. */
 export const sse = {
@@ -30,8 +34,14 @@ export const sse = {
     closing("end_turn"),
   toolUse: (name: string, input: Record<string, unknown>) =>
     opening +
-    event("content_block_start", { index: 0, content_block: { type: "tool_use", id: `toolu_${name}`, name, input: {} } }) +
-    event("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } }) +
+    event("content_block_start", {
+      index: 0,
+      content_block: { type: "tool_use", id: `toolu_${name}`, name, input: {} },
+    }) +
+    event("content_block_delta", {
+      index: 0,
+      delta: { type: "input_json_delta", partial_json: JSON.stringify(input) },
+    }) +
     event("content_block_stop", { index: 0 }) +
     closing("tool_use"),
 }
@@ -57,7 +67,10 @@ export function fakeAnthropic() {
       if (new URL(request.url).pathname !== "/v1/messages") return new Response("not found", { status: 404 })
       const body = (await request.json()) as Record<string, unknown>
       seen.push({ headers: Object.fromEntries(request.headers.entries()), body })
-      const next = take(body) ?? { status: 500, body: JSON.stringify({ error: { type: "api_error", message: "fake ran out of responses" } }) }
+      const next = take(body) ?? {
+        status: 500,
+        body: JSON.stringify({ error: { type: "api_error", message: "fake ran out of responses" } }),
+      }
       if (next.delayMs) await new Promise((resolve) => setTimeout(resolve, next.delayMs))
       const status = next.status ?? 200
       const type = status === 200 ? "text/event-stream" : "application/json"
@@ -84,7 +97,10 @@ export function fakeAnthropic() {
 export type Engine = Awaited<ReturnType<typeof startEngine>>
 const credentialKeys = new Map<string, string>()
 
-export async function startEngine(providerUrl: string, dataDir = mkdtempSync(path.join(os.tmpdir(), "drift-conformance-"))) {
+export async function startEngine(
+  providerUrl: string,
+  dataDir = mkdtempSync(path.join(os.tmpdir(), "drift-conformance-")),
+) {
   const credentialKey = credentialKeys.get(dataDir) ?? randomBytes(32).toString("base64")
   credentialKeys.set(dataDir, credentialKey)
   const proc = Bun.spawn([binary, "--data-dir", dataDir, "--file-credentials"], {
@@ -95,7 +111,11 @@ export async function startEngine(providerUrl: string, dataDir = mkdtempSync(pat
   const { url, token } = await readTarget(proc.stdout)
   const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" }
   const call = async <T>(method: string, route: string, body?: unknown): Promise<{ status: number; json: T }> => {
-    const response = await fetch(`${url}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
+    const response = await fetch(`${url}${route}`, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
     const json = (await response.json().catch(() => null)) as T
     return { status: response.status, json }
   }
@@ -110,7 +130,11 @@ export async function startEngine(providerUrl: string, dataDir = mkdtempSync(pat
       await call("PUT", "/providers/anthropic/key", { key: "sk-conformance" })
       const ws = await call<{ id: string }>("POST", "/workspaces", { path: workspace, name: "ws" })
       // Titled, so the background title request stays out of the recorded exchanges.
-      const session = await call<{ id: string }>("POST", "/sessions", { workspaceId: ws.json.id, model, title: "Conformance" })
+      const session = await call<{ id: string }>("POST", "/sessions", {
+        workspaceId: ws.json.id,
+        model,
+        title: "Conformance",
+      })
       return session.json.id
     },
     events(cursor?: number) {
@@ -145,7 +169,9 @@ export type Frame = Record<string, unknown> & { type: string; seq?: number }
 function openEvents(url: string, token: string, cursor?: number) {
   const frames: Frame[] = []
   const waiters: ((frame: Frame) => void)[] = []
-  const socket = new WebSocket(`${url.replace(/^http/, "ws")}/events?token=${token}${cursor === undefined ? "" : `&cursor=${cursor}`}`)
+  const socket = new WebSocket(
+    `${url.replace(/^http/, "ws")}/events?token=${token}${cursor === undefined ? "" : `&cursor=${cursor}`}`,
+  )
   socket.onmessage = (message) => {
     const frame = JSON.parse(String(message.data)) as Frame
     frames.push(frame)
@@ -164,7 +190,10 @@ function openEvents(url: string, token: string, cursor?: number) {
       const found = frames.find(predicate)
       if (found) return found
       return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error(`no frame matched within ${timeoutMs}ms; saw ${frames.map((f) => f.type).join(",")}`)), timeoutMs)
+        const timer = setTimeout(
+          () => reject(new Error(`no frame matched within ${timeoutMs}ms; saw ${frames.map((f) => f.type).join(",")}`)),
+          timeoutMs,
+        )
         const check = (frame: Frame) => {
           if (predicate(frame)) {
             clearTimeout(timer)

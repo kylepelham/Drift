@@ -1,6 +1,10 @@
+import { loadRegistrySources, registrySources, sourcesOf } from "../state/registry-sources"
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
+import { RegistrySourcesSheet } from "./registry-sources"
+import { openExternal } from "../shell"
+import { LogoTile } from "./logo-tile"
 import { useEngine } from "../engine"
-import type { PluginInfo } from "../engine/native/client"
+import { Toggle } from "./controls"
 import { t } from "../state/i18n"
 import {
   buildConfig,
@@ -14,12 +18,18 @@ import {
   type RegistryFailure,
   type RegistryPlugin,
 } from "../state/plugin-registry"
-import { loadRegistrySources, registrySources, sourcesOf } from "../state/registry-sources"
-import { openExternal } from "../shell"
-import { Toggle } from "./controls"
-import { IconArrowUp, IconArrowUpRight, IconCheck, IconPlus, IconSearch, IconSliders, IconSquarePen, IconTrash } from "./icons"
-import { LogoTile } from "./logo-tile"
-import { RegistrySourcesSheet } from "./registry-sources"
+import {
+  IconArrowUp,
+  IconArrowUpRight,
+  IconCheck,
+  IconPlus,
+  IconSearch,
+  IconSliders,
+  IconSquarePen,
+  IconTrash,
+} from "./icons"
+
+import type { PluginInfo } from "../engine/native/client"
 
 type View = "installed" | "registry"
 const configFile = "~/.config/drift/drift.json"
@@ -56,7 +66,17 @@ export function PluginsSection() {
 
   const install = async (plugin: RegistryPlugin, config: Record<string, unknown>) => {
     setBusy(plugin.id)
-    const done = await run(() => engine.actions.installPlugin({ id: plugin.id, url: plugin.download, sha256: plugin.sha256, config, registry: plugin.sourceId }), t("drift.plugins.installed.one", { name: plugin.name }))
+    const done = await run(
+      () =>
+        engine.actions.installPlugin({
+          id: plugin.id,
+          url: plugin.download,
+          sha256: plugin.sha256,
+          config,
+          registry: plugin.sourceId,
+        }),
+      t("drift.plugins.installed.one", { name: plugin.name }),
+    )
     setBusy("")
     if (done) setView("installed")
     return done
@@ -72,15 +92,23 @@ export function PluginsSection() {
   // Installed rows show the registry's picture and edit with its fields, for the plugin at their path.
   const [known, setKnown] = createSignal<Record<string, RegistryPlugin>>({})
   onMount(() => {
-    void loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) })
+    void loadRegistrySources({
+      settings: () => engine.actions.engineSettings(),
+      putSettings: (body) => engine.actions.putEngineSettings(body),
+    })
       .catch(() => undefined)
       .then(() => loadRegistries(sourcesOf("plugins"), false, (id) => engine.actions.fetchRegistry(id)))
-      .then((loaded) => setKnown(Object.fromEntries(loaded.plugins.map((plugin) => [installedPath(plugin.id), plugin]))))
+      .then((loaded) =>
+        setKnown(Object.fromEntries(loaded.plugins.map((plugin) => [installedPath(plugin.id), plugin]))),
+      )
       .catch(() => undefined)
   })
   const save = async (plugin: PluginInfo, config: unknown) => {
     setBusy(plugin.path)
-    const done = await run(() => engine.actions.configurePlugin(plugin.path, config), t("drift.plugins.saved", { name: plugin.name }))
+    const done = await run(
+      () => engine.actions.configurePlugin(plugin.path, config),
+      t("drift.plugins.saved", { name: plugin.name }),
+    )
     setBusy("")
     if (done) setEditing(undefined)
   }
@@ -89,8 +117,12 @@ export function PluginsSection() {
     <div class="space-y-3">
       <div class="flex items-center justify-between gap-3">
         <div class="flex rounded-lg border border-edge bg-surface p-0.5">
-          <Tab active={view() === "installed"} onClick={() => setView("installed")}>{t("drift.plugins.tab.installed")}</Tab>
-          <Tab active={view() === "registry"} onClick={() => setView("registry")}>{t("drift.plugins.tab.registry")}</Tab>
+          <Tab active={view() === "installed"} onClick={() => setView("installed")}>
+            {t("drift.plugins.tab.installed")}
+          </Tab>
+          <Tab active={view() === "registry"} onClick={() => setView("registry")}>
+            {t("drift.plugins.tab.registry")}
+          </Tab>
         </div>
         <Show when={view() === "installed"}>
           <button
@@ -106,13 +138,24 @@ export function PluginsSection() {
         <div
           role={failure() ? "alert" : "status"}
           class="rounded-md border px-3 py-2 text-xs"
-          classList={{ "border-danger/35 bg-danger/10 text-danger": !!failure(), "border-ok/35 bg-ok/10 text-ok": !failure() }}
+          classList={{
+            "border-danger/35 bg-danger/10 text-danger": !!failure(),
+            "border-ok/35 bg-ok/10 text-ok": !failure(),
+          }}
         >
           {failure() || message()}
         </div>
       </Show>
       <Show when={view() === "installed" && editing()}>
-        {(plugin) => <EditSheet plugin={plugin()} registry={known()[plugin().path]} busy={busy() === plugin().path} onBack={() => setEditing(undefined)} onSave={(config) => save(plugin(), config)} />}
+        {(plugin) => (
+          <EditSheet
+            plugin={plugin()}
+            registry={known()[plugin().path]}
+            busy={busy() === plugin().path}
+            onBack={() => setEditing(undefined)}
+            onSave={(config) => save(plugin(), config)}
+          />
+        )}
       </Show>
       <Show when={view() === "installed" && !editing()}>
         <div class="border-y border-edge/80" aria-busy={loading()}>
@@ -141,19 +184,37 @@ export function PluginsSection() {
   )
 }
 
-function PluginRow(props: { plugin: PluginInfo; image?: string; disabled: boolean; confirming: boolean; onEnabled: (enabled: boolean) => void; onEdit: () => void; onRemove: () => void }) {
-  const status = () => (!props.plugin.enabled ? t("drift.plugins.off") : (props.plugin.error ?? t("drift.plugins.loaded")))
+function PluginRow(props: {
+  plugin: PluginInfo
+  image?: string
+  disabled: boolean
+  confirming: boolean
+  onEnabled: (enabled: boolean) => void
+  onEdit: () => void
+  onRemove: () => void
+}) {
+  const status = () =>
+    !props.plugin.enabled ? t("drift.plugins.off") : (props.plugin.error ?? t("drift.plugins.loaded"))
   return (
     <div class="flex items-center gap-3 border-b border-edge/70 px-3 py-2.5 last:border-b-0 hover:bg-raised/40">
       <LogoTile image={props.image} title={props.plugin.name} />
       <div class="min-w-0 flex-1">
         <div class="truncate text-sm font-medium text-ink">{props.plugin.name}</div>
         <div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-xs">
-          <span classList={{ "text-ok": props.plugin.enabled && !props.plugin.error, "text-danger": props.plugin.enabled && !!props.plugin.error, "text-ink-faint": !props.plugin.enabled }} title={props.plugin.error ?? undefined}>
+          <span
+            classList={{
+              "text-ok": props.plugin.enabled && !props.plugin.error,
+              "text-danger": props.plugin.enabled && !!props.plugin.error,
+              "text-ink-faint": !props.plugin.enabled,
+            }}
+            title={props.plugin.error ?? undefined}
+          >
             {status()}
           </span>
           <Show when={props.plugin.capabilities?.length}>
-            <span class="text-ink-muted">{props.plugin.capabilities?.map((name) => t(`drift.plugins.capability.${name}`)).join(" · ")}</span>
+            <span class="text-ink-muted">
+              {props.plugin.capabilities?.map((name) => t(`drift.plugins.capability.${name}`)).join(" · ")}
+            </span>
           </Show>
           <span class="truncate font-mono text-ink-faint">{props.plugin.path}</span>
         </div>
@@ -179,13 +240,23 @@ function PluginRow(props: { plugin: PluginInfo; image?: string; disabled: boolea
         >
           <IconSquarePen class="size-3.5" />
         </button>
-        <Toggle label={props.plugin.name} checked={props.plugin.enabled} disabled={props.disabled} onChange={() => props.onEnabled(!props.plugin.enabled)} />
+        <Toggle
+          label={props.plugin.name}
+          checked={props.plugin.enabled}
+          disabled={props.disabled}
+          onChange={() => props.onEnabled(!props.plugin.enabled)}
+        />
       </div>
     </div>
   )
 }
 
-function PluginRegistry(props: { installed: Set<string>; disabled: boolean; busy: string; onInstall: (plugin: RegistryPlugin, config: Record<string, unknown>) => Promise<boolean> }) {
+function PluginRegistry(props: {
+  installed: Set<string>
+  disabled: boolean
+  busy: string
+  onInstall: (plugin: RegistryPlugin, config: Record<string, unknown>) => Promise<boolean>
+}) {
   const engine = useEngine()
   const [query, setQuery] = createSignal("")
   const [category, setCategory] = createSignal("all")
@@ -199,7 +270,10 @@ function PluginRegistry(props: { installed: Set<string>; disabled: boolean; busy
     setLoading(true)
     setError("")
     try {
-      await loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) }).catch(() => undefined)
+      await loadRegistrySources({
+        settings: () => engine.actions.engineSettings(),
+        putSettings: (body) => engine.actions.putEngineSettings(body),
+      }).catch(() => undefined)
       const loaded = await loadRegistries(sourcesOf("plugins"), fresh, (id) => engine.actions.fetchRegistry(id))
       setPlugins(loaded.plugins.filter((plugin) => !isSkillEntry(plugin)))
       setFailures(loaded.failures)
@@ -216,92 +290,121 @@ function PluginRegistry(props: { installed: Set<string>; disabled: boolean; busy
     setSourcesOpen(false)
     void load(true)
   }
-  const visible = createMemo(() => plugins().filter((plugin) => (category() === "all" || plugin.category === category()) && matchesRegistryQuery(plugin, query())))
+  const visible = createMemo(() =>
+    plugins().filter(
+      (plugin) => (category() === "all" || plugin.category === category()) && matchesRegistryQuery(plugin, query()),
+    ),
+  )
   const installed = (plugin: RegistryPlugin) => props.installed.has(installedPath(plugin.id))
 
   return (
-    <Show
-      when={!sourcesOpen()}
-      fallback={<RegistrySourcesSheet kind="plugins" onBack={closeSources} />}
-    >
-    <Show
-      when={selected()}
-      fallback={
-        <div class="space-y-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <label class="flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border border-edge bg-raised/45 px-2.5 focus-within:border-accent">
-              <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
-              <input
-                aria-label={t("drift.plugins.registrySearch")}
-                placeholder={t("drift.plugins.registrySearch")}
-                class="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
-                value={query()}
-                onInput={(event) => setQuery(event.currentTarget.value)}
-              />
-            </label>
-            <div class="flex rounded-lg border border-edge bg-surface p-0.5" role="group" aria-label={t("drift.plugins.category")}>
-              <For each={["all", ...registryCategories]}>
-                {(value) => (
-                  <button
-                    type="button"
-                    aria-pressed={category() === value}
-                    class="rounded-md px-2.5 py-1 text-xs"
-                    classList={{ "bg-raised text-ink": category() === value, "text-ink-faint hover:text-ink": category() !== value }}
-                    onClick={() => setCategory(value)}
-                  >
-                    {t(`drift.plugins.category.${value}`)}
-                  </button>
+    <Show when={!sourcesOpen()} fallback={<RegistrySourcesSheet kind="plugins" onBack={closeSources} />}>
+      <Show
+        when={selected()}
+        fallback={
+          <div class="space-y-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <label class="flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border border-edge bg-raised/45 px-2.5 focus-within:border-accent">
+                <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
+                <input
+                  aria-label={t("drift.plugins.registrySearch")}
+                  placeholder={t("drift.plugins.registrySearch")}
+                  class="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
+                  value={query()}
+                  onInput={(event) => setQuery(event.currentTarget.value)}
+                />
+              </label>
+              <div
+                class="flex rounded-lg border border-edge bg-surface p-0.5"
+                role="group"
+                aria-label={t("drift.plugins.category")}
+              >
+                <For each={["all", ...registryCategories]}>
+                  {(value) => (
+                    <button
+                      type="button"
+                      aria-pressed={category() === value}
+                      class="rounded-md px-2.5 py-1 text-xs"
+                      classList={{
+                        "bg-raised text-ink": category() === value,
+                        "text-ink-faint hover:text-ink": category() !== value,
+                      }}
+                      onClick={() => setCategory(value)}
+                    >
+                      {t(`drift.plugins.category.${value}`)}
+                    </button>
+                  )}
+                </For>
+              </div>
+              <button
+                type="button"
+                title={t("drift.registry.sources")}
+                aria-label={t("drift.registry.sources")}
+                class="flex h-9 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted hover:border-edge-strong hover:text-ink"
+                onClick={() => setSourcesOpen(true)}
+              >
+                <IconSliders class="size-3.5" />
+                <Show when={sourcesOf("plugins").length}>{(count) => <span>{count()}</span>}</Show>
+              </button>
+            </div>
+            <div class="text-[0.7rem] text-ink-faint">
+              {t(
+                registrySources().some((source) => source.kind === "plugins")
+                  ? "drift.plugins.registrySourceWithOwn"
+                  : "drift.plugins.registrySource",
+              )}
+            </div>
+            <For each={failures()}>
+              {(failure) => (
+                <div role="alert" class="rounded-md border border-warn/35 bg-warn/10 px-3 py-2 text-xs text-warn">
+                  {t("drift.registry.sources.failed", { name: failure.name, error: failure.error })}
+                </div>
+              )}
+            </For>
+            <Show when={error()}>
+              <div
+                role="alert"
+                class="flex items-center gap-3 rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger"
+              >
+                {error()}
+                <button class="rounded border border-current px-2 py-0.5" onClick={() => void load(true)}>
+                  {t("drift.mcp.retry")}
+                </button>
+              </div>
+            </Show>
+            <Show when={loading() && !plugins().length}>
+              <div class="grid gap-2 sm:grid-cols-2" aria-busy="true">
+                <For each={Array.from({ length: 6 })}>
+                  {() => <div class="h-[6.5rem] animate-pulse rounded-lg border border-edge bg-raised/30" />}
+                </For>
+              </div>
+            </Show>
+            <div class="grid gap-2 sm:grid-cols-2" aria-busy={loading()}>
+              <For each={visible()}>
+                {(plugin) => (
+                  <RegistryCard plugin={plugin} installed={installed(plugin)} onOpen={() => setSelected(plugin)} />
                 )}
               </For>
             </div>
-            <button
-              type="button"
-              title={t("drift.registry.sources")}
-              aria-label={t("drift.registry.sources")}
-              class="flex h-9 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted hover:border-edge-strong hover:text-ink"
-              onClick={() => setSourcesOpen(true)}
-            >
-              <IconSliders class="size-3.5" />
-              <Show when={sourcesOf("plugins").length}>{(count) => <span>{count()}</span>}</Show>
-            </button>
+            <Show when={!loading() && !error() && !visible().length}>
+              <div class="px-3 py-6 text-center text-sm text-ink-faint">{t("drift.plugins.registryEmpty")}</div>
+            </Show>
           </div>
-          <div class="text-[0.7rem] text-ink-faint">{t(registrySources().some((source) => source.kind === "plugins") ? "drift.plugins.registrySourceWithOwn" : "drift.plugins.registrySource")}</div>
-          <For each={failures()}>
-            {(failure) => <div role="alert" class="rounded-md border border-warn/35 bg-warn/10 px-3 py-2 text-xs text-warn">{t("drift.registry.sources.failed", { name: failure.name, error: failure.error })}</div>}
-          </For>
-          <Show when={error()}>
-            <div role="alert" class="flex items-center gap-3 rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger">
-              {error()}
-              <button class="rounded border border-current px-2 py-0.5" onClick={() => void load(true)}>{t("drift.mcp.retry")}</button>
-            </div>
-          </Show>
-          <Show when={loading() && !plugins().length}>
-            <div class="grid gap-2 sm:grid-cols-2" aria-busy="true">
-              <For each={Array.from({ length: 6 })}>{() => <div class="h-[6.5rem] animate-pulse rounded-lg border border-edge bg-raised/30" />}</For>
-            </div>
-          </Show>
-          <div class="grid gap-2 sm:grid-cols-2" aria-busy={loading()}>
-            <For each={visible()}>{(plugin) => <RegistryCard plugin={plugin} installed={installed(plugin)} onOpen={() => setSelected(plugin)} />}</For>
-          </div>
-          <Show when={!loading() && !error() && !visible().length}>
-            <div class="px-3 py-6 text-center text-sm text-ink-faint">{t("drift.plugins.registryEmpty")}</div>
-          </Show>
-        </div>
-      }
-    >
-      {(plugin) => (
-        <InstallSheet
-          plugin={plugin()}
-          installed={installed(plugin())}
-          disabled={props.disabled}
-          busy={props.busy === plugin().id}
-          onBack={() => setSelected()}
-          onInstall={async (config) => {
-            if (await props.onInstall(plugin(), config)) setSelected()
-          }}
-        />
-      )}
-    </Show>
+        }
+      >
+        {(plugin) => (
+          <InstallSheet
+            plugin={plugin()}
+            installed={installed(plugin())}
+            disabled={props.disabled}
+            busy={props.busy === plugin().id}
+            onBack={() => setSelected()}
+            onInstall={async (config) => {
+              if (await props.onInstall(plugin(), config)) setSelected()
+            }}
+          />
+        )}
+      </Show>
     </Show>
   )
 }
@@ -322,7 +425,9 @@ function RegistryCard(props: { plugin: RegistryPlugin; installed: boolean; onOpe
               <IconCheck class="size-3.5 shrink-0 text-ok" aria-label={t("drift.plugins.installedLabel")} />
             </Show>
           </div>
-          <div class="truncate text-[0.7rem] text-ink-faint">{props.plugin.author} · v{props.plugin.version}</div>
+          <div class="truncate text-[0.7rem] text-ink-faint">
+            {props.plugin.author} · v{props.plugin.version}
+          </div>
         </div>
       </div>
       <div class="line-clamp-2 text-xs leading-relaxed text-ink-muted">{props.plugin.description}</div>
@@ -336,8 +441,14 @@ function RegistryCard(props: { plugin: RegistryPlugin; installed: boolean; onOpe
 }
 
 /** The fields of a plugin's config as inputs; `values` are what is stored now, the defaults stand in for the rest. */
-function ConfigFields(props: { fields: ConfigField[]; typed: Record<string, string>; values: Record<string, unknown>; onTyped: (typed: Record<string, string>) => void }) {
-  const value = (field: ConfigField) => props.typed[field.key] ?? fieldText(field, field.key in props.values ? props.values[field.key] : field.default)
+function ConfigFields(props: {
+  fields: ConfigField[]
+  typed: Record<string, string>
+  values: Record<string, unknown>
+  onTyped: (typed: Record<string, string>) => void
+}) {
+  const value = (field: ConfigField) =>
+    props.typed[field.key] ?? fieldText(field, field.key in props.values ? props.values[field.key] : field.default)
   const set = (field: ConfigField, text: string) => props.onTyped({ ...props.typed, [field.key]: text })
   return (
     <div class="space-y-3 rounded-lg border border-edge bg-surface p-3">
@@ -350,9 +461,15 @@ function ConfigFields(props: { fields: ConfigField[]; typed: Record<string, stri
               <div class="flex items-center justify-between gap-3">
                 <div class="min-w-0">
                   <div class="text-xs font-medium text-ink">{field.label}</div>
-                  <Show when={field.description}>{(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}</Show>
+                  <Show when={field.description}>
+                    {(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}
+                  </Show>
                 </div>
-                <Toggle label={field.label} checked={value(field) === "true"} onChange={() => set(field, value(field) === "true" ? "false" : "true")} />
+                <Toggle
+                  label={field.label}
+                  checked={value(field) === "true"}
+                  onChange={() => set(field, value(field) === "true" ? "false" : "true")}
+                />
               </div>
             }
           >
@@ -391,8 +508,17 @@ function ConfigFields(props: { fields: ConfigField[]; typed: Record<string, stri
 }
 
 /** An installed plugin's settings: the registry's fields when a registry describes it, the raw object otherwise. */
-function EditSheet(props: { plugin: PluginInfo; registry?: RegistryPlugin; busy: boolean; onBack: () => void; onSave: (config: unknown) => Promise<void> }) {
-  const stored = () => (props.plugin.config && typeof props.plugin.config === "object" ? (props.plugin.config as Record<string, unknown>) : {})
+function EditSheet(props: {
+  plugin: PluginInfo
+  registry?: RegistryPlugin
+  busy: boolean
+  onBack: () => void
+  onSave: (config: unknown) => Promise<void>
+}) {
+  const stored = () =>
+    props.plugin.config && typeof props.plugin.config === "object"
+      ? (props.plugin.config as Record<string, unknown>)
+      : {}
   const [typed, setTyped] = createSignal<Record<string, string>>({})
   const [raw, setRaw] = createSignal(JSON.stringify(stored(), null, 2))
   const rawValid = () => {
@@ -403,7 +529,18 @@ function EditSheet(props: { plugin: PluginInfo; registry?: RegistryPlugin; busy:
       return false
     }
   }
-  const config = () => (props.registry ? buildConfig(props.registry.config, { ...Object.fromEntries(props.registry.config.map((field) => [field.key, fieldText(field, field.key in stored() ? stored()[field.key] : field.default)])), ...typed() }) : JSON.parse(raw()))
+  const config = () =>
+    props.registry
+      ? buildConfig(props.registry.config, {
+          ...Object.fromEntries(
+            props.registry.config.map((field) => [
+              field.key,
+              fieldText(field, field.key in stored() ? stored()[field.key] : field.default),
+            ]),
+          ),
+          ...typed(),
+        })
+      : JSON.parse(raw())
   return (
     <div class="space-y-4">
       <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={props.onBack}>
@@ -415,7 +552,9 @@ function EditSheet(props: { plugin: PluginInfo; registry?: RegistryPlugin; busy:
         <div class="min-w-0 flex-1">
           <div class="text-base font-semibold text-ink">{props.plugin.name}</div>
           <div class="font-mono text-[0.7rem] text-ink-faint">{props.plugin.path}</div>
-          <Show when={props.registry?.description}>{(text) => <div class="mt-2 text-sm text-ink-muted">{text()}</div>}</Show>
+          <Show when={props.registry?.description}>
+            {(text) => <div class="mt-2 text-sm text-ink-muted">{text()}</div>}
+          </Show>
         </div>
       </div>
       <Show
@@ -437,7 +576,9 @@ function EditSheet(props: { plugin: PluginInfo; registry?: RegistryPlugin; busy:
         <ConfigFields fields={props.registry!.config} typed={typed()} onTyped={setTyped} values={stored()} />
       </Show>
       <div class="flex items-center justify-end gap-2">
-        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>{t("common.cancel")}</button>
+        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>
+          {t("common.cancel")}
+        </button>
         <button
           class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
           disabled={props.busy || (!props.registry?.config.length && !rawValid())}
@@ -450,7 +591,14 @@ function EditSheet(props: { plugin: PluginInfo; registry?: RegistryPlugin; busy:
   )
 }
 
-function InstallSheet(props: { plugin: RegistryPlugin; installed: boolean; disabled: boolean; busy: boolean; onBack: () => void; onInstall: (config: Record<string, unknown>) => Promise<void> }) {
+function InstallSheet(props: {
+  plugin: RegistryPlugin
+  installed: boolean
+  disabled: boolean
+  busy: boolean
+  onBack: () => void
+  onInstall: (config: Record<string, unknown>) => Promise<void>
+}) {
   const [typed, setTyped] = createSignal<Record<string, string>>({})
   return (
     <div class="space-y-4">
@@ -462,10 +610,15 @@ function InstallSheet(props: { plugin: RegistryPlugin; installed: boolean; disab
         <LogoTile image={props.plugin.image} title={props.plugin.name} large />
         <div class="min-w-0 flex-1">
           <div class="text-base font-semibold text-ink">{props.plugin.name}</div>
-          <div class="text-[0.7rem] text-ink-faint">{props.plugin.author} · v{props.plugin.version} · {formatSize(props.plugin.size)}</div>
+          <div class="text-[0.7rem] text-ink-faint">
+            {props.plugin.author} · v{props.plugin.version} · {formatSize(props.plugin.size)}
+          </div>
           <div class="mt-2 text-sm text-ink-muted">{props.plugin.description}</div>
           <div class="mt-2 flex flex-wrap items-center gap-3 text-xs">
-            <button class="flex items-center gap-0.5 text-accent hover:underline" onClick={() => openExternal(props.plugin.source)}>
+            <button
+              class="flex items-center gap-0.5 text-accent hover:underline"
+              onClick={() => openExternal(props.plugin.source)}
+            >
               {t("drift.plugins.source")}
               <IconArrowUpRight class="size-3" />
             </button>
@@ -483,14 +636,22 @@ function InstallSheet(props: { plugin: RegistryPlugin; installed: boolean; disab
       </Show>
 
       <div class="flex items-center justify-end gap-2">
-        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>{t("common.cancel")}</button>
+        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>
+          {t("common.cancel")}
+        </button>
         <button
           class="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
           disabled={props.disabled || props.installed || props.busy}
           onClick={() => void props.onInstall(buildConfig(props.plugin.config, typed()))}
         >
           {props.installed ? <IconCheck class="size-3.5" /> : <IconPlus class="size-3.5" />}
-          {t(props.installed ? "drift.plugins.installedLabel" : props.busy ? "drift.plugins.installing" : "drift.plugins.install")}
+          {t(
+            props.installed
+              ? "drift.plugins.installedLabel"
+              : props.busy
+                ? "drift.plugins.installing"
+                : "drift.plugins.install",
+          )}
         </button>
       </div>
     </div>
@@ -499,7 +660,14 @@ function InstallSheet(props: { plugin: RegistryPlugin; installed: boolean; disab
 
 export function Badge(props: { tone?: "accent" | "warn"; children: JSX.Element }) {
   return (
-    <span class="rounded px-1.5 py-0.5 text-[0.65rem]" classList={{ "bg-raised text-ink-muted": !props.tone, "bg-accent/12 text-accent": props.tone === "accent", "bg-warn/12 text-warn": props.tone === "warn" }}>
+    <span
+      class="rounded px-1.5 py-0.5 text-[0.65rem]"
+      classList={{
+        "bg-raised text-ink-muted": !props.tone,
+        "bg-accent/12 text-accent": props.tone === "accent",
+        "bg-warn/12 text-warn": props.tone === "warn",
+      }}
+    >
       {props.children}
     </span>
   )

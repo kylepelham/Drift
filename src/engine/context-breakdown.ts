@@ -1,5 +1,5 @@
-import type { Part } from "./shapes"
 import type { MessageEntry } from "./store"
+import type { Part } from "./shapes"
 
 export type BreakdownKey = "system" | "user" | "assistant" | "tool"
 export type BreakdownSegment = { key: BreakdownKey; tokens: number }

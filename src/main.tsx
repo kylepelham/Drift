@@ -1,6 +1,6 @@
-import { render } from "solid-js/web"
-import { runtimeNameFrom } from "./runtime"
 import { bootstrapMirror, registerMirrorApplier, startMirrorEvents } from "./state/mirror"
+import { runtimeNameFrom } from "./runtime"
+import { render } from "solid-js/web"
 import "./styles/app.css"
 
 const root = document.getElementById("root")!

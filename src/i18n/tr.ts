@@ -74,7 +74,8 @@ export const dict = {
   "context.usage.cost": "Maliyet",
   "context.usage.clickToView": "Bağlamı görüntüle",
 
-  "toast.permissions.autoaccept.on.description": "İzin istekleri otomatik olarak onaylanır; gizli dosyalar ve çalışma alanının dışındaki her şey hariç",
+  "toast.permissions.autoaccept.on.description":
+    "İzin istekleri otomatik olarak onaylanır; gizli dosyalar ve çalışma alanının dışındaki her şey hariç",
 
   "error.page.action.updateTo": "{{version}} sürümüne güncelle",
 
@@ -216,7 +217,8 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "Geçerli model",
   "drift.slash.argumentDetails": "{{name}} ayrıntıları",
-  "drift.markdown.ambiguousCitation": "Belirsiz dosya bağlantısı \"{{href}}\". Şunlar arasından seçim yapmak için daha ayrıntılı bir yol kullanın: {{files}}",
+  "drift.markdown.ambiguousCitation":
+    'Belirsiz dosya bağlantısı "{{href}}". Şunlar arasından seçim yapmak için daha ayrıntılı bir yol kullanın: {{files}}',
   "drift.preview.settings.title": "Dosya önizlemeleri",
   "drift.preview.settings.mode": "Önizleme modu",
   "drift.preview.settings.description": "Hangi dosya türlerinin önizlemede açılacağını seçin.",
@@ -252,10 +254,12 @@ export const drift = {
   "drift.remote.statusStarting": "Başlatılıyor",
   "drift.remote.statusError": "Hata",
   "drift.remote.clipboardError": "Kopyalanamadı",
-  "drift.settings.shellTimeout.scope": "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
+  "drift.settings.shellTimeout.scope":
+    "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
   "drift.settings.toolExecution": "Araç yürütme",
   "drift.settings.shellTimeout.title": "Kabuk zaman aşımı",
-  "drift.settings.shellTimeout.description": "Kabuk komutlarını ve alt işlemlerini bu süreden sonra durdurur. Değişiklikler yeni çağrılara uygulanır.",
+  "drift.settings.shellTimeout.description":
+    "Kabuk komutlarını ve alt işlemlerini bu süreden sonra durdurur. Değişiklikler yeni çağrılara uygulanır.",
   "drift.settings.shellTimeout.noTimeout": "Zaman aşımı yok",
   "drift.settings.shellTimeout.preset1": "1 dakika",
   "drift.settings.shellTimeout.preset5": "5 dakika",
@@ -275,24 +279,29 @@ export const drift = {
   "drift.settings.about": "Hakkında",
   "drift.settings.toolErrors.title": "Araç hatalarını varsayılan olarak genişlet",
   "drift.settings.dayDividers.title": "Kenar çubuğunda gün ayırıcıları",
-  "drift.settings.dayDividers.description": "Her çalışma alanının konuşmalarını son etkin oldukları güne göre ayır: Bugün, Dün ve önceki günler.",
+  "drift.settings.dayDividers.description":
+    "Her çalışma alanının konuşmalarını son etkin oldukları güne göre ayır: Bugün, Dün ve önceki günler.",
   "drift.sidebar.today": "Bugün",
   "drift.sidebar.yesterday": "Dün",
   "drift.settings.responseAnimation.title": "Yanıtları yumuşakça göster",
-  "drift.settings.responseAnimation.description": "Etkin asistan yanıtındaki büyük metin bloklarını yumuşakça göster. Önceki yanıtlar anında görünür.",
+  "drift.settings.responseAnimation.description":
+    "Etkin asistan yanıtındaki büyük metin bloklarını yumuşakça göster. Önceki yanıtlar anında görünür.",
   "drift.settings.responseAnimation.speed.title": "Gösterim hızı",
-  "drift.settings.responseAnimation.speed.description": "Canlı asistan metninin ekranda ne kadar hızlı yazılacağını seçin.",
+  "drift.settings.responseAnimation.speed.description":
+    "Canlı asistan metninin ekranda ne kadar hızlı yazılacağını seçin.",
   "drift.settings.responseAnimation.speed.value": "{{speed}} karakter/sn",
   "drift.settings.toolErrors.description": "Başlangıç durumunu seçin. Hata satırları her iki durumda da tıklanabilir.",
   "drift.settings.summaries": "Özetler",
   "drift.settings.summaries.collapsible.title": "Daraltılabilir sıkıştırma özetleri",
-  "drift.settings.summaries.collapsible.description": "Motorun sıkıştırma özetlerini genişletilebilir bir ayırıcının arkasında toplayın.",
+  "drift.settings.summaries.collapsible.description":
+    "Motorun sıkıştırma özetlerini genişletilebilir bir ayırıcının arkasında toplayın.",
   "drift.settings.summaries.collapsed.title": "Özetleri varsayılan olarak daralt",
   "drift.settings.summaries.collapsed.description": "Sıkıştırma özetlerini daraltılmış olarak başlatın.",
   "drift.settings.customPalette": "Özel palet",
   "drift.settings.typography": "Tipografi",
   "drift.settings.customCss": "Özel CSS",
-  "drift.settings.customCss.description": "Drift'in yerleşik stillerinden sonra yerel olarak uygulanır. 20 KB ile sınırlıdır.",
+  "drift.settings.customCss.description":
+    "Drift'in yerleşik stillerinden sonra yerel olarak uygulanır. 20 KB ile sınırlıdır.",
   "drift.sidebar.workspaces": "Çalışma alanları",
   "drift.sidebar.archived": "Arşivlenenler",
   "drift.sidebar.addWorkspace": "Çalışma alanı ekle",
@@ -392,7 +401,8 @@ export const drift = {
   "drift.lightbox.actualSize": "Gerçek boyut",
   "drift.lightbox.image": "görsel",
   "drift.lightbox.resetZoom": "Yakınlaştırmayı sıfırla",
-  "drift.lightbox.controls": "Yakınlaştırmak veya uzaklaştırmak için kaydırın. Görseli taşımak için sürükleyin. Yakınlaştırmak için çift tıklayın. Yakınlaştırma için +/-, taşıma için ok tuşlarını, ekrana sığdırmak için 0 veya gerçek boyut için 1 tuşunu kullanın.",
+  "drift.lightbox.controls":
+    "Yakınlaştırmak veya uzaklaştırmak için kaydırın. Görseli taşımak için sürükleyin. Yakınlaştırmak için çift tıklayın. Yakınlaştırma için +/-, taşıma için ok tuşlarını, ekrana sığdırmak için 0 veya gerçek boyut için 1 tuşunu kullanın.",
   "drift.markdown.codeCopied": "Kod kopyalandı",
   "drift.markdown.copied": "Kopyalandı",
   "drift.markdown.copyCode": "Kodu kopyala",
@@ -400,7 +410,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "Kaldırılsın mı?",
   "drift.permission.always": "Bu çalışma alanında her zaman izin ver",
   "drift.mcp.enable": "{{name}} etkinleştir",
-  "drift.prompt.tooLarge": "Gönderilemedi: ekler {{size}} tutuyor, bir istemin taşıyabileceği {{limit}} sınırını aşıyor. Daha az veya daha küçük dosya gönderin.",
+  "drift.prompt.tooLarge":
+    "Gönderilemedi: ekler {{size}} tutuyor, bir istemin taşıyabileceği {{limit}} sınırını aşıyor. Daha az veya daha küçük dosya gönderin.",
   "drift.mcp.status.offHere": "bu çalışma alanında kapalı",
   "drift.mcp.scope.chosen": "yalnızca bu çalışma alanında açık",
   "drift.mcp.scope.elsewhere": "diğer çalışma alanlarında açık",
@@ -413,7 +424,8 @@ export const drift = {
   "drift.plugins.tab.installed": "Yüklü",
   "drift.plugins.tab.registry": "Kayıt defteri",
   "drift.plugins.registrySearch": "Eklenti ara",
-  "drift.plugins.registrySource": "GitHub'daki Drift-Plugins kayıt defterinden. Her biri yalıtılmış bir WebAssembly bileşenidir; indirme, kayıt defterindeki karma ile doğrulanır.",
+  "drift.plugins.registrySource":
+    "GitHub'daki Drift-Plugins kayıt defterinden. Her biri yalıtılmış bir WebAssembly bileşenidir; indirme, kayıt defterindeki karma ile doğrulanır.",
   "drift.plugins.registryLoadFailed": "Kayıt defteri yüklenemedi.",
   "drift.plugins.registryEmpty": "Eşleşen eklenti yok.",
   "drift.plugins.category": "Kategori",
@@ -431,7 +443,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "Kaldırılsın mı?",
   "drift.plugins.removed": "{{name}} kaldırıldı.",
   "drift.plugins.source": "Kaynak",
-  "drift.plugins.configNote": "Ayarlar drift.json dosyanızdaki eklenti girdisine yazılır. Sonra Yüklü sekmesinden düzenleyin.",
+  "drift.plugins.configNote":
+    "Ayarlar drift.json dosyanızdaki eklenti girdisine yazılır. Sonra Yüklü sekmesinden düzenleyin.",
   "drift.plugins.fieldType.string": "metin",
   "drift.plugins.fieldType.list": "virgülle ayrılmış",
   "drift.plugins.fieldType.number": "sayı",
@@ -446,10 +459,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "GitHub deposu",
   "drift.registry.sources.kind.azure_devops": "Azure DevOps deposu",
   "drift.registry.sources.kind.folder": "Klasör veya paylaşım",
-  "drift.registry.sources.kindHint.url": "Bir URL'deki JSON belgesi; indirmeler belgenin gösterdiği yerden gelir. Belirteç yalnızca o ana bilgisayara gönderilir.",
-  "drift.registry.sources.kindHint.github": "Bir depodaki dosya, belirteçle özel (Contents okuma izinli ayrıntılı bir belirteç yeter). Depo içindeki indirmeler de belirteci kullanır.",
-  "drift.registry.sources.kindHint.azure_devops": "Azure DevOps Git deposundaki bir dosya, Code (Read) izinli kişisel erişim belirteciyle. Deponun web URL'sini yapıştırın.",
-  "drift.registry.sources.kindHint.folder": "Bu makinede veya bir ağ paylaşımında belgeyi ve adlandırdığı dosyaları yan yana tutan bir klasör. Sunucu gerekmez.",
+  "drift.registry.sources.kindHint.url":
+    "Bir URL'deki JSON belgesi; indirmeler belgenin gösterdiği yerden gelir. Belirteç yalnızca o ana bilgisayara gönderilir.",
+  "drift.registry.sources.kindHint.github":
+    "Bir depodaki dosya, belirteçle özel (Contents okuma izinli ayrıntılı bir belirteç yeter). Depo içindeki indirmeler de belirteci kullanır.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Azure DevOps Git deposundaki bir dosya, Code (Read) izinli kişisel erişim belirteciyle. Deponun web URL'sini yapıştırın.",
+  "drift.registry.sources.kindHint.folder":
+    "Bu makinede veya bir ağ paylaşımında belgeyi ve adlandırdığı dosyaları yan yana tutan bir klasör. Sunucu gerekmez.",
   "drift.registry.sources.location.github": "Depo URL'si",
   "drift.registry.sources.location.azure_devops": "Depo URL'si",
   "drift.registry.sources.location.folder": "Klasör",
@@ -464,16 +481,22 @@ export const drift = {
   "drift.registry.sources.token.url": "Bearer belirteci",
   "drift.registry.sources.token.github": "Erişim belirteci",
   "drift.registry.sources.token.azure_devops": "Kişisel erişim belirteci",
-  "drift.registry.sources.tokenHint": "Drift'in kimlik bilgisi deposunda tutulur, asla bir dosyada değil; herkese açık bir kaynak için boş bırakın.",
-  "drift.registry.sources.tokenKept": "Bir belirteç kayıtlı. Değiştirmek için yenisini yazın, kaldırmak için alanı temizleyin.",
+  "drift.registry.sources.tokenHint":
+    "Drift'in kimlik bilgisi deposunda tutulur, asla bir dosyada değil; herkese açık bir kaynak için boş bırakın.",
+  "drift.registry.sources.tokenKept":
+    "Bir belirteç kayıtlı. Değiştirmek için yenisini yazın, kaldırmak için alanı temizleyin.",
   "drift.registry.sources.hasToken": "Belirteci var",
   "drift.registry.sources.allowHttp": "Düz http'ye izin ver",
-  "drift.registry.sources.allowHttpHint": "Ağ yolundaki herkes indirileni okuyabilir veya değiştirebilir. Yalnızca https'i olmayan iç kaynaklar için.",
+  "drift.registry.sources.allowHttpHint":
+    "Ağ yolundaki herkes indirileni okuyabilir veya değiştirebilir. Yalnızca https'i olmayan iç kaynaklar için.",
   "drift.registry.sources.caPem": "Ek kök sertifika",
-  "drift.registry.sources.caPemHint": "Bu kaynak için güvenilecek iç CA'nın PEM'i; makinenizin sertifikasını tanımadığı bir sunucu için.",
+  "drift.registry.sources.caPemHint":
+    "Bu kaynak için güvenilecek iç CA'nın PEM'i; makinenizin sertifikasını tanımadığı bir sunucu için.",
   "drift.registry.sources.yours": "Kaynaklarınızdan",
-  "drift.registry.sources.pluginsDescription": "Drift'in kendi kayıt defterine ek kayıt defterleri. Bir ekip eklentilerini tek bir https adresinde yayımlar, herkes buradan yükler.",
-  "drift.registry.sources.mcpDescription": "GitHub'ınkine ve resmi olana ek kayıt defterleri. Bir ekip standartlaştırdığı MCP sunucularını tek bir https adresinde yayımlar, herkes buradan yükler.",
+  "drift.registry.sources.pluginsDescription":
+    "Drift'in kendi kayıt defterine ek kayıt defterleri. Bir ekip eklentilerini tek bir https adresinde yayımlar, herkes buradan yükler.",
+  "drift.registry.sources.mcpDescription":
+    "GitHub'ınkine ve resmi olana ek kayıt defterleri. Bir ekip standartlaştırdığı MCP sunucularını tek bir https adresinde yayımlar, herkes buradan yükler.",
   "drift.registry.sources.empty": "Kaynak eklenmedi.",
   "drift.registry.sources.add": "Kaynak ekle",
   "drift.registry.sources.addButton": "Ekle",
@@ -482,17 +505,22 @@ export const drift = {
   "drift.registry.sources.remove": "Kaynağı kaldır",
   "drift.registry.sources.loadFailed": "Kaynaklarınız okunamadı.",
   "drift.registry.sources.failed": "{{name}} yüklenemedi: {{error}}",
-  "drift.registry.sources.pluginsFormat": "Drift-Plugins registry.json biçiminde bir JSON belgesi: her eklenti indirme adresi ve SHA-256 ile.",
-  "drift.registry.sources.mcpFormat": "MCP kayıt defteri biçiminde bir JSON belgesi: resmi kayıt defteri API'sinin döndürdüğü gibi bir servers listesi.",
-  "drift.plugins.registrySourceWithOwn": "Kaynaklarınızdan ve GitHub'daki Drift-Plugins kayıt defterinden. Her biri yalıtılmış bir WebAssembly bileşenidir; indirme, kayıt defterindeki karma ile doğrulanır.",
+  "drift.registry.sources.pluginsFormat":
+    "Drift-Plugins registry.json biçiminde bir JSON belgesi: her eklenti indirme adresi ve SHA-256 ile.",
+  "drift.registry.sources.mcpFormat":
+    "MCP kayıt defteri biçiminde bir JSON belgesi: resmi kayıt defteri API'sinin döndürdüğü gibi bir servers listesi.",
+  "drift.plugins.registrySourceWithOwn":
+    "Kaynaklarınızdan ve GitHub'daki Drift-Plugins kayıt defterinden. Her biri yalıtılmış bir WebAssembly bileşenidir; indirme, kayıt defterindeki karma ile doğrulanır.",
   "drift.plugins.configRaw": "Bu eklentinin ayarları JSON olarak; hiçbir kayıt defteri alanlarını tanımlamıyor.",
   "drift.plugins.saving": "Kaydediliyor...",
   "drift.plugins.saved": "{{name}} ayarları kaydedildi.",
-  "drift.plugins.packNote": "Markdown beceriler, {{folder}} içine açılır. Drift bunları modele kendi becerileriniz gibi sunar; bir paket kod çalıştırmaz ama metni modele ulaşır, bu yüzden yalnızca güvendiğiniz paketleri yükleyin.",
+  "drift.plugins.packNote":
+    "Markdown beceriler, {{folder}} içine açılır. Drift bunları modele kendi becerileriniz gibi sunar; bir paket kod çalıştırmaz ama metni modele ulaşır, bu yüzden yalnızca güvendiğiniz paketleri yükleyin.",
   "drift.settings.skills": "Beceriler",
   "drift.skills.mixed": "Bazıları açık, bazıları kapalı",
   "drift.skills.packs": "Beceri paketleri",
-  "drift.skills.empty": "Henüz beceri yok. {{folder}} altına SKILL.md içeren bir klasör koyun ya da kayıt defterinden yükleyin.",
+  "drift.skills.empty":
+    "Henüz beceri yok. {{folder}} altına SKILL.md içeren bir klasör koyun ya da kayıt defterinden yükleyin.",
   "drift.skills.packCount": "{{count}} beceriden {{on}} tanesi açık",
   "drift.skills.count": "{{count}} beceri",
   "drift.skills.single": "tek beceri",
@@ -502,15 +530,19 @@ export const drift = {
   "drift.skills.reinstall": "Yeniden yükle",
   "drift.skills.installed": "{{name}} {{count}} beceriyle yüklendi; bir sonraki turdan itibaren sunulur.",
   "drift.skills.registrySearch": "Beceri ara",
-  "drift.skills.registrySource": "GitHub'daki Drift-Plugins kayıt defterinden. Beceri, modelin okuduğu Markdown'dır; hiçbir şey çalışmaz.",
-  "drift.skills.registrySourceWithOwn": "Kaynaklarınızdan ve GitHub'daki Drift-Plugins kayıt defterinden. Beceri, modelin okuduğu Markdown'dır; hiçbir şey çalışmaz.",
+  "drift.skills.registrySource":
+    "GitHub'daki Drift-Plugins kayıt defterinden. Beceri, modelin okuduğu Markdown'dır; hiçbir şey çalışmaz.",
+  "drift.skills.registrySourceWithOwn":
+    "Kaynaklarınızdan ve GitHub'daki Drift-Plugins kayıt defterinden. Beceri, modelin okuduğu Markdown'dır; hiçbir şey çalışmaz.",
   "drift.plugins.reload": "Yeniden yükle",
   "drift.plugins.loading": "Eklentiler yükleniyor...",
-  "drift.plugins.empty": "Eklenti yok. {{path}} içinde \"plugins\" altına WebAssembly bileşenleri ekleyin ve yeniden yükleyin.",
+  "drift.plugins.empty":
+    'Eklenti yok. {{path}} içinde "plugins" altına WebAssembly bileşenleri ekleyin ve yeniden yükleyin.',
   "drift.plugins.file": "{{path}} içinde listelenir",
   "drift.settings.permissions": "İzinler",
   "drift.permissions.rules": "Tüm çalışma alanları için kurallar",
-  "drift.permissions.rulesDescription": "Her çalışma alanında, o alanın drift.json kurallarından sonra uygulanır. Eşleşen ilk kural karar verir.",
+  "drift.permissions.rulesDescription":
+    "Her çalışma alanında, o alanın drift.json kurallarından sonra uygulanır. Eşleşen ilk kural karar verir.",
   "drift.permissions.empty": "Henüz kural yok. Drift'in varsayılanları geçerli.",
   "drift.permissions.add": "Kural ekle",
   "drift.permissions.kind": "Tür",
@@ -541,7 +573,8 @@ export const drift = {
   "drift.permissions.grant.folder": "{{folder}} ve içindeki her şey",
   "drift.permission.alwaysCovers": "Her zaman izin verir: {{what}}",
   "drift.permission.reason.outside": "Komut çalışma alanının dışına çıktığı için soruyor.",
-  "drift.permission.reason.unresolved": "Drift'in çalıştırmadan önce okuyamadığı bir değişken veya ~ kullandığı için soruyor.",
+  "drift.permission.reason.unresolved":
+    "Drift'in çalıştırmadan önce okuyamadığı bir değişken veya ~ kullandığı için soruyor.",
   "drift.permission.reason.secret": "Gizli bilgi içerebilecek bir dosyayı andığı için soruyor.",
   "drift.permission.reason.searches": "Özyinelemeli arama gizli dosyaları da okuyacağı için soruyor.",
   "drift.permission.reason.beyondUndo": "Geri alma bunu düzeltemeyeceği için soruyor.",
@@ -574,7 +607,8 @@ export const drift = {
   "drift.settings.prompts.family.all": "Tüm modeller",
   "drift.settings.prompts.family.codex": "GPT ve Codex",
   "drift.settings.prompts.family.default": "Diğer modeller",
-  "drift.settings.prompts.allDescription": "Ailesinin kendi yerine geçeni olmayan her modelin temel istemini değiştirir.",
+  "drift.settings.prompts.allDescription":
+    "Ailesinin kendi yerine geçeni olmayan her modelin temel istemini değiştirir.",
   "drift.settings.prompts.allPlaceholder": "Boş: her model ailesi kendi istemini kullanır.",
   "drift.provider.pasteCode": "Tarayıcındaki yetkilendirme kodunu yapıştır.",
   "drift.provider.enterCode": "Bu kodu tarayıcında gir",
@@ -633,7 +667,8 @@ export const drift = {
   "drift.provider.browser": "tarayıcı",
   "drift.provider.connectFailed": "{{provider}} bağlanamadı. Kimlik bilgilerini kontrol edip yeniden deneyin.",
   "drift.provider.connected": "{{provider}} bağlandı. Kimlik bilgisi kaydedildi.",
-  "drift.provider.credentialRemovedStillConnected": "{{provider}} için kayıtlı kimlik bilgisi kaldırıldı ancak ortam veya yapılandırma üzerinden bağlı kalıyor.",
+  "drift.provider.credentialRemovedStillConnected":
+    "{{provider}} için kayıtlı kimlik bilgisi kaldırıldı ancak ortam veya yapılandırma üzerinden bağlı kalıyor.",
   "drift.provider.disconnectFailed": "{{provider}} bağlantısı kesilemedi. Yeniden deneyin.",
   "drift.provider.disconnected": "{{provider}} bağlantısı kesildi. Kayıtlı kimlik bilgisi kaldırıldı.",
   "drift.provider.disconnecting": "Bağlantı kesiliyor...",
@@ -723,7 +758,8 @@ export const drift = {
   "drift.tool.subtask": "Alt görev",
   "drift.tool.task": "Görev",
   "drift.voice.input.description": "Yeni dikte kayıtları için kullanılacak mikrofonu seçin.",
-  "drift.voice.input.missing": "Kaydedilen mikrofon kullanılamıyor. Yeniden bağlanana kadar sistem varsayılanı kullanılıyor.",
+  "drift.voice.input.missing":
+    "Kaydedilen mikrofon kullanılamıyor. Yeniden bağlanana kadar sistem varsayılanı kullanılıyor.",
   "drift.voice.input.systemDefault": "Sistem varsayılanı",
   "drift.voice.input.title": "Giriş cihazı",
   "drift.voice.input.unnamed": "Mikrofon {{index}}",

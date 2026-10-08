@@ -76,7 +76,8 @@ export const dict = {
   "context.usage.cost": "Вартість",
   "context.usage.clickToView": "Натисніть, щоб переглянути контекст",
 
-  "toast.permissions.autoaccept.on.description": "Запити дозволів схвалюються автоматично, крім секретних файлів і всього поза робочою областю",
+  "toast.permissions.autoaccept.on.description":
+    "Запити дозволів схвалюються автоматично, крім секретних файлів і всього поза робочою областю",
 
   "error.page.action.updateTo": "Оновити до {{version}}",
 
@@ -215,7 +216,8 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "Поточна модель",
   "drift.slash.argumentDetails": "Докладніше про {{name}}",
-  "drift.markdown.ambiguousCitation": "Неоднозначне посилання на файл \"{{href}}\". Укажіть повніший шлях, щоб вибрати з: {{files}}",
+  "drift.markdown.ambiguousCitation":
+    'Неоднозначне посилання на файл "{{href}}". Укажіть повніший шлях, щоб вибрати з: {{files}}',
   "drift.preview.settings.title": "Попередній перегляд файлів",
   "drift.preview.settings.mode": "Режим попереднього перегляду",
   "drift.preview.settings.description": "Виберіть типи файлів для відкриття в попередньому перегляді.",
@@ -251,10 +253,12 @@ export const drift = {
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Помилка",
   "drift.remote.clipboardError": "Не вдалося скопіювати",
-  "drift.settings.shellTimeout.scope": "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
+  "drift.settings.shellTimeout.scope":
+    "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
   "drift.settings.toolExecution": "Виконання інструментів",
   "drift.settings.shellTimeout.title": "Тайм-аут оболонки",
-  "drift.settings.shellTimeout.description": "Зупиняє команди оболонки та їхні дочірні процеси після цього часу. Зміни діють для нових викликів.",
+  "drift.settings.shellTimeout.description":
+    "Зупиняє команди оболонки та їхні дочірні процеси після цього часу. Зміни діють для нових викликів.",
   "drift.settings.shellTimeout.noTimeout": "Без тайм-ауту",
   "drift.settings.shellTimeout.preset1": "1 хвилина",
   "drift.settings.shellTimeout.preset5": "5 хвилин",
@@ -274,11 +278,13 @@ export const drift = {
   "drift.settings.about": "Про програму",
   "drift.settings.toolErrors.title": "Розгортати помилки інструментів за замовчуванням",
   "drift.settings.dayDividers.title": "Роздільники за днями на бічній панелі",
-  "drift.settings.dayDividers.description": "Розділяти гілки кожної робочої області за днем останньої активності: Сьогодні, Учора та раніші дні.",
+  "drift.settings.dayDividers.description":
+    "Розділяти гілки кожної робочої області за днем останньої активності: Сьогодні, Учора та раніші дні.",
   "drift.sidebar.today": "Сьогодні",
   "drift.sidebar.yesterday": "Учора",
   "drift.settings.responseAnimation.title": "Плавна поява відповідей",
-  "drift.settings.responseAnimation.description": "Плавно показувати великі фрагменти тексту в поточній відповіді асистента. Попередні відповіді відображаються миттєво.",
+  "drift.settings.responseAnimation.description":
+    "Плавно показувати великі фрагменти тексту в поточній відповіді асистента. Попередні відповіді відображаються миттєво.",
   "drift.settings.responseAnimation.speed.title": "Швидкість появи",
   "drift.settings.responseAnimation.speed.description": "Виберіть швидкість появи тексту поточної відповіді асистента.",
   "drift.settings.responseAnimation.speed.value": "{{speed}} симв./с",
@@ -391,7 +397,8 @@ export const drift = {
   "drift.lightbox.actualSize": "Фактичний розмір",
   "drift.lightbox.image": "зображення",
   "drift.lightbox.resetZoom": "Скинути масштаб",
-  "drift.lightbox.controls": "Прокручуйте для зміни масштабу. Перетягуйте для переміщення зображення. Двічі клацніть для збільшення. Використовуйте +/- для зміни масштабу, стрілки для переміщення, 0 для припасування до вікна або 1 для відображення у фактичному розмірі.",
+  "drift.lightbox.controls":
+    "Прокручуйте для зміни масштабу. Перетягуйте для переміщення зображення. Двічі клацніть для збільшення. Використовуйте +/- для зміни масштабу, стрілки для переміщення, 0 для припасування до вікна або 1 для відображення у фактичному розмірі.",
   "drift.markdown.codeCopied": "Код скопійовано",
   "drift.markdown.copied": "Скопійовано",
   "drift.markdown.copyCode": "Копіювати код",
@@ -399,20 +406,23 @@ export const drift = {
   "drift.mcp.confirmRemove": "Видалити?",
   "drift.permission.always": "Завжди дозволяти в цьому робочому просторі",
   "drift.mcp.enable": "Увімкнути {{name}}",
-  "drift.prompt.tooLarge": "Не вдалося надіслати: вкладення займають {{size}}, більше за {{limit}}, які вміщує одне повідомлення. Надішліть менше файлів або менші файли.",
+  "drift.prompt.tooLarge":
+    "Не вдалося надіслати: вкладення займають {{size}}, більше за {{limit}}, які вміщує одне повідомлення. Надішліть менше файлів або менші файли.",
   "drift.mcp.status.offHere": "вимкнено в цьому робочому просторі",
   "drift.mcp.scope.chosen": "увімкнено лише для цього робочого простору",
   "drift.mcp.scope.elsewhere": "увімкнено в інших робочих просторах",
   "drift.mcp.onHere": "Увімкнути в цьому робочому просторі",
   "drift.mcp.offHere": "Вимкнути в цьому робочому просторі",
-  "drift.mcp.switchHint": "Увімкнено в усіх робочих просторах. Кнопка вилки вмикає або вимикає його лише в цьому робочому просторі.",
+  "drift.mcp.switchHint":
+    "Увімкнено в усіх робочих просторах. Кнопка вилки вмикає або вимикає його лише в цьому робочому просторі.",
   "drift.settings.plugins": "Плагіни",
   "drift.plugins.loaded": "Завантажено",
   "drift.plugins.off": "Вимкнено",
   "drift.plugins.tab.installed": "Встановлені",
   "drift.plugins.tab.registry": "Реєстр",
   "drift.plugins.registrySearch": "Пошук плагінів",
-  "drift.plugins.registrySource": "З реєстру Drift-Plugins на GitHub. Кожен плагін є ізольованим компонентом WebAssembly; завантаження звіряється з хешем реєстру.",
+  "drift.plugins.registrySource":
+    "З реєстру Drift-Plugins на GitHub. Кожен плагін є ізольованим компонентом WebAssembly; завантаження звіряється з хешем реєстру.",
   "drift.plugins.registryLoadFailed": "Не вдалося завантажити реєстр.",
   "drift.plugins.registryEmpty": "Жоден плагін не підходить.",
   "drift.plugins.category": "Категорія",
@@ -430,7 +440,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "Видалити?",
   "drift.plugins.removed": "{{name}} видалено.",
   "drift.plugins.source": "Джерело",
-  "drift.plugins.configNote": "Налаштування записуються в запис плагіна у вашому drift.json. Згодом їх можна змінити на вкладці «Встановлені».",
+  "drift.plugins.configNote":
+    "Налаштування записуються в запис плагіна у вашому drift.json. Згодом їх можна змінити на вкладці «Встановлені».",
   "drift.plugins.fieldType.string": "текст",
   "drift.plugins.fieldType.list": "через кому",
   "drift.plugins.fieldType.number": "число",
@@ -445,10 +456,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "Репозиторій GitHub",
   "drift.registry.sources.kind.azure_devops": "Репозиторій Azure DevOps",
   "drift.registry.sources.kind.folder": "Тека або мережевий ресурс",
-  "drift.registry.sources.kindHint.url": "JSON-документ за адресою; завантаження йдуть туди, куди вказує документ. Токен надсилається лише цьому хосту.",
-  "drift.registry.sources.kindHint.github": "Файл у репозиторії, приватному з токеном (досить детального токена з читанням Contents). Завантаження з репозиторію теж використовують токен.",
-  "drift.registry.sources.kindHint.azure_devops": "Файл у Git-репозиторії Azure DevOps з персональним токеном доступу Code (Read). Вставте веб-адресу репозиторію.",
-  "drift.registry.sources.kindHint.folder": "Тека на цьому комп'ютері або мережевому ресурсі з документом і названими в ньому файлами поруч. Сервер не потрібен.",
+  "drift.registry.sources.kindHint.url":
+    "JSON-документ за адресою; завантаження йдуть туди, куди вказує документ. Токен надсилається лише цьому хосту.",
+  "drift.registry.sources.kindHint.github":
+    "Файл у репозиторії, приватному з токеном (досить детального токена з читанням Contents). Завантаження з репозиторію теж використовують токен.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Файл у Git-репозиторії Azure DevOps з персональним токеном доступу Code (Read). Вставте веб-адресу репозиторію.",
+  "drift.registry.sources.kindHint.folder":
+    "Тека на цьому комп'ютері або мережевому ресурсі з документом і названими в ньому файлами поруч. Сервер не потрібен.",
   "drift.registry.sources.location.github": "URL репозиторію",
   "drift.registry.sources.location.azure_devops": "URL репозиторію",
   "drift.registry.sources.location.folder": "Тека",
@@ -463,16 +478,21 @@ export const drift = {
   "drift.registry.sources.token.url": "Bearer-токен",
   "drift.registry.sources.token.github": "Токен доступу",
   "drift.registry.sources.token.azure_devops": "Персональний токен доступу",
-  "drift.registry.sources.tokenHint": "Зберігається у сховищі облікових даних Drift, ніколи у файлі; залиште порожнім для публічного джерела.",
+  "drift.registry.sources.tokenHint":
+    "Зберігається у сховищі облікових даних Drift, ніколи у файлі; залиште порожнім для публічного джерела.",
   "drift.registry.sources.tokenKept": "Токен збережено. Введіть новий, щоб замінити, або очистіть поле, щоб видалити.",
   "drift.registry.sources.hasToken": "Є токен",
   "drift.registry.sources.allowHttp": "Дозволити незахищений http",
-  "drift.registry.sources.allowHttpHint": "Будь-хто на мережевому шляху може прочитати або підмінити завантажуване. Лише для внутрішнього джерела без https.",
+  "drift.registry.sources.allowHttpHint":
+    "Будь-хто на мережевому шляху може прочитати або підмінити завантажуване. Лише для внутрішнього джерела без https.",
   "drift.registry.sources.caPem": "Додатковий кореневий сертифікат",
-  "drift.registry.sources.caPemHint": "PEM внутрішнього ЦС, якому довіряти для цього джерела, для сервера, чий сертифікат комп'ютер не знає.",
+  "drift.registry.sources.caPemHint":
+    "PEM внутрішнього ЦС, якому довіряти для цього джерела, для сервера, чий сертифікат комп'ютер не знає.",
   "drift.registry.sources.yours": "З ваших джерел",
-  "drift.registry.sources.pluginsDescription": "Реєстри, крім власного реєстру Drift. Команда публікує свої плагіни за однією https-адресою, і всі встановлюють їх звідси.",
-  "drift.registry.sources.mcpDescription": "Реєстри, крім реєстру GitHub і офіційного. Команда публікує свої стандартні MCP-сервери за однією https-адресою, і всі встановлюють їх звідси.",
+  "drift.registry.sources.pluginsDescription":
+    "Реєстри, крім власного реєстру Drift. Команда публікує свої плагіни за однією https-адресою, і всі встановлюють їх звідси.",
+  "drift.registry.sources.mcpDescription":
+    "Реєстри, крім реєстру GitHub і офіційного. Команда публікує свої стандартні MCP-сервери за однією https-адресою, і всі встановлюють їх звідси.",
   "drift.registry.sources.empty": "Джерел не додано.",
   "drift.registry.sources.add": "Додати джерело",
   "drift.registry.sources.addButton": "Додати",
@@ -481,13 +501,17 @@ export const drift = {
   "drift.registry.sources.remove": "Видалити джерело",
   "drift.registry.sources.loadFailed": "Не вдалося прочитати ваші джерела.",
   "drift.registry.sources.failed": "Не вдалося завантажити {{name}}: {{error}}",
-  "drift.registry.sources.pluginsFormat": "JSON-документ у форматі registry.json із Drift-Plugins: кожен плагін з URL завантаження та SHA-256.",
-  "drift.registry.sources.mcpFormat": "JSON-документ у форматі реєстру MCP: список servers, як його повертає API офіційного реєстру.",
-  "drift.plugins.registrySourceWithOwn": "З ваших джерел і реєстру Drift-Plugins на GitHub. Кожен плагін є ізольованим компонентом WebAssembly; завантаження звіряється з хешем свого реєстру.",
+  "drift.registry.sources.pluginsFormat":
+    "JSON-документ у форматі registry.json із Drift-Plugins: кожен плагін з URL завантаження та SHA-256.",
+  "drift.registry.sources.mcpFormat":
+    "JSON-документ у форматі реєстру MCP: список servers, як його повертає API офіційного реєстру.",
+  "drift.plugins.registrySourceWithOwn":
+    "З ваших джерел і реєстру Drift-Plugins на GitHub. Кожен плагін є ізольованим компонентом WebAssembly; завантаження звіряється з хешем свого реєстру.",
   "drift.plugins.configRaw": "Налаштування цього плагіна у JSON; жоден реєстр не описує його поля.",
   "drift.plugins.saving": "Збереження...",
   "drift.plugins.saved": "Налаштування {{name}} збережено.",
-  "drift.plugins.packNote": "Навички в Markdown, розпаковані в {{folder}}. Drift пропонує їх моделі як ваші власні; набір не виконує код, але його текст потрапляє до моделі, тож встановлюйте лише ті, яким довіряєте.",
+  "drift.plugins.packNote":
+    "Навички в Markdown, розпаковані в {{folder}}. Drift пропонує їх моделі як ваші власні; набір не виконує код, але його текст потрапляє до моделі, тож встановлюйте лише ті, яким довіряєте.",
   "drift.settings.skills": "Навички",
   "drift.skills.mixed": "Частину ввімкнено, частину ні",
   "drift.skills.packs": "Набори навичок",
@@ -501,15 +525,18 @@ export const drift = {
   "drift.skills.reinstall": "Перевстановити",
   "drift.skills.installed": "{{name}} встановлено з {{count}} навичками; вони доступні з наступного ходу.",
   "drift.skills.registrySearch": "Пошук навичок",
-  "drift.skills.registrySource": "З реєстру Drift-Plugins на GitHub. Навичка являє собою Markdown, який читає модель; нічого не виконується.",
-  "drift.skills.registrySourceWithOwn": "З ваших джерел і реєстру Drift-Plugins на GitHub. Навичка являє собою Markdown, який читає модель; нічого не виконується.",
+  "drift.skills.registrySource":
+    "З реєстру Drift-Plugins на GitHub. Навичка являє собою Markdown, який читає модель; нічого не виконується.",
+  "drift.skills.registrySourceWithOwn":
+    "З ваших джерел і реєстру Drift-Plugins на GitHub. Навичка являє собою Markdown, який читає модель; нічого не виконується.",
   "drift.plugins.reload": "Перезавантажити",
   "drift.plugins.loading": "Завантаження плагінів...",
-  "drift.plugins.empty": "Плагінів немає. Вкажіть компоненти WebAssembly у \"plugins\" у {{path}} і перезавантажте.",
+  "drift.plugins.empty": 'Плагінів немає. Вкажіть компоненти WebAssembly у "plugins" у {{path}} і перезавантажте.',
   "drift.plugins.file": "Вказані в {{path}}",
   "drift.settings.permissions": "Дозволи",
   "drift.permissions.rules": "Правила для всіх робочих областей",
-  "drift.permissions.rulesDescription": "Діють у кожній робочій області після правил її drift.json. Вирішує перше відповідне правило.",
+  "drift.permissions.rulesDescription":
+    "Діють у кожній робочій області після правил її drift.json. Вирішує перше відповідне правило.",
   "drift.permissions.empty": "Правил поки немає. Діють типові налаштування Drift.",
   "drift.permissions.add": "Додати правило",
   "drift.permissions.kind": "Тип",
@@ -573,7 +600,8 @@ export const drift = {
   "drift.settings.prompts.family.all": "Усі моделі",
   "drift.settings.prompts.family.codex": "GPT і Codex",
   "drift.settings.prompts.family.default": "Інші моделі",
-  "drift.settings.prompts.allDescription": "Замінює базовий промпт для всіх моделей, сімейство яких не має власної заміни.",
+  "drift.settings.prompts.allDescription":
+    "Замінює базовий промпт для всіх моделей, сімейство яких не має власної заміни.",
   "drift.settings.prompts.allPlaceholder": "Порожньо: кожне сімейство моделей використовує власний промпт.",
   "drift.provider.pasteCode": "Вставте код авторизації з браузера.",
   "drift.provider.enterCode": "Введіть цей код у браузері",
@@ -582,7 +610,8 @@ export const drift = {
   "drift.provider.copyLink": "Копіювати посилання",
   "drift.provider.linkCopied": "Посилання скопійовано",
   "drift.import.progress": "Імпорт з opencode",
-  "drift.import.description": "Переносимо ваші розмови з opencode. Працюйте далі; кожна з’явиться, щойно завантажиться.",
+  "drift.import.description":
+    "Переносимо ваші розмови з opencode. Працюйте далі; кожна з’явиться, щойно завантажиться.",
   "drift.import.done.title": "Імпортовано з opencode",
   "drift.import.done.conversations": "Розмови: {{count}}",
   "drift.import.done.undoable": "Зміни, які можна скасувати: {{count}}",
@@ -632,7 +661,8 @@ export const drift = {
   "drift.provider.browser": "браузер",
   "drift.provider.connectFailed": "Не вдалося підключити {{provider}}. Перевірте облікові дані й повторіть спробу.",
   "drift.provider.connected": "{{provider}} підключено. Облікові дані збережено.",
-  "drift.provider.credentialRemovedStillConnected": "Збережені облікові дані {{provider}} видалено, але підключення через середовище або конфігурацію залишається активним.",
+  "drift.provider.credentialRemovedStillConnected":
+    "Збережені облікові дані {{provider}} видалено, але підключення через середовище або конфігурацію залишається активним.",
   "drift.provider.disconnectFailed": "Не вдалося відключити {{provider}}. Повторіть спробу.",
   "drift.provider.disconnected": "{{provider}} відключено. Збережені облікові дані видалено.",
   "drift.provider.disconnecting": "Відключення...",
@@ -649,7 +679,8 @@ export const drift = {
   "drift.question.asyncHint": "Робота, що не залежить від вашої відповіді, може тривати, поки ви приймаєте рішення.",
   "drift.question.blocking": "Очікування відповіді",
   "drift.question.pending": "Запити в очікуванні: {{count}}",
-  "drift.question.sendFailed": "Не вдалося надіслати відповідь. Ваші відповіді досі тут. Спробуйте надіслати їх ще раз.",
+  "drift.question.sendFailed":
+    "Не вдалося надіслати відповідь. Ваші відповіді досі тут. Спробуйте надіслати їх ще раз.",
   "drift.question.sending": "Надсилання...",
   "drift.question.customHint": "Додайте відповідь, якої немає вище",
   "drift.question.customPlaceholder": "Введіть власну відповідь...",
@@ -722,7 +753,8 @@ export const drift = {
   "drift.tool.subtask": "Підзавдання",
   "drift.tool.task": "Завдання",
   "drift.voice.input.description": "Виберіть мікрофон для нових записів диктування.",
-  "drift.voice.input.missing": "Збережений мікрофон недоступний. До повторного підключення використовується системний за замовчуванням.",
+  "drift.voice.input.missing":
+    "Збережений мікрофон недоступний. До повторного підключення використовується системний за замовчуванням.",
   "drift.voice.input.systemDefault": "Системний за замовчуванням",
   "drift.voice.input.title": "Пристрій введення",
   "drift.voice.input.unnamed": "Мікрофон {{index}}",

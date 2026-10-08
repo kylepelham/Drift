@@ -1,25 +1,33 @@
-import type { AssistantMessage, Part, PluginPart, ToolPart, UserMessage } from "../engine/shapes"
 import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
-import { createStore, reconcile, unwrap } from "solid-js/store"
-import { useEngine } from "../engine"
-import { errorText } from "../engine/error"
+import { contextTools, ExploredGroup, FilePartView, PartView, partVisible, PluginRow } from "./parts"
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store"
-import { emitMessageRendered } from "../plugins"
+import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
-import { agentLabel, t } from "../state/i18n"
 import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator"
 import { collapseCompaction, compactionCollapsed } from "../state/prefs"
 import { selectedSession, selectSession } from "../state/selection"
 import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons"
+import { createStore, reconcile, unwrap } from "solid-js/store"
+import { citationFileGroups } from "./citation-files"
+import { emitMessageRendered } from "../plugins"
+import { agentLabel, t } from "../state/i18n"
+import { TextShimmer } from "./text-shimmer"
+import { errorText } from "../engine/error"
+import { useEngine } from "../engine"
 import { Markdown } from "./markdown"
 import { Chevron } from "./controls"
-import { contextTools, ExploredGroup, FilePartView, PartView, partVisible, PluginRow } from "./parts"
-import { TextShimmer } from "./text-shimmer"
-import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer"
-import { citationFileGroups } from "./citation-files"
+
+import type { AssistantMessage, Part, PluginPart, ToolPart, UserMessage } from "../engine/shapes"
 
 /** `hideError`: the reply's failure is no longer news (it is being retried, or the session went on), so its error box is left out; a stop's divider stays. */
-export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean; spawned?: boolean; hideError?: boolean }) {
+export function MessageView(props: {
+  entry: MessageEntry
+  footer?: boolean
+  groups?: PartGroup[]
+  thinking?: boolean
+  spawned?: boolean
+  hideError?: boolean
+}) {
   onMount(() =>
     emitMessageRendered({
       sessionId: props.entry.info.sessionID,
@@ -29,8 +37,16 @@ export function MessageView(props: { entry: MessageEntry; footer?: boolean; grou
   )
   const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
   return (
-    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} thinking={props.thinking} spawned={props.spawned} />}>
-      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} hideError={props.hideError} />}>
+    <Show
+      when={props.entry.info.role === "assistant"}
+      fallback={<UserBubble entry={props.entry} thinking={props.thinking} spawned={props.spawned} />}
+    >
+      <Show
+        when={summary()}
+        fallback={
+          <AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} hideError={props.hideError} />
+        }
+      >
         <CompactionSummary entry={props.entry} footer={props.footer} thinking={props.thinking} />
       </Show>
     </Show>
@@ -45,7 +61,10 @@ function interruptionText(error: NonNullable<AssistantMessage["error"]>) {
 
 export function messageVisible(entry: MessageEntry) {
   if (entry.info.role === "user")
-    return !!messageText(entry) || entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "plugin")
+    return (
+      !!messageText(entry) ||
+      entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "plugin")
+    )
   const info = entry.info as AssistantMessage
   if (info.summary && collapseCompaction()) return true
   return entry.parts.some(partVisible) || !!info.error
@@ -93,7 +112,9 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
   const info = () => props.entry.info as UserMessage
   const answered = createMemo(() => clarificationAnswer(props.entry))
   // A spawned thread's instruction folds like an answer: a label, a preview, the full text on open.
-  const clarification = createMemo(() => answered() ?? (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined))
+  const clarification = createMemo(
+    () => answered() ?? (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined),
+  )
   const text = () => clarification()?.text ?? messageText(props.entry)
   // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
   const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
@@ -119,23 +140,41 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
             <div class="group flex flex-col items-end gap-1.5">
               <Show when={files().length > 0}>
                 <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
-                  <For each={files()}>{(file) => <FilePartView part={file} directory={engine.state.sessions[info().sessionID]?.directory} />}</For>
+                  <For each={files()}>
+                    {(file) => (
+                      <FilePartView part={file} directory={engine.state.sessions[info().sessionID]?.directory} />
+                    )}
+                  </For>
                 </div>
               </Show>
               <Show when={text()}>
                 <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
                   <Show
                     when={!generated() && largeUserText(text())}
-                    fallback={<Markdown text={text()} directory={engine.state.sessions[info().sessionID]?.directory} fileGroups={() => citationFileGroups(engine.state, info().sessionID, info().id)} done humanAuthored={!generated()} />}
+                    fallback={
+                      <Markdown
+                        text={text()}
+                        directory={engine.state.sessions[info().sessionID]?.directory}
+                        fileGroups={() => citationFileGroups(engine.state, info().sessionID, info().id)}
+                        done
+                        humanAuthored={!generated()}
+                      />
+                    }
                   >
                     <pre class="user-paste">{text()}</pre>
                   </Show>
                 </div>
               </Show>
               <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
-                <span>{agentLabel(info().agent)} · {model()} · {time()}</span>
-                <button title={`${t("drift.message.revertHere")}
-${t("drift.message.revertKeepFiles")}`} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={(event) => void revert(event.shiftKey)}>
+                <span>
+                  {agentLabel(info().agent)} · {model()} · {time()}
+                </span>
+                <button
+                  title={`${t("drift.message.revertHere")}
+${t("drift.message.revertKeepFiles")}`}
+                  class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                  onClick={(event) => void revert(event.shiftKey)}
+                >
                   <IconUndo class="size-3.5" />
                 </button>
                 <button
@@ -155,23 +194,36 @@ ${t("drift.message.revertKeepFiles")}`} class="rounded p-0.5 hover:bg-raised hov
       {(answer) => (
         <div class="group flex min-w-0 items-start justify-end gap-1.5">
           <details class="group/answer min-w-0 max-w-[85%] text-xs">
-            <summary data-find-ignore class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden">
+            <summary
+              data-find-ignore
+              class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden"
+            >
               <Show when={answer().spawned} fallback={<IconCheck class="size-3.5 shrink-0 text-ink-faint" />}>
                 <IconBranch class="size-3.5 shrink-0 text-ink-faint" />
               </Show>
-              <span class="shrink-0">{answer().spawned ? t("drift.chat.spawned.instruction") : t("drift.question.answered")}</span>
+              <span class="shrink-0">
+                {answer().spawned ? t("drift.chat.spawned.instruction") : t("drift.question.answered")}
+              </span>
               <Show when={answer().preview}>
                 <span class="min-w-0 truncate text-ink">{answer().preview}</span>
               </Show>
-              <span class="shrink-0 transition-transform group-open/answer:rotate-90"><Chevron open={false} /></span>
+              <span class="shrink-0 transition-transform group-open/answer:rotate-90">
+                <Chevron open={false} />
+              </span>
             </summary>
             <div class="mt-1 mb-2 space-y-3 border-l border-edge px-3 py-1 text-sm">
-              <Show when={answer().items.length} fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}>
+              <Show
+                when={answer().items.length}
+                fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
+              >
                 <For each={answer().items}>
                   {(item) => (
                     <div class="space-y-1">
                       <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">{item.question}</div>
-                      <div data-find-ignore={item.answers.length ? undefined : ""} class="whitespace-pre-wrap break-words text-ink">
+                      <div
+                        data-find-ignore={item.answers.length ? undefined : ""}
+                        class="whitespace-pre-wrap break-words text-ink"
+                      >
                         {item.answers.length ? item.answers.join(", ") : t("drift.question.unanswered")}
                       </div>
                     </div>
@@ -181,11 +233,19 @@ ${t("drift.message.revertKeepFiles")}`} class="rounded p-0.5 hover:bg-raised hov
             </div>
           </details>
           <div class="flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-            <button title={`${t("drift.message.revertHere")}
-${t("drift.message.revertKeepFiles")}`} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={(event) => void revert(event.shiftKey)}>
+            <button
+              title={`${t("drift.message.revertHere")}
+${t("drift.message.revertKeepFiles")}`}
+              class="rounded p-0.5 hover:bg-raised hover:text-ink"
+              onClick={(event) => void revert(event.shiftKey)}
+            >
               <IconUndo class="size-3.5" />
             </button>
-            <button title={t("drift.message.copy")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void navigator.clipboard.writeText(text())}>
+            <button
+              title={t("drift.message.copy")}
+              class="rounded p-0.5 hover:bg-raised hover:text-ink"
+              onClick={() => void navigator.clipboard.writeText(text())}
+            >
               <IconCopy class="size-3.5" />
             </button>
           </div>
@@ -205,7 +265,12 @@ export function largeUserText(text: string) {
 
 export type PartGroup = { id: string; key: string; explored: ToolPart[] } | { id: string; key: string; part: Part }
 
-export type PartGroupSlot = { id: string; value: PartGroup; revision?: () => number; update: (value: PartGroup) => void }
+export type PartGroupSlot = {
+  id: string
+  value: PartGroup
+  revision?: () => number
+  update: (value: PartGroup) => void
+}
 
 export function groupParts(parts: Part[]): PartGroup[] {
   const groups: PartGroup[] = []
@@ -229,8 +294,12 @@ function assistantBoundary(entry: MessageEntry) {
 }
 
 export function assistantFlowContinues(previous: MessageEntry, next: MessageEntry) {
-  return previous.info.role === "assistant" && next.info.role === "assistant" &&
-    !assistantBoundary(previous) && !assistantBoundary(next)
+  return (
+    previous.info.role === "assistant" &&
+    next.info.role === "assistant" &&
+    !assistantBoundary(previous) &&
+    !assistantBoundary(next)
+  )
 }
 
 export function groupAssistantEntries(entries: MessageEntry[]) {
@@ -298,18 +367,17 @@ export function updatePartGroupSlots(
   const claimed = new Set<string>()
   const active = new Set<string>()
   const next = groups.map((input, index) => {
-    const existing = "explored" in input
-      ? input.explored.reduce<{ index: number; slot: PartGroupSlot } | undefined>((result, part) => {
-          const candidate = exploredByPart.get(part.id)
-          if (!candidate || claimed.has(candidate.slot.id)) return result
-          const owner = reserved.get(candidate.slot.id)
-          if (owner !== undefined && owner !== index) return result
-          return !result || candidate.index < result.index ? candidate : result
-        }, undefined)?.slot
-      : slots.get(input.id)
-    const group = existing && input.id !== existing.id
-      ? { ...input, id: existing.id, key: existing.id }
-      : input
+    const existing =
+      "explored" in input
+        ? input.explored.reduce<{ index: number; slot: PartGroupSlot } | undefined>((result, part) => {
+            const candidate = exploredByPart.get(part.id)
+            if (!candidate || claimed.has(candidate.slot.id)) return result
+            const owner = reserved.get(candidate.slot.id)
+            if (owner !== undefined && owner !== index) return result
+            return !result || candidate.index < result.index ? candidate : result
+          }, undefined)?.slot
+        : slots.get(input.id)
+    const group = existing && input.id !== existing.id ? { ...input, id: existing.id, key: existing.id } : input
     if (existing && "explored" in input) claimed.add(existing.id)
     active.add(group.id)
     if (existing) {
@@ -343,9 +411,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
   }
   const liveTextPartID = () => {
     if (info().time.completed || !sessionBusy(engine.state, info().sessionID)) return undefined
-    return [...props.entry.parts]
-      .reverse()
-      .find((part) => part.type === "text" && !part.time?.end)?.id
+    return [...props.entry.parts].reverse().find((part) => part.type === "text" && !part.time?.end)?.id
   }
   return (
     <Show when={visible()}>
@@ -382,7 +448,10 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                 </div>
               }
             >
-              <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger" role="alert">
+              <div
+                class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger"
+                role="alert"
+              >
                 {errorText(error())}
               </div>
             </Show>
@@ -402,7 +471,9 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
             <button
               title={t("drift.message.copyResponse")}
               class="rounded p-0.5 hover:bg-raised hover:text-ink"
-              onClick={() => void navigator.clipboard.writeText(splitOrchestratorStatus(messageText(props.entry)).prose)}
+              onClick={() =>
+                void navigator.clipboard.writeText(splitOrchestratorStatus(messageText(props.entry)).prose)
+              }
             >
               <IconCopy class="size-3.5" />
             </button>

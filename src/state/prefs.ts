@@ -1,7 +1,8 @@
-import type { ModelRef } from "../engine/store"
 import { backendInvoke } from "../backend"
 import { shellEvents } from "../shell"
 import { persisted } from "./persist"
+
+import type { ModelRef } from "../engine/store"
 
 export const attentionKinds = ["agent", "permission", "error"] as const
 export type AttentionKind = (typeof attentionKinds)[number]
@@ -153,7 +154,7 @@ export type SessionChoice = { agent?: string; variant?: string | null; model?: M
 export function prefsFor(sessionId: string | null | undefined, saved: SessionChoice) {
   const own = (sessionId && sessionPrefs()[sessionId]) || {}
   return {
-    model: own.model !== undefined ? own.model : saved.model ?? modelPref(),
+    model: own.model !== undefined ? own.model : (saved.model ?? modelPref()),
     agent: own.agent ?? saved.agent ?? agentPref(),
     variant: own.variant !== undefined ? own.variant : saved.variant !== undefined ? saved.variant : variantPref(),
   }
@@ -194,8 +195,12 @@ export function setModelVisible(id: string, visible: boolean) {
 
 export function setModelsVisible(ids: string[], visible: boolean) {
   const changed = new Set(ids)
-  setHiddenModelIds(visible ? hiddenModelIds().filter((id) => !changed.has(id)) : [...new Set([...hiddenModelIds(), ...ids])])
-  setShownModelIds(visible ? [...new Set([...shownModelIds(), ...ids])] : shownModelIds().filter((id) => !changed.has(id)))
+  setHiddenModelIds(
+    visible ? hiddenModelIds().filter((id) => !changed.has(id)) : [...new Set([...hiddenModelIds(), ...ids])],
+  )
+  setShownModelIds(
+    visible ? [...new Set([...shownModelIds(), ...ids])] : shownModelIds().filter((id) => !changed.has(id)),
+  )
 }
 
 export function modelVisible(id: string, defaultVisible: boolean) {

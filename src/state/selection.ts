@@ -1,7 +1,7 @@
-import { persisted } from "./persist"
-import { isRemoteRuntime } from "../runtime"
-import { parseNavigationHash, pushRemoteSelection } from "./navigation"
 import { currentMirrorSnapshot, publishMirrorSelection } from "./mirror"
+import { parseNavigationHash, pushRemoteSelection } from "./navigation"
+import { isRemoteRuntime } from "../runtime"
+import { persisted } from "./persist"
 
 const [selectedSession, setSelectedSession] = persisted<string | null>("drift.session", null)
 export { selectedSession }
@@ -18,5 +18,7 @@ export function applyMirroredSession(session: string | null) {
 }
 
 if (typeof window !== "undefined" && isRemoteRuntime()) {
-  window.addEventListener("popstate", () => setSelectedSession(parseNavigationHash(window.location.hash).session ?? null))
+  window.addEventListener("popstate", () =>
+    setSelectedSession(parseNavigationHash(window.location.hash).session ?? null),
+  )
 }

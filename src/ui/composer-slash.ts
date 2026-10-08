@@ -1,7 +1,8 @@
-import { createEffect, createMemo, createSignal, createUniqueId, on } from "solid-js"
-import type { Engine } from "../engine"
-import { isDesktopShell } from "../shell"
 import { parseSlash, runSlash, slashItem, slashItems, slashPresets, type SlashItem, type SlashPreset } from "./slash"
+import { createEffect, createMemo, createSignal, createUniqueId, on } from "solid-js"
+import { isDesktopShell } from "../shell"
+
+import type { Engine } from "../engine"
 
 export type SlashMenuOptions = {
   engine: Engine
@@ -27,10 +28,12 @@ export function createSlashMenu(options: SlashMenuOptions) {
   const [dismissed, setDismissed] = createSignal(false)
   const [cursor, setCursor] = createSignal(0)
   const [expandedArgument, setExpandedArgument] = createSignal<string>()
-  createEffect(on(options.draft, () => {
-    setCursor(0)
-    setExpandedArgument(undefined)
-  }))
+  createEffect(
+    on(options.draft, () => {
+      setCursor(0)
+      setExpandedArgument(undefined)
+    }),
+  )
 
   const parsed = () => (dismissed() ? null : parseSlash(options.draft()))
   let slashOpen = false
@@ -62,7 +65,8 @@ export function createSlashMenu(options: SlashMenuOptions) {
   const argumentHelp = createMemo(() => {
     const item = argumentItem()
     const first = parsed()?.args.split(/\s/)[0]
-    const preset = item && slashPresets(item, "").find((preset) => preset.value.trim().toLowerCase() === first?.toLowerCase())
+    const preset =
+      item && slashPresets(item, "").find((preset) => preset.value.trim().toLowerCase() === first?.toLowerCase())
     if (preset) return { usage: preset.usage, description: preset.description }
     if (first && item?.presets?.length) return { usage: undefined, description: undefined }
     return { usage: item?.usage, description: item?.description }
@@ -72,7 +76,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
   const activePresetIndex = () => Math.min(cursor(), argumentPresets().length - 1)
 
   function toggleArgumentHelp(preset: SlashPreset) {
-    setExpandedArgument((current) => current === preset.value ? undefined : preset.value)
+    setExpandedArgument((current) => (current === preset.value ? undefined : preset.value))
   }
 
   function complete(item: SlashItem, preset?: SlashPreset) {
@@ -141,8 +145,8 @@ export function createSlashMenu(options: SlashMenuOptions) {
     // When a command is fixed the menu shows its presets, but a command with no presets still
     // occupies one row so the cursor has something to sit on.
     const count = item ? Math.max(1, presets.length) : matches().length
-    const atEnd = options.area().selectionStart === options.draft().length &&
-      options.area().selectionEnd === options.draft().length
+    const atEnd =
+      options.area().selectionStart === options.draft().length && options.area().selectionEnd === options.draft().length
 
     if (event.key === "ArrowRight" && presets.length && atEnd) {
       setExpandedArgument(presets[activePresetIndex()].value)

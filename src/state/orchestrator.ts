@@ -16,7 +16,8 @@ export function nudgesSincePrompt(entries: Array<{ info: { role: string }; parts
   let count = 0
   for (const entry of [...entries].reverse()) {
     if (entry.info.role !== "user") continue
-    if (entry.parts.some((part) => part.type === "file" || (part.type === "text" && !part.synthetic && !part.metadata))) return count
+    if (entry.parts.some((part) => part.type === "file" || (part.type === "text" && !part.synthetic && !part.metadata)))
+      return count
     if (entry.parts.some((part) => part.metadata?.generated === true)) count++
   }
   return count
@@ -84,9 +85,17 @@ export function orchestratorNotice(input: OrchestratorEndInput): OrchestratorNot
   if (!last || last.role !== "assistant" || !last.completed || last.errored) return null
   const status = parseOrchestratorStatus(last.text)
   if (status?.state === "done")
-    return { title: "Orchestrator finished", message: status.headline ?? "The goal was reported complete.", variant: "success" }
+    return {
+      title: "Orchestrator finished",
+      message: status.headline ?? "The goal was reported complete.",
+      variant: "success",
+    }
   if (status?.state === "blocked")
-    return { title: "Orchestrator blocked", message: status.headline ?? "The orchestrator needs your input to continue.", variant: "warning" }
+    return {
+      title: "Orchestrator blocked",
+      message: status.headline ?? "The orchestrator needs your input to continue.",
+      variant: "warning",
+    }
   if (input.rounds < ORCHESTRATOR_MAX_ROUNDS) return null
   return {
     title: "Orchestrator paused",

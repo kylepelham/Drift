@@ -1,5 +1,11 @@
+import { IconArrowUp, IconArrowUpRight, IconCheck, IconKey, IconPlus, IconSearch, IconSliders } from "../icons"
+import { loadRegistrySources, registrySources, sourcesOf } from "../../state/registry-sources"
 import { createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
-import type { McpServerConfig } from "../../engine/store"
+import { RegistrySourcesSheet } from "../registry-sources"
+import { openExternal } from "../../shell"
+import { useEngine } from "../../engine"
+import { LogoTile } from "../logo-tile"
+import { t } from "../../state/i18n"
 import {
   preferredOption,
   registryInstallName,
@@ -8,14 +14,14 @@ import {
   type InstallOption,
   type RegistryServer,
 } from "../../mcp-registry"
-import { openExternal } from "../../shell"
-import { t } from "../../state/i18n"
-import { createRegistrySearch, forgetRegistryCatalog, loadCustomRegistry, registryScore } from "../../state/mcp-registry-search"
-import { loadRegistrySources, registrySources, sourcesOf } from "../../state/registry-sources"
-import { useEngine } from "../../engine"
-import { IconArrowUp, IconArrowUpRight, IconCheck, IconKey, IconPlus, IconSearch, IconSliders } from "../icons"
-import { RegistrySourcesSheet } from "../registry-sources"
-import { LogoTile } from "../logo-tile"
+import {
+  createRegistrySearch,
+  forgetRegistryCatalog,
+  loadCustomRegistry,
+  registryScore,
+} from "../../state/mcp-registry-search"
+
+import type { McpServerConfig } from "../../engine/store"
 
 type Filter = "all" | "remote" | "local"
 type Entry = { server: RegistryServer; options: InstallOption[] }
@@ -46,9 +52,14 @@ export function McpRegistry(props: {
   let disposed = false
   /** The user's own registries, read whole; one that fails is named and the rest still show. */
   const loadOwn = async () => {
-    await loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) }).catch(() => undefined)
+    await loadRegistrySources({
+      settings: () => engine.actions.engineSettings(),
+      putSettings: (body) => engine.actions.putEngineSettings(body),
+    }).catch(() => undefined)
     const sources = sourcesOf("mcp")
-    const results = await Promise.allSettled(sources.map((source) => loadCustomRegistry(source, (id) => engine.actions.fetchRegistry(id))))
+    const results = await Promise.allSettled(
+      sources.map((source) => loadCustomRegistry(source, (id) => engine.actions.fetchRegistry(id))),
+    )
     if (disposed) return
     setOwn(entries(results.flatMap((result) => (result.status === "fulfilled" ? result.value : []))))
     setOwnFailures(results.flatMap((result, index) => (result.status === "rejected" ? [sources[index]!.name] : [])))
@@ -107,7 +118,9 @@ export function McpRegistry(props: {
   }
   const ownVisible = createMemo(() => {
     const asked = query().trim()
-    return own().filter(matches).filter((entry) => !asked || registryScore(entry.server, asked) > 0)
+    return own()
+      .filter(matches)
+      .filter((entry) => !asked || registryScore(entry.server, asked) > 0)
   })
   const visible = createMemo(() => popular().filter(matches))
   const extra = createMemo(() => more().filter(matches))
@@ -115,119 +128,151 @@ export function McpRegistry(props: {
 
   return (
     <Show when={!sourcesOpen()} fallback={<RegistrySourcesSheet kind="mcp" onBack={closeSources} />}>
-    <Show
-      when={selected()}
-      fallback={
-        <div class="space-y-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <label class="flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border border-edge bg-raised/45 px-2.5 focus-within:border-accent">
-              <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
-              <input
-                aria-label={t("drift.mcp.registrySearch")}
-                placeholder={t("drift.mcp.registrySearch")}
-                class="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
-                value={query()}
-                onInput={(event) => schedule(event.currentTarget.value)}
-              />
-            </label>
-            <div class="flex rounded-lg border border-edge bg-surface p-0.5" role="group" aria-label={t("drift.mcp.registry.filter")}>
-              <For each={["all", "remote", "local"] as Filter[]}>
-                {(value) => (
-                  <button
-                    type="button"
-                    aria-pressed={filter() === value}
-                    class="rounded-md px-2.5 py-1 text-xs"
-                    classList={{ "bg-raised text-ink": filter() === value, "text-ink-faint hover:text-ink": filter() !== value }}
-                    onClick={() => setFilter(value)}
-                  >
-                    {t(`drift.mcp.registry.filter.${value}`)}
-                  </button>
+      <Show
+        when={selected()}
+        fallback={
+          <div class="space-y-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <label class="flex h-9 min-w-48 flex-1 items-center gap-2 rounded-md border border-edge bg-raised/45 px-2.5 focus-within:border-accent">
+                <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
+                <input
+                  aria-label={t("drift.mcp.registrySearch")}
+                  placeholder={t("drift.mcp.registrySearch")}
+                  class="min-w-0 flex-1 bg-transparent text-sm text-ink outline-none placeholder:text-ink-faint"
+                  value={query()}
+                  onInput={(event) => schedule(event.currentTarget.value)}
+                />
+              </label>
+              <div
+                class="flex rounded-lg border border-edge bg-surface p-0.5"
+                role="group"
+                aria-label={t("drift.mcp.registry.filter")}
+              >
+                <For each={["all", "remote", "local"] as Filter[]}>
+                  {(value) => (
+                    <button
+                      type="button"
+                      aria-pressed={filter() === value}
+                      class="rounded-md px-2.5 py-1 text-xs"
+                      classList={{
+                        "bg-raised text-ink": filter() === value,
+                        "text-ink-faint hover:text-ink": filter() !== value,
+                      }}
+                      onClick={() => setFilter(value)}
+                    >
+                      {t(`drift.mcp.registry.filter.${value}`)}
+                    </button>
+                  )}
+                </For>
+              </div>
+              <button
+                type="button"
+                title={t("drift.registry.sources")}
+                aria-label={t("drift.registry.sources")}
+                class="flex h-9 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted hover:border-edge-strong hover:text-ink"
+                onClick={() => setSourcesOpen(true)}
+              >
+                <IconSliders class="size-3.5" />
+                <Show when={sourcesOf("mcp").length}>{(count) => <span>{count()}</span>}</Show>
+              </button>
+            </div>
+            <div class="text-[0.7rem] text-ink-faint">{t("drift.mcp.registrySource")}</div>
+            <For each={ownFailures()}>
+              {(name) => (
+                <div role="alert" class="rounded-md border border-warn/35 bg-warn/10 px-3 py-2 text-xs text-warn">
+                  {t("drift.registry.sources.failed", { name, error: t("drift.plugins.registryLoadFailed") })}
+                </div>
+              )}
+            </For>
+            <Show when={ownVisible().length}>
+              <div class="text-xs font-medium text-ink-muted">{t("drift.registry.sources.yours")}</div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                <For each={ownVisible()}>
+                  {(entry) => (
+                    <RegistryCard entry={entry} installed={installed(entry.server)} onOpen={() => setSelected(entry)} />
+                  )}
+                </For>
+              </div>
+              <Show when={registrySources().length}>
+                <div class="pt-1 text-xs font-medium text-ink-muted">{t("drift.mcp.registry")}</div>
+              </Show>
+            </Show>
+            <Show when={error()}>
+              <div
+                role="alert"
+                class="flex items-center gap-3 rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger"
+              >
+                {error()}
+                <button
+                  class="rounded border border-current px-2 py-0.5"
+                  onClick={() => {
+                    forgetRegistryCatalog()
+                    void search()
+                  }}
+                >
+                  {t("drift.mcp.retry")}
+                </button>
+              </div>
+            </Show>
+            <Show when={loading() && !popular().length}>
+              <div class="grid gap-2 sm:grid-cols-2" aria-busy="true">
+                <For each={Array.from({ length: 6 })}>
+                  {() => <div class="h-[6.5rem] animate-pulse rounded-lg border border-edge bg-raised/30" />}
+                </For>
+              </div>
+            </Show>
+            <div class="grid gap-2 sm:grid-cols-2" aria-busy={loading()}>
+              <For each={visible().slice(0, shown())}>
+                {(entry) => (
+                  <RegistryCard entry={entry} installed={installed(entry.server)} onOpen={() => setSelected(entry)} />
                 )}
               </For>
             </div>
-            <button
-              type="button"
-              title={t("drift.registry.sources")}
-              aria-label={t("drift.registry.sources")}
-              class="flex h-9 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted hover:border-edge-strong hover:text-ink"
-              onClick={() => setSourcesOpen(true)}
-            >
-              <IconSliders class="size-3.5" />
-              <Show when={sourcesOf("mcp").length}>{(count) => <span>{count()}</span>}</Show>
-            </button>
-          </div>
-          <div class="text-[0.7rem] text-ink-faint">{t("drift.mcp.registrySource")}</div>
-          <For each={ownFailures()}>
-            {(name) => <div role="alert" class="rounded-md border border-warn/35 bg-warn/10 px-3 py-2 text-xs text-warn">{t("drift.registry.sources.failed", { name, error: t("drift.plugins.registryLoadFailed") })}</div>}
-          </For>
-          <Show when={ownVisible().length}>
-            <div class="text-xs font-medium text-ink-muted">{t("drift.registry.sources.yours")}</div>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <For each={ownVisible()}>{(entry) => <RegistryCard entry={entry} installed={installed(entry.server)} onOpen={() => setSelected(entry)} />}</For>
-            </div>
-            <Show when={registrySources().length}>
-              <div class="pt-1 text-xs font-medium text-ink-muted">{t("drift.mcp.registry")}</div>
-            </Show>
-          </Show>
-          <Show when={error()}>
-            <div role="alert" class="flex items-center gap-3 rounded-md border border-danger/35 bg-danger/10 px-3 py-2 text-xs text-danger">
-              {error()}
+            <Show when={visible().length > shown()}>
               <button
-                class="rounded border border-current px-2 py-0.5"
-                onClick={() => {
-                  forgetRegistryCatalog()
-                  void search()
-                }}
+                class="w-full rounded-md border border-edge py-2 text-xs text-ink-muted hover:text-ink"
+                onClick={() => setShown(shown() + PAGE)}
               >
-                {t("drift.mcp.retry")}
+                {t("drift.mcp.registry.more", { count: visible().length - shown() })}
               </button>
-            </div>
-          </Show>
-          <Show when={loading() && !popular().length}>
-            <div class="grid gap-2 sm:grid-cols-2" aria-busy="true">
-              <For each={Array.from({ length: 6 })}>{() => <div class="h-[6.5rem] animate-pulse rounded-lg border border-edge bg-raised/30" />}</For>
-            </div>
-          </Show>
-          <div class="grid gap-2 sm:grid-cols-2" aria-busy={loading()}>
-            <For each={visible().slice(0, shown())}>
-              {(entry) => <RegistryCard entry={entry} installed={installed(entry.server)} onOpen={() => setSelected(entry)} />}
-            </For>
+            </Show>
+            <Show when={searchingOfficial()}>
+              <div role="status" class="flex items-center gap-2 pt-1 text-xs text-ink-faint">
+                <span
+                  aria-hidden="true"
+                  class="size-3 rounded-full border-2 border-ink-faint/30 border-t-ink-muted motion-safe:animate-spin"
+                />
+                {t("drift.mcp.registry.searchingOfficial")}
+              </div>
+            </Show>
+            <Show when={extra().length}>
+              <div class="pt-2 text-xs font-medium text-ink-muted">{t("drift.mcp.registry.official")}</div>
+              <div class="grid gap-2 sm:grid-cols-2">
+                <For each={extra()}>
+                  {(entry) => (
+                    <RegistryCard entry={entry} installed={installed(entry.server)} onOpen={() => setSelected(entry)} />
+                  )}
+                </For>
+              </div>
+            </Show>
+            <Show when={!loading() && !searchingOfficial() && !error() && !visible().length && !extra().length}>
+              <div class="px-3 py-6 text-center text-sm text-ink-faint">{t("drift.mcp.registry.empty")}</div>
+            </Show>
           </div>
-          <Show when={visible().length > shown()}>
-            <button class="w-full rounded-md border border-edge py-2 text-xs text-ink-muted hover:text-ink" onClick={() => setShown(shown() + PAGE)}>
-              {t("drift.mcp.registry.more", { count: visible().length - shown() })}
-            </button>
-          </Show>
-          <Show when={searchingOfficial()}>
-            <div role="status" class="flex items-center gap-2 pt-1 text-xs text-ink-faint">
-              <span aria-hidden="true" class="size-3 rounded-full border-2 border-ink-faint/30 border-t-ink-muted motion-safe:animate-spin" />
-              {t("drift.mcp.registry.searchingOfficial")}
-            </div>
-          </Show>
-          <Show when={extra().length}>
-            <div class="pt-2 text-xs font-medium text-ink-muted">{t("drift.mcp.registry.official")}</div>
-            <div class="grid gap-2 sm:grid-cols-2">
-              <For each={extra()}>{(entry) => <RegistryCard entry={entry} installed={installed(entry.server)} onOpen={() => setSelected(entry)} />}</For>
-            </div>
-          </Show>
-          <Show when={!loading() && !searchingOfficial() && !error() && !visible().length && !extra().length}>
-            <div class="px-3 py-6 text-center text-sm text-ink-faint">{t("drift.mcp.registry.empty")}</div>
-          </Show>
-        </div>
-      }
-    >
-      {(entry) => (
-        <InstallSheet
-          entry={entry()}
-          installed={installed(entry().server)}
-          disabled={props.disabled}
-          onBack={() => setSelected()}
-          onInstall={async (config) => {
-            if (await props.onInstall(entry().server, config)) setSelected()
-          }}
-        />
-      )}
-    </Show>
+        }
+      >
+        {(entry) => (
+          <InstallSheet
+            entry={entry()}
+            installed={installed(entry().server)}
+            disabled={props.disabled}
+            onBack={() => setSelected()}
+            onInstall={async (config) => {
+              if (await props.onInstall(entry().server, config)) setSelected()
+            }}
+          />
+        )}
+      </Show>
     </Show>
   )
 }
@@ -290,7 +335,9 @@ function InstallSheet(props: {
             <Show when={listing()?.repository}>
               {(url) => <ExternalLink url={url()}>{t("drift.mcp.registry.repository")}</ExternalLink>}
             </Show>
-            <Show when={listing()?.website}>{(url) => <ExternalLink url={url()}>{t("drift.mcp.registry.website")}</ExternalLink>}</Show>
+            <Show when={listing()?.website}>
+              {(url) => <ExternalLink url={url()}>{t("drift.mcp.registry.website")}</ExternalLink>}
+            </Show>
             <span class="text-ink-faint">{server().name}</span>
           </div>
           <Show when={listing()?.topics?.length}>
@@ -310,7 +357,10 @@ function InstallSheet(props: {
                   type="button"
                   aria-pressed={item.id === optionId()}
                   class="rounded-md border px-2.5 py-1.5 text-left text-xs"
-                  classList={{ "border-accent bg-accent/10 text-ink": item.id === optionId(), "border-edge text-ink-muted hover:text-ink": item.id !== optionId() }}
+                  classList={{
+                    "border-accent bg-accent/10 text-ink": item.id === optionId(),
+                    "border-edge text-ink-muted hover:text-ink": item.id !== optionId(),
+                  }}
                   onClick={() => setOptionId(item.id)}
                 >
                   {optionLabel(item)}
@@ -329,7 +379,9 @@ function InstallSheet(props: {
                 <label class="block space-y-1">
                   <div class="flex items-baseline gap-2 text-xs">
                     <span class="font-medium text-ink">{field.label}</span>
-                    <span class="text-ink-faint">{t(field.required ? "drift.mcp.registry.required" : "drift.mcp.registry.optional")}</span>
+                    <span class="text-ink-faint">
+                      {t(field.required ? "drift.mcp.registry.required" : "drift.mcp.registry.optional")}
+                    </span>
                     <Show when={field.secret}>
                       <IconKey class="size-3 text-ink-faint" aria-label={t("drift.mcp.registry.secret")} />
                     </Show>
@@ -343,7 +395,9 @@ function InstallSheet(props: {
                     value={values()[field.key] ?? ""}
                     onInput={(event) => setValues({ ...values(), [field.key]: event.currentTarget.value })}
                   />
-                  <Show when={field.description}>{(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}</Show>
+                  <Show when={field.description}>
+                    {(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}
+                  </Show>
                 </label>
               )}
             </For>
@@ -372,7 +426,13 @@ function InstallSheet(props: {
           }}
         >
           {props.installed ? <IconCheck class="size-3.5" /> : <IconPlus class="size-3.5" />}
-          {t(props.installed ? "drift.mcp.installedLabel" : busy() ? "drift.mcp.registry.installing" : "drift.mcp.install")}
+          {t(
+            props.installed
+              ? "drift.mcp.installedLabel"
+              : busy()
+                ? "drift.mcp.registry.installing"
+                : "drift.mcp.install",
+          )}
         </button>
       </div>
     </div>
@@ -387,7 +447,9 @@ function Byline(props: { server: RegistryServer }) {
   const listing = () => props.server.listing
   return (
     <div class="flex items-center gap-1.5 truncate text-[0.7rem] text-ink-faint">
-      <Show when={listing()?.sourceName}>{(name) => <span class="shrink-0 rounded bg-warn/12 px-1 text-warn">{name()}</span>}</Show>
+      <Show when={listing()?.sourceName}>
+        {(name) => <span class="shrink-0 rounded bg-warn/12 px-1 text-warn">{name()}</span>}
+      </Show>
       <Show when={listing()?.publisher}>{(publisher) => <span class="truncate">{publisher()}</span>}</Show>
       <Show when={listing()?.stars}>
         {(stars) => (
@@ -431,23 +493,27 @@ export function registryBadges(options: InstallOption[]) {
 
 function badges(options: InstallOption[]) {
   const result: { text: string; tone?: "accent" | "warn" }[] = []
-  if (options.some((option) => option.kind === "remote")) result.push({ text: t("drift.mcp.registry.filter.remote"), tone: "accent" })
+  if (options.some((option) => option.kind === "remote"))
+    result.push({ text: t("drift.mcp.registry.filter.remote"), tone: "accent" })
   for (const kind of ["npm", "pypi", "docker"] as InstallKind[]) {
     if (options.some((option) => option.kind === kind)) result.push({ text: KIND_LABEL[kind] })
   }
-  if (preferredOption(options)?.fields.some((field) => field.required)) result.push({ text: t("drift.mcp.registry.needsKey"), tone: "warn" })
+  if (preferredOption(options)?.fields.some((field) => field.required))
+    result.push({ text: t("drift.mcp.registry.needsKey"), tone: "warn" })
   return result
 }
 
 function optionLabel(option: InstallOption) {
-  if (option.kind === "remote") return `${t("drift.mcp.registry.filter.remote")} · ${option.detail === "sse" ? t("drift.mcp.transport.sse") : t("drift.mcp.transport.streamable_http")}`
+  if (option.kind === "remote")
+    return `${t("drift.mcp.registry.filter.remote")} · ${option.detail === "sse" ? t("drift.mcp.transport.sse") : t("drift.mcp.transport.streamable_http")}`
   return `${KIND_LABEL[option.kind]} · ${option.detail}`
 }
 
 function optionNote(option: InstallOption) {
   if (option.kind === "remote") return t("drift.mcp.registry.note.remote")
   if (option.kind === "docker") return t("drift.mcp.registry.note.docker")
-  if (option.detail === "latest") return t("drift.mcp.registry.note.latest", { runtime: option.kind === "npm" ? "npx" : "uvx" })
+  if (option.detail === "latest")
+    return t("drift.mcp.registry.note.latest", { runtime: option.kind === "npm" ? "npx" : "uvx" })
   return t("drift.mcp.registry.note.local", { runtime: option.kind === "npm" ? "npx" : "uvx" })
 }
 

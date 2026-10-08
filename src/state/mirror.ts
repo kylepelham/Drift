@@ -1,5 +1,5 @@
-import { backendInvoke } from "../backend"
 import { isRemoteRuntime } from "../runtime"
+import { backendInvoke } from "../backend"
 import { shellEvents } from "../shell"
 
 export type MirrorThemeName =
@@ -62,10 +62,12 @@ const clientId = globalThis.crypto?.randomUUID?.() ?? `client-${Date.now()}-${Ma
 let current: UiMirrorSnapshot | undefined
 let applier: MirrorApplier | undefined
 let queued: MirrorPatch | undefined
-let retry: {
-  patch: MirrorPatch
-  mutation: MirrorPatch & { clientId: string; mutationId: string }
-} | undefined
+let retry:
+  | {
+      patch: MirrorPatch
+      mutation: MirrorPatch & { clientId: string; mutationId: string }
+    }
+  | undefined
 let publishing = false
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 let liveStarted = false
@@ -86,16 +88,23 @@ function boundedString(value: unknown, fallback: string, max: number) {
 }
 
 function identifier(value: unknown) {
-  return typeof value === "string" && [...value].length > 0 && [...value].length <= 256 && ![...value].some((char) => /\p{Cc}/u.test(char))
+  return typeof value === "string" &&
+    [...value].length > 0 &&
+    [...value].length <= 256 &&
+    ![...value].some((char) => /\p{Cc}/u.test(char))
     ? value
     : null
 }
 
 function customTheme(value: unknown): MirrorTheme["custom"] {
-  const source = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  const source = value && typeof value === "object" ? (value as Record<string, unknown>) : {}
   return {
-    background: typeof source.background === "string" && hexColor.test(source.background) ? source.background : defaults.custom.background,
-    surface: typeof source.surface === "string" && hexColor.test(source.surface) ? source.surface : defaults.custom.surface,
+    background:
+      typeof source.background === "string" && hexColor.test(source.background)
+        ? source.background
+        : defaults.custom.background,
+    surface:
+      typeof source.surface === "string" && hexColor.test(source.surface) ? source.surface : defaults.custom.surface,
     text: typeof source.text === "string" && hexColor.test(source.text) ? source.text : defaults.custom.text,
     accent: typeof source.accent === "string" && hexColor.test(source.accent) ? source.accent : defaults.custom.accent,
   }
@@ -113,7 +122,8 @@ export function localMirrorSnapshot(): UiMirrorSnapshot {
     schema: 1,
     revision: 0,
     theme: {
-      name: typeof name === "string" && themeNames.has(name as MirrorThemeName) ? name as MirrorThemeName : defaults.name,
+      name:
+        typeof name === "string" && themeNames.has(name as MirrorThemeName) ? (name as MirrorThemeName) : defaults.name,
       custom: customTheme(stored<unknown>("drift.theme.custom", defaults.custom)),
       uiFont: boundedString(stored<unknown>("drift.theme.uiFont", ""), "", 256),
       codeFont: boundedString(stored<unknown>("drift.theme.codeFont", ""), "", 256),
@@ -185,12 +195,18 @@ export async function bootstrapMirror() {
   acceptMirrorSnapshot(snapshot, true)
 
   const savedTimeout = stored<unknown>("drift.shell.timeout", null)
-  const localTimeout = typeof savedTimeout === "number" && Number.isInteger(savedTimeout) && savedTimeout >= 60_000 && savedTimeout <= 86_400_000
-    ? savedTimeout
-    : null
+  const localTimeout =
+    typeof savedTimeout === "number" &&
+    Number.isInteger(savedTimeout) &&
+    savedTimeout >= 60_000 &&
+    savedTimeout <= 86_400_000
+      ? savedTimeout
+      : null
   const policy = remote
     ? await invoke<{ timeoutMs: number | null }>(shellTimeoutBootstrapCommand(true))
-    : await invoke<{ timeoutMs: number | null }>(shellTimeoutBootstrapCommand(false), { policy: { timeoutMs: localTimeout } })
+    : await invoke<{ timeoutMs: number | null }>(shellTimeoutBootstrapCommand(false), {
+        policy: { timeoutMs: localTimeout },
+      })
   cacheValue("drift.shell.timeout", policy.timeoutMs)
 }
 

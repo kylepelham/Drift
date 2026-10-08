@@ -21,25 +21,38 @@ test("attachment resolver combines MIME, extension, and signatures", () => {
   expect(resolveAttachmentKind({ filename: "values.tsv", mime: "text/plain" }).kind).toBe("csv")
   expect(resolveAttachmentKind({ filename: "clip.unknown", mime: "video/webm" }).kind).toBe("video")
   expect(
-    resolveAttachmentKind({ filename: "renamed.txt", mime: "text/plain", bytes: new Uint8Array([0x50, 0x4b, 0x03, 0x04]) }),
+    resolveAttachmentKind({
+      filename: "renamed.txt",
+      mime: "text/plain",
+      bytes: new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
+    }),
   ).toMatchObject({ kind: "unsupported", reason: "archive" })
   expect(
-    resolveAttachmentKind({ filename: "notes.txt", mime: "text/plain", bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]) }),
+    resolveAttachmentKind({
+      filename: "notes.txt",
+      mime: "text/plain",
+      bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]),
+    }),
   ).toMatchObject({ kind: "pdf", mime: "application/pdf" })
 })
 
 test("extensionless uploads are admitted after signature detection", async () => {
-  expect(resolveAttachmentKind({
-    filename: "upload",
-    mime: "application/octet-stream",
-    bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-  })).toMatchObject({ kind: "image", mime: "image/png" })
+  expect(
+    resolveAttachmentKind({
+      filename: "upload",
+      mime: "application/octet-stream",
+      bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    }),
+  ).toMatchObject({ kind: "image", mime: "image/png" })
   expect(await Bun.file("src/ui/composer.tsx").text()).not.toContain('if (resolved.kind === "unsupported")')
 })
 
 test("text attachments are strict UTF-8 and become bounded readable prompt text", async () => {
   expect(() => decodeUtf8(new Uint8Array([0xc3, 0x28]))).toThrow()
-  const invalid = await prepareAttachment(new File([new Uint8Array([0xc3, 0x28])], "bad.txt", { type: "text/plain" }), "bad")
+  const invalid = await prepareAttachment(
+    new File([new Uint8Array([0xc3, 0x28])], "bad.txt", { type: "text/plain" }),
+    "bad",
+  )
   expect(invalid).toMatchObject({ ok: false, reason: "invalid-utf8", kind: "text" })
 
   const prepared = await prepareAttachment(new File(["first\nsecond\nthird"], "sample.ts", { type: "" }), "text")
@@ -59,7 +72,10 @@ test("CSV delimiter, dimensions, quoting, and truncation are deterministic", () 
   expect(parsed.preview).toContain("hello; world")
   expect(parsed.truncated).toBeFalse()
 
-  const truncated = parseCsvAttachment("a,b\n" + Array.from({ length: 40 }, (_, index) => `${index},value`).join("\n"), 5)
+  const truncated = parseCsvAttachment(
+    "a,b\n" + Array.from({ length: 40 }, (_, index) => `${index},value`).join("\n"),
+    5,
+  )
   expect(truncated.rows).toBe(41)
   expect(truncated.columns).toBe(2)
   expect(truncated.truncated).toBeTrue()
@@ -105,7 +121,9 @@ test("audio and video admission uses advertised model input capabilities", () =>
 })
 
 test("send transformation keeps images native and sends non-images as readable content", async () => {
-  const attachment = (value: Partial<StagedAttachment> & Pick<StagedAttachment, "filename" | "mime">): StagedAttachment => ({
+  const attachment = (
+    value: Partial<StagedAttachment> & Pick<StagedAttachment, "filename" | "mime">,
+  ): StagedAttachment => ({
     id: value.filename,
     size: 10,
     status: "ready",

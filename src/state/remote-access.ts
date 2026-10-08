@@ -1,7 +1,13 @@
-import { createSignal } from "solid-js"
 import { shellEvents, shellInvoke } from "../shell"
+import { createSignal } from "solid-js"
 
-export type RemoteDevice = { id: string; name: string; method: "link" | "password"; createdAt: number; lastSeenAt: number }
+export type RemoteDevice = {
+  id: string
+  name: string
+  method: "link" | "password"
+  createdAt: number
+  lastSeenAt: number
+}
 export type PendingLink = { name: string; address: string; requestedAt: number }
 
 export type RemoteAccessStatus = {
@@ -29,7 +35,11 @@ export function nextRemoteAccessEnabled(status: RemoteAccessStatus | null) {
   return !status?.enabled
 }
 
-const relativeUnits = [["day", 86_400], ["hour", 3_600], ["minute", 60]] as const
+const relativeUnits = [
+  ["day", 86_400],
+  ["hour", 3_600],
+  ["minute", 60],
+] as const
 
 export function lastSeenLabel(at: number, now = Date.now()) {
   const seconds = Math.round((at - now) / 1000)
@@ -48,12 +58,7 @@ const [busy, setBusy] = createSignal(false)
 const [error, setError] = createSignal("")
 const [session, setSession] = createSignal<RemoteDevice | null>(null)
 
-export {
-  status as remoteAccessStatus,
-  busy as remoteAccessBusy,
-  error as remoteAccessError,
-  session as remoteSession,
-}
+export { status as remoteAccessStatus, busy as remoteAccessBusy, error as remoteAccessError, session as remoteSession }
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 

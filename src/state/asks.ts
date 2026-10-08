@@ -1,6 +1,7 @@
-import { createSignal } from "solid-js"
-import type { QuestionInfo } from "../engine/store"
 import { clearQuestionDraft } from "./question-drafts"
+import { createSignal } from "solid-js"
+
+import type { QuestionInfo } from "../engine/store"
 
 export type LocalAsk = {
   id: string

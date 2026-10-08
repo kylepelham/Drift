@@ -73,11 +73,19 @@ test("desktop bootstrap normalizes malformed legacy appearance and selection val
   mirrorStorage.set("drift.theme.customCss", JSON.stringify("x".repeat(20_100)))
   mirrorStorage.set("drift.workspace", JSON.stringify("bad\u0000workspace"))
   mirrorStorage.set("drift.session", JSON.stringify("session-1"))
-  mirrorStorage.set("drift.workspace.order", JSON.stringify(["one", "one", "bad\u0000id", ...Array.from({ length: 501 }, (_, index) => `w-${index}`)]))
+  mirrorStorage.set(
+    "drift.workspace.order",
+    JSON.stringify(["one", "one", "bad\u0000id", ...Array.from({ length: 501 }, (_, index) => `w-${index}`)]),
+  )
 
   const snapshot = localMirrorSnapshot()
   expect(snapshot.theme.name).toBe("drift-dark")
-  expect(snapshot.theme.custom).toEqual({ background: "#111318", surface: "#123456", text: "#e8eaf0", accent: "#a78bfa" })
+  expect(snapshot.theme.custom).toEqual({
+    background: "#111318",
+    surface: "#123456",
+    text: "#e8eaf0",
+    accent: "#a78bfa",
+  })
   expect(snapshot.theme.uiFont).toHaveLength(256)
   expect([...snapshot.theme.uiFont]).toHaveLength(256)
   expect(snapshot.theme.customCss).toHaveLength(20_000)
@@ -137,7 +145,9 @@ test("reselecting the active workspace preserves its mirrored session", async ()
 test("stale workspace mirror failures are not retried forever", async () => {
   const source = await Bun.file("src/state/mirror.ts").text()
   expect(source).toContain('message === "selected workspace does not exist"')
-  expect(source).toMatch(/message === "selected workspace does not exist"[\s\S]*?retry = undefined[\s\S]*?setLiveError\(""\)/)
+  expect(source).toMatch(
+    /message === "selected workspace does not exist"[\s\S]*?retry = undefined[\s\S]*?setLiveError\(""\)/,
+  )
   expect(source).toContain("queued = { ...retry.patch, ...queued }")
 })
 

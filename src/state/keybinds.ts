@@ -1,13 +1,7 @@
 import { persisted } from "./persist"
 
 export type KeybindAction =
-  | "palette"
-  | "newThread"
-  | "findInSession"
-  | "autoAccept"
-  | "zoomIn"
-  | "zoomOut"
-  | "zoomReset"
+  "palette" | "newThread" | "findInSession" | "autoAccept" | "zoomIn" | "zoomOut" | "zoomReset"
 
 export const keybindDefs: { action: KeybindAction; combo: string | null }[] = [
   { action: "palette", combo: "ctrl+k" },

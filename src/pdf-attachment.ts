@@ -1,6 +1,6 @@
+import { collectPdfText, formatPdfAttachment, maxPdfExtractionChars, maxPdfExtractionPages } from "./attachments"
 import { getDocument, GlobalWorkerOptions } from "pdfjs-dist"
 import workerSrc from "pdfjs-dist/build/pdf.worker.mjs?url"
-import { collectPdfText, formatPdfAttachment, maxPdfExtractionChars, maxPdfExtractionPages } from "./attachments"
 
 GlobalWorkerOptions.workerSrc = workerSrc
 
@@ -16,10 +16,10 @@ export async function extractPdfAttachment(data: ArrayBuffer, filename: string) 
       const page = await pdf.getPage(number)
       const content = await page.getTextContent()
       const text = content.items
-          .flatMap((item) => ("str" in item ? [item.str + (item.hasEOL ? "\n" : " ")] : []))
-          .join("")
-          .replace(/[ \t]+\n/g, "\n")
-          .trim()
+        .flatMap((item) => ("str" in item ? [item.str + (item.hasEOL ? "\n" : " ")] : []))
+        .join("")
+        .replace(/[ \t]+\n/g, "\n")
+        .trim()
       pages.push(text)
       extractedChars += text.length
       if (number === 1 && typeof document !== "undefined") thumbnail = await renderThumbnail(page)
@@ -38,7 +38,9 @@ export async function extractPdfAttachment(data: ArrayBuffer, filename: string) 
   }
 }
 
-async function renderThumbnail(page: Awaited<ReturnType<Awaited<ReturnType<typeof getDocument>["promise"]>["getPage"]>>) {
+async function renderThumbnail(
+  page: Awaited<ReturnType<Awaited<ReturnType<typeof getDocument>["promise"]>["getPage"]>>,
+) {
   const base = page.getViewport({ scale: 1 })
   const scale = Math.min(1.5, 280 / base.width)
   const viewport = page.getViewport({ scale })

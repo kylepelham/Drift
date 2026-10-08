@@ -29,7 +29,11 @@ let failed = false
 async function attempt(step: Step) {
   const proc = Bun.spawn(step.cmd, { cwd: root, stdout: "pipe", stderr: "pipe" })
   running.add(proc)
-  const [out, err, code] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited])
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
   running.delete(proc)
   return { code, output: (out + err).trimEnd() }
 }
@@ -61,7 +65,8 @@ async function chain(steps: Step[]) {
 
 /** The whole process tree: cargo leaves rustc and test binaries running if only it is killed. */
 function stop(proc: Proc) {
-  if (process.platform === "win32") Bun.spawnSync(["taskkill", "/T", "/F", "/PID", String(proc.pid)], { stdout: "ignore", stderr: "ignore" })
+  if (process.platform === "win32")
+    Bun.spawnSync(["taskkill", "/T", "/F", "/PID", String(proc.pid)], { stdout: "ignore", stderr: "ignore" })
   else proc.kill()
 }
 

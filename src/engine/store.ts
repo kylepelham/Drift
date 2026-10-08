@@ -1,15 +1,6 @@
-import type {
-  Command,
-  Message,
-  Model,
-  Part,
-  Permission,
-  Session,
-  SessionStatus,
-  Todo,
-  ToolPart,
-} from "./shapes"
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
+
+import type { Command, Message, Model, Part, Permission, Session, SessionStatus, Todo, ToolPart } from "./shapes"
 import type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord } from "./native/client"
 export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }
 export type Connection = "idle" | "connecting" | "online" | "offline"
@@ -42,7 +33,11 @@ export type CommandInfo = Command & {
 }
 export type MessageEntry = { info: Message; parts: Part[] }
 
-export function interruptStaleTools(entries: MessageEntry[], liveTools: Readonly<Record<string, string>>, error = "Interrupted") {
+export function interruptStaleTools(
+  entries: MessageEntry[],
+  liveTools: Readonly<Record<string, string>>,
+  error = "Interrupted",
+) {
   return entries.map((entry) => {
     let changed = false
     const parts = entry.parts.map((part) => {
@@ -68,9 +63,7 @@ export function interruptStaleTools(entries: MessageEntry[], liveTools: Readonly
 }
 
 export function messageText(entry: MessageEntry) {
-  return entry.parts
-    .flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : []))
-    .join("\n")
+  return entry.parts.flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])).join("\n")
 }
 
 // Engine IDs are not chronologically sortable (the embedded timestamp wraps), so order by time first.
@@ -330,7 +323,8 @@ export function mergeTranscriptSnapshot(
   captured: Record<string, number>,
   revisions: Record<string, number>,
 ) {
-  const advanced = (messageID: string) => revisionAdvanced(revisions, captured, messageRevisionKey(sessionID, messageID))
+  const advanced = (messageID: string) =>
+    revisionAdvanced(revisions, captured, messageRevisionKey(sessionID, messageID))
   const liveById = new Map((live ?? []).map((entry) => [entry.info.id, entry]))
   const snapshotIds = new Set(snapshot.map((entry) => entry.info.id))
   const merged = snapshot.flatMap((snapshotEntry) => {
@@ -360,7 +354,12 @@ function withSnapshotParts(current: MessageEntry, snapshot: MessageEntry): Messa
   const parts = current.parts.map((part) => {
     if (part.type !== "text" && part.type !== "reasoning") return part
     const incoming = byId.get(part.id)
-    if (incoming?.type !== part.type || incoming.text.length <= part.text.length || !incoming.text.startsWith(part.text)) return part
+    if (
+      incoming?.type !== part.type ||
+      incoming.text.length <= part.text.length ||
+      !incoming.text.startsWith(part.text)
+    )
+      return part
     changed = true
     return { ...part, text: incoming.text }
   })
@@ -379,7 +378,13 @@ export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo |
   return state.providers.find((p) => p.id === ref.providerID)?.models[ref.modelID]
 }
 
-type TokenUsage = { input: number; output: number; reasoning: number; cache: { read: number; write: number }; total?: number }
+type TokenUsage = {
+  input: number
+  output: number
+  reasoning: number
+  cache: { read: number; write: number }
+  total?: number
+}
 
 function tokenCount(tokens: TokenUsage) {
   return tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
@@ -417,7 +422,8 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
   const tokens = last.info.tokens as TokenUsage
   const count = tokenCount(tokens)
   const model =
-    modelInfo(state, modelRef ?? null) ?? modelInfo(state, { providerID: last.info.providerID, modelID: last.info.modelID })
+    modelInfo(state, modelRef ?? null) ??
+    modelInfo(state, { providerID: last.info.providerID, modelID: last.info.modelID })
   const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number }
   const context = limits.context ?? 0
   if (!context || !count) return null
@@ -464,14 +470,21 @@ export function mergeTasks(current: readonly TaskRecord[] | undefined, incoming:
   return [...byId.values()].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
 }
 
-export function putTasks(set: SetStoreFunction<EngineState>, state: EngineState, parentId: string, tasks: readonly TaskRecord[]) {
+export function putTasks(
+  set: SetStoreFunction<EngineState>,
+  state: EngineState,
+  parentId: string,
+  tasks: readonly TaskRecord[],
+) {
   set("tasks", parentId, mergeTasks(state.tasks[parentId], tasks))
 }
 
 /** The task a `task` tool call launched, when the engine has reported it. */
 export function taskForCall(state: EngineState, sessionId: string, callId: string | undefined, taskId: unknown) {
   const tasks = state.tasks[sessionId] ?? []
-  return tasks.find((task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId))
+  return tasks.find(
+    (task) => (typeof taskId === "string" && task.id === taskId) || (callId !== undefined && task.callId === callId),
+  )
 }
 
 /** The newest task that ran in a worker's session; tasks are kept oldest first. */
@@ -482,13 +495,19 @@ export function taskForWorker(state: EngineState, sessionId: string) {
 
 /** A task's own run as tool timing: from launch until it ended, not the launching call's instant. */
 export function taskTiming(task: Pick<TaskRecord, "state" | "createdAt" | "finishedAt">) {
-  return { status: taskActive(task) ? "running" : "completed", time: { start: task.createdAt, end: task.finishedAt ?? undefined } }
+  return {
+    status: taskActive(task) ? "running" : "completed",
+    time: { start: task.createdAt, end: task.finishedAt ?? undefined },
+  }
 }
 
 type SavedSession = Session & { agent?: string; variant?: string | null; model?: { providerID: string; id: string } }
 
 /** The model, agent and reasoning level the engine saved on a session: what its newest prompt chose. */
-export function savedChoice(state: EngineState, id: string | null | undefined): { agent?: string; variant?: string | null; model?: ModelRef } {
+export function savedChoice(
+  state: EngineState,
+  id: string | null | undefined,
+): { agent?: string; variant?: string | null; model?: ModelRef } {
   const session = id ? (state.sessions[id] as SavedSession | undefined) : undefined
   if (!session) return {}
   const model = session.model ? { model: { providerID: session.model.providerID, modelID: session.model.id } } : {}

@@ -1,10 +1,13 @@
+import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces"
 import { createEffect, For, onCleanup, onMount, Show } from "solid-js"
+import { selectSession } from "../state/selection"
+import { sessionsFor } from "../engine/store"
 import { createStore } from "solid-js/store"
+import { driftStore } from "../state/store"
+import { IconSearch, IconX } from "./icons"
 import { createSignal } from "solid-js"
 import { useEngine } from "../engine"
-import { sessionsFor } from "../engine/store"
 import { t } from "../state/i18n"
-import { selectSession } from "../state/selection"
 import {
   createSessionSearchRunner,
   highlightSegments,
@@ -14,9 +17,6 @@ import {
   type SessionSearchMode,
   type SessionSearchState,
 } from "../state/session-search"
-import { driftStore } from "../state/store"
-import { archivedIds, selectWorkspace, workspaces } from "../state/workspaces"
-import { IconSearch, IconX } from "./icons"
 
 // One sidebar, one search: the query has to be readable by the input and by the list that replaces
 // the workspace tree, so it lives beside them rather than inside either one.

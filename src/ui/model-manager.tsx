@@ -1,12 +1,13 @@
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { Portal } from "solid-js/web"
 import { modelVisible, moveModelProvider, setModelsVisible, setModelVisible } from "../state/prefs"
-import { IconX } from "./icons"
-import { dragReorder } from "./drag-reorder"
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { Chevron, Toggle, ToggleTrack } from "./controls"
-import type { PickerItem } from "./picker"
+import { dragReorder } from "./drag-reorder"
+import { Portal } from "solid-js/web"
 import { t } from "../state/i18n"
+import { IconX } from "./icons"
+
+import type { PickerItem } from "./picker"
 
 export function ModelManager(props: { items: PickerItem[]; onClose: () => void }) {
   let dialog!: HTMLDivElement
@@ -117,7 +118,12 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                       <Toggle
                         label={t("dialog.model.manage.provider.toggle", { provider: provider.label })}
                         checked={allEnabled()}
-                        onChange={() => setModelsVisible(all().map((item) => item.id), !allEnabled())}
+                        onChange={() =>
+                          setModelsVisible(
+                            all().map((item) => item.id),
+                            !allEnabled(),
+                          )
+                        }
                       />
                     </div>
                     <Show when={providerOpen(provider.id)}>
@@ -166,7 +172,12 @@ function providerGroups(items: PickerItem[]) {
 }
 
 export function sortManagerModelItems(items: PickerItem[], visible: (item: PickerItem) => boolean) {
-  return [...items].sort((a, b) => Number(visible(b)) - Number(visible(a)) || (b.releaseDate ?? "").localeCompare(a.releaseDate ?? "") || a.label.localeCompare(b.label))
+  return [...items].sort(
+    (a, b) =>
+      Number(visible(b)) - Number(visible(a)) ||
+      (b.releaseDate ?? "").localeCompare(a.releaseDate ?? "") ||
+      a.label.localeCompare(b.label),
+  )
 }
 
 let providerDragged = false
@@ -176,7 +187,7 @@ function markProviderDragged() {
   setTimeout(() => (providerDragged = false), 0)
 }
 
-const sixMonths = 365.25 * 24 * 60 * 60 * 1000 / 2
+const sixMonths = (365.25 * 24 * 60 * 60 * 1000) / 2
 
 export function defaultVisibleModelIds(items: PickerItem[], now = Date.now()) {
   const visible = new Set<string>()

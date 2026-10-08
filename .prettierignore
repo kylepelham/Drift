@@ -1,0 +1,2 @@
+# Written by scripts/gen-engine-client.ts; `--check` compares it byte for byte.
+src/engine/native/types.ts

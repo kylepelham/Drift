@@ -74,7 +74,8 @@ export const dict = {
   "context.usage.cost": "Costo",
   "context.usage.clickToView": "Haz clic para ver contexto",
 
-  "toast.permissions.autoaccept.on.description": "Las solicitudes de permiso se aprueban automáticamente, salvo archivos secretos y todo lo que esté fuera del espacio de trabajo",
+  "toast.permissions.autoaccept.on.description":
+    "Las solicitudes de permiso se aprueban automáticamente, salvo archivos secretos y todo lo que esté fuera del espacio de trabajo",
 
   "error.page.action.updateTo": "Actualizar a {{version}}",
 
@@ -217,7 +218,8 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "Modelo actual",
   "drift.slash.argumentDetails": "Detalles de {{name}}",
-  "drift.markdown.ambiguousCitation": "Enlace de archivo ambiguo \"{{href}}\". Usa una ruta más completa para elegir entre: {{files}}",
+  "drift.markdown.ambiguousCitation":
+    'Enlace de archivo ambiguo "{{href}}". Usa una ruta más completa para elegir entre: {{files}}',
   "drift.preview.settings.title": "Vistas previas de archivos",
   "drift.preview.settings.mode": "Modo de vista previa",
   "drift.preview.settings.description": "Elige qué tipos de archivo se abren en una vista previa.",
@@ -253,10 +255,12 @@ export const drift = {
   "drift.remote.statusStarting": "Iniciando",
   "drift.remote.statusError": "Error",
   "drift.remote.clipboardError": "No se pudo copiar",
-  "drift.settings.shellTimeout.scope": "Los límites del shell terminan árboles de procesos. No afectan a modelos, servidores MCP ni llamadas de red.",
+  "drift.settings.shellTimeout.scope":
+    "Los límites del shell terminan árboles de procesos. No afectan a modelos, servidores MCP ni llamadas de red.",
   "drift.settings.toolExecution": "Ejecución de herramientas",
   "drift.settings.shellTimeout.title": "Tiempo límite del shell",
-  "drift.settings.shellTimeout.description": "Detén los comandos del shell y sus procesos secundarios después de este tiempo. Los cambios se aplican a llamadas nuevas.",
+  "drift.settings.shellTimeout.description":
+    "Detén los comandos del shell y sus procesos secundarios después de este tiempo. Los cambios se aplican a llamadas nuevas.",
   "drift.settings.shellTimeout.noTimeout": "Sin límite",
   "drift.settings.shellTimeout.preset1": "1 minuto",
   "drift.settings.shellTimeout.preset5": "5 minutos",
@@ -276,24 +280,30 @@ export const drift = {
   "drift.settings.about": "Acerca de",
   "drift.settings.toolErrors.title": "Expandir errores de herramientas de forma predeterminada",
   "drift.settings.dayDividers.title": "Separadores por día en la barra lateral",
-  "drift.settings.dayDividers.description": "Separa los hilos de cada espacio de trabajo por el día de su última actividad: Hoy, Ayer y días anteriores.",
+  "drift.settings.dayDividers.description":
+    "Separa los hilos de cada espacio de trabajo por el día de su última actividad: Hoy, Ayer y días anteriores.",
   "drift.sidebar.today": "Hoy",
   "drift.sidebar.yesterday": "Ayer",
   "drift.settings.responseAnimation.title": "Revelado suave de respuestas",
-  "drift.settings.responseAnimation.description": "Revela suavemente los bloques grandes de texto del asistente en vivo. Las respuestas anteriores aparecen al instante.",
+  "drift.settings.responseAnimation.description":
+    "Revela suavemente los bloques grandes de texto del asistente en vivo. Las respuestas anteriores aparecen al instante.",
   "drift.settings.responseAnimation.speed.title": "Velocidad de revelado",
-  "drift.settings.responseAnimation.speed.description": "Elige la velocidad a la que aparece el texto en vivo del asistente.",
+  "drift.settings.responseAnimation.speed.description":
+    "Elige la velocidad a la que aparece el texto en vivo del asistente.",
   "drift.settings.responseAnimation.speed.value": "{{speed}} caracteres/s",
-  "drift.settings.toolErrors.description": "Elige el estado inicial. Las filas de errores seguirán siendo clicables en ambos casos.",
+  "drift.settings.toolErrors.description":
+    "Elige el estado inicial. Las filas de errores seguirán siendo clicables en ambos casos.",
   "drift.settings.summaries": "Resúmenes",
   "drift.settings.summaries.collapsible.title": "Resúmenes de compactación plegables",
-  "drift.settings.summaries.collapsible.description": "Oculta los resúmenes de compactación del motor tras un separador desplegable.",
+  "drift.settings.summaries.collapsible.description":
+    "Oculta los resúmenes de compactación del motor tras un separador desplegable.",
   "drift.settings.summaries.collapsed.title": "Contraer resúmenes de forma predeterminada",
   "drift.settings.summaries.collapsed.description": "Empieza con los resúmenes de compactación plegados.",
   "drift.settings.customPalette": "Paleta personalizada",
   "drift.settings.typography": "Tipografía",
   "drift.settings.customCss": "CSS personalizado",
-  "drift.settings.customCss.description": "Se aplica localmente después de los estilos integrados de Drift. Límite de 20 KB.",
+  "drift.settings.customCss.description":
+    "Se aplica localmente después de los estilos integrados de Drift. Límite de 20 KB.",
   "drift.sidebar.workspaces": "Espacios de trabajo",
   "drift.sidebar.archived": "Elementos archivados",
   "drift.sidebar.addWorkspace": "Añadir espacio de trabajo",
@@ -324,7 +334,8 @@ export const drift = {
   "drift.about.row.app.description": "La versión de esta compilación de la aplicación.",
   "drift.about.row.updates.title": "Actualizaciones automáticas",
   "drift.about.row.updates.installed": "Esta es una copia instalada, por lo que puede actualizarse sola.",
-  "drift.about.row.updates.local": "Esta es una compilación local. Las copias instaladas se actualizan solas; esta no puede.",
+  "drift.about.row.updates.local":
+    "Esta es una compilación local. Las copias instaladas se actualizan solas; esta no puede.",
   "drift.about.updates.available": "Disponibles",
   "drift.about.updates.unavailable": "Compilación local",
   "drift.about.row.website.title": "Sitio web",
@@ -392,7 +403,8 @@ export const drift = {
   "drift.lightbox.actualSize": "Tamaño real",
   "drift.lightbox.image": "imagen",
   "drift.lightbox.resetZoom": "Restablecer zoom",
-  "drift.lightbox.controls": "Desplázate para ajustar el zoom. Arrastra para mover la imagen. Haz doble clic para ampliar. Usa +/- para ajustar el zoom, las flechas para mover, 0 para ajustar a la pantalla o 1 para ver el tamaño real.",
+  "drift.lightbox.controls":
+    "Desplázate para ajustar el zoom. Arrastra para mover la imagen. Haz doble clic para ampliar. Usa +/- para ajustar el zoom, las flechas para mover, 0 para ajustar a la pantalla o 1 para ver el tamaño real.",
   "drift.markdown.codeCopied": "Código copiado",
   "drift.markdown.copied": "Copiado",
   "drift.markdown.copyCode": "Copiar código",
@@ -400,20 +412,23 @@ export const drift = {
   "drift.mcp.confirmRemove": "¿Quitar?",
   "drift.permission.always": "Permitir siempre en este espacio de trabajo",
   "drift.mcp.enable": "Habilitar {{name}}",
-  "drift.prompt.tooLarge": "No se pudo enviar: los adjuntos suman {{size}}, más de los {{limit}} que admite un mensaje. Envía menos archivos o más pequeños.",
+  "drift.prompt.tooLarge":
+    "No se pudo enviar: los adjuntos suman {{size}}, más de los {{limit}} que admite un mensaje. Envía menos archivos o más pequeños.",
   "drift.mcp.status.offHere": "desactivado en este espacio de trabajo",
   "drift.mcp.scope.chosen": "activado solo en este espacio de trabajo",
   "drift.mcp.scope.elsewhere": "activado en otros espacios de trabajo",
   "drift.mcp.onHere": "Activar en este espacio de trabajo",
   "drift.mcp.offHere": "Desactivar en este espacio de trabajo",
-  "drift.mcp.switchHint": "Activado en todos los espacios de trabajo. El botón del enchufe lo activa o desactiva solo en este espacio de trabajo.",
+  "drift.mcp.switchHint":
+    "Activado en todos los espacios de trabajo. El botón del enchufe lo activa o desactiva solo en este espacio de trabajo.",
   "drift.settings.plugins": "Plugins",
   "drift.plugins.loaded": "Cargado",
   "drift.plugins.off": "Apagado",
   "drift.plugins.tab.installed": "Instalados",
   "drift.plugins.tab.registry": "Registro",
   "drift.plugins.registrySearch": "Buscar plugins",
-  "drift.plugins.registrySource": "Del registro Drift-Plugins en GitHub. Cada uno es un componente WebAssembly aislado; la descarga se comprueba con el hash del registro.",
+  "drift.plugins.registrySource":
+    "Del registro Drift-Plugins en GitHub. Cada uno es un componente WebAssembly aislado; la descarga se comprueba con el hash del registro.",
   "drift.plugins.registryLoadFailed": "No se pudo cargar el registro.",
   "drift.plugins.registryEmpty": "Ningún plugin coincide.",
   "drift.plugins.category": "Categoría",
@@ -431,7 +446,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "¿Quitar?",
   "drift.plugins.removed": "{{name}} se quitó.",
   "drift.plugins.source": "Código",
-  "drift.plugins.configNote": "Los ajustes se escriben en la entrada del plugin en tu drift.json. Cámbialos después desde la pestaña Instalados.",
+  "drift.plugins.configNote":
+    "Los ajustes se escriben en la entrada del plugin en tu drift.json. Cámbialos después desde la pestaña Instalados.",
   "drift.plugins.fieldType.string": "texto",
   "drift.plugins.fieldType.list": "separado por comas",
   "drift.plugins.fieldType.number": "número",
@@ -446,10 +462,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "Repositorio de GitHub",
   "drift.registry.sources.kind.azure_devops": "Repositorio de Azure DevOps",
   "drift.registry.sources.kind.folder": "Carpeta o recurso compartido",
-  "drift.registry.sources.kindHint.url": "Un documento JSON en una URL; las descargas vienen de donde apunte el documento. El token solo se envía a ese host.",
-  "drift.registry.sources.kindHint.github": "Un archivo en un repositorio, privado con token (basta un token detallado con lectura de Contents). Las descargas dentro del repositorio también usan el token.",
-  "drift.registry.sources.kindHint.azure_devops": "Un archivo en un repositorio Git de Azure DevOps, con un token de acceso personal con Code (Read). Pega la URL web del repositorio.",
-  "drift.registry.sources.kindHint.folder": "Una carpeta en este equipo o en un recurso de red con el documento y los archivos que nombra al lado. Sin servidor.",
+  "drift.registry.sources.kindHint.url":
+    "Un documento JSON en una URL; las descargas vienen de donde apunte el documento. El token solo se envía a ese host.",
+  "drift.registry.sources.kindHint.github":
+    "Un archivo en un repositorio, privado con token (basta un token detallado con lectura de Contents). Las descargas dentro del repositorio también usan el token.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Un archivo en un repositorio Git de Azure DevOps, con un token de acceso personal con Code (Read). Pega la URL web del repositorio.",
+  "drift.registry.sources.kindHint.folder":
+    "Una carpeta en este equipo o en un recurso de red con el documento y los archivos que nombra al lado. Sin servidor.",
   "drift.registry.sources.location.github": "URL del repositorio",
   "drift.registry.sources.location.azure_devops": "URL del repositorio",
   "drift.registry.sources.location.folder": "Carpeta",
@@ -464,16 +484,22 @@ export const drift = {
   "drift.registry.sources.token.url": "Token bearer",
   "drift.registry.sources.token.github": "Token de acceso",
   "drift.registry.sources.token.azure_devops": "Token de acceso personal",
-  "drift.registry.sources.tokenHint": "Se guarda en el almacén de credenciales de Drift, nunca en un archivo; déjalo vacío para una fuente pública.",
-  "drift.registry.sources.tokenKept": "Hay un token guardado. Escribe otro para reemplazarlo o vacía el campo para quitarlo.",
+  "drift.registry.sources.tokenHint":
+    "Se guarda en el almacén de credenciales de Drift, nunca en un archivo; déjalo vacío para una fuente pública.",
+  "drift.registry.sources.tokenKept":
+    "Hay un token guardado. Escribe otro para reemplazarlo o vacía el campo para quitarlo.",
   "drift.registry.sources.hasToken": "Tiene token",
   "drift.registry.sources.allowHttp": "Permitir http sin cifrar",
-  "drift.registry.sources.allowHttpHint": "Cualquiera en la ruta de red puede leer o alterar lo descargado. Solo para una fuente interna sin https.",
+  "drift.registry.sources.allowHttpHint":
+    "Cualquiera en la ruta de red puede leer o alterar lo descargado. Solo para una fuente interna sin https.",
   "drift.registry.sources.caPem": "Certificado raíz adicional",
-  "drift.registry.sources.caPemHint": "PEM de una CA interna en la que confiar para esta fuente, para un servidor cuyo certificado tu equipo no reconoce.",
+  "drift.registry.sources.caPemHint":
+    "PEM de una CA interna en la que confiar para esta fuente, para un servidor cuyo certificado tu equipo no reconoce.",
   "drift.registry.sources.yours": "De tus fuentes",
-  "drift.registry.sources.pluginsDescription": "Registros además del propio de Drift. Un equipo publica sus plugins en una URL https y todos los instalan desde aquí.",
-  "drift.registry.sources.mcpDescription": "Registros además del de GitHub y el oficial. Un equipo publica los servidores MCP que estandariza en una URL https y todos los instalan desde aquí.",
+  "drift.registry.sources.pluginsDescription":
+    "Registros además del propio de Drift. Un equipo publica sus plugins en una URL https y todos los instalan desde aquí.",
+  "drift.registry.sources.mcpDescription":
+    "Registros además del de GitHub y el oficial. Un equipo publica los servidores MCP que estandariza en una URL https y todos los instalan desde aquí.",
   "drift.registry.sources.empty": "No hay fuentes añadidas.",
   "drift.registry.sources.add": "Añadir una fuente",
   "drift.registry.sources.addButton": "Añadir",
@@ -482,17 +508,22 @@ export const drift = {
   "drift.registry.sources.remove": "Quitar fuente",
   "drift.registry.sources.loadFailed": "No se pudieron leer tus fuentes.",
   "drift.registry.sources.failed": "No se pudo cargar {{name}}: {{error}}",
-  "drift.registry.sources.pluginsFormat": "Un documento JSON con el formato registry.json de Drift-Plugins: cada plugin con su URL de descarga y SHA-256.",
-  "drift.registry.sources.mcpFormat": "Un documento JSON con el formato del registro MCP: una lista servers, tal como la devuelve la API del registro oficial.",
-  "drift.plugins.registrySourceWithOwn": "De tus fuentes y del registro Drift-Plugins en GitHub. Cada uno es un componente WebAssembly aislado; la descarga se comprueba con el hash de su registro.",
+  "drift.registry.sources.pluginsFormat":
+    "Un documento JSON con el formato registry.json de Drift-Plugins: cada plugin con su URL de descarga y SHA-256.",
+  "drift.registry.sources.mcpFormat":
+    "Un documento JSON con el formato del registro MCP: una lista servers, tal como la devuelve la API del registro oficial.",
+  "drift.plugins.registrySourceWithOwn":
+    "De tus fuentes y del registro Drift-Plugins en GitHub. Cada uno es un componente WebAssembly aislado; la descarga se comprueba con el hash de su registro.",
   "drift.plugins.configRaw": "Los ajustes de este plugin como JSON; ningún registro describe sus campos.",
   "drift.plugins.saving": "Guardando...",
   "drift.plugins.saved": "Se guardaron los ajustes de {{name}}.",
-  "drift.plugins.packNote": "Skills en Markdown, extraídas en {{folder}}. Drift las ofrece al modelo como tus propias skills; un paquete no ejecuta código, pero su texto llega al modelo, así que instala paquetes en los que confíes.",
+  "drift.plugins.packNote":
+    "Skills en Markdown, extraídas en {{folder}}. Drift las ofrece al modelo como tus propias skills; un paquete no ejecuta código, pero su texto llega al modelo, así que instala paquetes en los que confíes.",
   "drift.settings.skills": "Skills",
   "drift.skills.mixed": "Algunas activas, otras no",
   "drift.skills.packs": "Paquetes de skills",
-  "drift.skills.empty": "Aún no hay skills. Pon una carpeta con SKILL.md en {{folder}} o instala una desde el registro.",
+  "drift.skills.empty":
+    "Aún no hay skills. Pon una carpeta con SKILL.md en {{folder}} o instala una desde el registro.",
   "drift.skills.packCount": "{{on}} de {{count}} activas",
   "drift.skills.count": "{{count}} skills",
   "drift.skills.single": "una skill",
@@ -502,15 +533,18 @@ export const drift = {
   "drift.skills.reinstall": "Reinstalar",
   "drift.skills.installed": "{{name}} está instalado con {{count}} skills; se ofrecen desde el próximo turno.",
   "drift.skills.registrySearch": "Buscar skills",
-  "drift.skills.registrySource": "Del registro Drift-Plugins en GitHub. Una skill es Markdown que lee el modelo; nada se ejecuta.",
-  "drift.skills.registrySourceWithOwn": "De tus fuentes y del registro Drift-Plugins en GitHub. Una skill es Markdown que lee el modelo; nada se ejecuta.",
+  "drift.skills.registrySource":
+    "Del registro Drift-Plugins en GitHub. Una skill es Markdown que lee el modelo; nada se ejecuta.",
+  "drift.skills.registrySourceWithOwn":
+    "De tus fuentes y del registro Drift-Plugins en GitHub. Una skill es Markdown que lee el modelo; nada se ejecuta.",
   "drift.plugins.reload": "Recargar",
   "drift.plugins.loading": "Cargando plugins...",
-  "drift.plugins.empty": "Sin plugins. Añade componentes WebAssembly bajo \"plugins\" en {{path}} y recarga.",
+  "drift.plugins.empty": 'Sin plugins. Añade componentes WebAssembly bajo "plugins" en {{path}} y recarga.',
   "drift.plugins.file": "Definidos en {{path}}",
   "drift.settings.permissions": "Permisos",
   "drift.permissions.rules": "Reglas para todos los espacios de trabajo",
-  "drift.permissions.rulesDescription": "Se aplican en cada espacio de trabajo, tras las reglas de su drift.json. Decide la primera regla que coincida.",
+  "drift.permissions.rulesDescription":
+    "Se aplican en cada espacio de trabajo, tras las reglas de su drift.json. Decide la primera regla que coincida.",
   "drift.permissions.empty": "Aún no hay reglas. Se aplican los valores predeterminados de Drift.",
   "drift.permissions.add": "Añadir regla",
   "drift.permissions.kind": "Tipo",
@@ -541,7 +575,8 @@ export const drift = {
   "drift.permissions.grant.folder": "{{folder}} y todo su contenido",
   "drift.permission.alwaysCovers": "Permite siempre: {{what}}",
   "drift.permission.reason.outside": "Pregunta porque el comando sale del espacio de trabajo.",
-  "drift.permission.reason.unresolved": "Pregunta porque usa una variable o ~ que Drift no puede leer antes de ejecutarlo.",
+  "drift.permission.reason.unresolved":
+    "Pregunta porque usa una variable o ~ que Drift no puede leer antes de ejecutarlo.",
   "drift.permission.reason.secret": "Pregunta porque nombra un archivo que puede contener secretos.",
   "drift.permission.reason.searches": "Pregunta porque una búsqueda recursiva también leería archivos secretos.",
   "drift.permission.reason.beyondUndo": "Pregunta porque deshacer no puede revertir esto.",
@@ -574,7 +609,8 @@ export const drift = {
   "drift.settings.prompts.family.all": "Todos los modelos",
   "drift.settings.prompts.family.codex": "GPT y Codex",
   "drift.settings.prompts.family.default": "Otros modelos",
-  "drift.settings.prompts.allDescription": "Reemplaza el prompt base de cada modelo cuya familia no tiene un reemplazo propio.",
+  "drift.settings.prompts.allDescription":
+    "Reemplaza el prompt base de cada modelo cuya familia no tiene un reemplazo propio.",
   "drift.settings.prompts.allPlaceholder": "Vacío: cada familia de modelos usa su propio prompt.",
   "drift.provider.pasteCode": "Pega el código de autorización de tu navegador.",
   "drift.provider.enterCode": "Introduce este código en tu navegador",
@@ -633,7 +669,8 @@ export const drift = {
   "drift.provider.browser": "navegador",
   "drift.provider.connectFailed": "No se pudo conectar {{provider}}. Comprueba la credencial e inténtalo de nuevo.",
   "drift.provider.connected": "{{provider}} conectado. Credencial guardada.",
-  "drift.provider.credentialRemovedStillConnected": "Se eliminó la credencial guardada de {{provider}}, pero sigue conectado mediante el entorno o la configuración.",
+  "drift.provider.credentialRemovedStillConnected":
+    "Se eliminó la credencial guardada de {{provider}}, pero sigue conectado mediante el entorno o la configuración.",
   "drift.provider.disconnectFailed": "No se pudo desconectar {{provider}}. Inténtalo de nuevo.",
   "drift.provider.disconnected": "{{provider}} desconectado. Credencial almacenada eliminada.",
   "drift.provider.disconnecting": "Desconectando...",
@@ -650,7 +687,8 @@ export const drift = {
   "drift.question.asyncHint": "El trabajo que no depende de tu respuesta puede continuar mientras decides.",
   "drift.question.blocking": "Esperando respuesta",
   "drift.question.pending": "Solicitudes pendientes: {{count}}",
-  "drift.question.sendFailed": "No se pudo enviar tu respuesta. Tus respuestas siguen aquí. Intenta enviarlas de nuevo.",
+  "drift.question.sendFailed":
+    "No se pudo enviar tu respuesta. Tus respuestas siguen aquí. Intenta enviarlas de nuevo.",
   "drift.question.sending": "Enviando...",
   "drift.question.customHint": "Añade una respuesta que no figure arriba",
   "drift.question.customPlaceholder": "Escribe tu propia respuesta...",
@@ -723,7 +761,8 @@ export const drift = {
   "drift.tool.subtask": "Subtarea",
   "drift.tool.task": "Tarea",
   "drift.voice.input.description": "Elige el micrófono para las nuevas grabaciones de dictado.",
-  "drift.voice.input.missing": "El micrófono guardado no está disponible. Se usará el predeterminado del sistema hasta que se vuelva a conectar.",
+  "drift.voice.input.missing":
+    "El micrófono guardado no está disponible. Se usará el predeterminado del sistema hasta que se vuelva a conectar.",
   "drift.voice.input.systemDefault": "Predeterminado del sistema",
   "drift.voice.input.title": "Dispositivo de entrada",
   "drift.voice.input.unnamed": "Micrófono {{index}}",
@@ -731,7 +770,8 @@ export const drift = {
   "drift.workspace.confirmRemove": "Haz clic de nuevo para confirmar",
   "drift.workspace.move": "Mover...",
   "drift.workspace.remove": "Eliminar",
-  "drift.workspace.removeHint": "Los hilos se conservan durante 7 días; vuelve a añadir la misma carpeta para restaurarlos.",
+  "drift.workspace.removeHint":
+    "Los hilos se conservan durante 7 días; vuelve a añadir la misma carpeta para restaurarlos.",
   "drift.workspace.useInitials": "Usar iniciales",
   "drift.settings.sound.chooseCustom": "Elegir sonido personalizado",
 }

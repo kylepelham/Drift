@@ -1,10 +1,13 @@
-import type { Permission } from "../engine/shapes"
-import type { PermissionGrant } from "../engine/native/client"
-import type { components } from "../engine/native/types"
+import { selectedSession } from "../state/selection"
+import { grantLabel } from "./settings-permissions"
 import { createSignal, For, Show } from "solid-js"
+import { DiffPanel, parseDiff } from "./parts"
+import { RevertDock } from "./revert-dock"
+import { TaskDock } from "./task-dock"
 import { useEngine } from "../engine"
-import type { PermissionResponse } from "../engine/actions"
-import type { QuestionInfo } from "../engine/store"
+import { Chevron } from "./controls"
+import { IconCheck } from "./icons"
+import { t } from "../state/i18n"
 import {
   questionDraftState,
   questionSubmissionState,
@@ -13,14 +16,12 @@ import {
   updateQuestionDraft,
   type QuestionDraft,
 } from "../state/question-drafts"
-import { selectedSession } from "../state/selection"
-import { t } from "../state/i18n"
-import { IconCheck } from "./icons"
-import { Chevron } from "./controls"
-import { DiffPanel, parseDiff } from "./parts"
-import { RevertDock } from "./revert-dock"
-import { grantLabel } from "./settings-permissions"
-import { TaskDock } from "./task-dock"
+
+import type { PermissionGrant } from "../engine/native/client"
+import type { PermissionResponse } from "../engine/actions"
+import type { components } from "../engine/native/types"
+import type { QuestionInfo } from "../engine/store"
+import type { Permission } from "../engine/shapes"
 
 export function AttentionStrip() {
   return (
@@ -46,7 +47,8 @@ function TodoStrip() {
         >
           <Chevron open={open()} />
           <span class="shrink-0">
-            {t("session.todo.title")} · {t("session.todo.progress", { done: todos().length - remaining().length, total: todos().length })}
+            {t("session.todo.title")} ·{" "}
+            {t("session.todo.progress", { done: todos().length - remaining().length, total: todos().length })}
           </span>
           <span class="min-w-0 flex-1 truncate text-left text-ink-faint">
             {todos().find((todo) => todo.status === "in_progress")?.content}
@@ -128,7 +130,8 @@ const REASONS = {
 
 export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
   const engine = useEngine()
-  const reply = (response: PermissionResponse) => void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
+  const reply = (response: PermissionResponse) =>
+    void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
   const diff = () => (props.permission.metadata as { diff?: unknown } | undefined)?.diff
   const filename = () => [props.permission.pattern].flat()[0] ?? ""
   const alwaysCovers = () => {
@@ -143,23 +146,26 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
     <div class="composer-layer-card fade-up rounded-lg border border-warn/40 bg-surface px-3 py-2.5">
       <div class="mb-2 flex items-start justify-between gap-3">
         <div class="min-w-0 text-sm">
-          <span class="text-warn">{t("notification.permission.title")}</span>{" "}
-          <span class="text-ink">{title()}</span>
+          <span class="text-warn">{t("notification.permission.title")}</span> <span class="text-ink">{title()}</span>
         </div>
         <ThreadAttribution thread={props.thread} />
       </div>
       <Show when={target()}>
-        <pre class="mb-2 max-h-32 overflow-auto rounded bg-raised px-2 py-1 font-mono text-xs whitespace-pre-wrap break-all text-ink-muted">{target()}</pre>
+        <pre class="mb-2 max-h-32 overflow-auto rounded bg-raised px-2 py-1 font-mono text-xs whitespace-pre-wrap break-all text-ink-muted">
+          {target()}
+        </pre>
       </Show>
-      <Show when={reason()}>
-        {(why) => <div class="mb-2 text-xs text-ink-faint">{t(REASONS[why()])}</div>}
-      </Show>
+      <Show when={reason()}>{(why) => <div class="mb-2 text-xs text-ink-faint">{t(REASONS[why()])}</div>}</Show>
       <Show when={typeof diff() === "string" && (diff() as string)}>
         {(change) => (
           <div class="mb-2" aria-label={t("drift.permission.change")}>
             <Show
               when={parseDiff(change()).length}
-              fallback={<pre class="transcript-tool-output max-h-80 overflow-auto rounded-lg border border-edge p-2 font-mono text-xs whitespace-pre text-ink-muted">{change()}</pre>}
+              fallback={
+                <pre class="transcript-tool-output max-h-80 overflow-auto rounded-lg border border-edge p-2 font-mono text-xs whitespace-pre text-ink-muted">
+                  {change()}
+                </pre>
+              }
             >
               <DiffPanel diff={change()} filename={filename()} />
             </Show>
@@ -170,7 +176,12 @@ export function PermissionCard(props: { permission: Permission; thread?: ThreadL
         <ActionButton label={t("settings.permissions.action.allow")} onClick={() => reply("once")} />
         <ActionButton label={t("drift.permission.always")} title={alwaysCovers()} onClick={() => reply("always")} />
         <ActionButton label={t("settings.permissions.action.deny")} danger onClick={() => reply("reject")} />
-        <ActionButton label={t("drift.permission.stop")} title={t("drift.permission.stopHint")} danger onClick={() => reply("stop")} />
+        <ActionButton
+          label={t("drift.permission.stop")}
+          title={t("drift.permission.stopHint")}
+          danger
+          onClick={() => reply("stop")}
+        />
       </div>
     </div>
   )
@@ -309,7 +320,9 @@ export function QuestionCard(props: {
                         <span class="min-w-0">
                           <span class="block text-sm font-medium text-ink">{option.label}</span>
                           <Show when={option.description}>
-                            <span class="mt-0.5 block text-xs leading-relaxed text-ink-muted">{option.description}</span>
+                            <span class="mt-0.5 block text-xs leading-relaxed text-ink-muted">
+                              {option.description}
+                            </span>
                           </Show>
                         </span>
                       </button>
@@ -352,7 +365,9 @@ export function QuestionCard(props: {
                           placeholder={t("drift.question.customPlaceholder")}
                           value={draft().custom}
                           onClick={(event) => event.stopPropagation()}
-                          onInput={(event) => update({ ...draft(), custom: event.currentTarget.value, customSelected: true })}
+                          onInput={(event) =>
+                            update({ ...draft(), custom: event.currentTarget.value, customSelected: true })
+                          }
                           onKeyDown={(event) => {
                             if (event.key === "Escape") return
                             event.stopPropagation()
@@ -374,7 +389,9 @@ export function QuestionCard(props: {
               </div>
             </Show>
             <Show when={failed() && !locked()}>
-              <div role="alert" class="px-4 pb-3 text-xs text-danger">{t("drift.question.sendFailed")}</div>
+              <div role="alert" class="px-4 pb-3 text-xs text-danger">
+                {t("drift.question.sendFailed")}
+              </div>
             </Show>
             <div class="flex flex-wrap items-center justify-between gap-2 border-t border-edge bg-raised/20 px-4 py-3">
               <ActionButton label={t("common.dismiss")} danger onClick={() => void answer(null)} />
@@ -387,7 +404,13 @@ export function QuestionCard(props: {
                   disabled={sending() || (!locked() && !questionAnswer(draft()).length)}
                   onClick={advance}
                 >
-                  {sending() ? t("drift.question.sending") : locked() ? t("session.question.retryOriginal") : step() + 1 < props.questions.length ? t("dialog.releaseNotes.action.next") : t("common.submit")}
+                  {sending()
+                    ? t("drift.question.sending")
+                    : locked()
+                      ? t("session.question.retryOriginal")
+                      : step() + 1 < props.questions.length
+                        ? t("dialog.releaseNotes.action.next")
+                        : t("common.submit")}
                 </button>
               </div>
             </div>

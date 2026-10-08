@@ -58,7 +58,8 @@ export const dict = {
   "dialog.project.edit.color.select": "{{color}} 색상 선택",
   "context.usage.cost": "비용",
   "context.usage.clickToView": "컨텍스트를 보려면 클릭",
-  "toast.permissions.autoaccept.on.description": "권한 요청이 자동으로 승인됩니다. 단, 비밀 파일과 작업 공간 밖의 항목은 제외됩니다",
+  "toast.permissions.autoaccept.on.description":
+    "권한 요청이 자동으로 승인됩니다. 단, 비밀 파일과 작업 공간 밖의 항목은 제외됩니다",
   "error.page.action.updateTo": "{{version}} 버전으로 업데이트",
   "notification.permission.title": "권한 필요",
   "notification.question.title": "질문",
@@ -182,7 +183,8 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "현재 모델",
   "drift.slash.argumentDetails": "{{name}} 세부 정보",
-  "drift.markdown.ambiguousCitation": "파일 링크 \"{{href}}\"가 모호합니다. 다음 파일 중에서 선택할 수 있도록 더 구체적인 경로를 사용하세요: {{files}}",
+  "drift.markdown.ambiguousCitation":
+    '파일 링크 "{{href}}"가 모호합니다. 다음 파일 중에서 선택할 수 있도록 더 구체적인 경로를 사용하세요: {{files}}',
   "drift.preview.settings.title": "파일 미리보기",
   "drift.preview.settings.mode": "미리보기 모드",
   "drift.preview.settings.description": "미리보기로 열 파일 형식을 선택하세요.",
@@ -218,10 +220,12 @@ export const drift = {
   "drift.remote.statusStarting": "시작 중",
   "drift.remote.statusError": "오류",
   "drift.remote.clipboardError": "복사할 수 없음",
-  "drift.settings.shellTimeout.scope": "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
+  "drift.settings.shellTimeout.scope":
+    "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
   "drift.settings.toolExecution": "도구 실행",
   "drift.settings.shellTimeout.title": "셸 시간 제한",
-  "drift.settings.shellTimeout.description": "이 시간이 지나면 셸 명령과 하위 프로세스를 중지합니다. 변경 사항은 새 호출에 적용됩니다.",
+  "drift.settings.shellTimeout.description":
+    "이 시간이 지나면 셸 명령과 하위 프로세스를 중지합니다. 변경 사항은 새 호출에 적용됩니다.",
   "drift.settings.shellTimeout.noTimeout": "시간 제한 없음",
   "drift.settings.shellTimeout.preset1": "1분",
   "drift.settings.shellTimeout.preset5": "5분",
@@ -245,7 +249,8 @@ export const drift = {
   "drift.sidebar.today": "오늘",
   "drift.sidebar.yesterday": "어제",
   "drift.settings.responseAnimation.title": "응답을 부드럽게 표시",
-  "drift.settings.responseAnimation.description": "진행 중인 어시스턴트 응답에 추가된 큰 텍스트 블록을 부드럽게 표시합니다. 이전 응답은 즉시 표시됩니다.",
+  "drift.settings.responseAnimation.description":
+    "진행 중인 어시스턴트 응답에 추가된 큰 텍스트 블록을 부드럽게 표시합니다. 이전 응답은 즉시 표시됩니다.",
   "drift.settings.responseAnimation.speed.title": "표시 속도",
   "drift.settings.responseAnimation.speed.description": "실시간 어시스턴트 텍스트가 화면에 입력되는 속도를 선택합니다.",
   "drift.settings.responseAnimation.speed.value": "초당 {{speed}}자",
@@ -358,7 +363,8 @@ export const drift = {
   "drift.lightbox.actualSize": "실제 크기",
   "drift.lightbox.image": "이미지",
   "drift.lightbox.resetZoom": "확대/축소 초기화",
-  "drift.lightbox.controls": "스크롤하여 확대/축소하고, 드래그하여 이미지를 이동하세요. 두 번 클릭하여 확대하세요. +/- 키로 확대/축소, 화살표 키로 이동, 0 키로 화면에 맞추기, 1 키로 실제 크기 보기가 가능합니다.",
+  "drift.lightbox.controls":
+    "스크롤하여 확대/축소하고, 드래그하여 이미지를 이동하세요. 두 번 클릭하여 확대하세요. +/- 키로 확대/축소, 화살표 키로 이동, 0 키로 화면에 맞추기, 1 키로 실제 크기 보기가 가능합니다.",
   "drift.markdown.codeCopied": "코드 복사됨",
   "drift.markdown.copied": "복사됨",
   "drift.markdown.copyCode": "코드 복사",
@@ -366,7 +372,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "제거할까요?",
   "drift.permission.always": "이 작업 공간에서 항상 허용",
   "drift.mcp.enable": "{{name}} 활성화",
-  "drift.prompt.tooLarge": "보내지 못했습니다: 첨부 파일이 {{size}}로, 한 프롬프트에 담을 수 있는 {{limit}}보다 큽니다. 파일 수를 줄이거나 더 작은 파일을 보내세요.",
+  "drift.prompt.tooLarge":
+    "보내지 못했습니다: 첨부 파일이 {{size}}로, 한 프롬프트에 담을 수 있는 {{limit}}보다 큽니다. 파일 수를 줄이거나 더 작은 파일을 보내세요.",
   "drift.mcp.status.offHere": "이 작업 공간에서 꺼짐",
   "drift.mcp.scope.chosen": "이 작업 공간에서만 켜짐",
   "drift.mcp.scope.elsewhere": "다른 작업 공간에서 켜짐",
@@ -379,7 +386,8 @@ export const drift = {
   "drift.plugins.tab.installed": "설치됨",
   "drift.plugins.tab.registry": "레지스트리",
   "drift.plugins.registrySearch": "플러그인 검색",
-  "drift.plugins.registrySource": "GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 각 플러그인은 샌드박스 WebAssembly 컴포넌트이며 다운로드는 레지스트리 해시와 대조됩니다.",
+  "drift.plugins.registrySource":
+    "GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 각 플러그인은 샌드박스 WebAssembly 컴포넌트이며 다운로드는 레지스트리 해시와 대조됩니다.",
   "drift.plugins.registryLoadFailed": "레지스트리를 불러올 수 없습니다.",
   "drift.plugins.registryEmpty": "일치하는 플러그인이 없습니다.",
   "drift.plugins.category": "카테고리",
@@ -412,10 +420,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "GitHub 리포지토리",
   "drift.registry.sources.kind.azure_devops": "Azure DevOps 리포지토리",
   "drift.registry.sources.kind.folder": "폴더 또는 공유",
-  "drift.registry.sources.kindHint.url": "URL의 JSON 문서입니다. 다운로드는 문서가 가리키는 곳에서 옵니다. 토큰은 그 호스트에만 보내집니다.",
-  "drift.registry.sources.kindHint.github": "리포지토리 안의 파일로, 비공개면 토큰이 필요합니다(Contents 읽기 권한의 세분화된 토큰이면 충분). 리포지토리 내 다운로드도 토큰을 사용합니다.",
-  "drift.registry.sources.kindHint.azure_devops": "Azure DevOps Git 리포지토리의 파일로, Code (Read) 권한의 개인 액세스 토큰을 씁니다. 리포지토리 웹 URL을 붙여넣으세요.",
-  "drift.registry.sources.kindHint.folder": "이 컴퓨터나 네트워크 공유의 폴더로, 문서와 문서가 가리키는 파일을 함께 둡니다. 서버가 필요 없습니다.",
+  "drift.registry.sources.kindHint.url":
+    "URL의 JSON 문서입니다. 다운로드는 문서가 가리키는 곳에서 옵니다. 토큰은 그 호스트에만 보내집니다.",
+  "drift.registry.sources.kindHint.github":
+    "리포지토리 안의 파일로, 비공개면 토큰이 필요합니다(Contents 읽기 권한의 세분화된 토큰이면 충분). 리포지토리 내 다운로드도 토큰을 사용합니다.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Azure DevOps Git 리포지토리의 파일로, Code (Read) 권한의 개인 액세스 토큰을 씁니다. 리포지토리 웹 URL을 붙여넣으세요.",
+  "drift.registry.sources.kindHint.folder":
+    "이 컴퓨터나 네트워크 공유의 폴더로, 문서와 문서가 가리키는 파일을 함께 둡니다. 서버가 필요 없습니다.",
   "drift.registry.sources.location.github": "리포지토리 URL",
   "drift.registry.sources.location.azure_devops": "리포지토리 URL",
   "drift.registry.sources.location.folder": "폴더",
@@ -430,16 +442,20 @@ export const drift = {
   "drift.registry.sources.token.url": "Bearer 토큰",
   "drift.registry.sources.token.github": "액세스 토큰",
   "drift.registry.sources.token.azure_devops": "개인 액세스 토큰",
-  "drift.registry.sources.tokenHint": "Drift 자격 증명 저장소에 보관되며 파일에는 쓰이지 않습니다. 공개 소스면 비워 두세요.",
+  "drift.registry.sources.tokenHint":
+    "Drift 자격 증명 저장소에 보관되며 파일에는 쓰이지 않습니다. 공개 소스면 비워 두세요.",
   "drift.registry.sources.tokenKept": "토큰이 저장되어 있습니다. 바꾸려면 새 토큰을 입력하고, 없애려면 칸을 비우세요.",
   "drift.registry.sources.hasToken": "토큰 있음",
   "drift.registry.sources.allowHttp": "평문 http 허용",
-  "drift.registry.sources.allowHttpHint": "네트워크 경로의 누구나 받는 내용을 읽거나 바꿀 수 있습니다. https가 없는 내부 소스에만 쓰세요.",
+  "drift.registry.sources.allowHttpHint":
+    "네트워크 경로의 누구나 받는 내용을 읽거나 바꿀 수 있습니다. https가 없는 내부 소스에만 쓰세요.",
   "drift.registry.sources.caPem": "추가 루트 인증서",
   "drift.registry.sources.caPemHint": "이 소스에 대해 신뢰할 내부 CA의 PEM. 내 컴퓨터가 인증서를 신뢰하지 않는 서버용.",
   "drift.registry.sources.yours": "내 소스에서",
-  "drift.registry.sources.pluginsDescription": "Drift 자체 레지스트리 외의 레지스트리입니다. 팀이 플러그인을 하나의 https URL에 게시하면 모두가 여기서 설치합니다.",
-  "drift.registry.sources.mcpDescription": "GitHub 및 공식 레지스트리 외의 레지스트리입니다. 팀이 표준으로 삼은 MCP 서버를 하나의 https URL에 게시하면 모두가 여기서 설치합니다.",
+  "drift.registry.sources.pluginsDescription":
+    "Drift 자체 레지스트리 외의 레지스트리입니다. 팀이 플러그인을 하나의 https URL에 게시하면 모두가 여기서 설치합니다.",
+  "drift.registry.sources.mcpDescription":
+    "GitHub 및 공식 레지스트리 외의 레지스트리입니다. 팀이 표준으로 삼은 MCP 서버를 하나의 https URL에 게시하면 모두가 여기서 설치합니다.",
   "drift.registry.sources.empty": "추가된 소스가 없습니다.",
   "drift.registry.sources.add": "소스 추가",
   "drift.registry.sources.addButton": "추가",
@@ -448,17 +464,22 @@ export const drift = {
   "drift.registry.sources.remove": "소스 제거",
   "drift.registry.sources.loadFailed": "소스를 읽을 수 없습니다.",
   "drift.registry.sources.failed": "{{name}}을(를) 불러올 수 없습니다: {{error}}",
-  "drift.registry.sources.pluginsFormat": "Drift-Plugins registry.json 형식의 JSON 문서: 각 플러그인의 다운로드 URL과 SHA-256을 포함합니다.",
-  "drift.registry.sources.mcpFormat": "MCP 레지스트리 형식의 JSON 문서: 공식 레지스트리 API가 반환하는 servers 목록입니다.",
-  "drift.plugins.registrySourceWithOwn": "내 소스와 GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 각 플러그인은 샌드박스 WebAssembly 컴포넌트이며 다운로드는 해당 레지스트리의 해시와 대조됩니다.",
+  "drift.registry.sources.pluginsFormat":
+    "Drift-Plugins registry.json 형식의 JSON 문서: 각 플러그인의 다운로드 URL과 SHA-256을 포함합니다.",
+  "drift.registry.sources.mcpFormat":
+    "MCP 레지스트리 형식의 JSON 문서: 공식 레지스트리 API가 반환하는 servers 목록입니다.",
+  "drift.plugins.registrySourceWithOwn":
+    "내 소스와 GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 각 플러그인은 샌드박스 WebAssembly 컴포넌트이며 다운로드는 해당 레지스트리의 해시와 대조됩니다.",
   "drift.plugins.configRaw": "이 플러그인의 설정을 JSON으로 표시합니다. 필드를 설명하는 레지스트리가 없습니다.",
   "drift.plugins.saving": "저장 중...",
   "drift.plugins.saved": "{{name}} 설정을 저장했습니다.",
-  "drift.plugins.packNote": "Markdown 스킬을 {{folder}}에 풉니다. Drift는 내 스킬처럼 모델에 제공합니다. 팩은 코드를 실행하지 않지만 텍스트가 모델에 전달되므로 신뢰하는 팩만 설치하세요.",
+  "drift.plugins.packNote":
+    "Markdown 스킬을 {{folder}}에 풉니다. Drift는 내 스킬처럼 모델에 제공합니다. 팩은 코드를 실행하지 않지만 텍스트가 모델에 전달되므로 신뢰하는 팩만 설치하세요.",
   "drift.settings.skills": "스킬",
   "drift.skills.mixed": "일부만 켜짐",
   "drift.skills.packs": "스킬 팩",
-  "drift.skills.empty": "아직 스킬이 없습니다. {{folder}} 아래에 SKILL.md가 있는 폴더를 두거나 레지스트리에서 설치하세요.",
+  "drift.skills.empty":
+    "아직 스킬이 없습니다. {{folder}} 아래에 SKILL.md가 있는 폴더를 두거나 레지스트리에서 설치하세요.",
   "drift.skills.packCount": "{{count}}개 중 {{on}}개 켜짐",
   "drift.skills.count": "스킬 {{count}}개",
   "drift.skills.single": "스킬 1개",
@@ -468,15 +489,19 @@ export const drift = {
   "drift.skills.reinstall": "다시 설치",
   "drift.skills.installed": "{{name}}을(를) 스킬 {{count}}개와 함께 설치했습니다. 다음 턴부터 제공됩니다.",
   "drift.skills.registrySearch": "스킬 검색",
-  "drift.skills.registrySource": "GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 스킬은 모델이 읽는 Markdown이며 아무것도 실행되지 않습니다.",
-  "drift.skills.registrySourceWithOwn": "내 소스와 GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 스킬은 모델이 읽는 Markdown이며 아무것도 실행되지 않습니다.",
+  "drift.skills.registrySource":
+    "GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 스킬은 모델이 읽는 Markdown이며 아무것도 실행되지 않습니다.",
+  "drift.skills.registrySourceWithOwn":
+    "내 소스와 GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 스킬은 모델이 읽는 Markdown이며 아무것도 실행되지 않습니다.",
   "drift.plugins.reload": "다시 로드",
   "drift.plugins.loading": "플러그인을 로드하는 중...",
-  "drift.plugins.empty": "플러그인이 없습니다. {{path}}의 \"plugins\"에 WebAssembly 컴포넌트를 추가한 뒤 다시 로드하세요.",
+  "drift.plugins.empty":
+    '플러그인이 없습니다. {{path}}의 "plugins"에 WebAssembly 컴포넌트를 추가한 뒤 다시 로드하세요.',
   "drift.plugins.file": "{{path}}에 등록됨",
   "drift.settings.permissions": "권한",
   "drift.permissions.rules": "모든 작업 공간 규칙",
-  "drift.permissions.rulesDescription": "각 작업 공간의 drift.json 규칙 다음에 적용됩니다. 처음 일치하는 규칙이 결정합니다.",
+  "drift.permissions.rulesDescription":
+    "각 작업 공간의 drift.json 규칙 다음에 적용됩니다. 처음 일치하는 규칙이 결정합니다.",
   "drift.permissions.empty": "아직 규칙이 없습니다. Drift 기본 동작이 적용됩니다.",
   "drift.permissions.add": "규칙 추가",
   "drift.permissions.kind": "종류",
@@ -599,7 +624,8 @@ export const drift = {
   "drift.provider.browser": "브라우저",
   "drift.provider.connectFailed": "{{provider}}에 연결할 수 없습니다. 자격 증명을 확인하고 다시 시도하세요.",
   "drift.provider.connected": "{{provider}}에 연결되었습니다. 자격 증명이 저장되었습니다.",
-  "drift.provider.credentialRemovedStillConnected": "{{provider}}의 저장된 자격 증명은 삭제되었지만 환경 또는 구성으로 계속 연결되어 있습니다.",
+  "drift.provider.credentialRemovedStillConnected":
+    "{{provider}}의 저장된 자격 증명은 삭제되었지만 환경 또는 구성으로 계속 연결되어 있습니다.",
   "drift.provider.disconnectFailed": "{{provider}}의 연결을 해제할 수 없습니다. 다시 시도하세요.",
   "drift.provider.disconnected": "{{provider}}의 연결이 해제되었습니다. 저장된 자격 증명이 삭제되었습니다.",
   "drift.provider.disconnecting": "연결 해제 중...",

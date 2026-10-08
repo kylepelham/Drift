@@ -2,7 +2,9 @@ import { createSignal, Show } from "solid-js"
 import { persisted } from "../state/persist"
 
 /** Logos remembered for installed MCP servers, by name, from the registry they were installed from. */
-export const [mcpLogos, setMcpLogos] = persisted<Record<string, string>>("drift.mcp.logos", {}, (value) => (value && typeof value === "object" ? (value as Record<string, string>) : {}))
+export const [mcpLogos, setMcpLogos] = persisted<Record<string, string>>("drift.mcp.logos", {}, (value) =>
+  value && typeof value === "object" ? (value as Record<string, string>) : {},
+)
 
 export function rememberMcpLogo(name: string, image: string | undefined) {
   if (!image) return
@@ -22,7 +24,10 @@ export function LogoTile(props: { image?: string; title: string; large?: boolean
     <Show
       when={props.image && !failed()}
       fallback={
-        <div class={`${size()} flex shrink-0 items-center justify-center rounded-lg bg-raised font-semibold text-ink-muted`} aria-hidden="true">
+        <div
+          class={`${size()} flex shrink-0 items-center justify-center rounded-lg bg-raised font-semibold text-ink-muted`}
+          aria-hidden="true"
+        >
           {props.title.slice(0, 1).toUpperCase()}
         </div>
       }

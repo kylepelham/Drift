@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+
 import type { MessageEntry } from "../src/engine/store"
 
 if (!("localStorage" in globalThis))
@@ -46,7 +47,26 @@ test("question tool names distinguish async input and persisted metadata from bl
 })
 
 test("all locales distinguish the async question tool name", async () => {
-  for (const locale of ["en", "ar", "br", "bs", "da", "de", "es", "fr", "ja", "ko", "no", "pl", "ru", "th", "tr", "uk", "zh", "zht"]) {
+  for (const locale of [
+    "en",
+    "ar",
+    "br",
+    "bs",
+    "da",
+    "de",
+    "es",
+    "fr",
+    "ja",
+    "ko",
+    "no",
+    "pl",
+    "ru",
+    "th",
+    "tr",
+    "uk",
+    "zh",
+    "zht",
+  ]) {
     const { dict, drift } = await import(`../src/i18n/${locale}`)
     expect(drift["drift.tool.asyncQuestion"]).toBeString()
     expect(drift["drift.tool.asyncQuestion"].length).toBeGreaterThan(0)
@@ -54,10 +74,11 @@ test("all locales distinguish the async question tool name", async () => {
   }
 })
 
-const assistant = (id: string, parts: unknown[], extra: Record<string, unknown> = {}) => ({
-  info: { id, sessionID: "s1", role: "assistant", time: { created: 1 }, ...extra },
-  parts,
-}) as MessageEntry
+const assistant = (id: string, parts: unknown[], extra: Record<string, unknown> = {}) =>
+  ({
+    info: { id, sessionID: "s1", role: "assistant", time: { created: 1 }, ...extra },
+    parts,
+  }) as MessageEntry
 
 test("assistant grouping and pitch are invariant to provider message chunking", async () => {
   const { groupAssistantEntries } = await import("../src/ui/message")
@@ -94,8 +115,8 @@ test("context grouping stops at meaningful transcript boundaries", async () => {
   const second = assistant("a2", [tool("r2", "a2")])
   const grouped = groupAssistantEntries([first, user, second])
 
-  expect(grouped.get("a1")?.map((group) => "explored" in group ? group.explored.length : 0)).toEqual([1])
-  expect(grouped.get("a2")?.map((group) => "explored" in group ? group.explored.length : 0)).toEqual([1])
+  expect(grouped.get("a1")?.map((group) => ("explored" in group ? group.explored.length : 0))).toEqual([1])
+  expect(grouped.get("a2")?.map((group) => ("explored" in group ? group.explored.length : 0))).toEqual([1])
 })
 
 test("timeline pitch keeps turn, compaction, and error breaks without trailing space", async () => {
@@ -130,8 +151,29 @@ test("tokens per second uses generation time, not tool and subagent wall time", 
     },
     parts: [
       { id: "p1", messageID: "a1", sessionID: "s1", type: "reasoning", text: "r", time: { start: 0, end: 2_000 } },
-      { id: "p2", messageID: "a1", sessionID: "s1", type: "tool", tool: "task", state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 2_000, end: 590_000 } } },
-      { id: "p3", messageID: "a1", sessionID: "s1", type: "text", text: "answer", time: { start: 590_000, end: 600_000 } },
+      {
+        id: "p2",
+        messageID: "a1",
+        sessionID: "s1",
+        type: "tool",
+        tool: "task",
+        state: {
+          status: "completed",
+          input: {},
+          output: "",
+          title: "",
+          metadata: {},
+          time: { start: 2_000, end: 590_000 },
+        },
+      },
+      {
+        id: "p3",
+        messageID: "a1",
+        sessionID: "s1",
+        type: "text",
+        text: "answer",
+        time: { start: 590_000, end: 600_000 },
+      },
     ],
   } as never
   expect(generationMs(entry)).toBe(12_000)

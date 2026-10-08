@@ -1,5 +1,10 @@
+import { audioInputDevices, selectedDeviceMissing, watchAudioInputDevices } from "../voice/devices"
+import { setDictationEnabled, syncDictationConsent } from "../voice/dictation"
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
+import { SettingsGroup, SettingsRow } from "./settings-controls"
+import { Toggle } from "./controls"
 import { t } from "../state/i18n"
+import { Picker } from "./picker"
 import {
   dictationEnabled,
   dictationInputDeviceId,
@@ -17,12 +22,6 @@ import {
   type DictationLanguage,
   type DictationModel,
 } from "../state/voice"
-import { setDictationEnabled, syncDictationConsent } from "../voice/dictation"
-import {
-  audioInputDevices,
-  selectedDeviceMissing,
-  watchAudioInputDevices,
-} from "../voice/devices"
 import {
   cancelVoiceModelDownload,
   downloadPercent,
@@ -38,9 +37,6 @@ import {
   voiceSupported,
   type VoiceModelInfo,
 } from "../voice/models"
-import { Toggle } from "./controls"
-import { Picker } from "./picker"
-import { SettingsGroup, SettingsRow } from "./settings-controls"
 
 const languageLabels: Record<DictationLanguage, string> = {
   auto: "",
@@ -103,11 +99,7 @@ export function VoiceSection() {
         <Show when={dictationEnabled()}>
           <SettingsRow
             title={t("drift.voice.input.title")}
-            description={
-              selectedDeviceMissing()
-                ? t("drift.voice.input.missing")
-                : t("drift.voice.input.description")
-            }
+            description={selectedDeviceMissing() ? t("drift.voice.input.missing") : t("drift.voice.input.description")}
           >
             <Picker
               label={t("drift.voice.input.title")}
@@ -144,10 +136,7 @@ export function VoiceSection() {
               onPick={(value) => setDictationModel(value as DictationModel)}
             />
           </SettingsRow>
-          <SettingsRow
-            title={t("drift.voice.model.storage.title")}
-            description={storageDescription(selected())}
-          >
+          <SettingsRow title={t("drift.voice.model.storage.title")} description={storageDescription(selected())}>
             <Show
               when={!downloading()}
               fallback={
@@ -183,9 +172,7 @@ export function VoiceSection() {
           </SettingsRow>
           <SettingsRow
             title={t("drift.voice.acceleration.title")}
-            description={
-              voiceAccelerated() ? t("drift.voice.acceleration.gpu") : t("drift.voice.acceleration.cpu")
-            }
+            description={voiceAccelerated() ? t("drift.voice.acceleration.gpu") : t("drift.voice.acceleration.cpu")}
           >
             <span
               class="text-[0.75rem]"
@@ -239,7 +226,10 @@ export function VoiceSection() {
               </span>
             </div>
             <div class="h-1 overflow-hidden rounded-full bg-raised">
-              <div class="h-full rounded-full bg-accent transition-all" style={{ width: `${downloadPercent(value())}%` }} />
+              <div
+                class="h-full rounded-full bg-accent transition-all"
+                style={{ width: `${downloadPercent(value())}%` }}
+              />
             </div>
           </div>
         )}

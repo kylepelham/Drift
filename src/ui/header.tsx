@@ -1,10 +1,10 @@
-import { createSignal, onCleanup, Show } from "solid-js"
-import { useEngine } from "../engine"
+import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./transcript-find"
 import { selectedSession, selectSession } from "../state/selection"
+import { IconArrowUp, IconMenu, IconSearch } from "./icons"
+import { createSignal, onCleanup, Show } from "solid-js"
 import { openMobileDrawer } from "../state/navigation"
 import { ContextMeter } from "./context-meter"
-import { IconArrowUp, IconMenu, IconSearch } from "./icons"
-import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./transcript-find"
+import { useEngine } from "../engine"
 import { t } from "../state/i18n"
 
 const chatColumnWidth = 768

@@ -1,7 +1,8 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show, untrack } from "solid-js"
-import { t } from "../state/i18n"
-import { onKeybind } from "../state/keybinds"
+import { IconArrowDown, IconArrowUp, IconSearch, IconX } from "./icons"
 import { selectedSession } from "../state/selection"
+import { onKeybind } from "../state/keybinds"
+import { t } from "../state/i18n"
 import {
   occurrenceAt,
   reanchorMatch,
@@ -11,8 +12,8 @@ import {
   type TranscriptMatch,
   type TranscriptOccurrence,
 } from "../state/transcript-search"
+
 import type { MessageEntry } from "../engine/store"
-import { IconArrowDown, IconArrowUp, IconSearch, IconX } from "./icons"
 
 // The bar belongs to the header while the matches belong to the transcript, so the query lives
 // beside both. Only one conversation is open at a time, so a single value is enough.
@@ -133,7 +134,11 @@ export function clearFindHighlights() {
  * across markdown elements is counted by the data model but cannot be painted; that only costs the
  * paint, not the position or navigation.
  */
-export function paintFindHighlights(container: HTMLElement, needle: string, active: TranscriptOccurrence | undefined): Range | undefined {
+export function paintFindHighlights(
+  container: HTMLElement,
+  needle: string,
+  active: TranscriptOccurrence | undefined,
+): Range | undefined {
   const registry = highlightRegistry()
   if (!registry) return
   const value = needle.toLowerCase()
@@ -168,7 +173,11 @@ export function paintFindHighlights(container: HTMLElement, needle: string, acti
 
 export function scrollFindOccurrence(range: Range) {
   const parent = range.startContainer.parentElement
-  for (let details = parent?.closest<HTMLDetailsElement>("details:not([open])"); details; details = parent?.closest<HTMLDetailsElement>("details:not([open])"))
+  for (
+    let details = parent?.closest<HTMLDetailsElement>("details:not([open])");
+    details;
+    details = parent?.closest<HTMLDetailsElement>("details:not([open])")
+  )
     details.open = true
   parent?.scrollIntoView({ block: "nearest" })
 }
@@ -193,9 +202,11 @@ export function TranscriptFindBar() {
     closeTranscriptFind()
   })
 
-  createEffect(on(open, (value) => {
-    if (value) queueMicrotask(() => input?.focus())
-  }))
+  createEffect(
+    on(open, (value) => {
+      if (value) queueMicrotask(() => input?.focus())
+    }),
+  )
   onCleanup(closeTranscriptFind)
 
   const total = createMemo(() => totalMatches(matches()))

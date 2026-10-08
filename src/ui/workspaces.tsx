@@ -1,21 +1,19 @@
-import { createEffect, createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
-import { useEngine, type Engine } from "../engine"
 import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache"
-import { TextShimmer } from "./text-shimmer"
-import { createDismissOnOutside } from "./dismiss"
-import { emitThreadArchived } from "../plugins"
-import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
 import { normalizeDir, sessionBusy, sessionsFor, taskForWorker } from "../engine/store"
+import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
 import { selectedSession, selectSession } from "../state/selection"
-import type { Workspace } from "../state/store"
-import { fixedMenuPosition } from "../state/zoom"
-import { t } from "../state/i18n"
-import { sidebarDayDividers } from "../state/prefs"
-import { Chevron } from "./controls"
-import { BackgroundTag } from "./task-dock"
-import { sidebarWorkers } from "../state/permission-attention"
-import { dragReorder } from "./drag-reorder"
 import { activateModal, closeOnBackdropPointerDown } from "./modal"
+import { sidebarWorkers } from "../state/permission-attention"
+import { sidebarDayDividers } from "../state/prefs"
+import { useEngine, type Engine } from "../engine"
+import { createDismissOnOutside } from "./dismiss"
+import { fixedMenuPosition } from "../state/zoom"
+import { emitThreadArchived } from "../plugins"
+import { TextShimmer } from "./text-shimmer"
+import { dragReorder } from "./drag-reorder"
+import { BackgroundTag } from "./task-dock"
+import { Chevron } from "./controls"
+import { t } from "../state/i18n"
 import {
   activeWorkspaceId,
   archivedIds,
@@ -27,6 +25,20 @@ import {
   updateWorkspace,
   workspaceCollapsed,
 } from "../state/workspaces"
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  Match,
+  onCleanup,
+  onMount,
+  Show,
+  Switch,
+  For,
+  type JSX,
+} from "solid-js"
+
+import type { Workspace } from "../state/store"
 
 export type WorkspaceMenuState = { x: number; y: number; workspaceId: string }
 export type SessionMenuState = { x: number; y: number; sessionId: string; workspaceId: string }
@@ -55,7 +67,8 @@ export function WorkspaceGroup(props: {
   const live = createMemo(() => sessionsFor(engine.state, props.workspace.path).map(threadRow))
   const authoritative = () =>
     online() &&
-    (engine.state.sessionSnapshotAll || normalizeDir(engine.state.sessionSnapshotDirectory) === normalizeDir(props.workspace.path))
+    (engine.state.sessionSnapshotAll ||
+      normalizeDir(engine.state.sessionSnapshotDirectory) === normalizeDir(props.workspace.path))
   // Non-empty live results are always safe to remember. Only a complete scoped snapshot may clear
   // the cache, because the event stream reports online before initial hydration has finished.
   createEffect(() => {
@@ -72,21 +85,28 @@ export function WorkspaceGroup(props: {
   const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
   const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
   // Rows are keyed by id; row objects are rebuilt on every session update and would remount the DOM.
-  const visibleIds = createMemo(() => visibleSessions().map((session) => session.id), [], { equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) })
+  const visibleIds = createMemo(() => visibleSessions().map((session) => session.id), [], {
+    equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
+  })
   const rowFor = (id: string) => visibleSessions().find((session) => session.id === id)
   const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))
   // Bumped at each local midnight, so yesterday's "Today" heading moves on without a restart.
   const [day, setDay] = createSignal(Date.now())
   let midnight: ReturnType<typeof setTimeout> | undefined
   const nextMidnight = () => {
-    midnight = setTimeout(() => {
-      setDay(Date.now())
-      nextMidnight()
-    }, startOfDay(Date.now()) + 86_400_000 + 1_000 - Date.now())
+    midnight = setTimeout(
+      () => {
+        setDay(Date.now())
+        nextMidnight()
+      },
+      startOfDay(Date.now()) + 86_400_000 + 1_000 - Date.now(),
+    )
   }
   onMount(nextMidnight)
   onCleanup(() => clearTimeout(midnight))
-  const dividers = createMemo(() => (sidebarDayDividers() ? dayDividers(visibleSessions(), day()) : new Map<string, string>()))
+  const dividers = createMemo(() =>
+    sidebarDayDividers() ? dayDividers(visibleSessions(), day()) : new Map<string, string>(),
+  )
   const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
   return (
     <div ref={root} data-workspace={props.workspace.id}>
@@ -225,7 +245,13 @@ function markWorkspaceDragged() {
   setTimeout(() => (dragged = false), 0)
 }
 
-function RowButton(props: { title: string; navigation?: boolean; disabled?: boolean; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
+function RowButton(props: {
+  title: string
+  navigation?: boolean
+  disabled?: boolean
+  onClick: (event: MouseEvent) => void
+  children: JSX.Element
+}) {
   return (
     <button
       title={props.title}
@@ -264,11 +290,19 @@ function ThreadItem(props: {
       }}
       onContextMenu={(event) => {
         event.preventDefault()
-        props.onMenu({ x: event.clientX, y: event.clientY, sessionId: props.sessionId, workspaceId: props.workspace.id })
+        props.onMenu({
+          x: event.clientX,
+          y: event.clientY,
+          sessionId: props.sessionId,
+          workspaceId: props.workspace.id,
+        })
       }}
     >
       <StatusDot sessionId={props.sessionId} />
-      <span class="min-w-0 flex-1 truncate text-[0.8rem]" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
+      <span
+        class="min-w-0 flex-1 truncate text-[0.8rem]"
+        classList={{ "text-ink": active(), "text-ink-muted": !active() }}
+      >
         {props.title || t("drift.thread.untitled")}
       </span>
       <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
@@ -313,18 +347,19 @@ function ThreadItem(props: {
 
 /** The engine refused to archive or restore; the thread stays where it was. */
 export function archiveFailed(engine: Engine, cause: unknown) {
-  engine.actions.notice({ title: t("command.session.archive"), message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
+  engine.actions.notice({
+    title: t("command.session.archive"),
+    message: cause instanceof Error ? cause.message : String(cause),
+    variant: "error",
+  })
 }
 
 function StatusDot(props: { sessionId: string }) {
   const engine = useEngine()
   const permissions = () => engine.state.permissions[props.sessionId] ?? []
-  const attention = () =>
-    permissions().length > 0 || (engine.state.questions[props.sessionId]?.length ?? 0) > 0
+  const attention = () => permissions().length > 0 || (engine.state.questions[props.sessionId]?.length ?? 0) > 0
   const attentionTitle = () =>
-    permissions().length > 0
-      ? t("drift.thread.waitingForPermission")
-      : t("drift.thread.waitingForAnswer")
+    permissions().length > 0 ? t("drift.thread.waitingForPermission") : t("drift.thread.waitingForAnswer")
   return (
     <Switch>
       <Match when={attention()}>
@@ -360,12 +395,22 @@ function ChildThreadItem(props: {
       }}
       onContextMenu={(event) => {
         event.preventDefault()
-        props.onMenu({ x: event.clientX, y: event.clientY, sessionId: props.sessionId, workspaceId: props.workspace.id })
+        props.onMenu({
+          x: event.clientX,
+          y: event.clientY,
+          sessionId: props.sessionId,
+          workspaceId: props.workspace.id,
+        })
       }}
     >
-      <span class="text-[0.7rem]" classList={{ "text-accent/70": background(), "text-ink-faint": !background() }}>&#8627;</span>
+      <span class="text-[0.7rem]" classList={{ "text-accent/70": background(), "text-ink-faint": !background() }}>
+        &#8627;
+      </span>
       <StatusDot sessionId={props.sessionId} />
-      <span class="min-w-0 flex-1 truncate text-[0.75rem]" classList={{ "text-ink": active(), "text-ink-faint": !active() }}>
+      <span
+        class="min-w-0 flex-1 truncate text-[0.75rem]"
+        classList={{ "text-ink": active(), "text-ink-faint": !active() }}
+      >
         {props.title || t("drift.thread.untitled")}
       </span>
       <Show when={background()}>
@@ -470,7 +515,8 @@ export function SessionMenu(props: {
     const source = props.workspaces.find((workspace) => workspace.id === props.state.workspaceId)
     return props.workspaces.filter(
       (workspace) =>
-        workspace.id !== props.state.workspaceId && (!source || normalizeDir(workspace.path) !== normalizeDir(source.path)),
+        workspace.id !== props.state.workspaceId &&
+        (!source || normalizeDir(workspace.path) !== normalizeDir(source.path)),
     )
   }
   const height = () => (choosing() ? Math.min(320, 48 + Math.max(1, targets().length) * 36) : 48)
@@ -656,7 +702,10 @@ export function dayLabel(timestamp: number, now: number) {
   const date = new Date(timestamp)
   if (days < 7) return date.toLocaleDateString(undefined, { weekday: "long" })
   const sameYear = date.getFullYear() === new Date(now).getFullYear()
-  return date.toLocaleDateString(undefined, sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" })
+  return date.toLocaleDateString(
+    undefined,
+    sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" },
+  )
 }
 
 /** The heading each day's first thread carries, for threads newest first. */

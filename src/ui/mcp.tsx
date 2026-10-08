@@ -1,9 +1,9 @@
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
+import { McpManagement } from "./mcp/manager"
 import { Portal } from "solid-js/web"
 import { t } from "../state/i18n"
 import { IconX } from "./icons"
-import { activateModal, closeOnBackdropPointerDown } from "./modal"
-import { McpManagement } from "./mcp/manager"
 
 export { McpManagement } from "./mcp/manager"
 

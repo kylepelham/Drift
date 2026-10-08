@@ -5,6 +5,9 @@ if (!("localStorage" in globalThis))
     value: { getItem: () => null, setItem: () => undefined },
   })
 
+import { appendDictation, cleanTranscript, formatDictationElapsed } from "../src/voice/transcript"
+import { captureConstraints, deviceUnavailable, stopStreamTracks } from "../src/voice/capture"
+import { downloadPercent, formatBytes } from "../src/voice/models"
 import {
   blockEnergy,
   blockSamples,
@@ -15,9 +18,6 @@ import {
   phraseSeconds,
   pushBlock,
 } from "../src/voice/audio"
-import { appendDictation, cleanTranscript, formatDictationElapsed } from "../src/voice/transcript"
-import { downloadPercent, formatBytes } from "../src/voice/models"
-import { captureConstraints, deviceUnavailable, stopStreamTracks } from "../src/voice/capture"
 import {
   availableCaptureDeviceId,
   enumerateAudioInputs,
@@ -228,10 +228,8 @@ test("a missing saved device falls back without discarding its reconnection pref
 test("capture cleanup stops every stream track", () => {
   const stopped: string[] = []
   stopStreamTracks({
-    getTracks: () => [
-      { stop: () => stopped.push("audio") },
-      { stop: () => stopped.push("other") },
-    ] as MediaStreamTrack[],
+    getTracks: () =>
+      [{ stop: () => stopped.push("audio") }, { stop: () => stopped.push("other") }] as MediaStreamTrack[],
   })
   expect(stopped).toEqual(["audio", "other"])
 })

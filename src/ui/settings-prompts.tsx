@@ -1,11 +1,14 @@
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
+import { agentModelCapability, agentModelOptions } from "../state/agent-models"
+import { modelInfo, type AgentInfo, type EngineState } from "../engine/store"
+import { AddRule, newRule, RuleList } from "./settings-permissions"
+import { SettingsGroup, SettingsRow } from "./settings-controls"
+import { reasoningLevelLabel, t } from "../state/i18n"
+import { activeWorkspace } from "../state/workspaces"
 import { createStore } from "solid-js/store"
 import { useEngine } from "../engine"
-import type { PermissionRule } from "../engine/native/client"
-import type { components } from "../engine/native/types"
-import { modelInfo, type AgentInfo, type EngineState } from "../engine/store"
-import { agentModelCapability, agentModelOptions } from "../state/agent-models"
-import { reasoningLevelLabel, t } from "../state/i18n"
+import { Toggle } from "./controls"
+import { Picker } from "./picker"
 import {
   agentBehaviorIssue,
   agentOverrideValue,
@@ -16,11 +19,9 @@ import {
   type PromptOverride,
   type PromptSnapshot,
 } from "../state/prompts"
-import { activeWorkspace } from "../state/workspaces"
-import { Toggle } from "./controls"
-import { Picker } from "./picker"
-import { SettingsGroup, SettingsRow } from "./settings-controls"
-import { AddRule, newRule, RuleList } from "./settings-permissions"
+
+import type { PermissionRule } from "../engine/native/client"
+import type { components } from "../engine/native/types"
 
 type BasePrompts = components["schemas"]["BasePrompts"]
 type ToolName = components["schemas"]["ToolName"]
@@ -49,7 +50,8 @@ const familyLabels: Record<string, string> = {
 const levelOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 const stepPresets = ["10", "25", "50", "100", "200", "500"]
 const pickerWidth = "13rem"
-const editorClass = "w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
+const editorClass =
+  "w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
 
 /** Every prompt Drift sends, base prompts and agents, beside one editor; edits are kept per item until saved. */
 export function PromptsSection() {
@@ -123,12 +125,20 @@ export function PromptsSection() {
     const baseline = agentConfig(agent(name), stored)
     const built = configOf(agentDraft(name), baseline)
     if (typeof built === "string") return setError(built)
-    const existing = stored?.value && typeof stored.value === "object" ? applicableOverride(stored.value as Record<string, unknown>) : {}
+    const existing =
+      stored?.value && typeof stored.value === "object"
+        ? applicableOverride(stored.value as Record<string, unknown>)
+        : {}
     const value = agentOverrideValue(built, baseline, existing)
     // A baseline stored before the engine narrowed agent overrides still names retired fields, which the shell now refuses.
     const recorded = stored?.original
-    const original = recorded && typeof recorded === "object" ? applicableOverride(recorded as Record<string, unknown>) : agentConfig(agent(name))
-    const write = Object.keys(value).length ? () => savePromptOverride(`agent:${name}`, value, original) : () => resetPromptOverride(`agent:${name}`)
+    const original =
+      recorded && typeof recorded === "object"
+        ? applicableOverride(recorded as Record<string, unknown>)
+        : agentConfig(agent(name))
+    const write = Object.keys(value).length
+      ? () => savePromptOverride(`agent:${name}`, value, original)
+      : () => resetPromptOverride(`agent:${name}`)
     void run(async () => {
       await write()
       await engine.actions.refreshAgents()
@@ -196,7 +206,15 @@ export function PromptsSection() {
               dirty={baseDirty(id())}
               loaded={!!base()}
               status={<Status error={error()} saved={saved()} />}
-              actions={<Actions saving={saving()} dirty={baseDirty(id()) && !!baseDraft(id()).trim()} resettable={basePrompt(id())?.custom !== undefined || baseDirty(id())} onSave={() => saveBase(id())} onReset={() => resetBase(id())} />}
+              actions={
+                <Actions
+                  saving={saving()}
+                  dirty={baseDirty(id()) && !!baseDraft(id()).trim()}
+                  resettable={basePrompt(id())?.custom !== undefined || baseDirty(id())}
+                  onSave={() => saveBase(id())}
+                  onReset={() => resetBase(id())}
+                />
+              }
               onInput={(value) => setBaseDrafts(id(), value)}
             />
           )}
@@ -210,7 +228,15 @@ export function PromptsSection() {
               customized={!!override(item().name)}
               toolNames={toolNames()}
               status={<Status error={error()} saved={saved()} />}
-              actions={<Actions saving={saving()} dirty={agentDirty(item().name)} resettable={!!override(item().name) || agentDirty(item().name)} onSave={() => saveAgent(item().name)} onReset={() => resetAgent(item().name)} />}
+              actions={
+                <Actions
+                  saving={saving()}
+                  dirty={agentDirty(item().name)}
+                  resettable={!!override(item().name) || agentDirty(item().name)}
+                  onSave={() => saveAgent(item().name)}
+                  onReset={() => resetAgent(item().name)}
+                />
+              }
               onChange={(change) => setAgentDrafts(item().name, { ...agentDraft(item().name), ...change })}
             />
           )}
@@ -230,12 +256,22 @@ function ListGroup(props: { title: string; first?: boolean; children: JSX.Elemen
   )
 }
 
-function ListItem(props: { label: string; active: boolean; customized: boolean; unsaved: boolean; problem?: boolean; onSelect: () => void }) {
+function ListItem(props: {
+  label: string
+  active: boolean
+  customized: boolean
+  unsaved: boolean
+  problem?: boolean
+  onSelect: () => void
+}) {
   return (
     <button
       type="button"
       class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[0.82rem] outline-none transition-colors focus-visible:bg-raised/60"
-      classList={{ "bg-raised text-ink": props.active, "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active }}
+      classList={{
+        "bg-raised text-ink": props.active,
+        "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active,
+      }}
       aria-current={props.active ? "true" : undefined}
       onClick={props.onSelect}
     >
@@ -244,7 +280,9 @@ function ListItem(props: { label: string; active: boolean; customized: boolean; 
         <span class="size-1.5 shrink-0 rounded-full bg-danger" />
       </Show>
       <Show when={props.unsaved}>
-        <span class="shrink-0 text-[0.65rem] text-warn" title={t("drift.settings.prompts.unsaved")}>{t("drift.settings.prompts.unsavedShort")}</span>
+        <span class="shrink-0 text-[0.65rem] text-warn" title={t("drift.settings.prompts.unsaved")}>
+          {t("drift.settings.prompts.unsavedShort")}
+        </span>
       </Show>
       <Show when={props.customized && !props.unsaved}>
         <span class="size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.settings.prompts.customized")} />
@@ -272,10 +310,14 @@ function Status(props: { error: string; saved: boolean }) {
   return (
     <>
       <Show when={props.error}>
-        <div role="alert" class="mt-4 text-xs text-danger">{props.error}</div>
+        <div role="alert" class="mt-4 text-xs text-danger">
+          {props.error}
+        </div>
       </Show>
       <Show when={props.saved}>
-        <div role="status" class="mt-4 text-xs text-ok">{t("drift.settings.prompts.saved")}</div>
+        <div role="status" class="mt-4 text-xs text-ok">
+          {t("drift.settings.prompts.saved")}
+        </div>
       </Show>
     </>
   )
@@ -295,7 +337,9 @@ function BaseEditor(props: {
     <div>
       <EditorHeader
         title={t(familyLabels[props.id] ?? props.id)}
-        description={t(props.id === "all" ? "drift.settings.prompts.allDescription" : "drift.settings.prompts.familyDescription")}
+        description={t(
+          props.id === "all" ? "drift.settings.prompts.allDescription" : "drift.settings.prompts.familyDescription",
+        )}
         actions={props.actions}
       />
       <SettingsGroup title={t("drift.settings.prompts.systemPrompt")}>
@@ -303,7 +347,10 @@ function BaseEditor(props: {
           <textarea
             aria-label={t("drift.settings.prompts.systemPrompt")}
             class={`${editorClass} h-80`}
-            classList={{ "text-ink": props.customized || props.dirty, "text-ink-faint": !props.customized && !props.dirty }}
+            classList={{
+              "text-ink": props.customized || props.dirty,
+              "text-ink-faint": !props.customized && !props.dirty,
+            }}
             spellcheck={false}
             placeholder={props.id === "all" ? t("drift.settings.prompts.allPlaceholder") : undefined}
             value={props.draft}
@@ -335,14 +382,22 @@ function AgentEditor(props: {
       : props.agent.name === "compaction"
         ? t("drift.settings.agents.currentSessionModel")
         : t("drift.settings.agents.currentModel")
-  const models = createMemo(() => [{ id: "", label: inherited() }, ...agentModelOptions(engine.state, capability() ?? "tools")])
+  const models = createMemo(() => [
+    { id: "", label: inherited() },
+    ...agentModelOptions(engine.state, capability() ?? "tools"),
+  ])
   const levels = createMemo(() => [
     { id: "", label: t("drift.settings.prompts.variantPlaceholder") },
-    ...reasoningLevels(engine.state, props.draft.model, props.draft.variant).map((level) => ({ id: level, label: reasoningLevelLabel(level) })),
+    ...reasoningLevels(engine.state, props.draft.model, props.draft.variant).map((level) => ({
+      id: level,
+      label: reasoningLevelLabel(level),
+    })),
   ])
   const steps = createMemo(() => [
     { id: "", label: t("drift.settings.prompts.stepsPlaceholder") },
-    ...[...new Set([...stepPresets, props.draft.steps].filter(Boolean))].sort((a, b) => Number(a) - Number(b)).map((step) => ({ id: step, label: step })),
+    ...[...new Set([...stepPresets, props.draft.steps].filter(Boolean))]
+      .sort((a, b) => Number(a) - Number(b))
+      .map((step) => ({ id: step, label: step })),
   ])
   const changed = () => props.draft.prompt !== props.baseline.prompt
   // Background jobs only answer in text, so they have no reasoning level, steps, tools or permissions.
@@ -352,7 +407,9 @@ function AgentEditor(props: {
       <div>
         <EditorHeader title={props.agent.name} description={props.agent.description} actions={props.actions} />
         <Show when={props.agent.problem}>
-          <div role="alert" class="-mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">{props.agent.problem}</div>
+          <div role="alert" class="-mt-3 rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+            {props.agent.problem}
+          </div>
         </Show>
       </div>
       <SettingsGroup title={t("drift.settings.prompts.behaviorGroup")}>
@@ -363,27 +420,45 @@ function AgentEditor(props: {
               items={models()}
               selected={props.draft.model}
               fallbackLabel={props.draft.model || inherited()}
-              floating bordered chevronAtEnd placement="below" width={pickerWidth}
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width={pickerWidth}
               onPick={(model) => props.onChange({ model })}
             />
           </SettingsRow>
         </Show>
         <Show when={runsTools()}>
-          <SettingsRow title={t("drift.settings.prompts.variant")} description={t("drift.settings.prompts.variantDescription")}>
+          <SettingsRow
+            title={t("drift.settings.prompts.variant")}
+            description={t("drift.settings.prompts.variantDescription")}
+          >
             <Picker
               label={t("drift.settings.prompts.variant")}
               items={levels()}
               selected={props.draft.variant}
-              floating bordered chevronAtEnd placement="below" width={pickerWidth}
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width={pickerWidth}
               onPick={(variant) => props.onChange({ variant })}
             />
           </SettingsRow>
-          <SettingsRow title={t("drift.settings.prompts.steps")} description={t("drift.settings.prompts.stepsDescription")}>
+          <SettingsRow
+            title={t("drift.settings.prompts.steps")}
+            description={t("drift.settings.prompts.stepsDescription")}
+          >
             <Picker
               label={t("drift.settings.prompts.steps")}
               items={steps()}
               selected={props.draft.steps}
-              floating bordered chevronAtEnd placement="below" width={pickerWidth}
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width={pickerWidth}
               onPick={(steps) => props.onChange({ steps })}
             />
           </SettingsRow>
@@ -404,13 +479,25 @@ function AgentEditor(props: {
       </SettingsGroup>
       <Show when={runsTools()}>
         <SettingsGroup title={t("drift.settings.prompts.tools")}>
-          <SettingsRow title={t("drift.settings.prompts.toolsOffered")} description={t("drift.settings.prompts.toolsDescription")}>
+          <SettingsRow
+            title={t("drift.settings.prompts.toolsOffered")}
+            description={t("drift.settings.prompts.toolsDescription")}
+          >
             <Picker
               label={t("drift.settings.prompts.toolsOffered")}
-              items={(["all", "only", "except"] as const).map((mode) => ({ id: mode, label: t(`drift.settings.prompts.tools.${mode}`) }))}
+              items={(["all", "only", "except"] as const).map((mode) => ({
+                id: mode,
+                label: t(`drift.settings.prompts.tools.${mode}`),
+              }))}
               selected={props.draft.toolMode}
-              floating bordered chevronAtEnd placement="below" width={pickerWidth}
-              onPick={(mode) => props.onChange({ toolMode: mode as ToolMode, tools: mode === "all" ? [] : props.draft.tools })}
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width={pickerWidth}
+              onPick={(mode) =>
+                props.onChange({ toolMode: mode as ToolMode, tools: mode === "all" ? [] : props.draft.tools })
+              }
             />
           </SettingsRow>
           <Show when={props.draft.toolMode !== "all"}>
@@ -447,12 +534,18 @@ function AgentEditor(props: {
 function ToolRows(props: { names: ToolName[]; chosen: string[]; onChange: (tools: string[]) => void }) {
   const builtIn = createMemo(() => {
     const known = new Set(props.names.map((tool) => tool.name))
-    return [...props.names.filter((tool) => !tool.server).map((tool) => tool.name), ...props.chosen.filter((name) => !known.has(name))]
+    return [
+      ...props.names.filter((tool) => !tool.server).map((tool) => tool.name),
+      ...props.chosen.filter((name) => !known.has(name)),
+    ]
   })
-  const toggle = (name: string) => props.onChange(props.chosen.includes(name) ? props.chosen.filter((item) => item !== name) : [...props.chosen, name])
+  const toggle = (name: string) =>
+    props.onChange(props.chosen.includes(name) ? props.chosen.filter((item) => item !== name) : [...props.chosen, name])
   return (
     <div class="grid border-t border-edge/70 sm:grid-cols-2 sm:gap-x-8">
-      <For each={builtIn()}>{(name) => <ToolRow label={name} on={props.chosen.includes(name)} onToggle={() => toggle(name)} />}</For>
+      <For each={builtIn()}>
+        {(name) => <ToolRow label={name} on={props.chosen.includes(name)} onToggle={() => toggle(name)} />}
+      </For>
     </div>
   )
 }
@@ -461,11 +554,16 @@ function ToolRows(props: { names: ToolName[]; chosen: string[]; onChange: (tools
 function ServerRows(props: { names: ToolName[]; chosen: string[]; onChange: (tools: string[]) => void }) {
   const servers = createMemo(() => {
     const names = [...new Set(props.names.flatMap((tool) => (tool.server ? [tool.server] : [])))].sort()
-    return names.map((server) => ({ server, tools: props.names.filter((tool) => tool.server === server).map((tool) => tool.name) }))
+    return names.map((server) => ({
+      server,
+      tools: props.names.filter((tool) => tool.server === server).map((tool) => tool.name),
+    }))
   })
   const toggle = (tools: string[]) => {
     const all = tools.every((tool) => props.chosen.includes(tool))
-    props.onChange(all ? props.chosen.filter((name) => !tools.includes(name)) : [...new Set([...props.chosen, ...tools])])
+    props.onChange(
+      all ? props.chosen.filter((name) => !tools.includes(name)) : [...new Set([...props.chosen, ...tools])],
+    )
   }
   return (
     <Show when={servers().length}>
@@ -474,8 +572,18 @@ function ServerRows(props: { names: ToolName[]; chosen: string[]; onChange: (too
           <For each={servers()}>
             {(entry) => {
               const picked = () => entry.tools.filter((tool) => props.chosen.includes(tool)).length
-              const count = () => (picked() && picked() < entry.tools.length ? `${picked()} / ${entry.tools.length}` : String(entry.tools.length))
-              return <ToolRow label={entry.server} count={count()} on={picked() === entry.tools.length} onToggle={() => toggle(entry.tools)} />
+              const count = () =>
+                picked() && picked() < entry.tools.length
+                  ? `${picked()} / ${entry.tools.length}`
+                  : String(entry.tools.length)
+              return (
+                <ToolRow
+                  label={entry.server}
+                  count={count()}
+                  on={picked() === entry.tools.length}
+                  onToggle={() => toggle(entry.tools)}
+                />
+              )
             }}
           </For>
         </div>
@@ -486,7 +594,10 @@ function ServerRows(props: { names: ToolName[]; chosen: string[]; onChange: (too
 
 function ToolRow(props: { label: string; count?: string; on: boolean; onToggle: () => void }) {
   return (
-    <div class="flex min-h-10 cursor-pointer items-center gap-3 border-b border-edge/70 px-1 py-1.5 hover:bg-raised/40" onClick={props.onToggle}>
+    <div
+      class="flex min-h-10 cursor-pointer items-center gap-3 border-b border-edge/70 px-1 py-1.5 hover:bg-raised/40"
+      onClick={props.onToggle}
+    >
       <span class="min-w-0 flex-1 truncate text-[0.82rem] text-ink">{props.label}</span>
       <Show when={props.count}>
         <span class="shrink-0 text-[0.72rem] text-ink-faint">{props.count}</span>
@@ -496,7 +607,13 @@ function ToolRow(props: { label: string; count?: string; on: boolean; onToggle: 
   )
 }
 
-function Actions(props: { saving: boolean; dirty: boolean; resettable: boolean; onSave: () => void; onReset: () => void }) {
+function Actions(props: {
+  saving: boolean
+  dirty: boolean
+  resettable: boolean
+  onSave: () => void
+  onReset: () => void
+}) {
   return (
     <div class="flex shrink-0 gap-2">
       <Show when={props.resettable}>
@@ -522,8 +639,14 @@ function Actions(props: { saving: boolean; dirty: boolean; resettable: boolean; 
 /** The pinned model's reasoning levels, or every connected model's when none is pinned; a saved level is always kept. */
 export function reasoningLevels(state: Pick<EngineState, "providers" | "connected">, model: string, current: string) {
   const [providerID, ...rest] = model.split("/")
-  const pinned = model ? modelInfo(state as EngineState, { providerID: providerID!, modelID: rest.join("/") }) : undefined
-  const models = pinned ? [pinned] : state.providers.filter((provider) => state.connected.includes(provider.id)).flatMap((provider) => Object.values(provider.models))
+  const pinned = model
+    ? modelInfo(state as EngineState, { providerID: providerID!, modelID: rest.join("/") })
+    : undefined
+  const models = pinned
+    ? [pinned]
+    : state.providers
+        .filter((provider) => state.connected.includes(provider.id))
+        .flatMap((provider) => Object.values(provider.models))
   const found = new Set(models.flatMap((info) => Object.keys(info.variants ?? {})))
   if (current) found.add(current)
   const rank = (level: string) => (levelOrder.includes(level) ? levelOrder.indexOf(level) : levelOrder.length)
@@ -535,14 +658,20 @@ export function agentGroups(agents: AgentInfo[]) {
   const named = [...agents].sort((a, b) => a.name.localeCompare(b.name))
   return [
     { title: "settings.agents.title", agents: named.filter((agent) => !agent.hidden && agent.mode !== "subagent") },
-    { title: "drift.settings.prompts.group.subagents", agents: named.filter((agent) => !agent.hidden && agent.mode === "subagent") },
+    {
+      title: "drift.settings.prompts.group.subagents",
+      agents: named.filter((agent) => !agent.hidden && agent.mode === "subagent"),
+    },
     { title: "drift.settings.prompts.group.background", agents: named.filter((agent) => agent.hidden) },
   ].filter((group) => group.agents.length)
 }
 
 /** The agent as the engine runs it, in the fields Settings can change: nothing shown here goes unapplied. */
 export function agentConfig(agent: AgentInfo | undefined, stored?: PromptOverride): Record<string, unknown> {
-  const restored = stored?.value && typeof stored.value === "object" ? applicableOverride(stored.value as Record<string, unknown>) : undefined
+  const restored =
+    stored?.value && typeof stored.value === "object"
+      ? applicableOverride(stored.value as Record<string, unknown>)
+      : undefined
   if (!agent) return restored ? { ...restored } : {}
   return {
     prompt: agent.prompt,
@@ -559,7 +688,9 @@ export function agentConfig(agent: AgentInfo | undefined, stored?: PromptOverrid
 /** A config as the form shows it. A tools list of `!name` entries only is every tool except those. */
 export function draftOf(config: Record<string, unknown>): AgentDraft {
   const text = (value: unknown) => (typeof value === "string" ? value : "")
-  const listed = Array.isArray(config.tools) ? config.tools.filter((tool): tool is string => typeof tool === "string" && tool !== "*") : []
+  const listed = Array.isArray(config.tools)
+    ? config.tools.filter((tool): tool is string => typeof tool === "string" && tool !== "*")
+    : []
   const excluding = listed.length > 0 && listed.every((tool) => tool.startsWith("!"))
   const toolMode: ToolMode = !listed.length ? "all" : excluding ? "except" : "only"
   return {
@@ -592,5 +723,13 @@ export function configOf(draft: AgentDraft, baseline: Record<string, unknown>): 
 
 function sameDraft(a: AgentDraft, b: AgentDraft) {
   const same = (x: unknown, y: unknown) => JSON.stringify(x) === JSON.stringify(y)
-  return a.prompt === b.prompt && a.model === b.model && a.variant === b.variant && a.steps === b.steps && a.toolMode === b.toolMode && same(a.tools, b.tools) && same(a.permissions, b.permissions)
+  return (
+    a.prompt === b.prompt &&
+    a.model === b.model &&
+    a.variant === b.variant &&
+    a.steps === b.steps &&
+    a.toolMode === b.toolMode &&
+    same(a.tools, b.tools) &&
+    same(a.permissions, b.permissions)
+  )
 }

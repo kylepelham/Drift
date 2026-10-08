@@ -87,9 +87,8 @@ test("failed composer submissions retain text, mentions, and attachment-only dra
 
 test("edits made while a prompt is pending survive successful admission", async () => {
   const { createComposerSubmit } = await import("../src/ui/composer-submit")
-  const { clearComposerDraft, composerDraft, composerScope, patchComposerDraft, setComposerDraft } = await import(
-    "../src/state/composer"
-  )
+  const { clearComposerDraft, composerDraft, composerScope, patchComposerDraft, setComposerDraft } =
+    await import("../src/state/composer")
   const key = composerScope("editing-session", "editing-workspace")
   const snapshot = { text: "first prompt", mentions: [], staged: [attachment] }
   setComposerDraft(key, snapshot)
@@ -130,9 +129,8 @@ test("edits made while a prompt is pending survive successful admission", async 
 
 test("SDK rejection and thrown sends preserve newer composer edits", async () => {
   const { createComposerSubmit } = await import("../src/ui/composer-submit")
-  const { clearComposerDraft, composerDraft, composerScope, patchComposerDraft, setComposerDraft } = await import(
-    "../src/state/composer"
-  )
+  const { clearComposerDraft, composerDraft, composerScope, patchComposerDraft, setComposerDraft } =
+    await import("../src/state/composer")
   const newerAttachment = { ...attachment, id: "file-2", filename: "newer.png" }
 
   for (const failure of ["rejected", "thrown"] as const) {
@@ -179,9 +177,8 @@ test("SDK rejection and thrown sends preserve newer composer edits", async () =>
 
 test("new-session submits are single-flight during transform and session creation", async () => {
   const { createComposerSubmissionGuard, createComposerSubmit } = await import("../src/ui/composer-submit")
-  const { clearComposerDraft, composerDraft, composerScope, migrateComposerDraft, setComposerDraft } = await import(
-    "../src/state/composer"
-  )
+  const { clearComposerDraft, composerDraft, composerScope, migrateComposerDraft, setComposerDraft } =
+    await import("../src/state/composer")
 
   for (const delayed of ["transform", "session"] as const) {
     const workspaceId = `single-flight-${delayed}`
@@ -242,9 +239,7 @@ test("new-session submits are single-flight during transform and session creatio
 
 test("new-session submit preserves navigation and drafts when creation resolves in another workspace", async () => {
   const { createComposerSubmissionGuard, createComposerSubmit } = await import("../src/ui/composer-submit")
-  const { composerDraft, composerScope, migrateComposerDraft, setComposerDraft } = await import(
-    "../src/state/composer"
-  )
+  const { composerDraft, composerScope, migrateComposerDraft, setComposerDraft } = await import("../src/state/composer")
   const workspaceA = { id: "workspace-a", name: "A", path: "C:\\a" }
   const workspaceB = { id: "workspace-b", name: "B", path: "C:\\b" }
   const sourceA = composerScope(null, workspaceA.id)
@@ -351,9 +346,8 @@ test("existing-session submits are single-flight while prompt admission is pendi
 
 test("failed new-session admission keeps the migrated draft in the created session scope", async () => {
   const { createComposerSubmissionGuard, createComposerSubmit } = await import("../src/ui/composer-submit")
-  const { composerDraft, composerScope, migrateComposerDraft, patchComposerDraft, setComposerDraft } = await import(
-    "../src/state/composer"
-  )
+  const { composerDraft, composerScope, migrateComposerDraft, patchComposerDraft, setComposerDraft } =
+    await import("../src/state/composer")
   const workspaceId = "migration-workspace"
   const source = composerScope(null, workspaceId)
   const target = composerScope("migrated-session")

@@ -7,18 +7,19 @@ export type FilePreviewPrefs = {
 }
 
 export function normalizeFilePreviewPrefs(value: unknown): FilePreviewPrefs {
-  const stored = value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {}
-  const types = stored.types && typeof stored.types === "object" && !Array.isArray(stored.types)
-    ? stored.types as Record<string, unknown>
-    : {}
+  const stored = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
+  const types =
+    stored.types && typeof stored.types === "object" && !Array.isArray(stored.types)
+      ? (stored.types as Record<string, unknown>)
+      : {}
   return {
     mode: stored.mode === "none" || stored.mode === "custom" ? stored.mode : "all",
-    types: Object.fromEntries(filePreviewTypes.map((type) => [
-      type,
-      Object.hasOwn(types, type) && typeof types[type] === "boolean" ? types[type] : true,
-    ])) as Record<FilePreviewType, boolean>,
+    types: Object.fromEntries(
+      filePreviewTypes.map((type) => [
+        type,
+        Object.hasOwn(types, type) && typeof types[type] === "boolean" ? types[type] : true,
+      ]),
+    ) as Record<FilePreviewType, boolean>,
   }
 }
 

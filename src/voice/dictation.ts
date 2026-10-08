@@ -1,5 +1,9 @@
-import { createSignal } from "solid-js"
+import { blockEnergy, createSegmenter, drainSegmenter, encodePcm16, phraseSeconds, pushBlock } from "./audio"
+import { startCapture, type Capture } from "./capture"
+import { selectedCaptureDeviceId } from "./devices"
+import { cleanTranscript } from "./transcript"
 import { backendInvoke } from "../backend"
+import { createSignal } from "solid-js"
 import { shellInvoke } from "../shell"
 import { t } from "../state/i18n"
 import {
@@ -10,10 +14,6 @@ import {
   keytermPrompt,
   persistDictationEnabled,
 } from "../state/voice"
-import { blockEnergy, createSegmenter, drainSegmenter, encodePcm16, phraseSeconds, pushBlock } from "./audio"
-import { startCapture, type Capture } from "./capture"
-import { selectedCaptureDeviceId } from "./devices"
-import { cleanTranscript } from "./transcript"
 
 export type DictationStatus = "idle" | "starting" | "listening"
 

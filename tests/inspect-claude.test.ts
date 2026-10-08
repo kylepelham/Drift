@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test"
 import { closeSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { extractDestination, findOffsets, inspect, parsePe, readAt, readableRuns } from "../scripts/inspect-claude"
+import { expect, test } from "bun:test"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { extractDestination, findOffsets, inspect, parsePe, readAt, readableRuns } from "../scripts/inspect-claude"
 
 function fixture(sectionEnd = 1024) {
   const bytes = Buffer.alloc(1024)
@@ -55,7 +55,10 @@ test("Latin1 matching returns byte offsets, including across chunk boundaries", 
   const bytes = Buffer.from([0xc3, 0xa9, 65, 66, 67, 0, 65, 66, 67])
   expect(findOffsets(bytes, /ABC/g, 73)).toEqual([75, 79])
   expect(findOffsets(bytes, /ABC/g, 73, 5)).toEqual([75])
-  expect(readableRuns(bytes, 3, 73)).toEqual([{ start: 75, end: 78 }, { start: 79, end: 82 }])
+  expect(readableRuns(bytes, 3, 73)).toEqual([
+    { start: 75, end: 78 },
+    { start: 79, end: 82 },
+  ])
 })
 
 test("stream scan owns matches once and hashes matching source regions", () => {
@@ -134,9 +137,12 @@ test("extraction checks the real destination parent against its temp root", () =
       expect(() => extractDestination(path.join(link, "output.bin"), root)).toThrow("inside the temp directory")
       const escapedRoot = path.join(directory, "escaped-root")
       symlinkSync(path.dirname(realpathSync(tmpdir())), escapedRoot, process.platform === "win32" ? "junction" : "dir")
-      expect(() => extractDestination(path.join(escapedRoot, "output.bin"), escapedRoot)).toThrow("inside the temp directory")
+      expect(() => extractDestination(path.join(escapedRoot, "output.bin"), escapedRoot)).toThrow(
+        "inside the temp directory",
+      )
     } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || !["EPERM", "EACCES"].includes(String(error.code))) throw error
+      if (!(error instanceof Error) || !("code" in error) || !["EPERM", "EACCES"].includes(String(error.code)))
+        throw error
     }
   } finally {
     rmSync(directory, { recursive: true, force: true })

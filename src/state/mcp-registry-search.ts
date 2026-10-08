@@ -86,7 +86,9 @@ function parseListing(item: Record<string, unknown>, source: RegistryListing["so
   const repository = httpsUrl(record(item.repository)?.url)
   const owner = typeof github?.nameWithOwner === "string" ? github.nameWithOwner.split("/")[0] : undefined
   const icon = Array.isArray(item.icons) ? httpsUrl(record(item.icons[0])?.src) : undefined
-  const topics = Array.isArray(github?.topics) ? github.topics.filter((topic): topic is string => text(topic, 50)).slice(0, 12) : undefined
+  const topics = Array.isArray(github?.topics)
+    ? github.topics.filter((topic): topic is string => text(topic, 50)).slice(0, 12)
+    : undefined
   return {
     source,
     publisher: owner ?? publisherOf(item.name as string),
@@ -175,7 +177,10 @@ export function createRegistrySearch(fetchRegistry: FetchRegistry = fetch) {
       const servers: RegistryServer[] = []
       let cursor: string | undefined
       for (let pages = 0; pages < CATALOG_PAGES; pages++) {
-        const payload = await page(`${GITHUB_REGISTRY}?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, new AbortController().signal)
+        const payload = await page(
+          `${GITHUB_REGISTRY}?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+          new AbortController().signal,
+        )
         servers.push(...parseRegistryPayload(payload, "github"))
         cursor = nextCursor(payload)
         if (!cursor) break
@@ -201,7 +206,9 @@ export function createRegistrySearch(fetchRegistry: FetchRegistry = fetch) {
       try {
         const found = parseRegistryPayload(await page(`${OFFICIAL_REGISTRY}?${params}`, signal), "official")
         const known = new Set(shown.flatMap((server) => [server.name, server.listing?.repository].filter(Boolean)))
-        const servers = rankRegistry(found, query).filter((server) => !known.has(server.name) && !known.has(server.listing?.repository))
+        const servers = rankRegistry(found, query).filter(
+          (server) => !known.has(server.name) && !known.has(server.listing?.repository),
+        )
         return superseded() ? { stale: true, servers: [] } : { stale: false, servers }
       } catch (error) {
         if (superseded() || signal.aborted) return { stale: true, servers: [] }
@@ -217,8 +224,14 @@ export function createRegistrySearch(fetchRegistry: FetchRegistry = fetch) {
 
 /** Forgets the shared list, so the next search reads it again. */
 /** A user's own registry, read by the engine: the official format (a `servers` list, each wrapped or bare), searched here. */
-export async function loadCustomRegistry(source: { id: string; name: string }, fetchRegistry: (id: string) => Promise<unknown>): Promise<RegistryServer[]> {
-  return parseRegistryPayload(await fetchRegistry(source.id), "custom").map((server) => ({ ...server, listing: { ...(server.listing ?? { source: "custom" }), source: "custom", sourceName: source.name } }))
+export async function loadCustomRegistry(
+  source: { id: string; name: string },
+  fetchRegistry: (id: string) => Promise<unknown>,
+): Promise<RegistryServer[]> {
+  return parseRegistryPayload(await fetchRegistry(source.id), "custom").map((server) => ({
+    ...server,
+    listing: { ...(server.listing ?? { source: "custom" }), source: "custom", sourceName: source.name },
+  }))
 }
 
 export function forgetRegistryCatalog() {

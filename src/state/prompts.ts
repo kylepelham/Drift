@@ -33,9 +33,27 @@ export function agentBehaviorIssue(behavior: Record<string, unknown>): string | 
   const steps = behavior.steps
   if (steps !== undefined && !(typeof steps === "number" && Number.isInteger(steps) && steps > 0)) return "steps"
   const tools = behavior.tools
-  if (tools !== undefined && !(Array.isArray(tools) && tools.length > 0 && tools.every((tool) => typeof tool === "string"))) return "tools"
+  if (
+    tools !== undefined &&
+    !(Array.isArray(tools) && tools.length > 0 && tools.every((tool) => typeof tool === "string"))
+  )
+    return "tools"
   const permissions = behavior.permissions
-  if (permissions !== undefined && !(Array.isArray(permissions) && permissions.every((rule) => rule && typeof rule === "object" && typeof rule.kind === "string" && typeof rule.pattern === "string" && ["allow", "ask", "deny"].includes(rule.decision)))) return "permissions"
+  if (
+    permissions !== undefined &&
+    !(
+      Array.isArray(permissions) &&
+      permissions.every(
+        (rule) =>
+          rule &&
+          typeof rule === "object" &&
+          typeof rule.kind === "string" &&
+          typeof rule.pattern === "string" &&
+          ["allow", "ask", "deny"].includes(rule.decision),
+      )
+    )
+  )
+    return "permissions"
 }
 
 /** A stored override keeps only what the engine still applies, so saving never re-sends retired fields. */
@@ -62,9 +80,17 @@ function jsonEqual(left: unknown, right: unknown): boolean {
   if (left === right) return true
   if (!left || !right || typeof left !== "object" || typeof right !== "object") return false
   if (Array.isArray(left) || Array.isArray(right)) {
-    return Array.isArray(left) && Array.isArray(right) && left.length === right.length && left.every((item, index) => jsonEqual(item, right[index]))
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((item, index) => jsonEqual(item, right[index]))
+    )
   }
   const leftEntries = Object.entries(left)
   const rightRecord = right as Record<string, unknown>
-  return leftEntries.length === Object.keys(rightRecord).length && leftEntries.every(([key, value]) => key in rightRecord && jsonEqual(value, rightRecord[key]))
+  return (
+    leftEntries.length === Object.keys(rightRecord).length &&
+    leftEntries.every(([key, value]) => key in rightRecord && jsonEqual(value, rightRecord[key]))
+  )
 }

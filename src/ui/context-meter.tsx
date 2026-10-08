@@ -1,11 +1,11 @@
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
-import { useEngine } from "../engine"
 import { estimateContextBreakdown, type BreakdownKey, type BreakdownSegment } from "../engine/context-breakdown"
+import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 import { contextStats, resolveModel, savedChoice } from "../engine/store"
-import { t } from "../state/i18n"
 import { toggleDebugPanel } from "../state/panels"
 import { ProviderIcon } from "./provider-icon"
 import { prefsFor } from "../state/prefs"
+import { useEngine } from "../engine"
+import { t } from "../state/i18n"
 import {
   planLabel,
   refreshUsage,
@@ -37,14 +37,20 @@ const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumF
 
 export function ContextMeter(props: { sessionId: string }) {
   const engine = useEngine()
-  const model = () => resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model)
+  const model = () =>
+    resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model)
   const stats = () => contextStats(engine.state, props.sessionId, model())
   const percent = () => stats()?.percent ?? 0
   const refresh = () => {
     const provider = model()?.providerID
     if (provider) void refreshUsage(provider)
   }
-  createEffect(on(() => engine.state.status[props.sessionId]?.type, (type) => type === "idle" && refresh()))
+  createEffect(
+    on(
+      () => engine.state.status[props.sessionId]?.type,
+      (type) => type === "idle" && refresh(),
+    ),
+  )
   return (
     <div class="group/meter relative shrink-0" onMouseEnter={refresh}>
       <button
@@ -58,9 +64,7 @@ export function ContextMeter(props: { sessionId: string }) {
       <div class="context-meter-popover absolute top-full right-0 z-30 hidden pt-1.5 group-hover/meter:block">
         <div class="pop-in w-80 rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/40 select-none">
           <ContextSection sessionId={props.sessionId} />
-          <Show when={model()?.providerID}>
-            {(provider) => <UsageSection provider={provider()} />}
-          </Show>
+          <Show when={model()?.providerID}>{(provider) => <UsageSection provider={provider()} />}</Show>
         </div>
       </div>
     </div>
@@ -88,7 +92,12 @@ function MeterRing(props: { percent: number }) {
 
 export function ContextSection(props: { sessionId: string }) {
   const engine = useEngine()
-  const stats = () => contextStats(engine.state, props.sessionId, resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model))
+  const stats = () =>
+    contextStats(
+      engine.state,
+      props.sessionId,
+      resolveModel(engine.state, prefsFor(props.sessionId, savedChoice(engine.state, props.sessionId)).model),
+    )
   const segments = createMemo(() => {
     const usage = stats()
     return usage ? estimateContextBreakdown(engine.state.transcripts[props.sessionId] ?? [], usage.count) : []
@@ -123,7 +132,8 @@ export function ContextSection(props: { sessionId: string }) {
 function BreakdownBar(props: { segments: BreakdownSegment[]; context: number }) {
   const [hovered, setHovered] = createSignal<number>()
   const share = (tokens: number) => (tokens / props.context) * 100
-  const offset = (index: number) => props.segments.slice(0, index).reduce((sum, segment) => sum + share(segment.tokens), 0)
+  const offset = (index: number) =>
+    props.segments.slice(0, index).reduce((sum, segment) => sum + share(segment.tokens), 0)
   const tip = () => {
     const index = hovered()
     const segment = index === undefined ? undefined : props.segments[index]
@@ -175,7 +185,8 @@ export function usageMessage(entry: UsageEntry | undefined) {
 export function UsageSection(props: { provider: string }) {
   const engine = useEngine()
   const entry = () => usageFor(props.provider)
-  const providerName = () => engine.state.providers.find((provider) => provider.id === props.provider)?.name ?? props.provider
+  const providerName = () =>
+    engine.state.providers.find((provider) => provider.id === props.provider)?.name ?? props.provider
   const plan = () => entry()?.usage?.plan
   return (
     <Show when={entry()?.usage !== null}>
@@ -190,7 +201,10 @@ export function UsageSection(props: { provider: string }) {
             <span class="truncate">{providerName()}</span>
           </span>
         </div>
-        <Show when={usageMessage(entry())} fallback={<For each={entry()?.usage?.windows}>{(window) => <LimitRow window={window} />}</For>}>
+        <Show
+          when={usageMessage(entry())}
+          fallback={<For each={entry()?.usage?.windows}>{(window) => <LimitRow window={window} />}</For>}
+        >
           {(message) => <div class="text-ink-faint">{message()}</div>}
         </Show>
       </div>

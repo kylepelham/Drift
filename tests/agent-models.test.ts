@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test"
-import type { ModelInfo, ProviderInfo } from "../src/engine/store"
-import { agentModelCapability, agentModelOptions } from "../src/state/agent-models"
 import { agentBehaviorIssue, agentOverrideValue, applicableOverride } from "../src/state/prompts"
+import { agentModelCapability, agentModelOptions } from "../src/state/agent-models"
 import { hiddenModelIds, setHiddenModelIds } from "../src/state/prefs"
+import { expect, test } from "bun:test"
+
+import type { ModelInfo, ProviderInfo } from "../src/engine/store"
 
 function model(id: string, name = id, toolcall = true, context = 65536, text = true): ModelInfo {
   return {
@@ -72,7 +73,11 @@ test("utility agent choices include text models without tool calling and exclude
 
 test("picking a model changes only the model and keeps every other field", async () => {
   const { configOf, draftOf } = await import("../src/ui/settings-prompts")
-  const baseline = { prompt: "Review carefully", permissions: [{ kind: "edit", pattern: "*", decision: "deny" }], steps: 12 }
+  const baseline = {
+    prompt: "Review carefully",
+    permissions: [{ kind: "edit", pattern: "*", decision: "deny" }],
+    steps: 12,
+  }
   const draft = { ...draftOf(baseline), model: "provider/vendor/reviewer" }
   const config = configOf(draft, baseline) as Record<string, unknown>
   expect(config).toEqual({ ...baseline, model: "provider/vendor/reviewer" })
@@ -85,7 +90,10 @@ test("Current model is dynamic inheritance and explicitly masks an underlying mo
   const baseline = { model: "provider/smart", prompt: "Keep prompt" }
   const config = configOf({ ...draftOf(baseline), model: "" }, baseline) as Record<string, unknown>
   expect(config.model, "an emptied pin is sent as empty, not left out").toBe("")
-  expect(agentOverrideValue(config, baseline, { prompt: "Keep prompt", model: "provider/smart" })).toEqual({ prompt: "Keep prompt", model: "" })
+  expect(agentOverrideValue(config, baseline, { prompt: "Keep prompt", model: "provider/smart" })).toEqual({
+    prompt: "Keep prompt",
+    model: "",
+  })
   expect(configOf(draftOf({ prompt: "No pin" }), { prompt: "No pin" })).toEqual({ prompt: "No pin" })
 })
 
@@ -102,7 +110,10 @@ test("tools read as all, only these, or all except these, and go back the same w
   const except = draftOf({ tools: ["!bash", "!edit"] })
   expect([except.toolMode, except.tools]).toEqual(["except", ["bash", "edit"]])
   expect(configOf(except, { tools: ["!bash", "!edit"] })).toMatchObject({ tools: ["!bash", "!edit"] })
-  expect(configOf({ ...only, toolMode: "all", tools: [] }, { tools: ["read", "grep"] }), "every tool over a narrowed agent is stored as *").toMatchObject({ tools: ["*"] })
+  expect(
+    configOf({ ...only, toolMode: "all", tools: [] }, { tools: ["read", "grep"] }),
+    "every tool over a narrowed agent is stored as *",
+  ).toMatchObject({ tools: ["*"] })
   expect(configOf({ ...only, tools: [] }, {}), "only these, with none chosen").toBeString()
   expect(configOf(draftOf({}), {})).not.toHaveProperty("tools")
 })
@@ -110,15 +121,28 @@ test("tools read as all, only these, or all except these, and go back the same w
 test("the form refuses what the engine would not apply and drops rules left blank", async () => {
   const { configOf, draftOf } = await import("../src/ui/settings-prompts")
   expect(configOf({ ...draftOf({}), steps: "0" }, {}), "steps must be positive").toBeString()
-  expect(configOf({ ...draftOf({}), steps: "50", variant: "high" }, {})).toEqual({ prompt: "", steps: 50, variant: "high" })
-  const rules = [{ kind: "bash", pattern: "git push*", decision: "deny" as const }, { kind: "bash", pattern: " ", decision: "ask" as const }]
+  expect(configOf({ ...draftOf({}), steps: "50", variant: "high" }, {})).toEqual({
+    prompt: "",
+    steps: 50,
+    variant: "high",
+  })
+  const rules = [
+    { kind: "bash", pattern: "git push*", decision: "deny" as const },
+    { kind: "bash", pattern: " ", decision: "ask" as const },
+  ]
   expect(configOf({ ...draftOf({}), permissions: rules }, {})).toMatchObject({ permissions: [rules[0]] })
 })
 
 test("reasoning levels come from the pinned model, else from every connected model, in order", async () => {
   const { reasoningLevels } = await import("../src/ui/settings-prompts")
-  const withLevels = (id: string, levels: string[]) => ({ ...model(id), variants: Object.fromEntries(levels.map((level) => [level, {}])) })
-  const state = { providers: [provider("openai", [withLevels("fast", ["low", "high"]), withLevels("deep", ["xhigh", "medium"])])], connected: ["openai"] }
+  const withLevels = (id: string, levels: string[]) => ({
+    ...model(id),
+    variants: Object.fromEntries(levels.map((level) => [level, {}])),
+  })
+  const state = {
+    providers: [provider("openai", [withLevels("fast", ["low", "high"]), withLevels("deep", ["xhigh", "medium"])])],
+    connected: ["openai"],
+  }
   expect(reasoningLevels(state, "", "")).toEqual(["low", "medium", "high", "xhigh"])
   expect(reasoningLevels(state, "openai/fast", "")).toEqual(["low", "high"])
   expect(reasoningLevels(state, "openai/fast", "max"), "a saved level stays offered").toEqual(["low", "high", "max"])
@@ -126,9 +150,26 @@ test("reasoning levels come from the pinned model, else from every connected mod
 
 test("agents are listed as picked in the composer, delegated to, then run by Drift itself", async () => {
   const { agentGroups } = await import("../src/ui/settings-prompts")
-  const agent = (name: string, mode: "primary" | "subagent" | "all", hidden = false) => ({ name, description: "", mode, hidden, builtIn: true, tools: [] })
-  const groups = agentGroups([agent("plan", "primary"), agent("title", "primary", true), agent("explore", "subagent"), agent("build", "all"), agent("general", "subagent")])
-  expect(groups.map((group) => group.agents.map((item) => item.name))).toEqual([["build", "plan"], ["explore", "general"], ["title"]])
+  const agent = (name: string, mode: "primary" | "subagent" | "all", hidden = false) => ({
+    name,
+    description: "",
+    mode,
+    hidden,
+    builtIn: true,
+    tools: [],
+  })
+  const groups = agentGroups([
+    agent("plan", "primary"),
+    agent("title", "primary", true),
+    agent("explore", "subagent"),
+    agent("build", "all"),
+    agent("general", "subagent"),
+  ])
+  expect(groups.map((group) => group.agents.map((item) => item.name))).toEqual([
+    ["build", "plan"],
+    ["explore", "general"],
+    ["title"],
+  ])
 })
 
 test("the behavior editor refuses what the engine would not apply, naming the field", () => {
@@ -138,7 +179,7 @@ test("the behavior editor refuses what the engine would not apply, naming the fi
     [{ temperature: 0.2 }, "temperature"],
     [{ permission: { edit: "deny" } }, "permission"],
     [{ variant: 3 }, "variant"],
-    [{ permissions: [{kind:"read",pattern:"*",decision:"invalid"}] }, "permissions"],
+    [{ permissions: [{ kind: "read", pattern: "*", decision: "invalid" }] }, "permissions"],
     [{ steps: 0 }, "steps"],
     [{ steps: 1.5 }, "steps"],
     [{ tools: [] }, "tools"],
@@ -149,7 +190,9 @@ test("the behavior editor refuses what the engine would not apply, naming the fi
 })
 
 test("a stored override keeps only fields the engine still applies", () => {
-  expect(applicableOverride({ prompt: "p", model: "a/b", steps: 3, tools: ["read"], color: "#fff", permission: "deny" })).toEqual({
+  expect(
+    applicableOverride({ prompt: "p", model: "a/b", steps: 3, tools: ["read"], color: "#fff", permission: "deny" }),
+  ).toEqual({
     prompt: "p",
     model: "a/b",
     steps: 3,

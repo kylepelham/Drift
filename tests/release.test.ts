@@ -1,16 +1,9 @@
-import { expect, test } from "bun:test"
 import { cleanModelNotes, normalizeCommitLinks, previousReleaseTag, releaseNotesPrompt } from "../scripts/release-notes"
+import { expect, test } from "bun:test"
 
 test("release notes select the prior published tag", () => {
   expect(
-    previousReleaseTag(
-      [
-        { tag_name: "v1.3.0", draft: true },
-        { tag_name: "v1.2.0" },
-        { tag_name: "v1.1.0" },
-      ],
-      "v1.2.0",
-    ),
+    previousReleaseTag([{ tag_name: "v1.3.0", draft: true }, { tag_name: "v1.2.0" }, { tag_name: "v1.1.0" }], "v1.2.0"),
   ).toBe("v1.1.0")
 })
 
@@ -27,14 +20,16 @@ test("release note prompts bound untrusted source material", () => {
 })
 
 test("release note output removes a wrapping markdown fence", () => {
-  expect(cleanModelNotes("```markdown\n## Improvements\n\n- Faster startup.\n```"))
-    .toBe("## Improvements\n\n- Faster startup.")
+  expect(cleanModelNotes("```markdown\n## Improvements\n\n- Faster startup.\n```")).toBe(
+    "## Improvements\n\n- Faster startup.",
+  )
 })
 
 test("release note commit links use the current repository", () => {
   const notes = "Fixed startup. ([#226bfa6](https://github.com/drift-ai/drift/commit/226bfa6))"
-  expect(normalizeCommitLinks(notes, "kylepelham/Drift"))
-    .toBe("Fixed startup. ([226bfa6](https://github.com/kylepelham/Drift/commit/226bfa6))")
+  expect(normalizeCommitLinks(notes, "kylepelham/Drift")).toBe(
+    "Fixed startup. ([226bfa6](https://github.com/kylepelham/Drift/commit/226bfa6))",
+  )
 })
 
 test("release note commit links retain mismatched references for review", () => {

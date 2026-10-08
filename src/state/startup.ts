@@ -11,9 +11,6 @@ export const [splashMascotAnimation, setSplashMascotAnimation] = persisted<Splas
   "drift.splash.mascot",
   "bounce",
 )
-export const [splashExitAnimation, setSplashExitAnimation] = persisted<SplashExitAnimation>(
-  "drift.splash.exit",
-  "fade",
-)
+export const [splashExitAnimation, setSplashExitAnimation] = persisted<SplashExitAnimation>("drift.splash.exit", "fade")
 export const [splashDuration, setSplashDuration] = persisted<number>("drift.splash.duration", 3200)
 export const [splashFont, setSplashFont] = persisted("drift.splash.font", "")

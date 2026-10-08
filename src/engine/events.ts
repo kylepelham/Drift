@@ -1,7 +1,5 @@
-import type { Event, Message, Part, Permission, Session, SessionStatus } from "./shapes"
-import type { SetStoreFunction } from "solid-js/store"
-import { produce } from "solid-js/store"
 import { clearQuestionDraft } from "../state/question-drafts"
+import { produce } from "solid-js/store"
 import { errorText } from "./error"
 import {
   bumpAskRevision,
@@ -21,6 +19,9 @@ import {
   type Notice,
   type QuestionRequest,
 } from "./store"
+
+import type { Event, Message, Part, Permission, Session, SessionStatus } from "./shapes"
+import type { SetStoreFunction } from "solid-js/store"
 
 type SetEngineState = SetStoreFunction<EngineState>
 
@@ -52,8 +53,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, re
       created: Date.now(),
       duration: typeof raw.properties.duration === "number" ? raw.properties.duration : 5000,
     })
-  if (raw.type === "message.part.delta")
-    return appendPartDelta(set, raw.properties as PartDeltaRef, reconcile)
+  if (raw.type === "message.part.delta") return appendPartDelta(set, raw.properties as PartDeltaRef, reconcile)
   if (raw.type === "session.compacted") {
     const sessionID = raw.properties.sessionID as string
     clearError(set, sessionID)
@@ -227,11 +227,7 @@ function moveSession(
   )
 }
 
-function recordError(
-  set: SetEngineState,
-  sessionID?: string,
-  error?: { name: string; data?: unknown },
-) {
+function recordError(set: SetEngineState, sessionID?: string, error?: { name: string; data?: unknown }) {
   const message = errorText(error)
   if (!sessionID) {
     pushNotice(set, {
@@ -303,13 +299,13 @@ function upsertPart(set: SetEngineState, part: Part) {
       if (link) draft.links[link.child] = link.parent
       if (link && part.type === "tool") {
         const metadata = (("metadata" in part.state ? part.state.metadata : undefined) ?? part.metadata) as
-          | { model?: ModelRef }
-          | undefined
+          { model?: ModelRef } | undefined
         if (metadata?.model) draft.sessionModels[link.child] = metadata.model
       }
       if (part.type === "tool") {
         trackActivity(draft, part)
-        if (part.state.status === "pending" || part.state.status === "running") draft.liveTools[part.id] = part.sessionID
+        if (part.state.status === "pending" || part.state.status === "running")
+          draft.liveTools[part.id] = part.sessionID
         else delete draft.liveTools[part.id]
       }
       const entry = draft.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID)
@@ -341,7 +337,14 @@ function reconcilePart(existing: Part, incoming: Part) {
 }
 
 /** `offset`, when the engine sends it, is where in the field the delta starts (UTF-16 units). */
-type PartDeltaRef = { sessionID: string; messageID: string; partID: string; field: string; delta: string; offset?: number }
+type PartDeltaRef = {
+  sessionID: string
+  messageID: string
+  partID: string
+  field: string
+  delta: string
+  offset?: number
+}
 
 /** The field after a delta: a snapshot that already holds it is left alone, one cut short is completed. */
 export function withDelta(current: string, delta: string, offset?: number) {

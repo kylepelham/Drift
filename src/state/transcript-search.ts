@@ -6,8 +6,9 @@
  * and reports message ids, which the timeline can scroll to and highlight.
  */
 
-import type { MessageEntry } from "../engine/store"
 import { clarificationAnswer } from "../ui/clarification-answer"
+
+import type { MessageEntry } from "../engine/store"
 
 export type TranscriptMatch = { messageId: string; count: number }
 
@@ -69,7 +70,11 @@ export function loweredSearchText(entry: MessageEntry) {
 
 function countIn(lowerHaystack: string, lowerNeedle: string) {
   let count = 0
-  for (let at = lowerHaystack.indexOf(lowerNeedle); at !== -1; at = lowerHaystack.indexOf(lowerNeedle, at + lowerNeedle.length))
+  for (
+    let at = lowerHaystack.indexOf(lowerNeedle);
+    at !== -1;
+    at = lowerHaystack.indexOf(lowerNeedle, at + lowerNeedle.length)
+  )
     count++
   return count
 }

@@ -1,7 +1,15 @@
+import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { For, onMount, Show } from "solid-js"
 import { t } from "../state/i18n"
-import { compactStorage, formatBytes, pruneStorage, refreshStorageStats, storageBusy, storageError, storageStats } from "../state/storage"
-import { SettingsGroup, SettingsRow } from "./settings-controls"
+import {
+  compactStorage,
+  formatBytes,
+  pruneStorage,
+  refreshStorageStats,
+  storageBusy,
+  storageError,
+  storageStats,
+} from "../state/storage"
 
 /** One band of the usage bar. `tone` is a Tailwind background class. */
 type Segment = { key: string; label: string; bytes: number; tone: string }
@@ -50,11 +58,7 @@ export function StorageSection() {
     <div class="space-y-6">
       <Show
         when={stats()}
-        fallback={
-          <div class="px-2 text-sm text-ink-faint">
-            {storageError() || t("common.loading")}
-          </div>
-        }
+        fallback={<div class="px-2 text-sm text-ink-faint">{storageError() || t("common.loading")}</div>}
       >
         {(current) => (
           <>
@@ -111,7 +115,10 @@ export function StorageSection() {
             </section>
 
             <SettingsGroup title={t("drift.storage.sessions")}>
-              <SettingsRow title={t("drift.storage.sessions.total")} description={t("drift.storage.sessions.total.description")}>
+              <SettingsRow
+                title={t("drift.storage.sessions.total")}
+                description={t("drift.storage.sessions.total.description")}
+              >
                 <span class="text-sm tabular-nums text-ink-muted">{current().sessions.total}</span>
               </SettingsRow>
               <SettingsRow

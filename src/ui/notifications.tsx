@@ -1,15 +1,10 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack, type JSX } from "solid-js"
+import { alertSounds, customSound, systemNotifications, type AttentionKind } from "../state/prefs"
 import { useEngine, type Engine } from "../engine"
-import {
-  alertSounds,
-  customSound,
-  systemNotifications,
-  type AttentionKind,
-} from "../state/prefs"
 import { selectSession } from "../state/selection"
-import { t } from "../state/i18n"
-import { shellInvoke } from "../shell"
 import { playAlertSound } from "./sounds"
+import { shellInvoke } from "../shell"
+import { t } from "../state/i18n"
 
 // WebView2 stubs the Web Notification API, so the shell path uses the Tauri plugin.
 function show(kind: AttentionKind, sessionId: string, title: string, body: string) {
@@ -127,15 +122,16 @@ export function NoticeHost(props: { children?: JSX.Element }) {
   })
   const dismiss = (id: string) => setDismissed((current) => new Set([...current, id]))
   return (
-    <div
-      class="pointer-events-none fixed top-11 right-5 bottom-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))]"
-    >
+    <div class="pointer-events-none fixed top-11 right-5 bottom-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))]">
       <div
         class="pointer-events-auto mt-auto flex max-h-full min-h-0 w-full flex-col gap-2 overflow-y-auto overscroll-contain pr-1"
         aria-live="polite"
       >
         <Show when={engine.state.engineError}>
-          <div class="rounded-lg border border-danger/40 bg-surface/95 px-3 py-2 text-danger shadow-xl backdrop-blur" role="alert">
+          <div
+            class="rounded-lg border border-danger/40 bg-surface/95 px-3 py-2 text-danger shadow-xl backdrop-blur"
+            role="alert"
+          >
             <div class="text-sm font-semibold">{t("drift.engine.stopped.title")}</div>
             <div class="mt-0.5 text-sm break-words">{engine.state.engineError}</div>
             <button

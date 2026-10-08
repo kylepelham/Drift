@@ -214,7 +214,7 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "目前模型",
   "drift.slash.argumentDetails": "{{name}} 的詳細說明",
-  "drift.markdown.ambiguousCitation": "檔案連結 \"{{href}}\" 不明確。請使用更完整的路徑來選擇以下檔案之一：{{files}}",
+  "drift.markdown.ambiguousCitation": '檔案連結 "{{href}}" 不明確。請使用更完整的路徑來選擇以下檔案之一：{{files}}',
   "drift.preview.settings.title": "檔案預覽",
   "drift.preview.settings.mode": "預覽模式",
   "drift.preview.settings.description": "選擇在預覽中開啟的檔案類型。",
@@ -390,7 +390,8 @@ export const drift = {
   "drift.lightbox.actualSize": "實際大小",
   "drift.lightbox.image": "圖片",
   "drift.lightbox.resetZoom": "重設縮放",
-  "drift.lightbox.controls": "捲動以縮放，拖曳以平移，按兩下以縮放。使用 +/- 鍵縮放、方向鍵平移，按 0 配合視窗大小，或按 1 顯示實際大小。",
+  "drift.lightbox.controls":
+    "捲動以縮放，拖曳以平移，按兩下以縮放。使用 +/- 鍵縮放、方向鍵平移，按 0 配合視窗大小，或按 1 顯示實際大小。",
   "drift.markdown.codeCopied": "程式碼已複製",
   "drift.markdown.copied": "已複製",
   "drift.markdown.copyCode": "複製程式碼",
@@ -398,7 +399,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "確認移除？",
   "drift.permission.always": "在此工作區中始終允許",
   "drift.mcp.enable": "啟用 {{name}}",
-  "drift.prompt.tooLarge": "傳送失敗：附件共 {{size}}，超過單則提示可攜帶的 {{limit}}。請減少檔案數量或使用更小的檔案。",
+  "drift.prompt.tooLarge":
+    "傳送失敗：附件共 {{size}}，超過單則提示可攜帶的 {{limit}}。請減少檔案數量或使用更小的檔案。",
   "drift.mcp.status.offHere": "在此工作區中已關閉",
   "drift.mcp.scope.chosen": "僅在此工作區中開啟",
   "drift.mcp.scope.elsewhere": "在其他工作區中開啟",
@@ -411,7 +413,8 @@ export const drift = {
   "drift.plugins.tab.installed": "已安裝",
   "drift.plugins.tab.registry": "登錄庫",
   "drift.plugins.registrySearch": "搜尋外掛",
-  "drift.plugins.registrySource": "來自 GitHub 上的 Drift-Plugins 登錄庫。每個外掛都是沙箱化的 WebAssembly 元件，下載會與登錄庫的雜湊值核對。",
+  "drift.plugins.registrySource":
+    "來自 GitHub 上的 Drift-Plugins 登錄庫。每個外掛都是沙箱化的 WebAssembly 元件，下載會與登錄庫的雜湊值核對。",
   "drift.plugins.registryLoadFailed": "無法載入登錄庫。",
   "drift.plugins.registryEmpty": "沒有符合的外掛。",
   "drift.plugins.category": "類別",
@@ -445,8 +448,10 @@ export const drift = {
   "drift.registry.sources.kind.azure_devops": "Azure DevOps 儲存庫",
   "drift.registry.sources.kind.folder": "資料夾或共用",
   "drift.registry.sources.kindHint.url": "位於某個 URL 的 JSON 文件；下載來自文件所指之處。權杖只會送給該主機。",
-  "drift.registry.sources.kindHint.github": "儲存庫中的檔案，私有儲存庫需要權杖（具 Contents 讀取權限的細緻權杖即可）。儲存庫內的下載也使用該權杖。",
-  "drift.registry.sources.kindHint.azure_devops": "Azure DevOps Git 儲存庫中的檔案，使用具 Code (Read) 權限的個人存取權杖。貼上儲存庫的網頁 URL。",
+  "drift.registry.sources.kindHint.github":
+    "儲存庫中的檔案，私有儲存庫需要權杖（具 Contents 讀取權限的細緻權杖即可）。儲存庫內的下載也使用該權杖。",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Azure DevOps Git 儲存庫中的檔案，使用具 Code (Read) 權限的個人存取權杖。貼上儲存庫的網頁 URL。",
   "drift.registry.sources.kindHint.folder": "本機或網路共用上的資料夾，文件與其指向的檔案放在一起。不需要伺服器。",
   "drift.registry.sources.location.github": "儲存庫 URL",
   "drift.registry.sources.location.azure_devops": "儲存庫 URL",
@@ -470,8 +475,10 @@ export const drift = {
   "drift.registry.sources.caPem": "額外根憑證",
   "drift.registry.sources.caPemHint": "為此來源信任的內部 CA 的 PEM，用於本機不信任其憑證的伺服器。",
   "drift.registry.sources.yours": "來自你的來源",
-  "drift.registry.sources.pluginsDescription": "Drift 內建之外的登錄庫。團隊把外掛發布到一個 https 網址，所有人都能從這裡安裝。",
-  "drift.registry.sources.mcpDescription": "GitHub 與官方之外的登錄庫。團隊把統一採用的 MCP 伺服器發布到一個 https 網址，所有人都能從這裡安裝。",
+  "drift.registry.sources.pluginsDescription":
+    "Drift 內建之外的登錄庫。團隊把外掛發布到一個 https 網址，所有人都能從這裡安裝。",
+  "drift.registry.sources.mcpDescription":
+    "GitHub 與官方之外的登錄庫。團隊把統一採用的 MCP 伺服器發布到一個 https 網址，所有人都能從這裡安裝。",
   "drift.registry.sources.empty": "尚未加入來源。",
   "drift.registry.sources.add": "加入來源",
   "drift.registry.sources.addButton": "加入",
@@ -480,13 +487,16 @@ export const drift = {
   "drift.registry.sources.remove": "移除來源",
   "drift.registry.sources.loadFailed": "無法讀取你的來源。",
   "drift.registry.sources.failed": "無法載入 {{name}}：{{error}}",
-  "drift.registry.sources.pluginsFormat": "Drift-Plugins registry.json 格式的 JSON 文件：每個外掛附下載網址與 SHA-256。",
+  "drift.registry.sources.pluginsFormat":
+    "Drift-Plugins registry.json 格式的 JSON 文件：每個外掛附下載網址與 SHA-256。",
   "drift.registry.sources.mcpFormat": "MCP 登錄庫格式的 JSON 文件：一個 servers 清單，與官方登錄庫 API 回傳的相同。",
-  "drift.plugins.registrySourceWithOwn": "來自你的來源與 GitHub 上的 Drift-Plugins 登錄庫。每個外掛都是沙箱化的 WebAssembly 元件，下載會與其登錄庫的雜湊值核對。",
+  "drift.plugins.registrySourceWithOwn":
+    "來自你的來源與 GitHub 上的 Drift-Plugins 登錄庫。每個外掛都是沙箱化的 WebAssembly 元件，下載會與其登錄庫的雜湊值核對。",
   "drift.plugins.configRaw": "此外掛的設定（JSON）；沒有登錄庫描述它的欄位。",
   "drift.plugins.saving": "儲存中...",
   "drift.plugins.saved": "已儲存 {{name}} 的設定。",
-  "drift.plugins.packNote": "Markdown 技能，解壓到 {{folder}}。Drift 會像提供你自己的技能一樣提供給模型；技能包不執行程式碼，但其文字會送達模型，因此只安裝你信任的技能包。",
+  "drift.plugins.packNote":
+    "Markdown 技能，解壓到 {{folder}}。Drift 會像提供你自己的技能一樣提供給模型；技能包不執行程式碼，但其文字會送達模型，因此只安裝你信任的技能包。",
   "drift.settings.skills": "技能",
   "drift.skills.mixed": "部分開啟",
   "drift.skills.packs": "技能包",
@@ -501,10 +511,11 @@ export const drift = {
   "drift.skills.installed": "{{name}} 已安裝 {{count}} 個技能；下一輪起提供。",
   "drift.skills.registrySearch": "搜尋技能",
   "drift.skills.registrySource": "來自 GitHub 上的 Drift-Plugins 登錄庫。技能是模型閱讀的 Markdown，不會執行任何東西。",
-  "drift.skills.registrySourceWithOwn": "來自你的來源與 GitHub 上的 Drift-Plugins 登錄庫。技能是模型閱讀的 Markdown，不會執行任何東西。",
+  "drift.skills.registrySourceWithOwn":
+    "來自你的來源與 GitHub 上的 Drift-Plugins 登錄庫。技能是模型閱讀的 Markdown，不會執行任何東西。",
   "drift.plugins.reload": "重新載入",
   "drift.plugins.loading": "正在載入外掛...",
-  "drift.plugins.empty": "沒有外掛。在 {{path}} 的 \"plugins\" 下列出 WebAssembly 元件，然後重新載入。",
+  "drift.plugins.empty": '沒有外掛。在 {{path}} 的 "plugins" 下列出 WebAssembly 元件，然後重新載入。',
   "drift.plugins.file": "列於 {{path}}",
   "drift.settings.permissions": "權限",
   "drift.permissions.rules": "所有工作區的規則",

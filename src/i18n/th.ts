@@ -74,7 +74,8 @@ export const dict = {
   "context.usage.cost": "ต้นทุน",
   "context.usage.clickToView": "คลิกเพื่อดูบริบท",
 
-  "toast.permissions.autoaccept.on.description": "คำขอสิทธิ์จะได้รับอนุมัติโดยอัตโนมัติ ยกเว้นไฟล์ลับและทุกอย่างนอกพื้นที่ทำงาน",
+  "toast.permissions.autoaccept.on.description":
+    "คำขอสิทธิ์จะได้รับอนุมัติโดยอัตโนมัติ ยกเว้นไฟล์ลับและทุกอย่างนอกพื้นที่ทำงาน",
 
   "error.page.action.updateTo": "อัปเดตเป็น {{version}}",
 
@@ -215,7 +216,7 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "โมเดลปัจจุบัน",
   "drift.slash.argumentDetails": "รายละเอียดของ {{name}}",
-  "drift.markdown.ambiguousCitation": "ลิงก์ไฟล์ \"{{href}}\" ไม่ชัดเจน ใช้พาธที่เจาะจงขึ้นเพื่อเลือกระหว่าง: {{files}}",
+  "drift.markdown.ambiguousCitation": 'ลิงก์ไฟล์ "{{href}}" ไม่ชัดเจน ใช้พาธที่เจาะจงขึ้นเพื่อเลือกระหว่าง: {{files}}',
   "drift.preview.settings.title": "ตัวอย่างไฟล์",
   "drift.preview.settings.mode": "โหมดแสดงตัวอย่าง",
   "drift.preview.settings.description": "เลือกประเภทไฟล์ที่จะเปิดเป็นตัวอย่าง",
@@ -251,10 +252,12 @@ export const drift = {
   "drift.remote.statusStarting": "กำลังเริ่ม",
   "drift.remote.statusError": "ข้อผิดพลาด",
   "drift.remote.clipboardError": "คัดลอกไม่ได้",
-  "drift.settings.shellTimeout.scope": "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
+  "drift.settings.shellTimeout.scope":
+    "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
   "drift.settings.toolExecution": "การเรียกใช้เครื่องมือ",
   "drift.settings.shellTimeout.title": "หมดเวลาของเชลล์",
-  "drift.settings.shellTimeout.description": "หยุดคำสั่งเชลล์และโปรเซสลูกหลังจากระยะเวลานี้ การเปลี่ยนแปลงมีผลกับการเรียกใหม่",
+  "drift.settings.shellTimeout.description":
+    "หยุดคำสั่งเชลล์และโปรเซสลูกหลังจากระยะเวลานี้ การเปลี่ยนแปลงมีผลกับการเรียกใหม่",
   "drift.settings.shellTimeout.noTimeout": "ไม่จำกัดเวลา",
   "drift.settings.shellTimeout.preset1": "1 นาที",
   "drift.settings.shellTimeout.preset5": "5 นาที",
@@ -274,11 +277,13 @@ export const drift = {
   "drift.settings.about": "เกี่ยวกับ",
   "drift.settings.toolErrors.title": "ขยายข้อผิดพลาดของเครื่องมือโดยค่าเริ่มต้น",
   "drift.settings.dayDividers.title": "ตัวแบ่งวันในแถบด้านข้าง",
-  "drift.settings.dayDividers.description": "แยกเธรดของแต่ละพื้นที่ทำงานตามวันที่ใช้งานล่าสุด: วันนี้ เมื่อวาน และวันก่อนหน้า",
+  "drift.settings.dayDividers.description":
+    "แยกเธรดของแต่ละพื้นที่ทำงานตามวันที่ใช้งานล่าสุด: วันนี้ เมื่อวาน และวันก่อนหน้า",
   "drift.sidebar.today": "วันนี้",
   "drift.sidebar.yesterday": "เมื่อวาน",
   "drift.settings.responseAnimation.title": "แสดงคำตอบอย่างนุ่มนวล",
-  "drift.settings.responseAnimation.description": "ค่อย ๆ แสดงข้อความก้อนใหญ่ในคำตอบสดของผู้ช่วย คำตอบก่อนหน้าจะแสดงทันที",
+  "drift.settings.responseAnimation.description":
+    "ค่อย ๆ แสดงข้อความก้อนใหญ่ในคำตอบสดของผู้ช่วย คำตอบก่อนหน้าจะแสดงทันที",
   "drift.settings.responseAnimation.speed.title": "ความเร็วในการแสดง",
   "drift.settings.responseAnimation.speed.description": "เลือกความเร็วที่ข้อความสดของผู้ช่วยจะปรากฏบนหน้าจอ",
   "drift.settings.responseAnimation.speed.value": "{{speed}} อักขระ/วินาที",
@@ -391,7 +396,8 @@ export const drift = {
   "drift.lightbox.actualSize": "ขนาดจริง",
   "drift.lightbox.image": "รูปภาพ",
   "drift.lightbox.resetZoom": "รีเซ็ตการซูม",
-  "drift.lightbox.controls": "เลื่อนเพื่อซูม ลากเพื่อเลื่อนภาพ ดับเบิลคลิกเพื่อซูม ใช้ปุ่ม +/- เพื่อซูม ปุ่มลูกศรเพื่อเลื่อนภาพ ปุ่ม 0 เพื่อปรับให้พอดีหน้าจอ หรือปุ่ม 1 เพื่อแสดงขนาดจริง",
+  "drift.lightbox.controls":
+    "เลื่อนเพื่อซูม ลากเพื่อเลื่อนภาพ ดับเบิลคลิกเพื่อซูม ใช้ปุ่ม +/- เพื่อซูม ปุ่มลูกศรเพื่อเลื่อนภาพ ปุ่ม 0 เพื่อปรับให้พอดีหน้าจอ หรือปุ่ม 1 เพื่อแสดงขนาดจริง",
   "drift.markdown.codeCopied": "คัดลอกโค้ดแล้ว",
   "drift.markdown.copied": "คัดลอกแล้ว",
   "drift.markdown.copyCode": "คัดลอกโค้ด",
@@ -399,7 +405,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "ลบหรือไม่?",
   "drift.permission.always": "อนุญาตเสมอในพื้นที่ทำงานนี้",
   "drift.mcp.enable": "เปิดใช้ {{name}}",
-  "drift.prompt.tooLarge": "ส่งไม่สำเร็จ: ไฟล์แนบรวม {{size}} เกิน {{limit}} ที่ข้อความเดียวรองรับได้ ส่งไฟล์ให้น้อยลงหรือเล็กลง",
+  "drift.prompt.tooLarge":
+    "ส่งไม่สำเร็จ: ไฟล์แนบรวม {{size}} เกิน {{limit}} ที่ข้อความเดียวรองรับได้ ส่งไฟล์ให้น้อยลงหรือเล็กลง",
   "drift.mcp.status.offHere": "ปิดในพื้นที่ทำงานนี้",
   "drift.mcp.scope.chosen": "เปิดเฉพาะพื้นที่ทำงานนี้",
   "drift.mcp.scope.elsewhere": "เปิดในพื้นที่ทำงานอื่น",
@@ -412,7 +419,8 @@ export const drift = {
   "drift.plugins.tab.installed": "ติดตั้งแล้ว",
   "drift.plugins.tab.registry": "รีจิสทรี",
   "drift.plugins.registrySearch": "ค้นหาปลั๊กอิน",
-  "drift.plugins.registrySource": "จากรีจิสทรี Drift-Plugins บน GitHub แต่ละตัวเป็นคอมโพเนนต์ WebAssembly ในแซนด์บ็อกซ์ และการดาวน์โหลดจะถูกตรวจกับแฮชในรีจิสทรี",
+  "drift.plugins.registrySource":
+    "จากรีจิสทรี Drift-Plugins บน GitHub แต่ละตัวเป็นคอมโพเนนต์ WebAssembly ในแซนด์บ็อกซ์ และการดาวน์โหลดจะถูกตรวจกับแฮชในรีจิสทรี",
   "drift.plugins.registryLoadFailed": "โหลดรีจิสทรีไม่ได้",
   "drift.plugins.registryEmpty": "ไม่มีปลั๊กอินที่ตรงกัน",
   "drift.plugins.category": "หมวดหมู่",
@@ -430,7 +438,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "ลบหรือไม่",
   "drift.plugins.removed": "ลบ {{name}} แล้ว",
   "drift.plugins.source": "ซอร์ส",
-  "drift.plugins.configNote": "การตั้งค่าจะถูกเขียนลงในรายการของปลั๊กอินใน drift.json ของคุณ แก้ไขภายหลังได้จากแท็บ ติดตั้งแล้ว",
+  "drift.plugins.configNote":
+    "การตั้งค่าจะถูกเขียนลงในรายการของปลั๊กอินใน drift.json ของคุณ แก้ไขภายหลังได้จากแท็บ ติดตั้งแล้ว",
   "drift.plugins.fieldType.string": "ข้อความ",
   "drift.plugins.fieldType.list": "คั่นด้วยจุลภาค",
   "drift.plugins.fieldType.number": "ตัวเลข",
@@ -445,10 +454,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "รีโพซิทอรี GitHub",
   "drift.registry.sources.kind.azure_devops": "รีโพซิทอรี Azure DevOps",
   "drift.registry.sources.kind.folder": "โฟลเดอร์หรือแชร์",
-  "drift.registry.sources.kindHint.url": "เอกสาร JSON ที่ URL การดาวน์โหลดมาจากที่เอกสารชี้ไป โทเค็นส่งให้โฮสต์นั้นเท่านั้น",
-  "drift.registry.sources.kindHint.github": "ไฟล์ในรีโพซิทอรี ถ้าเป็นส่วนตัวต้องใช้โทเค็น (โทเค็นแบบละเอียดที่อ่าน Contents ได้ก็พอ) การดาวน์โหลดในรีโพซิทอรีก็ใช้โทเค็นด้วย",
-  "drift.registry.sources.kindHint.azure_devops": "ไฟล์ในรีโพซิทอรี Git ของ Azure DevOps ใช้โทเค็นการเข้าถึงส่วนบุคคลที่มีสิทธิ์ Code (Read) วาง URL เว็บของรีโพซิทอรี",
-  "drift.registry.sources.kindHint.folder": "โฟลเดอร์บนเครื่องนี้หรือเน็ตเวิร์กแชร์ที่มีเอกสารและไฟล์ที่เอกสารระบุอยู่ข้างกัน ไม่ต้องมีเซิร์ฟเวอร์",
+  "drift.registry.sources.kindHint.url":
+    "เอกสาร JSON ที่ URL การดาวน์โหลดมาจากที่เอกสารชี้ไป โทเค็นส่งให้โฮสต์นั้นเท่านั้น",
+  "drift.registry.sources.kindHint.github":
+    "ไฟล์ในรีโพซิทอรี ถ้าเป็นส่วนตัวต้องใช้โทเค็น (โทเค็นแบบละเอียดที่อ่าน Contents ได้ก็พอ) การดาวน์โหลดในรีโพซิทอรีก็ใช้โทเค็นด้วย",
+  "drift.registry.sources.kindHint.azure_devops":
+    "ไฟล์ในรีโพซิทอรี Git ของ Azure DevOps ใช้โทเค็นการเข้าถึงส่วนบุคคลที่มีสิทธิ์ Code (Read) วาง URL เว็บของรีโพซิทอรี",
+  "drift.registry.sources.kindHint.folder":
+    "โฟลเดอร์บนเครื่องนี้หรือเน็ตเวิร์กแชร์ที่มีเอกสารและไฟล์ที่เอกสารระบุอยู่ข้างกัน ไม่ต้องมีเซิร์ฟเวอร์",
   "drift.registry.sources.location.github": "URL รีโพซิทอรี",
   "drift.registry.sources.location.azure_devops": "URL รีโพซิทอรี",
   "drift.registry.sources.location.folder": "โฟลเดอร์",
@@ -463,16 +476,21 @@ export const drift = {
   "drift.registry.sources.token.url": "โทเค็น Bearer",
   "drift.registry.sources.token.github": "โทเค็นการเข้าถึง",
   "drift.registry.sources.token.azure_devops": "โทเค็นการเข้าถึงส่วนบุคคล",
-  "drift.registry.sources.tokenHint": "เก็บในที่เก็บข้อมูลประจำตัวของ Drift ไม่เคยอยู่ในไฟล์ เว้นว่างสำหรับแหล่งสาธารณะ",
+  "drift.registry.sources.tokenHint":
+    "เก็บในที่เก็บข้อมูลประจำตัวของ Drift ไม่เคยอยู่ในไฟล์ เว้นว่างสำหรับแหล่งสาธารณะ",
   "drift.registry.sources.tokenKept": "มีโทเค็นบันทึกไว้แล้ว พิมพ์ใหม่เพื่อแทนที่ หรือล้างช่องเพื่อลบ",
   "drift.registry.sources.hasToken": "มีโทเค็น",
   "drift.registry.sources.allowHttp": "อนุญาต http ธรรมดา",
-  "drift.registry.sources.allowHttpHint": "ใครก็ตามบนเส้นทางเครือข่ายอ่านหรือแก้สิ่งที่ดึงมาได้ ใช้เฉพาะแหล่งภายในที่ไม่มี https",
+  "drift.registry.sources.allowHttpHint":
+    "ใครก็ตามบนเส้นทางเครือข่ายอ่านหรือแก้สิ่งที่ดึงมาได้ ใช้เฉพาะแหล่งภายในที่ไม่มี https",
   "drift.registry.sources.caPem": "ใบรับรองรากเพิ่มเติม",
-  "drift.registry.sources.caPemHint": "PEM ของ CA ภายในที่จะเชื่อถือสำหรับแหล่งนี้ สำหรับเซิร์ฟเวอร์ที่เครื่องของคุณไม่เชื่อถือใบรับรอง",
+  "drift.registry.sources.caPemHint":
+    "PEM ของ CA ภายในที่จะเชื่อถือสำหรับแหล่งนี้ สำหรับเซิร์ฟเวอร์ที่เครื่องของคุณไม่เชื่อถือใบรับรอง",
   "drift.registry.sources.yours": "จากแหล่งของคุณ",
-  "drift.registry.sources.pluginsDescription": "รีจิสทรีนอกเหนือจากของ Drift ทีมเผยแพร่ปลั๊กอินไว้ที่ URL https เดียว แล้วทุกคนติดตั้งจากที่นี่",
-  "drift.registry.sources.mcpDescription": "รีจิสทรีนอกเหนือจากของ GitHub และของทางการ ทีมเผยแพร่เซิร์ฟเวอร์ MCP มาตรฐานไว้ที่ URL https เดียว แล้วทุกคนติดตั้งจากที่นี่",
+  "drift.registry.sources.pluginsDescription":
+    "รีจิสทรีนอกเหนือจากของ Drift ทีมเผยแพร่ปลั๊กอินไว้ที่ URL https เดียว แล้วทุกคนติดตั้งจากที่นี่",
+  "drift.registry.sources.mcpDescription":
+    "รีจิสทรีนอกเหนือจากของ GitHub และของทางการ ทีมเผยแพร่เซิร์ฟเวอร์ MCP มาตรฐานไว้ที่ URL https เดียว แล้วทุกคนติดตั้งจากที่นี่",
   "drift.registry.sources.empty": "ยังไม่มีแหล่งที่มา",
   "drift.registry.sources.add": "เพิ่มแหล่งที่มา",
   "drift.registry.sources.addButton": "เพิ่ม",
@@ -481,13 +499,17 @@ export const drift = {
   "drift.registry.sources.remove": "ลบแหล่งที่มา",
   "drift.registry.sources.loadFailed": "อ่านแหล่งที่มาของคุณไม่ได้",
   "drift.registry.sources.failed": "โหลด {{name}} ไม่ได้: {{error}}",
-  "drift.registry.sources.pluginsFormat": "เอกสาร JSON ในรูปแบบ registry.json ของ Drift-Plugins: แต่ละปลั๊กอินมี URL ดาวน์โหลดและ SHA-256",
-  "drift.registry.sources.mcpFormat": "เอกสาร JSON ในรูปแบบรีจิสทรี MCP: รายการ servers แบบที่ API ของรีจิสทรีทางการส่งกลับ",
-  "drift.plugins.registrySourceWithOwn": "จากแหล่งของคุณและรีจิสทรี Drift-Plugins บน GitHub แต่ละตัวเป็นคอมโพเนนต์ WebAssembly ในแซนด์บ็อกซ์ และการดาวน์โหลดจะถูกตรวจกับแฮชของรีจิสทรีนั้น",
+  "drift.registry.sources.pluginsFormat":
+    "เอกสาร JSON ในรูปแบบ registry.json ของ Drift-Plugins: แต่ละปลั๊กอินมี URL ดาวน์โหลดและ SHA-256",
+  "drift.registry.sources.mcpFormat":
+    "เอกสาร JSON ในรูปแบบรีจิสทรี MCP: รายการ servers แบบที่ API ของรีจิสทรีทางการส่งกลับ",
+  "drift.plugins.registrySourceWithOwn":
+    "จากแหล่งของคุณและรีจิสทรี Drift-Plugins บน GitHub แต่ละตัวเป็นคอมโพเนนต์ WebAssembly ในแซนด์บ็อกซ์ และการดาวน์โหลดจะถูกตรวจกับแฮชของรีจิสทรีนั้น",
   "drift.plugins.configRaw": "การตั้งค่าของปลั๊กอินนี้ในรูปแบบ JSON ไม่มีรีจิสทรีใดอธิบายฟิลด์ของมัน",
   "drift.plugins.saving": "กำลังบันทึก...",
   "drift.plugins.saved": "บันทึกการตั้งค่าของ {{name}} แล้ว",
-  "drift.plugins.packNote": "สกิล Markdown ที่แตกไว้ใน {{folder}} Drift เสนอให้โมเดลเหมือนสกิลของคุณเอง แพ็กไม่รันโค้ด แต่ข้อความของมันไปถึงโมเดล จึงควรติดตั้งเฉพาะแพ็กที่คุณไว้ใจ",
+  "drift.plugins.packNote":
+    "สกิล Markdown ที่แตกไว้ใน {{folder}} Drift เสนอให้โมเดลเหมือนสกิลของคุณเอง แพ็กไม่รันโค้ด แต่ข้อความของมันไปถึงโมเดล จึงควรติดตั้งเฉพาะแพ็กที่คุณไว้ใจ",
   "drift.settings.skills": "สกิล",
   "drift.skills.mixed": "เปิดบางส่วน",
   "drift.skills.packs": "แพ็กสกิล",
@@ -502,14 +524,16 @@ export const drift = {
   "drift.skills.installed": "ติดตั้ง {{name}} พร้อม {{count}} สกิลแล้ว จะพร้อมใช้ตั้งแต่เทิร์นถัดไป",
   "drift.skills.registrySearch": "ค้นหาสกิล",
   "drift.skills.registrySource": "จากรีจิสทรี Drift-Plugins บน GitHub สกิลคือ Markdown ที่โมเดลอ่าน ไม่มีอะไรทำงาน",
-  "drift.skills.registrySourceWithOwn": "จากแหล่งของคุณและรีจิสทรี Drift-Plugins บน GitHub สกิลคือ Markdown ที่โมเดลอ่าน ไม่มีอะไรทำงาน",
+  "drift.skills.registrySourceWithOwn":
+    "จากแหล่งของคุณและรีจิสทรี Drift-Plugins บน GitHub สกิลคือ Markdown ที่โมเดลอ่าน ไม่มีอะไรทำงาน",
   "drift.plugins.reload": "โหลดใหม่",
   "drift.plugins.loading": "กำลังโหลดปลั๊กอิน...",
-  "drift.plugins.empty": "ไม่มีปลั๊กอิน ระบุคอมโพเนนต์ WebAssembly ใต้ \"plugins\" ใน {{path}} แล้วโหลดใหม่",
+  "drift.plugins.empty": 'ไม่มีปลั๊กอิน ระบุคอมโพเนนต์ WebAssembly ใต้ "plugins" ใน {{path}} แล้วโหลดใหม่',
   "drift.plugins.file": "ระบุไว้ใน {{path}}",
   "drift.settings.permissions": "สิทธิ์",
   "drift.permissions.rules": "กฎสำหรับทุกพื้นที่ทำงาน",
-  "drift.permissions.rulesDescription": "ใช้ในทุกพื้นที่ทำงาน ต่อจากกฎใน drift.json ของพื้นที่นั้น กฎแรกที่ตรงกันเป็นตัวตัดสิน",
+  "drift.permissions.rulesDescription":
+    "ใช้ในทุกพื้นที่ทำงาน ต่อจากกฎใน drift.json ของพื้นที่นั้น กฎแรกที่ตรงกันเป็นตัวตัดสิน",
   "drift.permissions.empty": "ยังไม่มีกฎ ใช้ค่าเริ่มต้นของ Drift",
   "drift.permissions.add": "เพิ่มกฎ",
   "drift.permissions.kind": "ประเภท",
@@ -632,7 +656,8 @@ export const drift = {
   "drift.provider.browser": "เบราว์เซอร์",
   "drift.provider.connectFailed": "ไม่สามารถเชื่อมต่อ {{provider}} ตรวจสอบข้อมูลรับรองแล้วลองอีกครั้ง",
   "drift.provider.connected": "เชื่อมต่อ {{provider}} แล้ว บันทึกข้อมูลรับรองแล้ว",
-  "drift.provider.credentialRemovedStillConnected": "ลบข้อมูลรับรองที่บันทึกไว้ของ {{provider}} แล้ว แต่ยังเชื่อมต่อผ่านสภาพแวดล้อมหรือการกำหนดค่าอยู่",
+  "drift.provider.credentialRemovedStillConnected":
+    "ลบข้อมูลรับรองที่บันทึกไว้ของ {{provider}} แล้ว แต่ยังเชื่อมต่อผ่านสภาพแวดล้อมหรือการกำหนดค่าอยู่",
   "drift.provider.disconnectFailed": "ไม่สามารถตัดการเชื่อมต่อ {{provider}} ลองอีกครั้ง",
   "drift.provider.disconnected": "ตัดการเชื่อมต่อ {{provider}} แล้ว ลบข้อมูลรับรองที่จัดเก็บไว้แล้ว",
   "drift.provider.disconnecting": "กำลังตัดการเชื่อมต่อ...",

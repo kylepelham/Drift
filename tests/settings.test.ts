@@ -47,7 +47,9 @@ test("LM Studio readiness uses the loaded context required by the coding agent",
   expect(formatModelContext(32768)).toBe("32K")
   expect(lmStudioModelReady(model as never)).toBe(false)
   expect(lmStudioModelReady({ ...model, limit: { context: 32768 } } as never)).toBe(true)
-  expect(lmStudioModelReady({ ...model, capabilities: { toolcall: false }, limit: { context: 65536 } } as never)).toBe(false)
+  expect(lmStudioModelReady({ ...model, capabilities: { toolcall: false }, limit: { context: 65536 } } as never)).toBe(
+    false,
+  )
 })
 
 test("selected language dictionaries translate settings without loading every locale", async () => {
@@ -70,7 +72,9 @@ test("selected language dictionaries translate settings without loading every lo
 test("base prompts and agents are one Server setting, with inherited values styled apart and save only for changes", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
   const editor = await Bun.file("src/ui/settings-prompts.tsx").text()
-  expect(source).toContain('items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]')
+  expect(source).toContain(
+    'items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]',
+  )
   expect(source).toContain("<PromptsSection />")
   expect(await Bun.file("src/ui/settings-base-prompts.tsx").exists()).toBeFalse()
   expect(editor).toContain('"text-ink-faint": !props.customized && !changed()')
@@ -110,7 +114,10 @@ test("settings search covers every category and finds feature descriptions", asy
     "About",
   ] as const
   for (const category of categories) {
-    expect(settingsSearchResults(category).some((item) => item.section === category), category).toBeTrue()
+    expect(
+      settingsSearchResults(category).some((item) => item.section === category),
+      category,
+    ).toBeTrue()
   }
 
   expect(settingsSearchResults("shell commands child processes")[0]?.section).toBe("Tools")
@@ -350,14 +357,17 @@ test("Drift owns explicit app-specific translations for every locale", async () 
 
 test("General settings expose preview modes and custom-only per-type toggles", async () => {
   const source = await Bun.file("src/ui/settings.tsx").text()
-  const general = source.slice(source.indexOf("function GeneralSection()"), source.indexOf("function RemoteAccessSection()"))
+  const general = source.slice(
+    source.indexOf("function GeneralSection()"),
+    source.indexOf("function RemoteAccessSection()"),
+  )
   expect(general).toContain('title={t("drift.preview.settings.title")}')
   expect(general).toContain('(["all", "none", "custom"] as const)')
-  expect(general).toContain('selected={filePreviewPrefs().mode}')
+  expect(general).toContain("selected={filePreviewPrefs().mode}")
   expect(general).toContain('<Show when={filePreviewPrefs().mode === "custom"}>')
-  expect(general).toContain('<For each={filePreviewTypes}>')
-  expect(general).toContain('checked={filePreviewPrefs().types[type]}')
-  expect(general).toContain('setFilePreviewType(type, !filePreviewPrefs().types[type])')
+  expect(general).toContain("<For each={filePreviewTypes}>")
+  expect(general).toContain("checked={filePreviewPrefs().types[type]}")
+  expect(general).toContain("setFilePreviewType(type, !filePreviewPrefs().types[type])")
 })
 
 test("appearance exposes static presets plus custom theming", async () => {
@@ -440,17 +450,28 @@ test("notification defaults stay explicit and old webview auto-accept is forgott
   const { handOverAutoAccept, notificationDefaults, soundDefaults } = await import("../src/state/prefs")
   expect(notificationDefaults(true)).toEqual({ agent: true, permission: true, error: true })
   expect(soundDefaults()).toEqual({ agent: "none", permission: "none", error: "none" })
-  const kept = new Map([["drift.autoAccept.global", "true"], ["drift.autoAccept", JSON.stringify(["s1", 7, "s2"])]])
+  const kept = new Map([
+    ["drift.autoAccept.global", "true"],
+    ["drift.autoAccept", JSON.stringify(["s1", 7, "s2"])],
+  ])
   const storage = localStorage as Storage
   const saved = { getItem: storage.getItem, setItem: storage.setItem, removeItem: storage.removeItem }
-  Object.assign(storage, { getItem: (key: string) => kept.get(key) ?? null, setItem: (key: string, value: string) => kept.set(key, value), removeItem: (key: string) => kept.delete(key) })
+  Object.assign(storage, {
+    getItem: (key: string) => kept.get(key) ?? null,
+    setItem: (key: string, value: string) => kept.set(key, value),
+    removeItem: (key: string) => kept.delete(key),
+  })
   try {
-    await expect(handOverAutoAccept(async () => Promise.reject(new Error("engine down")))).rejects.toThrow("engine down")
+    await expect(handOverAutoAccept(async () => Promise.reject(new Error("engine down")))).rejects.toThrow(
+      "engine down",
+    )
     expect(kept.size, "a failed hand-over forgets nothing").toBe(2)
     const seen: unknown[] = []
     await handOverAutoAccept(async (offered) => (seen.push(offered), { all: false, sessions: ["s2"] }))
     expect(seen).toEqual([{ all: true, sessions: ["s1", "s2"] }])
-    expect([...kept.entries()], "only what the engine did not take is offered again").toEqual([["drift.autoAccept", JSON.stringify(["s2"])]])
+    expect([...kept.entries()], "only what the engine did not take is offered again").toEqual([
+      ["drift.autoAccept", JSON.stringify(["s2"])],
+    ])
     await handOverAutoAccept(async () => ({ all: false, sessions: [] }))
     expect(kept.size).toBe(0)
   } finally {
@@ -459,9 +480,8 @@ test("notification defaults stay explicit and old webview auto-accept is forgott
 })
 
 test("shell timeout preferences normalize and persist explicit no-timeout", async () => {
-  const { normalizeShellTimeout, setShellTimeoutMs, shellTimeoutMs, shellTimeoutPresets } = await import(
-    "../src/state/prefs"
-  )
+  const { normalizeShellTimeout, setShellTimeoutMs, shellTimeoutMs, shellTimeoutPresets } =
+    await import("../src/state/prefs")
   expect(shellTimeoutPresets).toEqual([60_000, 300_000, 900_000, 1_800_000])
   expect(normalizeShellTimeout(null)).toBeNull()
   expect(normalizeShellTimeout(60_000)).toBe(60_000)
@@ -493,13 +513,19 @@ test("the About mascot always disposes its scene, including when it loads after 
   let disposed = 0
   let land!: (dispose: () => void) => void
   const slow = new Promise<() => void>((resolve) => (land = resolve))
-  mountScene(() => slow, () => {})()
+  mountScene(
+    () => slow,
+    () => {},
+  )()
   land(() => disposed++)
   await settle()
   expect(disposed).toBe(1)
 
   let live = 0
-  const cleanup = mountScene(() => Promise.resolve(() => live++), () => {})
+  const cleanup = mountScene(
+    () => Promise.resolve(() => live++),
+    () => {},
+  )
   await settle()
   expect(live).toBe(0)
   cleanup()
@@ -507,13 +533,22 @@ test("the About mascot always disposes its scene, including when it loads after 
   expect(live).toBe(1)
 
   let fallbacks = 0
-  mountScene(() => Promise.reject(new Error("no webgl")), () => fallbacks++)
-  mountScene(() => Promise.resolve(undefined), () => fallbacks++)
+  mountScene(
+    () => Promise.reject(new Error("no webgl")),
+    () => fallbacks++,
+  )
+  mountScene(
+    () => Promise.resolve(undefined),
+    () => fallbacks++,
+  )
   await settle()
   expect(fallbacks).toBe(2)
 
   let ignored = 0
-  mountScene(() => Promise.reject(new Error("no webgl")), () => ignored++)()
+  mountScene(
+    () => Promise.reject(new Error("no webgl")),
+    () => ignored++,
+  )()
   await settle()
   expect(ignored).toBe(0)
 })
@@ -528,8 +563,7 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
   const tinted: string[] = []
   bell.group.traverse((object) => {
     const material = (object as { material?: unknown }).material as
-      | { uniforms?: Record<string, { value: unknown }> }
-      | undefined
+      { uniforms?: Record<string, { value: unknown }> } | undefined
     for (const name of ["uTop", "uBottom", "uRim", "uColor", "uTip"]) {
       const value = material?.uniforms?.[name]?.value
       if (value instanceof THREE.Color) tinted.push(value.getHexString())
@@ -554,7 +588,7 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
 
   // The logo mask is inlined, so `background: currentColor` is never painted unmasked.
   const logo = await Bun.file("src/ui/logo.tsx").text()
-  expect(logo).toContain('logo.svg?raw')
+  expect(logo).toContain("logo.svg?raw")
   expect(logo).toContain("data:image/svg+xml,${encodeURIComponent(logoSource)}")
   const jelly = await Bun.file("src/ui/jellyfish.tsx").text()
   // Tinted before the first frame and retinted on theme changes, with the observer torn down.
@@ -566,7 +600,9 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
   // The canvas mounts hidden and is revealed only from inside render(), after a frame it drew.
   // Revealing at append time let WebView2 composite one opaque white frame first.
   expect(jelly).toContain('canvas.style.opacity = "0"')
-  expect(jelly).toMatch(/renderer\.render\(scene, camera\)\s*\n[\s\S]*?if \(!revealed\) \{\s*\n\s*revealed = true\s*\n\s*canvas\.style\.opacity = "1"\s*\n\s*ready\(\)/)
+  expect(jelly).toMatch(
+    /renderer\.render\(scene, camera\)\s*\n[\s\S]*?if \(!revealed\) \{\s*\n\s*revealed = true\s*\n\s*canvas\.style\.opacity = "1"\s*\n\s*ready\(\)/,
+  )
   // No reveal may happen next to the append, before any frame exists.
   expect(jelly).not.toMatch(/host\.append\(canvas\)\s*\n\s*ready\(\)/)
 })
@@ -574,16 +610,27 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
 test("provider sign-in hides raw URLs, surfaces device codes, and keeps disconnect beside the methods", async () => {
   const { authorizationPrompt } = await import("../src/engine/provider-auth")
   const long = "https://claude.ai/oauth/authorize?code=true&client_id=9d1c&state=" + "x".repeat(400)
-  expect(authorizationPrompt(`Paste the authorization code here: ${long}`)).toEqual({ text: "Paste the authorization code here" })
+  expect(authorizationPrompt(`Paste the authorization code here: ${long}`)).toEqual({
+    text: "Paste the authorization code here",
+  })
   expect(authorizationPrompt("Enter code: ABCD-1234")).toEqual({ code: "ABCD-1234" })
-  expect(authorizationPrompt("Open https://accounts.x.ai/device on any device and enter code: WXYZ-9876")).toEqual({ code: "WXYZ-9876" })
-  expect(authorizationPrompt("Sign in with `az login` before continuing.")).toEqual({ text: "Sign in with `az login` before continuing." })
+  expect(authorizationPrompt("Open https://accounts.x.ai/device on any device and enter code: WXYZ-9876")).toEqual({
+    code: "WXYZ-9876",
+  })
+  expect(authorizationPrompt("Sign in with `az login` before continuing.")).toEqual({
+    text: "Sign in with `az login` before continuing.",
+  })
   expect(authorizationPrompt("")).toEqual({})
   const source = await Bun.file("src/ui/settings.tsx").text()
   expect(source).not.toContain("{auth().url}")
   expect(source).not.toContain("disconnectDescription")
-  const connect = source.slice(source.indexOf("function ProviderConnect("), source.indexOf("function AuthorizationHint("))
-  expect(connect.indexOf("props.methods.length > 1 || props.connected")).toBeLessThan(connect.indexOf('t("common.disconnect")'))
+  const connect = source.slice(
+    source.indexOf("function ProviderConnect("),
+    source.indexOf("function AuthorizationHint("),
+  )
+  expect(connect.indexOf("props.methods.length > 1 || props.connected")).toBeLessThan(
+    connect.indexOf('t("common.disconnect")'),
+  )
   expect(connect.indexOf('t("common.disconnect")')).toBeLessThan(connect.indexOf('method()?.type === "api"'))
 })
 

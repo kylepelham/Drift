@@ -1,5 +1,5 @@
-import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js"
 import { getDocument, GlobalWorkerOptions, type PDFDocumentProxy, type RenderTask } from "pdfjs-dist"
+import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from "solid-js"
 import workerSrc from "pdfjs-dist/build/pdf.worker.mjs?url"
 import { t } from "../state/i18n"
 
@@ -80,11 +80,17 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
         const document = await loading.promise
         if (!active) return
         if (document.numPages < 1) throw new Error("PDF has no pages")
-        setPageNumber(Number.isFinite(initialPage) ? Math.max(1, Math.min(document.numPages, Math.trunc(initialPage!))) : 1)
+        setPageNumber(
+          Number.isFinite(initialPage) ? Math.max(1, Math.min(document.numPages, Math.trunc(initialPage!))) : 1,
+        )
         setPdf(document)
       } catch (reason) {
         if (active) {
-          setError(reason instanceof Error && reason.name === "PasswordException" ? "drift.preview.pdfPassword" : "drift.preview.error")
+          setError(
+            reason instanceof Error && reason.name === "PasswordException"
+              ? "drift.preview.pdfPassword"
+              : "drift.preview.error",
+          )
           setBusy(false)
         }
         destroy()
@@ -125,8 +131,13 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
         if (!Number.isFinite(base.width) || !Number.isFinite(base.height) || base.width <= 0 || base.height <= 0) {
           throw new Error("Invalid PDF page dimensions")
         }
-        const viewport = page.getViewport({ scale: availableWidth / base.width * magnification })
-        if (!Number.isFinite(viewport.width) || !Number.isFinite(viewport.height) || viewport.width <= 0 || viewport.height <= 0) {
+        const viewport = page.getViewport({ scale: (availableWidth / base.width) * magnification })
+        if (
+          !Number.isFinite(viewport.width) ||
+          !Number.isFinite(viewport.height) ||
+          viewport.width <= 0 ||
+          viewport.height <= 0
+        ) {
           throw new Error("Invalid PDF viewport")
         }
         const outputScale = Math.min(
@@ -169,14 +180,22 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
     })()
   })
 
-  const buttonClass = "flex size-10 shrink-0 items-center justify-center rounded border border-edge text-ink-muted hover:bg-raised hover:text-ink disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
+  const buttonClass =
+    "flex size-10 shrink-0 items-center justify-center rounded border border-edge text-ink-muted hover:bg-raised hover:text-ink disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-accent"
 
   return (
     <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <Show when={pdf()}>
         <div class="flex shrink-0 flex-wrap items-center justify-center gap-2 border-b border-edge p-2 text-sm text-ink">
           <div class="flex items-center gap-2">
-            <button type="button" class={buttonClass} aria-label={t("drift.preview.previous")} title={t("drift.preview.previous")} disabled={pageNumber() <= 1} onClick={() => changePage(pageNumber() - 1)}>
+            <button
+              type="button"
+              class={buttonClass}
+              aria-label={t("drift.preview.previous")}
+              title={t("drift.preview.previous")}
+              disabled={pageNumber() <= 1}
+              onClick={() => changePage(pageNumber() - 1)}
+            >
               <span aria-hidden="true">&lt;</span>
             </button>
             <input
@@ -193,25 +212,66 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
                 event.currentTarget.value = String(pageNumber())
               }}
             />
-            <button type="button" class={buttonClass} aria-label={t("drift.preview.next")} title={t("drift.preview.next")} disabled={pageNumber() >= pages()} onClick={() => changePage(pageNumber() + 1)}>
+            <button
+              type="button"
+              class={buttonClass}
+              aria-label={t("drift.preview.next")}
+              title={t("drift.preview.next")}
+              disabled={pageNumber() >= pages()}
+              onClick={() => changePage(pageNumber() + 1)}
+            >
               <span aria-hidden="true">&gt;</span>
             </button>
           </div>
-          <span class="text-xs text-ink-muted" role="status">{pageLabel()}</span>
+          <span class="text-xs text-ink-muted" role="status">
+            {pageLabel()}
+          </span>
           <div class="flex items-center gap-2">
-            <button type="button" class={buttonClass} aria-label={t("drift.preview.zoomOut")} title={t("drift.preview.zoomOut")} disabled={zoom() <= minZoom} onClick={() => changeZoom(zoom() / 1.25)}>
+            <button
+              type="button"
+              class={buttonClass}
+              aria-label={t("drift.preview.zoomOut")}
+              title={t("drift.preview.zoomOut")}
+              disabled={zoom() <= minZoom}
+              onClick={() => changeZoom(zoom() / 1.25)}
+            >
               <span aria-hidden="true">-</span>
             </button>
             <span class="w-12 text-center text-xs tabular-nums">{Math.round(zoom() * 100)}%</span>
-            <button type="button" class={buttonClass} aria-label={t("drift.preview.zoomIn")} title={t("drift.preview.zoomIn")} disabled={zoom() >= maxZoom} onClick={() => changeZoom(zoom() * 1.25)}>
+            <button
+              type="button"
+              class={buttonClass}
+              aria-label={t("drift.preview.zoomIn")}
+              title={t("drift.preview.zoomIn")}
+              disabled={zoom() >= maxZoom}
+              onClick={() => changeZoom(zoom() * 1.25)}
+            >
               <span aria-hidden="true">+</span>
             </button>
           </div>
         </div>
       </Show>
-      <Show when={busy()}><p role="status" class="shrink-0 p-3 text-center text-sm text-ink-muted">{t("drift.preview.loading")}</p></Show>
-      <Show when={error()}>{(key) => <p role="alert" class="p-4 text-center text-sm text-ink-muted">{t(key())}</p>}</Show>
-      <div ref={container} class="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain" style={{ "scrollbar-gutter": "stable" }} tabIndex={0} role="region" aria-label={t("drift.preview.type.pdf")} aria-busy={busy()}>
+      <Show when={busy()}>
+        <p role="status" class="shrink-0 p-3 text-center text-sm text-ink-muted">
+          {t("drift.preview.loading")}
+        </p>
+      </Show>
+      <Show when={error()}>
+        {(key) => (
+          <p role="alert" class="p-4 text-center text-sm text-ink-muted">
+            {t(key())}
+          </p>
+        )}
+      </Show>
+      <div
+        ref={container}
+        class="min-h-0 min-w-0 flex-1 overflow-auto overscroll-contain"
+        style={{ "scrollbar-gutter": "stable" }}
+        tabIndex={0}
+        role="region"
+        aria-label={t("drift.preview.type.pdf")}
+        aria-busy={busy()}
+      >
         <div class="flex w-max min-w-full justify-center p-4">
           <div ref={pageHost} role="img" aria-label={pageLabel()} class="shrink-0" />
         </div>

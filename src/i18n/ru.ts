@@ -74,7 +74,8 @@ export const dict = {
   "context.usage.cost": "Стоимость",
   "context.usage.clickToView": "Нажмите для просмотра контекста",
 
-  "toast.permissions.autoaccept.on.description": "Запросы разрешений одобряются автоматически, кроме секретных файлов и всего, что вне рабочей области",
+  "toast.permissions.autoaccept.on.description":
+    "Запросы разрешений одобряются автоматически, кроме секретных файлов и всего, что вне рабочей области",
 
   "error.page.action.updateTo": "Обновить до {{version}}",
 
@@ -216,7 +217,8 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "Текущая модель",
   "drift.slash.argumentDetails": "Подробности о {{name}}",
-  "drift.markdown.ambiguousCitation": "Неоднозначная ссылка на файл \"{{href}}\". Укажите более полный путь, чтобы выбрать из: {{files}}",
+  "drift.markdown.ambiguousCitation":
+    'Неоднозначная ссылка на файл "{{href}}". Укажите более полный путь, чтобы выбрать из: {{files}}',
   "drift.preview.settings.title": "Предпросмотр файлов",
   "drift.preview.settings.mode": "Режим предпросмотра",
   "drift.preview.settings.description": "Выберите типы файлов для открытия в предпросмотре.",
@@ -252,10 +254,12 @@ export const drift = {
   "drift.remote.statusStarting": "Запуск",
   "drift.remote.statusError": "Ошибка",
   "drift.remote.clipboardError": "Не удалось скопировать",
-  "drift.settings.shellTimeout.scope": "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",
+  "drift.settings.shellTimeout.scope":
+    "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",
   "drift.settings.toolExecution": "Выполнение инструментов",
   "drift.settings.shellTimeout.title": "Тайм-аут оболочки",
-  "drift.settings.shellTimeout.description": "Останавливает команды оболочки и их дочерние процессы по истечении этого времени. Изменения применяются к новым вызовам.",
+  "drift.settings.shellTimeout.description":
+    "Останавливает команды оболочки и их дочерние процессы по истечении этого времени. Изменения применяются к новым вызовам.",
   "drift.settings.shellTimeout.noTimeout": "Без тайм-аута",
   "drift.settings.shellTimeout.preset1": "1 минута",
   "drift.settings.shellTimeout.preset5": "5 минут",
@@ -275,27 +279,28 @@ export const drift = {
   "drift.settings.about": "О программе",
   "drift.settings.toolErrors.title": "Разворачивать ошибки инструментов по умолчанию",
   "drift.settings.dayDividers.title": "Разделители по дням на боковой панели",
-  "drift.settings.dayDividers.description": "Разделять ветки каждой рабочей области по дню последней активности: Сегодня, Вчера и более ранние дни.",
+  "drift.settings.dayDividers.description":
+    "Разделять ветки каждой рабочей области по дню последней активности: Сегодня, Вчера и более ранние дни.",
   "drift.sidebar.today": "Сегодня",
   "drift.sidebar.yesterday": "Вчера",
   "drift.settings.responseAnimation.title": "Плавное появление ответов",
-  "drift.settings.responseAnimation.description": "Плавно показывать большие фрагменты текста в текущем ответе ассистента. Предыдущие ответы отображаются мгновенно.",
+  "drift.settings.responseAnimation.description":
+    "Плавно показывать большие фрагменты текста в текущем ответе ассистента. Предыдущие ответы отображаются мгновенно.",
   "drift.settings.responseAnimation.speed.title": "Скорость появления",
-  "drift.settings.responseAnimation.speed.description": "Выберите скорость появления текста текущего ответа ассистента.",
+  "drift.settings.responseAnimation.speed.description":
+    "Выберите скорость появления текста текущего ответа ассистента.",
   "drift.settings.responseAnimation.speed.value": "{{speed}} симв./с",
   "drift.settings.toolErrors.description":
     "Выберите начальное состояние. Строки с ошибками в любом случае останутся кликабельными.",
   "drift.settings.summaries": "Сводки",
   "drift.settings.summaries.collapsible.title": "Сворачиваемые сводки сжатия",
-  "drift.settings.summaries.collapsible.description":
-    "Скрывать сводки сжатия движка за раскрывающимся разделителем.",
+  "drift.settings.summaries.collapsible.description": "Скрывать сводки сжатия движка за раскрывающимся разделителем.",
   "drift.settings.summaries.collapsed.title": "Сворачивать сводки по умолчанию",
   "drift.settings.summaries.collapsed.description": "Изначально показывать сводки сжатия свернутыми.",
   "drift.settings.customPalette": "Пользовательская палитра",
   "drift.settings.typography": "Типографика",
   "drift.settings.customCss": "Пользовательский CSS",
-  "drift.settings.customCss.description":
-    "Применяется локально после встроенных стилей Drift. Ограничение: 20 КБ.",
+  "drift.settings.customCss.description": "Применяется локально после встроенных стилей Drift. Ограничение: 20 КБ.",
   "drift.sidebar.workspaces": "Рабочие пространства",
   "drift.sidebar.archived": "Архивные элементы",
   "drift.sidebar.addWorkspace": "Добавить рабочее пространство",
@@ -395,7 +400,8 @@ export const drift = {
   "drift.lightbox.actualSize": "Фактический размер",
   "drift.lightbox.image": "изображение",
   "drift.lightbox.resetZoom": "Сбросить масштаб",
-  "drift.lightbox.controls": "Прокручивайте для изменения масштаба. Перетаскивайте для перемещения изображения. Дважды щёлкните для увеличения. Используйте +/- для изменения масштаба, стрелки для перемещения, 0 для подгонки под окно или 1 для отображения в фактическом размере.",
+  "drift.lightbox.controls":
+    "Прокручивайте для изменения масштаба. Перетаскивайте для перемещения изображения. Дважды щёлкните для увеличения. Используйте +/- для изменения масштаба, стрелки для перемещения, 0 для подгонки под окно или 1 для отображения в фактическом размере.",
   "drift.markdown.codeCopied": "Код скопирован",
   "drift.markdown.copied": "Скопировано",
   "drift.markdown.copyCode": "Копировать код",
@@ -403,20 +409,23 @@ export const drift = {
   "drift.mcp.confirmRemove": "Удалить?",
   "drift.permission.always": "Всегда разрешать в этом рабочем пространстве",
   "drift.mcp.enable": "Включить {{name}}",
-  "drift.prompt.tooLarge": "Не удалось отправить: вложения занимают {{size}}, больше {{limit}}, которые вмещает одно сообщение. Отправьте меньше файлов или файлы поменьше.",
+  "drift.prompt.tooLarge":
+    "Не удалось отправить: вложения занимают {{size}}, больше {{limit}}, которые вмещает одно сообщение. Отправьте меньше файлов или файлы поменьше.",
   "drift.mcp.status.offHere": "выключен в этом рабочем пространстве",
   "drift.mcp.scope.chosen": "включён только для этого рабочего пространства",
   "drift.mcp.scope.elsewhere": "включён в других рабочих пространствах",
   "drift.mcp.onHere": "Включить в этом рабочем пространстве",
   "drift.mcp.offHere": "Выключить в этом рабочем пространстве",
-  "drift.mcp.switchHint": "Включён во всех рабочих пространствах. Кнопка вилки включает или выключает его только в этом рабочем пространстве.",
+  "drift.mcp.switchHint":
+    "Включён во всех рабочих пространствах. Кнопка вилки включает или выключает его только в этом рабочем пространстве.",
   "drift.settings.plugins": "Плагины",
   "drift.plugins.loaded": "Загружен",
   "drift.plugins.off": "Выключен",
   "drift.plugins.tab.installed": "Установленные",
   "drift.plugins.tab.registry": "Реестр",
   "drift.plugins.registrySearch": "Поиск плагинов",
-  "drift.plugins.registrySource": "Из реестра Drift-Plugins на GitHub. Каждый плагин является изолированным компонентом WebAssembly; загрузка сверяется с хэшем из реестра.",
+  "drift.plugins.registrySource":
+    "Из реестра Drift-Plugins на GitHub. Каждый плагин является изолированным компонентом WebAssembly; загрузка сверяется с хэшем из реестра.",
   "drift.plugins.registryLoadFailed": "Не удалось загрузить реестр.",
   "drift.plugins.registryEmpty": "Подходящих плагинов нет.",
   "drift.plugins.category": "Категория",
@@ -434,7 +443,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "Удалить?",
   "drift.plugins.removed": "{{name}} удалён.",
   "drift.plugins.source": "Исходники",
-  "drift.plugins.configNote": "Настройки записываются в запись плагина в вашем drift.json. Позже их можно изменить на вкладке «Установленные».",
+  "drift.plugins.configNote":
+    "Настройки записываются в запись плагина в вашем drift.json. Позже их можно изменить на вкладке «Установленные».",
   "drift.plugins.fieldType.string": "текст",
   "drift.plugins.fieldType.list": "через запятую",
   "drift.plugins.fieldType.number": "число",
@@ -449,10 +459,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "Репозиторий GitHub",
   "drift.registry.sources.kind.azure_devops": "Репозиторий Azure DevOps",
   "drift.registry.sources.kind.folder": "Папка или сетевой ресурс",
-  "drift.registry.sources.kindHint.url": "JSON-документ по адресу; загрузки идут туда, куда указывает документ. Токен отправляется только этому хосту.",
-  "drift.registry.sources.kindHint.github": "Файл в репозитории, приватном с токеном (достаточно детального токена с чтением Contents). Загрузки из репозитория тоже используют токен.",
-  "drift.registry.sources.kindHint.azure_devops": "Файл в Git-репозитории Azure DevOps с персональным токеном доступа Code (Read). Вставьте веб-адрес репозитория.",
-  "drift.registry.sources.kindHint.folder": "Папка на этом компьютере или сетевом ресурсе с документом и названными в нём файлами рядом. Сервер не нужен.",
+  "drift.registry.sources.kindHint.url":
+    "JSON-документ по адресу; загрузки идут туда, куда указывает документ. Токен отправляется только этому хосту.",
+  "drift.registry.sources.kindHint.github":
+    "Файл в репозитории, приватном с токеном (достаточно детального токена с чтением Contents). Загрузки из репозитория тоже используют токен.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Файл в Git-репозитории Azure DevOps с персональным токеном доступа Code (Read). Вставьте веб-адрес репозитория.",
+  "drift.registry.sources.kindHint.folder":
+    "Папка на этом компьютере или сетевом ресурсе с документом и названными в нём файлами рядом. Сервер не нужен.",
   "drift.registry.sources.location.github": "URL репозитория",
   "drift.registry.sources.location.azure_devops": "URL репозитория",
   "drift.registry.sources.location.folder": "Папка",
@@ -467,16 +481,22 @@ export const drift = {
   "drift.registry.sources.token.url": "Bearer-токен",
   "drift.registry.sources.token.github": "Токен доступа",
   "drift.registry.sources.token.azure_devops": "Персональный токен доступа",
-  "drift.registry.sources.tokenHint": "Хранится в хранилище учётных данных Drift, никогда в файле; оставьте пустым для публичного источника.",
-  "drift.registry.sources.tokenKept": "Токен сохранён. Введите новый, чтобы заменить, или очистите поле, чтобы удалить.",
+  "drift.registry.sources.tokenHint":
+    "Хранится в хранилище учётных данных Drift, никогда в файле; оставьте пустым для публичного источника.",
+  "drift.registry.sources.tokenKept":
+    "Токен сохранён. Введите новый, чтобы заменить, или очистите поле, чтобы удалить.",
   "drift.registry.sources.hasToken": "Есть токен",
   "drift.registry.sources.allowHttp": "Разрешить незащищённый http",
-  "drift.registry.sources.allowHttpHint": "Любой на пути в сети может прочитать или подменить загружаемое. Только для внутреннего источника без https.",
+  "drift.registry.sources.allowHttpHint":
+    "Любой на пути в сети может прочитать или подменить загружаемое. Только для внутреннего источника без https.",
   "drift.registry.sources.caPem": "Дополнительный корневой сертификат",
-  "drift.registry.sources.caPemHint": "PEM внутреннего ЦС, которому доверять для этого источника, для сервера, чей сертификат компьютер не знает.",
+  "drift.registry.sources.caPemHint":
+    "PEM внутреннего ЦС, которому доверять для этого источника, для сервера, чей сертификат компьютер не знает.",
   "drift.registry.sources.yours": "Из ваших источников",
-  "drift.registry.sources.pluginsDescription": "Реестры помимо собственного реестра Drift. Команда публикует свои плагины по одному https-адресу, и все устанавливают их отсюда.",
-  "drift.registry.sources.mcpDescription": "Реестры помимо реестра GitHub и официального. Команда публикует свои стандартные MCP-серверы по одному https-адресу, и все устанавливают их отсюда.",
+  "drift.registry.sources.pluginsDescription":
+    "Реестры помимо собственного реестра Drift. Команда публикует свои плагины по одному https-адресу, и все устанавливают их отсюда.",
+  "drift.registry.sources.mcpDescription":
+    "Реестры помимо реестра GitHub и официального. Команда публикует свои стандартные MCP-серверы по одному https-адресу, и все устанавливают их отсюда.",
   "drift.registry.sources.empty": "Источники не добавлены.",
   "drift.registry.sources.add": "Добавить источник",
   "drift.registry.sources.addButton": "Добавить",
@@ -485,13 +505,17 @@ export const drift = {
   "drift.registry.sources.remove": "Удалить источник",
   "drift.registry.sources.loadFailed": "Не удалось прочитать ваши источники.",
   "drift.registry.sources.failed": "Не удалось загрузить {{name}}: {{error}}",
-  "drift.registry.sources.pluginsFormat": "JSON-документ в формате registry.json из Drift-Plugins: каждый плагин с URL загрузки и SHA-256.",
-  "drift.registry.sources.mcpFormat": "JSON-документ в формате реестра MCP: список servers, как его возвращает API официального реестра.",
-  "drift.plugins.registrySourceWithOwn": "Из ваших источников и реестра Drift-Plugins на GitHub. Каждый плагин является изолированным компонентом WebAssembly; загрузка сверяется с хэшем своего реестра.",
+  "drift.registry.sources.pluginsFormat":
+    "JSON-документ в формате registry.json из Drift-Plugins: каждый плагин с URL загрузки и SHA-256.",
+  "drift.registry.sources.mcpFormat":
+    "JSON-документ в формате реестра MCP: список servers, как его возвращает API официального реестра.",
+  "drift.plugins.registrySourceWithOwn":
+    "Из ваших источников и реестра Drift-Plugins на GitHub. Каждый плагин является изолированным компонентом WebAssembly; загрузка сверяется с хэшем своего реестра.",
   "drift.plugins.configRaw": "Настройки этого плагина в JSON; ни один реестр не описывает его поля.",
   "drift.plugins.saving": "Сохранение...",
   "drift.plugins.saved": "Настройки {{name}} сохранены.",
-  "drift.plugins.packNote": "Навыки в Markdown, распакованные в {{folder}}. Drift предлагает их модели как ваши собственные; набор не выполняет код, но его текст попадает к модели, поэтому ставьте только те, которым доверяете.",
+  "drift.plugins.packNote":
+    "Навыки в Markdown, распакованные в {{folder}}. Drift предлагает их модели как ваши собственные; набор не выполняет код, но его текст попадает к модели, поэтому ставьте только те, которым доверяете.",
   "drift.settings.skills": "Навыки",
   "drift.skills.mixed": "Часть включена, часть нет",
   "drift.skills.packs": "Наборы навыков",
@@ -505,15 +529,18 @@ export const drift = {
   "drift.skills.reinstall": "Переустановить",
   "drift.skills.installed": "{{name}} установлен с {{count}} навыками; они доступны со следующего хода.",
   "drift.skills.registrySearch": "Поиск навыков",
-  "drift.skills.registrySource": "Из реестра Drift-Plugins на GitHub. Навык представляет собой Markdown, который читает модель; ничего не выполняется.",
-  "drift.skills.registrySourceWithOwn": "Из ваших источников и реестра Drift-Plugins на GitHub. Навык представляет собой Markdown, который читает модель; ничего не выполняется.",
+  "drift.skills.registrySource":
+    "Из реестра Drift-Plugins на GitHub. Навык представляет собой Markdown, который читает модель; ничего не выполняется.",
+  "drift.skills.registrySourceWithOwn":
+    "Из ваших источников и реестра Drift-Plugins на GitHub. Навык представляет собой Markdown, который читает модель; ничего не выполняется.",
   "drift.plugins.reload": "Перезагрузить",
   "drift.plugins.loading": "Загрузка плагинов...",
-  "drift.plugins.empty": "Плагинов нет. Укажите компоненты WebAssembly в \"plugins\" в {{path}} и перезагрузите.",
+  "drift.plugins.empty": 'Плагинов нет. Укажите компоненты WebAssembly в "plugins" в {{path}} и перезагрузите.',
   "drift.plugins.file": "Указаны в {{path}}",
   "drift.settings.permissions": "Разрешения",
   "drift.permissions.rules": "Правила для всех рабочих областей",
-  "drift.permissions.rulesDescription": "Действуют в каждой рабочей области после правил её drift.json. Решает первое подходящее правило.",
+  "drift.permissions.rulesDescription":
+    "Действуют в каждой рабочей области после правил её drift.json. Решает первое подходящее правило.",
   "drift.permissions.empty": "Правил пока нет. Действуют настройки Drift по умолчанию.",
   "drift.permissions.add": "Добавить правило",
   "drift.permissions.kind": "Тип",
@@ -544,7 +571,8 @@ export const drift = {
   "drift.permissions.grant.folder": "{{folder}} и всё в ней",
   "drift.permission.alwaysCovers": "Всегда разрешает: {{what}}",
   "drift.permission.reason.outside": "Спрашивает, потому что команда выходит за пределы рабочей области.",
-  "drift.permission.reason.unresolved": "Спрашивает, потому что использует переменную или ~, которые Drift не может прочитать до запуска.",
+  "drift.permission.reason.unresolved":
+    "Спрашивает, потому что использует переменную или ~, которые Drift не может прочитать до запуска.",
   "drift.permission.reason.secret": "Спрашивает, потому что указывает файл, который может содержать секреты.",
   "drift.permission.reason.searches": "Спрашивает, потому что рекурсивный поиск прочитал бы и секретные файлы.",
   "drift.permission.reason.beyondUndo": "Спрашивает, потому что отмена не сможет это вернуть.",
@@ -577,7 +605,8 @@ export const drift = {
   "drift.settings.prompts.family.all": "Все модели",
   "drift.settings.prompts.family.codex": "GPT и Codex",
   "drift.settings.prompts.family.default": "Другие модели",
-  "drift.settings.prompts.allDescription": "Заменяет базовый промпт для всех моделей, у семейства которых нет собственной замены.",
+  "drift.settings.prompts.allDescription":
+    "Заменяет базовый промпт для всех моделей, у семейства которых нет собственной замены.",
   "drift.settings.prompts.allPlaceholder": "Пусто: каждое семейство моделей использует свой промпт.",
   "drift.provider.pasteCode": "Вставьте код авторизации из браузера.",
   "drift.provider.enterCode": "Введите этот код в браузере",
@@ -586,7 +615,8 @@ export const drift = {
   "drift.provider.copyLink": "Копировать ссылку",
   "drift.provider.linkCopied": "Ссылка скопирована",
   "drift.import.progress": "Импорт из opencode",
-  "drift.import.description": "Переносим ваши беседы из opencode. Продолжайте работать; каждая появится, как только загрузится.",
+  "drift.import.description":
+    "Переносим ваши беседы из opencode. Продолжайте работать; каждая появится, как только загрузится.",
   "drift.import.done.title": "Импортировано из opencode",
   "drift.import.done.conversations": "Беседы: {{count}}",
   "drift.import.done.undoable": "Изменения, которые можно отменить: {{count}}",
@@ -636,7 +666,8 @@ export const drift = {
   "drift.provider.browser": "браузер",
   "drift.provider.connectFailed": "Не удалось подключить {{provider}}. Проверьте учётные данные и повторите попытку.",
   "drift.provider.connected": "{{provider}} подключён. Учётные данные сохранены.",
-  "drift.provider.credentialRemovedStillConnected": "Сохранённые учётные данные {{provider}} удалены, но подключение через окружение или конфигурацию осталось.",
+  "drift.provider.credentialRemovedStillConnected":
+    "Сохранённые учётные данные {{provider}} удалены, но подключение через окружение или конфигурацию осталось.",
   "drift.provider.disconnectFailed": "Не удалось отключить {{provider}}. Повторите попытку.",
   "drift.provider.disconnected": "{{provider}} отключён. Сохранённые учётные данные удалены.",
   "drift.provider.disconnecting": "Отключение...",
@@ -653,7 +684,8 @@ export const drift = {
   "drift.question.asyncHint": "Работа, не зависящая от вашего ответа, может продолжаться, пока вы принимаете решение.",
   "drift.question.blocking": "Ожидание ответа",
   "drift.question.pending": "Ожидающие запросы: {{count}}",
-  "drift.question.sendFailed": "Не удалось отправить ответ. Ваши ответы по-прежнему здесь. Попробуйте отправить их ещё раз.",
+  "drift.question.sendFailed":
+    "Не удалось отправить ответ. Ваши ответы по-прежнему здесь. Попробуйте отправить их ещё раз.",
   "drift.question.sending": "Отправка...",
   "drift.question.customHint": "Добавьте ответ, которого нет выше",
   "drift.question.customPlaceholder": "Введите свой ответ...",
@@ -726,7 +758,8 @@ export const drift = {
   "drift.tool.subtask": "Подзадача",
   "drift.tool.task": "Задача",
   "drift.voice.input.description": "Выберите микрофон для новых записей диктовки.",
-  "drift.voice.input.missing": "Сохранённый микрофон недоступен. До повторного подключения используется системный по умолчанию.",
+  "drift.voice.input.missing":
+    "Сохранённый микрофон недоступен. До повторного подключения используется системный по умолчанию.",
   "drift.voice.input.systemDefault": "Системный по умолчанию",
   "drift.voice.input.title": "Устройство ввода",
   "drift.voice.input.unnamed": "Микрофон {{index}}",

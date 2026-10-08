@@ -1,6 +1,7 @@
-import { backendInvoke } from "./backend"
 import { filePreviewLimits, filePreviewType } from "./file-preview-types"
+import { backendInvoke } from "./backend"
 import { t } from "./state/i18n"
+
 import type { FilePreviewRequest } from "./state/file-preview"
 
 export async function readFilePreview(request: FilePreviewRequest) {
@@ -21,9 +22,10 @@ export async function readFilePreview(request: FilePreviewRequest) {
   const binary = atob(result.content)
   if (binary.length !== result.size) throw new Error(t("drift.preview.error"))
   const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
-  const text = kind === "markdown" || kind === "text" || kind === "table"
-    ? new TextDecoder("utf-8", { fatal: true }).decode(bytes)
-    : undefined
+  const text =
+    kind === "markdown" || kind === "text" || kind === "table"
+      ? new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+      : undefined
   if (text?.includes("\0")) throw new Error(t("drift.preview.unsupported"))
   return { kind, bytes, text }
 }
@@ -31,9 +33,11 @@ export async function readFilePreview(request: FilePreviewRequest) {
 export function previewParentDirectory(path: string) {
   const normalized = path.replaceAll("\\", "/")
   const split = normalized.lastIndexOf("/")
-  return split <= 0 ? "/" : /^[a-z]:\/$/i.test(normalized.slice(0, split + 1))
-    ? normalized.slice(0, split + 1)
-    : normalized.slice(0, split)
+  return split <= 0
+    ? "/"
+    : /^[a-z]:\/$/i.test(normalized.slice(0, split + 1))
+      ? normalized.slice(0, split + 1)
+      : normalized.slice(0, split)
 }
 
 // Limit rendered cells and stop parsing once the visible row window is full.
@@ -51,8 +55,10 @@ export function previewTable(text: string, delimiter: string, rowLimit = 200, co
   for (let index = 0; index < text.length; index++) {
     const character = text[index]
     if (character === '"') {
-      if (quoted && text[index + 1] === '"') { field += '"'; index++ }
-      else quoted = !quoted
+      if (quoted && text[index + 1] === '"') {
+        field += '"'
+        index++
+      } else quoted = !quoted
     } else if (!quoted && character === delimiter) cell()
     else if (!quoted && (character === "\n" || character === "\r")) {
       if (character === "\r" && text[index + 1] === "\n") index++
@@ -62,6 +68,9 @@ export function previewTable(text: string, delimiter: string, rowLimit = 200, co
       if (rows.length >= rowLimit) return { rows, truncated: truncated || index + 1 < text.length }
     } else field += character
   }
-  if (field || row.length) { cell(); rows.push(row) }
+  if (field || row.length) {
+    cell()
+    rows.push(row)
+  }
   return { rows, truncated }
 }

@@ -1,6 +1,6 @@
 import { createEffect, createSignal, onCleanup } from "solid-js"
-import { persisted } from "./persist"
 import { publishMirrorTheme, type MirrorTheme } from "./mirror"
+import { persisted } from "./persist"
 
 export const themes = [
   "drift-dark",
@@ -87,7 +87,13 @@ export function applyMirroredTheme(value: MirrorTheme) {
 }
 
 function publishTheme() {
-  publishMirrorTheme({ name: theme(), custom: customTheme(), uiFont: uiFont(), codeFont: codeFont(), customCss: customCss() })
+  publishMirrorTheme({
+    name: theme(),
+    custom: customTheme(),
+    uiFont: uiFont(),
+    codeFont: codeFont(),
+    customCss: customCss(),
+  })
 }
 
 // A custom theme counts as light when its background is bright enough that dark text reads better.
@@ -117,8 +123,14 @@ export function bindTheme() {
     document.documentElement.dataset.theme = theme()
   })
   createEffect(() => {
-    document.documentElement.style.setProperty("--ui-font", uiFont().trim() || '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif')
-    document.documentElement.style.setProperty("--code-font", codeFont().trim() || '"Cascadia Code", Consolas, ui-monospace, monospace')
+    document.documentElement.style.setProperty(
+      "--ui-font",
+      uiFont().trim() || '"Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif',
+    )
+    document.documentElement.style.setProperty(
+      "--code-font",
+      codeFont().trim() || '"Cascadia Code", Consolas, ui-monospace, monospace',
+    )
   })
   createEffect(() => {
     const colors = customTheme()

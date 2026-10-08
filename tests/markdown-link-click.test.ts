@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test"
 import { filePreviewTypes, type FilePreviewType } from "../src/file-preview-types"
 import { closeFilePreview, previewFile } from "../src/state/file-preview"
+import { afterEach, beforeEach, expect, mock, test } from "bun:test"
+
 import type { FilePreviewPrefs } from "../src/state/file-preview-prefs"
 
 const directory = "C:\\Users\\Kyle\\Desktop\\C++\\Drift"
@@ -22,7 +23,12 @@ function setGlobal(name: (typeof globalNames)[number], value: unknown) {
 function runtime(url: string) {
   const location = new URL(url)
   setGlobal("location", location)
-  setGlobal("window", { location, open: mock(() => { throw new Error("Unexpected window.open") }) })
+  setGlobal("window", {
+    location,
+    open: mock(() => {
+      throw new Error("Unexpected window.open")
+    }),
+  })
   return location
 }
 
@@ -38,7 +44,9 @@ beforeEach(async () => {
   setGlobal("__TAURI__", undefined)
   runtime("http://localhost:5180/")
   invoke = mock(async (_command: string, _args?: Record<string, unknown>) => ({ positioned: true }))
-  fetchMock = mock(async () => { throw new Error("Unexpected network request") })
+  fetchMock = mock(async () => {
+    throw new Error("Unexpected network request")
+  })
   setGlobal("fetch", fetchMock)
 })
 
@@ -83,10 +91,19 @@ function click(raw: string, options: { button?: number; defaultPrevented?: boole
     defaultPrevented: options.defaultPrevented ?? false,
     target,
     currentTarget: root,
-    preventDefault: mock(() => { event.defaultPrevented = true }),
+    preventDefault: mock(() => {
+      event.defaultPrevented = true
+    }),
     stopPropagation: mock(() => undefined),
   }
-  return { anchor, root, target, event: event as unknown as MouseEvent, preventDefault: event.preventDefault, stopPropagation: event.stopPropagation }
+  return {
+    anchor,
+    root,
+    target,
+    event: event as unknown as MouseEvent,
+    preventDefault: event.preventDefault,
+    stopPropagation: event.stopPropagation,
+  }
 }
 
 function expectStopped(link: ReturnType<typeof click>) {
@@ -103,7 +120,9 @@ test("the screenshot's raw relative contract opens in its owning directory, neve
   await openMarkdownLink(link.event, directory)
 
   expect(link.anchor.getAttribute).toHaveBeenCalledWith("href")
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path: contractPath, line: undefined, column: undefined }]])
+  expect(invoke.mock.calls).toEqual([
+    ["open_file_in_editor", { path: contractPath, line: undefined, column: undefined }],
+  ])
   expect(invoke.mock.calls.filter(([command]) => command === "plugin:opener|open_url")).toHaveLength(0)
   expect(fetchMock).not.toHaveBeenCalled()
   expectStopped(link)
@@ -115,9 +134,16 @@ test("local opening never touches the throwing href getter and uses the supplied
 
   await openMarkdownLink(link.event, "D:\\other-session")
 
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", {
-    path: "D:/other-session/EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md", line: undefined, column: undefined,
-  }]])
+  expect(invoke.mock.calls).toEqual([
+    [
+      "open_file_in_editor",
+      {
+        path: "D:/other-session/EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md",
+        line: undefined,
+        column: undefined,
+      },
+    ],
+  ])
   expectStopped(link)
 })
 
@@ -207,8 +233,14 @@ test("hash-only links scroll an exact decoded ID inside the current Markdown, no
   const matching = { id, scrollIntoView: mock(() => undefined) }
   const unrelated = { id: "section", scrollIntoView: mock(() => undefined) }
   link.root.querySelectorAll.mockReturnValue([unrelated, matching])
-  const documentLookup = mock(() => { throw new Error("Fragment lookup escaped the Markdown root") })
-  setGlobal("document", { querySelector: documentLookup, querySelectorAll: documentLookup, getElementById: documentLookup })
+  const documentLookup = mock(() => {
+    throw new Error("Fragment lookup escaped the Markdown root")
+  })
+  setGlobal("document", {
+    querySelector: documentLookup,
+    querySelectorAll: documentLookup,
+    getElementById: documentLookup,
+  })
 
   await openMarkdownLink(link.event, directory)
 
@@ -256,7 +288,9 @@ test("middle-click opens a local file and cancels auxiliary browser navigation",
 
   await openMarkdownLink(link.event, directory)
 
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path: contractPath, line: undefined, column: undefined }]])
+  expect(invoke.mock.calls).toEqual([
+    ["open_file_in_editor", { path: contractPath, line: undefined, column: undefined }],
+  ])
   expectStopped(link)
 })
 
@@ -275,7 +309,10 @@ test("remote /companion sends open_file_in_editor to the host RPC instead of ope
   expect(init.method).toBe("POST")
   expect(init.credentials).toBe("same-origin")
   expect(init.headers).toEqual({ "content-type": "application/json" })
-  expect(JSON.parse(init.body as string)).toEqual({ command: "open_file_in_editor", args: { path: contractPath, line: 12, column: 3 } })
+  expect(JSON.parse(init.body as string)).toEqual({
+    command: "open_file_in_editor",
+    args: { path: contractPath, line: 12, column: 3 },
+  })
   expect(invoke).not.toHaveBeenCalled()
   expect(window.open).not.toHaveBeenCalled()
   expectStopped(link)
@@ -289,7 +326,9 @@ test("native file-open failures propagate without falling back to external navig
 
   await expect(openMarkdownLink(link.event, directory)).rejects.toBe(failure)
 
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path: contractPath, line: undefined, column: undefined }]])
+  expect(invoke.mock.calls).toEqual([
+    ["open_file_in_editor", { path: contractPath, line: undefined, column: undefined }],
+  ])
   expect(fetchMock).not.toHaveBeenCalled()
   expectStopped(link)
 })
@@ -298,11 +337,13 @@ test("forged copy-control attributes fall through to link dispatch instead of br
   native()
   const link = click(rawContract)
   const forged = { closest: () => ({}) }
-  link.target.closest.mockImplementation((selector) => selector === "[data-copy-code]" ? forged : link.anchor)
+  link.target.closest.mockImplementation((selector) => (selector === "[data-copy-code]" ? forged : link.anchor))
 
   await markdownClick(link.event, directory)
 
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path: contractPath, line: undefined, column: undefined }]])
+  expect(invoke.mock.calls).toEqual([
+    ["open_file_in_editor", { path: contractPath, line: undefined, column: undefined }],
+  ])
   expectStopped(link)
 })
 
@@ -347,7 +388,9 @@ test.each([
   await openMarkdownLink(link.event, directory)
 
   expect(previewFile()).toMatchObject({
-    path: `C:/Users/Kyle/Desktop/C++/Drift/${relativePath}`, directory, hash,
+    path: `C:/Users/Kyle/Desktop/C++/Drift/${relativePath}`,
+    directory,
+    hash,
   })
   expect(previewFile()?.line).toBe(line)
   expect(previewFile()?.column).toBe(column)
@@ -358,32 +401,39 @@ test.each([
 })
 
 test.each([
-  ["markdown", "notes.md"], ["pdf", "report.pdf"],
-  ["text", "main.ts"], ["table", "data.csv"], ["audio", "sound.mp3"], ["video", "movie.mp4"],
-] as [FilePreviewType, string][])("Custom routes selected %s to the modal, disabled to the editor", async (type, filename) => {
-  native()
-  prefs.setFilePreviewMode("custom")
-  for (const candidate of filePreviewTypes) prefs.setFilePreviewType(candidate, candidate === type)
-  const enabled = click(`./${filename}#L12C3`)
-  const path = `C:/Users/Kyle/Desktop/C++/Drift/${filename}`
+  ["markdown", "notes.md"],
+  ["pdf", "report.pdf"],
+  ["text", "main.ts"],
+  ["table", "data.csv"],
+  ["audio", "sound.mp3"],
+  ["video", "movie.mp4"],
+] as [FilePreviewType, string][])(
+  "Custom routes selected %s to the modal, disabled to the editor",
+  async (type, filename) => {
+    native()
+    prefs.setFilePreviewMode("custom")
+    for (const candidate of filePreviewTypes) prefs.setFilePreviewType(candidate, candidate === type)
+    const enabled = click(`./${filename}#L12C3`)
+    const path = `C:/Users/Kyle/Desktop/C++/Drift/${filename}`
 
-  await openMarkdownLink(enabled.event, directory)
+    await openMarkdownLink(enabled.event, directory)
 
-  expect(previewFile()).toMatchObject({ path, directory, line: 12, column: 3, hash: "L12C3" })
-  expect(invoke).not.toHaveBeenCalled()
-  expectStopped(enabled)
-  closeFilePreview()
-  prefs.setFilePreviewType(type, false)
-  const disabled = click(`./${filename}#L12C3`)
+    expect(previewFile()).toMatchObject({ path, directory, line: 12, column: 3, hash: "L12C3" })
+    expect(invoke).not.toHaveBeenCalled()
+    expectStopped(enabled)
+    closeFilePreview()
+    prefs.setFilePreviewType(type, false)
+    const disabled = click(`./${filename}#L12C3`)
 
-  await openMarkdownLink(disabled.event, directory)
+    await openMarkdownLink(disabled.event, directory)
 
-  expect(previewFile()).toBeUndefined()
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path, line: 12, column: 3 }]])
-  expect(fetchMock).not.toHaveBeenCalled()
-  expect(window.open).not.toHaveBeenCalled()
-  expectStopped(disabled)
-})
+    expect(previewFile()).toBeUndefined()
+    expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path, line: 12, column: 3 }]])
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(window.open).not.toHaveBeenCalled()
+    expectStopped(disabled)
+  },
+)
 
 test.each(["notes.md", "report.pdf", "photo.png", "main.ts"])("None keeps %s in the editor", async (filename) => {
   native()
@@ -392,27 +442,44 @@ test.each(["notes.md", "report.pdf", "photo.png", "main.ts"])("None keeps %s in 
   await openMarkdownLink(link.event, directory)
 
   expect(previewFile()).toBeUndefined()
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", {
-    path: `C:/Users/Kyle/Desktop/C++/Drift/${filename}`, line: undefined, column: undefined,
-  }]])
+  expect(invoke.mock.calls).toEqual([
+    [
+      "open_file_in_editor",
+      {
+        path: `C:/Users/Kyle/Desktop/C++/Drift/${filename}`,
+        line: undefined,
+        column: undefined,
+      },
+    ],
+  ])
   expectStopped(link)
 })
 
-test.each(["payload.exe", "archive.zip", "report.docx", "unknown"])("All keeps unsupported %s editor-only", async (filename) => {
-  native()
-  prefs.setFilePreviewMode("all")
-  const link = click(`./${filename}`)
+test.each(["payload.exe", "archive.zip", "report.docx", "unknown"])(
+  "All keeps unsupported %s editor-only",
+  async (filename) => {
+    native()
+    prefs.setFilePreviewMode("all")
+    const link = click(`./${filename}`)
 
-  await openMarkdownLink(link.event, directory)
+    await openMarkdownLink(link.event, directory)
 
-  expect(previewFile()).toBeUndefined()
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", {
-    path: `C:/Users/Kyle/Desktop/C++/Drift/${filename}`, line: undefined, column: undefined,
-  }]])
-  expect(fetchMock).not.toHaveBeenCalled()
-  expect(window.open).not.toHaveBeenCalled()
-  expectStopped(link)
-})
+    expect(previewFile()).toBeUndefined()
+    expect(invoke.mock.calls).toEqual([
+      [
+        "open_file_in_editor",
+        {
+          path: `C:/Users/Kyle/Desktop/C++/Drift/${filename}`,
+          line: undefined,
+          column: undefined,
+        },
+      ],
+    ])
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(window.open).not.toHaveBeenCalled()
+    expectStopped(link)
+  },
+)
 
 test("remote preview captures the host path without opening anything on the host", async () => {
   runtime("http://192.168.1.8:41718/companion")
@@ -448,20 +515,23 @@ test.each([
   expectStopped(link)
 })
 
-test.each([false, true])("delegated Markdown dispatch preserves the nested root with forged copy control %s", async (forged) => {
-  native()
-  prefs.setFilePreviewMode("all")
-  const link = click("../notes.md")
-  link.target.closest.mockImplementation((selector) => selector === "[data-copy-code]"
-    ? forged ? { closest: () => ({}) } : null
-    : link.anchor)
+test.each([false, true])(
+  "delegated Markdown dispatch preserves the nested root with forged copy control %s",
+  async (forged) => {
+    native()
+    prefs.setFilePreviewMode("all")
+    const link = click("../notes.md")
+    link.target.closest.mockImplementation((selector) =>
+      selector === "[data-copy-code]" ? (forged ? { closest: () => ({}) } : null) : link.anchor,
+    )
 
-  await markdownClick(link.event, "C:/workspace/docs/nested", "C:/workspace")
+    await markdownClick(link.event, "C:/workspace/docs/nested", "C:/workspace")
 
-  expect(previewFile()).toMatchObject({ path: "C:/workspace/docs/notes.md", directory: "C:/workspace" })
-  expect(invoke).not.toHaveBeenCalled()
-  expectStopped(link)
-})
+    expect(previewFile()).toMatchObject({ path: "C:/workspace/docs/notes.md", directory: "C:/workspace" })
+    expect(invoke).not.toHaveBeenCalled()
+    expectStopped(link)
+  },
+)
 
 test("All middle-clicks use the modal and still cancel auxiliary navigation", async () => {
   native()
@@ -475,21 +545,36 @@ test("All middle-clicks use the modal and still cancel auxiliary navigation", as
 
 function imageReads() {
   const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47])
-  invoke.mockImplementation(async (command: string) => command === "read_file_preview"
-    ? { content: Buffer.from(bytes).toString("base64"), size: bytes.length }
-    : { positioned: true })
+  invoke.mockImplementation(async (command: string) =>
+    command === "read_file_preview"
+      ? { content: Buffer.from(bytes).toString("base64"), size: bytes.length }
+      : { positioned: true },
+  )
   const created: Blob[] = []
   const original = URL.createObjectURL
-  URL.createObjectURL = mock((blob: Blob) => { created.push(blob); return `blob:image-${created.length}` })
-  return { bytes, created, restore: () => { URL.createObjectURL = original } }
+  URL.createObjectURL = mock((blob: Blob) => {
+    created.push(blob)
+    return `blob:image-${created.length}`
+  })
+  return {
+    bytes,
+    created,
+    restore: () => {
+      URL.createObjectURL = original
+    },
+  }
 }
 
 test.each([
   ["./photo.png", "C:/Users/Kyle/Desktop/C++/Drift/photo.png", "C:/Users/Kyle/Desktop/C++/Drift", "image/png"],
   ["./photo.JPG", "C:/Users/Kyle/Desktop/C++/Drift/photo.JPG", "C:/Users/Kyle/Desktop/C++/Drift", "image/jpeg"],
   ["./icon.svg", "C:/Users/Kyle/Desktop/C++/Drift/icon.svg", "C:/Users/Kyle/Desktop/C++/Drift", "image/svg+xml"],
-  ["C:/Users/Kyle/AppData/Local/Temp/opencode/writ-review.png", "C:/Users/Kyle/AppData/Local/Temp/opencode/writ-review.png",
-    "C:/Users/Kyle/AppData/Local/Temp/opencode", "image/png"],
+  [
+    "C:/Users/Kyle/AppData/Local/Temp/opencode/writ-review.png",
+    "C:/Users/Kyle/AppData/Local/Temp/opencode/writ-review.png",
+    "C:/Users/Kyle/AppData/Local/Temp/opencode",
+    "image/png",
+  ],
 ])("image link %s opens the lightbox, reading within the image's own folder", async (raw, path, folder, type) => {
   native()
   prefs.setFilePreviewMode("all")
@@ -497,7 +582,9 @@ test.each([
   try {
     const link = click(raw)
     await openMarkdownLink(link.event, directory)
-    expect(invoke.mock.calls).toEqual([["read_file_preview", { path, directory: folder, maxBytes: expect.any(Number) }]])
+    expect(invoke.mock.calls).toEqual([
+      ["read_file_preview", { path, directory: folder, maxBytes: expect.any(Number) }],
+    ])
     expect(previewFile()).toBeUndefined()
     expect(reads.created).toHaveLength(1)
     expect(reads.created[0]!.type).toBe(type)
@@ -514,7 +601,9 @@ test("disabled image previews keep image links in the editor", async () => {
   for (const type of filePreviewTypes) prefs.setFilePreviewType(type, type !== "image")
   const link = click("./photo.png")
   await openMarkdownLink(link.event, directory)
-  expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path: "C:/Users/Kyle/Desktop/C++/Drift/photo.png", line: undefined, column: undefined }]])
+  expect(invoke.mock.calls).toEqual([
+    ["open_file_in_editor", { path: "C:/Users/Kyle/Desktop/C++/Drift/photo.png", line: undefined, column: undefined }],
+  ])
   expect(previewFile()).toBeUndefined()
 })
 
@@ -549,21 +638,26 @@ test.each(["all", "custom", "none"] as const)("%s does not change external HTTPS
   expectStopped(link)
 })
 
-test.each(["https://example.com/notes.md", "mailto:help@example.com", "tel:+15551234567"])("remote All leaves external %s to browser navigation", async (raw) => {
-  runtime("http://192.168.1.8:41718/companion")
-  prefs.setFilePreviewMode("all")
-  const link = click(raw)
-  await openMarkdownLink(link.event, directory)
-  expect(link.preventDefault).not.toHaveBeenCalled()
-  expect(link.stopPropagation).not.toHaveBeenCalled()
-  expect(previewFile()).toBeUndefined()
-  expect(invoke).not.toHaveBeenCalled()
-  expect(fetchMock).not.toHaveBeenCalled()
-  expect(window.open).not.toHaveBeenCalled()
-})
+test.each(["https://example.com/notes.md", "mailto:help@example.com", "tel:+15551234567"])(
+  "remote All leaves external %s to browser navigation",
+  async (raw) => {
+    runtime("http://192.168.1.8:41718/companion")
+    prefs.setFilePreviewMode("all")
+    const link = click(raw)
+    await openMarkdownLink(link.event, directory)
+    expect(link.preventDefault).not.toHaveBeenCalled()
+    expect(link.stopPropagation).not.toHaveBeenCalled()
+    expect(previewFile()).toBeUndefined()
+    expect(invoke).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(window.open).not.toHaveBeenCalled()
+  },
+)
 
 test("all four Markdown callers pass their owning session directory, including delegated output", async () => {
-  const sources = await Promise.all(["message", "parts"].map((name) => Bun.file(new URL(`../src/ui/${name}.tsx`, import.meta.url)).text()))
+  const sources = await Promise.all(
+    ["message", "parts"].map((name) => Bun.file(new URL(`../src/ui/${name}.tsx`, import.meta.url)).text()),
+  )
   const callers = sources.flatMap((source) => [...source.matchAll(/<Markdown\b[\s\S]*?\/>/g)].map(([tag]) => tag))
   expect(callers).toHaveLength(4)
   expect(callers.every((tag) => tag.includes("fileGroups="))).toBe(true)
@@ -578,10 +672,18 @@ test("all four Markdown callers pass their owning session directory, including d
 test("Markdown wires click and middle auxclick through its directory-aware handlers", async () => {
   const source = await Bun.file(new URL("../src/ui/markdown.tsx", import.meta.url)).text()
   expect(source).toMatch(/onClick=\{handleClick\}/)
-  expect(source).toMatch(/onAuxClick=\{\(event\)\s*=>\s*\{\s*if\s*\(event\.button\s*===\s*1\)\s*void handleClick\(event\)/)
-  expect(source).toMatch(/if\s*\(event\.type\s*===\s*"auxclick"\)\s*await openMarkdownLink\(event,\s*props\.directory,\s*props\.workspaceDirectory\s*\?\?\s*props\.directory,\s*props\.fileGroups\)/)
-  expect(source).toMatch(/else\s+await markdownClick\(event,\s*props\.directory,\s*props\.workspaceDirectory\s*\?\?\s*props\.directory,\s*props\.fileGroups\)/)
-  expect(source).toMatch(/if\s*\(!button\)\s*return openMarkdownLink\(event,\s*directory,\s*workspaceDirectory,\s*fileGroups\)/)
+  expect(source).toMatch(
+    /onAuxClick=\{\(event\)\s*=>\s*\{\s*if\s*\(event\.button\s*===\s*1\)\s*void handleClick\(event\)/,
+  )
+  expect(source).toMatch(
+    /if\s*\(event\.type\s*===\s*"auxclick"\)\s*await openMarkdownLink\(event,\s*props\.directory,\s*props\.workspaceDirectory\s*\?\?\s*props\.directory,\s*props\.fileGroups\)/,
+  )
+  expect(source).toMatch(
+    /else\s+await markdownClick\(event,\s*props\.directory,\s*props\.workspaceDirectory\s*\?\?\s*props\.directory,\s*props\.fileGroups\)/,
+  )
+  expect(source).toMatch(
+    /if\s*\(!button\)\s*return openMarkdownLink\(event,\s*directory,\s*workspaceDirectory,\s*fileGroups\)/,
+  )
 })
 
 test.each(["all", "none"] as const)("short citations open the task's full path in %s mode", async (mode) => {
@@ -589,16 +691,26 @@ test.each(["all", "none"] as const)("short citations open the task's full path i
   prefs.setFilePreviewMode(mode)
   const link = click("AmazingCode.cs:345:21")
   await openMarkdownLink(link.event, "C:/", "C:/", () => [["C:/Projects/App/AmazingCode.cs"]])
-  if (mode === "all") expect(previewFile()).toMatchObject({ path: "C:/Projects/App/AmazingCode.cs", directory: "C:/", line: 345, column: 21 })
-  else expect(invoke.mock.calls).toEqual([["open_file_in_editor", { path: "C:/Projects/App/AmazingCode.cs", line: 345, column: 21 }]])
+  if (mode === "all")
+    expect(previewFile()).toMatchObject({
+      path: "C:/Projects/App/AmazingCode.cs",
+      directory: "C:/",
+      line: 345,
+      column: 21,
+    })
+  else
+    expect(invoke.mock.calls).toEqual([
+      ["open_file_in_editor", { path: "C:/Projects/App/AmazingCode.cs", line: 345, column: 21 }],
+    ])
   expectStopped(link)
 })
 
 test("ambiguous citations cancel navigation and never open a guessed file", async () => {
   native()
   const link = click("AmazingCode.cs#L345")
-  await expect(openMarkdownLink(link.event, "C:/", "C:/", () => [["C:/One/AmazingCode.cs", "C:/Two/AmazingCode.cs"]]))
-    .rejects.toThrow("Ambiguous file link")
+  await expect(
+    openMarkdownLink(link.event, "C:/", "C:/", () => [["C:/One/AmazingCode.cs", "C:/Two/AmazingCode.cs"]]),
+  ).rejects.toThrow("Ambiguous file link")
   expect(invoke).not.toHaveBeenCalled()
   expect(previewFile()).toBeUndefined()
   expectStopped(link)
@@ -610,8 +722,13 @@ test("remote middle-click citations send the full host path and position", async
   const link = click("AmazingCode.cs:345:21", { button: 1 })
   await openMarkdownLink(link.event, "C:/", "C:/", () => [["C:/Projects/App/AmazingCode.cs"]])
   const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
-  expect(JSON.parse(init.body as string)).toEqual({ command: "open_file_in_editor", args: {
-    path: "C:/Projects/App/AmazingCode.cs", line: 345, column: 21,
-  } })
+  expect(JSON.parse(init.body as string)).toEqual({
+    command: "open_file_in_editor",
+    args: {
+      path: "C:/Projects/App/AmazingCode.cs",
+      line: 345,
+      column: 21,
+    },
+  })
   expectStopped(link)
 })

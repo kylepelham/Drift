@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test"
 import { initDevtoolsShortcut, isDevtoolsShortcut } from "../src/state/devtools"
+import { expect, test } from "bun:test"
 
 const chord = (overrides: Partial<Parameters<typeof isDevtoolsShortcut>[0]> = {}) => ({
   ctrlKey: true,

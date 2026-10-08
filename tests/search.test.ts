@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+
 import type { MessageEntry } from "../src/engine/store"
 
 if (!("localStorage" in globalThis))

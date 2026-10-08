@@ -1,4 +1,5 @@
 import { backendInvoke } from "../backend"
+
 import type { ShellInvoke } from "../shell"
 
 export type Workspace = { id: string; path: string; name: string; icon: string; lastUsed: number; removedAt?: number }
@@ -67,8 +68,14 @@ function browserStore(): DriftStore {
     localStorage.removeItem("drift.store.interruptions")
   const all = () => read<StoredWorkspace[]>(wsKey, [])
   return {
-    workspaces: async () => all().filter((w) => !w.removedAt).sort((a, b) => b.lastUsed - a.lastUsed),
-    removedWorkspaces: async () => all().filter((w) => w.removedAt).sort((a, b) => (b.removedAt ?? 0) - (a.removedAt ?? 0)),
+    workspaces: async () =>
+      all()
+        .filter((w) => !w.removedAt)
+        .sort((a, b) => b.lastUsed - a.lastUsed),
+    removedWorkspaces: async () =>
+      all()
+        .filter((w) => w.removedAt)
+        .sort((a, b) => (b.removedAt ?? 0) - (a.removedAt ?? 0)),
     addWorkspace: async (w) => {
       const existing = all().find((x) => x.path === w.path)
       if (existing) {
@@ -81,28 +88,53 @@ function browserStore(): DriftStore {
       return created
     },
     saveWorkspace: async (w) => {
-      write(wsKey, all().map((x) => (x.id === w.id ? { ...x, path: w.path, name: w.name, icon: w.icon } : x)))
+      write(
+        wsKey,
+        all().map((x) => (x.id === w.id ? { ...x, path: w.path, name: w.name, icon: w.icon } : x)),
+      )
     },
     touchWorkspace: async (id) => {
-      write(wsKey, all().map((w) => (w.id === id ? { ...w, lastUsed: Date.now() } : w)))
+      write(
+        wsKey,
+        all().map((w) => (w.id === id ? { ...w, lastUsed: Date.now() } : w)),
+      )
     },
     removeWorkspace: async (id) => {
-      write(wsKey, all().map((w) => (w.id === id ? { ...w, removedAt: Date.now() } : w)))
+      write(
+        wsKey,
+        all().map((w) => (w.id === id ? { ...w, removedAt: Date.now() } : w)),
+      )
     },
     expiredRemovedWorkspaces: async (before) => {
       const canonical = (path: string) => path.replaceAll("\\", "/").toLowerCase()
-      const activePaths = new Set(all().filter((w) => !w.removedAt).map((w) => canonical(w.path)))
+      const activePaths = new Set(
+        all()
+          .filter((w) => !w.removedAt)
+          .map((w) => canonical(w.path)),
+      )
       // Removed rows still matching an active directory are stale duplicates: drop, never return.
       const duplicates = all().filter((w) => w.removedAt && activePaths.has(canonical(w.path)))
       if (duplicates.length) {
-        write(wsKey, all().filter((w) => !duplicates.some((d) => d.id === w.id)))
-        write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => !duplicates.some((d) => d.id === a.workspaceId)))
+        write(
+          wsKey,
+          all().filter((w) => !duplicates.some((d) => d.id === w.id)),
+        )
+        write(
+          arKey,
+          read<ArchivedSession[]>(arKey, []).filter((a) => !duplicates.some((d) => d.id === a.workspaceId)),
+        )
       }
       return all().filter((w) => w.removedAt && w.removedAt < before && !activePaths.has(canonical(w.path)))
     },
     forgetWorkspace: async (id) => {
-      write(wsKey, all().filter((w) => !(w.id === id && w.removedAt)))
-      write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.workspaceId !== id))
+      write(
+        wsKey,
+        all().filter((w) => !(w.id === id && w.removedAt)),
+      )
+      write(
+        arKey,
+        read<ArchivedSession[]>(arKey, []).filter((a) => a.workspaceId !== id),
+      )
     },
     archived: async () => read<ArchivedSession[]>(arKey, []),
     archiveSession: async (sessionId, workspaceId) => {
@@ -110,7 +142,10 @@ function browserStore(): DriftStore {
       write(arKey, [...list, { sessionId, workspaceId, archivedAt: Date.now() }])
     },
     unarchiveSession: async (sessionId) => {
-      write(arKey, read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId))
+      write(
+        arKey,
+        read<ArchivedSession[]>(arKey, []).filter((a) => a.sessionId !== sessionId),
+      )
     },
     expiredArchived: async (before) =>
       read<ArchivedSession[]>(arKey, [])

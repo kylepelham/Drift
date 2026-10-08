@@ -28,11 +28,7 @@ export function normalizeSessionCache(value: unknown): Record<string, CachedSess
   return result
 }
 
-const [cache, setCache] = persisted<Record<string, CachedSession[]>>(
-  "drift.sessions.cache",
-  {},
-  normalizeSessionCache,
-)
+const [cache, setCache] = persisted<Record<string, CachedSession[]>>("drift.sessions.cache", {}, normalizeSessionCache)
 
 export { cache as sessionCache }
 

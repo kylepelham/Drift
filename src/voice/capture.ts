@@ -1,5 +1,5 @@
-import { blockSamples, sampleRate } from "./audio"
 import { refreshAudioInputDevices } from "./devices"
+import { blockSamples, sampleRate } from "./audio"
 
 const processorName = "drift-capture"
 // Loaded from a blob so the worklet needs no separate build output.

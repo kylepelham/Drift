@@ -34,18 +34,21 @@ test("an unsent edit wins, then the session's own choice and model, then the glo
   expect(prefsFor("ses_other", {}).model).toEqual(edited)
   clearEdits("ses_edit")
   expect(prefsFor("ses_edit", saved)).toEqual({ model: sessionModel, agent: "plan", variant: "high" })
-  expect([sendableVariant("high", ["low", "high"]), sendableVariant(null, ["high"]), sendableVariant("max", ["high"]), sendableVariant(undefined, [])]).toEqual([
-    "high",
-    null,
-    undefined,
-    undefined,
-  ])
+  expect([
+    sendableVariant("high", ["low", "high"]),
+    sendableVariant(null, ["high"]),
+    sendableVariant("max", ["high"]),
+    sendableVariant(undefined, []),
+  ]).toEqual(["high", null, undefined, undefined])
 })
 
 const long = Date.now() - 30 * 24 * 60 * 60 * 1000
 
 function archivedLongAgo(...sessionIds: string[]) {
-  storage.set("drift.store.archived", JSON.stringify(sessionIds.map((sessionId) => ({ sessionId, workspaceId: "w1", archivedAt: long }))))
+  storage.set(
+    "drift.store.archived",
+    JSON.stringify(sessionIds.map((sessionId) => ({ sessionId, workspaceId: "w1", archivedAt: long }))),
+  )
 }
 
 test("the purge drops a record when the engine deleted the thread or kept it as restored, and retries one it could not reach", async () => {
@@ -62,7 +65,10 @@ test("a purge waits for a restore under way, so it never acts on a half-restored
   archivedLongAgo("ses_9")
   const order: string[] = []
   let finishRestore!: () => void
-  const restoring = unarchiveSession("ses_9", () => new Promise<void>((resolve) => (finishRestore = () => (order.push("restored"), resolve()))))
+  const restoring = unarchiveSession(
+    "ses_9",
+    () => new Promise<void>((resolve) => (finishRestore = () => (order.push("restored"), resolve()))),
+  )
   const purging = purgeArchived(async () => (order.push("purge asked"), "kept"))
   await new Promise((resolve) => setTimeout(resolve, 10))
   expect(order).toEqual([])

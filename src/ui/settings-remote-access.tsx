@@ -1,5 +1,7 @@
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { SettingsGroup, SettingsRow } from "./settings-controls"
 import { isRemoteRuntime } from "../runtime"
+import { Toggle } from "./controls"
 import { t } from "../state/i18n"
 import {
   lastSeenLabel,
@@ -20,8 +22,6 @@ import {
   signOutRemoteDevice,
   type RemoteDevice,
 } from "../state/remote-access"
-import { Toggle } from "./controls"
-import { SettingsGroup, SettingsRow } from "./settings-controls"
 
 const button =
   "rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
@@ -41,7 +41,9 @@ export function RemoteAccessSection() {
         </Show>
       </Show>
       <Show when={remoteAccessError() || remoteAccessStatus()?.error}>
-        <div class="text-xs text-danger" role="alert">{remoteAccessError() || remoteAccessStatus()?.error}</div>
+        <div class="text-xs text-danger" role="alert">
+          {remoteAccessError() || remoteAccessStatus()?.error}
+        </div>
       </Show>
     </div>
   )
@@ -52,10 +54,16 @@ function ThisDevice() {
   return (
     <SettingsGroup title={t("drift.remote.device.title")}>
       <SettingsRow
-        title={remoteSession() ? t("drift.remote.device.signedIn", { name: remoteSession()!.name }) : t("drift.remote.connected")}
+        title={
+          remoteSession()
+            ? t("drift.remote.device.signedIn", { name: remoteSession()!.name })
+            : t("drift.remote.connected")
+        }
         description={t("drift.remote.manageOnDesktop")}
       >
-        <button class={button} onClick={() => void signOutRemoteDevice()}>{t("drift.remote.device.signOut")}</button>
+        <button class={button} onClick={() => void signOutRemoteDevice()}>
+          {t("drift.remote.device.signOut")}
+        </button>
       </SettingsRow>
     </SettingsGroup>
   )
@@ -75,7 +83,9 @@ function EnableRow() {
         <div class="flex items-center gap-3">
           <Show when={starting() || remoteStatusTone(status()) === "error"}>
             <span class="text-[0.72rem] text-ink-faint">
-              {remoteStatusTone(status()) === "error" ? t("drift.remote.statusError") : t("drift.remote.statusStarting")}
+              {remoteStatusTone(status()) === "error"
+                ? t("drift.remote.statusError")
+                : t("drift.remote.statusStarting")}
             </span>
           </Show>
           <Toggle
@@ -158,10 +168,19 @@ function ConnectDevice() {
           <Step number={1}>
             <div>{t("drift.remote.connect.open")}</div>
             <div class="flex flex-wrap items-center gap-2">
-              <span class="font-mono text-[0.75rem] text-ink select-all">{url() ?? t("drift.remote.noLanAddress")}</span>
+              <span class="font-mono text-[0.75rem] text-ink select-all">
+                {url() ?? t("drift.remote.noLanAddress")}
+              </span>
               <Show when={url()}>
-                <button class="text-[0.72rem] text-ink-faint underline-offset-2 hover:text-ink hover:underline" onClick={() => void copyAddress()}>
-                  {copyError() ? t("drift.remote.clipboardError") : copied() ? t("drift.remote.copied") : t("drift.remote.copy")}
+                <button
+                  class="text-[0.72rem] text-ink-faint underline-offset-2 hover:text-ink hover:underline"
+                  onClick={() => void copyAddress()}
+                >
+                  {copyError()
+                    ? t("drift.remote.clipboardError")
+                    : copied()
+                      ? t("drift.remote.copied")
+                      : t("drift.remote.copy")}
                 </button>
               </Show>
             </div>
@@ -182,7 +201,9 @@ function ConnectDevice() {
                 ref={(element) => pending().length && queueMicrotask(() => element.focus())}
                 onInput={(event) => setCode(event.currentTarget.value)}
               />
-              <button type="submit" class={button} disabled={!complete() || working()}>{t("drift.remote.link.action")}</button>
+              <button type="submit" class={button} disabled={!complete() || working()}>
+                {t("drift.remote.link.action")}
+              </button>
             </form>
             <For each={pending()}>
               {(device) => (
@@ -192,8 +213,16 @@ function ConnectDevice() {
                 </div>
               )}
             </For>
-            <Show when={linked()}><div class="text-ok" role="status">{t("drift.remote.link.linked", { name: linked() })}</div></Show>
-            <Show when={error()}><div class="text-danger" role="alert">{error()}</div></Show>
+            <Show when={linked()}>
+              <div class="text-ok" role="status">
+                {t("drift.remote.link.linked", { name: linked() })}
+              </div>
+            </Show>
+            <Show when={error()}>
+              <div class="text-danger" role="alert">
+                {error()}
+              </div>
+            </Show>
           </Step>
         </ol>
       </div>
@@ -209,7 +238,10 @@ function Devices() {
   }
   return (
     <SettingsGroup title={t("drift.remote.devices.title")}>
-      <For each={devices()} fallback={<div class="px-1 py-3 text-xs text-ink-faint">{t("drift.remote.devices.empty")}</div>}>
+      <For
+        each={devices()}
+        fallback={<div class="px-1 py-3 text-xs text-ink-faint">{t("drift.remote.devices.empty")}</div>}
+      >
         {(device) => (
           <SettingsRow title={device.name} description={describe(device)}>
             <button class={button} disabled={remoteAccessBusy()} onClick={() => void revokeRemoteDevice(device.id)}>
@@ -234,7 +266,8 @@ function PasswordSignIn() {
   const [editing, setEditing] = createSignal(false)
   const [form, setForm] = createSignal({ username: "", password: "", confirm: "" })
   const [error, setError] = createSignal("")
-  const update = (key: "username" | "password" | "confirm", value: string) => setForm((current) => ({ ...current, [key]: value }))
+  const update = (key: "username" | "password" | "confirm", value: string) =>
+    setForm((current) => ({ ...current, [key]: value }))
 
   function open() {
     setForm({ username: username() ?? "", password: "", confirm: "" })
@@ -269,7 +302,15 @@ function PasswordSignIn() {
       </SettingsRow>
       <Show when={editing()}>
         <form class="space-y-2 px-1 py-3" onSubmit={(event) => void save(event)}>
-          <For each={[["username", "text", "username"], ["password", "password", "new-password"], ["confirm", "password", "new-password"]] as const}>
+          <For
+            each={
+              [
+                ["username", "text", "username"],
+                ["password", "password", "new-password"],
+                ["confirm", "password", "new-password"],
+              ] as const
+            }
+          >
             {([key, type, autocomplete]) => (
               <label class="flex flex-col gap-1 text-xs text-ink-muted sm:flex-row sm:items-center sm:justify-between">
                 {t(`drift.remote.password.${key}`)}
@@ -285,10 +326,18 @@ function PasswordSignIn() {
             )}
           </For>
           <p class="text-[0.72rem] text-ink-faint">{t("drift.remote.password.note")}</p>
-          <Show when={error()}><p class="text-xs text-danger" role="alert">{error()}</p></Show>
+          <Show when={error()}>
+            <p class="text-xs text-danger" role="alert">
+              {error()}
+            </p>
+          </Show>
           <div class="flex justify-end gap-2">
-            <button type="button" class={button} onClick={() => setEditing(false)}>{t("drift.remote.password.cancel")}</button>
-            <button type="submit" class={button} disabled={remoteAccessBusy()}>{t("drift.remote.password.save")}</button>
+            <button type="button" class={button} onClick={() => setEditing(false)}>
+              {t("drift.remote.password.cancel")}
+            </button>
+            <button type="submit" class={button} disabled={remoteAccessBusy()}>
+              {t("drift.remote.password.save")}
+            </button>
           </div>
         </form>
       </Show>
@@ -304,7 +353,9 @@ function Certificate() {
         <p>{t("drift.remote.certificate.description")}</p>
         <div>
           <div class="text-[0.72rem]">{t("drift.remote.encryption.fingerprint")}</div>
-          <div class="mt-1 font-mono text-[0.68rem] break-all text-ink-muted select-all">{remoteAccessStatus()?.certificateFingerprint}</div>
+          <div class="mt-1 font-mono text-[0.68rem] break-all text-ink-muted select-all">
+            {remoteAccessStatus()?.certificateFingerprint}
+          </div>
         </div>
       </div>
     </div>

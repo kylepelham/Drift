@@ -1,6 +1,7 @@
-import type { ToolPart } from "./engine/shapes"
-import { backendInvoke } from "./backend"
 import { activeWorkspace } from "./state/workspaces"
+import { backendInvoke } from "./backend"
+
+import type { ToolPart } from "./engine/shapes"
 
 export type FileLocation = { line?: number; column?: number }
 export type ToolContextAction = {
@@ -11,9 +12,7 @@ export type ToolContextAction = {
   separator?: boolean
   run: () => unknown | Promise<unknown>
 }
-export type ToolContextActionProvider = (
-  part: ToolPart,
-) => ToolContextAction | ToolContextAction[] | null | undefined
+export type ToolContextActionProvider = (part: ToolPart) => ToolContextAction | ToolContextAction[] | null | undefined
 
 type FileTarget = { path: string; label: string; line: number }
 type OpenFileResult = { positioned: boolean }

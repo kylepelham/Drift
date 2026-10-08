@@ -2,8 +2,7 @@ export type AttachmentKind = "pdf" | "text" | "csv" | "image" | "audio" | "video
 export type AttachmentRejection = "archive" | "binary"
 
 export type AttachmentResolution =
-  | { kind: AttachmentKind; mime: string }
-  | { kind: "unsupported"; reason: AttachmentRejection; mime: string }
+  { kind: AttachmentKind; mime: string } | { kind: "unsupported"; reason: AttachmentRejection; mime: string }
 
 export type AttachmentMeta = {
   lines?: number
@@ -49,7 +48,22 @@ export const maxCsvPreviewChars = 20_000
 export const maxPdfExtractionPages = 12
 export const maxPdfExtractionChars = 100_000
 
-const archiveExtensions = new Set(["7z", "apk", "bz2", "cab", "dmg", "gz", "iso", "jar", "rar", "tar", "tgz", "war", "xz", "zip"])
+const archiveExtensions = new Set([
+  "7z",
+  "apk",
+  "bz2",
+  "cab",
+  "dmg",
+  "gz",
+  "iso",
+  "jar",
+  "rar",
+  "tar",
+  "tgz",
+  "war",
+  "xz",
+  "zip",
+])
 const binaryExtensions = new Set([
   "bin",
   "class",
@@ -152,7 +166,14 @@ const textualApplicationMimes = new Set([
 ])
 
 function extension(filename?: string) {
-  return filename?.replaceAll("\\", "/").split("/").at(-1)?.match(/\.([^.]+)$/)?.[1]?.toLowerCase() ?? ""
+  return (
+    filename
+      ?.replaceAll("\\", "/")
+      .split("/")
+      .at(-1)
+      ?.match(/\.([^.]+)$/)?.[1]
+      ?.toLowerCase() ?? ""
+  )
 }
 
 function normalizedMime(mime?: string) {
@@ -163,13 +184,22 @@ function starts(bytes: Uint8Array | undefined, values: number[]) {
   return !!bytes && values.every((value, index) => bytes[index] === value)
 }
 
-export function resolveAttachmentKind(input: { filename?: string; mime?: string; bytes?: Uint8Array }): AttachmentResolution {
+export function resolveAttachmentKind(input: {
+  filename?: string
+  mime?: string
+  bytes?: Uint8Array
+}): AttachmentResolution {
   const ext = extension(input.filename)
   const basename = input.filename?.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase() ?? ""
   const declared = normalizedMime(input.mime)
   const bytes = input.bytes
 
-  if (starts(bytes, [0x50, 0x4b, 0x03, 0x04]) || archiveExtensions.has(ext) || declared.includes("zip") || declared.includes("compressed"))
+  if (
+    starts(bytes, [0x50, 0x4b, 0x03, 0x04]) ||
+    archiveExtensions.has(ext) ||
+    declared.includes("zip") ||
+    declared.includes("compressed")
+  )
     return { kind: "unsupported", reason: "archive", mime: declared || "application/octet-stream" }
   if (starts(bytes, [0x4d, 0x5a]) || binaryExtensions.has(ext))
     return { kind: "unsupported", reason: "binary", mime: declared || "application/octet-stream" }
@@ -187,8 +217,16 @@ export function resolveAttachmentKind(input: { filename?: string; mime?: string;
   if (videoExtensions.has(ext) || declared.startsWith("video/"))
     return { kind: "video", mime: declared.startsWith("video/") ? declared : mimeForExtension(ext, "video/mp4") }
   if (csvExtensions.has(ext) || declared === "text/csv" || declared === "text/tab-separated-values")
-    return { kind: "csv", mime: ext === "tsv" || declared === "text/tab-separated-values" ? "text/tab-separated-values" : "text/csv" }
-  if (textExtensions.has(ext) || textBasenames.has(basename) || declared.startsWith("text/") || textualApplicationMimes.has(declared))
+    return {
+      kind: "csv",
+      mime: ext === "tsv" || declared === "text/tab-separated-values" ? "text/tab-separated-values" : "text/csv",
+    }
+  if (
+    textExtensions.has(ext) ||
+    textBasenames.has(basename) ||
+    declared.startsWith("text/") ||
+    textualApplicationMimes.has(declared)
+  )
     return { kind: "text", mime: declared && declared !== "application/octet-stream" ? declared : "text/plain" }
   return { kind: "unsupported", reason: "binary", mime: declared || "application/octet-stream" }
 }
@@ -294,7 +332,11 @@ function parseDelimitedRows(text: string, delimiter: string) {
 }
 
 export function sniffDelimiter(text: string) {
-  const sample = text.split(/\r\n?|\n/).filter(Boolean).slice(0, 10).join("\n")
+  const sample = text
+    .split(/\r\n?|\n/)
+    .filter(Boolean)
+    .slice(0, 10)
+    .join("\n")
   const candidates = [",", "\t", ";", "|"]
   let best = ","
   let score = 0

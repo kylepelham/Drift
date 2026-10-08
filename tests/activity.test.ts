@@ -1,7 +1,8 @@
-import { expect, test } from "bun:test"
-import type { Event } from "../src/engine/shapes"
-import { reduce } from "../src/engine/events"
 import { createEngineState } from "../src/engine/store"
+import { reduce } from "../src/engine/events"
+import { expect, test } from "bun:test"
+
+import type { Event } from "../src/engine/shapes"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -37,8 +38,7 @@ test("fixEscapedEmphasis lets path-ending emphasis close without touching escape
 
 test("markdown escapes the unclosed HTML tag that enlarged the rest of a stored response", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
-  const response =
-    'contains the game title in an <h1 class="post-title">. A 404 won\'t.\n\nLet me check the lengths.'
+  const response = 'contains the game title in an <h1 class="post-title">. A 404 won\'t.\n\nLet me check the lengths.'
   expect(prepareMarkdown(response)).toBe(
     'contains the game title in an &lt;h1 class="post-title"&gt;. A 404 won\'t.\n\nLet me check the lengths.',
   )
@@ -49,9 +49,7 @@ test("markdown preserves balanced, void, and code-fenced HTML", async () => {
   expect(prepareMarkdown("<details><summary>More</summary>Text</details><br>")).toBe(
     "<details><summary>More</summary>Text</details><br>",
   )
-  expect(prepareMarkdown("`<h1>`\n```html\n<h2>Example</h2>\n```")).toBe(
-    "`<h1>`\n```html\n<h2>Example</h2>\n```",
-  )
+  expect(prepareMarkdown("`<h1>`\n```html\n<h2>Example</h2>\n```")).toBe("`<h1>`\n```html\n<h2>Example</h2>\n```")
   expect(prepareMarkdown("orphan </strong> text")).toBe("orphan &lt;/strong&gt; text")
 })
 
@@ -94,9 +92,7 @@ test("streaming tables bound incomplete links and preserve completed anchors", a
 
 test("user markdown preserves literal Windows path backslashes", async () => {
   const { prepareMarkdown } = await import("../src/ui/markdown")
-  expect(prepareMarkdown("Open \\\\server\\share\\folder", true)).toBe(
-    "Open &#92;&#92;server&#92;share&#92;folder",
-  )
+  expect(prepareMarkdown("Open \\\\server\\share\\folder", true)).toBe("Open &#92;&#92;server&#92;share&#92;folder")
   expect(prepareMarkdown("`\\\\server\\share` and ```text\nC:\\work\n```", true)).toBe(
     "`\\\\server\\share` and ```text\nC:\\work\n```",
   )
@@ -236,7 +232,10 @@ test("diff highlighting is keyed by content so redraws keep their colours", asyn
   const filename = "C:\\repo\\src\\state\\mcp.ts"
   const language = { filename, value: "typescript" }
   const diff = "@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n"
-  const code = (input: string) => parseDiff(input).map((row) => row.text).join("\n")
+  const code = (input: string) =>
+    parseDiff(input)
+      .map((row) => row.text)
+      .join("\n")
 
   // Re-parsing the same diff produces fresh row objects, which must not count as new work.
   const first = diffHighlightKey("github-dark-default", language, filename, code(diff))
@@ -253,7 +252,12 @@ test("diff highlighting is keyed by content so redraws keep their colours", asyn
   // An unresolved language, or one resolved for the previous file, highlights nothing.
   expect(diffHighlightKey("github-dark-default", undefined, filename, code(diff))).toBe("")
   expect(
-    diffHighlightKey("github-dark-default", { filename: "C:\\repo\\other.ts", value: "typescript" }, filename, code(diff)),
+    diffHighlightKey(
+      "github-dark-default",
+      { filename: "C:\\repo\\other.ts", value: "typescript" },
+      filename,
+      code(diff),
+    ),
   ).toBe("")
 })
 
@@ -278,7 +282,15 @@ test("taskBody extracts prompt and task_result for task cards", async () => {
   const { taskBody } = await import("../src/ui/parts")
   const part = (tool: string, input: Record<string, string>, output: string) =>
     ({ tool, state: { status: "completed", input, output } }) as never
-  expect(taskBody(part("task", { prompt: "do x" }, "<task id=\"s1\" state=\"completed\">\n<task_result>\nall done\n</task_result>\n</task>"))).toEqual({
+  expect(
+    taskBody(
+      part(
+        "task",
+        { prompt: "do x" },
+        '<task id="s1" state="completed">\n<task_result>\nall done\n</task_result>\n</task>',
+      ),
+    ),
+  ).toEqual({
     prompt: "do x",
     result: "all done",
   })
@@ -286,7 +298,15 @@ test("taskBody extracts prompt and task_result for task cards", async () => {
     prompt: "spin off",
     result: "Spawned thread ok",
   })
-  expect(taskBody(part("task", { prompt: "find" }, "in parser.rs\n\n(task_id: task_1; pass it to task to continue this subagent's conversation)"))).toEqual({
+  expect(
+    taskBody(
+      part(
+        "task",
+        { prompt: "find" },
+        "in parser.rs\n\n(task_id: task_1; pass it to task to continue this subagent's conversation)",
+      ),
+    ),
+  ).toEqual({
     prompt: "find",
     result: "in parser.rs",
   })
@@ -333,8 +353,8 @@ test("loaded stale tool states become interrupted without mutating live or compl
         status === "pending"
           ? { status, input: {}, raw: "" }
           : status === "running"
-          ? { status, input: {}, time: { start: 2 } }
-          : { status, input: {}, output: "ok", title: "", metadata: {}, time: { start: 2, end: 3 } },
+            ? { status, input: {}, time: { start: 2 } }
+            : { status, input: {}, output: "ok", title: "", metadata: {}, time: { start: 2, end: 3 } },
     }) as never
   const entry = {
     info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
@@ -374,9 +394,10 @@ test("streamed tool replacements retain mounted group and plugin identities", as
   // Bun selects Solid's server condition for tests, so load the browser primitives
   // used by Vite to verify the keyed mount behavior without requiring a DOM.
   // @ts-expect-error Solid's browser build shares the package's public types.
-  const { createRoot, createSignal, mapArray, onCleanup } = await import("solid-js/dist/solid.js") as typeof import("solid-js")
+  const { createRoot, createSignal, mapArray, onCleanup } =
+    (await import("solid-js/dist/solid.js")) as typeof import("solid-js")
   // @ts-expect-error Solid's browser store build shares the package's public types.
-  const { createStore, reconcile } = await import("solid-js/store/dist/store.js") as typeof import("solid-js/store")
+  const { createStore, reconcile } = (await import("solid-js/store/dist/store.js")) as typeof import("solid-js/store")
   const createSlot = (group: ReturnType<typeof groupParts>[number]) => {
     const [value, setValue] = createStore(group)
     return { id: group.id, value, update: (updated: typeof group) => setValue(reconcile(updated)) }
@@ -387,45 +408,50 @@ test("streamed tool replacements retain mounted group and plugin identities", as
     messageID: "m1",
     type: "tool",
     tool: name,
-    state: status === "completed"
-      ? { status, input: {}, output }
-      : { status, input: {}, metadata: { output } },
+    state: status === "completed" ? { status, input: {}, output } : { status, input: {}, metadata: { output } },
   })
 
   createRoot((dispose) => {
     const slots = new Map()
-    const initial = updatePartGroupSlots(groupParts([
-      tool("shell", "bash", "running", "first"),
-      tool("plugin", "custom-stream", "running", "one"),
-      tool("read-1", "read", "running"),
-      tool("read-2", "read", "running"),
-    ] as never), slots, createSlot)
+    const initial = updatePartGroupSlots(
+      groupParts([
+        tool("shell", "bash", "running", "first"),
+        tool("plugin", "custom-stream", "running", "one"),
+        tool("read-1", "read", "running"),
+        tool("read-2", "read", "running"),
+      ] as never),
+      slots,
+      createSlot,
+    )
     const [groups, setGroups] = createSignal(initial)
     let mounts = 0
     let cleanups = 0
-    const mounted = mapArray(
-      groups,
-      (slot) => {
-        mounts++
-        const state = { scrollTop: 37, following: false, pluginRevision: 4 }
-        onCleanup(() => cleanups++)
-        return { slot, state }
-      },
-    )
+    const mounted = mapArray(groups, (slot) => {
+      mounts++
+      const state = { scrollTop: 37, following: false, pluginRevision: 4 }
+      onCleanup(() => cleanups++)
+      return { slot, state }
+    })
     const first = mounted()
     const firstById = new Map(first.map((item) => [item.slot.id, item]))
     const explored = firstById.get("explored:read-1")!.slot.value
     const firstExplored = "explored" in explored ? [...explored.explored] : []
     expect(mounts).toBe(3)
 
-    setGroups(updatePartGroupSlots(groupParts([
-      { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
-      tool("plugin", "custom-stream", "completed", "two"),
-      tool("shell", "bash", "running", "first\nsecond"),
-      tool("read-0", "read", "completed"),
-      tool("read-1", "read", "completed"),
-      tool("read-2", "read", "completed"),
-    ] as never), slots, createSlot))
+    setGroups(
+      updatePartGroupSlots(
+        groupParts([
+          { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
+          tool("plugin", "custom-stream", "completed", "two"),
+          tool("shell", "bash", "running", "first\nsecond"),
+          tool("read-0", "read", "completed"),
+          tool("read-1", "read", "completed"),
+          tool("read-2", "read", "completed"),
+        ] as never),
+        slots,
+        createSlot,
+      ),
+    )
     const updated = mounted()
     const updatedById = new Map(updated.map((item) => [item.slot.id, item]))
     expect(updated.map((item) => item.slot.id)).toEqual(["text", "plugin", "shell", "explored:read-1"])
@@ -445,23 +471,35 @@ test("streamed tool replacements retain mounted group and plugin identities", as
     expect(mounts).toBe(4)
     expect(cleanups).toBe(0)
 
-    setGroups(updatePartGroupSlots(groupParts([
-      tool("read-2", "read", "completed"),
-      { id: "divider", sessionID: "s1", messageID: "m1", type: "text", text: "Split" },
-      tool("read-0", "read", "completed"),
-      tool("read-1", "read", "completed"),
-    ] as never), slots, createSlot))
+    setGroups(
+      updatePartGroupSlots(
+        groupParts([
+          tool("read-2", "read", "completed"),
+          { id: "divider", sessionID: "s1", messageID: "m1", type: "text", text: "Split" },
+          tool("read-0", "read", "completed"),
+          tool("read-1", "read", "completed"),
+        ] as never),
+        slots,
+        createSlot,
+      ),
+    )
     const split = mounted()
     const splitExplored = split.filter((item) => "explored" in item.slot.value)
     expect(splitExplored.map((item) => item.slot.id)).toEqual(["explored:read-2", "explored:read-1"])
     expect(splitExplored[0]).not.toBe(firstById.get("explored:read-1"))
     expect(splitExplored[1]).toBe(firstById.get("explored:read-1"))
 
-    setGroups(updatePartGroupSlots(groupParts([
-      tool("read-2", "read", "completed"),
-      tool("read-0", "read", "completed"),
-      tool("read-1", "read", "completed"),
-    ] as never), slots, createSlot))
+    setGroups(
+      updatePartGroupSlots(
+        groupParts([
+          tool("read-2", "read", "completed"),
+          tool("read-0", "read", "completed"),
+          tool("read-1", "read", "completed"),
+        ] as never),
+        slots,
+        createSlot,
+      ),
+    )
     const merged = mounted()
     expect(merged).toHaveLength(1)
     expect(merged[0]).toBe(splitExplored[0])
@@ -488,7 +526,12 @@ test("compaction boundary merges into its adjacent summary", async () => {
 test("a spawned thread's copied messages are the ones older than the thread", async () => {
   const { copiedCount } = await import("../src/ui/chat")
   const entry = (id: string, created: number) => ({ info: { id, time: { created } }, parts: [] })
-  const transcript = [entry("copied-prompt", 10), entry("copied-reply", 20), entry("instruction", 100), entry("reply", 120)]
+  const transcript = [
+    entry("copied-prompt", 10),
+    entry("copied-reply", 20),
+    entry("instruction", 100),
+    entry("reply", 120),
+  ]
   expect(copiedCount(transcript as never, 100)).toBe(2)
   expect(copiedCount(transcript as never, 5)).toBe(0)
   expect(copiedCount(transcript.slice(0, 2) as never, 100)).toBe(2)
@@ -497,10 +540,7 @@ test("a spawned thread's copied messages are the ones older than the thread", as
 test("successful compaction clears a transient session error", () => {
   const [state, set] = createEngineState()
   set("errors", "s1", "Your input exceeds the context window")
-  reduce(
-    set,
-    { type: "session.compacted", properties: { sessionID: "s1" } } as unknown as Event,
-  )
+  reduce(set, { type: "session.compacted", properties: { sessionID: "s1" } } as unknown as Event)
   expect(state.errors["s1"]).toBeUndefined()
 })
 
@@ -518,9 +558,8 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
 })
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {
-  const { accumulatedWheelTarget, normalizedWheelDelta, scrollGestureSticks, shouldShowScrollToBottom } = await import(
-    "../src/ui/chat"
-  )
+  const { accumulatedWheelTarget, normalizedWheelDelta, scrollGestureSticks, shouldShowScrollToBottom } =
+    await import("../src/ui/chat")
   expect(scrollGestureSticks(1000, 980, 20)).toBeFalse()
   expect(scrollGestureSticks(980, 1000, 20)).toBeTrue()
   expect(scrollGestureSticks(980, 1000, 120)).toBeFalse()
@@ -573,8 +612,8 @@ test("virtualized rows use flow spacers so live activity cannot overlap them", a
   expect(chat).not.toContain("terminalThinking")
   expect(chat).not.toContain("terminalRetry")
   expect(chat).not.toContain("translateY(${offsets()[range().start]}px)")
-  expect(chat).toContain('height: `${offsets()[range().start]}px`')
-  expect(chat).toContain('(offsets().at(-1) ?? 0) - offsets()[range().end]')
+  expect(chat).toContain("height: `${offsets()[range().start]}px`")
+  expect(chat).toContain("(offsets().at(-1) ?? 0) - offsets()[range().end]")
   expect(chat).toContain("thinking={thinking()?.messageID === entry.info.id && !retry()}")
   expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}")
 })
@@ -604,10 +643,11 @@ test("large multiline user content uses a full-height literal row estimate", asy
   expect(css).toMatch(/\.user-paste \{[^}]*overflow-y: hidden/s)
 
   const { estimatedTimelineRow } = await import("../src/ui/chat")
-  const entry = (text: string, generated = false) => ({
-    info: { id: "u1", role: "user", time: { created: 1 } },
-    parts: [{ type: "text", text, metadata: generated ? { generated: true } : undefined }],
-  }) as never
+  const entry = (text: string, generated = false) =>
+    ({
+      info: { id: "u1", role: "user", time: { created: 1 } },
+      parts: [{ type: "text", text, metadata: generated ? { generated: true } : undefined }],
+    }) as never
   const long = Array.from({ length: 41 }, () => "line").join("\n")
   expect(estimatedTimelineRow(entry(long))).toBe(915)
   expect(estimatedTimelineRow(entry(long), 16)).toBe(1112)
@@ -659,7 +699,9 @@ test("thinking derives the first provider reasoning heading for the active turn"
   const { reasoningHeading, thinkingState } = await import("../src/ui/chat")
   expect(reasoningHeading("## Inspecting `events.ts` ##\n\nChecking the reducer.")).toBe("Inspecting events.ts")
   expect(reasoningHeading("<h3>Comparing <em>providers</em></h3>")).toBe("Comparing providers")
-  expect(reasoningHeading("**Reading [OpenCode](https://opencode.ai) behavior**\n\nDetails")).toBe("Reading OpenCode behavior")
+  expect(reasoningHeading("**Reading [OpenCode](https://opencode.ai) behavior**\n\nDetails")).toBe(
+    "Reading OpenCode behavior",
+  )
   expect(reasoningHeading("Unformatted reasoning text")).toBeUndefined()
 
   const user = { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] }
@@ -741,9 +783,7 @@ test("assistant errors unwrap provider JSON and preserve plain text", async () =
   expect(unwrapErrorMessage('Error: {"error":{"type":"rate_limit","message":"slow down"}}')).toBe(
     "rate_limit: slow down",
   )
-  expect(unwrapErrorMessage('prefix {"message":"credit balance is too low"} suffix')).toBe(
-    "credit balance is too low",
-  )
+  expect(unwrapErrorMessage('prefix {"message":"credit balance is too low"} suffix')).toBe("credit balance is too low")
   expect(errorText({ name: "ProviderError", data: { message: "plain failure" } })).toBe("plain failure")
 })
 
@@ -756,13 +796,10 @@ test("message part deltas accumulate streamed reasoning summaries", () => {
       parts: [{ id: "p1", sessionID: "s1", messageID: "a1", type: "reasoning", text: "**Tracing" }],
     },
   ] as never)
-  reduce(
-    set,
-    {
-      type: "message.part.delta",
-      properties: { sessionID: "s1", messageID: "a1", partID: "p1", field: "text", delta: " events**" },
-    } as never,
-  )
+  reduce(set, {
+    type: "message.part.delta",
+    properties: { sessionID: "s1", messageID: "a1", partID: "p1", field: "text", delta: " events**" },
+  } as never)
   expect((state.transcripts.s1[0].parts[0] as { text: string }).text).toBe("**Tracing events**")
 })
 
@@ -799,28 +836,42 @@ test("context usage skips a trailing zero-token assistant message", async () => 
 
   // Cost is the messages' own, a compaction summary's included; native sessions carry none of their own.
   const costing = (entry: ReturnType<typeof assistant>, cost: number) => ({ ...entry, info: { ...entry.info, cost } })
-  set("transcripts", "s1", [costing(assistant("a1", 90_000), 0.5), costing(summary, 0.25), costing(assistant("a3", 12_000), 0.125)] as never)
+  set("transcripts", "s1", [
+    costing(assistant("a1", 90_000), 0.5),
+    costing(summary, 0.25),
+    costing(assistant("a3", 12_000), 0.125),
+  ] as never)
   expect(contextStats(state, "s1")?.cost).toBe(0.875)
 })
 
 test("GPT-6 context meter retains catalog input headroom past the old OAuth threshold", async () => {
   const { contextStats } = await import("../src/engine/store")
   const [state, set] = createEngineState()
-  set("providers", [{
-    id: "openai",
-    name: "OpenAI",
-    models: { "gpt-6-astra": { id: "gpt-6-astra", limit: { context: 1_050_000, input: 922_000, output: 128_000 } } },
-  }] as never)
+  set("providers", [
+    {
+      id: "openai",
+      name: "OpenAI",
+      models: { "gpt-6-astra": { id: "gpt-6-astra", limit: { context: 1_050_000, input: 922_000, output: 128_000 } } },
+    },
+  ] as never)
   for (const count of [252_000, 901_999, 902_000]) {
-    set("transcripts", "s1", [{
-      info: {
-        id: "a1", sessionID: "s1", role: "assistant", providerID: "openai", modelID: "gpt-6-astra",
-        tokens: { total: count, input: count, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    set("transcripts", "s1", [
+      {
+        info: {
+          id: "a1",
+          sessionID: "s1",
+          role: "assistant",
+          providerID: "openai",
+          modelID: "gpt-6-astra",
+          tokens: { total: count, input: count, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        },
+        parts: [],
       },
-      parts: [],
-    }] as never)
+    ] as never)
     expect(contextStats(state, "s1")).toMatchObject({
-      context: 1_050_000, count, untilCompaction: 902_000 - count,
+      context: 1_050_000,
+      count,
+      untilCompaction: 902_000 - count,
     })
   }
 })
@@ -865,13 +916,10 @@ test("session errors terminate busy activity and remain visible", () => {
   set("status", "s1", { type: "busy" })
   set("activity", "s1", { tools: 1, lastPartId: "p1", current: "bash" })
   set("liveTools", "p1", "s1")
-  reduce(
-    set,
-    {
-      type: "session.error",
-      properties: { sessionID: "s1", error: { name: "ProviderError", data: { message: "credit balance is too low" } } },
-    } as never,
-  )
+  reduce(set, {
+    type: "session.error",
+    properties: { sessionID: "s1", error: { name: "ProviderError", data: { message: "credit balance is too low" } } },
+  } as never)
   expect(state.status["s1"].type).toBe("idle")
   expect(state.activity["s1"].current).toBeUndefined()
   expect(state.liveTools.p1).toBeUndefined()
@@ -902,7 +950,11 @@ test("current ask events update immediately and retain their workspace directory
     set,
     {
       type: "question.asked",
-      properties: { id: "q1", sessionID: "s1", questions: [{ question: "Continue?", header: "Continue", options: [] }] },
+      properties: {
+        id: "q1",
+        sessionID: "s1",
+        questions: [{ question: "Continue?", header: "Continue", options: [] }],
+      },
     } as never,
     "C:/repo",
   )
@@ -923,14 +975,11 @@ test("current ask events update immediately and retain their workspace directory
 
 test("toast and sessionless error events become visible notices", () => {
   const [state, set] = createEngineState()
-  reduce(
-    set,
-    {
-      id: "toast-1",
-      type: "tui.toast.show",
-      properties: { title: "Connected", message: "Provider ready", variant: "success", duration: 2500 },
-    } as never,
-  )
+  reduce(set, {
+    id: "toast-1",
+    type: "tui.toast.show",
+    properties: { title: "Connected", message: "Provider ready", variant: "success", duration: 2500 },
+  } as never)
   reduce(set, { type: "session.error", properties: {} } as never)
   expect(state.notices[0]).toMatchObject({
     id: "toast-1",
@@ -945,14 +994,11 @@ test("toast and sessionless error events become visible notices", () => {
 test("identical runtime errors collapse into one visible notice", () => {
   const [state, set] = createEngineState()
   const toast = (id: string) =>
-    reduce(
-      set,
-      {
-        id,
-        type: "tui.toast.show",
-        properties: { title: "Drift error", message: "Failed to load plugin", variant: "error" },
-      } as never,
-    )
+    reduce(set, {
+      id,
+      type: "tui.toast.show",
+      properties: { title: "Drift error", message: "Failed to load plugin", variant: "error" },
+    } as never)
   toast("error-1")
   toast("error-2")
   toast("error-3")
@@ -969,7 +1015,16 @@ test("a new active status clears stale fallback errors", () => {
 
 test("failed attempts the engine retried collapse into one retry line that stays up while the next attempt runs", async () => {
   const { failedAttempt, retryInFlight, thinkingState } = await import("../src/ui/chat")
-  const failed = (id: string, created: number) => ({ info: { id, role: "assistant", parentID: "u1", time: { created, completed: created }, error: { name: "APIError", data: { message: "overloaded_error: Overloaded" } } }, parts: [] })
+  const failed = (id: string, created: number) => ({
+    info: {
+      id,
+      role: "assistant",
+      parentID: "u1",
+      time: { created, completed: created },
+      error: { name: "APIError", data: { message: "overloaded_error: Overloaded" } },
+    },
+    parts: [],
+  })
   const entries = [
     { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
     failed("a1", 2),
@@ -979,14 +1034,34 @@ test("failed attempts the engine retried collapse into one retry line that stays
   expect(failedAttempt((entries as never[])[1])).toBeTrue()
   const thinking = thinkingState(entries, "busy")
   expect(thinking?.messageID, "the attempt in flight still shows activity").toBe("a3")
-  expect(retryInFlight(entries, thinking?.messageID)).toEqual({ type: "retry", attempt: 2, message: "overloaded_error: Overloaded", next: 0 })
-  const answered = [...(entries as never[]).slice(0, 3), { info: { id: "a3", role: "assistant", parentID: "u1", time: { created: 4 } }, parts: [{ id: "p", type: "text", text: "hello", sessionID: "s", messageID: "a3" }] }] as never
+  expect(retryInFlight(entries, thinking?.messageID)).toEqual({
+    type: "retry",
+    attempt: 2,
+    message: "overloaded_error: Overloaded",
+    next: 0,
+  })
+  const answered = [
+    ...(entries as never[]).slice(0, 3),
+    {
+      info: { id: "a3", role: "assistant", parentID: "u1", time: { created: 4 } },
+      parts: [{ id: "p", type: "text", text: "hello", sessionID: "s", messageID: "a3" }],
+    },
+  ] as never
   expect(retryInFlight(answered, "a3"), "once the attempt shows output, the line goes").toBeUndefined()
 })
 
 test("a failure stops showing once the session goes on, by a retry or a new prompt", async () => {
   const { failedAttempt } = await import("../src/ui/chat")
-  const failed = { info: { id: "a1", role: "assistant", parentID: "u1", time: { created: 2, completed: 2 }, error: { name: "APIError", data: { message: "Overloaded" } } }, parts: [] }
+  const failed = {
+    info: {
+      id: "a1",
+      role: "assistant",
+      parentID: "u1",
+      time: { created: 2, completed: 2 },
+      error: { name: "APIError", data: { message: "Overloaded" } },
+    },
+    parts: [],
+  }
   const stopped = { ...failed, info: { ...failed.info, error: { name: "MessageAbortedError" } } }
   expect(failedAttempt(failed as never)).toBeTrue()
   expect(failedAttempt(stopped as never), "a stop is kept as its divider").toBeFalse()

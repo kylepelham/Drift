@@ -214,7 +214,7 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "当前模型",
   "drift.slash.argumentDetails": "{{name}} 的详细说明",
-  "drift.markdown.ambiguousCitation": "文件链接 \"{{href}}\" 不明确。请使用更完整的路径来选择以下文件之一：{{files}}",
+  "drift.markdown.ambiguousCitation": '文件链接 "{{href}}" 不明确。请使用更完整的路径来选择以下文件之一：{{files}}',
   "drift.preview.settings.title": "文件预览",
   "drift.preview.settings.mode": "预览模式",
   "drift.preview.settings.description": "选择在预览中打开的文件类型。",
@@ -390,7 +390,8 @@ export const drift = {
   "drift.lightbox.actualSize": "实际大小",
   "drift.lightbox.image": "图像",
   "drift.lightbox.resetZoom": "重置缩放",
-  "drift.lightbox.controls": "滚动以缩放，拖动以平移，双击以缩放。使用 +/- 键缩放、方向键平移，按 0 适应窗口，或按 1 显示实际大小。",
+  "drift.lightbox.controls":
+    "滚动以缩放，拖动以平移，双击以缩放。使用 +/- 键缩放、方向键平移，按 0 适应窗口，或按 1 显示实际大小。",
   "drift.markdown.codeCopied": "代码已复制",
   "drift.markdown.copied": "已复制",
   "drift.markdown.copyCode": "复制代码",
@@ -398,7 +399,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "确认移除？",
   "drift.permission.always": "在此工作区中始终允许",
   "drift.mcp.enable": "启用 {{name}}",
-  "drift.prompt.tooLarge": "发送失败：附件共 {{size}}，超过单条提示可携带的 {{limit}}。请减少文件数量或使用更小的文件。",
+  "drift.prompt.tooLarge":
+    "发送失败：附件共 {{size}}，超过单条提示可携带的 {{limit}}。请减少文件数量或使用更小的文件。",
   "drift.mcp.status.offHere": "在此工作区中已关闭",
   "drift.mcp.scope.chosen": "仅在此工作区中开启",
   "drift.mcp.scope.elsewhere": "在其他工作区中开启",
@@ -411,7 +413,8 @@ export const drift = {
   "drift.plugins.tab.installed": "已安装",
   "drift.plugins.tab.registry": "注册表",
   "drift.plugins.registrySearch": "搜索插件",
-  "drift.plugins.registrySource": "来自 GitHub 上的 Drift-Plugins 注册表。每个插件都是沙箱化的 WebAssembly 组件，下载会与注册表中的哈希校验。",
+  "drift.plugins.registrySource":
+    "来自 GitHub 上的 Drift-Plugins 注册表。每个插件都是沙箱化的 WebAssembly 组件，下载会与注册表中的哈希校验。",
   "drift.plugins.registryLoadFailed": "无法加载注册表。",
   "drift.plugins.registryEmpty": "没有匹配的插件。",
   "drift.plugins.category": "类别",
@@ -445,8 +448,10 @@ export const drift = {
   "drift.registry.sources.kind.azure_devops": "Azure DevOps 仓库",
   "drift.registry.sources.kind.folder": "文件夹或共享",
   "drift.registry.sources.kindHint.url": "位于某个 URL 的 JSON 文档；下载来自文档所指之处。令牌只发给该主机。",
-  "drift.registry.sources.kindHint.github": "仓库中的文件，私有仓库需要令牌（有 Contents 读取权限的细粒度令牌即可）。仓库内的下载也使用该令牌。",
-  "drift.registry.sources.kindHint.azure_devops": "Azure DevOps Git 仓库中的文件，使用具有 Code (Read) 权限的个人访问令牌。粘贴仓库的网页 URL。",
+  "drift.registry.sources.kindHint.github":
+    "仓库中的文件，私有仓库需要令牌（有 Contents 读取权限的细粒度令牌即可）。仓库内的下载也使用该令牌。",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Azure DevOps Git 仓库中的文件，使用具有 Code (Read) 权限的个人访问令牌。粘贴仓库的网页 URL。",
   "drift.registry.sources.kindHint.folder": "本机或网络共享上的文件夹，文档与其指向的文件放在一起。无需服务器。",
   "drift.registry.sources.location.github": "仓库 URL",
   "drift.registry.sources.location.azure_devops": "仓库 URL",
@@ -470,8 +475,10 @@ export const drift = {
   "drift.registry.sources.caPem": "额外根证书",
   "drift.registry.sources.caPemHint": "为此来源信任的内部 CA 的 PEM，用于本机不信任其证书的服务器。",
   "drift.registry.sources.yours": "来自你的来源",
-  "drift.registry.sources.pluginsDescription": "Drift 自带之外的注册表。团队把插件发布到一个 https 地址，所有人都能从这里安装。",
-  "drift.registry.sources.mcpDescription": "GitHub 和官方之外的注册表。团队把统一使用的 MCP 服务器发布到一个 https 地址，所有人都能从这里安装。",
+  "drift.registry.sources.pluginsDescription":
+    "Drift 自带之外的注册表。团队把插件发布到一个 https 地址，所有人都能从这里安装。",
+  "drift.registry.sources.mcpDescription":
+    "GitHub 和官方之外的注册表。团队把统一使用的 MCP 服务器发布到一个 https 地址，所有人都能从这里安装。",
   "drift.registry.sources.empty": "尚未添加来源。",
   "drift.registry.sources.add": "添加来源",
   "drift.registry.sources.addButton": "添加",
@@ -480,13 +487,16 @@ export const drift = {
   "drift.registry.sources.remove": "移除来源",
   "drift.registry.sources.loadFailed": "无法读取你的来源。",
   "drift.registry.sources.failed": "无法加载 {{name}}：{{error}}",
-  "drift.registry.sources.pluginsFormat": "Drift-Plugins registry.json 格式的 JSON 文档：每个插件带下载地址和 SHA-256。",
+  "drift.registry.sources.pluginsFormat":
+    "Drift-Plugins registry.json 格式的 JSON 文档：每个插件带下载地址和 SHA-256。",
   "drift.registry.sources.mcpFormat": "MCP 注册表格式的 JSON 文档：一个 servers 列表，与官方注册表 API 返回的一致。",
-  "drift.plugins.registrySourceWithOwn": "来自你的来源和 GitHub 上的 Drift-Plugins 注册表。每个插件都是沙箱化的 WebAssembly 组件，下载会与其注册表中的哈希校验。",
+  "drift.plugins.registrySourceWithOwn":
+    "来自你的来源和 GitHub 上的 Drift-Plugins 注册表。每个插件都是沙箱化的 WebAssembly 组件，下载会与其注册表中的哈希校验。",
   "drift.plugins.configRaw": "此插件的设置（JSON）；没有注册表描述它的字段。",
   "drift.plugins.saving": "正在保存...",
   "drift.plugins.saved": "已保存 {{name}} 的设置。",
-  "drift.plugins.packNote": "Markdown 技能，解压到 {{folder}}。Drift 像提供你自己的技能一样把它们提供给模型；技能包不运行代码，但其文本会到达模型，因此只安装你信任的技能包。",
+  "drift.plugins.packNote":
+    "Markdown 技能，解压到 {{folder}}。Drift 像提供你自己的技能一样把它们提供给模型；技能包不运行代码，但其文本会到达模型，因此只安装你信任的技能包。",
   "drift.settings.skills": "技能",
   "drift.skills.mixed": "部分开启",
   "drift.skills.packs": "技能包",
@@ -501,10 +511,11 @@ export const drift = {
   "drift.skills.installed": "{{name}} 已安装 {{count}} 个技能；下一轮起提供。",
   "drift.skills.registrySearch": "搜索技能",
   "drift.skills.registrySource": "来自 GitHub 上的 Drift-Plugins 注册表。技能是模型阅读的 Markdown，不会运行任何东西。",
-  "drift.skills.registrySourceWithOwn": "来自你的来源和 GitHub 上的 Drift-Plugins 注册表。技能是模型阅读的 Markdown，不会运行任何东西。",
+  "drift.skills.registrySourceWithOwn":
+    "来自你的来源和 GitHub 上的 Drift-Plugins 注册表。技能是模型阅读的 Markdown，不会运行任何东西。",
   "drift.plugins.reload": "重新加载",
   "drift.plugins.loading": "正在加载插件...",
-  "drift.plugins.empty": "没有插件。在 {{path}} 的 \"plugins\" 下列出 WebAssembly 组件，然后重新加载。",
+  "drift.plugins.empty": '没有插件。在 {{path}} 的 "plugins" 下列出 WebAssembly 组件，然后重新加载。',
   "drift.plugins.file": "列于 {{path}}",
   "drift.settings.permissions": "权限",
   "drift.permissions.rules": "所有工作区的规则",

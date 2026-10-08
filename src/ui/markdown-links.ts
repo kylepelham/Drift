@@ -9,7 +9,10 @@ const scheme = /^[a-z][a-z\d+.-]*:/i
 const controls = /[\u0000-\u001f\u007f-\u009f]/
 
 export class AmbiguousCitationError extends Error {
-  constructor(readonly href: string, readonly files: string[]) {
+  constructor(
+    readonly href: string,
+    readonly files: string[],
+  ) {
     super(`Ambiguous file link "${href}". Matching files: ${files.join(", ")}`)
   }
 }
@@ -18,24 +21,39 @@ export class AmbiguousCitationError extends Error {
 export function citationHref(raw: string) {
   if (/^https?:/i.test(raw) || raw.startsWith("//") || raw.includes("#")) return raw
   const match = /^(.+\.[\w-]+):([1-9]\d*)(?::([1-9]\d*))?$/.exec(raw)
-  if (!match || !Number.isSafeInteger(Number(match[2])) ||
-    (match[3] !== undefined && !Number.isSafeInteger(Number(match[3])))) return raw
+  if (
+    !match ||
+    !Number.isSafeInteger(Number(match[2])) ||
+    (match[3] !== undefined && !Number.isSafeInteger(Number(match[3])))
+  )
+    return raw
   return `${match[1]}#L${match[2]}${match[3] ? `C${match[3]}` : ""}`
 }
 
 /** Resolve abbreviated transcript citations from the owning task, then older history. */
-export function resolveMarkdownCitation(raw: string, directory?: string, fileGroups: readonly (readonly string[])[] = []): MarkdownLink {
+export function resolveMarkdownCitation(
+  raw: string,
+  directory?: string,
+  fileGroups: readonly (readonly string[])[] = [],
+): MarkdownLink {
   const href = citationHref(raw)
   const link = classifyMarkdownLink(href, directory)
-  if (link.kind !== "file" || !directory || driveAbsolute.test(href) || scheme.test(href) ||
-    href.startsWith("/") || href.startsWith("\\")) return link
+  if (
+    link.kind !== "file" ||
+    !directory ||
+    driveAbsolute.test(href) ||
+    scheme.test(href) ||
+    href.startsWith("/") ||
+    href.startsWith("\\")
+  )
+    return link
   const relative = decodeURIComponent(href.split("#", 1)[0])
   const windows = driveAbsolute.test(directory) || directory.startsWith("\\\\") || directory.startsWith("//")
   // Explicit parent navigation keeps its normal meaning instead of becoming a suffix search.
   if ((windows ? relative.replaceAll("\\", "/") : relative).split("/").includes("..")) return link
   const base = normalizeAbsolutePath(directory)
   if (!base) return link
-  const key = (path: string) => windows ? path.toLowerCase() : path
+  const key = (path: string) => (windows ? path.toLowerCase() : path)
   const prefix = key(base.endsWith("/") ? base : `${base}/`)
   const suffix = key(link.path).slice(prefix.length)
   if (!key(link.path).startsWith(prefix) || !suffix) return link
@@ -154,7 +172,9 @@ export function classifyMarkdownLink(raw: string, directory?: string): MarkdownL
       const end = location[2] ? Number(location[2]) : line
       const column = location[3] ? Number(location[3]) : undefined
       if (
-        Number.isSafeInteger(line) && Number.isSafeInteger(end) && end >= line &&
+        Number.isSafeInteger(line) &&
+        Number.isSafeInteger(end) &&
+        end >= line &&
         (column === undefined || Number.isSafeInteger(column))
       ) {
         result.line = line

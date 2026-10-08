@@ -487,7 +487,9 @@ textarea {
   border: 1px solid var(--edge-strong);
   border-radius: 999px;
   background: var(--ink-muted);
-  transition: background-color 120ms ease, box-shadow 120ms ease;
+  transition:
+    background-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .response-speed-slider:hover::-webkit-slider-thumb {
@@ -647,20 +649,74 @@ textarea {
 
 .startup-wave-back {
   top: 0;
-  clip-path: polygon(0 29%, 8% 36%, 17% 21%, 27% 34%, 38% 19%, 49% 33%, 61% 22%, 73% 37%, 86% 20%, 100% 31%, 100% 100%, 0 100%);
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--surface) 18%, transparent) 42%, transparent 88%);
+  clip-path: polygon(
+    0 29%,
+    8% 36%,
+    17% 21%,
+    27% 34%,
+    38% 19%,
+    49% 33%,
+    61% 22%,
+    73% 37%,
+    86% 20%,
+    100% 31%,
+    100% 100%,
+    0 100%
+  );
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--accent) 22%, transparent),
+    color-mix(in srgb, var(--surface) 18%, transparent) 42%,
+    transparent 88%
+  );
 }
 
 .startup-wave-middle {
   top: 13px;
-  clip-path: polygon(0 33%, 10% 22%, 20% 38%, 31% 25%, 43% 40%, 55% 23%, 67% 35%, 79% 21%, 90% 37%, 100% 27%, 100% 100%, 0 100%);
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 30%, transparent), color-mix(in srgb, var(--overlay) 30%, transparent) 48%, transparent 92%);
+  clip-path: polygon(
+    0 33%,
+    10% 22%,
+    20% 38%,
+    31% 25%,
+    43% 40%,
+    55% 23%,
+    67% 35%,
+    79% 21%,
+    90% 37%,
+    100% 27%,
+    100% 100%,
+    0 100%
+  );
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--accent) 30%, transparent),
+    color-mix(in srgb, var(--overlay) 30%, transparent) 48%,
+    transparent 92%
+  );
 }
 
 .startup-wave-front {
   top: 27px;
-  clip-path: polygon(0 26%, 9% 39%, 21% 24%, 33% 36%, 45% 20%, 57% 37%, 69% 25%, 81% 40%, 91% 23%, 100% 34%, 100% 100%, 0 100%);
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 28%, transparent), color-mix(in srgb, var(--bg) 68%, transparent) 46%, transparent 94%);
+  clip-path: polygon(
+    0 26%,
+    9% 39%,
+    21% 24%,
+    33% 36%,
+    45% 20%,
+    57% 37%,
+    69% 25%,
+    81% 40%,
+    91% 23%,
+    100% 34%,
+    100% 100%,
+    0 100%
+  );
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--accent) 28%, transparent),
+    color-mix(in srgb, var(--bg) 68%, transparent) 46%,
+    transparent 94%
+  );
 }
 
 .startup-splash[data-phase="washing"][data-exit="wave"] {
@@ -750,7 +806,19 @@ textarea {
 
 @keyframes startup-backdrop-exit {
   from {
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 88% 97%, 76% 100%, 63% 96%, 50% 100%, 37% 97%, 24% 100%, 12% 96%, 0 100%);
+    clip-path: polygon(
+      0 0,
+      100% 0,
+      100% 100%,
+      88% 97%,
+      76% 100%,
+      63% 96%,
+      50% 100%,
+      37% 97%,
+      24% 100%,
+      12% 96%,
+      0 100%
+    );
   }
   to {
     clip-path: polygon(0 0, 100% 0, 100% 0, 88% 0, 76% 0, 63% 0, 50% 0, 37% 0, 24% 0, 12% 0, 0 0);
@@ -829,7 +897,12 @@ textarea {
 
 [data-component="text-shimmer"] {
   --text-shimmer-base: linear-gradient(var(--ink-faint), var(--ink-faint));
-  --text-shimmer-sweep: linear-gradient(90deg, transparent calc(50% - 5.2ch), var(--ink) 50%, transparent calc(50% + 5.2ch));
+  --text-shimmer-sweep: linear-gradient(
+    90deg,
+    transparent calc(50% - 5.2ch),
+    var(--ink) 50%,
+    transparent calc(50% + 5.2ch)
+  );
   display: inline-flex;
   align-items: baseline;
   color: var(--ink-faint);
@@ -839,7 +912,12 @@ textarea {
 }
 
 [data-component="text-shimmer"][data-compact="true"] {
-  --text-shimmer-sweep: linear-gradient(90deg, transparent calc(50% - 2.2ch), var(--ink) 50%, transparent calc(50% + 2.2ch));
+  --text-shimmer-sweep: linear-gradient(
+    90deg,
+    transparent calc(50% - 2.2ch),
+    var(--ink) 50%,
+    transparent calc(50% + 2.2ch)
+  );
 }
 
 [data-component="text-shimmer"] [data-slot="text-shimmer-char"] {
@@ -857,14 +935,20 @@ textarea {
   color: transparent;
   opacity: 0;
   background-image: var(--text-shimmer-sweep), var(--text-shimmer-base);
-  background-position: 100% 0, 0 0;
-  background-size: 360% 100%, 100% 100%;
+  background-position:
+    100% 0,
+    0 0;
+  background-size:
+    360% 100%,
+    100% 100%;
   background-repeat: no-repeat;
   background-clip: text;
 }
 
 [data-component="text-shimmer"][data-compact="true"] [data-slot="text-shimmer-sweep"] {
-  background-size: 500% 100%, 100% 100%;
+  background-size:
+    500% 100%,
+    100% 100%;
 }
 
 [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-base"] {
@@ -885,7 +969,9 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 
 @keyframes text-shimmer-sweep {
   to {
-    background-position: 0 0, 0 0;
+    background-position:
+      0 0,
+      0 0;
   }
 }
 
@@ -1059,7 +1145,10 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
   height: 1.75rem;
   place-items: center;
   color: var(--ink-faint);
-  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
 }
 
 .md .code-copy svg {

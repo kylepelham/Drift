@@ -1,6 +1,6 @@
-import { $ } from "bun"
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import path from "node:path"
+import { $ } from "bun"
 
 const root = path.resolve(import.meta.dirname, "..")
 const triple = "x86_64-pc-windows-msvc"

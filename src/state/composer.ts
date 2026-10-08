@@ -1,7 +1,8 @@
-import { createSignal } from "solid-js"
-import type { MessageEntry } from "../engine/store"
 import { resolveAttachmentKind, type StagedAttachment } from "../attachments"
+import { createSignal } from "solid-js"
 import { persisted } from "./persist"
+
+import type { MessageEntry } from "../engine/store"
 
 export type StagedFile = StagedAttachment
 export type ComposerDraft = { text: string; staged: StagedFile[]; mentions: string[] }

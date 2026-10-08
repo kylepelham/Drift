@@ -1,8 +1,11 @@
 import { createEffect, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
+import { archiveFailed, WorkspaceIcon } from "./workspaces"
+import { selectSession } from "../state/selection"
+import { IconRestore, IconX } from "./icons"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
 import { t } from "../state/i18n"
-import { selectSession } from "../state/selection"
 import {
   archivedSessions,
   removedWorkspaces,
@@ -11,9 +14,6 @@ import {
   unarchiveSession,
   workspaces,
 } from "../state/workspaces"
-import { IconRestore, IconX } from "./icons"
-import { activateModal, closeOnBackdropPointerDown } from "./modal"
-import { archiveFailed, WorkspaceIcon } from "./workspaces"
 
 const purgeAge = 7 * 24 * 60 * 60 * 1000
 

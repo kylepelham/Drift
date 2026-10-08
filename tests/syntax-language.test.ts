@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test"
 import { fileLanguageCandidates, resolveFileLanguage } from "../src/syntax-language"
+import { expect, test } from "bun:test"
 
 test("file syntax languages come from Linguist metadata and installed Shiki grammars", async () => {
   expect(await fileLanguageCandidates("Containerfile")).toContain("docker")

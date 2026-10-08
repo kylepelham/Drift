@@ -1,6 +1,15 @@
-import { describe, expect, test } from "bun:test"
-import { buildConfig, fieldText, fieldValue, installedPath, loadRegistries, matchesRegistryQuery, type ConfigField, type RegistryPlugin } from "../src/state/plugin-registry"
 import { sourceProblem, validSourceUrl } from "../src/state/registry-sources"
+import { describe, expect, test } from "bun:test"
+import {
+  buildConfig,
+  fieldText,
+  fieldValue,
+  installedPath,
+  loadRegistries,
+  matchesRegistryQuery,
+  type ConfigField,
+  type RegistryPlugin,
+} from "../src/state/plugin-registry"
 
 const list: ConfigField = { key: "test", label: "Test", type: "list", default: ["cargo", "test"] }
 const flag: ConfigField = { key: "on", label: "On", type: "boolean", default: true }
@@ -49,17 +58,23 @@ describe("plugin registry sources", () => {
 
   test("a user's source comes first, its plugins are named for it, duplicates by id are dropped, and a failing source is reported", async () => {
     const original = globalThis.fetch
-    globalThis.fetch = (async () => new Response(JSON.stringify({ version: 1, plugins: [plugin("guard"), plugin("notify")] }))) as typeof fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ version: 1, plugins: [plugin("guard"), plugin("notify")] }))) as typeof fetch
     // The user's sources are read by the engine, so they come through the fetch given rather than the browser's.
     const engineFetch = async (id: string) => {
-      if (id === "acme") return { version: 1, plugins: [plugin("guard", { name: "Acme guard" }), plugin("acme-policy")] }
+      if (id === "acme")
+        return { version: 1, plugins: [plugin("guard", { name: "Acme guard" }), plugin("acme-policy")] }
       throw new Error("could not fetch: 401 (a token may be needed)")
     }
     try {
-      const loaded = await loadRegistries([
-        { id: "acme", name: "Acme" },
-        { id: "broken", name: "Broken" },
-      ], true, engineFetch)
+      const loaded = await loadRegistries(
+        [
+          { id: "acme", name: "Acme" },
+          { id: "broken", name: "Broken" },
+        ],
+        true,
+        engineFetch,
+      )
       expect(loaded.plugins.map((item) => item.id)).toEqual(["guard", "acme-policy", "notify"])
       expect(loaded.plugins[0]!.name).toBe("Acme guard")
       expect(loaded.plugins[0]!.sourceName).toBe("Acme")

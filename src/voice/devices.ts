@@ -1,5 +1,5 @@
-import { createSignal } from "solid-js"
 import { dictationInputDeviceId } from "../state/voice"
+import { createSignal } from "solid-js"
 
 export type AudioInputDevice = { deviceId: string; label: string }
 
@@ -9,7 +9,8 @@ export const audioInputDevices = devices
 export function filterAudioInputDevices(items: Pick<MediaDeviceInfo, "deviceId" | "kind" | "label">[]) {
   const found = new Map<string, AudioInputDevice>()
   for (const item of items) {
-    if (item.kind !== "audioinput" || !item.deviceId || item.deviceId === "default" || found.has(item.deviceId)) continue
+    if (item.kind !== "audioinput" || !item.deviceId || item.deviceId === "default" || found.has(item.deviceId))
+      continue
     found.set(item.deviceId, { deviceId: item.deviceId, label: item.label })
   }
   return [...found.values()]

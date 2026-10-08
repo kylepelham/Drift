@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
 import { appendFileSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
 import path from "node:path"
 
 export type GitHubReleaseAsset = {
@@ -40,9 +40,11 @@ export function compareStableTags(left: string, right: string) {
 
 export function developmentTag(tags: string[], exactTag?: string, dirty = true, declaredTag?: string) {
   if (!dirty && exactTag && stableTagPattern.test(exactTag)) return exactTag
-  const latest = tags.filter((tag) => stableTagPattern.test(tag)).reduce<string | undefined>((current, tag) => {
-    return !current || compareStableTags(tag, current) > 0 ? tag : current
-  }, undefined)
+  const latest = tags
+    .filter((tag) => stableTagPattern.test(tag))
+    .reduce<string | undefined>((current, tag) => {
+      return !current || compareStableTags(tag, current) > 0 ? tag : current
+    }, undefined)
   if (!latest) throw new Error("Cannot derive development version without a stable tag")
   const [major, minor, patch] = versionParts(latest)
   const next = `v${major}.${minor}.${patch + 1n}`
@@ -54,9 +56,7 @@ export function developmentTag(tags: string[], exactTag?: string, dirty = true, 
 export function latestStableTag(tags: string[], releases: GitHubRelease[], currentTag: string) {
   const candidates = [
     ...tags,
-    ...releases
-      .filter((release) => !release.draft && !release.prerelease)
-      .map((release) => release.tag_name ?? ""),
+    ...releases.filter((release) => !release.draft && !release.prerelease).map((release) => release.tag_name ?? ""),
   ].filter((tag) => tag !== currentTag && stableTagPattern.test(tag))
 
   return candidates.reduce<string | undefined>((latest, tag) => {
@@ -153,7 +153,8 @@ export function validatePublishedRelease(release: GitHubRelease, runId: string, 
       throw new Error(`Published release asset ${asset.name} does not match its immutable digest`)
     }
   }
-  if (digests.size !== assets.length) throw new Error("Published release asset manifest does not match published assets")
+  if (digests.size !== assets.length)
+    throw new Error("Published release asset manifest does not match published assets")
 }
 
 export function validateReleasePolicy(input: {
@@ -203,7 +204,7 @@ async function githubReleases(repository: string, token: string) {
       },
     })
     if (!response.ok) throw new Error(`GitHub releases API ${response.status}: ${await response.text()}`)
-    const pageReleases = await response.json() as GitHubRelease[]
+    const pageReleases = (await response.json()) as GitHubRelease[]
     releases.push(...pageReleases)
     if (pageReleases.length < 100) return releases
   }
@@ -227,17 +228,25 @@ export function stampReleaseVersion(tag: string, root = path.resolve(import.meta
 
   // Every crate inherits the workspace's version, so the engine reports the same one as the shell.
   const cargoManifest = path.join(root, "Cargo.toml")
-  writeFileSync(cargoManifest, replaceRequired(
-    readFileSync(cargoManifest, "utf8"),
-    /(^\[workspace\.package\][\s\S]*?^version = ")[^"]+("$)/m,
-    `$1${version}$2`,
+  writeFileSync(
     cargoManifest,
-  ))
+    replaceRequired(
+      readFileSync(cargoManifest, "utf8"),
+      /(^\[workspace\.package\][\s\S]*?^version = ")[^"]+("$)/m,
+      `$1${version}$2`,
+      cargoManifest,
+    ),
+  )
 
   const cargoLock = path.join(root, "Cargo.lock")
   let lock = readFileSync(cargoLock, "utf8")
   for (const crate of workspaceCrates) {
-    lock = replaceRequired(lock, new RegExp(`(^\\[\\[package\\]\\]\\r?\\nname = "${crate}"\\r?\\nversion = ")[^"]+("$)`, "m"), `$1${version}$2`, cargoLock)
+    lock = replaceRequired(
+      lock,
+      new RegExp(`(^\\[\\[package\\]\\]\\r?\\nname = "${crate}"\\r?\\nversion = ")[^"]+("$)`, "m"),
+      `$1${version}$2`,
+      cargoLock,
+    )
   }
   writeFileSync(cargoLock, lock)
   return version
@@ -279,7 +288,8 @@ async function checkPolicy(tag: string, triggerCommit: string, runId: string) {
 
   versionFromTag(tag)
   const commit = git(["rev-parse", `${tag}^{commit}`]).output
-  const containedInMaster = git(["merge-base", "--is-ancestor", commit, "refs/remotes/origin/master"], true).exitCode === 0
+  const containedInMaster =
+    git(["merge-base", "--is-ancestor", commit, "refs/remotes/origin/master"], true).exitCode === 0
   const tags = git(["tag", "--list"]).output.split("\n").filter(Boolean)
   const result = validateReleasePolicy({
     tag,
@@ -300,11 +310,11 @@ async function checkPolicy(tag: string, triggerCommit: string, runId: string) {
 if (import.meta.main) {
   const [command, ...args] = process.argv.slice(2)
   if (command === "check" && args.length === 3) await checkPolicy(args[0], args[1], args[2])
-  else if (command === "stamp" && args.length === 1) console.log(`Stamped release version ${stampReleaseVersion(args[0])}`)
+  else if (command === "stamp" && args.length === 1)
+    console.log(`Stamped release version ${stampReleaseVersion(args[0])}`)
   else if (command === "stamp-dev" && args.length === 0) {
     const version = stampDevelopmentVersion()
     console.log(version ? `Stamped development version ${version}` : "Keeping CI-stamped release version")
-  }
-  else if (command === "seal" && args.length === 4) sealReleaseNotes(args[0], args[1], args[2], args[3])
+  } else if (command === "seal" && args.length === 4) sealReleaseNotes(args[0], args[1], args[2], args[3])
   else throw new Error(`Unknown release policy command: ${command}`)
 }

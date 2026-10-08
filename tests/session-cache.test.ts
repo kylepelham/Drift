@@ -10,9 +10,8 @@ localStorage.getItem = (key: string) => storage.get(key) ?? null
 localStorage.setItem = (key: string, value: string) => storage.set(key, value)
 
 test("cached threads survive a restart and only the engine may replace them", async () => {
-  const { cachedSessions, cachedSessionLimit, forgetCachedSessions, rememberSessions } = await import(
-    "../src/state/session-cache"
-  )
+  const { cachedSessions, cachedSessionLimit, forgetCachedSessions, rememberSessions } =
+    await import("../src/state/session-cache")
   const directory = "C:/work/drift"
   expect(cachedSessions(directory)).toEqual([])
 
@@ -46,9 +45,8 @@ const model = (id: string, name: string) => ({
 })
 
 test("a cached provider catalog seeds engine state until fresh data overwrites it", async () => {
-  const { cachedProviderCatalog, rememberProviderCatalog, seedProviderCatalog } = await import(
-    "../src/state/provider-cache"
-  )
+  const { cachedProviderCatalog, rememberProviderCatalog, seedProviderCatalog } =
+    await import("../src/state/provider-cache")
   const { createEngineState, resolveModel } = await import("../src/engine/store")
 
   expect(cachedProviderCatalog()).toBeNull()
@@ -80,7 +78,9 @@ test("a cached provider catalog seeds engine state until fresh data overwrites i
 
   // The cache strips models to what the picker reads; engine-only payload fields are dropped.
   rememberProviderCatalog(
-    [{ id: "openai", name: "OpenAI", models: { "gpt-5": { ...model("gpt-5", "GPT-5"), cost: { input: 1 } } } }] as never,
+    [
+      { id: "openai", name: "OpenAI", models: { "gpt-5": { ...model("gpt-5", "GPT-5"), cost: { input: 1 } } } },
+    ] as never,
     [],
     {},
   )

@@ -1,14 +1,27 @@
 import { createEffect, createMemo, createSignal, For, on, onMount, Show } from "solid-js"
-import { useEngine } from "../engine"
-import type { PermissionGrant, PermissionRule } from "../engine/native/client"
-import { t } from "../state/i18n"
-import { activeWorkspace, workspaces } from "../state/workspaces"
 import { IconArrowDown, IconArrowUp, IconPlus, IconTrash } from "./icons"
-import { Picker } from "./picker"
+import { activeWorkspace, workspaces } from "../state/workspaces"
 import { SettingsGroup } from "./settings-controls"
+import { useEngine } from "../engine"
+import { t } from "../state/i18n"
+import { Picker } from "./picker"
+
+import type { PermissionGrant, PermissionRule } from "../engine/native/client"
 
 /** The kinds tools ask with; `*` covers them all. */
-export const permissionKinds = ["*", "bash", "edit", "read", "glob", "grep", "webfetch", "mcp", "skill", "task", "project-commands"] as const
+export const permissionKinds = [
+  "*",
+  "bash",
+  "edit",
+  "read",
+  "glob",
+  "grep",
+  "webfetch",
+  "mcp",
+  "skill",
+  "task",
+  "project-commands",
+] as const
 const decisions = ["allow", "ask", "deny"] as const
 
 /** `rules` with the rule at `index` moved `by` places, kept inside the list. */
@@ -87,17 +100,24 @@ function RulesGroup() {
 
   return (
     <SettingsGroup title={t("drift.permissions.rules")} action={actions}>
-      <RuleList rules={rules()} onChange={(next) => {
-        setNotice(false)
-        setRules(next)
-      }} />
+      <RuleList
+        rules={rules()}
+        onChange={(next) => {
+          setNotice(false)
+          setRules(next)
+        }}
+      />
       <div class="flex items-center gap-3 px-1 py-2.5">
         <AddRule disabled={busy()} onAdd={() => setRules((list) => [...list, newRule()])} />
         <Show when={error()}>
-          <div role="alert" class="text-xs text-danger">{error()}</div>
+          <div role="alert" class="text-xs text-danger">
+            {error()}
+          </div>
         </Show>
         <Show when={notice()}>
-          <div role="status" class="text-xs text-ok">{t("drift.permissions.saved")}</div>
+          <div role="status" class="text-xs text-ok">
+            {t("drift.permissions.saved")}
+          </div>
         </Show>
       </div>
     </SettingsGroup>
@@ -150,15 +170,23 @@ function GrantsGroup() {
     }
   }
 
-  createEffect(on(directory, () => {
-    setFilter("")
-    void run(async () => undefined)
-  }))
+  createEffect(
+    on(directory, () => {
+      setFilter("")
+      void run(async () => undefined)
+    }),
+  )
 
   const shown = createMemo(() => {
     const words = filter().trim().toLowerCase()
-    const matching = grants().filter((grant) => !words || `${grant.grant === "subcommand" ? "bash" : grant.kind} ${grantText(grant)}`.toLowerCase().includes(words))
-    return grantGroups.map((group) => ({ group, grants: matching.filter((grant) => grantGroup(grant) === group) })).filter((entry) => entry.grants.length)
+    const matching = grants().filter(
+      (grant) =>
+        !words ||
+        `${grant.grant === "subcommand" ? "bash" : grant.kind} ${grantText(grant)}`.toLowerCase().includes(words),
+    )
+    return grantGroups
+      .map((group) => ({ group, grants: matching.filter((grant) => grantGroup(grant) === group) }))
+      .filter((entry) => entry.grants.length)
   })
 
   const picker = (
@@ -167,7 +195,11 @@ function GrantsGroup() {
         label={t("drift.permissions.workspace")}
         items={workspaces().map((item) => ({ id: item.id, label: item.name, hint: item.path }))}
         selected={workspace()?.id}
-        floating bordered chevronAtEnd placement="below" width="13rem"
+        floating
+        bordered
+        chevronAtEnd
+        placement="below"
+        width="13rem"
         onPick={setChosen}
       />
     </Show>
@@ -207,9 +239,16 @@ function GrantsGroup() {
                     {(grant) => (
                       <div class="group/grant flex min-h-9 items-center gap-3 border-b border-edge/70 px-1 py-1.5 last:border-b-0 hover:bg-raised/40">
                         <Show when={entry.group === "other" || entry.group === "files"}>
-                          <span class="w-16 shrink-0 text-[0.72rem] text-ink-faint">{grant.grant === "subcommand" ? "bash" : grant.kind}</span>
+                          <span class="w-16 shrink-0 text-[0.72rem] text-ink-faint">
+                            {grant.grant === "subcommand" ? "bash" : grant.kind}
+                          </span>
                         </Show>
-                        <span class="min-w-0 flex-1 truncate font-mono text-[0.74rem] text-ink-muted" title={grantText(grant)}>{grantText(grant)}</span>
+                        <span
+                          class="min-w-0 flex-1 truncate font-mono text-[0.74rem] text-ink-muted"
+                          title={grantText(grant)}
+                        >
+                          {grantText(grant)}
+                        </span>
                         <button
                           type="button"
                           title={t("drift.permissions.revoke")}
@@ -233,7 +272,9 @@ function GrantsGroup() {
         )}
       </Show>
       <Show when={error()}>
-        <div role="alert" class="px-1 py-2.5 text-xs text-danger">{error()}</div>
+        <div role="alert" class="px-1 py-2.5 text-xs text-danger">
+          {error()}
+        </div>
       </Show>
     </SettingsGroup>
   )
@@ -247,7 +288,8 @@ export const newRule = (): PermissionRule => ({ kind: "bash", pattern: "", decis
 
 /** Rules as editable rows: kind, pattern, decision, and moving or removing each. */
 export function RuleList(props: { rules: PermissionRule[]; onChange: (rules: PermissionRule[]) => void }) {
-  const update = (index: number, change: Partial<PermissionRule>) => props.onChange(props.rules.map((rule, at) => (at === index ? { ...rule, ...change } : rule)))
+  const update = (index: number, change: Partial<PermissionRule>) =>
+    props.onChange(props.rules.map((rule, at) => (at === index ? { ...rule, ...change } : rule)))
   return (
     <Show when={props.rules.length > 0} fallback={<Empty text={t("drift.permissions.empty")} />}>
       <div>
@@ -256,10 +298,17 @@ export function RuleList(props: { rules: PermissionRule[]; onChange: (rules: Per
             <div class="flex items-center gap-2 border-b border-edge/70 px-1 py-2">
               <Picker
                 label={t("drift.permissions.kind")}
-                items={permissionKinds.map((kind) => ({ id: kind, label: kind === "*" ? t("drift.permissions.kind.all") : kind }))}
+                items={permissionKinds.map((kind) => ({
+                  id: kind,
+                  label: kind === "*" ? t("drift.permissions.kind.all") : kind,
+                }))}
                 selected={rule.kind}
                 fallbackLabel={rule.kind}
-                floating bordered chevronAtEnd placement="below" width="9.5rem"
+                floating
+                bordered
+                chevronAtEnd
+                placement="below"
+                width="9.5rem"
                 onPick={(kind) => update(index(), { kind })}
               />
               <input
@@ -271,18 +320,36 @@ export function RuleList(props: { rules: PermissionRule[]; onChange: (rules: Per
               />
               <Picker
                 label={t("drift.permissions.decision")}
-                items={decisions.map((decision) => ({ id: decision, label: t(`drift.permissions.decision.${decision}`) }))}
+                items={decisions.map((decision) => ({
+                  id: decision,
+                  label: t(`drift.permissions.decision.${decision}`),
+                }))}
                 selected={rule.decision}
-                floating bordered chevronAtEnd placement="below" width="6.5rem"
+                floating
+                bordered
+                chevronAtEnd
+                placement="below"
+                width="6.5rem"
                 onPick={(decision) => update(index(), { decision: decision as PermissionRule["decision"] })}
               />
-              <RowButton title={t("drift.permissions.moveUp")} disabled={index() === 0} onClick={() => props.onChange(moveRule(props.rules, index(), -1))}>
+              <RowButton
+                title={t("drift.permissions.moveUp")}
+                disabled={index() === 0}
+                onClick={() => props.onChange(moveRule(props.rules, index(), -1))}
+              >
                 <IconArrowUp class="size-3.5" />
               </RowButton>
-              <RowButton title={t("drift.permissions.moveDown")} disabled={index() === props.rules.length - 1} onClick={() => props.onChange(moveRule(props.rules, index(), 1))}>
+              <RowButton
+                title={t("drift.permissions.moveDown")}
+                disabled={index() === props.rules.length - 1}
+                onClick={() => props.onChange(moveRule(props.rules, index(), 1))}
+              >
                 <IconArrowDown class="size-3.5" />
               </RowButton>
-              <RowButton title={t("drift.permissions.remove")} onClick={() => props.onChange(props.rules.filter((_, at) => at !== index()))}>
+              <RowButton
+                title={t("drift.permissions.remove")}
+                onClick={() => props.onChange(props.rules.filter((_, at) => at !== index()))}
+              >
                 <IconTrash class="size-3.5" />
               </RowButton>
             </div>
@@ -306,7 +373,12 @@ export function AddRule(props: { disabled?: boolean; onAdd: () => void }) {
   )
 }
 
-function RowButton(props: { title: string; disabled?: boolean; onClick: () => void; children: import("solid-js").JSX.Element }) {
+function RowButton(props: {
+  title: string
+  disabled?: boolean
+  onClick: () => void
+  children: import("solid-js").JSX.Element
+}) {
   return (
     <button
       type="button"

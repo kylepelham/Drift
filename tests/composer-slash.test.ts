@@ -1,18 +1,23 @@
+import { parseSlash, slashItem, slashItems, slashPresets } from "../src/ui/slash"
+import { applyMirroredSession, selectedSession } from "../src/state/selection"
 import { afterEach, expect, mock, test } from "bun:test"
 import * as solid from "solid-js/dist/solid.js"
 import * as ts from "typescript"
-import { parseSlash, slashItem, slashItems, slashPresets } from "../src/ui/slash"
-import { applyMirroredSession, selectedSession } from "../src/state/selection"
-import type { Engine } from "../src/engine"
+
 import type { createSlashMenu } from "../src/ui/composer-slash"
+import type { Engine } from "../src/engine"
 
 const source = await Bun.file(new URL("../src/ui/composer-slash.ts", import.meta.url)).text()
 const parsed = ts.createSourceFile("composer-slash.ts", source, ts.ScriptTarget.Latest, true)
-const executable = parsed.statements.filter((node) => !ts.isImportDeclaration(node))
-  .map((node) => node.getText(parsed).replace(/^export /, "")).join("\n")
+const executable = parsed.statements
+  .filter((node) => !ts.isImportDeclaration(node))
+  .map((node) => node.getText(parsed).replace(/^export /, ""))
+  .join("\n")
 const compiled = ts.transpileModule(executable, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText
 const cleanups: (() => void)[] = []
-afterEach(() => { for (const cleanup of cleanups.splice(0)) cleanup() })
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup()
+})
 
 function setup(initial: string) {
   const previous = selectedSession()
@@ -22,23 +27,47 @@ function setup(initial: string) {
   const execute = mock(async (..._args: unknown[]) => {})
   let selection: number | undefined
   const area = {
-    focus: mock(() => {}), setSelectionRange: mock(() => {}),
-    get selectionStart() { return selection ?? draft().length }, get selectionEnd() { return selection ?? draft().length },
+    focus: mock(() => {}),
+    setSelectionRange: mock(() => {}),
+    get selectionStart() {
+      return selection ?? draft().length
+    },
+    get selectionEnd() {
+      return selection ?? draft().length
+    },
   }
   const engine = {
-    state: { commands: [{
-      name: "impeccable", description: "Design tools", source: "command", usage: "[audit|polish] [target]",
-      agent: "build", subtask: true, template: 'Call skill({ name: "impeccable" }) and handle $ARGUMENTS.',
-      subcommands: [
-        { name: "audit", description: "Check accessibility", usage: "[target]" },
-        { name: "polish", description: "Final quality pass", usage: "[target]" },
-        ...Array.from({ length: 12 }, (_, i) => ({ name: `extra-${i}`, description: `Extra ${i}` })),
+    state: {
+      commands: [
+        {
+          name: "impeccable",
+          description: "Design tools",
+          source: "command",
+          usage: "[audit|polish] [target]",
+          agent: "build",
+          subtask: true,
+          template: 'Call skill({ name: "impeccable" }) and handle $ARGUMENTS.',
+          subcommands: [
+            { name: "audit", description: "Check accessibility", usage: "[target]" },
+            { name: "polish", description: "Final quality pass", usage: "[target]" },
+            ...Array.from({ length: 12 }, (_, i) => ({ name: `extra-${i}`, description: `Extra ${i}` })),
+          ],
+        },
+        { name: "plain", description: "No argument metadata" },
       ],
-    }, { name: "plain", description: "No argument metadata" }] },
+    },
     refreshRuntimeMetadata: mock(async () => {}),
     actions: { notice: mock(() => {}) },
   } as unknown as Engine
-  const dependencies = { ...solid, parseSlash, slashItem, slashItems, slashPresets, runSlash: execute, isDesktopShell: () => true }
+  const dependencies = {
+    ...solid,
+    parseSlash,
+    slashItem,
+    slashItems,
+    slashPresets,
+    runSlash: execute,
+    isDesktopShell: () => true,
+  }
   const options = { engine, area: () => area, draft, setDraft, resize: mock(() => {}) }
   const run = new Function(...Object.keys(dependencies), "options", `${compiled}\nreturn createSlashMenu(options);`)
   const menu = solid.createRoot((dispose: () => void) => {
@@ -49,7 +78,18 @@ function setup(initial: string) {
     const event = { key: name, preventDefault: mock(() => {}), ...modifiers } as unknown as KeyboardEvent
     return { consumed: menu.handleKey(event), event }
   }
-  return { menu, key, draft, setDraft, execute, engine, area, setSelection: (value?: number) => { selection = value } }
+  return {
+    menu,
+    key,
+    draft,
+    setDraft,
+    execute,
+    engine,
+    area,
+    setSelection: (value?: number) => {
+      selection = value
+    },
+  }
 }
 
 test.each(["/new", "/plain", "/impecc"])("Tab completes %s without execution or clearing the draft", async (draft) => {

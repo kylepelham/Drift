@@ -75,19 +75,27 @@ export function adaptMessage(message: NativeMessage, directory: string): Message
       cache: { read: message.usage.cacheRead, write: message.usage.cacheWrite },
     },
   }
-  if (message.status === "error") assistant.error = { name: "UnknownError", data: { message: message.error ?? "The turn failed" } }
+  if (message.status === "error")
+    assistant.error = { name: "UnknownError", data: { message: message.error ?? "The turn failed" } }
   if (message.status === "aborted") assistant.error = { name: "MessageAbortedError", data: { message: "Interrupted" } }
   // The turn stopped itself at a limit: an interruption with its reason, not a failure.
-  if (message.status === "paused") assistant.error = { name: "MessageAbortedError", data: { message: message.error ?? "Paused" } }
+  if (message.status === "paused")
+    assistant.error = { name: "MessageAbortedError", data: { message: message.error ?? "Paused" } }
   if (message.status === "done") assistant.finish = "stop"
   // A finished reply that did not end on its own says how (`ending`), and `error` says it in words.
   if (message.status === "done" && message.ending === "length") {
     assistant.finish = "length"
-    assistant.error = { name: "MessageOutputLengthError", data: { message: message.error ?? "The reply stopped at the output limit." } }
+    assistant.error = {
+      name: "MessageOutputLengthError",
+      data: { message: message.error ?? "The reply stopped at the output limit." },
+    }
   }
   if (message.status === "done" && message.ending === "refused") {
     assistant.finish = "content-filter"
-    assistant.error = { name: "UnknownError", data: { message: message.error ?? "The provider's safety filter ended the reply." } }
+    assistant.error = {
+      name: "UnknownError",
+      data: { message: message.error ?? "The provider's safety filter ended the reply." },
+    }
   }
   if (message.summary) assistant.summary = true
   return assistant
@@ -103,7 +111,9 @@ export function adaptPart(row: NativePartRow): Part {
     case "file": {
       // A mention keeps the workspace file it was read from, so its chip can open that file.
       const value = `@${row.path ?? ""}`
-      const source = row.path ? { source: { type: "file" as const, path: row.path, text: { value, start: 0, end: value.length } } } : {}
+      const source = row.path
+        ? { source: { type: "file" as const, path: row.path, text: { value, start: 0, end: value.length } } }
+        : {}
       return { ...base, type: "file", mime: row.mime, filename: row.name, url: row.url, ...source }
     }
     case "tool_call":
@@ -112,7 +122,12 @@ export function adaptPart(row: NativePartRow): Part {
       return { ...base, type: "compaction", auto: row.auto }
     // Delivered by the engine, not typed by the user: kept out of the user's bubble and the composer history.
     case "task_result":
-      return { ...base, type: "text", text: `Background task "${row.description}" ${row.outcome}:\n\n${row.text}`, synthetic: true }
+      return {
+        ...base,
+        type: "text",
+        text: `Background task "${row.description}" ${row.outcome}:\n\n${row.text}`,
+        synthetic: true,
+      }
     // The engine's own prompt to a working orchestrator: shown, but marked as Drift's, never the user's goal.
     case "nudge":
       return { ...base, type: "text", text: row.text, metadata: { generated: true } }
@@ -122,11 +137,23 @@ export function adaptPart(row: NativePartRow): Part {
     case "clarification": {
       const items = row.items.map((item) => ({ header: item.header, question: item.question, answers: item.answers }))
       const text = items.map((item) => `${item.question}\nAnswer: ${item.answers.join(", ")}`).join("\n\n")
-      return { ...base, type: "text", text, metadata: { driftClarification: { version: 1, requestID: row.requestId, items } } }
+      return {
+        ...base,
+        type: "text",
+        text,
+        metadata: { driftClarification: { version: 1, requestID: row.requestId, items } },
+      }
     }
     // Saved by another build or imported: not shown, but its stored text rides along for export.
     case "unknown":
-      return { ...base, type: "text", text: "", synthetic: true, ignored: true, metadata: { driftUnknownPart: row.raw } }
+      return {
+        ...base,
+        type: "text",
+        text: "",
+        synthetic: true,
+        ignored: true,
+        metadata: { driftUnknownPart: row.raw },
+      }
   }
 }
 
@@ -139,8 +166,11 @@ export function adaptToolFields(tool: string, rawInput: Record<string, unknown>,
   const metadata = { ...rawMetadata }
   // `changes` is undo's record; `fileChanges` is the tool's per-file diff for display.
   const changes = Array.isArray(rawMetadata.fileChanges) ? rawMetadata.fileChanges : []
-  const written = Array.isArray(rawMetadata.files) ? rawMetadata.files.find((file): file is string => typeof file === "string") : undefined
-  if (FILE_TOOLS.has(tool) && typeof input.path === "string" && input.filePath === undefined) input.filePath = written ?? input.path
+  const written = Array.isArray(rawMetadata.files)
+    ? rawMetadata.files.find((file): file is string => typeof file === "string")
+    : undefined
+  if (FILE_TOOLS.has(tool) && typeof input.path === "string" && input.filePath === undefined)
+    input.filePath = written ?? input.path
   if (tool === "apply_patch") {
     if (typeof input.patch === "string" && input.patchText === undefined) input.patchText = input.patch
     // The engine keeps `files` as the paths it wrote; the rows want one change record per file, and one diff for a single file.
@@ -152,7 +182,10 @@ export function adaptToolFields(tool: string, rawInput: Record<string, unknown>,
 }
 
 function toolState(row: Extract<NativePartRow, { type: "tool_call" }>): ToolPart["state"] {
-  const rawInput = (row.input && typeof row.input === "object" ? row.input : { value: row.input }) as Record<string, unknown>
+  const rawInput = (row.input && typeof row.input === "object" ? row.input : { value: row.input }) as Record<
+    string,
+    unknown
+  >
   const { input, metadata } = adaptToolFields(row.name, rawInput, (row.metadata ?? {}) as Record<string, unknown>)
   // A call denied or refused before it ran has no start; 0 would read as a run since 1970.
   const start = (row.startedAt ?? undefined) as number
@@ -163,7 +196,14 @@ function toolState(row: Extract<NativePartRow, { type: "tool_call" }>): ToolPart
     case "running":
       return { status: "running", input, title: row.title ?? undefined, metadata, time: { start } }
     case "done":
-      return { status: "completed", input, output: row.output ?? "", title: row.title ?? row.name, metadata, time: { start, end } }
+      return {
+        status: "completed",
+        input,
+        output: row.output ?? "",
+        title: row.title ?? row.name,
+        metadata,
+        time: { start, end },
+      }
     case "error":
     case "denied":
       return { status: "error", input, error: row.output ?? "Failed", metadata, time: { start, end } }
@@ -180,13 +220,21 @@ export function adaptPermission(request: NativeRequest, directory: string): Perm
     callID: request.callId ?? undefined,
     title: request.title,
     // `always` is what answering "always" would grant, decided by the engine.
-    metadata: { directory, tool: request.tool, always: request.always ?? [], ...(request.diff ? { diff: request.diff } : {}), ...(request.reason ? { reason: request.reason } : {}) },
+    metadata: {
+      directory,
+      tool: request.tool,
+      always: request.always ?? [],
+      ...(request.diff ? { diff: request.diff } : {}),
+      ...(request.reason ? { reason: request.reason } : {}),
+    },
     time: { created: request.createdAt },
   }
 }
 
 export function adaptProvider(provider: NativeProvider): ProviderInfo {
-  const models = Object.fromEntries(Object.values(provider.models).map((model) => [model.id, adaptModel(provider.id, model)]))
+  const models = Object.fromEntries(
+    Object.values(provider.models).map((model) => [model.id, adaptModel(provider.id, model)]),
+  )
   return { id: provider.id, name: provider.name, models }
 }
 
@@ -208,7 +256,11 @@ function adaptModel(providerID: string, model: NativeModel): ModelInfo {
       input: { text: true, audio: false, image: model.attachment, video: false, pdf: model.pdf ?? false },
       output: { text: true, audio: false, image: false, video: false, pdf: false },
     },
-    cost: { input: cost.input ?? 0, output: cost.output ?? 0, cache: { read: cost.cache_read ?? 0, write: cost.cache_write ?? 0 } },
+    cost: {
+      input: cost.input ?? 0,
+      output: cost.output ?? 0,
+      cache: { read: cost.cache_read ?? 0, write: cost.cache_write ?? 0 },
+    },
     limit: { context: limit.context ?? 0, output: limit.output ?? 0, ...(limit.input ? { input: limit.input } : {}) },
     status: "active",
     options: {},
@@ -226,14 +278,20 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
     case "session.status":
       return {
         type: "session.status",
-        properties: { sessionID: event.sessionId, status: event.status === "running" ? { type: "busy" } : { type: "idle" } },
+        properties: {
+          sessionID: event.sessionId,
+          status: event.status === "running" ? { type: "busy" } : { type: "idle" },
+        },
       }
     case "message.removed":
       return { type: "message.removed", properties: { sessionID: event.sessionId, messageID: event.messageId } }
     case "session.retry":
       return {
         type: "session.status",
-        properties: { sessionID: event.sessionId, status: { type: "retry", attempt: event.attempt, message: event.message, next: event.nextAt } },
+        properties: {
+          sessionID: event.sessionId,
+          status: { type: "retry", attempt: event.attempt, message: event.message, next: event.nextAt },
+        },
       }
     case "message.created":
     case "message.updated":
@@ -244,12 +302,22 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
     case "part.delta":
       return {
         type: "message.part.delta",
-        properties: { sessionID: event.sessionId, messageID: event.messageId, partID: event.partId, field: "text", delta: event.delta, offset: event.offset },
+        properties: {
+          sessionID: event.sessionId,
+          messageID: event.messageId,
+          partID: event.partId,
+          field: "text",
+          delta: event.delta,
+          offset: event.offset,
+        },
       } as unknown as Event
     case "permission.asked":
       return { type: "permission.updated", properties: adaptPermission(event.request, "") }
     case "permission.replied":
-      return { type: "permission.replied", properties: { sessionID: event.sessionId, permissionID: event.requestId, response: event.decision } }
+      return {
+        type: "permission.replied",
+        properties: { sessionID: event.sessionId, permissionID: event.requestId, response: event.decision },
+      }
     case "session.deleted":
       return { type: "session.deleted", properties: { info: { id: event.sessionId } as Session } }
     case "todo.updated":
@@ -257,9 +325,20 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
     case "question.asked":
       return { type: "question.asked", properties: adaptQuestion(event.request) } as unknown as Event
     case "question.replied":
-      return { type: "question.replied", properties: { sessionID: event.sessionId, requestID: event.requestId } } as unknown as Event
+      return {
+        type: "question.replied",
+        properties: { sessionID: event.sessionId, requestID: event.requestId },
+      } as unknown as Event
     case "plugin.notice":
-      return { type: "tui.toast.show", properties: { title: `${event.plugin}: ${event.title}`, message: event.body, variant: event.tone, duration: 8000 } } as unknown as Event
+      return {
+        type: "tui.toast.show",
+        properties: {
+          title: `${event.plugin}: ${event.title}`,
+          message: event.body,
+          variant: event.tone,
+          duration: 8000,
+        },
+      } as unknown as Event
     case "catalog.updated":
     case "mcp.updated":
     case "mcp.removed":
@@ -270,14 +349,25 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
 }
 
 export function adaptTodos(todos: components["schemas"]["Todo"][]) {
-  return todos.map((todo, index) => ({ id: String(index), content: todo.content, status: todo.status, priority: todo.priority ?? "medium" }))
+  return todos.map((todo, index) => ({
+    id: String(index),
+    content: todo.content,
+    status: todo.status,
+    priority: todo.priority ?? "medium",
+  }))
 }
 
 export function adaptQuestion(request: NativeQuestion): QuestionRequest {
   return {
     id: request.id,
     sessionID: request.sessionId,
-    questions: request.questions.map((q) => ({ question: q.question, header: q.header ?? "", options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description ?? "" })), multiple: q.multiple ?? false, custom: q.custom ?? true })),
+    questions: request.questions.map((q) => ({
+      question: q.question,
+      header: q.header ?? "",
+      options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description ?? "" })),
+      multiple: q.multiple ?? false,
+      custom: q.custom ?? true,
+    })),
     async: request.async ?? false,
     tool: { messageID: request.messageId, callID: request.callId },
   }

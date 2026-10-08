@@ -1,5 +1,6 @@
-import type { CustomSound } from "../state/prefs"
 import { t } from "../state/i18n"
+
+import type { CustomSound } from "../state/prefs"
 
 const sources =
   typeof import.meta.glob === "function"

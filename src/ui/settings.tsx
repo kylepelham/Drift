@@ -1,35 +1,35 @@
-import type { ProviderAuthMethod } from "../engine/shapes"
+import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
 import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
+import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs"
+import { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } from "../state/lm-studio"
+import { language, languages, setLanguage, type LanguageId } from "../state/language"
+import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation"
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
+import { SettingsGroup, SettingsRow } from "./settings-controls"
+import { requestNotificationPermission } from "./notifications"
+import { RemoteAccessSection } from "./settings-remote-access"
+import { authorizationPrompt } from "../engine/provider-auth"
+import { PermissionsSection } from "./settings-permissions"
+import { Jellyfish, preloadJellyfish } from "./jellyfish"
+import { filePreviewTypes } from "../file-preview-types"
+import { playAlertSound, soundOptions } from "./sounds"
+import { UsageLimitsSection } from "./settings-usage"
+import { openExternal, shellInvoke } from "../shell"
+import { StorageSection } from "./settings-storage"
+import { PluginsSection } from "./settings-plugins"
+import { PromptsSection } from "./settings-prompts"
+import { SkillsSection } from "./settings-skills"
+import { VoiceSection } from "./settings-voice"
+import { ProviderIcon } from "./provider-icon"
+import { isRemoteRuntime } from "../runtime"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
-import { filePreviewTypes } from "../file-preview-types"
-import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs"
-import {
-  codeFontSize,
-  codeFontSizes,
-  codeTabWidth,
-  codeTabWidths,
-  codeWordWrap,
-  diffIndicator,
-  diffIndicators,
-  diffLineNumbers,
-  diffWordWrap,
-  setCodeFontSize,
-  setCodeTabWidth,
-  setCodeWordWrap,
-  setDiffIndicator,
-  setDiffLineNumbers,
-  setDiffWordWrap,
-  setSyntaxThemePreset,
-  syntaxThemePreset,
-  syntaxThemePresets,
-  type DiffIndicator,
-  type SyntaxThemePreset,
-} from "../state/code"
+import { readDataUrl } from "./files"
+import { McpManagement } from "./mcp"
+import { Chevron } from "./controls"
+import { Toggle } from "./controls"
 import { t } from "../state/i18n"
-import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
-import { language, languages, setLanguage, type LanguageId } from "../state/language"
-import { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } from "../state/lm-studio"
+import { Picker } from "./picker"
 import {
   alertSounds,
   animateResponses,
@@ -64,9 +64,28 @@ import {
   toolErrorsExpanded,
   type AttentionKind,
 } from "../state/prefs"
-import { openExternal, shellInvoke } from "../shell"
-import { isRemoteRuntime } from "../runtime"
-import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation"
+import {
+  codeFontSize,
+  codeFontSizes,
+  codeTabWidth,
+  codeTabWidths,
+  codeWordWrap,
+  diffIndicator,
+  diffIndicators,
+  diffLineNumbers,
+  diffWordWrap,
+  setCodeFontSize,
+  setCodeTabWidth,
+  setCodeWordWrap,
+  setDiffIndicator,
+  setDiffLineNumbers,
+  setDiffWordWrap,
+  setSyntaxThemePreset,
+  syntaxThemePreset,
+  syntaxThemePresets,
+  type DiffIndicator,
+  type SyntaxThemePreset,
+} from "../state/code"
 import {
   setSplashDuration,
   setSplashEnabled,
@@ -84,22 +103,6 @@ import {
   type SplashExitAnimation,
   type SplashMascotAnimation,
 } from "../state/startup"
-import { requestNotificationPermission } from "./notifications"
-import {
-  codeFont,
-  customCss,
-  customTheme,
-  setCodeFont,
-  setCustomCss,
-  setCustomThemeColor,
-  setTheme,
-  setUiFont,
-  theme,
-  themes,
-  uiFont,
-  type CustomTheme,
-  type ThemeName,
-} from "../state/theme"
 import {
   IconArchive,
   IconBell,
@@ -119,25 +122,23 @@ import {
   IconSliders,
   IconX,
 } from "./icons"
-import { readDataUrl } from "./files"
-import { Jellyfish, preloadJellyfish } from "./jellyfish"
-import { SettingsGroup, SettingsRow } from "./settings-controls"
-import { RemoteAccessSection } from "./settings-remote-access"
-import { StorageSection } from "./settings-storage"
-import { UsageLimitsSection } from "./settings-usage"
-import { VoiceSection } from "./settings-voice"
-import { activateModal, closeOnBackdropPointerDown } from "./modal"
-import { McpManagement } from "./mcp"
-import { PluginsSection } from "./settings-plugins"
-import { SkillsSection } from "./settings-skills"
-import { Toggle } from "./controls"
-import { ProviderIcon } from "./provider-icon"
-import { authorizationPrompt } from "../engine/provider-auth"
-import { Picker } from "./picker"
-import { PromptsSection } from "./settings-prompts"
-import { PermissionsSection } from "./settings-permissions"
-import { Chevron } from "./controls"
-import { playAlertSound, soundOptions } from "./sounds"
+import {
+  codeFont,
+  customCss,
+  customTheme,
+  setCodeFont,
+  setCustomCss,
+  setCustomThemeColor,
+  setTheme,
+  setUiFont,
+  theme,
+  themes,
+  uiFont,
+  type CustomTheme,
+  type ThemeName,
+} from "../state/theme"
+
+import type { ProviderAuthMethod } from "../engine/shapes"
 
 type ProviderNotice = { tone: "success" | "warning" | "error"; text: string }
 
@@ -153,7 +154,25 @@ const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, str
   "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
 }
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions", "Storage", "Remote Access", "About"] as const
+const sections = [
+  "General",
+  "Appearance",
+  "Code",
+  "Notifications",
+  "Voice",
+  "Shortcuts",
+  "Tools",
+  "Providers",
+  "Usage",
+  "Skills",
+  "MCP",
+  "Plugins",
+  "Prompts",
+  "Permissions",
+  "Storage",
+  "Remote Access",
+  "About",
+] as const
 type Section = (typeof sections)[number]
 const sectionLabels: Record<Section, string> = {
   General: "settings.tab.general",
@@ -175,8 +194,14 @@ const sectionLabels: Record<Section, string> = {
   About: "drift.settings.about",
 }
 const sectionGroups: { label: string; items: Section[] }[] = [
-  { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"] },
+  {
+    label: "settings.section.desktop",
+    items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"],
+  },
+  {
+    label: "settings.section.server",
+    items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"],
+  },
   { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ]
 
@@ -198,14 +223,26 @@ const settingsSearchDefinitions = {
     { title: "settings.general.row.language.title", description: "settings.general.row.language.description" },
     { title: "drift.settings.responseAnimation.title", description: "drift.settings.responseAnimation.description" },
     { title: "drift.settings.dayDividers.title", description: "drift.settings.dayDividers.description" },
-    { title: "drift.settings.responseAnimation.speed.title", description: "drift.settings.responseAnimation.speed.description" },
+    {
+      title: "drift.settings.responseAnimation.speed.title",
+      description: "drift.settings.responseAnimation.speed.description",
+    },
     { title: "drift.preview.settings.title", description: "drift.preview.settings.description" },
     { title: "command.permissions.autoaccept.enable", description: "toast.permissions.autoaccept.on.description" },
-    { title: "settings.general.row.reasoningSummaries.title", description: "settings.general.row.reasoningSummaries.description" },
+    {
+      title: "settings.general.row.reasoningSummaries.title",
+      description: "settings.general.row.reasoningSummaries.description",
+    },
     { title: "drift.settings.toolErrors.title", description: "drift.settings.toolErrors.description" },
     { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
-    { title: "drift.settings.summaries.collapsible.title", description: "drift.settings.summaries.collapsible.description" },
-    { title: "drift.settings.summaries.collapsed.title", description: "drift.settings.summaries.collapsed.description" },
+    {
+      title: "drift.settings.summaries.collapsible.title",
+      description: "drift.settings.summaries.collapsible.description",
+    },
+    {
+      title: "drift.settings.summaries.collapsed.title",
+      description: "drift.settings.summaries.collapsed.description",
+    },
     { title: "settings.updates.row.startup.title", description: "settings.updates.row.startup.description" },
   ],
   Appearance: [
@@ -232,7 +269,10 @@ const settingsSearchDefinitions = {
   ],
   Notifications: [
     ...["agent", "permissions", "errors"].flatMap((kind) => [
-      { title: `settings.general.notifications.${kind}.title`, description: `settings.general.notifications.${kind}.description` },
+      {
+        title: `settings.general.notifications.${kind}.title`,
+        description: `settings.general.notifications.${kind}.description`,
+      },
       { title: `settings.general.sounds.${kind}.title`, description: `settings.general.sounds.${kind}.description` },
     ]),
     { title: "drift.settings.sound.chooseCustom" },
@@ -249,7 +289,10 @@ const settingsSearchDefinitions = {
   Shortcuts: Object.values(keybindLabels).map((title) => ({ title })),
   Tools: [
     { title: "drift.settings.shellTimeout.title", description: "drift.settings.shellTimeout.description" },
-    { title: "drift.settings.shellTimeout.customMinutes", description: "drift.settings.shellTimeout.customDescription" },
+    {
+      title: "drift.settings.shellTimeout.customMinutes",
+      description: "drift.settings.shellTimeout.customDescription",
+    },
   ],
   Providers: [
     { title: "dialog.provider.search.placeholder" },
@@ -354,7 +397,8 @@ export function settingsSearchResults(query: string): SettingsSearchItem[] {
     .sort((left, right) => {
       const leftTitle = normalizeSettingsSearch(left.title)
       const rightTitle = normalizeSettingsSearch(right.title)
-      const rank = (title: string) => title === value ? 0 : title.startsWith(value) ? 1 : title.includes(value) ? 2 : 3
+      const rank = (title: string) =>
+        title === value ? 0 : title.startsWith(value) ? 1 : title.includes(value) ? 2 : 3
       return rank(leftTitle) - rank(rightTitle)
     })
     .slice(0, 40)
@@ -438,7 +482,9 @@ function SettingsModal(props: { onClose: () => void }) {
           <For each={sectionGroups}>
             {(group) => (
               <div class="mb-3 last:mb-0">
-                <div class="hidden px-2 pb-1.5 text-[0.68rem] font-medium text-ink-faint sm:block">{t(group.label)}</div>
+                <div class="hidden px-2 pb-1.5 text-[0.68rem] font-medium text-ink-faint sm:block">
+                  {t(group.label)}
+                </div>
                 <div class="space-y-0.5">
                   <For each={group.items}>
                     {(name) => (
@@ -470,7 +516,9 @@ function SettingsModal(props: { onClose: () => void }) {
             class="settings-header z-10 flex items-center justify-between px-5 py-3.5"
             classList={{ "settings-header-scrolled": contentScrolled() }}
           >
-            <span class="hidden min-w-0 flex-1 truncate text-sm font-semibold text-ink sm:block">{t(sectionLabels[section()])}</span>
+            <span class="hidden min-w-0 flex-1 truncate text-sm font-semibold text-ink sm:block">
+              {t(sectionLabels[section()])}
+            </span>
             <div class="mr-2 flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-edge bg-raised/45 px-2 transition-colors focus-within:border-accent sm:max-w-56">
               <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
               <input
@@ -617,7 +665,13 @@ function GeneralSection() {
   const engine = useEngine()
   // The engine owns this preference; null until it answers.
   const [autoCompact, setAutoCompactShown] = createSignal<boolean | null>(null)
-  onMount(() => void engine.actions.engineSettings().then((settings) => setAutoCompactShown(settings.autoCompact ?? true)).catch(() => undefined))
+  onMount(
+    () =>
+      void engine.actions
+        .engineSettings()
+        .then((settings) => setAutoCompactShown(settings.autoCompact ?? true))
+        .catch(() => undefined),
+  )
   function toggleAutoCompact() {
     const next = !autoCompact()
     setAutoCompactShown(next)
@@ -701,7 +755,10 @@ function GeneralSection() {
         <SettingsRow title={t("drift.preview.settings.mode")} description={t("drift.preview.settings.description")}>
           <Picker
             label={t("drift.preview.settings.mode")}
-            items={(["all", "none", "custom"] as const).map((mode) => ({ id: mode, label: t(`drift.preview.mode.${mode}`) }))}
+            items={(["all", "none", "custom"] as const).map((mode) => ({
+              id: mode,
+              label: t(`drift.preview.mode.${mode}`),
+            }))}
             selected={filePreviewPrefs().mode}
             floating
             bordered
@@ -828,7 +885,8 @@ function GeneralSection() {
 }
 
 function ToolExecutionSection() {
-  const isPreset = (value: number | null) => value === null || (shellTimeoutPresets as readonly number[]).includes(value)
+  const isPreset = (value: number | null) =>
+    value === null || (shellTimeoutPresets as readonly number[]).includes(value)
   const [customOpen, setCustomOpen] = createSignal(!isPreset(shellTimeoutMs()))
   const [customMinutes, setCustomMinutes] = createSignal(
     String(isPreset(shellTimeoutMs()) ? 10 : shellTimeoutMs()! / 60_000),
@@ -884,10 +942,14 @@ function ToolExecutionSection() {
         <Show when={customOpen()}>
           <SettingsRow
             title={t("drift.settings.shellTimeout.customMinutes")}
-            description={customValid() ? t("drift.settings.shellTimeout.customDescription") : t("drift.settings.shellTimeout.invalid")}
+            description={
+              customValid()
+                ? t("drift.settings.shellTimeout.customDescription")
+                : t("drift.settings.shellTimeout.invalid")
+            }
           >
             <div class="flex items-center gap-2">
-                   <input
+              <input
                 type="number"
                 min={shellTimeoutMinMs / 60_000}
                 max={shellTimeoutMaxMs / 60_000}
@@ -911,7 +973,9 @@ function ToolExecutionSection() {
           </SettingsRow>
         </Show>
       </SettingsGroup>
-      <Show when={error()}><div class="text-xs text-danger">{error()}</div></Show>
+      <Show when={error()}>
+        <div class="text-xs text-danger">{error()}</div>
+      </Show>
     </div>
   )
 }
@@ -1167,9 +1231,7 @@ function LmStudioConnect(props: { providerName: string; onNotice: (notice: Provi
     }
     props.onNotice({
       tone: connected() ? "success" : "warning",
-      text: connected()
-        ? t("drift.lmStudio.refreshed", { count: ready().length })
-        : t("drift.lmStudio.unavailable"),
+      text: connected() ? t("drift.lmStudio.refreshed", { count: ready().length }) : t("drift.lmStudio.unavailable"),
     })
   }
 
@@ -1201,7 +1263,11 @@ function LmStudioConnect(props: { providerName: string; onNotice: (notice: Provi
       </div>
       <Show
         when={connected()}
-        fallback={<div class="rounded-md border border-warn/30 bg-warn/10 px-2.5 py-2 text-xs text-warn">{t("drift.lmStudio.unavailable")}</div>}
+        fallback={
+          <div class="rounded-md border border-warn/30 bg-warn/10 px-2.5 py-2 text-xs text-warn">
+            {t("drift.lmStudio.unavailable")}
+          </div>
+        }
       >
         <div class="flex items-center justify-between text-xs">
           <span class="text-ink-muted">{t("drift.lmStudio.discovered", { count: models().length })}</span>
@@ -1289,7 +1355,12 @@ function ProviderConnect(props: {
   const [code, setCode] = createSignal("")
   const [pending, setPending] = createSignal<"connect" | "disconnect" | null>(null)
   const [error, setError] = createSignal("")
-  const [authorization, setAuthorization] = createSignal<{ url: string; method: string; instructions: string; code?: string } | null>(null)
+  const [authorization, setAuthorization] = createSignal<{
+    url: string
+    method: string
+    instructions: string
+    code?: string
+  } | null>(null)
   const method = () => props.methods[methodIndex()] ?? props.methods[0]
 
   function fail(message: string) {
@@ -1328,7 +1399,10 @@ function ProviderConnect(props: {
     if (!auth) {
       setError(t("drift.provider.signInStartFailed"))
       setPending(null)
-      props.onNotice({ tone: "error", text: t("drift.provider.signInStartFailedFor", { provider: props.providerName }) })
+      props.onNotice({
+        tone: "error",
+        text: t("drift.provider.signInStartFailedFor", { provider: props.providerName }),
+      })
       return
     }
     setAuthorization(auth)
@@ -1384,7 +1458,8 @@ function ProviderConnect(props: {
                     class="rounded-full border px-3 py-1 text-xs transition-colors"
                     classList={{
                       "border-accent/50 bg-accent/10 text-ink": index() === methodIndex(),
-                      "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted": index() !== methodIndex(),
+                      "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted":
+                        index() !== methodIndex(),
                     }}
                     onClick={() => {
                       setMethodIndex(index())
@@ -1424,16 +1499,20 @@ function ProviderConnect(props: {
             disabled={pending() !== null || !key().trim()}
             onClick={() => void connectApi()}
           >
-              {pending() === "connect" ? t("provider.connect.status.inProgress") : props.connected ? t("common.save") : t("common.connect")}
+            {pending() === "connect"
+              ? t("provider.connect.status.inProgress")
+              : props.connected
+                ? t("common.save")
+                : t("common.connect")}
           </button>
         </div>
       </Show>
       <Show when={method()?.type === "oauth"}>
         <Show
           when={authorization()}
-            fallback={
-              <button
-                class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
+          fallback={
+            <button
+              class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
               disabled={pending() !== null}
               onClick={() => void startOauth()}
             >
@@ -1478,10 +1557,14 @@ function ProviderConnect(props: {
   )
 }
 
-function AuthorizationHint(props: { auth: { url: string; method: string; instructions: string; code?: string }; onCancel: () => void }) {
+function AuthorizationHint(props: {
+  auth: { url: string; method: string; instructions: string; code?: string }
+  onCancel: () => void
+}) {
   const prompt = () => (props.auth.code ? { code: props.auth.code } : authorizationPrompt(props.auth.instructions))
   const [copied, setCopied] = createSignal(false)
-  const fallback = () => (props.auth.method === "code" ? t("drift.provider.pasteCode") : t("drift.provider.finishInBrowser"))
+  const fallback = () =>
+    props.auth.method === "code" ? t("drift.provider.pasteCode") : t("drift.provider.finishInBrowser")
   const copyLink = () => {
     void navigator.clipboard.writeText(props.auth.url).then(() => {
       setCopied(true)
@@ -1506,9 +1589,15 @@ function AuthorizationHint(props: { auth: { url: string; method: string; instruc
         )}
       </Show>
       <div class="flex items-center gap-3">
-        <button class={link} onClick={() => openExternal(props.auth.url)}>{t("drift.provider.openAgain")}</button>
-        <button class={link} onClick={copyLink}>{copied() ? t("drift.provider.linkCopied") : t("drift.provider.copyLink")}</button>
-        <button class={link} onClick={props.onCancel}>{t("common.cancel")}</button>
+        <button class={link} onClick={() => openExternal(props.auth.url)}>
+          {t("drift.provider.openAgain")}
+        </button>
+        <button class={link} onClick={copyLink}>
+          {copied() ? t("drift.provider.linkCopied") : t("drift.provider.copyLink")}
+        </button>
+        <button class={link} onClick={props.onCancel}>
+          {t("common.cancel")}
+        </button>
       </div>
     </div>
   )
@@ -1572,7 +1661,8 @@ const websiteUrl = "https://driftagent.dev"
 function AboutSection() {
   const engine = useEngine()
   const nativeVersion = () => {
-    if (!engine.state.nativeVersion) return engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting")
+    if (!engine.state.nativeVersion)
+      return engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting")
     const link = engine.state.nativeOnline ? t("drift.about.native.connected") : t("drift.about.native.offline")
     return `${engine.state.nativeVersion} (${link})`
   }
@@ -1662,12 +1752,14 @@ function AppearanceSection() {
       </SettingsGroup>
 
       <Show when={theme() === "drift-custom"}>
-      <SettingsGroup title={t("drift.settings.customPalette")}>
+        <SettingsGroup title={t("drift.settings.customPalette")}>
           <For each={customColorMeta}>
             {(color) => (
               <SettingsRow
                 title={t(color.label)}
-                description={t("drift.settings.customPalette.colorDescription", { color: t(color.label).toLowerCase() })}
+                description={t("drift.settings.customPalette.colorDescription", {
+                  color: t(color.label).toLowerCase(),
+                })}
               >
                 <div class="flex items-center gap-2">
                   <input
@@ -1679,13 +1771,14 @@ function AppearanceSection() {
                   />
                   <input
                     aria-label={t("drift.settings.customPalette.hexValue", { color: t(color.label) })}
-                     class="h-8 w-24 rounded-md border border-edge bg-raised/45 px-2 font-mono text-xs text-ink outline-none focus:border-accent"
-                     maxLength={7}
-                     pattern="#[0-9a-fA-F]{6}"
-                     value={customTheme()[color.id]}
-                     onChange={(event) => {
-                       if (/^#[\da-f]{6}$/i.test(event.currentTarget.value)) setCustomThemeColor(color.id, event.currentTarget.value)
-                     }}
+                    class="h-8 w-24 rounded-md border border-edge bg-raised/45 px-2 font-mono text-xs text-ink outline-none focus:border-accent"
+                    maxLength={7}
+                    pattern="#[0-9a-fA-F]{6}"
+                    value={customTheme()[color.id]}
+                    onChange={(event) => {
+                      if (/^#[\da-f]{6}$/i.test(event.currentTarget.value))
+                        setCustomThemeColor(color.id, event.currentTarget.value)
+                    }}
                   />
                 </div>
               </SettingsRow>
@@ -1724,19 +1817,24 @@ function AppearanceSection() {
               label={t("startup.settings.mascot.title")}
               items={splashMascotAnimations.map((name) => ({ id: name, label: t(mascotAnimationLabels[name]) }))}
               selected={splashMascotAnimation()}
-              floating bordered chevronAtEnd placement="below" width="10rem"
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width="10rem"
               onPick={(value) => setSplashMascotAnimation(value as SplashMascotAnimation)}
             />
           </SettingsRow>
-          <SettingsRow
-            title={t("startup.settings.exit.title")}
-            description={t("startup.settings.exit.description")}
-          >
+          <SettingsRow title={t("startup.settings.exit.title")} description={t("startup.settings.exit.description")}>
             <Picker
               label={t("startup.settings.exit.title")}
               items={splashExitAnimations.map((name) => ({ id: name, label: t(exitAnimationLabels[name]) }))}
               selected={splashExitAnimation()}
-              floating bordered chevronAtEnd placement="below" width="10rem"
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width="10rem"
               onPick={(value) => setSplashExitAnimation(value as SplashExitAnimation)}
             />
           </SettingsRow>
@@ -1748,14 +1846,15 @@ function AppearanceSection() {
               label={t("startup.settings.duration.title")}
               items={splashDurations.map((duration) => ({ id: String(duration), label: t(durationLabels[duration]) }))}
               selected={String(splashDuration())}
-              floating bordered chevronAtEnd placement="below" width="11rem"
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width="11rem"
               onPick={(value) => setSplashDuration(Number(value))}
             />
           </SettingsRow>
-          <SettingsRow
-            title={t("startup.settings.font.title")}
-            description={t("startup.settings.font.description")}
-          >
+          <SettingsRow title={t("startup.settings.font.title")} description={t("startup.settings.font.description")}>
             <FontField label={t("startup.settings.font.title")} value={splashFont()} onInput={setSplashFont} />
           </SettingsRow>
         </Show>
@@ -1810,11 +1909,18 @@ function CodeSection() {
             label={t("drift.code.syntaxTheme.title")}
             items={syntaxThemePresets.map((name) => ({ id: name, label: t(syntaxThemeLabels[name]) }))}
             selected={syntaxThemePreset()}
-            floating bordered chevronAtEnd placement="below" width="12rem"
+            floating
+            bordered
+            chevronAtEnd
+            placement="below"
+            width="12rem"
             onPick={(value) => setSyntaxThemePreset(value as SyntaxThemePreset)}
           />
         </SettingsRow>
-        <SettingsRow title={t("settings.general.row.font.title")} description={t("settings.general.row.font.description")}>
+        <SettingsRow
+          title={t("settings.general.row.font.title")}
+          description={t("settings.general.row.font.description")}
+        >
           <FontField label={t("settings.general.row.font.title")} value={codeFont()} onInput={setCodeFont} mono />
         </SettingsRow>
       </SettingsGroup>
@@ -1824,36 +1930,78 @@ function CodeSection() {
             label={t("drift.code.fontSize.title")}
             items={codeFontSizes.map((size) => ({ id: String(size), label: `${size} px` }))}
             selected={String(codeFontSize())}
-            floating bordered chevronAtEnd placement="below" width="8rem"
+            floating
+            bordered
+            chevronAtEnd
+            placement="below"
+            width="8rem"
             onPick={(value) => setCodeFontSize(Number(value))}
           />
         </SettingsRow>
         <SettingsRow title={t("drift.code.tabWidth.title")} description={t("drift.code.tabWidth.description")}>
           <Picker
             label={t("drift.code.tabWidth.title")}
-            items={codeTabWidths.map((width) => ({ id: String(width), label: t("drift.code.spaces", { count: width }) }))}
+            items={codeTabWidths.map((width) => ({
+              id: String(width),
+              label: t("drift.code.spaces", { count: width }),
+            }))}
             selected={String(codeTabWidth())}
-            floating bordered chevronAtEnd placement="below" width="9rem"
+            floating
+            bordered
+            chevronAtEnd
+            placement="below"
+            width="9rem"
             onPick={(value) => setCodeTabWidth(Number(value))}
           />
         </SettingsRow>
-        <SettingsRow title={t("drift.code.wordWrap.title")} description={t("drift.code.wordWrap.description")} onClick={() => setCodeWordWrap(!codeWordWrap())}>
-          <Toggle label={t("drift.code.wordWrap.title")} checked={codeWordWrap()} onChange={() => setCodeWordWrap(!codeWordWrap())} />
+        <SettingsRow
+          title={t("drift.code.wordWrap.title")}
+          description={t("drift.code.wordWrap.description")}
+          onClick={() => setCodeWordWrap(!codeWordWrap())}
+        >
+          <Toggle
+            label={t("drift.code.wordWrap.title")}
+            checked={codeWordWrap()}
+            onChange={() => setCodeWordWrap(!codeWordWrap())}
+          />
         </SettingsRow>
       </SettingsGroup>
       <SettingsGroup title={t("drift.code.diffs")}>
-        <SettingsRow title={t("drift.code.diffWordWrap.title")} description={t("drift.code.diffWordWrap.description")} onClick={() => setDiffWordWrap(!diffWordWrap())}>
-          <Toggle label={t("drift.code.diffWordWrap.title")} checked={diffWordWrap()} onChange={() => setDiffWordWrap(!diffWordWrap())} />
+        <SettingsRow
+          title={t("drift.code.diffWordWrap.title")}
+          description={t("drift.code.diffWordWrap.description")}
+          onClick={() => setDiffWordWrap(!diffWordWrap())}
+        >
+          <Toggle
+            label={t("drift.code.diffWordWrap.title")}
+            checked={diffWordWrap()}
+            onChange={() => setDiffWordWrap(!diffWordWrap())}
+          />
         </SettingsRow>
-        <SettingsRow title={t("drift.code.lineNumbers.title")} description={t("drift.code.lineNumbers.description")} onClick={() => setDiffLineNumbers(!diffLineNumbers())}>
-          <Toggle label={t("drift.code.lineNumbers.title")} checked={diffLineNumbers()} onChange={() => setDiffLineNumbers(!diffLineNumbers())} />
+        <SettingsRow
+          title={t("drift.code.lineNumbers.title")}
+          description={t("drift.code.lineNumbers.description")}
+          onClick={() => setDiffLineNumbers(!diffLineNumbers())}
+        >
+          <Toggle
+            label={t("drift.code.lineNumbers.title")}
+            checked={diffLineNumbers()}
+            onChange={() => setDiffLineNumbers(!diffLineNumbers())}
+          />
         </SettingsRow>
-        <SettingsRow title={t("drift.code.diffIndicator.title")} description={t("drift.code.diffIndicator.description")}>
+        <SettingsRow
+          title={t("drift.code.diffIndicator.title")}
+          description={t("drift.code.diffIndicator.description")}
+        >
           <Picker
             label={t("drift.code.diffIndicator.title")}
             items={diffIndicators.map((name) => ({ id: name, label: t(diffIndicatorLabels[name]) }))}
             selected={diffIndicator()}
-            floating bordered chevronAtEnd placement="below" width="10rem"
+            floating
+            bordered
+            chevronAtEnd
+            placement="below"
+            width="10rem"
             onPick={(value) => setDiffIndicator(value as DiffIndicator)}
           />
         </SettingsRow>

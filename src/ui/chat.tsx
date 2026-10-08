@@ -1,7 +1,30 @@
-import type { AssistantMessage, Part, SessionStatus } from "../engine/shapes"
+import { collapseCompaction, compactionCollapsed, orderedModelProviderIds, prefsFor, updatePrefs } from "../state/prefs"
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js"
-import { useEngine } from "../engine"
+import { clarificationAnswer } from "./clarification-answer"
+import { clearReveal, revealTarget } from "./session-search"
+import { lmStudioModelReady } from "../state/lm-studio"
+import { activeWorkspace } from "../state/workspaces"
+import { selectedSession } from "../state/selection"
+import { Picker, type PickerItem } from "./picker"
+import { ProviderIcon } from "./provider-icon"
+import { codeFontSize } from "../state/code"
+import { TextShimmer } from "./text-shimmer"
 import { errorText } from "../engine/error"
+import { IconArrowDown } from "./icons"
+import { useEngine } from "../engine"
+import { partVisible } from "./parts"
+import { Chevron } from "./controls"
+import { DriftLogo } from "./logo"
+import { t } from "../state/i18n"
+import {
+  activeFindMessage,
+  activeFindOccurrence,
+  clearFindHighlights,
+  paintFindHighlights,
+  scrollFindOccurrence,
+  syncTranscriptMatches,
+  transcriptFindNeedle,
+} from "./transcript-find"
 import {
   compareMessages,
   messageRevisionKey,
@@ -12,12 +35,6 @@ import {
   type MessageEntry,
   type ModelRef,
 } from "../engine/store"
-import { codeFontSize } from "../state/code"
-import { t } from "../state/i18n"
-import { selectedSession } from "../state/selection"
-import { activeWorkspace } from "../state/workspaces"
-import { Chevron } from "./controls"
-import { IconArrowDown } from "./icons"
 import {
   assistantFlowContinues,
   groupAssistantEntries,
@@ -26,24 +43,8 @@ import {
   messageVisible,
   type PartGroup,
 } from "./message"
-import { partVisible } from "./parts"
-import { TextShimmer } from "./text-shimmer"
-import { DriftLogo } from "./logo"
-import { clarificationAnswer } from "./clarification-answer"
-import { lmStudioModelReady } from "../state/lm-studio"
-import { collapseCompaction, compactionCollapsed, orderedModelProviderIds, prefsFor, updatePrefs } from "../state/prefs"
-import { Picker, type PickerItem } from "./picker"
-import { ProviderIcon } from "./provider-icon"
-import { clearReveal, revealTarget } from "./session-search"
-import {
-  activeFindMessage,
-  activeFindOccurrence,
-  clearFindHighlights,
-  paintFindHighlights,
-  scrollFindOccurrence,
-  syncTranscriptMatches,
-  transcriptFindNeedle,
-} from "./transcript-find"
+
+import type { AssistantMessage, Part, SessionStatus } from "../engine/shapes"
 
 const estimatedRow = 96
 const overscan = 800
@@ -140,7 +141,9 @@ export function Chat() {
     const source = timelineSource()
     const groups = assistantGroups()
     const active = thinking()?.messageID
-    return source.filter((entry, index) => timelineRowVisible(entry, groups.get(entry.info.id), source[index + 1], active))
+    return source.filter((entry, index) =>
+      timelineRowVisible(entry, groups.get(entry.info.id), source[index + 1], active),
+    )
   })
   const nextEntries = createMemo(() => {
     const list = timeline()
@@ -149,7 +152,10 @@ export function Chat() {
   const thinkingOnly = (entry?: MessageEntry) =>
     !!entry && thinking()?.messageID === entry.info.id && !messageVisible(entry)
   const collapsedSummary = (entry: MessageEntry) =>
-    entry.info.role === "assistant" && !!(entry.info as AssistantMessage).summary && collapseCompaction() && compactionCollapsed()
+    entry.info.role === "assistant" &&
+    !!(entry.info as AssistantMessage).summary &&
+    collapseCompaction() &&
+    compactionCollapsed()
 
   createEffect(() => {
     const id = selectedSession()
@@ -199,14 +205,23 @@ export function Chat() {
   const heights = new Map<string, number>()
   // Every part delta rebuilds offsets; re-estimating the text of hundreds of unmounted rows per
   // delta would burn a visible slice of a core, so estimates are cached per message revision.
-  const estimates = new Map<string, { rev?: number; fontSize: number; thinking: boolean; collapsed: boolean; value: number }>()
+  const estimates = new Map<
+    string,
+    { rev?: number; fontSize: number; thinking: boolean; collapsed: boolean; value: number }
+  >()
   const [measured, setMeasured] = createSignal(0)
   let loadingOlder = false
 
   function rowEstimate(entry: MessageEntry, parts: Part[], fontSize: number, thinking: boolean, collapsed: boolean) {
     const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionID, entry.info.id)]
     const cached = estimates.get(entry.info.id)
-    if (cached && cached.rev === rev && cached.fontSize === fontSize && cached.thinking === thinking && cached.collapsed === collapsed)
+    if (
+      cached &&
+      cached.rev === rev &&
+      cached.fontSize === fontSize &&
+      cached.thinking === thinking &&
+      cached.collapsed === collapsed
+    )
       return cached.value
     const value = estimatedTimelineRow(entry, fontSize, parts, thinking, collapsed)
     estimates.set(entry.info.id, { rev, fontSize, thinking, collapsed, value })
@@ -223,8 +238,10 @@ export function Chat() {
     for (let index = 0; index < list.length; index++) {
       const entry = list[index]
       const parts = timelineParts(entry, groups.get(entry.info.id))
-      result[index + 1] = result[index] +
-        (heights.get(entry.info.id) ?? rowEstimate(entry, parts, fontSize, thinkingOnly(entry), collapsedSummary(entry)))
+      result[index + 1] =
+        result[index] +
+        (heights.get(entry.info.id) ??
+          rowEstimate(entry, parts, fontSize, thinkingOnly(entry), collapsedSummary(entry)))
     }
     return result
   })
@@ -247,15 +264,16 @@ export function Chat() {
       if (next === 0) continue
       const entry = untrack(timeline).find((item) => item.info.id === id)
       const parts = entry ? timelineParts(entry, untrack(assistantGroups).get(id)) : undefined
-      const previous = heights.get(id) ??
+      const previous =
+        heights.get(id) ??
         (entry
           ? estimatedTimelineRow(
-            entry,
-            untrack(codeFontSize),
-            parts,
-            untrack(() => thinkingOnly(entry)),
-            untrack(() => collapsedSummary(entry)),
-          )
+              entry,
+              untrack(codeFontSize),
+              parts,
+              untrack(() => thinkingOnly(entry)),
+              untrack(() => collapsedSummary(entry)),
+            )
           : estimatedRow)
       if (Math.abs(next - previous) < 1) continue
       heights.set(id, next)
@@ -374,22 +392,24 @@ export function Chat() {
     untrack(() => scrollToMessage(target))
   })
 
-  createEffect(on(selectedSession, () => {
-    clearReveal()
-    heights.clear()
-    estimates.clear()
-    scroller.scrollTop = 0
-    batch(() => {
-      setMeasured((value) => value + 1)
-      setStick(true)
-      setAwayFromBottom(false)
-      setViewTop(0)
-      setViewHeight(scroller.clientHeight)
-    })
-    // Wait for keyed transcript content and browser layout before snapping the DOM and virtual
-    // viewport together. The immediate top reset keeps the interim frame valid rather than blank.
-    requestAnimationFrame(snapViewportToBottom)
-  }))
+  createEffect(
+    on(selectedSession, () => {
+      clearReveal()
+      heights.clear()
+      estimates.clear()
+      scroller.scrollTop = 0
+      batch(() => {
+        setMeasured((value) => value + 1)
+        setStick(true)
+        setAwayFromBottom(false)
+        setViewTop(0)
+        setViewHeight(scroller.clientHeight)
+      })
+      // Wait for keyed transcript content and browser layout before snapping the DOM and virtual
+      // viewport together. The immediate top reset keeps the interim frame valid rather than blank.
+      requestAnimationFrame(snapViewportToBottom)
+    }),
+  )
 
   // Untracked stick: content growth follows the bottom, but flipping stick on its own
   // never scrolls, so easing into the stick zone by hand cannot yank the view.
@@ -437,7 +457,11 @@ export function Chat() {
     const previous = untrack(viewTop)
     setViewTop(top)
     setViewHeight(scroller.clientHeight)
-    if (scroller.classList.contains("transcript-scroll-active") || dragging || Date.now() - gestureAt < gestureWindowMs) {
+    if (
+      scroller.classList.contains("transcript-scroll-active") ||
+      dragging ||
+      Date.now() - gestureAt < gestureWindowMs
+    ) {
       scroller.classList.add("transcript-scroll-active")
       clearTimeout(scrollLatchReset)
       scrollLatchReset = setTimeout(() => scroller.classList.remove("transcript-scroll-active"), gestureWindowMs)
@@ -493,7 +517,14 @@ export function Chat() {
       >
         <Show when={selectedSession()} keyed fallback={<EmptyState />}>
           <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
-            <Show when={timeline().length === 0 && (revertBackfill() || (!engine.state.loaded[selectedSession()!] && engine.state.connection === "online")) && !sessionError()}>
+            <Show
+              when={
+                timeline().length === 0 &&
+                (revertBackfill() ||
+                  (!engine.state.loaded[selectedSession()!] && engine.state.connection === "online")) &&
+                !sessionError()
+              }
+            >
               <div class="flex justify-center pt-8 text-sm select-none" role="status" aria-live="polite">
                 <TextShimmer text={t("common.loading")} />
               </div>
@@ -520,10 +551,7 @@ export function Chat() {
                 />
               )}
             </For>
-            <div
-              aria-hidden="true"
-              style={{ height: `${(offsets().at(-1) ?? 0) - offsets()[range().end]}px` }}
-            />
+            <div aria-hidden="true" style={{ height: `${(offsets().at(-1) ?? 0) - offsets()[range().end]}px` }} />
             <Show when={sessionError()}>
               {(error) => (
                 <div role="alert">
@@ -737,21 +765,31 @@ export function timelineEntries(entries: MessageEntry[], activeMessageID?: strin
 
 export function timelinePitch(entry: MessageEntry, next?: MessageEntry) {
   if (!next) return "none" as const
-  return assistantFlowContinues(entry, next) ? "part" as const : "turn" as const
+  return assistantFlowContinues(entry, next) ? ("part" as const) : ("turn" as const)
 }
 
 function timelineParts(entry: MessageEntry, groups?: PartGroup[]) {
   if (entry.info.role !== "assistant" || !groups) return entry.parts
-  return groups.flatMap((group) => "explored" in group ? group.explored : [group.part])
+  return groups.flatMap((group) => ("explored" in group ? group.explored : [group.part]))
 }
 
-function timelineRowVisible(entry: MessageEntry, groups: PartGroup[] | undefined, next: MessageEntry | undefined, active?: string) {
+function timelineRowVisible(
+  entry: MessageEntry,
+  groups: PartGroup[] | undefined,
+  next: MessageEntry | undefined,
+  active?: string,
+) {
   if (entry.info.role === "user") return true
   // A failure the session has moved past (a retry, or a new prompt) is no longer news.
   if (failedAttempt(entry) && next) return false
   const info = entry.info as AssistantMessage
-  return !!groups?.length || !!info.summary || !!info.error || entry.info.id === active ||
+  return (
+    !!groups?.length ||
+    !!info.summary ||
+    !!info.error ||
+    entry.info.id === active ||
     (!!info.time.completed && next?.info.role !== "assistant")
+  )
 }
 
 /** A reply that failed before showing anything: what the engine retries. */
@@ -762,7 +800,10 @@ export function failedAttempt(entry: MessageEntry) {
 }
 
 /** The retry line stays up while the attempt after a run of failures is in flight, until it fails or shows output. */
-export function retryInFlight(entries: MessageEntry[], running?: string): Extract<SessionStatus, { type: "retry" }> | undefined {
+export function retryInFlight(
+  entries: MessageEntry[],
+  running?: string,
+): Extract<SessionStatus, { type: "retry" }> | undefined {
   const index = entries.findIndex((entry) => entry.info.id === running)
   const current = entries[index]
   if (!current || current.info.role !== "assistant" || current.parts.some(partVisible)) return undefined
@@ -785,16 +826,18 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
   )
   // A user turn newer than every assistant message has no response row yet, so the indicator
   // anchors under that prompt; otherwise it stays on the assistant turn that is actually running.
-  const anchor = unfinished ?? newestFirst.find((entry) => entry.info.role === "user" || entry.info.role === "assistant")
+  const anchor =
+    unfinished ?? newestFirst.find((entry) => entry.info.role === "user" || entry.info.role === "assistant")
   if (!anchor) return null
-  const parentID = anchor.info.role === "user"
-    ? anchor.info.id
-    : "parentID" in anchor.info ? anchor.info.parentID : undefined
+  const parentID =
+    anchor.info.role === "user" ? anchor.info.id : "parentID" in anchor.info ? anchor.info.parentID : undefined
   const assistants = parentID
     ? entries.filter(
-      (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === parentID,
-    )
-    : anchor.info.role === "assistant" ? [anchor] : []
+        (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === parentID,
+      )
+    : anchor.info.role === "assistant"
+      ? [anchor]
+      : []
   const error = assistants.find(
     (entry) =>
       (entry.info as { error?: { name?: string } }).error &&
@@ -810,9 +853,10 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
   // Compaction turns are the assistant summary message or, in the brief window before it arrives,
   // the user boundary carrying the compaction part. Rows use this to pull the shimmer onto the
   // compaction divider instead of the generic indicator.
-  const compaction = owner.info.role === "assistant"
-    ? !!(owner.info as { summary?: boolean }).summary
-    : owner.parts.some((part) => part.type === "compaction")
+  const compaction =
+    owner.info.role === "assistant"
+      ? !!(owner.info as { summary?: boolean }).summary
+      : owner.parts.some((part) => part.type === "compaction")
   return { messageID: owner.info.id, heading, compaction }
 }
 
@@ -875,7 +919,14 @@ function Row(props: {
   // Assistant rows remount during virtualization and session switches; replaying an entrance
   // animation on those makes streamed output flicker, so only fresh user rows fade in.
   const fadeIn = fresh && props.entry.info.role === "user"
-  const pitch = () => props.nextThinking ? "none" : props.next ? timelinePitch(props.entry, props.next) : props.terminalError ? "turn" : "none"
+  const pitch = () =>
+    props.nextThinking
+      ? "none"
+      : props.next
+        ? timelinePitch(props.entry, props.next)
+        : props.terminalError
+          ? "turn"
+          : "none"
   // A running compaction animates its own divider label, so the generic indicator would double up.
   const compactionShimmer = () =>
     props.thinking && !!props.thinkingCompaction && compactionThinkingRow(props.entry, collapseCompaction())
@@ -921,7 +972,9 @@ function Row(props: {
       <Show when={props.thinking && !compactionShimmer()}>
         <div class="timeline-thinking select-none" role="status" aria-live="polite">
           <TextShimmer text={t("drift.chat.thinking")} />
-          <Show when={props.thinkingHeading}>{(heading) => <span class="timeline-thinking-heading">{heading()}</span>}</Show>
+          <Show when={props.thinkingHeading}>
+            {(heading) => <span class="timeline-thinking-heading">{heading()}</span>}
+          </Show>
         </div>
       </Show>
       <Show when={props.retry}>
@@ -986,12 +1039,20 @@ function SessionRetry(props: {
   }
 
   return (
-    <div class="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger" role="status" aria-live="polite">
+    <div
+      class="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+      role="status"
+      aria-live="polite"
+    >
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="flex min-w-0 flex-1 items-start gap-2">
           <span class="pulse-soft mt-1.5 size-2 shrink-0 rounded-full bg-danger" aria-hidden="true" />
           <div class="min-w-0">
-            <div class="break-words" classList={{ "cursor-help": display().truncated }} title={display().truncated ? props.status.message : undefined}>
+            <div
+              class="break-words"
+              classList={{ "cursor-help": display().truncated }}
+              title={display().truncated ? props.status.message : undefined}
+            >
               {display().message}
             </div>
             <div class="mt-0.5 text-xs text-danger/75">{display().info}</div>

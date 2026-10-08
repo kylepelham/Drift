@@ -1,8 +1,8 @@
+import { listenRemoteAccess, refreshRemoteAccess, remoteAccessStatus, type PendingLink } from "../state/remote-access"
 import { createSignal, For, onCleanup, onMount } from "solid-js"
 import { isRemoteRuntime } from "../runtime"
-import { t } from "../state/i18n"
-import { listenRemoteAccess, refreshRemoteAccess, remoteAccessStatus, type PendingLink } from "../state/remote-access"
 import { openSettings } from "./settings"
+import { t } from "../state/i18n"
 
 const key = (link: PendingLink) => `${link.address}:${link.requestedAt}`
 
@@ -28,7 +28,9 @@ export function RemoteLinkNotice() {
       {(link) => (
         <div class="rounded-lg border border-warn/40 bg-surface/95 px-3 py-2 shadow-xl backdrop-blur" role="status">
           <div class="text-sm font-semibold text-ink">{t("drift.remote.toast.title")}</div>
-          <div class="mt-0.5 text-sm text-ink">{t("drift.remote.toast.message", { name: `${link.name} (${link.address})` })}</div>
+          <div class="mt-0.5 text-sm text-ink">
+            {t("drift.remote.toast.message", { name: `${link.name} (${link.address})` })}
+          </div>
           <div class="mt-2 flex flex-wrap gap-1.5">
             <button
               class="rounded-md border border-accent/40 px-2 py-1 text-xs text-accent hover:bg-accent/10"
@@ -39,7 +41,10 @@ export function RemoteLinkNotice() {
             >
               {t("drift.remote.toast.open")}
             </button>
-            <button class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted hover:text-ink" onClick={() => dismiss(link)}>
+            <button
+              class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted hover:text-ink"
+              onClick={() => dismiss(link)}
+            >
               {t("common.dismiss")}
             </button>
           </div>

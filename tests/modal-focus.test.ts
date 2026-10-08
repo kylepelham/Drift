@@ -63,9 +63,10 @@ class FakeElement {
 
   querySelectorAll(selector: string): FakeElement[] {
     return this.children.flatMap((child) => {
-      const matches = selector === "[autofocus]"
-        ? child.hasAttribute("autofocus")
-        : (child.tagName === "button" && !child.disabled) || child.tabIndex >= 0
+      const matches =
+        selector === "[autofocus]"
+          ? child.hasAttribute("autofocus")
+          : (child.tagName === "button" && !child.disabled) || child.tabIndex >= 0
       return [...(matches ? [child] : []), ...child.querySelectorAll(selector)]
     })
   }
@@ -98,14 +99,22 @@ class FakeDocument extends EventTarget {
     return new FakeElement(tag)
   }
 
-  override addEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean) {
+  override addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: AddEventListenerOptions | boolean,
+  ) {
     super.addEventListener(type, listener, options)
     if (!listener) return
     if (!this.listeners.has(type)) this.listeners.set(type, new Set())
     this.listeners.get(type)!.add(listener)
   }
 
-  override removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: EventListenerOptions | boolean) {
+  override removeEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: EventListenerOptions | boolean,
+  ) {
     super.removeEventListener(type, listener, options)
     if (listener) this.listeners.get(type)?.delete(listener)
     if (!this.listeners.get(type)?.size) this.listeners.delete(type)
@@ -179,37 +188,40 @@ test("default traversal still prevents every Tab and wraps without guards or foc
   expect(doc.activeElement).toBe(last)
 })
 
-test.each(["audio", "video"])("native %s traversal leaves Tab and Shift+Tab to the browser, wrapping only at guards", async (tag) => {
-  const first = new FakeElement("button")
-  const media = new FakeElement(tag)
-  media.tabIndex = 0
-  media.setAttribute("controls", "")
-  const element = dialog(first, media)
-  activate(element, true)
-  await Promise.resolve()
-  const [start, , , end] = element.children
-  expect(start.hasAttribute("data-modal-focus-guard")).toBe(true)
-  expect(end.hasAttribute("data-modal-focus-guard")).toBe(true)
-  for (const guard of [start, end]) {
-    expect(guard.tabIndex).toBe(0)
-    expect(guard.hasAttribute("aria-hidden")).toBe(false)
-  }
-  expect(doc.activeElement).toBe(first)
-  expect(key("Tab").defaultPrevented).toBe(false)
-  media.focus()
-  // Multiple internal controls retarget to the same media host. None may be skipped.
-  for (const shift of [false, false, true, true]) {
-    expect(key("Tab", shift).defaultPrevented).toBe(false)
-    expect(doc.activeElement).toBe(media)
-  }
-  end.focus()
-  expect(doc.activeElement).toBe(first)
-  expect(key("Tab", true).defaultPrevented).toBe(false)
-  start.focus()
-  expect(doc.activeElement).toBe(end)
-  expect(key("ArrowRight").defaultPrevented).toBe(false)
-  expect(key(" ").defaultPrevented).toBe(false)
-})
+test.each(["audio", "video"])(
+  "native %s traversal leaves Tab and Shift+Tab to the browser, wrapping only at guards",
+  async (tag) => {
+    const first = new FakeElement("button")
+    const media = new FakeElement(tag)
+    media.tabIndex = 0
+    media.setAttribute("controls", "")
+    const element = dialog(first, media)
+    activate(element, true)
+    await Promise.resolve()
+    const [start, , , end] = element.children
+    expect(start.hasAttribute("data-modal-focus-guard")).toBe(true)
+    expect(end.hasAttribute("data-modal-focus-guard")).toBe(true)
+    for (const guard of [start, end]) {
+      expect(guard.tabIndex).toBe(0)
+      expect(guard.hasAttribute("aria-hidden")).toBe(false)
+    }
+    expect(doc.activeElement).toBe(first)
+    expect(key("Tab").defaultPrevented).toBe(false)
+    media.focus()
+    // Multiple internal controls retarget to the same media host. None may be skipped.
+    for (const shift of [false, false, true, true]) {
+      expect(key("Tab", shift).defaultPrevented).toBe(false)
+      expect(doc.activeElement).toBe(media)
+    }
+    end.focus()
+    expect(doc.activeElement).toBe(first)
+    expect(key("Tab", true).defaultPrevented).toBe(false)
+    start.focus()
+    expect(doc.activeElement).toBe(end)
+    expect(key("ArrowRight").defaultPrevented).toBe(false)
+    expect(key(" ").defaultPrevented).toBe(false)
+  },
+)
 
 test("native guards handle empty dialogs and query newly loaded media at wrap time", async () => {
   const element = dialog()
@@ -235,41 +247,44 @@ test("native guards handle empty dialogs and query newly loaded media at wrap ti
   expect(doc.activeElement).toBe(element)
 })
 
-test.each(["audio", "video"])("reverse wrap parks after %s without focusing its host, then allows native reverse entry", async (tag) => {
-  const first = new FakeElement("button")
-  const close = new FakeElement("button")
-  const media = new FakeElement(tag)
-  media.tabIndex = 0
-  media.setAttribute("controls", "")
-  const element = dialog(first, close, media)
-  activate(element, true)
-  await Promise.resolve()
-  const start = element.children[0]
-  const end = element.children.at(-1)!
+test.each(["audio", "video"])(
+  "reverse wrap parks after %s without focusing its host, then allows native reverse entry",
+  async (tag) => {
+    const first = new FakeElement("button")
+    const close = new FakeElement("button")
+    const media = new FakeElement(tag)
+    media.tabIndex = 0
+    media.setAttribute("controls", "")
+    const element = dialog(first, close, media)
+    activate(element, true)
+    await Promise.resolve()
+    const start = element.children[0]
+    const end = element.children.at(-1)!
 
-  expect(key("Tab", true).defaultPrevented).toBe(false)
-  start.focus()
-  // The end guard's synchronous focusin must not bounce back to the first button.
-  expect(doc.activeElement).toBe(end)
-  expect(end.hasAttribute("aria-hidden")).toBe(false)
-  expect(media.focusCalls).toBe(0)
-  expect(key("Tab", true).defaultPrevented).toBe(false)
-  expect(doc.activeElement).toBe(end)
-  expect(media.focusCalls).toBe(0)
-
-  // Simulate the browser entering the last shadow control, retargeted to its host.
-  media.focus()
-  for (let index = 0; index < 3; index++) {
     expect(key("Tab", true).defaultPrevented).toBe(false)
-    expect(doc.activeElement).toBe(media)
-  }
-  expect(media.focusCalls).toBe(1)
-  close.focus()
-  expect(doc.activeElement).toBe(close)
-  // Once native focus moves off the guard, ordinary forward wrapping still works.
-  end.focus()
-  expect(doc.activeElement).toBe(first)
-})
+    start.focus()
+    // The end guard's synchronous focusin must not bounce back to the first button.
+    expect(doc.activeElement).toBe(end)
+    expect(end.hasAttribute("aria-hidden")).toBe(false)
+    expect(media.focusCalls).toBe(0)
+    expect(key("Tab", true).defaultPrevented).toBe(false)
+    expect(doc.activeElement).toBe(end)
+    expect(media.focusCalls).toBe(0)
+
+    // Simulate the browser entering the last shadow control, retargeted to its host.
+    media.focus()
+    for (let index = 0; index < 3; index++) {
+      expect(key("Tab", true).defaultPrevented).toBe(false)
+      expect(doc.activeElement).toBe(media)
+    }
+    expect(media.focusCalls).toBe(1)
+    close.focus()
+    expect(doc.activeElement).toBe(close)
+    // Once native focus moves off the guard, ordinary forward wrapping still works.
+    end.focus()
+    expect(doc.activeElement).toBe(first)
+  },
+)
 
 test("forward Tab from the parked end guard wraps immediately instead of escaping", async () => {
   const first = new FakeElement("button")

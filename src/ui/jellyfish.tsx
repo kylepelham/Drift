@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js"
-import type { Mesh } from "three"
 import { DriftLogo } from "./logo"
+
+import type { Mesh } from "three"
 
 /** The About mascot loads three.js lazily and disposes every scene resource on cleanup. */
 export function Jellyfish(props: { class?: string }) {
@@ -9,7 +10,12 @@ export function Jellyfish(props: { class?: string }) {
 
   onMount(() => {
     if (!canAnimate()) return
-    onCleanup(mountScene(() => createScene(host, () => setFallback(false)), () => setFallback(true)))
+    onCleanup(
+      mountScene(
+        () => createScene(host, () => setFallback(false)),
+        () => setFallback(true),
+      ),
+    )
   })
 
   return (

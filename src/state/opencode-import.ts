@@ -1,5 +1,5 @@
-import { createSignal } from "solid-js"
 import { shellEvents, shellInvoke } from "../shell"
+import { createSignal } from "solid-js"
 
 /** How far the shell's import of opencode conversations has got; `null` when none is running. */
 export type ImportProgress = { done: number; total: number }

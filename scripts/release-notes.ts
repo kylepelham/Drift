@@ -3,7 +3,8 @@ type NotesResponse = { body?: string }
 type ModelResponse = { choices?: { message?: { content?: string } }[] }
 
 const apiVersion = "2022-11-28"
-const commitLinkPattern = /\[(?:#)?([0-9a-f]{7,40})\]\(https:\/\/github\.com\/[^/\s)]+\/[^/\s)]+\/commit\/([0-9a-f]{7,40})\)/gi
+const commitLinkPattern =
+  /\[(?:#)?([0-9a-f]{7,40})\]\(https:\/\/github\.com\/[^/\s)]+\/[^/\s)]+\/commit\/([0-9a-f]{7,40})\)/gi
 
 export function previousReleaseTag(releases: Release[], current: string) {
   return releases.find((release) => !release.draft && release.tag_name && release.tag_name !== current)?.tag_name
@@ -154,7 +155,9 @@ async function main() {
     console.warn("Could not read published releases; falling back to local tags", error)
   }
   if (!releasesRead)
-    previous = git(["tag", "--sort=-version:refname"]).split("\n").find((tag) => tag && tag !== current)
+    previous = git(["tag", "--sort=-version:refname"])
+      .split("\n")
+      .find((tag) => tag && tag !== current)
 
   const range = previous ? `${previous}..${current}` : current
   const commits = git(["log", range, "--no-merges", "--format=%h%x09%an%x09%s"])

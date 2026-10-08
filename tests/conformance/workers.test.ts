@@ -1,13 +1,17 @@
+import { fakeAnthropic, model, sse, startEngine, type Engine, type Frame } from "./harness"
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import path from "node:path"
-import { fakeAnthropic, model, sse, startEngine, type Engine, type Frame } from "./harness"
 
 const root = path.resolve(import.meta.dir, "../..")
 let fake: ReturnType<typeof fakeAnthropic>
 let engine: Engine
 
 beforeAll(async () => {
-  const build = Bun.spawnSync(["cargo", "build", "-q", "-p", "drift-engined"], { cwd: root, stdout: "inherit", stderr: "inherit" })
+  const build = Bun.spawnSync(["cargo", "build", "-q", "-p", "drift-engined"], {
+    cwd: root,
+    stdout: "inherit",
+    stderr: "inherit",
+  })
   if (build.exitCode !== 0) throw new Error("drift-engined did not build")
   fake = fakeAnthropic()
   engine = await startEngine(fake.url)
@@ -19,10 +23,21 @@ afterAll(async () => {
   fake.stop()
 }, 30_000)
 
-type Task = { id: string; state: string; mode: string; delivered: boolean; held: boolean; description: string; result?: string }
-const submit = (session: string, text: string) => engine.call("POST", `/sessions/${session}/turns`, { parts: [{ type: "text", text }], model })
-const taskFrame = (predicate: (task: Task) => boolean) => (frame: Frame) => frame.type === "task.updated" && predicate(frame.task as Task)
-const launch = (description: string, prompt: string) => sse.toolUse("task", { description, prompt, run_in_background: true })
+type Task = {
+  id: string
+  state: string
+  mode: string
+  delivered: boolean
+  held: boolean
+  description: string
+  result?: string
+}
+const submit = (session: string, text: string) =>
+  engine.call("POST", `/sessions/${session}/turns`, { parts: [{ type: "text", text }], model })
+const taskFrame = (predicate: (task: Task) => boolean) => (frame: Frame) =>
+  frame.type === "task.updated" && predicate(frame.task as Task)
+const launch = (description: string, prompt: string) =>
+  sse.toolUse("task", { description, prompt, run_in_background: true })
 
 test("a background worker reports its progress, the parent carries on, and the result arrives once", async () => {
   const session = await engine.setup()
@@ -41,12 +56,25 @@ test("a background worker reports its progress, the parent carries on, and the r
   const during = await engine.call<Task[]>("GET", `/sessions/${session}/tasks`)
   expect(during.json[0]!.state).toBe("running")
 
-  await events.until(taskFrame((task) => task.id === id && task.delivered), 15_000)
+  await events.until(
+    taskFrame((task) => task.id === id && task.delivered),
+    15_000,
+  )
   const finished = await engine.call<Task>("GET", `/tasks/${id}`)
   expect([finished.json.state, finished.json.result]).toEqual(["replied", "three things found"])
   const deliveredAt = events.frames.findIndex(taskFrame((task) => task.id === id && task.delivered))
-  await events.until((f) => f.type === "session.status" && f.sessionId === session && f.status === "idle" && events.frames.indexOf(f) > deliveredAt, 15_000)
-  const messages = await engine.call<{ role: string; parts: { type: string; text?: string }[] }[]>("GET", `/sessions/${session}/messages`)
+  await events.until(
+    (f) =>
+      f.type === "session.status" &&
+      f.sessionId === session &&
+      f.status === "idle" &&
+      events.frames.indexOf(f) > deliveredAt,
+    15_000,
+  )
+  const messages = await engine.call<{ role: string; parts: { type: string; text?: string }[] }[]>(
+    "GET",
+    `/sessions/${session}/messages`,
+  )
   const results = messages.json.flatMap((m) => m.parts).filter((p) => p.type === "task_result")
   expect(results.map((p) => p.text)).toEqual(["three things found"])
   expect(messages.json.at(-1)!.parts[0]!.text).toBe("thanks for the survey")
@@ -74,7 +102,11 @@ test("session Stop ends a background worker while the parent is idle and wakes n
   const stopped = await engine.call<{ aborted: boolean }>("POST", `/sessions/${session}/abort`)
   expect(stopped.json.aborted).toBe(true)
   // Held for the next prompt rather than marked handed over: nothing carried it yet.
-  const ended = await events.until(taskFrame((task) => task.id === (running.task as Task).id && task.state === "stopped" && task.held && !task.delivered))
+  const ended = await events.until(
+    taskFrame(
+      (task) => task.id === (running.task as Task).id && task.state === "stopped" && task.held && !task.delivered,
+    ),
+  )
   expect((ended.task as Task).mode).toBe("background")
   await new Promise((resolve) => setTimeout(resolve, 300))
   expect(fake.seen.length).toBe(requests)

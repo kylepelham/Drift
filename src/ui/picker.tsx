@@ -1,9 +1,9 @@
 import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js"
-import { Portal } from "solid-js/web"
 import { createDismissOnOutside } from "./dismiss"
 import { fixedMenuPosition } from "../state/zoom"
-import { t } from "../state/i18n"
+import { Portal } from "solid-js/web"
 import { IconSliders } from "./icons"
+import { t } from "../state/i18n"
 
 export type PickerItem = {
   id: string
@@ -92,7 +92,7 @@ export function Picker(props: {
       ref={panel}
       data-wheel-lock
       class="pop-in z-50 w-72 overflow-hidden rounded-lg border border-edge bg-overlay shadow-xl shadow-black/30"
-      classList={{ "fixed": !!props.floating, "absolute bottom-full left-0 mb-2": !props.floating }}
+      classList={{ fixed: !!props.floating, "absolute bottom-full left-0 mb-2": !props.floating }}
       style={props.floating ? { left: `${position().left}px`, top: `${position().top}px` } : undefined}
     >
       <div class="flex items-center border-b border-edge">

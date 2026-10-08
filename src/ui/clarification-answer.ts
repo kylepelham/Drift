@@ -13,10 +13,12 @@ export function clarificationAnswer(entry: MessageEntry): ClarificationAnswer | 
   if (metadata !== undefined) {
     if (!metadata || typeof metadata !== "object") return
     const data = metadata as Record<string, unknown>
-    if (data.version !== 1 || typeof data.requestID !== "string" || !Array.isArray(data.items) || !data.items.length) return
+    if (data.version !== 1 || typeof data.requestID !== "string" || !Array.isArray(data.items) || !data.items.length)
+      return
     const items: ClarificationItem[] = []
     for (const item of data.items) {
-      if (!item || typeof item !== "object" || typeof item.header !== "string" || typeof item.question !== "string") return
+      if (!item || typeof item !== "object" || typeof item.header !== "string" || typeof item.question !== "string")
+        return
       if (!Array.isArray(item.answers) || !item.answers.every((answer: unknown) => typeof answer === "string")) return
       items.push({ header: item.header, question: item.question, answers: [...item.answers] })
     }

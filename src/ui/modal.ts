@@ -103,9 +103,10 @@ export function activateModal(element: HTMLElement, onClose: () => void, options
       lastFocused = event.target
       return
     } else {
-      target = lastFocused?.isConnected && element.contains(lastFocused)
-        ? lastFocused
-        : modalFocusable(element)[0] ?? element
+      target =
+        lastFocused?.isConnected && element.contains(lastFocused)
+          ? lastFocused
+          : (modalFocusable(element)[0] ?? element)
     }
     target.focus({ preventScroll: true })
     if (guards.includes(document.activeElement as HTMLElement) || !element.contains(document.activeElement)) {
@@ -198,7 +199,9 @@ function syncModalInert() {
 }
 
 function modalFocusable(element: HTMLElement) {
-  return [...element.querySelectorAll<HTMLElement>(
-    'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
-  )].filter((item) => !item.hasAttribute("data-modal-focus-guard") && !item.hidden && item.getClientRects().length > 0)
+  return [
+    ...element.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ].filter((item) => !item.hasAttribute("data-modal-focus-guard") && !item.hidden && item.getClientRects().length > 0)
 }

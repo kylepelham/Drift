@@ -1,9 +1,13 @@
-import { describe, expect, test } from "bun:test"
 import { classifyMarkdownLink, type MarkdownLink } from "../src/ui/markdown-links"
+import { describe, expect, test } from "bun:test"
 
 describe("Markdown file links", () => {
   test.each<[string, string | undefined, string]>([
-    ["EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md", "C:/work", "C:/work/EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md"],
+    [
+      "EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md",
+      "C:/work",
+      "C:/work/EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md",
+    ],
     ["./docs/../README.md", "C:/work/", "C:/work/README.md"],
     ["../README.md", "C:/work/project", "C:/work/README.md"],
     ["../../../../README.md", "C:/work", "C:/README.md"],
@@ -66,13 +70,18 @@ describe("Markdown file links", () => {
     ["#%4C42", {}],
   ])("handles document fragment %s", (hash, location) => {
     expect(classifyMarkdownLink(`docs/README.md${hash}`, "C:/Work")).toEqual({
-      kind: "file", path: "C:/Work/docs/README.md", ...location,
+      kind: "file",
+      path: "C:/Work/docs/README.md",
+      ...location,
     })
   })
 
   test("does not mistake an escaped filename hash for a location", () => {
     expect(classifyMarkdownLink("file:///C:/Work/report%23L42#L7C2")).toEqual({
-      kind: "file", path: "C:/Work/report#L42", line: 7, column: 2,
+      kind: "file",
+      path: "C:/Work/report#L42",
+      line: 7,
+      column: 2,
     })
   })
 })
@@ -91,7 +100,10 @@ describe("Markdown browser links", () => {
     ["https://example.com/My Docs", "https://example.com/My%20Docs"],
     ["https://localhost:8080/Guide", "https://localhost:8080/Guide"],
     ["https://tauri.localhost.example.com/Guide", "https://tauri.localhost.example.com/Guide"],
-    ["https://mail.google.com/mail/?view=cm&body=first%0Asecond", "https://mail.google.com/mail/?view=cm&body=first%0Asecond"],
+    [
+      "https://mail.google.com/mail/?view=cm&body=first%0Asecond",
+      "https://mail.google.com/mail/?view=cm&body=first%0Asecond",
+    ],
     ["https://example.com/%0a", "https://example.com/%0a"],
     ["https://example.com/?bytes=%FF%00%2F", "https://example.com/?bytes=%FF%00%2F"],
     ["https://example.com/%GG", "https://example.com/%GG"],
@@ -101,10 +113,15 @@ describe("Markdown browser links", () => {
   })
 
   test.each([
-    "http://tauri.localhost/Docs", "https://tauri.localhost/Docs", "//tauri.localhost/Docs",
-    "https://TAURI.LOCALHOST:443/Docs", "https://tauri.localhost./Docs",
-    "https://tauri%2elocalhost/Docs", "https://user@tauri.localhost/Docs",
-    "tauri://localhost/Docs", "TAURI://localhost/Docs",
+    "http://tauri.localhost/Docs",
+    "https://tauri.localhost/Docs",
+    "//tauri.localhost/Docs",
+    "https://TAURI.LOCALHOST:443/Docs",
+    "https://tauri.localhost./Docs",
+    "https://tauri%2elocalhost/Docs",
+    "https://user@tauri.localhost/Docs",
+    "tauri://localhost/Docs",
+    "TAURI://localhost/Docs",
   ])("blocks internal app origin %s", (raw) => {
     expect(classifyMarkdownLink(raw, "C:/Work")).toEqual({ kind: "unsupported" })
   })
@@ -112,32 +129,84 @@ describe("Markdown browser links", () => {
 
 describe("unsupported Markdown links", () => {
   test.each([
-    "", " ", " README.md", "README.md ",
-    "javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,test", "vbscript:msgbox(1)",
-    "mailto:user@example.com", "tel:+123456789", "ftp://example.com/file", "custom:target",
-    "C:foo.md", "C:", "C%3A/foo.md", "javascript%3Aalert(1)", "\\README.md",
-    "docs/README.md?download=1", "?query", "file:///C:/Docs/README.md?query",
-    "file:README.md", "file:C:/README.md", "file://", "file:///C:README.md", "file:////Server/Share/file.md",
-    "file://user@Server:80/Share/file.md", "file:///C:\\Work\\README.md",
-    "file://user@Server/Share/file.md", "file://Server:80/Share/file.md", "file://[Server]/Share/file.md",
+    "",
+    " ",
+    " README.md",
+    "README.md ",
+    "javascript:alert(1)",
+    "JaVaScRiPt:alert(1)",
+    "data:text/html,test",
+    "vbscript:msgbox(1)",
+    "mailto:user@example.com",
+    "tel:+123456789",
+    "ftp://example.com/file",
+    "custom:target",
+    "C:foo.md",
+    "C:",
+    "C%3A/foo.md",
+    "javascript%3Aalert(1)",
+    "\\README.md",
+    "docs/README.md?download=1",
+    "?query",
+    "file:///C:/Docs/README.md?query",
+    "file:README.md",
+    "file:C:/README.md",
+    "file://",
+    "file:///C:README.md",
+    "file:////Server/Share/file.md",
+    "file://user@Server:80/Share/file.md",
+    "file:///C:\\Work\\README.md",
+    "file://user@Server/Share/file.md",
+    "file://Server:80/Share/file.md",
+    "file://[Server]/Share/file.md",
     "file://bad%20host/Share/file.md",
-    "\\\\Server", "\\\\Server\\", "\\\\.\\C:\\file.md", "\\\\?\\C:\\file.md",
-    "\\\\Server\\..\\file.md", "C:/bad:name.md", "C:/bad*name.md", "C:/bad%3Fname.md",
-    "http:example.com", "https:/example.com", "https://", "//", "///example.com",
-    "https:///example.com", "https://example.com:invalid", "https://[invalid]/file",
-    "https://example.com\\other/file", "//\\example.com/file",
-    "bad%.md", "bad%2.md", "bad%GG.md", "bad%C3%28.md", "bad%FF.md",
-    "#bad%", "README.md#bad%",
-    "docs%2fREADME.md", "docs%5cREADME.md", "file:///Work/docs%2FREADME.md",
-    "bad\u0000.md", "bad\n.md", "bad\t.md", "bad\u007f.md", "bad\u0085.md",
-    "bad%00.md", "bad%0A.md", "bad%C2%85.md", "#bad%00",
+    "\\\\Server",
+    "\\\\Server\\",
+    "\\\\.\\C:\\file.md",
+    "\\\\?\\C:\\file.md",
+    "\\\\Server\\..\\file.md",
+    "C:/bad:name.md",
+    "C:/bad*name.md",
+    "C:/bad%3Fname.md",
+    "http:example.com",
+    "https:/example.com",
+    "https://",
+    "//",
+    "///example.com",
+    "https:///example.com",
+    "https://example.com:invalid",
+    "https://[invalid]/file",
+    "https://example.com\\other/file",
+    "//\\example.com/file",
+    "bad%.md",
+    "bad%2.md",
+    "bad%GG.md",
+    "bad%C3%28.md",
+    "bad%FF.md",
+    "#bad%",
+    "README.md#bad%",
+    "docs%2fREADME.md",
+    "docs%5cREADME.md",
+    "file:///Work/docs%2FREADME.md",
+    "bad\u0000.md",
+    "bad\n.md",
+    "bad\t.md",
+    "bad\u007f.md",
+    "bad\u0085.md",
+    "bad%00.md",
+    "bad%0A.md",
+    "bad%C2%85.md",
+    "#bad%00",
   ])("rejects %s without throwing", (raw) => {
     expect(classifyMarkdownLink(raw, "C:/Work")).toEqual({ kind: "unsupported" })
   })
 
   test.each([undefined, "", "Work", "C:Work", "https://tauri.localhost/", "file:///C:/Work", "C:/bad\npath"])(
-    "does not resolve a relative path with invalid context %s", (directory) => {
-      expect(classifyMarkdownLink("EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md", directory)).toEqual({ kind: "unsupported" })
+    "does not resolve a relative path with invalid context %s",
+    (directory) => {
+      expect(classifyMarkdownLink("EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md", directory)).toEqual({
+        kind: "unsupported",
+      })
     },
   )
 })

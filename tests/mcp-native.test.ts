@@ -1,8 +1,20 @@
-import { expect, test } from "bun:test"
-import type { components } from "../src/engine/native/types"
-import { preferredOption, registryConfig, registryInstallName, registryOptions, registryServerName } from "../src/mcp-registry"
-import { createRegistrySearch, forgetRegistryCatalog, parseRegistryPayload, rankRegistry } from "../src/state/mcp-registry-search"
 import { mcpConfigFromForm, mcpFormState, mcpRemoteUrlAllowed, updatePair } from "../src/state/mcp-form"
+import { expect, test } from "bun:test"
+import {
+  createRegistrySearch,
+  forgetRegistryCatalog,
+  parseRegistryPayload,
+  rankRegistry,
+} from "../src/state/mcp-registry-search"
+import {
+  preferredOption,
+  registryConfig,
+  registryInstallName,
+  registryOptions,
+  registryServerName,
+} from "../src/mcp-registry"
+
+import type { components } from "../src/engine/native/types"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -13,40 +25,95 @@ if (!("localStorage" in globalThis))
 type McpServer = components["schemas"]["ServerStatus"]
 
 function server(name: string, state: McpServer["state"]): McpServer {
-  return { name, config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] }, enabled: state !== "disabled", readOnlyTrusted: false, updatedAt: 1, workspaces: [], state, tools: [], transport: "stdio", needsSignIn: false, signedIn: false, unreadable: false }
+  return {
+    name,
+    config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: [] },
+    enabled: state !== "disabled",
+    readOnlyTrusted: false,
+    updatedAt: 1,
+    workspaces: [],
+    state,
+    tools: [],
+    transport: "stdio",
+    needsSignIn: false,
+    signedIn: false,
+    unreadable: false,
+  }
 }
 
 test("a server refusing until the user signs in says so instead of showing its raw error", async () => {
   const { mcpStatusLabel } = await import("../src/ui/mcp/manager")
   const refused = { ...server("secure", "failed"), error: "Auth required, when send initialize request" }
   expect(mcpStatusLabel(refused, false).text).toBe(refused.error)
-  expect(mcpStatusLabel({ ...refused, needsSignIn: true }, false)).toEqual({ text: "sign-in required", tone: "text-warn" })
+  expect(mcpStatusLabel({ ...refused, needsSignIn: true }, false)).toEqual({
+    text: "sign-in required",
+    tone: "text-warn",
+  })
 })
 
 test("a server row says how it is spoken to, and the protocol version once connected", async () => {
   const { mcpProtocolLabel } = await import("../src/ui/mcp/manager")
   expect(mcpProtocolLabel({ transport: "stdio" })).toBe("stdio")
-  expect(mcpProtocolLabel({ transport: "sse", protocol: "2024-11-05", era: "legacy" })).toBe("HTTP + SSE (deprecated) · 2024-11-05 · legacy")
-  expect(mcpProtocolLabel({ transport: "streamable_http", protocol: "2026-07-28", era: "stateless" })).toBe("Streamable HTTP · 2026-07-28 · stateless")
+  expect(mcpProtocolLabel({ transport: "sse", protocol: "2024-11-05", era: "legacy" })).toBe(
+    "HTTP + SSE (deprecated) · 2024-11-05 · legacy",
+  )
+  expect(mcpProtocolLabel({ transport: "streamable_http", protocol: "2026-07-28", era: "stateless" })).toBe(
+    "Streamable HTTP · 2026-07-28 · stateless",
+  )
 })
 
 test("the editor never holds a saved secret: untouched ones are kept by name, typed ones replace them", () => {
   const form = mcpFormState({ type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: ["TOKEN", "MODE"] })
   expect(form.environment.every((pair) => pair.value === "" && pair.saved)).toBeTrue()
   const typed = { ...form, environment: updatePair(form.environment, 1, { value: "fast" }) }
-  expect(mcpConfigFromForm(typed)).toEqual({ config: { type: "stdio", command: "npx", args: ["-y", "pkg@1.0.0"], env: { TOKEN: null, MODE: "fast" }, cwd: null, timeoutSeconds: null } })
-  expect(mcpConfigFromForm({ ...typed, cwd: " C:/tools ", timeout: "90" }).config).toMatchObject({ cwd: "C:/tools", timeoutSeconds: 90 })
+  expect(mcpConfigFromForm(typed)).toEqual({
+    config: {
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "pkg@1.0.0"],
+      env: { TOKEN: null, MODE: "fast" },
+      cwd: null,
+      timeoutSeconds: null,
+    },
+  })
+  expect(mcpConfigFromForm({ ...typed, cwd: " C:/tools ", timeout: "90" }).config).toMatchObject({
+    cwd: "C:/tools",
+    timeoutSeconds: 90,
+  })
   expect(mcpConfigFromForm({ ...typed, timeout: "1.5" }).issue).toBe("timeoutInvalid")
   const legacy = mcpFormState({ type: "sse", url: "https://legacy.example/sse", headers: [], timeoutSeconds: 30 })
-  expect(mcpConfigFromForm(legacy).config).toEqual({ type: "sse", url: "https://legacy.example/sse", headers: {}, oauth: null, timeoutSeconds: 30 })
+  expect(mcpConfigFromForm(legacy).config).toEqual({
+    type: "sse",
+    url: "https://legacy.example/sse",
+    headers: {},
+    oauth: null,
+    timeoutSeconds: 30,
+  })
   const renamed = { ...form, environment: updatePair(form.environment, 0, { key: "API_TOKEN", value: "new" }) }
   expect(renamed.environment[0].saved).toBeFalse()
   const http = mcpFormState({ type: "http", url: "https://example.com/mcp", headers: ["Authorization"] })
-  expect(mcpConfigFromForm(http)).toEqual({ config: { type: "http", url: "https://example.com/mcp", headers: { Authorization: null }, oauth: null, timeoutSeconds: null } })
-  const app = mcpFormState({ type: "http", url: "https://example.com/mcp", headers: [], oauth: { clientId: "team-app", hasSecret: true, scopes: ["read", "write"] } })
+  expect(mcpConfigFromForm(http)).toEqual({
+    config: {
+      type: "http",
+      url: "https://example.com/mcp",
+      headers: { Authorization: null },
+      oauth: null,
+      timeoutSeconds: null,
+    },
+  })
+  const app = mcpFormState({
+    type: "http",
+    url: "https://example.com/mcp",
+    headers: [],
+    oauth: { clientId: "team-app", hasSecret: true, scopes: ["read", "write"] },
+  })
   expect([app.clientId, app.clientSecret, app.secretSaved, app.scopes]).toEqual(["team-app", "", true, "read write"])
-  expect(mcpConfigFromForm(app).config).toMatchObject({ oauth: { clientId: "team-app", clientSecret: null, scopes: ["read", "write"] } })
-  expect(mcpConfigFromForm({ ...app, clientSecret: "new", scopes: " read  " }).config).toMatchObject({ oauth: { clientId: "team-app", clientSecret: "new", scopes: ["read"] } })
+  expect(mcpConfigFromForm(app).config).toMatchObject({
+    oauth: { clientId: "team-app", clientSecret: null, scopes: ["read", "write"] },
+  })
+  expect(mcpConfigFromForm({ ...app, clientSecret: "new", scopes: " read  " }).config).toMatchObject({
+    oauth: { clientId: "team-app", clientSecret: "new", scopes: ["read"] },
+  })
   expect(mcpConfigFromForm(mcpFormState())).toEqual({ issue: "commandRequired" })
 })
 
@@ -58,7 +125,9 @@ test("the editor validates URLs and pairs", () => {
     { key: "X", value: "1" },
     { key: "X", value: "2" },
   ]
-  expect(mcpConfigFromForm({ ...http, url: "https://example.com", headers: duplicate })).toEqual({ issue: "pairInvalid" })
+  expect(mcpConfigFromForm({ ...http, url: "https://example.com", headers: duplicate })).toEqual({
+    issue: "pairInvalid",
+  })
   expect(mcpRemoteUrlAllowed("http://127.0.0.1:8765/mcp")).toBeTrue()
 })
 
@@ -69,7 +138,14 @@ test("registry entries become engine configs, with names a tool name can carry",
       name: "io.example/docs",
       description: "Docs",
       version: "1.0.0",
-      remotes: [{ type: "streamable-http", url: "https://example.com/{tenant}", variables: { tenant: { value: "mcp" } }, headers: [{ name: "X-Mode", value: "fast" }] }],
+      remotes: [
+        {
+          type: "streamable-http",
+          url: "https://example.com/{tenant}",
+          variables: { tenant: { value: "mcp" } },
+          headers: [{ name: "X-Mode", value: "fast" }],
+        },
+      ],
     }),
   ).toEqual({ type: "http", url: "https://example.com/mcp", headers: { "X-Mode": "fast" } })
   expect(
@@ -86,7 +162,10 @@ test("registry entries become engine configs, with names a tool name can carry",
           runtimeHint: "npx",
           runtimeArguments: [{ type: "named", name: "-y", value: "" }],
           packageArguments: [{ type: "named", name: "--root", default: "S:/repo" }],
-          environmentVariables: [{ name: "TOKEN", isRequired: true, isSecret: true }, { name: "MODE", value: "fixed" }],
+          environmentVariables: [
+            { name: "TOKEN", isRequired: true, isSecret: true },
+            { name: "MODE", value: "fixed" },
+          ],
         },
       ],
     }),
@@ -102,11 +181,16 @@ test("registry entries become engine configs, with names a tool name can carry",
         identifier: "@example/files",
         version: "1.2.3",
         packageArguments: [{ type: "named", name: "--root", default: "S:/repo" }],
-        environmentVariables: [{ name: "TOKEN", isRequired: true, isSecret: true }, { name: "MODE", value: "fixed" }],
+        environmentVariables: [
+          { name: "TOKEN", isRequired: true, isSecret: true },
+          { name: "MODE", value: "fixed" },
+        ],
       },
     ],
   })
-  expect(files.fields).toEqual([{ key: "env:TOKEN", label: "TOKEN", description: undefined, secret: true, required: true, default: undefined }])
+  expect(files.fields).toEqual([
+    { key: "env:TOKEN", label: "TOKEN", description: undefined, secret: true, required: true, default: undefined },
+  ])
   expect(files.build({ "env:TOKEN": " t0k " })).toEqual({
     type: "stdio",
     command: "npx",
@@ -120,19 +204,39 @@ test("nothing is sent as an unexpanded placeholder: what an entry leaves open is
     name: "io.example/secret",
     description: "Secret",
     version: "1.0.0",
-    remotes: [{ type: "streamable-http", url: "https://example.com/mcp", headers: [{ name: "Authorization", isRequired: true, isSecret: true }] }],
+    remotes: [
+      {
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+        headers: [{ name: "Authorization", isRequired: true, isSecret: true }],
+      },
+    ],
   })
   expect(secret.build({})).toBeNull()
-  expect(secret.build({ "header:Authorization": "abc" })).toEqual({ type: "http", url: "https://example.com/mcp", headers: { Authorization: "Bearer abc" } })
+  expect(secret.build({ "header:Authorization": "abc" })).toEqual({
+    type: "http",
+    url: "https://example.com/mcp",
+    headers: { Authorization: "Bearer abc" },
+  })
   expect(secret.build({ "header:Authorization": "Token abc" })?.headers).toEqual({ Authorization: "Token abc" })
   const [smithery] = registryOptions({
     name: "ai.smithery/x",
     description: "X",
     version: "1",
-    remotes: [{ type: "streamable-http", url: "https://x.example/mcp", headers: [{ name: "Authorization", value: "Bearer {smithery_api_key}", isRequired: true, isSecret: true }] }],
+    remotes: [
+      {
+        type: "streamable-http",
+        url: "https://x.example/mcp",
+        headers: [{ name: "Authorization", value: "Bearer {smithery_api_key}", isRequired: true, isSecret: true }],
+      },
+    ],
   })
-  expect(smithery.fields.map((field) => [field.label, field.secret, field.required])).toEqual([["smithery_api_key", true, true]])
-  expect(smithery.build({ "header:Authorization:smithery_api_key": "k" })?.headers).toEqual({ Authorization: "Bearer k" })
+  expect(smithery.fields.map((field) => [field.label, field.secret, field.required])).toEqual([
+    ["smithery_api_key", true, true],
+  ])
+  expect(smithery.build({ "header:Authorization:smithery_api_key": "k" })?.headers).toEqual({
+    Authorization: "Bearer k",
+  })
   expect(
     registryConfig({
       name: "io.example/floating",
@@ -149,7 +253,13 @@ test("registry entries run as remotes over either transport, npx, uvx or docker,
     title: "GitHub",
     description: "GitHub",
     version: "1.13.0",
-    remotes: [{ type: "streamable-http", url: "https://api.githubcopilot.com/mcp/", headers: [{ name: "Authorization", isSecret: true }] }],
+    remotes: [
+      {
+        type: "streamable-http",
+        url: "https://api.githubcopilot.com/mcp/",
+        headers: [{ name: "Authorization", isSecret: true }],
+      },
+    ],
     packages: [
       {
         transport: { type: "stdio" },
@@ -158,27 +268,65 @@ test("registry entries run as remotes over either transport, npx, uvx or docker,
         version: "",
         runtimeArguments: [
           { type: "named", name: "-p", value: "127.0.0.1:8085:8085" },
-          { type: "named", name: "-e", value: "GITHUB_PERSONAL_ACCESS_TOKEN={token}", variables: { token: { isSecret: true } } },
+          {
+            type: "named",
+            name: "-e",
+            value: "GITHUB_PERSONAL_ACCESS_TOKEN={token}",
+            variables: { token: { isSecret: true } },
+          },
         ],
         environmentVariables: [{ name: "GITHUB_TOOLSETS", default: "repos" }],
       },
     ],
   })
-  expect(github.map((option) => [option.kind, option.detail])).toEqual([["remote", "streamable-http"], ["docker", "1.13.0"]])
+  expect(github.map((option) => [option.kind, option.detail])).toEqual([
+    ["remote", "streamable-http"],
+    ["docker", "1.13.0"],
+  ])
   expect(preferredOption(github)?.kind).toBe("remote")
   expect(github[0].build({})).toEqual({ type: "http", url: "https://api.githubcopilot.com/mcp/", headers: {} })
   expect(github[1].build({})).toEqual({
     type: "stdio",
     command: "docker",
-    args: ["run", "-i", "--rm", "-e", "GITHUB_TOOLSETS", "-p", "127.0.0.1:8085:8085", "ghcr.io/github/github-mcp-server:1.13.0"],
+    args: [
+      "run",
+      "-i",
+      "--rm",
+      "-e",
+      "GITHUB_TOOLSETS",
+      "-p",
+      "127.0.0.1:8085:8085",
+      "ghcr.io/github/github-mcp-server:1.13.0",
+    ],
     env: { GITHUB_TOOLSETS: "repos" },
   })
   const withToken = github[1].build({ "runtime:0:1:token": "pat" })
-  expect(withToken?.args).toEqual(["run", "-i", "--rm", "-e", "GITHUB_TOOLSETS", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "-p", "127.0.0.1:8085:8085", "ghcr.io/github/github-mcp-server:1.13.0"])
-  expect(withToken?.type === "stdio" && withToken.env).toEqual({ GITHUB_TOOLSETS: "repos", GITHUB_PERSONAL_ACCESS_TOKEN: "pat" }, "a secret never sits in the arguments")
-  expect(registryInstallName({ name: "io.github.github/github-mcp-server", title: "GitHub", description: "", version: "" })).toBe("github")
+  expect(withToken?.args).toEqual([
+    "run",
+    "-i",
+    "--rm",
+    "-e",
+    "GITHUB_TOOLSETS",
+    "-e",
+    "GITHUB_PERSONAL_ACCESS_TOKEN",
+    "-p",
+    "127.0.0.1:8085:8085",
+    "ghcr.io/github/github-mcp-server:1.13.0",
+  ])
+  expect(withToken?.type === "stdio" && withToken.env).toEqual(
+    { GITHUB_TOOLSETS: "repos", GITHUB_PERSONAL_ACCESS_TOKEN: "pat" },
+    "a secret never sits in the arguments",
+  )
   expect(
-    registryConfig({ name: "makenotion/notion-mcp-server", description: "Notion", version: "1.0.0", remotes: [{ type: "sse", url: "https://mcp.notion.com/sse" }] }),
+    registryInstallName({ name: "io.github.github/github-mcp-server", title: "GitHub", description: "", version: "" }),
+  ).toBe("github")
+  expect(
+    registryConfig({
+      name: "makenotion/notion-mcp-server",
+      description: "Notion",
+      version: "1.0.0",
+      remotes: [{ type: "sse", url: "https://mcp.notion.com/sse" }],
+    }),
   ).toEqual({ type: "sse", url: "https://mcp.notion.com/sse", headers: {} })
   const serena = registryConfig({
     name: "oraios/serena",
@@ -196,11 +344,19 @@ test("registry entries run as remotes over either transport, npx, uvx or docker,
           { type: "positional", value: "git+https://github.com/oraios/serena", isRequired: true },
           { type: "positional", value: "serena", isRequired: true },
         ],
-        packageArguments: [{ type: "named", name: "--context", isRequired: true }, { type: "positional", value: "ide-assistant", isRequired: true }],
+        packageArguments: [
+          { type: "named", name: "--context", isRequired: true },
+          { type: "positional", value: "ide-assistant", isRequired: true },
+        ],
       },
     ],
   })
-  expect(serena).toEqual({ type: "stdio", command: "uvx", args: ["--from", "git+https://github.com/oraios/serena", "serena", "--context", "ide-assistant"], env: {} })
+  expect(serena).toEqual({
+    type: "stdio",
+    command: "uvx",
+    args: ["--from", "git+https://github.com/oraios/serena", "serena", "--context", "ide-assistant"],
+    env: {},
+  })
 })
 
 test("the catalog reads GitHub's listing, drops retired entries and keeps a server whose other package Drift cannot read", async () => {
@@ -211,23 +367,41 @@ test("the catalog reads GitHub's listing, drops retired entries and keeps a serv
           name: "microsoft/playwright-mcp",
           description: "Automate web browsers",
           version: "1",
-          packages: [{ registryType: "npm", identifier: "@playwright/mcp", version: "latest", transport: { type: "stdio" } }, { registryType: "npm" }],
+          packages: [
+            { registryType: "npm", identifier: "@playwright/mcp", version: "latest", transport: { type: "stdio" } },
+            { registryType: "npm" },
+          ],
           repository: { url: "https://github.com/microsoft/playwright-mcp" },
           _meta: {
             "io.modelcontextprotocol.registry/publisher-provided": {
-              github: { displayName: "Playwright", nameWithOwner: "microsoft/playwright-mcp", stargazerCount: 37751, preferredImage: "https://avatars.githubusercontent.com/u/1", topics: ["browser", "testing"] },
+              github: {
+                displayName: "Playwright",
+                nameWithOwner: "microsoft/playwright-mcp",
+                stargazerCount: 37751,
+                preferredImage: "https://avatars.githubusercontent.com/u/1",
+                topics: ["browser", "testing"],
+              },
             },
           },
         },
       },
-      { server: { name: "io.example/gone", description: "Gone", version: "1" }, _meta: { "io.modelcontextprotocol.registry/official": { status: "deleted" } } },
+      {
+        server: { name: "io.example/gone", description: "Gone", version: "1" },
+        _meta: { "io.modelcontextprotocol.registry/official": { status: "deleted" } },
+      },
     ],
   }
   const [playwright, ...rest] = parseRegistryPayload(github, "github")
   expect(rest).toEqual([])
   expect(playwright.title).toBe("Playwright")
   expect(playwright.packages?.length).toBe(1)
-  expect(playwright.listing).toMatchObject({ source: "github", publisher: "microsoft", stars: 37751, topics: ["browser", "testing"], repository: "https://github.com/microsoft/playwright-mcp" })
+  expect(playwright.listing).toMatchObject({
+    source: "github",
+    publisher: "microsoft",
+    stars: 37751,
+    topics: ["browser", "testing"],
+    repository: "https://github.com/microsoft/playwright-mcp",
+  })
 })
 
 test("search ranks by title, then name, publisher, topics and description, popularity breaking ties", () => {
@@ -251,14 +425,26 @@ test("search ranks by title, then name, publisher, topics and description, popul
 })
 
 test("a search shows GitHub's popular servers, then official ones it lacks", async () => {
-  const github = (name: string, repository: string) => ({ server: { name, description: name, version: "1", repository: { url: repository } } })
+  const github = (name: string, repository: string) => ({
+    server: { name, description: name, version: "1", repository: { url: repository } },
+  })
   const pages: Record<string, unknown> = {
-    first: { servers: [github("io.example/alpha-docs", "https://github.com/example/alpha")], metadata: { nextCursor: "c2" } },
+    first: {
+      servers: [github("io.example/alpha-docs", "https://github.com/example/alpha")],
+      metadata: { nextCursor: "c2" },
+    },
     second: { servers: [github("io.example/beta-docs", "https://github.com/example/beta")] },
     official: {
       servers: [
         { server: { name: "io.example/alpha-docs", description: "dup by name", version: "1" } },
-        { server: { name: "io.mirror/alpha", description: "docs mirror", version: "1", repository: { url: "https://github.com/example/alpha" } } },
+        {
+          server: {
+            name: "io.mirror/alpha",
+            description: "docs mirror",
+            version: "1",
+            repository: { url: "https://github.com/example/alpha" },
+          },
+        },
         { server: { name: "io.example/gamma-docs", description: "docs", version: "1" } },
       ],
     },
@@ -266,7 +452,11 @@ test("a search shows GitHub's popular servers, then official ones it lacks", asy
   const asked: string[] = []
   const fetchRegistry = async (url: string) => {
     asked.push(url)
-    const body = url.includes("registry.modelcontextprotocol.io") ? pages.official : url.includes("cursor=c2") ? pages.second : pages.first
+    const body = url.includes("registry.modelcontextprotocol.io")
+      ? pages.official
+      : url.includes("cursor=c2")
+        ? pages.second
+        : pages.first
     return { ok: true, json: async () => body }
   }
   forgetRegistryCatalog()
@@ -287,8 +477,22 @@ test("cards say how a server runs and whether a key must be typed first", async 
     name: "io.example/keyed",
     description: "Keyed",
     version: "1.0.0",
-    remotes: [{ type: "streamable-http", url: "https://example.com/mcp", headers: [{ name: "Authorization", isRequired: true }] }],
-    packages: [{ transport: { type: "stdio" }, registryType: "pypi", identifier: "keyed", version: "1.0.0", environmentVariables: [{ name: "KEY", isRequired: true }] }],
+    remotes: [
+      {
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+        headers: [{ name: "Authorization", isRequired: true }],
+      },
+    ],
+    packages: [
+      {
+        transport: { type: "stdio" },
+        registryType: "pypi",
+        identifier: "keyed",
+        version: "1.0.0",
+        environmentVariables: [{ name: "KEY", isRequired: true }],
+      },
+    ],
   })
   expect(registryBadges(options)).toEqual(["Remote", "PyPI", "Needs a key"])
 })
@@ -297,7 +501,10 @@ test("rows offer connect or disconnect only where the engine can do it", async (
   const { mcpRuntimeAction, mcpRuntimeKeyAction, nextMcpRowName } = await import("../src/ui/mcp/manager")
   expect(mcpRuntimeAction(server("a", "connected"))).toBe("disconnect")
   expect(mcpRuntimeAction(server("a", "failed"))).toBe("connect")
-  expect(mcpRuntimeAction({ ...server("a", "failed"), unreadable: true }), "a definition this build cannot read is saved again or removed, not connected").toBeUndefined()
+  expect(
+    mcpRuntimeAction({ ...server("a", "failed"), unreadable: true }),
+    "a definition this build cannot read is saved again or removed, not connected",
+  ).toBeUndefined()
   expect(mcpRuntimeAction(server("a", "connecting"))).toBeUndefined()
   expect(mcpRuntimeAction(server("a", "disabled"))).toBeUndefined()
   expect(mcpRuntimeKeyAction(server("a", "connected"), "ArrowLeft")).toBe("disconnect")
@@ -314,7 +521,11 @@ test("in a workspace, the plug button turns a server on or off there, and the ro
   expect(mcpRuntimeAction(ida, "web"), "connected elsewhere, it is still turned on here by the plug").toBe("connect")
   expect(mcpStatusLabel(ida, false, "web").text).toBe("off in this workspace")
   expect(mcpStatusLabel(ida, false, "re").text).toBe("connected")
-  expect([mcpScopeLabel(ida, "re"), mcpScopeLabel(ida, "web"), mcpScopeLabel(ida)]).toEqual(["on for this workspace only", "on in other workspaces", undefined])
+  expect([mcpScopeLabel(ida, "re"), mcpScopeLabel(ida, "web"), mcpScopeLabel(ida)]).toEqual([
+    "on for this workspace only",
+    "on in other workspaces",
+    undefined,
+  ])
   // Off everywhere: still turned on here, and says disabled rather than off here.
   const off = server("ida", "disabled")
   expect(mcpRuntimeAction(off, "re")).toBe("connect")

@@ -1,10 +1,9 @@
-import type { EngineState } from "../engine/store"
 import { lmStudioMinimumContext, lmStudioModelReady } from "./lm-studio"
 import { orderedModelProviderIds } from "./prefs"
 
-export function agentModelCapability(
-  agent: { name: string; mode: string } | undefined,
-): "tools" | "text" | undefined {
+import type { EngineState } from "../engine/store"
+
+export function agentModelCapability(agent: { name: string; mode: string } | undefined): "tools" | "text" | undefined {
   if (agent?.name === "title" || agent?.name === "compaction") return "text"
   if (agent?.mode === "subagent" || agent?.mode === "all") return "tools"
 }

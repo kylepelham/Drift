@@ -78,7 +78,8 @@ function openPhrase(state: SegmenterState, voiced: boolean, config: SegmenterCon
 }
 
 function closePhrase(state: SegmenterState, config: SegmenterConfig) {
-  const spoken = state.blocks.length > config.hangoverBlocks ? state.blocks.slice(0, -config.hangoverBlocks) : state.blocks
+  const spoken =
+    state.blocks.length > config.hangoverBlocks ? state.blocks.slice(0, -config.hangoverBlocks) : state.blocks
   const phrase = concatBlocks(spoken)
   reset(state)
   return phrase.length ? phrase : undefined

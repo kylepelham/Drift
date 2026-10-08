@@ -1,6 +1,7 @@
-import { expect, test } from "bun:test"
-import type { ToolPart } from "../src/engine/shapes"
 import { createEngineState } from "../src/engine/store"
+import { expect, test } from "bun:test"
+
+import type { ToolPart } from "../src/engine/shapes"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -30,7 +31,15 @@ test("parent delegated status follows ordinary child errors, resumed work, and c
     },
     {
       info: { id: "done", sessionID: "parent", role: "assistant", time: { created: 1 } },
-      parts: [{ id: "result", type: "text", text: '<task id="child" state="completed">', sessionID: "parent", messageID: "done" }],
+      parts: [
+        {
+          id: "result",
+          type: "text",
+          text: '<task id="child" state="completed">',
+          sessionID: "parent",
+          messageID: "done",
+        },
+      ],
     },
   ] as never)
   expect(delegatedTaskStatus(state, part, "child")).toBe("completed")
@@ -42,7 +51,15 @@ test("a live delegated part overrides an older completion marker", async () => {
   set("transcripts", "parent", [
     {
       info: { id: "old", sessionID: "parent", role: "assistant", time: { created: 1 } },
-      parts: [{ id: "result", type: "text", text: '<task id="child" state="completed">', sessionID: "parent", messageID: "old" }],
+      parts: [
+        {
+          id: "result",
+          type: "text",
+          text: '<task id="child" state="completed">',
+          sessionID: "parent",
+          messageID: "old",
+        },
+      ],
     },
   ] as never)
   const live = { sessionID: "parent", state: { status: "running", input: {}, time: { start: 1 } } } as never
@@ -74,7 +91,10 @@ test("finished task cards do not follow a resumed child session's busy, retry, o
   const { delegatedTaskStatus, delegatedTaskClickPolicy } = await import("../src/ui/parts")
   const { toolElapsedMs } = await import("../src/ui/tool-duration")
   const [state, set] = createEngineState()
-  const original = taskPart("original", '<task id="child" state="completed">\n<task_result>First result</task_result>\n</task>')
+  const original = taskPart(
+    "original",
+    '<task id="child" state="completed">\n<task_result>First result</task_result>\n</task>',
+  )
   const resumed: ToolPart = {
     ...taskPart("resumed", ""),
     state: { status: "running", input: { task_id: "child" }, time: { start: 3 } },
@@ -104,7 +124,9 @@ test("failed task cards stay failed when the child is resumed or later completes
   }
   set("status", "child", { type: "busy" })
   expect(delegatedTaskStatus(state, failed, "child")).toBe("error")
-  expect(delegatedTaskStatus(state, taskPart("reported-error", '<task id="child" state="error">'), "child")).toBe("error")
+  expect(delegatedTaskStatus(state, taskPart("reported-error", '<task id="child" state="error">'), "child")).toBe(
+    "error",
+  )
   set("status", "child", { type: "idle" })
   expect(delegatedTaskStatus(state, failed, "child")).toBe("error")
 })
@@ -143,15 +165,19 @@ test("spawned-thread rows only track their own pending, running, or failed invoc
   set("errors", "child", "Unrelated sibling error")
   const spawned = { ...taskPart("spawned", ""), tool: "spawn_thread" }
   for (const status of ["pending", "running"] as const) {
-    const toolState = status === "pending"
-      ? { status, input: {}, raw: "" }
-      : { status, input: {}, time: { start: 1 } }
+    const toolState = status === "pending" ? { status, input: {}, raw: "" } : { status, input: {}, time: { start: 1 } }
     expect(delegatedTaskStatus(state, { ...spawned, state: toolState }, "child")).toBe("running")
   }
-  expect(delegatedTaskStatus(state, {
-    ...spawned,
-    state: { status: "error", input: {}, error: "Spawn failed", time: { start: 1, end: 2 } },
-  }, "child")).toBe("error")
+  expect(
+    delegatedTaskStatus(
+      state,
+      {
+        ...spawned,
+        state: { status: "error", input: {}, error: "Spawn failed", time: { start: 1, end: 2 } },
+      },
+      "child",
+    ),
+  ).toBe("error")
 })
 
 test("only subagent tasks render child activity progress", async () => {
@@ -164,20 +190,28 @@ test("background completions belong to the invocation preceding them, including 
   const original = taskPart("original", '<task id="child" state="running">')
   const resumed = taskPart("resumed", '<task id="child" state="running">')
   const notification = (id: string, status: string) => ({
-    id, type: "text" as const, sessionID: "parent", messageID: "message", synthetic: true,
+    id,
+    type: "text" as const,
+    sessionID: "parent",
+    messageID: "message",
+    synthetic: true,
     text: `<task id="child" state="${status}">`,
   })
   const parts = [original, notification("first-result", "completed"), resumed]
   // Fresh stores exercise persisted history, not a component-local cache of the old result.
   for (const childStatus of ["busy", "retry", "idle"] as const) {
     const [state, set] = createEngineState()
-    set("transcripts", "parent", [{
-      info: { id: "message", sessionID: "parent", role: "assistant", time: { created: 1 } },
-      parts,
-    }] as never)
-    set("status", "child", childStatus === "retry"
-      ? { type: childStatus, attempt: 1, message: "retry", next: 10 }
-      : { type: childStatus })
+    set("transcripts", "parent", [
+      {
+        info: { id: "message", sessionID: "parent", role: "assistant", time: { created: 1 } },
+        parts,
+      },
+    ] as never)
+    set(
+      "status",
+      "child",
+      childStatus === "retry" ? { type: childStatus, attempt: 1, message: "retry", next: 10 } : { type: childStatus },
+    )
     expect(delegatedTaskStatus(state, original, "child")).toBe("completed")
     expect(delegatedTaskStatus(state, resumed, "child")).toBe("running")
     set("transcripts", "parent", 0, "parts", [...parts, notification("second-result", "error")])
@@ -189,10 +223,12 @@ test("background completions belong to the invocation preceding them, including 
 test("a result from an earlier invocation cannot settle a detached background card", async () => {
   const { delegatedTaskStatus } = await import("../src/ui/parts")
   const [state, set] = createEngineState()
-  set("transcripts", "parent", [{
-    info: { id: "old", sessionID: "parent", role: "assistant", time: { created: 1 } },
-    parts: [taskPart("old", '<task id="child" state="completed">')],
-  }] as never)
+  set("transcripts", "parent", [
+    {
+      info: { id: "old", sessionID: "parent", role: "assistant", time: { created: 1 } },
+      parts: [taskPart("old", '<task id="child" state="completed">')],
+    },
+  ] as never)
   expect(delegatedTaskStatus(state, taskPart("new", '<task id="child" state="running">'), "child")).toBe("running")
 })
 
@@ -201,16 +237,26 @@ test("background cards ignore another invocation's tool output while awaiting th
   const [state, set] = createEngineState()
   const background = taskPart("background", '<task id="child" state="running">')
   const later = taskPart("later", '<task id="child" state="completed">')
-  set("transcripts", "parent", [{
-    info: { id: "message", sessionID: "parent", role: "assistant", time: { created: 1 } },
-    parts: [background, later],
-  }] as never)
+  set("transcripts", "parent", [
+    {
+      info: { id: "message", sessionID: "parent", role: "assistant", time: { created: 1 } },
+      parts: [background, later],
+    },
+  ] as never)
   expect(delegatedTaskStatus(state, background, "child")).toBe("running")
   expect(delegatedTaskStatus(state, later, "child")).toBe("completed")
-  set("transcripts", "parent", 0, "parts", [background, later, {
-    id: "notification", type: "text", sessionID: "parent", messageID: "message", synthetic: true,
-    text: '<task id="child" state="error">',
-  }])
+  set("transcripts", "parent", 0, "parts", [
+    background,
+    later,
+    {
+      id: "notification",
+      type: "text",
+      sessionID: "parent",
+      messageID: "message",
+      synthetic: true,
+      text: '<task id="child" state="error">',
+    },
+  ])
   expect(delegatedTaskStatus(state, background, "child")).toBe("error")
   expect(delegatedTaskStatus(state, later, "child")).toBe("completed")
 })

@@ -74,7 +74,8 @@ export const dict = {
   "context.usage.cost": "Kostnad",
   "context.usage.clickToView": "Klikk for å se kontekst",
 
-  "toast.permissions.autoaccept.on.description": "Tillatelsesforespørsler godkjennes automatisk, unntatt hemmelige filer og alt utenfor arbeidsområdet",
+  "toast.permissions.autoaccept.on.description":
+    "Tillatelsesforespørsler godkjennes automatisk, unntatt hemmelige filer og alt utenfor arbeidsområdet",
 
   "error.page.action.updateTo": "Oppdater til {{version}}",
 
@@ -216,7 +217,7 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "Gjeldende modell",
   "drift.slash.argumentDetails": "Detaljer om {{name}}",
-  "drift.markdown.ambiguousCitation": "Tvetydig fillenke \"{{href}}\". Bruk en lengre sti for å velge mellom: {{files}}",
+  "drift.markdown.ambiguousCitation": 'Tvetydig fillenke "{{href}}". Bruk en lengre sti for å velge mellom: {{files}}',
   "drift.preview.settings.title": "Filforhåndsvisninger",
   "drift.preview.settings.mode": "Forhåndsvisningsmodus",
   "drift.preview.settings.description": "Velg hvilke filtyper som åpnes i en forhåndsvisning.",
@@ -252,10 +253,12 @@ export const drift = {
   "drift.remote.statusStarting": "Starter",
   "drift.remote.statusError": "Feil",
   "drift.remote.clipboardError": "Kunne ikke kopiere",
-  "drift.settings.shellTimeout.scope": "Shell-tidsavbrudd avslutter prosesstrær. De påvirker ikke modeller, MCP-servere eller nettverkskall.",
+  "drift.settings.shellTimeout.scope":
+    "Shell-tidsavbrudd avslutter prosesstrær. De påvirker ikke modeller, MCP-servere eller nettverkskall.",
   "drift.settings.toolExecution": "Verktøykjøring",
   "drift.settings.shellTimeout.title": "Tidsavbrudd for shell",
-  "drift.settings.shellTimeout.description": "Stopp shellkommandoer og underprosesser etter denne tiden. Endringer gjelder nye kall.",
+  "drift.settings.shellTimeout.description":
+    "Stopp shellkommandoer og underprosesser etter denne tiden. Endringer gjelder nye kall.",
   "drift.settings.shellTimeout.noTimeout": "Ingen tidsavbrudd",
   "drift.settings.shellTimeout.preset1": "1 minutt",
   "drift.settings.shellTimeout.preset5": "5 minutter",
@@ -275,13 +278,16 @@ export const drift = {
   "drift.settings.about": "Om",
   "drift.settings.toolErrors.title": "Utvid verktøyfeil som standard",
   "drift.settings.dayDividers.title": "Dagsskiller i sidefeltet",
-  "drift.settings.dayDividers.description": "Skill hvert arbeidsområdes tråder etter dagen de sist var aktive: I dag, I går og tidligere dager.",
+  "drift.settings.dayDividers.description":
+    "Skill hvert arbeidsområdes tråder etter dagen de sist var aktive: I dag, I går og tidligere dager.",
   "drift.sidebar.today": "I dag",
   "drift.sidebar.yesterday": "I går",
   "drift.settings.responseAnimation.title": "Jevn visning av svar",
-  "drift.settings.responseAnimation.description": "Vis store tekstblokker i aktive assistentsvar gradvis. Tidligere svar vises umiddelbart.",
+  "drift.settings.responseAnimation.description":
+    "Vis store tekstblokker i aktive assistentsvar gradvis. Tidligere svar vises umiddelbart.",
   "drift.settings.responseAnimation.speed.title": "Visningshastighet",
-  "drift.settings.responseAnimation.speed.description": "Velg hvor raskt aktiv assistenttekst skrives frem på skjermen.",
+  "drift.settings.responseAnimation.speed.description":
+    "Velg hvor raskt aktiv assistenttekst skrives frem på skjermen.",
   "drift.settings.responseAnimation.speed.value": "{{speed}} tegn/s",
   "drift.settings.toolErrors.description": "Velg starttilstand. Feilrader forblir klikkbare uansett.",
   "drift.settings.summaries": "Sammendrag",
@@ -393,7 +399,8 @@ export const drift = {
   "drift.lightbox.actualSize": "Faktisk størrelse",
   "drift.lightbox.image": "bilde",
   "drift.lightbox.resetZoom": "Tilbakestill zoom",
-  "drift.lightbox.controls": "Rull for å zoome. Dra for å flytte bildet. Dobbeltklikk for å zoome. Bruk +/- for å zoome, piltastene for å flytte, 0 for å tilpasse til visningen eller 1 for faktisk størrelse.",
+  "drift.lightbox.controls":
+    "Rull for å zoome. Dra for å flytte bildet. Dobbeltklikk for å zoome. Bruk +/- for å zoome, piltastene for å flytte, 0 for å tilpasse til visningen eller 1 for faktisk størrelse.",
   "drift.markdown.codeCopied": "Kode kopiert",
   "drift.markdown.copied": "Kopiert",
   "drift.markdown.copyCode": "Kopier kode",
@@ -401,7 +408,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "Fjern?",
   "drift.permission.always": "Tillat alltid i dette arbeidsområdet",
   "drift.mcp.enable": "Aktiver {{name}}",
-  "drift.prompt.tooLarge": "Sending mislyktes: vedleggene er på {{size}}, mer enn de {{limit}} én melding kan bære. Send færre eller mindre filer.",
+  "drift.prompt.tooLarge":
+    "Sending mislyktes: vedleggene er på {{size}}, mer enn de {{limit}} én melding kan bære. Send færre eller mindre filer.",
   "drift.mcp.status.offHere": "av i dette arbeidsområdet",
   "drift.mcp.scope.chosen": "på bare for dette arbeidsområdet",
   "drift.mcp.scope.elsewhere": "på i andre arbeidsområder",
@@ -414,7 +422,8 @@ export const drift = {
   "drift.plugins.tab.installed": "Installert",
   "drift.plugins.tab.registry": "Register",
   "drift.plugins.registrySearch": "Søk i programtillegg",
-  "drift.plugins.registrySource": "Fra Drift-Plugins-registeret på GitHub. Hvert er en WebAssembly-komponent i sandkasse; nedlastingen kontrolleres mot registerets hash.",
+  "drift.plugins.registrySource":
+    "Fra Drift-Plugins-registeret på GitHub. Hvert er en WebAssembly-komponent i sandkasse; nedlastingen kontrolleres mot registerets hash.",
   "drift.plugins.registryLoadFailed": "Registeret kunne ikke lastes.",
   "drift.plugins.registryEmpty": "Ingen programtillegg passer.",
   "drift.plugins.category": "Kategori",
@@ -432,7 +441,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "Fjerne?",
   "drift.plugins.removed": "{{name}} ble fjernet.",
   "drift.plugins.source": "Kilde",
-  "drift.plugins.configNote": "Innstillinger skrives til tilleggets oppføring i drift.json. Endre dem senere fra fanen Installert.",
+  "drift.plugins.configNote":
+    "Innstillinger skrives til tilleggets oppføring i drift.json. Endre dem senere fra fanen Installert.",
   "drift.plugins.fieldType.string": "tekst",
   "drift.plugins.fieldType.list": "kommadelt",
   "drift.plugins.fieldType.number": "tall",
@@ -447,10 +457,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "GitHub-repository",
   "drift.registry.sources.kind.azure_devops": "Azure DevOps-repository",
   "drift.registry.sources.kind.folder": "Mappe eller delt område",
-  "drift.registry.sources.kindHint.url": "Et JSON-dokument på en URL; nedlastinger kommer fra der dokumentet peker. Et token sendes bare til den verten.",
-  "drift.registry.sources.kindHint.github": "En fil i et repository, privat med token (et finkornet token med lesing av Contents holder). Nedlastinger i repositoryet bruker også tokenet.",
-  "drift.registry.sources.kindHint.azure_devops": "En fil i et Azure DevOps Git-repository, med et personlig tilgangstoken med Code (Read). Lim inn repositoryets web-URL.",
-  "drift.registry.sources.kindHint.folder": "En mappe på denne maskinen eller et nettverksområde med dokumentet og filene det nevner ved siden av. Ingen server.",
+  "drift.registry.sources.kindHint.url":
+    "Et JSON-dokument på en URL; nedlastinger kommer fra der dokumentet peker. Et token sendes bare til den verten.",
+  "drift.registry.sources.kindHint.github":
+    "En fil i et repository, privat med token (et finkornet token med lesing av Contents holder). Nedlastinger i repositoryet bruker også tokenet.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "En fil i et Azure DevOps Git-repository, med et personlig tilgangstoken med Code (Read). Lim inn repositoryets web-URL.",
+  "drift.registry.sources.kindHint.folder":
+    "En mappe på denne maskinen eller et nettverksområde med dokumentet og filene det nevner ved siden av. Ingen server.",
   "drift.registry.sources.location.github": "Repository-URL",
   "drift.registry.sources.location.azure_devops": "Repository-URL",
   "drift.registry.sources.location.folder": "Mappe",
@@ -465,16 +479,22 @@ export const drift = {
   "drift.registry.sources.token.url": "Bearer-token",
   "drift.registry.sources.token.github": "Tilgangstoken",
   "drift.registry.sources.token.azure_devops": "Personlig tilgangstoken",
-  "drift.registry.sources.tokenHint": "Lagres i Drifts legitimasjonslager, aldri i en fil; la stå tomt for en offentlig kilde.",
-  "drift.registry.sources.tokenKept": "Et token er lagret. Skriv et nytt for å erstatte det, eller tøm feltet for å fjerne det.",
+  "drift.registry.sources.tokenHint":
+    "Lagres i Drifts legitimasjonslager, aldri i en fil; la stå tomt for en offentlig kilde.",
+  "drift.registry.sources.tokenKept":
+    "Et token er lagret. Skriv et nytt for å erstatte det, eller tøm feltet for å fjerne det.",
   "drift.registry.sources.hasToken": "Har et token",
   "drift.registry.sources.allowHttp": "Tillat ukryptert http",
-  "drift.registry.sources.allowHttpHint": "Alle på nettverksveien kan lese eller endre det som hentes. Bare for en intern kilde uten https.",
+  "drift.registry.sources.allowHttpHint":
+    "Alle på nettverksveien kan lese eller endre det som hentes. Bare for en intern kilde uten https.",
   "drift.registry.sources.caPem": "Ekstra rotsertifikat",
-  "drift.registry.sources.caPemHint": "PEM for en intern CA å stole på for denne kilden, for en server hvis sertifikat maskinen din ikke kjenner.",
+  "drift.registry.sources.caPemHint":
+    "PEM for en intern CA å stole på for denne kilden, for en server hvis sertifikat maskinen din ikke kjenner.",
   "drift.registry.sources.yours": "Fra kildene dine",
-  "drift.registry.sources.pluginsDescription": "Registre i tillegg til Drifts eget. Et team publiserer programtilleggene sine på én https-URL, og alle installerer dem herfra.",
-  "drift.registry.sources.mcpDescription": "Registre i tillegg til GitHubs og det offisielle. Et team publiserer MCP-serverne det standardiserer på, på én https-URL, og alle installerer dem herfra.",
+  "drift.registry.sources.pluginsDescription":
+    "Registre i tillegg til Drifts eget. Et team publiserer programtilleggene sine på én https-URL, og alle installerer dem herfra.",
+  "drift.registry.sources.mcpDescription":
+    "Registre i tillegg til GitHubs og det offisielle. Et team publiserer MCP-serverne det standardiserer på, på én https-URL, og alle installerer dem herfra.",
   "drift.registry.sources.empty": "Ingen kilder lagt til.",
   "drift.registry.sources.add": "Legg til en kilde",
   "drift.registry.sources.addButton": "Legg til",
@@ -483,17 +503,22 @@ export const drift = {
   "drift.registry.sources.remove": "Fjern kilde",
   "drift.registry.sources.loadFailed": "Kildene dine kunne ikke leses.",
   "drift.registry.sources.failed": "{{name}} kunne ikke lastes: {{error}}",
-  "drift.registry.sources.pluginsFormat": "Et JSON-dokument i Drift-Plugins sitt registry.json-format: hvert tillegg med nedlastings-URL og SHA-256.",
-  "drift.registry.sources.mcpFormat": "Et JSON-dokument i MCP-registerets format: en servers-liste, slik det offisielle registerets API returnerer den.",
-  "drift.plugins.registrySourceWithOwn": "Fra kildene dine og Drift-Plugins-registeret på GitHub. Hvert er en WebAssembly-komponent i sandkasse; nedlastingen kontrolleres mot registerets hash.",
+  "drift.registry.sources.pluginsFormat":
+    "Et JSON-dokument i Drift-Plugins sitt registry.json-format: hvert tillegg med nedlastings-URL og SHA-256.",
+  "drift.registry.sources.mcpFormat":
+    "Et JSON-dokument i MCP-registerets format: en servers-liste, slik det offisielle registerets API returnerer den.",
+  "drift.plugins.registrySourceWithOwn":
+    "Fra kildene dine og Drift-Plugins-registeret på GitHub. Hvert er en WebAssembly-komponent i sandkasse; nedlastingen kontrolleres mot registerets hash.",
   "drift.plugins.configRaw": "Innstillingene til dette tillegget som JSON; ingen register beskriver feltene.",
   "drift.plugins.saving": "Lagrer...",
   "drift.plugins.saved": "Innstillingene til {{name}} ble lagret.",
-  "drift.plugins.packNote": "Markdown-skills, pakket ut i {{folder}}. Drift tilbyr dem til modellen som dine egne skills; en pakke kjører ingen kode, men teksten når modellen, så installer bare pakker du stoler på.",
+  "drift.plugins.packNote":
+    "Markdown-skills, pakket ut i {{folder}}. Drift tilbyr dem til modellen som dine egne skills; en pakke kjører ingen kode, men teksten når modellen, så installer bare pakker du stoler på.",
   "drift.settings.skills": "Skills",
   "drift.skills.mixed": "Noen på, noen av",
   "drift.skills.packs": "Skill-pakker",
-  "drift.skills.empty": "Ingen skills ennå. Legg en mappe med SKILL.md under {{folder}}, eller installer en fra registeret.",
+  "drift.skills.empty":
+    "Ingen skills ennå. Legg en mappe med SKILL.md under {{folder}}, eller installer en fra registeret.",
   "drift.skills.packCount": "{{on}} av {{count}} på",
   "drift.skills.count": "{{count}} skills",
   "drift.skills.single": "én skill",
@@ -503,15 +528,19 @@ export const drift = {
   "drift.skills.reinstall": "Installer på nytt",
   "drift.skills.installed": "{{name}} er installert med {{count}} skills; de tilbys fra neste tur.",
   "drift.skills.registrySearch": "Søk i skills",
-  "drift.skills.registrySource": "Fra Drift-Plugins-registeret på GitHub. En skill er Markdown som modellen leser; ingenting kjører.",
-  "drift.skills.registrySourceWithOwn": "Fra kildene dine og Drift-Plugins-registeret på GitHub. En skill er Markdown som modellen leser; ingenting kjører.",
+  "drift.skills.registrySource":
+    "Fra Drift-Plugins-registeret på GitHub. En skill er Markdown som modellen leser; ingenting kjører.",
+  "drift.skills.registrySourceWithOwn":
+    "Fra kildene dine og Drift-Plugins-registeret på GitHub. En skill er Markdown som modellen leser; ingenting kjører.",
   "drift.plugins.reload": "Last på nytt",
   "drift.plugins.loading": "Laster programtillegg...",
-  "drift.plugins.empty": "Ingen programtillegg. Før opp WebAssembly-komponenter under \"plugins\" i {{path}}, og last på nytt.",
+  "drift.plugins.empty":
+    'Ingen programtillegg. Før opp WebAssembly-komponenter under "plugins" i {{path}}, og last på nytt.',
   "drift.plugins.file": "Oppført i {{path}}",
   "drift.settings.permissions": "Tillatelser",
   "drift.permissions.rules": "Regler for alle arbeidsområder",
-  "drift.permissions.rulesDescription": "Gjelder i alle arbeidsområder, etter reglene i områdets drift.json. Den første regelen som passer, avgjør.",
+  "drift.permissions.rulesDescription":
+    "Gjelder i alle arbeidsområder, etter reglene i områdets drift.json. Den første regelen som passer, avgjør.",
   "drift.permissions.empty": "Ingen regler ennå. Drifts standarder gjelder.",
   "drift.permissions.add": "Legg til regel",
   "drift.permissions.kind": "Type",
@@ -542,7 +571,8 @@ export const drift = {
   "drift.permissions.grant.folder": "{{folder}} og alt i den",
   "drift.permission.alwaysCovers": "Tillater alltid: {{what}}",
   "drift.permission.reason.outside": "Spør fordi kommandoen går utenfor arbeidsområdet.",
-  "drift.permission.reason.unresolved": "Spør fordi den bruker en variabel eller ~ som Drift ikke kan lese før kjøring.",
+  "drift.permission.reason.unresolved":
+    "Spør fordi den bruker en variabel eller ~ som Drift ikke kan lese før kjøring.",
   "drift.permission.reason.secret": "Spør fordi den nevner en fil som kan inneholde hemmeligheter.",
   "drift.permission.reason.searches": "Spør fordi et rekursivt søk også ville lese hemmelige filer.",
   "drift.permission.reason.beyondUndo": "Spør fordi angre ikke kan sette dette tilbake.",
@@ -575,7 +605,8 @@ export const drift = {
   "drift.settings.prompts.family.all": "Alle modeller",
   "drift.settings.prompts.family.codex": "GPT og Codex",
   "drift.settings.prompts.family.default": "Andre modeller",
-  "drift.settings.prompts.allDescription": "Erstatter grunnprompten for alle modeller der familien ikke har sin egen erstatning.",
+  "drift.settings.prompts.allDescription":
+    "Erstatter grunnprompten for alle modeller der familien ikke har sin egen erstatning.",
   "drift.settings.prompts.allPlaceholder": "Tom: hver modellfamilie bruker sin egen prompt.",
   "drift.provider.pasteCode": "Lim inn autorisasjonskoden fra nettleseren.",
   "drift.provider.enterCode": "Skriv inn denne koden i nettleseren",
@@ -634,7 +665,8 @@ export const drift = {
   "drift.provider.browser": "nettleser",
   "drift.provider.connectFailed": "Kunne ikke koble til {{provider}}. Kontroller legitimasjonen og prøv igjen.",
   "drift.provider.connected": "{{provider}} er tilkoblet. Legitimasjonen er lagret.",
-  "drift.provider.credentialRemovedStillConnected": "Den lagrede legitimasjonen for {{provider}} ble fjernet, men tilkoblingen via miljø eller konfigurasjon er fortsatt aktiv.",
+  "drift.provider.credentialRemovedStillConnected":
+    "Den lagrede legitimasjonen for {{provider}} ble fjernet, men tilkoblingen via miljø eller konfigurasjon er fortsatt aktiv.",
   "drift.provider.disconnectFailed": "Kunne ikke koble fra {{provider}}. Prøv igjen.",
   "drift.provider.disconnected": "{{provider}} er frakoblet. Lagret legitimasjon er fjernet.",
   "drift.provider.disconnecting": "Kobler fra...",
@@ -724,7 +756,8 @@ export const drift = {
   "drift.tool.subtask": "Deloppgave",
   "drift.tool.task": "Oppgave",
   "drift.voice.input.description": "Velg mikrofonen som skal brukes til nye dikteringsopptak.",
-  "drift.voice.input.missing": "Den lagrede mikrofonen er utilgjengelig. Systemstandard brukes til den kobles til igjen.",
+  "drift.voice.input.missing":
+    "Den lagrede mikrofonen er utilgjengelig. Systemstandard brukes til den kobles til igjen.",
   "drift.voice.input.systemDefault": "Systemstandard",
   "drift.voice.input.title": "Inndataenhet",
   "drift.voice.input.unnamed": "Mikrofon {{index}}",

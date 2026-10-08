@@ -1,47 +1,106 @@
-import { afterEach, expect, mock, test } from "bun:test"
-import * as ts from "typescript"
-import * as solid from "solid-js/dist/solid.js"
-import { previewParentDirectory } from "../src/file-preview"
 import { filePreviewLimits, filePreviewMime, filePreviewType } from "../src/file-preview-types"
 import { classifyMarkdownLink } from "../src/ui/markdown-links"
+import { previewParentDirectory } from "../src/file-preview"
+import { afterEach, expect, mock, test } from "bun:test"
+import * as solid from "solid-js/dist/solid.js"
+import * as ts from "typescript"
 
 const source = await Bun.file(new URL("../src/ui/markdown-document.tsx", import.meta.url)).text()
 const helperSource = await Bun.file(new URL("../src/ui/markdown-images.ts", import.meta.url)).text()
 const markdown = await Bun.file(new URL("../src/ui/markdown.tsx", import.meta.url)).text()
 const helper = ts.createSourceFile("markdown-images.ts", helperSource, ts.ScriptTarget.Latest, true)
 const parsed = ts.createSourceFile("document.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-const component = parsed.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "MarkdownDocument")!
+const component = parsed.statements.find(
+  (node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "MarkdownDocument",
+)!
 const statements = component.body!.statements
 const executable = `function MarkdownDocument(props) {
-  ${statements.slice(0, -1).map((node) => node.getText(parsed)).join("\n")}
+  ${statements
+    .slice(0, -1)
+    .map((node) => node.getText(parsed))
+    .join("\n")}
   root = dom;
 }`
-const compile = new Function("solid", "dom", "readFilePreview", "previewParentDirectory", "filePreviewLimits", "filePreviewMime", "filePreviewType", "classifyMarkdownLink", "shouldPreviewFile", "MutationObserver", "URL", "requestAnimationFrame", "cancelAnimationFrame", "openLightbox", `
+const compile = new Function(
+  "solid",
+  "dom",
+  "readFilePreview",
+  "previewParentDirectory",
+  "filePreviewLimits",
+  "filePreviewMime",
+  "filePreviewType",
+  "classifyMarkdownLink",
+  "shouldPreviewFile",
+  "MutationObserver",
+  "URL",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "openLightbox",
+  `
   const { createEffect, onCleanup } = solid;
-  ${ts.transpileModule(helper.statements.filter((node) => !ts.isImportDeclaration(node)).map((node) => node.getText(helper).replace(/^export /, "")).join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText}
+  ${
+    ts.transpileModule(
+      helper.statements
+        .filter((node) => !ts.isImportDeclaration(node))
+        .map((node) => node.getText(helper).replace(/^export /, ""))
+        .join("\n"),
+      { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
+    ).outputText
+  }
   ${ts.transpileModule(executable, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText}
   return { MarkdownDocument, observeMarkdownImages };
-`)
+`,
+)
 const disposals: (() => void)[] = []
-afterEach(() => { for (const dispose of disposals.splice(0)) dispose() })
-async function flush() { for (let index = 0; index < 12; index++) await Promise.resolve() }
+afterEach(() => {
+  for (const dispose of disposals.splice(0)) dispose()
+})
+async function flush() {
+  for (let index = 0; index < 12; index++) await Promise.resolve()
+}
 
 function image(raw: string) {
-  const attributes = new Map([["data-document-image", raw], ["alt", "diagram"]])
+  const attributes = new Map([
+    ["data-document-image", raw],
+    ["alt", "diagram"],
+  ])
   return {
-    title: "", onload: null as (() => void) | null, onerror: null as (() => void) | null,
-    complete: true, naturalWidth: 1, linked: false,
-    closest(selector: string): unknown { return selector === "img" ? this : this.linked ? {} : null },
+    title: "",
+    onload: null as (() => void) | null,
+    onerror: null as (() => void) | null,
+    complete: true,
+    naturalWidth: 1,
+    linked: false,
+    closest(selector: string): unknown {
+      return selector === "img" ? this : this.linked ? {} : null
+    },
     focus: mock((_options: unknown) => {}),
-    get src() { return attributes.get("src") ?? "" },
-    set src(value: string) { attributes.set("src", value) },
+    get src() {
+      return attributes.get("src") ?? ""
+    },
+    set src(value: string) {
+      attributes.set("src", value)
+    },
     getAttribute: (name: string) => attributes.get(name) ?? null,
-    setAttribute: (name: string, value: string) => { attributes.set(name, value) },
-    removeAttribute: mock((name: string) => { attributes.delete(name) }),
+    setAttribute: (name: string, value: string) => {
+      attributes.set(name, value)
+    },
+    removeAttribute: mock((name: string) => {
+      attributes.delete(name)
+    }),
   }
 }
 
-function setup(raw: string[], options: { enabled?: boolean; hash?: string; size?: number; pending?: boolean; input?: { parent?: string; directory?: string; enabled: boolean; hash?: string; interactive?: boolean } } = {}) {
+function setup(
+  raw: string[],
+  options: {
+    enabled?: boolean
+    hash?: string
+    size?: number
+    pending?: boolean
+    input?: { parent?: string; directory?: string; enabled: boolean; hash?: string; interactive?: boolean }
+  } = {},
+) {
   const images = raw.map(image)
   const heading = { id: "heading-1", scrollIntoView: mock(() => {}) }
   const listeners = new Map<string, Set<() => void>>()
@@ -58,8 +117,13 @@ function setup(raw: string[], options: { enabled?: boolean; hash?: string; size?
   }
   let nextFrame = 0
   const frames = new Map<number, () => void>()
-  const requestFrame = mock((callback: () => void) => { frames.set(++nextFrame, callback); return nextFrame })
-  const cancelFrame = mock((id: number) => { frames.delete(id) })
+  const requestFrame = mock((callback: () => void) => {
+    frames.set(++nextFrame, callback)
+    return nextFrame
+  })
+  const cancelFrame = mock((id: number) => {
+    frames.delete(id)
+  })
   const frame = () => {
     const callbacks = [...frames.values()]
     frames.clear()
@@ -70,56 +134,138 @@ function setup(raw: string[], options: { enabled?: boolean; hash?: string; size?
   const dom = {
     images,
     ownerDocument,
-    querySelectorAll: (selector: string) => selector === "[id]" ? [heading] : selector === "img" ? dom.images : dom.images.filter((item) => item.getAttribute("data-document-image") !== null),
-    contains: (item: unknown) => dom.images.includes(item as typeof images[number]),
+    querySelectorAll: (selector: string) =>
+      selector === "[id]"
+        ? [heading]
+        : selector === "img"
+          ? dom.images
+          : dom.images.filter((item) => item.getAttribute("data-document-image") !== null),
+    contains: (item: unknown) => dom.images.includes(item as (typeof images)[number]),
     addEventListener: (type: string, callback: (event: unknown) => void) => events.set(type, callback),
     removeEventListener: (type: string) => events.delete(type),
   }
   const loads: { resolve: (value: { kind: string; bytes: Uint8Array }) => void; reject: (error: Error) => void }[] = []
-  const read = mock((_request: { path: string; directory: string }) => new Promise((resolve, reject) => {
-    loads.push({ resolve, reject })
-    if (!options.pending) resolve({ kind: "image", bytes: new Uint8Array(options.size ?? 3) })
-  }))
+  const read = mock(
+    (_request: { path: string; directory: string }) =>
+      new Promise((resolve, reject) => {
+        loads.push({ resolve, reject })
+        if (!options.pending) resolve({ kind: "image", bytes: new Uint8Array(options.size ?? 3) })
+      }),
+  )
   let notify!: () => void
   const observe = mock(() => {})
   const disconnect = mock(() => {})
   class Observer {
-    constructor(callback: () => void) { notify = callback }
+    constructor(callback: () => void) {
+      notify = callback
+    }
     observe = observe
     disconnect = disconnect
   }
   let sequence = 0
-  const urls = { createObjectURL: mock((_blob: Blob) => `blob:owned-${++sequence}`), revokeObjectURL: mock((_url: string) => {}) }
+  const urls = {
+    createObjectURL: mock((_blob: Blob) => `blob:owned-${++sequence}`),
+    revokeObjectURL: mock((_url: string) => {}),
+  }
   const [text, setText] = solid.createSignal("initial")
   const [hash, setHash] = solid.createSignal(options.hash)
   const [directory, setDirectory] = solid.createSignal("C:/work")
-  const { MarkdownDocument, observeMarkdownImages } = compile(solid, dom, read, previewParentDirectory, filePreviewLimits, filePreviewMime, filePreviewType, classifyMarkdownLink, () => options.enabled !== false, Observer, urls, requestFrame, cancelFrame, open)
+  const { MarkdownDocument, observeMarkdownImages } = compile(
+    solid,
+    dom,
+    read,
+    previewParentDirectory,
+    filePreviewLimits,
+    filePreviewMime,
+    filePreviewType,
+    classifyMarkdownLink,
+    () => options.enabled !== false,
+    Observer,
+    urls,
+    requestFrame,
+    cancelFrame,
+    open,
+  )
   let dispose!: () => void
   solid.createRoot((cleanup: () => void) => {
     dispose = cleanup
     if (options.input) solid.onCleanup(observeMarkdownImages(dom, options.input))
-    else MarkdownDocument({ get text() { return text() }, path: "C:/work/docs/notes.md", get directory() { return directory() }, get hash() { return hash() } })
+    else
+      MarkdownDocument({
+        get text() {
+          return text()
+        },
+        path: "C:/work/docs/notes.md",
+        get directory() {
+          return directory()
+        },
+        get hash() {
+          return hash()
+        },
+      })
   })
   disposals.push(dispose)
-  return { images, dom, read, loads, urls, observe, disconnect, heading, setText, setHash, setDirectory, dispose, frames, frame, requestFrame, cancelFrame, listeners, open, events,
+  return {
+    images,
+    dom,
+    read,
+    loads,
+    urls,
+    observe,
+    disconnect,
+    heading,
+    setText,
+    setHash,
+    setDirectory,
+    dispose,
+    frames,
+    frame,
+    requestFrame,
+    cancelFrame,
+    listeners,
+    open,
+    events,
     activate: (options: Record<string, unknown> = {}) => {
-      const event = { type: "click", button: 0, target: dom.images[0], preventDefault: mock(() => {}), stopPropagation: mock(() => {}), ...options }
+      const event = {
+        type: "click",
+        button: 0,
+        target: dom.images[0],
+        preventDefault: mock(() => {}),
+        stopPropagation: mock(() => {}),
+        ...options,
+      }
       events.get(event.type)?.(event)
       return event
     },
-    interact: (type: string) => { for (const callback of listeners.get(type) ?? []) callback() }, notify: () => notify() }
+    interact: (type: string) => {
+      for (const callback of listeners.get(type) ?? []) callback()
+    },
+    notify: () => notify(),
+  }
 }
 
 test("wrapper passes the document parent and original workspace root to Markdown", () => {
   const markup = statements.at(-1)!.getText(parsed)
-  expect(markup).toContain("directory={previewParentDirectory(props.path)}")
-  expect(markup).toContain("workspaceDirectory={props.directory} documentPreview done")
-  expect(markdown).toContain("props.documentPreview ? props.text : prepareMarkdown")
-  expect(markdown).toContain("if (documentPreview) return sanitizeMarkdownDocumentHtml(html)")
+  expect(markup).toContainCode("directory={previewParentDirectory(props.path)}")
+  expect(markup).toContainCode("workspaceDirectory={props.directory} documentPreview done")
+  expect(markdown).toContainCode("props.documentPreview ? props.text : prepareMarkdown")
+  expect(markdown).toContainCode("if (documentPreview) return sanitizeMarkdownDocumentHtml(html)")
 })
 
 test("only local images reach the bounded reader, always retaining the workspace root", async () => {
-  const view = setup(["./diagram.png", "../../outside.png", "file:///C:/work/logo.svg", "https://example.com/x.png", "//example.com/x.png", "data:image/png;base64,eA==", "blob:forged", "file://server/share/x.png", "\\\\server\\share\\x.png", "file:///C:/work/run.cmd", "#heading"])
+  const view = setup([
+    "./diagram.png",
+    "../../outside.png",
+    "file:///C:/work/logo.svg",
+    "https://example.com/x.png",
+    "//example.com/x.png",
+    "data:image/png;base64,eA==",
+    "blob:forged",
+    "file://server/share/x.png",
+    "\\\\server\\share\\x.png",
+    "file:///C:/work/run.cmd",
+    "#heading",
+  ])
   await flush()
   expect(view.read.mock.calls).toEqual([
     [{ path: "C:/work/docs/diagram.png", directory: "C:/work" }],
@@ -140,9 +286,14 @@ test("image preference disables automatic reads without opening anything", async
 })
 
 test("static HTML images load without adding lightbox controls to the document", async () => {
-  const view = setup(["./renders/view%20one.png"], { input: {
-    parent: "C:/work/docs", directory: "C:/work", enabled: true, interactive: false,
-  } })
+  const view = setup(["./renders/view%20one.png"], {
+    input: {
+      parent: "C:/work/docs",
+      directory: "C:/work",
+      enabled: true,
+      interactive: false,
+    },
+  })
   await flush()
   expect(view.read.mock.calls).toEqual([[{ path: "C:/work/docs/renders/view one.png", directory: "C:/work" }]])
   expect(view.images[0].src).toBe("blob:owned-1")
@@ -153,33 +304,50 @@ test("static HTML images load without adding lightbox controls to the document",
   expect(view.urls.revokeObjectURL.mock.calls).toEqual([["blob:owned-1"]])
 })
 
-test.each([{}, { type: "keydown", key: "Enter" }, { type: "keydown", key: " " }])("local images open the lightbox with owned bytes and keyboard access: %j", async (event) => {
-  const view = setup(["image.png"])
-  await flush()
-  const target = view.images[0]
-  expect(target.getAttribute("role")).toBe("button")
-  expect(target.getAttribute("tabindex")).toBe("0")
-  expect(target.getAttribute("class")).toContain("cursor-zoom-in")
-  const click = view.activate(event)
-  expect(click.preventDefault).toHaveBeenCalled()
-  expect(click.stopPropagation).toHaveBeenCalled()
-  expect(target.focus).toHaveBeenCalledWith({ preventScroll: true })
-  expect(view.open).toHaveBeenCalledWith({ url: "blob:owned-1", blob: view.urls.createObjectURL.mock.calls[0][0], filename: "diagram", mime: "image/png" })
-  expect(view.read).toHaveBeenCalledTimes(1)
-  const late = view.events.get("click")!
-  view.dispose()
-  late(click)
-  expect(view.open).toHaveBeenCalledTimes(1)
-  expect(view.events.size).toBe(0)
-  expect(target.getAttribute("role")).toBeNull()
-  expect(target.getAttribute("tabindex")).toBeNull()
-  expect(target.getAttribute("class")).toBeNull()
-})
+test.each([{}, { type: "keydown", key: "Enter" }, { type: "keydown", key: " " }])(
+  "local images open the lightbox with owned bytes and keyboard access: %j",
+  async (event) => {
+    const view = setup(["image.png"])
+    await flush()
+    const target = view.images[0]
+    expect(target.getAttribute("role")).toBe("button")
+    expect(target.getAttribute("tabindex")).toBe("0")
+    expect(target.getAttribute("class")).toContain("cursor-zoom-in")
+    const click = view.activate(event)
+    expect(click.preventDefault).toHaveBeenCalled()
+    expect(click.stopPropagation).toHaveBeenCalled()
+    expect(target.focus).toHaveBeenCalledWith({ preventScroll: true })
+    expect(view.open).toHaveBeenCalledWith({
+      url: "blob:owned-1",
+      blob: view.urls.createObjectURL.mock.calls[0][0],
+      filename: "diagram",
+      mime: "image/png",
+    })
+    expect(view.read).toHaveBeenCalledTimes(1)
+    const late = view.events.get("click")!
+    view.dispose()
+    late(click)
+    expect(view.open).toHaveBeenCalledTimes(1)
+    expect(view.events.size).toBe(0)
+    expect(target.getAttribute("role")).toBeNull()
+    expect(target.getAttribute("tabindex")).toBeNull()
+    expect(target.getAttribute("class")).toBeNull()
+  },
+)
 
 test("linked, unavailable, detached, modified, and repeated image clicks do not open the lightbox", async () => {
   const view = setup(["image.png"])
   await flush()
-  for (const options of [{ button: 1 }, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { defaultPrevented: true }, { type: "keydown", key: "Escape" }, { type: "keydown", key: "Enter", repeat: true }]) {
+  for (const options of [
+    { button: 1 },
+    { ctrlKey: true },
+    { metaKey: true },
+    { shiftKey: true },
+    { altKey: true },
+    { defaultPrevented: true },
+    { type: "keydown", key: "Escape" },
+    { type: "keydown", key: "Enter", repeat: true },
+  ]) {
     expect(view.activate(options).preventDefault).not.toHaveBeenCalled()
   }
   const target = view.images[0]
@@ -240,7 +408,10 @@ test.each([
 })
 
 test("reads are sequential, capped at 12, and mutations cannot re-read existing images", async () => {
-  const view = setup(Array.from({ length: 15 }, (_, index) => `${index}.png`), { pending: true })
+  const view = setup(
+    Array.from({ length: 15 }, (_, index) => `${index}.png`),
+    { pending: true },
+  )
   await flush()
   expect(view.read).toHaveBeenCalledTimes(1)
   view.notify()
@@ -426,20 +597,23 @@ test("initial hash re-aligns only after actual image loads, for two settling fra
   expect(view.read).toHaveBeenCalledTimes(2)
 })
 
-test.each(["wheel", "touchstart", "pointerdown", "keydown", "click"])("%s permanently cancels queued and future image alignment", async (type) => {
-  const view = setup(["first.png", "second.png"], { hash: "heading-1" })
-  await flush()
-  view.images[0].onload!()
-  const lateFrame = [...view.frames.values()][0]
-  view.interact(type)
-  expect(view.frames.size).toBe(0)
-  lateFrame()
-  view.images[1].onload!()
-  view.notify()
-  view.frame()
-  expect(view.heading.scrollIntoView).toHaveBeenCalledTimes(1)
-  expect(view.requestFrame).toHaveBeenCalledTimes(1)
-})
+test.each(["wheel", "touchstart", "pointerdown", "keydown", "click"])(
+  "%s permanently cancels queued and future image alignment",
+  async (type) => {
+    const view = setup(["first.png", "second.png"], { hash: "heading-1" })
+    await flush()
+    view.images[0].onload!()
+    const lateFrame = [...view.frames.values()][0]
+    view.interact(type)
+    expect(view.frames.size).toBe(0)
+    lateFrame()
+    view.images[1].onload!()
+    view.notify()
+    view.frame()
+    expect(view.heading.scrollIntoView).toHaveBeenCalledTimes(1)
+    expect(view.requestFrame).toHaveBeenCalledTimes(1)
+  },
+)
 
 test("input before initial rendering prevents even the initial hash jump", async () => {
   const view = setup(["first.png"], { hash: "heading-1" })
@@ -464,7 +638,10 @@ test("no-image baseline and missing hashes do not schedule alignment work", asyn
 })
 
 test("image errors settle layout too, but never exceed the shared 24-frame budget", async () => {
-  const view = setup(Array.from({ length: 12 }, (_, index) => `${index}.png`), { hash: "heading-1" })
+  const view = setup(
+    Array.from({ length: 12 }, (_, index) => `${index}.png`),
+    { hash: "heading-1" },
+  )
   await flush()
   for (const image of view.images) {
     image.onload!()
@@ -493,8 +670,10 @@ test("unmount and replacement clean up handlers, listeners and frames, ignoring 
     const lateError = view.images[1].onerror!
     view.images[0].onload!()
     const lateFrame = [...view.frames.values()][0]
-    if (replace) { view.dom.images = []; view.setText("replacement") }
-    else view.dispose()
+    if (replace) {
+      view.dom.images = []
+      view.setText("replacement")
+    } else view.dispose()
     const scrolls = view.heading.scrollIntoView.mock.calls.length
     lateLoad()
     lateError()
@@ -525,34 +704,84 @@ test("detached image callbacks cannot align and mutation cleanup removes their h
 
 test("preview sanitizer hooks strip forged markers and generate collision-safe heading IDs", () => {
   const ast = ts.createSourceFile("markdown.tsx", markdown, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-  const sanitizer = ast.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "sanitizeMarkdownDocumentHtml")!
+  const sanitizer = ast.statements.find(
+    (node): node is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(node) && node.name?.text === "sanitizeMarkdownDocumentHtml",
+  )!
   const hooks = new Map<string, (node: any, attribute?: any) => void>()
   let config: any
   class Element {
     nodeName = "IMG"
     namespaceURI = "http://www.w3.org/1999/xhtml"
     attributes = new Map<string, string>()
-    getAttribute(name: string) { return this.attributes.get(name) ?? null }
-    removeAttribute(name: string) { this.attributes.delete(name) }
-    setAttribute(name: string, value: string) { this.attributes.set(name, value) }
+    getAttribute(name: string) {
+      return this.attributes.get(name) ?? null
+    }
+    removeAttribute(name: string) {
+      this.attributes.delete(name)
+    }
+    setAttribute(name: string, value: string) {
+      this.attributes.set(name, value)
+    }
   }
-  const headings = ["Hello World", "Hello World", "hello-world-1", "!!!", "!!!", "Caf\u00e9"].map((textContent) => ({ textContent, id: "forged" }))
+  const headings = ["Hello World", "Hello World", "hello-world-1", "!!!", "!!!", "Caf\u00e9"].map((textContent) => ({
+    textContent,
+    id: "forged",
+  }))
   const purifier = {
-    addHook: (name: string, callback: typeof hooks extends Map<string, infer T> ? T : never) => hooks.set(name, callback),
-    sanitize: (_html: string, options: unknown) => { config = options; return { querySelectorAll: () => headings } },
+    addHook: (name: string, callback: typeof hooks extends Map<string, infer T> ? T : never) =>
+      hooks.set(name, callback),
+    sanitize: (_html: string, options: unknown) => {
+      config = options
+      return { querySelectorAll: () => headings }
+    },
   }
-  const run = new Function("DOMPurify", "window", "document", "classifyMarkdownLink", `
+  const run = new Function(
+    "DOMPurify",
+    "window",
+    "document",
+    "classifyMarkdownLink",
+    `
     const markdownImageAttribute = "data-document-image";
     ${ts.transpileModule(sanitizer.getText(ast).replace(/^export /, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText}
     return sanitizeMarkdownDocumentHtml;
-  `)(() => purifier, { Element }, { createElement: () => ({ content: { append() {} }, innerHTML: "safe" }) }, classifyMarkdownLink)
+  `,
+  )(
+    () => purifier,
+    { Element },
+    { createElement: () => ({ content: { append() {} }, innerHTML: "safe" }) },
+    classifyMarkdownLink,
+  )
   run("untrusted")
-  expect(headings.map((heading) => heading.id)).toEqual(["hello-world", "hello-world-1", "hello-world-1-1", "section", "section-1", "caf\u00e9"])
+  expect(headings.map((heading) => heading.id)).toEqual([
+    "hello-world",
+    "hello-world-1",
+    "hello-world-1-1",
+    "section",
+    "section-1",
+    "caf\u00e9",
+  ])
   expect(config.ALLOW_DATA_ATTR).toBe(false)
   expect(config.ALLOW_ARIA_ATTR).toBe(false)
   for (const name of ["src", "srcset", "style", "background", "poster", "ping", "id", "name", "data-document-image"])
     expect(config.ALLOWED_ATTR).not.toContain(name)
-  for (const name of ["script", "style", "svg", "math", "iframe", "object", "embed", "audio", "video", "source", "link", "meta", "base", "input", "form"])
+  for (const name of [
+    "script",
+    "style",
+    "svg",
+    "math",
+    "iframe",
+    "object",
+    "embed",
+    "audio",
+    "video",
+    "source",
+    "link",
+    "meta",
+    "base",
+    "input",
+    "form",
+  ])
     expect(config.ALLOWED_TAGS).not.toContain(name)
   for (const raw of [undefined, "https://example.com/x.png", "file://server/share/x.png", "./local.png"]) {
     const node = new Element()
@@ -567,14 +796,26 @@ test("preview sanitizer hooks strip forged markers and generate collision-safe h
 
 test("chat sanitizer replaces only local image sources with trusted reader markers", () => {
   const ast = ts.createSourceFile("markdown.tsx", markdown, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-  const sanitizer = ast.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "sanitizeMarkdownHtml")!
+  const sanitizer = ast.statements.find(
+    (node): node is ts.FunctionDeclaration =>
+      ts.isFunctionDeclaration(node) && node.name?.text === "sanitizeMarkdownHtml",
+  )!
   const hooks = new Map<string, (node: any) => void>()
   class Element {
-    constructor(public nodeName = "IMG", public namespaceURI = "http://www.w3.org/1999/xhtml") {}
+    constructor(
+      public nodeName = "IMG",
+      public namespaceURI = "http://www.w3.org/1999/xhtml",
+    ) {}
     attributes = new Map<string, string>()
-    getAttribute(name: string) { return this.attributes.get(name) ?? null }
-    removeAttribute(name: string) { this.attributes.delete(name) }
-    setAttribute(name: string, value: string) { this.attributes.set(name, value) }
+    getAttribute(name: string) {
+      return this.attributes.get(name) ?? null
+    }
+    removeAttribute(name: string) {
+      this.attributes.delete(name)
+    }
+    setAttribute(name: string, value: string) {
+      this.attributes.set(name, value)
+    }
   }
   const purifier = {
     addHook: (name: string, callback: (node: any) => void) => hooks.set(name, callback),
@@ -582,21 +823,40 @@ test("chat sanitizer replaces only local image sources with trusted reader marke
   }
   const createPurifier = mock(() => purifier)
   const documentSanitizer = mock(() => "document")
-  const run = new Function("DOMPurify", "window", "classifyMarkdownLink", "sanitizeMarkdownDocumentHtml", `
+  const run = new Function(
+    "DOMPurify",
+    "window",
+    "classifyMarkdownLink",
+    "sanitizeMarkdownDocumentHtml",
+    `
     let markdownPurifier;
     const markdownImageAttribute = "data-document-image";
     ${ts.transpileModule(sanitizer.getText(ast).replace(/^export /, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText}
     return sanitizeMarkdownHtml;
-  `)(createPurifier, { Element }, classifyMarkdownLink, documentSanitizer)
+  `,
+  )(createPurifier, { Element }, classifyMarkdownLink, documentSanitizer)
   run("first")
   run("streaming update")
   expect(createPurifier).toHaveBeenCalledTimes(1)
   expect(run("preview", true)).toBe("document")
   expect(documentSanitizer).toHaveBeenCalledWith("preview")
 
-  const locals = ["Art/MercySlice/Production/ArtDirection/Concepts01/town_board.jpg", "./a%20b.png", "/workspace/image.png", "C:\\workspace\\image.png", "file:///C:/workspace/image.png"]
+  const locals = [
+    "Art/MercySlice/Production/ArtDirection/Concepts01/town_board.jpg",
+    "./a%20b.png",
+    "/workspace/image.png",
+    "C:\\workspace\\image.png",
+    "file:///C:/workspace/image.png",
+  ]
   const external = ["https://example.com/image.png", "//example.com/image.png", "data:image/png;base64,aGVsbG8="]
-  const blocked = ["", "file://server/share/image.png", "\\\\server\\share\\image.png", "javascript:alert(1)", "https://tauri.localhost/image.png", "image%00.png"]
+  const blocked = [
+    "",
+    "file://server/share/image.png",
+    "\\\\server\\share\\image.png",
+    "javascript:alert(1)",
+    "https://tauri.localhost/image.png",
+    "image%00.png",
+  ]
   for (const raw of [...locals, ...external, ...blocked]) {
     const node = new Element()
     node.setAttribute("src", raw)
@@ -622,13 +882,17 @@ test("chat sanitizer replaces only local image sources with trusted reader marke
 
 test("chat image observer tracks ownership and preferences rather than streaming text", () => {
   const ast = ts.createSourceFile("markdown.tsx", markdown, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-  const component = ast.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "Markdown")!
-  const effect = component.body!.statements.find((node) => node.getText(ast).includes("observeMarkdownImages(root"))!.getText(ast)
-  expect(effect).toContain("if (props.documentPreview) return")
-  expect(effect).toContain("void props.responseID")
-  expect(effect).toContain("onCleanup(observeMarkdownImages(root")
-  expect(effect).toContain("parent: props.directory")
-  expect(effect).toContain("directory: props.workspaceDirectory ?? props.directory")
-  expect(effect).toContain('enabled: shouldPreviewFile("image.png")')
+  const component = ast.statements.find(
+    (node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "Markdown",
+  )!
+  const effect = component
+    .body!.statements.find((node) => node.getText(ast).includes("observeMarkdownImages(root"))!
+    .getText(ast)
+  expect(effect).toContainCode("if (props.documentPreview) return")
+  expect(effect).toContainCode("void props.responseID")
+  expect(effect).toContainCode("onCleanup(observeMarkdownImages(root")
+  expect(effect).toContainCode("parent: props.directory")
+  expect(effect).toContainCode("directory: props.workspaceDirectory ?? props.directory")
+  expect(effect).toContainCode('enabled: shouldPreviewFile("image.png")')
   expect(effect).not.toMatch(/props\.(text|revision|live|done)/)
 })

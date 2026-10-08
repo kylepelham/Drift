@@ -1,5 +1,5 @@
-import { compareMessages, messageText, nextUserMessage, type MessageEntry } from "../engine/store"
 import { clearComposerDraft, composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
+import { compareMessages, messageText, nextUserMessage, type MessageEntry } from "../engine/store"
 
 export type RevertHost = {
   state: { transcripts: Record<string, MessageEntry[]> }

@@ -58,7 +58,11 @@ export async function loadRegistry(url = registryUrl, fresh = false): Promise<Re
 export type RegistryFailure = { name: string; error: string }
 
 /** A user's source is read by the engine, which holds its token and trust settings; the result is checked like Drift's own. */
-async function loadSourceRegistry(fetchRegistry: (id: string) => Promise<unknown>, source: { id: string }, fresh: boolean): Promise<Registry> {
+async function loadSourceRegistry(
+  fetchRegistry: (id: string) => Promise<unknown>,
+  source: { id: string },
+  fresh: boolean,
+): Promise<Registry> {
   const key = `source:${source.id}`
   const hit = cached.get(key)
   if (!fresh && hit && Date.now() - hit.at < CACHE_MS) return hit.registry
@@ -69,18 +73,29 @@ async function loadSourceRegistry(fetchRegistry: (id: string) => Promise<unknown
 }
 
 /** Drift's registry and the user's own, the user's first; a source that fails is named, the rest still show. */
-export async function loadRegistries(sources: { id: string; name: string }[], fresh = false, fetchRegistry?: (id: string) => Promise<unknown>): Promise<{ plugins: RegistryPlugin[]; failures: RegistryFailure[] }> {
+export async function loadRegistries(
+  sources: { id: string; name: string }[],
+  fresh = false,
+  fetchRegistry?: (id: string) => Promise<unknown>,
+): Promise<{ plugins: RegistryPlugin[]; failures: RegistryFailure[] }> {
   const plugins: RegistryPlugin[] = []
   const failures: RegistryFailure[] = []
   const viaEngine = fetchRegistry ?? (() => Promise.reject(new Error("no engine")))
-  const results = await Promise.allSettled([...sources.map((source) => loadSourceRegistry(viaEngine, source, fresh)), loadRegistry(registryUrl, fresh)])
+  const results = await Promise.allSettled([
+    ...sources.map((source) => loadSourceRegistry(viaEngine, source, fresh)),
+    loadRegistry(registryUrl, fresh),
+  ])
   results.forEach((result, index) => {
     const source = sources[index]
     if (result.status === "rejected") {
-      failures.push({ name: source?.name ?? "Drift", error: result.reason instanceof Error ? result.reason.message : String(result.reason) })
+      failures.push({
+        name: source?.name ?? "Drift",
+        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      })
       return
     }
-    for (const plugin of result.value.plugins) plugins.push(source ? { ...plugin, sourceName: source.name, sourceId: source.id } : plugin)
+    for (const plugin of result.value.plugins)
+      plugins.push(source ? { ...plugin, sourceName: source.name, sourceId: source.id } : plugin)
   })
   const seen = new Set<string>()
   return { plugins: plugins.filter((plugin) => !seen.has(plugin.id) && seen.add(plugin.id)), failures }
@@ -89,13 +104,16 @@ export async function loadRegistries(sources: { id: string; name: string }[], fr
 /** The drift.json entry an installed registry plugin has. */
 export const installedPath = (id: string) => `plugins/${id}.wasm`
 
-export const isSkillEntry = (plugin: Pick<RegistryPlugin, "kind">) => plugin.kind === "skill" || plugin.kind === "skills"
+export const isSkillEntry = (plugin: Pick<RegistryPlugin, "kind">) =>
+  plugin.kind === "skill" || plugin.kind === "skills"
 
 /** Whether a plugin matches a search: name, description, category, hooks. */
 export function matchesRegistryQuery(plugin: RegistryPlugin, query: string) {
   const needle = query.trim().toLowerCase()
   if (!needle) return true
-  return [plugin.name, plugin.id, plugin.description, plugin.category, plugin.sourceName ?? "", ...plugin.hooks].some((text) => text.toLowerCase().includes(needle))
+  return [plugin.name, plugin.id, plugin.description, plugin.category, plugin.sourceName ?? "", ...plugin.hooks].some(
+    (text) => text.toLowerCase().includes(needle),
+  )
 }
 
 /** A field's typed value from what was typed, or its default when nothing was. */

@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test"
 import { acceptImportProgress, opencodeImport } from "../src/state/opencode-import"
+import { expect, test } from "bun:test"
 
 test("import progress shows while conversations are still coming and clears once the last is in", () => {
   acceptImportProgress({ done: 0, total: 1479 })

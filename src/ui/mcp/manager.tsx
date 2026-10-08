@@ -1,16 +1,17 @@
 import { createEffect, createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js"
-import { useEngine } from "../../engine"
-import type { McpServerConfig, McpServerStatus } from "../../engine/store"
-import { registryInstallName, type RegistryServer } from "../../mcp-registry"
-import { createRegistrySearch } from "../../state/mcp-registry-search"
-import { t } from "../../state/i18n"
-import { activeWorkspace } from "../../state/workspaces"
-import { openExternal } from "../../shell"
-import { Toggle } from "../controls"
 import { IconPlug, IconPlugOff, IconPlus, IconSquarePen, IconTrash } from "../icons"
 import { forgetMcpLogo, LogoTile, mcpLogos, rememberMcpLogo } from "../logo-tile"
-import { McpEditor } from "./editor"
+import { registryInstallName, type RegistryServer } from "../../mcp-registry"
+import { createRegistrySearch } from "../../state/mcp-registry-search"
+import { activeWorkspace } from "../../state/workspaces"
+import { openExternal } from "../../shell"
+import { useEngine } from "../../engine"
 import { McpRegistry } from "./registry"
+import { t } from "../../state/i18n"
+import { Toggle } from "../controls"
+import { McpEditor } from "./editor"
+
+import type { McpServerConfig, McpServerStatus } from "../../engine/store"
 
 type RuntimeAction = "connect" | "disconnect"
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End"
@@ -18,7 +19,8 @@ type EditorEntry = { server?: McpServerStatus }
 
 /** Whether turns in workspace `workspaceId` are offered the server: that workspace's own choice, else the server's switch. */
 export function mcpOnIn(server: Pick<McpServerStatus, "enabled" | "workspaces">, workspaceId?: string) {
-  const chosen = workspaceId === undefined ? undefined : server.workspaces.find((choice) => choice.workspaceId === workspaceId)
+  const chosen =
+    workspaceId === undefined ? undefined : server.workspaces.find((choice) => choice.workspaceId === workspaceId)
   return chosen ? chosen.enabled : server.enabled
 }
 
@@ -30,7 +32,11 @@ export function mcpRuntimeAction(server: McpServerStatus, workspaceId?: string):
   if (server.state === "disconnected" || server.state === "failed") return "connect"
 }
 
-export function mcpRuntimeKeyAction(server: McpServerStatus, key: string, workspaceId?: string): RuntimeAction | undefined {
+export function mcpRuntimeKeyAction(
+  server: McpServerStatus,
+  key: string,
+  workspaceId?: string,
+): RuntimeAction | undefined {
   const action = mcpRuntimeAction(server, workspaceId)
   if (key === "ArrowLeft") return action === "disconnect" ? action : undefined
   if (key === "ArrowRight") return action === "connect" ? action : undefined
@@ -141,9 +147,17 @@ export function McpManagement(props: { embedded?: boolean }) {
     }
   }
   const runtime = (server: McpServerStatus, action: RuntimeAction) =>
-    void run(server.name, () => (action === "connect" ? engine.actions.mcpConnect(server.name, here()) : engine.actions.mcpDisconnect(server.name, here())))
+    void run(server.name, () =>
+      action === "connect"
+        ? engine.actions.mcpConnect(server.name, here())
+        : engine.actions.mcpDisconnect(server.name, here()),
+    )
   const signIn = (name: string) =>
-    void run(name, async () => openExternal(await engine.actions.mcpSignIn(name)), t("drift.mcp.signInOpened", { name }))
+    void run(
+      name,
+      async () => openExternal(await engine.actions.mcpSignIn(name)),
+      t("drift.mcp.signInOpened", { name }),
+    )
   const signOut = (name: string) => void run(name, () => engine.actions.mcpSignOut(name))
   /** Installs and connects; a server that answers with a sign-in request has its sign-in page opened at once. */
   const install = async (server: RegistryServer, config: McpServerConfig) => {
@@ -152,7 +166,9 @@ export function McpManagement(props: { embedded?: boolean }) {
     const done = await run(name, async () => {
       const status = await engine.actions.mcpSave(name, config, { create: true, directory: here() })
       if (status.needsSignIn) openExternal(await engine.actions.mcpSignIn(name))
-      setMessage(t(status.needsSignIn ? "drift.mcp.signInOpened" : "drift.mcp.installed", { name: server.title ?? name }))
+      setMessage(
+        t(status.needsSignIn ? "drift.mcp.signInOpened" : "drift.mcp.installed", { name: server.title ?? name }),
+      )
     })
     if (done) {
       setView("servers")
@@ -217,11 +233,17 @@ export function McpManagement(props: { embedded?: boolean }) {
       <Show when={view() === "servers"}>
         <Show when={loading()}>
           <div role="status" class="flex items-center gap-2 px-3 py-2 text-sm text-ink-muted">
-            <span aria-hidden="true" class="size-3.5 shrink-0 rounded-full border-2 border-ink-faint/30 border-t-ink-muted motion-safe:animate-spin" />
+            <span
+              aria-hidden="true"
+              class="size-3.5 shrink-0 rounded-full border-2 border-ink-faint/30 border-t-ink-muted motion-safe:animate-spin"
+            />
             {t(rowNames().length ? "drift.mcp.refreshing" : "drift.mcp.loading")}
           </div>
         </Show>
-        <div aria-busy={loading()} classList={{ "space-y-1": !props.embedded, "border-y border-edge/80": props.embedded }}>
+        <div
+          aria-busy={loading()}
+          classList={{ "space-y-1": !props.embedded, "border-y border-edge/80": props.embedded }}
+        >
           <For each={rowNames()}>
             {(name) => (
               <Show when={engine.state.mcpServers[name]}>
@@ -259,7 +281,15 @@ export function McpManagement(props: { embedded?: boolean }) {
       <Show when={editor()}>
         {(entry) => (
           <McpEditor
-            server={entry().server ? { name: entry().server!.name, config: entry().server!.config, readOnlyTrusted: entry().server!.readOnlyTrusted } : undefined}
+            server={
+              entry().server
+                ? {
+                    name: entry().server!.name,
+                    config: entry().server!.config,
+                    readOnlyTrusted: entry().server!.readOnlyTrusted,
+                  }
+                : undefined
+            }
             pending={!!busy()}
             onClose={() => setEditor(null)}
             onSave={save}
@@ -272,7 +302,11 @@ export function McpManagement(props: { embedded?: boolean }) {
 
 /** How the engine talks to a server: its transport, and once connected the protocol version it agreed to and whether that is stateless. */
 export function mcpProtocolLabel(server: Pick<McpServerStatus, "transport" | "protocol" | "era">) {
-  const parts = [t(`drift.mcp.transport.${server.transport}`), server.protocol, server.era && t(`drift.mcp.era.${server.era}`)]
+  const parts = [
+    t(`drift.mcp.transport.${server.transport}`),
+    server.protocol,
+    server.era && t(`drift.mcp.era.${server.era}`),
+  ]
   return parts.filter(Boolean).join(" · ")
 }
 
@@ -398,7 +432,8 @@ export function mcpScopeLabel(server: Pick<McpServerStatus, "enabled" | "workspa
 
 export function mcpStatusLabel(server: McpServerStatus, busy: boolean, workspaceId?: string) {
   if (busy) return { text: t("common.loading"), tone: "text-ink-faint" }
-  if (workspaceId !== undefined && server.state !== "disabled" && !mcpOnIn(server, workspaceId)) return { text: t("drift.mcp.status.offHere"), tone: "text-ink-faint" }
+  if (workspaceId !== undefined && server.state !== "disabled" && !mcpOnIn(server, workspaceId))
+    return { text: t("drift.mcp.status.offHere"), tone: "text-ink-faint" }
   switch (server.state) {
     case "connected":
       return { text: t("mcp.status.connected"), tone: "text-ok" }

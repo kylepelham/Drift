@@ -1,8 +1,13 @@
+import { isNarrowWidth, navigationHash, parseNavigationHash } from "../src/state/navigation"
+import { remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime"
 import { afterEach, beforeEach, expect, mock, test } from "bun:test"
 import { backendInvoke, backendRoute } from "../src/backend"
-import { isNarrowWidth, navigationHash, parseNavigationHash } from "../src/state/navigation"
-import { nextRemoteAccessEnabled, normalizeLinkCode, remoteStatusTone, type RemoteAccessStatus } from "../src/state/remote-access"
-import { remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime"
+import {
+  nextRemoteAccessEnabled,
+  normalizeLinkCode,
+  remoteStatusTone,
+  type RemoteAccessStatus,
+} from "../src/state/remote-access"
 
 test("remote runtime uses the same-origin engine gateway", () => {
   const remote = { pathname: "/companion", origin: "https://192.168.1.8:41718" }
@@ -35,9 +40,18 @@ function setGlobal(name: (typeof globalNames)[number], value: unknown) {
 
 beforeEach(() => {
   originalGlobals = globalNames.map((name) => Object.getOwnPropertyDescriptor(globalThis, name))
-  fetchMock = mock(async (url: string) => Response.json(url === "/auth/me" ? { id: "device" } : { error: "remote access credentials changed" }, { status: url === "/auth/me" ? 200 : 401 }))
+  fetchMock = mock(async (url: string) =>
+    Response.json(url === "/auth/me" ? { id: "device" } : { error: "remote access credentials changed" }, {
+      status: url === "/auth/me" ? 200 : 401,
+    }),
+  )
   replaceMock = mock(() => {})
-  const location = { ...new URL("https://192.168.1.8:41718/companion"), pathname: "/companion", origin: "https://192.168.1.8:41718", replace: replaceMock }
+  const location = {
+    ...new URL("https://192.168.1.8:41718/companion"),
+    pathname: "/companion",
+    origin: "https://192.168.1.8:41718",
+    replace: replaceMock,
+  }
   setGlobal("fetch", fetchMock)
   setGlobal("location", location)
   setGlobal("window", { location })
@@ -53,15 +67,21 @@ afterEach(() => {
 
 test("remote RPC 401 confirms the current session before redirecting", async () => {
   const invoke = backendInvoke()!
-  await expect(invoke("read_file_preview", { path: "C:/tmp/a.png" })).rejects.toThrow("remote access credentials changed")
+  await expect(invoke("read_file_preview", { path: "C:/tmp/a.png" })).rejects.toThrow(
+    "remote access credentials changed",
+  )
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/invoke", "/auth/me"])
   expect(replaceMock).not.toHaveBeenCalled()
 })
 
 test("remote RPC redirects only when the current session is invalid", async () => {
-  fetchMock.mockImplementation(async (url: string) => Response.json(url === "/auth/me" ? {} : { error: "remote access credentials changed" }, { status: 401 }))
+  fetchMock.mockImplementation(async (url: string) =>
+    Response.json(url === "/auth/me" ? {} : { error: "remote access credentials changed" }, { status: 401 }),
+  )
   const invoke = backendInvoke()!
-  await expect(invoke("read_file_preview", { path: "C:/tmp/a.png" })).rejects.toThrow("remote access credentials changed")
+  await expect(invoke("read_file_preview", { path: "C:/tmp/a.png" })).rejects.toThrow(
+    "remote access credentials changed",
+  )
   expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/invoke", "/auth/me"])
   expect(replaceMock.mock.calls).toEqual([["/companion"]])
 })
@@ -86,23 +106,27 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
   expect(css).toMatch(/\.app-shell\s*\{[^}]*overflow: hidden/s)
   expect(css).toMatch(/\.transcript-scroll\s*\{[^}]*overscroll-behavior-y: contain/s)
   expect(css).toMatch(/@media \(max-width: 719px\)[\s\S]*\.chat-pane-covered\s*\{[^}]*visibility: hidden/s)
-  expect(await Bun.file("src/ui/debug.tsx").text()).toContain("debug-panel-scroll")
-  expect(await Bun.file("src/app.tsx").text()).toContain('debugPanelOpen() && !!selectedSession()')
+  expect(await Bun.file("src/ui/debug.tsx").text()).toContainCode("debug-panel-scroll")
+  expect(await Bun.file("src/app.tsx").text()).toContainCode("debugPanelOpen() && !!selectedSession()")
   expect(css).toMatch(/\.composer-dock\s*\{[^}]*padding-top: 1rem/s)
   expect(css).toMatch(/\.composer-dock::before\s*\{[^}]*inset: -2\.75rem 0 auto;[^}]*linear-gradient/s)
   expect(css).toMatch(/\.dock-card\s*\{[^}]*box-shadow:/s)
   expect(app.match(/min-h-0 min-w-0 flex-1[^\"]*overflow-hidden/g)).toHaveLength(2)
   expect(parts.match(/transcript-tool-output/g)?.length).toBeGreaterThanOrEqual(5)
-  expect(markdown).toContain("transcript-tool-output code-view code-stream")
-  expect(css).toMatch(/@media \(max-width: 719px\)[\s\S]*\.transcript-scroll\.transcript-scroll-active \.transcript-tool-output\s*\{[^}]*pointer-events: none/s)
+  expect(markdown).toContainCode("transcript-tool-output code-view code-stream")
+  expect(css).toMatch(
+    /@media \(max-width: 719px\)[\s\S]*\.transcript-scroll\.transcript-scroll-active \.transcript-tool-output\s*\{[^}]*pointer-events: none/s,
+  )
   expect(css).not.toMatch(/\.transcript-tool-output\s*\{[^}]*max-height: none/s)
-  expect(await Bun.file("src/ui/chat.tsx").text()).toContain('classList.add("transcript-scroll-active")')
-  expect(composer).toContain('class="composer-options relative flex min-w-0 flex-1')
-  expect(composer).not.toContain("composer-options flex min-w-0 flex-1 items-center gap-1 overflow-hidden")
-  expect(composer).toContain('class="composer-action-buttons ml-auto flex shrink-0')
+  expect(await Bun.file("src/ui/chat.tsx").text()).toContainCode('classList.add("transcript-scroll-active")')
+  expect(composer).toContainCode('class="composer-options relative flex min-w-0 flex-1')
+  expect(composer).not.toContainCode("composer-options flex min-w-0 flex-1 items-center gap-1 overflow-hidden")
+  expect(composer).toContainCode('class="composer-action-buttons ml-auto flex shrink-0')
   // The composer keeps its compact single-row desktop layout on mobile: pickers shrink and
   // truncate instead of stretching into full-width rows, and buttons keep their desktop size.
-  expect(css).toMatch(/\.composer-options > \.picker-control\s*\{[^}]*position: static;[^}]*min-width: 0;[^}]*flex: 0 1 auto/s)
+  expect(css).toMatch(
+    /\.composer-options > \.picker-control\s*\{[^}]*position: static;[^}]*min-width: 0;[^}]*flex: 0 1 auto/s,
+  )
   expect(css).not.toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s)
   expect(css).not.toMatch(/flex-basis: 100%/)
   expect(css).toMatch(/\.composer-actions button,\s*\.composer-actions \[role="button"\]\s*\{[^}]*min-height: 0/s)
@@ -112,8 +136,8 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
   expect(css).toMatch(/\.app-sidebar\s*\{[^}]*visibility: hidden;[^}]*visibility 0s linear 180ms/s)
   expect(css).toMatch(/\.app-sidebar\.mobile-sidebar-open\s*\{[^}]*visibility: visible/s)
   expect(css).toMatch(/\.app-sidebar-scroll\s*\{[^}]*touch-action: pan-y/s)
-  expect(sidebar).toContain('event.target.closest("[data-sidebar-navigation]")')
-  expect(workspaces).toContain('class="group sticky top-0')
+  expect(sidebar).toContainCode('event.target.closest("[data-sidebar-navigation]")')
+  expect(workspaces).toContainCode('class="group sticky top-0')
 })
 
 test("remote settings state distinguishes online, offline, and error", () => {
@@ -136,9 +160,9 @@ test("remote settings state distinguishes online, offline, and error", () => {
 
 test("remote access toggle has one state transition helper", async () => {
   const section = await Bun.file("src/ui/settings-remote-access.tsx").text()
-  expect(section).toContain("onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}")
-  expect(section).not.toContain("onClick={() => void setRemoteAccess")
-  expect(section).not.toContain("remote-access-card")
+  expect(section).toContainCode("onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}")
+  expect(section).not.toContainCode("onClick={() => void setRemoteAccess")
+  expect(section).not.toContainCode("remote-access-card")
 })
 
 test("typed link codes ignore case, spaces, and the separator", () => {
@@ -150,12 +174,14 @@ test("the shared access-key flow is gone and management stays desktop-only", asy
   const state = await Bun.file("src/state/remote-access.ts").text()
   const section = await Bun.file("src/ui/settings-remote-access.tsx").text()
   for (const source of [state, section]) {
-    expect(source).not.toContain("connectionUrls")
-    expect(source).not.toContain("rotate")
-    expect(source).not.toContain("?token=")
+    expect(source).not.toContainCode("connectionUrls")
+    expect(source).not.toContainCode("rotate")
+    expect(source).not.toContainCode("?token=")
   }
-  expect(section).toContain('<Show when={!isRemoteRuntime()} fallback={<ThisDevice />}>')
-  expect(await Bun.file("src/backend.ts").text()).toContain('if (response.status === 401 && await remoteSessionExpired()) window.location.replace("/companion")')
+  expect(section).toContainCode("<Show when={!isRemoteRuntime()} fallback={<ThisDevice />}>")
+  expect(await Bun.file("src/backend.ts").text()).toContainCode(
+    'if (response.status === 401 && (await remoteSessionExpired())) window.location.replace("/companion")',
+  )
 })
 
 test("device activity reads as relative time", async () => {
@@ -163,21 +189,28 @@ test("device activity reads as relative time", async () => {
   const now = Date.UTC(2026, 8, 28, 12)
   const english = (at: number) => lastSeenLabel(at, now)
   expect(english(now - 20_000)).toBe(new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(0, "minute"))
-  expect(english(now - 5 * 60_000)).toBe(new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-5, "minute"))
-  expect(english(now - 3 * 86_400_000)).toBe(new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-3, "day"))
+  expect(english(now - 5 * 60_000)).toBe(
+    new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-5, "minute"),
+  )
+  expect(english(now - 3 * 86_400_000)).toBe(
+    new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(-3, "day"),
+  )
 })
 
 test("remote settings drop the redundant gateway rows and keep linking in numbered steps", async () => {
   const section = await Bun.file("src/ui/settings-remote-access.tsx").text()
-  expect(section).not.toContain("listeningAddress")
-  expect(section).not.toContain("drift.remote.encryption.https")
-  expect(section).toContain('id="remote-link-code"')
+  expect(section).not.toContainCode("listeningAddress")
+  expect(section).not.toContainCode("drift.remote.encryption.https")
+  expect(section).toContainCode('id="remote-link-code"')
   expect(section.match(/<Step number=\{\d\}>/g)).toHaveLength(3)
 })
 
 test("in the companion the native client reaches the engine through the gateway and holds no engine token", async () => {
   const saved = (globalThis as { window?: unknown }).window
-  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { pathname: "/companion", origin: "https://192.168.1.8:41718" } } })
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: { pathname: "/companion", origin: "https://192.168.1.8:41718" } },
+  })
   try {
     const { resolveTarget } = await import("../src/engine/native/target")
     expect(await resolveTarget()).toEqual({ url: "https://192.168.1.8:41718/engine", token: "" })

@@ -1,7 +1,7 @@
 // Regenerates src/engine/native/types.ts from the engine's OpenAPI. Run after changing any route; `--check` only reports a stale file.
 import openapiTS, { astToString } from "openapi-typescript"
-import { $ } from "bun"
 import { resolve } from "node:path"
+import { $ } from "bun"
 
 const root = resolve(import.meta.dir, "..")
 export const output = resolve(root, "src/engine/native/types.ts")

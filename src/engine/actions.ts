@@ -1,15 +1,11 @@
-// Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { Permission, Session } from "./shapes"
-import { untrack } from "solid-js"
-import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
-import { t } from "../state/i18n"
-import { handOverAutoAccept } from "../state/prefs"
-import { applyProviderCatalog } from "../state/provider-cache"
-import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
-import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
 import { EngineError, maxRequestBytes, type Client, type PermissionGrant, type PermissionRule } from "./native/client"
+import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
+import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
+import { applyProviderCatalog } from "../state/provider-cache"
 import { formatAttachmentBytes } from "../attachments"
-import type { components } from "./native/types"
+import { handOverAutoAccept } from "../state/prefs"
+import { untrack } from "solid-js"
+import { t } from "../state/i18n"
 import {
   captureRevisions,
   compareMessages,
@@ -27,6 +23,21 @@ import {
   type ModelRef,
   type Notice,
 } from "./store"
+import {
+  adaptMessage,
+  adaptPart,
+  adaptPermission,
+  adaptProvider,
+  adaptQuestion,
+  adaptSession,
+  adaptTodos,
+  type NativeMessageWithParts,
+  type WorkspaceIndex,
+} from "./native/adapt"
+
+// Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
+import type { Permission, Session } from "./shapes"
+import type { components } from "./native/types"
 
 type NativeSession = components["schemas"]["Session"]
 
@@ -37,7 +48,13 @@ export type PromptFile = {
   source?: { type: "file"; path: string; text: { value: string; start: number; end: number } }
 }
 /** `variant` null asks for the model's default level; left out, the session keeps its own (as for a level the model does not offer). */
-export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string | null; files?: PromptFile[]; directory?: string }
+export type PromptOptions = {
+  model: ModelRef | null
+  agent: string
+  variant?: string | null
+  files?: PromptFile[]
+  directory?: string
+}
 export type PromptSendResult = { ok: true } | { ok: false; error: string }
 /** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
 export type ArchivePurge = "deleted" | "kept" | "failed"
@@ -49,7 +66,10 @@ export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
 const pageSize = 100
 const sessionPageSize = 200
 /** Sign-in methods per provider, in the order the settings page lists them. */
-const authMethods: Record<string, { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" | "supergrok" }[]> = {
+const authMethods: Record<
+  string,
+  { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" | "supergrok" }[]
+> = {
   anthropic: [
     { type: "oauth", label: "Claude Pro/Max", mode: "max" },
     { type: "oauth", label: "Anthropic Console", mode: "console" },
@@ -78,7 +98,9 @@ export function createActions(
   const unsettled = new Map<string, string>()
   let noticeSequence = 0
 
-  function notice(input: Omit<Notice, "id" | "created" | "duration"> & { id?: string; created?: number; duration?: number }) {
+  function notice(
+    input: Omit<Notice, "id" | "created" | "duration"> & { id?: string; created?: number; duration?: number },
+  ) {
     pushNotice(set, {
       id: input.id ?? `notice-${Date.now()}-${noticeSequence++}`,
       created: input.created ?? Date.now(),
@@ -96,12 +118,23 @@ export function createActions(
     const existed = id in state.sessions
     const messages = await requireClient().messages(id, { limit: pageSize })
     const directory = state.sessions[id]?.directory ?? ""
-    const loaded = interruptStaleTools(entries(messages, directory).sort(compareMessages), state.liveTools, t("drift.message.interrupted"))
+    const loaded = interruptStaleTools(
+      entries(messages, directory).sort(compareMessages),
+      state.liveTools,
+      t("drift.message.interrupted"),
+    )
     if (existed && !state.sessions[id]) return
     set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], loaded, id, captured, state.revisions))
     set("loaded", id, true)
     set("cursors", id, messages.length === pageSize ? messages[0]!.id : null)
-    const [todos, tasks] = await Promise.all([requireClient().todos(id).catch(() => undefined), requireClient().tasks(id).catch(() => undefined)])
+    const [todos, tasks] = await Promise.all([
+      requireClient()
+        .todos(id)
+        .catch(() => undefined),
+      requireClient()
+        .tasks(id)
+        .catch(() => undefined),
+    ])
     if (todos) set("todos", id, adaptTodos(todos))
     if (tasks) putTasks(set, state, id, tasks)
   }
@@ -116,7 +149,12 @@ export function createActions(
       while (reconciliationWanted.delete(id)) await reloadSession(id)
     })()
       .catch((cause) => {
-        notice({ id: `transcript-load-${id}`, title: "Transcript load failed", message: errorMessage(cause), variant: "error" })
+        notice({
+          id: `transcript-load-${id}`,
+          title: "Transcript load failed",
+          message: errorMessage(cause),
+          variant: "error",
+        })
       })
       .finally(() => {
         reconciliations.delete(id)
@@ -132,7 +170,12 @@ export function createActions(
       const task = await requireClient().stopTask(taskId)
       putTasks(set, state, task.parentSessionId, [task])
     } catch (cause) {
-      notice({ id: `task-stop-${taskId}`, title: t("drift.task.stopFailed"), message: errorMessage(cause), variant: "error" })
+      notice({
+        id: `task-stop-${taskId}`,
+        title: t("drift.task.stopFailed"),
+        message: errorMessage(cause),
+        variant: "error",
+      })
     }
   }
 
@@ -144,7 +187,12 @@ export function createActions(
     request = reloadSession(id)
       .then(() => true)
       .catch((cause) => {
-        notice({ id: `transcript-load-${id}`, title: "Transcript load failed", message: errorMessage(cause), variant: "error" })
+        notice({
+          id: `transcript-load-${id}`,
+          title: "Transcript load failed",
+          message: errorMessage(cause),
+          variant: "error",
+        })
         return false
       })
       .finally(() => {
@@ -159,11 +207,18 @@ export function createActions(
     if (!cursor) return false
     const older = await requireClient().messages(id, { before: cursor, limit: pageSize })
     const directory = state.sessions[id]?.directory ?? ""
-    const sorted = interruptStaleTools(entries(older, directory).sort(compareMessages), state.liveTools, t("drift.message.interrupted"))
+    const sorted = interruptStaleTools(
+      entries(older, directory).sort(compareMessages),
+      state.liveTools,
+      t("drift.message.interrupted"),
+    )
     set(
       produce((draft) => {
         const existing = new Set((draft.transcripts[id] ?? []).map((entry) => entry.info.id))
-        draft.transcripts[id] = [...sorted.filter((entry) => !existing.has(entry.info.id)), ...(draft.transcripts[id] ?? [])]
+        draft.transcripts[id] = [
+          ...sorted.filter((entry) => !existing.has(entry.info.id)),
+          ...(draft.transcripts[id] ?? []),
+        ]
       }),
     )
     set("cursors", id, older.length === pageSize ? older[0]!.id : null)
@@ -186,13 +241,19 @@ export function createActions(
 
   /** The engine says which sessions have a turn in flight; everything else listed is idle. */
   function reconcileStatus(sessions: Session[], running: Set<string>, captured: Record<string, number>) {
-    const statuses = Object.fromEntries(sessions.map((s) => [s.id, running.has(s.id) ? { type: "busy" as const } : { type: "idle" as const }]))
+    const statuses = Object.fromEntries(
+      sessions.map((s) => [s.id, running.has(s.id) ? { type: "busy" as const } : { type: "idle" as const }]),
+    )
     applyStatusSnapshot(set, { sessions, statuses, captured })
   }
 
   // Loaders snapshot state untracked: effects call them, and they write what they read.
   async function loadSessions(directory: string) {
-    const { workspace, captured, epoch } = untrack(() => ({ workspace: workspaces().id(directory), captured: captureRevisions(state), epoch: state.sessionSnapshotEpoch }))
+    const { workspace, captured, epoch } = untrack(() => ({
+      workspace: workspaces().id(directory),
+      captured: captureRevisions(state),
+      epoch: state.sessionSnapshotEpoch,
+    }))
     if (!workspace) return
     const { sessions, running } = await allPages({ workspace })
     if (state.sessionSnapshotEpoch !== epoch) return
@@ -230,7 +291,12 @@ export function createActions(
     set("errors", id, undefined!)
     const parts = [
       ...(text.trim() ? [{ type: "text" as const, text }] : []),
-      ...(options.files ?? []).map((file) => ({ type: "file" as const, mime: file.mime, name: file.filename ?? "file", url: file.url })),
+      ...(options.files ?? []).map((file) => ({
+        type: "file" as const,
+        mime: file.mime,
+        name: file.filename ?? "file",
+        url: file.url,
+      })),
     ]
     if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty")
     // Named only when they change what the session runs as next; an unchanged follow-up steers into the running turn.
@@ -238,13 +304,22 @@ export function createActions(
     const prompt = {
       parts,
       model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
-      ...(options.variant !== undefined && options.variant !== (saved.variant ?? null) ? { variant: options.variant } : {}),
+      ...(options.variant !== undefined && options.variant !== (saved.variant ?? null)
+        ? { variant: options.variant }
+        : {}),
       ...(options.agent && options.agent !== saved.agent ? { agent: options.agent } : {}),
     }
     // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
     const key = `${id}\n${JSON.stringify(prompt)}`
     // Attachments are base64 text, so the request's length in characters is its size in bytes.
-    if (key.length > maxRequestBytes) return fail(id, t("drift.prompt.tooLarge", { size: formatAttachmentBytes(key.length), limit: formatAttachmentBytes(maxRequestBytes) }))
+    if (key.length > maxRequestBytes)
+      return fail(
+        id,
+        t("drift.prompt.tooLarge", {
+          size: formatAttachmentBytes(key.length),
+          limit: formatAttachmentBytes(maxRequestBytes),
+        }),
+      )
     const submission = unsettled.get(key) ?? submissionId()
     unsettled.set(key, submission)
     try {
@@ -316,7 +391,9 @@ export function createActions(
   }
 
   async function refreshProviders() {
-    const providers = await requireClient().providers().catch(() => undefined)
+    const providers = await requireClient()
+      .providers()
+      .catch(() => undefined)
     if (!providers) return false
     applyProviderCatalog(set, {
       all: providers.map(adaptProvider),
@@ -350,7 +427,12 @@ export function createActions(
     } catch (cause) {
       if (!(cause instanceof EngineError && cause.status === 404)) throw cause
     }
-    set(produce((draft) => void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID))))
+    set(
+      produce(
+        (draft) =>
+          void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID)),
+      ),
+    )
   }
 
   async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
@@ -358,7 +440,14 @@ export function createActions(
       await requireClient().replyPermission(permissionID, { reply: response === "reject" ? "deny" : response })
     } catch (cause) {
       if (cause instanceof EngineError && cause.status === 404) {
-        set(produce((draft) => void (draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID))))
+        set(
+          produce(
+            (draft) =>
+              void (draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter(
+                (p) => p.id !== permissionID,
+              )),
+          ),
+        )
         return
       }
       throw cause
@@ -378,7 +467,9 @@ export function createActions(
   }
 
   async function providerAuthMethods(): Promise<Record<string, { type: "oauth" | "api"; label: string }[]>> {
-    return Object.fromEntries(Object.entries(authMethods).map(([id, methods]) => [id, methods.map(({ type, label }) => ({ type, label }))]))
+    return Object.fromEntries(
+      Object.entries(authMethods).map(([id, methods]) => [id, methods.map(({ type, label }) => ({ type, label }))]),
+    )
   }
 
   // The state from startOAuth, needed by the callback for flows the engine completes itself.
@@ -390,7 +481,12 @@ export function createActions(
     const started = await requireClient().startOAuth(id, mode)
     oauthStates.set(id, started.state)
     // No instructions text: the settings panel words each step in the user's language, and shows a device code itself.
-    return { url: started.url, method: (started.method === "auto" ? "auto" : "code") as "code" | "auto", instructions: "", code: started.userCode ?? undefined }
+    return {
+      url: started.url,
+      method: (started.method === "auto" ? "auto" : "code") as "code" | "auto",
+      instructions: "",
+      code: started.userCode ?? undefined,
+    }
   }
 
   async function providerCallback(id: string, _method: number, code?: string): Promise<ProviderAuthResult> {
@@ -399,7 +495,13 @@ export function createActions(
     try {
       await requireClient().finishOAuth(id, code ?? "", oauthState)
     } catch (cause) {
-      notice({ id: `oauth-${id}`, title: "Sign-in failed", message: errorMessage(cause), variant: "error", duration: 10_000 })
+      notice({
+        id: `oauth-${id}`,
+        title: "Sign-in failed",
+        message: errorMessage(cause),
+        variant: "error",
+        duration: 10_000,
+      })
       return { ok: false, connected: false }
     } finally {
       oauthStates.delete(id)
@@ -415,7 +517,13 @@ export function createActions(
       putSession(set, session)
       return session
     } catch (cause) {
-      notice({ id: `fork-${id}`, title: "Couldn't fork", message: errorMessage(cause), variant: "error", duration: 10_000 })
+      notice({
+        id: `fork-${id}`,
+        title: "Couldn't fork",
+        message: errorMessage(cause),
+        variant: "error",
+        duration: 10_000,
+      })
     }
   }
 
@@ -424,7 +532,13 @@ export function createActions(
     try {
       await requireClient().compactSession(id)
     } catch (cause) {
-      notice({ id: `compact-${id}`, title: "Couldn't compact", message: errorMessage(cause), variant: "error", duration: 10_000 })
+      notice({
+        id: `compact-${id}`,
+        title: "Couldn't compact",
+        message: errorMessage(cause),
+        variant: "error",
+        duration: 10_000,
+      })
     }
   }
 
@@ -438,25 +552,60 @@ export function createActions(
     return applyUndo(id, () => requireClient().unrevertSession(id))
   }
 
-  async function applyUndo(id: string, call: () => Promise<{ session: NativeSession; kept: string[]; unattributed: string[]; unrecorded: string[] }>) {
+  async function applyUndo(
+    id: string,
+    call: () => Promise<{ session: NativeSession; kept: string[]; unattributed: string[]; unrecorded: string[] }>,
+  ) {
     try {
       const { session, kept, unattributed, unrecorded } = await call()
       putSession(set, adaptSession(session, workspaces()))
       // Files the user changed after the session did are never overwritten; say which.
-      if (kept.length) notice({ id: `revert-kept-${id}`, title: "Kept your changes", message: `Left as you changed them: ${kept.join(", ")}`, variant: "info", duration: 10_000 })
+      if (kept.length)
+        notice({
+          id: `revert-kept-${id}`,
+          title: "Kept your changes",
+          message: `Left as you changed them: ${kept.join(", ")}`,
+          variant: "info",
+          duration: 10_000,
+        })
       // A command's run shows what changed, not who changed it, so those files are never undone.
-      if (unattributed.length) notice({ id: `revert-unattributed-${id}`, title: "Left files changed during commands", message: `Changed while a command ran, so not undone: ${unattributed.join(", ")}`, variant: "info", duration: 10_000 })
+      if (unattributed.length)
+        notice({
+          id: `revert-unattributed-${id}`,
+          title: "Left files changed during commands",
+          message: `Changed while a command ran, so not undone: ${unattributed.join(", ")}`,
+          variant: "info",
+          duration: 10_000,
+        })
       // Imported from opencode without the versions undo needs (older edits, or files changed since).
-      if (unrecorded.length) notice({ id: `revert-unrecorded-${id}`, title: "Some imported edits were not undone", message: `No undo record, left as they are: ${unrecorded.join(", ")}`, variant: "info", duration: 10_000 })
+      if (unrecorded.length)
+        notice({
+          id: `revert-unrecorded-${id}`,
+          title: "Some imported edits were not undone",
+          message: `No undo record, left as they are: ${unrecorded.join(", ")}`,
+          variant: "info",
+          duration: 10_000,
+        })
       return true
     } catch (cause) {
-      notice({ id: `revert-${id}`, title: "Couldn't undo", message: errorMessage(cause), variant: "error", duration: 10_000 })
+      notice({
+        id: `revert-${id}`,
+        title: "Couldn't undo",
+        message: errorMessage(cause),
+        variant: "error",
+        duration: 10_000,
+      })
       return false
     }
   }
 
   /** Moves a turn that is waiting to retry onto `model` at `variant` (the model's default when unset); it retries at once. */
-  async function switchRetryModel(id: string, _messageID: string, model: ModelRef, variant?: string): Promise<PromptSendResult> {
+  async function switchRetryModel(
+    id: string,
+    _messageID: string,
+    model: ModelRef,
+    variant?: string,
+  ): Promise<PromptSendResult> {
     try {
       await requireClient().switchRetryModel(id, { provider: model.providerID, model: model.modelID }, variant ?? null)
       return { ok: true }
@@ -493,7 +642,10 @@ export function createActions(
       const left: string[] = []
       for (const id of kept.sessions) {
         // A session the engine no longer has is let go; any other failure is offered again next time.
-        const settled = await setAutoAccept(id, true).then(() => true, (cause) => cause instanceof EngineError && cause.status === 404)
+        const settled = await setAutoAccept(id, true).then(
+          () => true,
+          (cause) => cause instanceof EngineError && cause.status === 404,
+        )
         if (!settled) left.push(id)
       }
       return { all: false, sessions: left }
@@ -517,7 +669,12 @@ export function createActions(
     if (!workspace) return { ok: true, moved: [] }
     try {
       const { running } = await allPages({ workspace })
-      if (running.length) return { ok: false, moved: [], error: "Stop the running threads in this workspace first; they keep the folder they started in." }
+      if (running.length)
+        return {
+          ok: false,
+          moved: [],
+          error: "Stop the running threads in this workspace first; they keep the folder they started in.",
+        }
       return { ok: true, moved: [] }
     } catch (cause) {
       return { ok: false, moved: [], error: errorMessage(cause) }
@@ -531,7 +688,13 @@ export function createActions(
       putSession(set, session)
       return session
     } catch (cause) {
-      notice({ id: `spawn-${id}`, title: "Couldn't spawn the thread", message: errorMessage(cause), variant: "error", duration: 10_000 })
+      notice({
+        id: `spawn-${id}`,
+        title: "Couldn't spawn the thread",
+        message: errorMessage(cause),
+        variant: "error",
+        duration: 10_000,
+      })
     }
   }
 
@@ -562,20 +725,51 @@ export function createActions(
     }))
     // A skill's documented usage and choices fill the slash menu; an MCP prompt's arguments become its usage, filled word by word.
     const commands: CommandInfo[] = config.commands.map((command) => {
-      const usage = command.usage ?? (command.arguments?.length ? command.arguments.map((argument) => `<${argument}>`).join(" ") : undefined)
+      const usage =
+        command.usage ??
+        (command.arguments?.length ? command.arguments.map((argument) => `<${argument}>`).join(" ") : undefined)
       return {
         name: command.name,
         description: command.description,
         template: command.template,
         ...(usage ? { usage } : {}),
-        ...(command.subcommands?.length ? { subcommands: command.subcommands.map((choice) => ({ name: choice.name, description: choice.description, ...(choice.usage ? { usage: choice.usage } : {}) })) } : {}),
+        ...(command.subcommands?.length
+          ? {
+              subcommands: command.subcommands.map((choice) => ({
+                name: choice.name,
+                description: choice.description,
+                ...(choice.usage ? { usage: choice.usage } : {}),
+              })),
+            }
+          : {}),
       }
     })
     // A config file that cannot be read stops every turn here until it is fixed; say so before the first send.
-    for (const problem of config.problems ?? []) notice({ id: `config-${workspace}`, title: "Couldn't read the workspace config", message: problem, variant: "error", duration: 15_000 })
-    for (const warning of config.warnings ?? []) notice({ id: `config-warning-${workspace}-${warning}`, title: "Part of the workspace config is ignored", message: warning, variant: "warning", duration: 10_000 })
+    for (const problem of config.problems ?? [])
+      notice({
+        id: `config-${workspace}`,
+        title: "Couldn't read the workspace config",
+        message: problem,
+        variant: "error",
+        duration: 15_000,
+      })
+    for (const warning of config.warnings ?? [])
+      notice({
+        id: `config-warning-${workspace}-${warning}`,
+        title: "Part of the workspace config is ignored",
+        message: warning,
+        variant: "warning",
+        duration: 10_000,
+      })
     // A broken agent refuses only its own turns; name it so the first refusal is no surprise.
-    for (const agent of agents.filter((agent) => agent.problem)) notice({ id: `agent-${workspace}-${agent.name}`, title: `The ${agent.name} agent can't run`, message: agent.problem!, variant: "warning", duration: 15_000 })
+    for (const agent of agents.filter((agent) => agent.problem))
+      notice({
+        id: `agent-${workspace}-${agent.name}`,
+        title: `The ${agent.name} agent can't run`,
+        message: agent.problem!,
+        variant: "warning",
+        duration: 15_000,
+      })
     set("agents", agents)
     set("commands", commands)
   }
@@ -615,7 +809,11 @@ export function createActions(
   }
 
   /** `create`: adding a server, which the engine refuses rather than replace one of the same name; left out, `readOnlyTrusted` is the engine's default. */
-  function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean; directory?: string } = {}) {
+  function mcpSave(
+    name: string,
+    config: McpServerConfig,
+    options: { create?: boolean; readOnlyTrusted?: boolean; directory?: string } = {},
+  ) {
     const { directory, ...rest } = options
     return mcpChange(() => requireClient().saveMcpServer(name, config, { ...rest, workspace: workspaceOf(directory) }))
   }
@@ -628,14 +826,20 @@ export function createActions(
   /** The engine renames in one step and refuses a name already taken, so no other server is ever replaced. */
   async function mcpRename(from: string, to: string, directory?: string) {
     const renamed = await requireClient().renameMcpServer(from, to, workspaceOf(directory))
-    set("mcpServers", produce((servers) => void delete servers[from]))
+    set(
+      "mcpServers",
+      produce((servers) => void delete servers[from]),
+    )
     set("mcpServers", renamed.name, reconcile(renamed))
     return renamed
   }
 
   async function mcpRemove(name: string) {
     await requireClient().removeMcpServer(name)
-    set("mcpServers", produce((servers) => void delete servers[name]))
+    set(
+      "mcpServers",
+      produce((servers) => void delete servers[name]),
+    )
   }
 
   return {
@@ -686,13 +890,24 @@ export function createActions(
     plugins: () => requireClient().plugins(),
     reloadPlugins: () => requireClient().reloadPlugins(),
     setPluginEnabled: (path: string, enabled: boolean) => requireClient().setPluginEnabled(path, enabled),
-    installPlugin: (body: { id: string; url: string; sha256: string; config: unknown; registry?: string }) => requireClient().installPlugin(body),
+    installPlugin: (body: { id: string; url: string; sha256: string; config: unknown; registry?: string }) =>
+      requireClient().installPlugin(body),
     removePlugin: (path: string) => requireClient().removePlugin(path),
     configurePlugin: (path: string, config: unknown) => requireClient().configurePlugin(path, config),
     skills: (directory?: string) => requireClient().skills(directory ? workspaces().id(directory) : undefined),
-    setSkillEnabled: (path: string, enabled: boolean, directory?: string) => requireClient().setSkillEnabled(path, enabled, directory ? workspaces().id(directory) : undefined),
+    setSkillEnabled: (path: string, enabled: boolean, directory?: string) =>
+      requireClient().setSkillEnabled(path, enabled, directory ? workspaces().id(directory) : undefined),
     skillPacks: () => requireClient().skillPacks(),
-    installSkillPack: (body: { id: string; name: string; archive: string; subdirs: string[]; source?: string; image?: string; skills: string[]; registry?: string }) => requireClient().installSkillPack(body),
+    installSkillPack: (body: {
+      id: string
+      name: string
+      archive: string
+      subdirs: string[]
+      source?: string
+      image?: string
+      skills: string[]
+      registry?: string
+    }) => requireClient().installSkillPack(body),
     removeSkillPack: (id: string) => requireClient().removeSkillPack(id),
     saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
     resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),
@@ -707,9 +922,12 @@ export function createActions(
     mcpSave,
     mcpRename,
     mcpRemove,
-    mcpSetEnabled: (name: string, enabled: boolean, directory?: string) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled, workspaceOf(directory))),
-    mcpConnect: (name: string, directory?: string) => mcpChange(() => requireClient().connectMcpServer(name, workspaceOf(directory))),
-    mcpDisconnect: (name: string, directory?: string) => mcpChange(() => requireClient().disconnectMcpServer(name, workspaceOf(directory))),
+    mcpSetEnabled: (name: string, enabled: boolean, directory?: string) =>
+      mcpChange(() => requireClient().setMcpServerEnabled(name, enabled, workspaceOf(directory))),
+    mcpConnect: (name: string, directory?: string) =>
+      mcpChange(() => requireClient().connectMcpServer(name, workspaceOf(directory))),
+    mcpDisconnect: (name: string, directory?: string) =>
+      mcpChange(() => requireClient().disconnectMcpServer(name, workspaceOf(directory))),
     /** The page to open in the browser; the server connects by itself once the user comes back. */
     mcpSignIn: async (name: string) => (await requireClient().signInMcpServer(name)).url,
     mcpSignOut: (name: string) => mcpChange(() => requireClient().signOutMcpServer(name)),
@@ -725,7 +943,9 @@ function definite(cause: unknown) {
 
 /** A retried send with the same id gets the original receipt instead of a second turn. */
 function submissionId() {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`
 }
 
 function purge(draft: EngineState, id: string) {

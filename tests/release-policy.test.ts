@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test"
-import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import os from "node:os"
+import { createHash } from "node:crypto"
+import { expect, test } from "bun:test"
 import path from "node:path"
+import os from "node:os"
 import {
   assertVersionIsNewer,
   compareStableTags,
@@ -32,7 +32,8 @@ test("stable tags have exactly one v and three numeric components", () => {
     "v1.2.3-beta.1",
     "v1.2.3+build.1",
     "v1.2.3.4",
-  ]) expect(() => versionFromTag(tag)).toThrow("must match vMAJOR.MINOR.PATCH exactly")
+  ])
+    expect(() => versionFromTag(tag)).toThrow("must match vMAJOR.MINOR.PATCH exactly")
 })
 
 test("development builds use an exact clean tag or the next patch", () => {
@@ -59,68 +60,80 @@ test("release versions must be strictly newer", () => {
 })
 
 test("latest stable candidate excludes prereleases, drafts, malformed tags, and the current rerun", () => {
-  expect(latestStableTag(
-    ["v1.1.0", "v1.2.0", "v9.0.0-beta.1"],
-    [
-      { tag_name: "v1.3.0", prerelease: true },
-      { tag_name: "v1.4.0", draft: true },
-      { tag_name: "v1.2.1junk" },
-      { tag_name: "v1.2.0" },
-    ],
-    "v1.2.0",
-  )).toBe("v1.1.0")
+  expect(
+    latestStableTag(
+      ["v1.1.0", "v1.2.0", "v9.0.0-beta.1"],
+      [
+        { tag_name: "v1.3.0", prerelease: true },
+        { tag_name: "v1.4.0", draft: true },
+        { tag_name: "v1.2.1junk" },
+        { tag_name: "v1.2.0" },
+      ],
+      "v1.2.0",
+    ),
+  ).toBe("v1.1.0")
 })
 
 test("policy rejects a tag whose commit is outside origin/master", () => {
-  expect(() => validateReleasePolicy({
-    tag: "v1.2.0",
-    triggerCommit: "a".repeat(40),
-    resolvedCommit: "a".repeat(40),
-    runId: "100",
-    containedInMaster: false,
-    tags: ["v1.1.0"],
-    releases: [],
-  })).toThrow("not contained in origin/master")
+  expect(() =>
+    validateReleasePolicy({
+      tag: "v1.2.0",
+      triggerCommit: "a".repeat(40),
+      resolvedCommit: "a".repeat(40),
+      runId: "100",
+      containedInMaster: false,
+      tags: ["v1.1.0"],
+      releases: [],
+    }),
+  ).toThrow("not contained in origin/master")
 })
 
 test("policy binds the resolved tag to the triggering commit", () => {
-  expect(() => validateReleasePolicy({
-    tag: "v1.2.0",
-    triggerCommit: "a".repeat(40),
-    resolvedCommit: "b".repeat(40),
-    runId: "100",
-    containedInMaster: true,
-    tags: ["v1.2.0"],
-    releases: [],
-  })).toThrow("not triggering commit")
+  expect(() =>
+    validateReleasePolicy({
+      tag: "v1.2.0",
+      triggerCommit: "a".repeat(40),
+      resolvedCommit: "b".repeat(40),
+      runId: "100",
+      containedInMaster: true,
+      tags: ["v1.2.0"],
+      releases: [],
+    }),
+  ).toThrow("not triggering commit")
 })
 
 test("policy allows no prior release and same-event reruns of the newest tag", () => {
   const commit = "a".repeat(40)
-  expect(validateReleasePolicy({
-    tag: "v1.0.0",
-    triggerCommit: commit,
-    resolvedCommit: commit,
-    runId: "100",
-    containedInMaster: true,
-    tags: ["v1.0.0"],
-    releases: [],
-  })).toEqual({ version: "1.0.0", latest: undefined, published: false })
+  expect(
+    validateReleasePolicy({
+      tag: "v1.0.0",
+      triggerCommit: commit,
+      resolvedCommit: commit,
+      runId: "100",
+      containedInMaster: true,
+      tags: ["v1.0.0"],
+      releases: [],
+    }),
+  ).toEqual({ version: "1.0.0", latest: undefined, published: false })
 
   const assets = publishedAssets()
-  expect(validateReleasePolicy({
-    tag: "v1.2.0",
-    triggerCommit: commit,
-    resolvedCommit: commit,
-    runId: "100",
-    containedInMaster: true,
-    tags: ["v1.1.0", "v1.2.0"],
-    releases: [{
-      tag_name: "v1.2.0",
-      body: publishedBody("100", commit, assets),
-      assets,
-    }],
-  })).toEqual({ version: "1.2.0", latest: "v1.1.0", published: true })
+  expect(
+    validateReleasePolicy({
+      tag: "v1.2.0",
+      triggerCommit: commit,
+      resolvedCommit: commit,
+      runId: "100",
+      containedInMaster: true,
+      tags: ["v1.1.0", "v1.2.0"],
+      releases: [
+        {
+          tag_name: "v1.2.0",
+          body: publishedBody("100", commit, assets),
+          assets,
+        },
+      ],
+    }),
+  ).toEqual({ version: "1.2.0", latest: "v1.1.0", published: true })
 })
 
 function publishedAssets() {
@@ -142,15 +155,17 @@ function publishedBody(runId: string, commit: string, assets = publishedAssets()
 test("an immutable published rerun is a no-op even after a newer tag exists", () => {
   const commit = "a".repeat(40)
   const assets = publishedAssets()
-  expect(validateReleasePolicy({
-    tag: "v1.2.0",
-    triggerCommit: commit,
-    resolvedCommit: commit,
-    runId: "100",
-    containedInMaster: true,
-    tags: ["v1.2.0", "v1.3.0"],
-    releases: [{ tag_name: "v1.2.0", body: publishedBody("100", commit, assets), assets }],
-  })).toEqual({ version: "1.2.0", latest: "v1.3.0", published: true })
+  expect(
+    validateReleasePolicy({
+      tag: "v1.2.0",
+      triggerCommit: commit,
+      resolvedCommit: commit,
+      runId: "100",
+      containedInMaster: true,
+      tags: ["v1.2.0", "v1.3.0"],
+      releases: [{ tag_name: "v1.2.0", body: publishedBody("100", commit, assets), assets }],
+    }),
+  ).toEqual({ version: "1.2.0", latest: "v1.3.0", published: true })
 })
 
 test("published reruns reject mismatched markers and assets", () => {
@@ -165,22 +180,32 @@ test("published reruns reject mismatched markers and assets", () => {
     tags: ["v1.2.0"],
   }
 
-  expect(() => validateReleasePolicy({
-    ...input,
-    releases: [{ tag_name: "v1.2.0", body: publishedBody("101", commit, assets), assets }],
-  })).toThrow("another commit or workflow run")
-  expect(() => validateReleasePolicy({
-    ...input,
-    releases: [{
-      tag_name: "v1.2.0",
-      body: publishedBody("100", commit, assets),
-      assets: assets.map((asset, index) => index === 0 ? { ...asset, digest: `sha256:${"d".repeat(64)}` } : asset),
-    }],
-  })).toThrow("does not match its immutable digest")
-  expect(() => validateReleasePolicy({
-    ...input,
-    releases: [{ tag_name: "v1.2.0", body: publishedBody("100", commit, assets), assets: assets.slice(1) }],
-  })).toThrow("exactly one setup executable")
+  expect(() =>
+    validateReleasePolicy({
+      ...input,
+      releases: [{ tag_name: "v1.2.0", body: publishedBody("101", commit, assets), assets }],
+    }),
+  ).toThrow("another commit or workflow run")
+  expect(() =>
+    validateReleasePolicy({
+      ...input,
+      releases: [
+        {
+          tag_name: "v1.2.0",
+          body: publishedBody("100", commit, assets),
+          assets: assets.map((asset, index) =>
+            index === 0 ? { ...asset, digest: `sha256:${"d".repeat(64)}` } : asset,
+          ),
+        },
+      ],
+    }),
+  ).toThrow("does not match its immutable digest")
+  expect(() =>
+    validateReleasePolicy({
+      ...input,
+      releases: [{ tag_name: "v1.2.0", body: publishedBody("100", commit, assets), assets: assets.slice(1) }],
+    }),
+  ).toThrow("exactly one setup executable")
 })
 
 test("policy rejects same-name releases from a moved tag or another event", () => {
@@ -194,20 +219,28 @@ test("policy rejects same-name releases from a moved tag or another event", () =
     tags: ["v1.1.0", "v1.2.0"],
   }
 
-  expect(() => validateReleasePolicy({
-    ...input,
-    releases: [{
-      tag_name: "v1.2.0",
-      body: releaseRunMarker("100", "b".repeat(40)),
-    }],
-  })).toThrow("another commit or workflow run")
-  expect(() => validateReleasePolicy({
-    ...input,
-    releases: [{
-      tag_name: "v1.2.0",
-      body: releaseRunMarker("101", commit),
-    }],
-  })).toThrow("another commit or workflow run")
+  expect(() =>
+    validateReleasePolicy({
+      ...input,
+      releases: [
+        {
+          tag_name: "v1.2.0",
+          body: releaseRunMarker("100", "b".repeat(40)),
+        },
+      ],
+    }),
+  ).toThrow("another commit or workflow run")
+  expect(() =>
+    validateReleasePolicy({
+      ...input,
+      releases: [
+        {
+          tag_name: "v1.2.0",
+          body: releaseRunMarker("101", commit),
+        },
+      ],
+    }),
+  ).toThrow("another commit or workflow run")
 })
 
 test("release notes are sealed with exact local asset hashes", () => {
@@ -222,11 +255,19 @@ test("release notes are sealed with exact local asset hashes", () => {
 
     const sealed = readFileSync(notes, "utf8")
     expect(sealed).toContain(releaseRunMarker("100", "a".repeat(40)))
-    expect(sealed).toContain(releaseAssetsMarker([
-      { name: "Drift_1.2.0_x64-setup.exe", digest: `sha256:${createHash("sha256").update("installer").digest("hex")}` },
-      { name: "Drift_1.2.0_x64-setup.exe.sig", digest: `sha256:${createHash("sha256").update("signature").digest("hex")}` },
-      { name: "latest.json", digest: `sha256:${createHash("sha256").update("manifest").digest("hex")}` },
-    ]))
+    expect(sealed).toContain(
+      releaseAssetsMarker([
+        {
+          name: "Drift_1.2.0_x64-setup.exe",
+          digest: `sha256:${createHash("sha256").update("installer").digest("hex")}`,
+        },
+        {
+          name: "Drift_1.2.0_x64-setup.exe.sig",
+          digest: `sha256:${createHash("sha256").update("signature").digest("hex")}`,
+        },
+        { name: "latest.json", digest: `sha256:${createHash("sha256").update("manifest").digest("hex")}` },
+      ]),
+    )
   } finally {
     rmSync(temporary, { recursive: true, force: true })
   }
@@ -252,9 +293,15 @@ test("release stamping updates every package version and is idempotent", () => {
     mkdirSync(path.join(temporary, "src-tauri"))
     writeFileSync(path.join(temporary, "package.json"), '{"version":"1.0.0"}\n')
     writeFileSync(path.join(temporary, "src-tauri/tauri.conf.json"), '{"version":"1.0.0"}\n')
-    writeFileSync(path.join(temporary, "Cargo.toml"), '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.0.0"\n')
+    writeFileSync(
+      path.join(temporary, "Cargo.toml"),
+      '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "1.0.0"\n',
+    )
     const crates = ["drift", "drift-engine", "drift-engined", "drift-migrate"]
-    writeFileSync(path.join(temporary, "Cargo.lock"), crates.map((name) => `[[package]]\nname = "${name}"\nversion = "1.0.0"\n`).join("\n"))
+    writeFileSync(
+      path.join(temporary, "Cargo.lock"),
+      crates.map((name) => `[[package]]\nname = "${name}"\nversion = "1.0.0"\n`).join("\n"),
+    )
 
     expect(stampReleaseVersion("v2.3.4", temporary)).toBe("2.3.4")
     expect(stampReleaseVersion("v2.3.4", temporary)).toBe("2.3.4")

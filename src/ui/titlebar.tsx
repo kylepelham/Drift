@@ -1,8 +1,8 @@
 import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { shellInvoke, shellWindow } from "../shell"
-import { t } from "../state/i18n"
 import { autoUpdate } from "../state/prefs"
 import { DriftLogo } from "./logo"
+import { t } from "../state/i18n"
 
 export function Titlebar() {
   const shell = shellWindow()
@@ -12,7 +12,11 @@ export function Titlebar() {
   const [installing, setInstalling] = createSignal(false)
 
   onMount(() => {
-    const refresh = () => void shell.isMaximized().then(setMaximized).catch(() => {})
+    const refresh = () =>
+      void shell
+        .isMaximized()
+        .then(setMaximized)
+        .catch(() => {})
     refresh()
     void shell
       .onResized(refresh)
@@ -51,29 +55,31 @@ export function Titlebar() {
               disabled={installing()}
               onClick={install}
             >
-              {installing() ? t("settings.updates.action.installing") : t("error.page.action.updateTo", { version: version() })}
+              {installing()
+                ? t("settings.updates.action.installing")
+                : t("error.page.action.updateTo", { version: version() })}
             </button>
           )}
         </Show>
-          <div class="flex h-full">
-            <WindowButton label={t("drift.titlebar.minimize")} onClick={() => shell.minimize()}>
-              <path d="M3 8h10" />
-            </WindowButton>
-            <WindowButton
-              label={maximized() ? t("drift.titlebar.restore") : t("drift.titlebar.maximize")}
-              onClick={() => shell.toggleMaximize()}
-            >
-              <Show when={maximized()} fallback={<rect x="4" y="4" width="8" height="8" rx="1" />}>
-                <>
-                  <rect x="3" y="5.5" width="7.5" height="7.5" rx="1" />
-                  <path d="M5.5 5.5V4a1 1 0 0 1 1-1H12a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1h-1.5" />
-                </>
-              </Show>
-            </WindowButton>
-            <WindowButton label={t("common.close")} danger onClick={() => shell.close()}>
-              <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-            </WindowButton>
-          </div>
+        <div class="flex h-full">
+          <WindowButton label={t("drift.titlebar.minimize")} onClick={() => shell.minimize()}>
+            <path d="M3 8h10" />
+          </WindowButton>
+          <WindowButton
+            label={maximized() ? t("drift.titlebar.restore") : t("drift.titlebar.maximize")}
+            onClick={() => shell.toggleMaximize()}
+          >
+            <Show when={maximized()} fallback={<rect x="4" y="4" width="8" height="8" rx="1" />}>
+              <>
+                <rect x="3" y="5.5" width="7.5" height="7.5" rx="1" />
+                <path d="M5.5 5.5V4a1 1 0 0 1 1-1H12a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1h-1.5" />
+              </>
+            </Show>
+          </WindowButton>
+          <WindowButton label={t("common.close")} danger onClick={() => shell.close()}>
+            <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+          </WindowButton>
+        </div>
       </div>
     </header>
   )

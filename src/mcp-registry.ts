@@ -81,7 +81,10 @@ export function registryServerName(name: string) {
 
 /** The name a server installs under: its display title when it reads as a name, so tools read `github_create_issue`. */
 export function registryInstallName(server: RegistryServer) {
-  const title = (server.title ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")
+  const title = (server.title ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
   return title && title.length <= 32 ? title : registryServerName(server.name)
 }
 
@@ -140,17 +143,29 @@ const RUNTIMES: Record<string, { kind: InstallKind; command: string }> = {
 
 function packageOption(item: RegistryPackage, index: number): InstallOption | null {
   const runtime = RUNTIMES[item.registryType]
-  if (item.transport.type !== "stdio" || !runtime || (item.runtimeHint && item.runtimeHint !== runtime.command)) return null
+  if (item.transport.type !== "stdio" || !runtime || (item.runtimeHint && item.runtimeHint !== runtime.command))
+    return null
   const reference = packageReference(item)
   const runtimeArguments = argumentParts(item.runtimeArguments, `runtime:${index}`)
   const packageArguments = argumentParts(item.packageArguments, `package:${index}`)
   const env = item.environmentVariables?.map((variable) => input(variable, `env:${variable.name}`, variable.name))
-  if (!reference || !runtimeArguments || !packageArguments || env?.some((part) => !part || !validEnvironmentName(part.name))) return null
+  if (
+    !reference ||
+    !runtimeArguments ||
+    !packageArguments ||
+    env?.some((part) => !part || !validEnvironmentName(part.name))
+  )
+    return null
   const envParts = (env ?? []) as Part[]
   return {
     id: `package:${index}`,
     kind: runtime.kind,
-    detail: runtime.kind === "docker" ? (reference.split("@")[0].match(/:([^/:]+)$/)?.[1] ?? "latest") : isPinned(item.registryType, item.version) ? item.version : "latest",
+    detail:
+      runtime.kind === "docker"
+        ? (reference.split("@")[0].match(/:([^/:]+)$/)?.[1] ?? "latest")
+        : isPinned(item.registryType, item.version)
+          ? item.version
+          : "latest",
     fields: fieldsOf([...runtimeArguments, ...envParts, ...packageArguments]),
     build(values) {
       const before = filledArguments(runtimeArguments, values)
@@ -158,7 +173,12 @@ function packageOption(item: RegistryPackage, index: number): InstallOption | nu
       const filled = filledPairs(envParts, values)
       if (!before || !after || !filled) return null
       const runtimeArgs = runtime.kind === "docker" ? dockerEnvironment(before, filled) : before
-      return { type: "stdio", command: runtime.command, args: launch(runtime.kind, runtimeArgs, reference, after, Object.keys(filled)), env: filled }
+      return {
+        type: "stdio",
+        command: runtime.command,
+        args: launch(runtime.kind, runtimeArgs, reference, after, Object.keys(filled)),
+        env: filled,
+      }
     },
   }
 }
@@ -166,7 +186,8 @@ function packageOption(item: RegistryPackage, index: number): InstallOption | nu
 /** npx gets `-y`, so it never stops to ask on the server's stdin; docker gets each variable passed through by name. */
 function launch(kind: InstallKind, before: string[], reference: string, after: string[], env: string[]) {
   if (kind === "npm") return [...(before.includes("-y") ? [] : ["-y"]), ...before, reference, ...after]
-  if (kind === "docker") return ["run", "-i", "--rm", ...env.flatMap((name) => ["-e", name]), ...before, reference, ...after]
+  if (kind === "docker")
+    return ["run", "-i", "--rm", ...env.flatMap((name) => ["-e", name]), ...before, reference, ...after]
   // After `uvx --from <source>` the entry names the command itself.
   if (before.includes("--from")) return [...before, ...after]
   return [...before, reference, ...after]
@@ -177,7 +198,8 @@ function dockerEnvironment(args: string[], env: Record<string, string>) {
   const kept: string[] = []
   for (let index = 0; index < args.length; index++) {
     const joined = args[index].match(/^--env=([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
-    const split = (args[index] === "-e" || args[index] === "--env") && args[index + 1]?.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
+    const split =
+      (args[index] === "-e" || args[index] === "--env") && args[index + 1]?.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
     const pair = joined ?? split
     if (!pair) {
       kept.push(args[index])
@@ -191,8 +213,14 @@ function dockerEnvironment(args: string[], env: Record<string, string>) {
 
 function packageReference(item: RegistryPackage) {
   const pinned = isPinned(item.registryType, item.version)
-  if (item.registryType === "npm") return validNpmIdentifier(item.identifier) ? `${item.identifier}@${pinned ? item.version : "latest"}` : null
-  if (item.registryType === "pypi") return validPypiIdentifier(item.identifier) ? (pinned ? `${item.identifier}==${item.version}` : item.identifier) : null
+  if (item.registryType === "npm")
+    return validNpmIdentifier(item.identifier) ? `${item.identifier}@${pinned ? item.version : "latest"}` : null
+  if (item.registryType === "pypi")
+    return validPypiIdentifier(item.identifier)
+      ? pinned
+        ? `${item.identifier}==${item.version}`
+        : item.identifier
+      : null
   return validImage(item.identifier) ? item.identifier : null
 }
 
@@ -211,12 +239,26 @@ function input(item: RegistryInput, key: string, name: string): Part | null {
     const filled = template(given, item.variables, key, required, !!item.isSecret, item.description)
     return filled && { ...filled, name, required }
   }
-  const field: InstallField = { key, label: name, description: item.description, secret: !!item.isSecret, required, default: undefined }
+  const field: InstallField = {
+    key,
+    label: name,
+    description: item.description,
+    secret: !!item.isSecret,
+    required,
+    default: undefined,
+  }
   return { name, required, fields: [field], fill: (values) => typed(values[key]) }
 }
 
 /** A template's placeholders become fields; `fill` is `undefined` when an optional one was left empty, `null` when a required one was. */
-function template(value: string, variables: Record<string, RegistryInput> | undefined, key: string, required = true, secret = false, about?: string): Part | null {
+function template(
+  value: string,
+  variables: Record<string, RegistryInput> | undefined,
+  key: string,
+  required = true,
+  secret = false,
+  about?: string,
+): Part | null {
   if (!safeValue(value)) return null
   const names = [...new Set([...value.matchAll(/\{([A-Za-z0-9._-]+)\}/g)].map((match) => match[1]))]
   const fields: InstallField[] = []
@@ -229,7 +271,14 @@ function template(value: string, variables: Record<string, RegistryInput> | unde
       continue
     }
     const isRequired = required || !!variable?.isRequired
-    fields.push({ key: `${key}:${name}`, label: name, description: variable?.description ?? about, secret: variable?.isSecret ?? secret, required: isRequired, default: variable?.default })
+    fields.push({
+      key: `${key}:${name}`,
+      label: name,
+      description: variable?.description ?? about,
+      secret: variable?.isSecret ?? secret,
+      required: isRequired,
+      default: variable?.default,
+    })
   }
   return {
     name: key,
@@ -263,7 +312,11 @@ function fieldsOf(parts: Part[]) {
 function argumentParts(items: RegistryArgument[] | undefined, key: string) {
   const parts: (Part & { argument: RegistryArgument })[] = []
   for (const [index, item] of (items ?? []).entries()) {
-    if (item.isRepeated || (item.type === "named" && (!item.name || !/^-{1,2}[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item.name)))) return null
+    if (
+      item.isRepeated ||
+      (item.type === "named" && (!item.name || !/^-{1,2}[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item.name)))
+    )
+      return null
     if (item.type !== "named" && item.type !== "positional") return null
     // A named argument with nothing to put after it is a flag: present when the entry requires it, else left out.
     const flag = item.type === "named" && item.value === undefined && item.default === undefined && !item.variables
@@ -302,7 +355,11 @@ function filledArguments(parts: (Part & { argument: RegistryArgument })[], value
 }
 
 /** Headers or environment: one left empty is omitted when optional, so an environment variable comes from where the server starts. */
-function filledPairs(parts: Part[] | undefined, values: Record<string, string>, shape = (_name: string, value: string) => value) {
+function filledPairs(
+  parts: Part[] | undefined,
+  values: Record<string, string>,
+  shape = (_name: string, value: string) => value,
+) {
   const result: Record<string, string> = {}
   for (const part of parts ?? []) {
     if (Object.prototype.hasOwnProperty.call(result, part.name)) return null

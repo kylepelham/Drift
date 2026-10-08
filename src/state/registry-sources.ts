@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js"
+
 import type { components } from "../engine/native/types"
 
 export type RegistrySource = components["schemas"]["RegistrySource"]
@@ -25,8 +26,14 @@ export async function loadRegistrySources(client: SourcesClient) {
 }
 
 /** Saves the whole list; `tokens` carries a new token for a source by id (empty clears it). */
-export async function saveRegistrySources(client: SourcesClient, next: RegistrySource[], tokens: Record<string, string> = {}) {
-  await client.putSettings({ registrySources: next.map((source) => (source.id in tokens ? { ...source, token: tokens[source.id] } : source)) })
+export async function saveRegistrySources(
+  client: SourcesClient,
+  next: RegistrySource[],
+  tokens: Record<string, string> = {},
+) {
+  await client.putSettings({
+    registrySources: next.map((source) => (source.id in tokens ? { ...source, token: tokens[source.id] } : source)),
+  })
   const settings = await client.settings()
   setSources(settings.registrySources ?? next)
   setLoaded(true)
@@ -49,7 +56,10 @@ export function sourceProblem(kind: SourceKind, url: string, allowHttp: boolean)
     }
   }
   if (kind === "github") return /^https:\/\/github\.com\/[^/]+\/[^/]+/.test(value) ? undefined : "github"
-  if (kind === "azure_devops") return /^https:\/\/(dev\.azure\.com\/[^/]+\/[^/]+|[^/]+\.visualstudio\.com\/[^/]+)\/_git\/[^/]+/.test(value) ? undefined : "azure"
+  if (kind === "azure_devops")
+    return /^https:\/\/(dev\.azure\.com\/[^/]+\/[^/]+|[^/]+\.visualstudio\.com\/[^/]+)\/_git\/[^/]+/.test(value)
+      ? undefined
+      : "azure"
   return undefined
 }
 

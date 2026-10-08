@@ -1,3 +1,6 @@
 # A bare `bun test` runs the app's tests only, never anything under examples/ or node_modules.
 [test]
 root = "tests"
+
+# Source-text checks compare code, not layout (tests/source.ts).
+preload = ["./tests/source.ts"]

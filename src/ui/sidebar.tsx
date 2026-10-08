@@ -1,23 +1,15 @@
+import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces"
+import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen } from "../state/navigation"
+import { listenOpencodeImport, opencodeImport } from "../state/opencode-import"
+import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons"
+import { selectedSession, selectSession } from "../state/selection"
 import { createSignal, For, onCleanup, Show } from "solid-js"
-import { useEngine } from "../engine"
 import { normalizeDir } from "../engine/store"
 import { pickFolder } from "../state/dialog"
-import { listenOpencodeImport, opencodeImport } from "../state/opencode-import"
 import { persisted } from "../state/persist"
-import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen } from "../state/navigation"
-import { selectedSession, selectSession } from "../state/selection"
-import type { Workspace } from "../state/store"
-import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces"
-import { ArchiveModal } from "./archive"
-import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons"
-import {
-  SessionSearchBar,
-  SessionSearchResults,
-  sessionSearchActive,
-  sessionSearchOpen,
-  toggleSessionSearch,
-} from "./session-search"
 import { openSettings } from "./settings"
+import { ArchiveModal } from "./archive"
+import { useEngine } from "../engine"
 import { t } from "../state/i18n"
 import {
   SessionMenu,
@@ -27,6 +19,15 @@ import {
   type SessionMenuState,
   type WorkspaceMenuState,
 } from "./workspaces"
+import {
+  SessionSearchBar,
+  SessionSearchResults,
+  sessionSearchActive,
+  sessionSearchOpen,
+  toggleSessionSearch,
+} from "./session-search"
+
+import type { Workspace } from "../state/store"
 
 const minSidebarWidth = 192
 const maxSidebarWidth = 480
@@ -128,7 +129,8 @@ export function Sidebar() {
           isNarrowWidth(window.innerWidth) &&
           event.target instanceof Element &&
           event.target.closest("[data-sidebar-navigation]")
-        ) queueMicrotask(() => closeMobileDrawer())
+        )
+          queueMicrotask(() => closeMobileDrawer())
       }}
     >
       <div class="flex shrink-0 items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
@@ -164,10 +166,7 @@ export function Sidebar() {
         <SessionSearchBar />
       </Show>
       <nav class="app-sidebar-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-2 pb-2">
-        <Show
-          when={!sessionSearchActive()}
-          fallback={<SessionSearchResults />}
-        >
+        <Show when={!sessionSearchActive()} fallback={<SessionSearchResults />}>
           <For each={workspaces()}>
             {(workspace) => <WorkspaceGroup workspace={workspace} onMenu={setMenu} onSessionMenu={setSessionMenu} />}
           </For>
@@ -284,7 +283,10 @@ function SidebarFooter(props: { onSettings: () => void }) {
               </span>
             </div>
             <div class="mt-1 h-1 overflow-hidden rounded-full bg-raised">
-              <div class="h-full bg-accent transition-[width]" style={{ width: `${(progress().done / progress().total) * 100}%` }} />
+              <div
+                class="h-full bg-accent transition-[width]"
+                style={{ width: `${(progress().done / progress().total) * 100}%` }}
+              />
             </div>
           </div>
         )}

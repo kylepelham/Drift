@@ -1,20 +1,16 @@
-import type { Part, ToolPart } from "./engine/shapes"
+import { openFile, registerToolContextActions, type FileLocation, type ToolContextActionProvider } from "./tool-actions"
 import { createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js"
-import type { Engine } from "./engine"
-import type { QuestionInfo } from "./engine/store"
-import { pushAsk } from "./state/asks"
 import { selectedSession, selectSession } from "./state/selection"
-import { backendInvoke } from "./backend"
-import { theme } from "./state/theme"
 import { activeWorkspace } from "./state/workspaces"
-import type { Workspace } from "./state/store"
 import { ToolDuration } from "./ui/tool-duration"
-import {
-  openFile,
-  registerToolContextActions,
-  type FileLocation,
-  type ToolContextActionProvider,
-} from "./tool-actions"
+import { backendInvoke } from "./backend"
+import { pushAsk } from "./state/asks"
+import { theme } from "./state/theme"
+
+import type { Part, ToolPart } from "./engine/shapes"
+import type { QuestionInfo } from "./engine/store"
+import type { Workspace } from "./state/store"
+import type { Engine } from "./engine"
 
 type WorkspaceInfo = Pick<Workspace, "id" | "name" | "path">
 type Context = {
@@ -73,7 +69,10 @@ export function pluginPaths(source: string) {
   const config = JSON.parse(source) as Config | null
   if (!config || typeof config !== "object") return []
   if (!Array.isArray(config.plugins)) return []
-  return config.plugins.filter((path): path is string => typeof path === "string").map(safePluginPath).filter(Boolean)
+  return config.plugins
+    .filter((path): path is string => typeof path === "string")
+    .map(safePluginPath)
+    .filter(Boolean)
 }
 
 function safePluginPath(path: string) {
@@ -237,7 +236,11 @@ function createPluginApi(engine: Engine) {
   }
   const api: DriftPluginApi = {
     version: 1,
-    context: () => ({ connection: engine.state.connection, sessionId: selectedSession(), workspace: activeWorkspace() }),
+    context: () => ({
+      connection: engine.state.connection,
+      sessionId: selectedSession(),
+      workspace: activeWorkspace(),
+    }),
     on: (name, hook) => track(on(name, hook)),
     registerToolRenderer: (tool, renderer) => track(registerToolRenderer(tool, renderer)),
     registerPartRenderer: (type, renderer) => track(registerPartRenderer(type, renderer)),
@@ -323,14 +326,15 @@ export function PluginHost(props: { engine: Engine }) {
     for (const permission of all) {
       if (seenPermissions.has(permission.id)) continue
       seenPermissions.add(permission.id)
-      untrack(() =>
-        void emit("permission.requested", {
-          sessionId: permission.sessionID,
-          permissionId: permission.id,
-          title: permission.title,
-          type: permission.type,
-          patterns: [permission.pattern ?? []].flat(),
-        }),
+      untrack(
+        () =>
+          void emit("permission.requested", {
+            sessionId: permission.sessionID,
+            permissionId: permission.id,
+            title: permission.title,
+            type: permission.type,
+            patterns: [permission.pattern ?? []].flat(),
+          }),
       )
     }
   })
@@ -342,12 +346,13 @@ export function PluginHost(props: { engine: Engine }) {
     for (const question of all) {
       if (seenQuestions.has(question.id)) continue
       seenQuestions.add(question.id)
-      untrack(() =>
-        void emit("question.requested", {
-          sessionId: question.sessionID,
-          requestId: question.id,
-          headers: question.questions.map((item) => item.header),
-        }),
+      untrack(
+        () =>
+          void emit("question.requested", {
+            sessionId: question.sessionID,
+            requestId: question.id,
+            headers: question.questions.map((item) => item.header),
+          }),
       )
     }
   })

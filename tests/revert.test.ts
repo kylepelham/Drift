@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+
 import type { Message, Part } from "../src/engine/shapes"
 import type { MessageEntry } from "../src/engine/store"
 
@@ -151,8 +152,8 @@ test("a failed backfill page is not requested again until the cursor moves", asy
   expect(revertBackfillAttempt("ses_one", null)).toBe(revertBackfillAttempt("ses_one"))
 
   const source = await Bun.file("src/ui/chat.tsx").text()
-  expect(source).toContain("if (revertBackfillFailure() === attempt) return")
-  expect(source).toContain("if (!loaded) setRevertBackfillFailure(attempt)")
+  expect(source).toContainCode("if (revertBackfillFailure() === attempt) return")
+  expect(source).toContainCode("if (!loaded) setRevertBackfillFailure(attempt)")
 })
 
 test("retry models come from connected providers once the engine is online", async () => {
@@ -179,7 +180,7 @@ test("retry models come from connected providers once the engine is online", asy
 test("the transcript shows a loading row while reverted history backfills", async () => {
   const source = await Bun.file("src/ui/chat.tsx").text()
   // The empty-state loading row must also cover backfill, otherwise the view is blank mid-page.
-  expect(source).toContain("timeline().length === 0 && (revertBackfill() ||")
+  expect(source).toContainCode("timeline().length === 0 && (revertBackfill() ||")
   // Each finished page re-runs the effect, so paging continues past a fully reverted page.
-  expect(source).toContain(".finally(() => setRevertBackfill(false))")
+  expect(source).toContainCode(".finally(() => setRevertBackfill(false))")
 })

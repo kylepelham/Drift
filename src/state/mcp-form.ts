@@ -29,8 +29,19 @@ export function mcpFormState(config?: McpServerConfigView): McpFormState {
   const noApp = { clientId: "", clientSecret: "", secretSaved: false, scopes: "" }
   if (config?.type === "http" || config?.type === "sse") {
     const app = config.oauth
-    const oauth = app ? { clientId: app.clientId, clientSecret: "", secretSaved: app.hasSecret, scopes: app.scopes.join(" ") } : noApp
-    return { type: config.type, command: [""], environment: [], cwd: "", url: config.url, headers: savedPairs(config.headers), ...oauth, timeout }
+    const oauth = app
+      ? { clientId: app.clientId, clientSecret: "", secretSaved: app.hasSecret, scopes: app.scopes.join(" ") }
+      : noApp
+    return {
+      type: config.type,
+      command: [""],
+      environment: [],
+      cwd: "",
+      url: config.url,
+      headers: savedPairs(config.headers),
+      ...oauth,
+      timeout,
+    }
   }
   return {
     type: "stdio",
@@ -55,7 +66,8 @@ function oauthFromForm(form: McpFormState) {
 export function mcpConfigFromForm(form: McpFormState): McpFormResult {
   const timeout = form.timeout.trim()
   const timeoutSeconds = timeout ? Number(timeout) : null
-  if (timeoutSeconds !== null && !(Number.isInteger(timeoutSeconds) && timeoutSeconds > 0)) return { issue: "timeoutInvalid" }
+  if (timeoutSeconds !== null && !(Number.isInteger(timeoutSeconds) && timeoutSeconds > 0))
+    return { issue: "timeoutInvalid" }
   if (form.type === "stdio") {
     const [command, ...args] = form.command
     if (!command?.trim()) return { issue: "commandRequired" }
@@ -81,7 +93,9 @@ export function mcpRemoteUrlAllowed(value: string) {
 
 /** A changed name is a new entry: the engine holds nothing under it to keep. */
 export function updatePair(pairs: McpPair[], index: number, patch: Partial<McpPair>) {
-  return pairs.map((pair, item) => (item === index ? { ...pair, ...patch, ...("key" in patch ? { saved: false } : {}) } : pair))
+  return pairs.map((pair, item) =>
+    item === index ? { ...pair, ...patch, ...("key" in patch ? { saved: false } : {}) } : pair,
+  )
 }
 
 function savedPairs(names: string[]): McpPair[] {

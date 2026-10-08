@@ -1,5 +1,5 @@
-import { createSignal } from "solid-js"
 import { isRemoteRuntime } from "../runtime"
+import { createSignal } from "solid-js"
 
 export const mobileBreakpoint = 720
 export function isNarrowWidth(width: number) {

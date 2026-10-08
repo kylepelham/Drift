@@ -89,8 +89,7 @@ export function createMentionAutocomplete(options: MentionAutocompleteOptions) {
       const path = hits()[activeIndex()]
       if (!path) return false
       pick(path)
-    }
-    else return false
+    } else return false
     event.preventDefault()
     return true
   }

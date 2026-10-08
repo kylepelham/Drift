@@ -1,13 +1,16 @@
-import { expect, test } from "bun:test"
-import { createHash } from "node:crypto"
-import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import path from "node:path"
-import * as ts from "typescript"
 import { indexSource, inspectSource } from "../scripts/inspect-claude-source"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import { expect, test } from "bun:test"
+import { tmpdir } from "node:os"
+import * as ts from "typescript"
+import path from "node:path"
 
-const source = Buffer.from('/*\xe9*/const alpha = () => { function repeated() { c("tengu_event", { secret: "do not copy" }); } function repeated2() { F8("tengu_switch", false); p5("tengu_gate"); oS("tengu_setting"); return process.env.ONE; } return repeated2; }; const beta = () => { function repeated() { return process.env.TWO; } return process.env["BRACKET"] ?? process.env[key] ?? process.env; };', "latin1")
+const source = Buffer.from(
+  '/*\xe9*/const alpha = () => { function repeated() { c("tengu_event", { secret: "do not copy" }); } function repeated2() { F8("tengu_switch", false); p5("tengu_gate"); oS("tengu_setting"); return process.env.ONE; } return repeated2; }; const beta = () => { function repeated() { return process.env.TWO; } return process.env["BRACKET"] ?? process.env[key] ?? process.env; };',
+  "latin1",
+)
 
 test("AST index uses byte offsets, separate owners and syntactic callee groups", () => {
   const base = 71
@@ -21,7 +24,13 @@ test("AST index uses byte offsets, separate owners and syntactic callee groups",
   expect(result.summary.directEnvAccesses).toBe(2)
   expect(result.summary.distinctDirectEnvNames).toBe(2)
   expect(result.summary.otherEnvAccesses).toBe(3)
-  expect(result.environmentAccesses.map(({ kind }) => kind)).toEqual(["property", "property", "literal", "dynamic", "object"])
+  expect(result.environmentAccesses.map(({ kind }) => kind)).toEqual([
+    "property",
+    "property",
+    "literal",
+    "dynamic",
+    "object",
+  ])
   const repeated = result.functions.filter((item) => item.name === "repeated")
   expect(repeated).toHaveLength(2)
   expect(repeated[0].parent).not.toBe(repeated[1].parent)

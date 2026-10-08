@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test"
 import { formatToolDuration, toolElapsedMs, type ToolTimingState } from "../src/ui/tool-duration"
+import { describe, expect, test } from "bun:test"
 
 describe("tool duration formatting", () => {
   test.each([

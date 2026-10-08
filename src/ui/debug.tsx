@@ -1,13 +1,13 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
-import { useEngine } from "../engine"
 import { resolveModel, savedChoice, type MessageEntry } from "../engine/store"
-import { prefsFor } from "../state/prefs"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 import { debugPanelOpen, setDebugPanelOpen } from "../state/panels"
-import { t } from "../state/i18n"
-import { selectedSession } from "../state/selection"
-import { lightTheme } from "../state/theme"
-import { refreshUsage } from "../state/usage-limits"
 import { ContextSection, UsageSection } from "./context-meter"
+import { selectedSession } from "../state/selection"
+import { refreshUsage } from "../state/usage-limits"
+import { lightTheme } from "../state/theme"
+import { prefsFor } from "../state/prefs"
+import { useEngine } from "../engine"
+import { t } from "../state/i18n"
 import { IconX } from "./icons"
 
 export function DebugPanel() {
@@ -91,9 +91,7 @@ function JsonView(props: { value: unknown }) {
   return (
     <Show
       when={html()}
-      fallback={
-        <pre class="font-mono text-[0.7rem] leading-relaxed whitespace-pre-wrap text-ink-muted">{text()}</pre>
-      }
+      fallback={<pre class="font-mono text-[0.7rem] leading-relaxed whitespace-pre-wrap text-ink-muted">{text()}</pre>}
     >
       <div
         class="font-mono text-[0.7rem] leading-relaxed [&_pre]:!bg-transparent [&_pre]:whitespace-pre-wrap"

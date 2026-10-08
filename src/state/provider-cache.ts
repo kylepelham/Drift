@@ -1,6 +1,7 @@
-import type { SetStoreFunction } from "solid-js/store"
-import type { EngineState, ModelInfo, ProviderInfo } from "../engine/store"
 import { persisted } from "./persist"
+
+import type { EngineState, ModelInfo, ProviderInfo } from "../engine/store"
+import type { SetStoreFunction } from "solid-js/store"
 
 /**
  * The last provider catalog the engine reported, persisted across restarts.
@@ -83,11 +84,7 @@ export function normalizeProviderCatalog(value: unknown): ProviderCatalog | null
 
 // persisted() guards a missing/failing localStorage (remote browser runtime), leaving the
 // catalog null so seeding is a no-op there - same behaviour as the other persisted state.
-const [catalog, setCatalog] = persisted<ProviderCatalog | null>(
-  "drift.providers.cache",
-  null,
-  normalizeProviderCatalog,
-)
+const [catalog, setCatalog] = persisted<ProviderCatalog | null>("drift.providers.cache", null, normalizeProviderCatalog)
 
 export function cachedProviderCatalog() {
   return catalog()

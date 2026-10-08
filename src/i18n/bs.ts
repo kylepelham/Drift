@@ -74,7 +74,8 @@ export const dict = {
   "context.usage.cost": "Trošak",
   "context.usage.clickToView": "Klikni da vidiš kontekst",
 
-  "toast.permissions.autoaccept.on.description": "Zahtjevi za dozvole odobravaju se automatski, osim tajnih datoteka i svega izvan radnog prostora",
+  "toast.permissions.autoaccept.on.description":
+    "Zahtjevi za dozvole odobravaju se automatski, osim tajnih datoteka i svega izvan radnog prostora",
 
   "error.page.action.updateTo": "Ažuriraj na {{version}}",
 
@@ -215,7 +216,8 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "Trenutni model",
   "drift.slash.argumentDetails": "Detalji za {{name}}",
-  "drift.markdown.ambiguousCitation": "Dvosmislena veza do datoteke \"{{href}}\". Koristite dužu putanju za odabir između: {{files}}",
+  "drift.markdown.ambiguousCitation":
+    'Dvosmislena veza do datoteke "{{href}}". Koristite dužu putanju za odabir između: {{files}}',
   "drift.preview.settings.title": "Pregledi datoteka",
   "drift.preview.settings.mode": "Način pregleda",
   "drift.preview.settings.description": "Odaberite koje vrste datoteka se otvaraju u pregledu.",
@@ -251,10 +253,12 @@ export const drift = {
   "drift.remote.statusStarting": "Pokretanje",
   "drift.remote.statusError": "Greška",
   "drift.remote.clipboardError": "Kopiranje nije uspjelo",
-  "drift.settings.shellTimeout.scope": "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
+  "drift.settings.shellTimeout.scope":
+    "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
   "drift.settings.toolExecution": "Izvršavanje alata",
   "drift.settings.shellTimeout.title": "Vremensko ograničenje ljuske",
-  "drift.settings.shellTimeout.description": "Zaustavlja naredbe ljuske i njihove podređene procese nakon ovog vremena. Promjene važe za nove pozive.",
+  "drift.settings.shellTimeout.description":
+    "Zaustavlja naredbe ljuske i njihove podređene procese nakon ovog vremena. Promjene važe za nove pozive.",
   "drift.settings.shellTimeout.noTimeout": "Bez ograničenja",
   "drift.settings.shellTimeout.preset1": "1 minuta",
   "drift.settings.shellTimeout.preset5": "5 minuta",
@@ -274,15 +278,18 @@ export const drift = {
   "drift.settings.about": "O aplikaciji",
   "drift.settings.toolErrors.title": "Proširi greške alata prema zadanim postavkama",
   "drift.settings.dayDividers.title": "Razdjelnici po danima u bočnoj traci",
-  "drift.settings.dayDividers.description": "Odvoji niti svakog radnog prostora po danu posljednje aktivnosti: Danas, Jučer, pa raniji dani.",
+  "drift.settings.dayDividers.description":
+    "Odvoji niti svakog radnog prostora po danu posljednje aktivnosti: Danas, Jučer, pa raniji dani.",
   "drift.sidebar.today": "Danas",
   "drift.sidebar.yesterday": "Jučer",
   "drift.settings.responseAnimation.title": "Glatko otkrivanje odgovora",
-  "drift.settings.responseAnimation.description": "Glatko prikaži velike nalete teksta aktivnog asistenta. Historijski odgovori ostaju trenutni.",
+  "drift.settings.responseAnimation.description":
+    "Glatko prikaži velike nalete teksta aktivnog asistenta. Historijski odgovori ostaju trenutni.",
   "drift.settings.responseAnimation.speed.title": "Brzina prikaza",
   "drift.settings.responseAnimation.speed.description": "Odaberite koliko brzo se prikazuje tekst aktivnog asistenta.",
   "drift.settings.responseAnimation.speed.value": "{{speed}} znakova/s",
-  "drift.settings.toolErrors.description": "Odaberite početno stanje. Redovi s greškama ostaju dostupni za klik u oba slučaja.",
+  "drift.settings.toolErrors.description":
+    "Odaberite početno stanje. Redovi s greškama ostaju dostupni za klik u oba slučaja.",
   "drift.settings.summaries": "Sažeci",
   "drift.settings.summaries.collapsible.title": "Sklopivi sažeci sažimanja",
   "drift.settings.summaries.collapsible.description": "Sakrij sažetke sažimanja mehanizma iza proširivog razdjelnika.",
@@ -391,7 +398,8 @@ export const drift = {
   "drift.lightbox.actualSize": "Stvarna veličina",
   "drift.lightbox.image": "slika",
   "drift.lightbox.resetZoom": "Vrati zumiranje",
-  "drift.lightbox.controls": "Skrolajte za zumiranje. Povucite za pomjeranje slike. Dvaput kliknite za zumiranje. Koristite +/- za zumiranje, strelice za pomjeranje, 0 za uklapanje u prikaz ili 1 za stvarnu veličinu.",
+  "drift.lightbox.controls":
+    "Skrolajte za zumiranje. Povucite za pomjeranje slike. Dvaput kliknite za zumiranje. Koristite +/- za zumiranje, strelice za pomjeranje, 0 za uklapanje u prikaz ili 1 za stvarnu veličinu.",
   "drift.markdown.codeCopied": "Kod kopiran",
   "drift.markdown.copied": "Kopirano",
   "drift.markdown.copyCode": "Kopiraj kod",
@@ -399,20 +407,23 @@ export const drift = {
   "drift.mcp.confirmRemove": "Ukloniti?",
   "drift.permission.always": "Uvijek dozvoli u ovom radnom prostoru",
   "drift.mcp.enable": "Omogući {{name}}",
-  "drift.prompt.tooLarge": "Slanje nije uspjelo: prilozi zauzimaju {{size}}, više od {{limit}} koliko jedna poruka može nositi. Pošaljite manje ili manjih datoteka.",
+  "drift.prompt.tooLarge":
+    "Slanje nije uspjelo: prilozi zauzimaju {{size}}, više od {{limit}} koliko jedna poruka može nositi. Pošaljite manje ili manjih datoteka.",
   "drift.mcp.status.offHere": "isključen u ovom radnom prostoru",
   "drift.mcp.scope.chosen": "uključen samo za ovaj radni prostor",
   "drift.mcp.scope.elsewhere": "uključen u drugim radnim prostorima",
   "drift.mcp.onHere": "Uključi u ovom radnom prostoru",
   "drift.mcp.offHere": "Isključi u ovom radnom prostoru",
-  "drift.mcp.switchHint": "Uključen u svim radnim prostorima. Dugme utikača ga uključuje ili isključuje samo u ovom radnom prostoru.",
+  "drift.mcp.switchHint":
+    "Uključen u svim radnim prostorima. Dugme utikača ga uključuje ili isključuje samo u ovom radnom prostoru.",
   "drift.settings.plugins": "Dodaci",
   "drift.plugins.loaded": "Učitano",
   "drift.plugins.off": "Isključen",
   "drift.plugins.tab.installed": "Instalirani",
   "drift.plugins.tab.registry": "Registar",
   "drift.plugins.registrySearch": "Pretraži dodatke",
-  "drift.plugins.registrySource": "Iz registra Drift-Plugins na GitHubu. Svaki je izolirana WebAssembly komponenta; preuzimanje se provjerava s hashom iz registra.",
+  "drift.plugins.registrySource":
+    "Iz registra Drift-Plugins na GitHubu. Svaki je izolirana WebAssembly komponenta; preuzimanje se provjerava s hashom iz registra.",
   "drift.plugins.registryLoadFailed": "Registar se nije mogao učitati.",
   "drift.plugins.registryEmpty": "Nijedan dodatak ne odgovara.",
   "drift.plugins.category": "Kategorija",
@@ -430,7 +441,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "Ukloniti?",
   "drift.plugins.removed": "{{name}} je uklonjen.",
   "drift.plugins.source": "Izvor",
-  "drift.plugins.configNote": "Postavke se zapisuju u unos dodatka u vašem drift.json. Kasnije ih uredite na kartici Instalirani.",
+  "drift.plugins.configNote":
+    "Postavke se zapisuju u unos dodatka u vašem drift.json. Kasnije ih uredite na kartici Instalirani.",
   "drift.plugins.fieldType.string": "tekst",
   "drift.plugins.fieldType.list": "odvojeno zarezima",
   "drift.plugins.fieldType.number": "broj",
@@ -445,10 +457,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "GitHub repozitorij",
   "drift.registry.sources.kind.azure_devops": "Azure DevOps repozitorij",
   "drift.registry.sources.kind.folder": "Folder ili dijeljeni resurs",
-  "drift.registry.sources.kindHint.url": "JSON dokument na URL-u; preuzimanja dolaze odakle dokument pokazuje. Token se šalje samo tom hostu.",
-  "drift.registry.sources.kindHint.github": "Datoteka u repozitoriju, privatnom s tokenom (dovoljan je fini token s čitanjem Contents). Preuzimanja unutar repozitorija također koriste token.",
-  "drift.registry.sources.kindHint.azure_devops": "Datoteka u Azure DevOps Git repozitoriju, s ličnim pristupnim tokenom koji ima Code (Read). Zalijepite web URL repozitorija.",
-  "drift.registry.sources.kindHint.folder": "Folder na ovom računaru ili mrežnom resursu s dokumentom i datotekama koje imenuje pored njega. Bez servera.",
+  "drift.registry.sources.kindHint.url":
+    "JSON dokument na URL-u; preuzimanja dolaze odakle dokument pokazuje. Token se šalje samo tom hostu.",
+  "drift.registry.sources.kindHint.github":
+    "Datoteka u repozitoriju, privatnom s tokenom (dovoljan je fini token s čitanjem Contents). Preuzimanja unutar repozitorija također koriste token.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Datoteka u Azure DevOps Git repozitoriju, s ličnim pristupnim tokenom koji ima Code (Read). Zalijepite web URL repozitorija.",
+  "drift.registry.sources.kindHint.folder":
+    "Folder na ovom računaru ili mrežnom resursu s dokumentom i datotekama koje imenuje pored njega. Bez servera.",
   "drift.registry.sources.location.github": "URL repozitorija",
   "drift.registry.sources.location.azure_devops": "URL repozitorija",
   "drift.registry.sources.location.folder": "Folder",
@@ -463,16 +479,22 @@ export const drift = {
   "drift.registry.sources.token.url": "Bearer token",
   "drift.registry.sources.token.github": "Pristupni token",
   "drift.registry.sources.token.azure_devops": "Lični pristupni token",
-  "drift.registry.sources.tokenHint": "Čuva se u Driftovom spremištu vjerodajnica, nikad u datoteci; ostavite prazno za javni izvor.",
-  "drift.registry.sources.tokenKept": "Token je sačuvan. Unesite novi da ga zamijenite ili ispraznite polje da ga uklonite.",
+  "drift.registry.sources.tokenHint":
+    "Čuva se u Driftovom spremištu vjerodajnica, nikad u datoteci; ostavite prazno za javni izvor.",
+  "drift.registry.sources.tokenKept":
+    "Token je sačuvan. Unesite novi da ga zamijenite ili ispraznite polje da ga uklonite.",
   "drift.registry.sources.hasToken": "Ima token",
   "drift.registry.sources.allowHttp": "Dozvoli nešifrirani http",
-  "drift.registry.sources.allowHttpHint": "Svako na mrežnoj putanji može čitati ili mijenjati preuzeto. Samo za interni izvor bez https.",
+  "drift.registry.sources.allowHttpHint":
+    "Svako na mrežnoj putanji može čitati ili mijenjati preuzeto. Samo za interni izvor bez https.",
   "drift.registry.sources.caPem": "Dodatni korijenski certifikat",
-  "drift.registry.sources.caPemHint": "PEM internog CA kojem vjerovati za ovaj izvor, za server čiji certifikat vaš računar ne poznaje.",
+  "drift.registry.sources.caPemHint":
+    "PEM internog CA kojem vjerovati za ovaj izvor, za server čiji certifikat vaš računar ne poznaje.",
   "drift.registry.sources.yours": "Iz vaših izvora",
-  "drift.registry.sources.pluginsDescription": "Registri pored Driftovog. Tim objavi svoje dodatke na jednom https URL-u i svi ih instaliraju odavde.",
-  "drift.registry.sources.mcpDescription": "Registri pored GitHubovog i službenog. Tim objavi standardne MCP servere na jednom https URL-u i svi ih instaliraju odavde.",
+  "drift.registry.sources.pluginsDescription":
+    "Registri pored Driftovog. Tim objavi svoje dodatke na jednom https URL-u i svi ih instaliraju odavde.",
+  "drift.registry.sources.mcpDescription":
+    "Registri pored GitHubovog i službenog. Tim objavi standardne MCP servere na jednom https URL-u i svi ih instaliraju odavde.",
   "drift.registry.sources.empty": "Nema dodanih izvora.",
   "drift.registry.sources.add": "Dodaj izvor",
   "drift.registry.sources.addButton": "Dodaj",
@@ -481,13 +503,17 @@ export const drift = {
   "drift.registry.sources.remove": "Ukloni izvor",
   "drift.registry.sources.loadFailed": "Vaši izvori se nisu mogli pročitati.",
   "drift.registry.sources.failed": "{{name}} se nije mogao učitati: {{error}}",
-  "drift.registry.sources.pluginsFormat": "JSON dokument u formatu registry.json iz Drift-Plugins: svaki dodatak s URL-om za preuzimanje i SHA-256.",
-  "drift.registry.sources.mcpFormat": "JSON dokument u formatu MCP registra: lista servers, kakvu vraća API službenog registra.",
-  "drift.plugins.registrySourceWithOwn": "Iz vaših izvora i registra Drift-Plugins na GitHubu. Svaki je izolirana WebAssembly komponenta; preuzimanje se provjerava s hashom njegovog registra.",
+  "drift.registry.sources.pluginsFormat":
+    "JSON dokument u formatu registry.json iz Drift-Plugins: svaki dodatak s URL-om za preuzimanje i SHA-256.",
+  "drift.registry.sources.mcpFormat":
+    "JSON dokument u formatu MCP registra: lista servers, kakvu vraća API službenog registra.",
+  "drift.plugins.registrySourceWithOwn":
+    "Iz vaših izvora i registra Drift-Plugins na GitHubu. Svaki je izolirana WebAssembly komponenta; preuzimanje se provjerava s hashom njegovog registra.",
   "drift.plugins.configRaw": "Postavke ovog dodatka kao JSON; nijedan registar ne opisuje njegova polja.",
   "drift.plugins.saving": "Spremanje...",
   "drift.plugins.saved": "Postavke za {{name}} su spremljene.",
-  "drift.plugins.packNote": "Markdown vještine, raspakovane u {{folder}}. Drift ih nudi modelu kao vaše vlastite; paket ne pokreće kod, ali njegov tekst stiže do modela, pa instalirajte pakete kojima vjerujete.",
+  "drift.plugins.packNote":
+    "Markdown vještine, raspakovane u {{folder}}. Drift ih nudi modelu kao vaše vlastite; paket ne pokreće kod, ali njegov tekst stiže do modela, pa instalirajte pakete kojima vjerujete.",
   "drift.settings.skills": "Vještine",
   "drift.skills.mixed": "Neke uključene, neke ne",
   "drift.skills.packs": "Paketi vještina",
@@ -501,15 +527,18 @@ export const drift = {
   "drift.skills.reinstall": "Ponovo instaliraj",
   "drift.skills.installed": "{{name}} je instaliran s {{count}} vještina; nude se od sljedećeg poteza.",
   "drift.skills.registrySearch": "Pretraži vještine",
-  "drift.skills.registrySource": "Iz registra Drift-Plugins na GitHubu. Vještina je Markdown koji model čita; ništa se ne pokreće.",
-  "drift.skills.registrySourceWithOwn": "Iz vaših izvora i registra Drift-Plugins na GitHubu. Vještina je Markdown koji model čita; ništa se ne pokreće.",
+  "drift.skills.registrySource":
+    "Iz registra Drift-Plugins na GitHubu. Vještina je Markdown koji model čita; ništa se ne pokreće.",
+  "drift.skills.registrySourceWithOwn":
+    "Iz vaših izvora i registra Drift-Plugins na GitHubu. Vještina je Markdown koji model čita; ništa se ne pokreće.",
   "drift.plugins.reload": "Ponovo učitaj",
   "drift.plugins.loading": "Učitavanje dodataka...",
-  "drift.plugins.empty": "Nema dodataka. Navedite WebAssembly komponente pod \"plugins\" u {{path}} i ponovo učitajte.",
+  "drift.plugins.empty": 'Nema dodataka. Navedite WebAssembly komponente pod "plugins" u {{path}} i ponovo učitajte.',
   "drift.plugins.file": "Navedeni u {{path}}",
   "drift.settings.permissions": "Dozvole",
   "drift.permissions.rules": "Pravila za sve radne prostore",
-  "drift.permissions.rulesDescription": "Važe u svakom radnom prostoru, nakon pravila u njegovom drift.json. Odlučuje prvo pravilo koje se poklapa.",
+  "drift.permissions.rulesDescription":
+    "Važe u svakom radnom prostoru, nakon pravila u njegovom drift.json. Odlučuje prvo pravilo koje se poklapa.",
   "drift.permissions.empty": "Još nema pravila. Važe Driftove zadane postavke.",
   "drift.permissions.add": "Dodaj pravilo",
   "drift.permissions.kind": "Vrsta",
@@ -540,7 +569,8 @@ export const drift = {
   "drift.permissions.grant.folder": "{{folder}} i sve u njoj",
   "drift.permission.alwaysCovers": "Uvijek dozvoljava: {{what}}",
   "drift.permission.reason.outside": "Pita jer naredba izlazi izvan radnog prostora.",
-  "drift.permission.reason.unresolved": "Pita jer koristi varijablu ili ~ koju Drift ne može pročitati prije pokretanja.",
+  "drift.permission.reason.unresolved":
+    "Pita jer koristi varijablu ili ~ koju Drift ne može pročitati prije pokretanja.",
   "drift.permission.reason.secret": "Pita jer navodi datoteku koja može sadržavati tajne.",
   "drift.permission.reason.searches": "Pita jer bi rekurzivna pretraga pročitala i tajne datoteke.",
   "drift.permission.reason.beyondUndo": "Pita jer poništavanje ovo ne može vratiti.",
@@ -573,7 +603,8 @@ export const drift = {
   "drift.settings.prompts.family.all": "Svi modeli",
   "drift.settings.prompts.family.codex": "GPT i Codex",
   "drift.settings.prompts.family.default": "Ostali modeli",
-  "drift.settings.prompts.allDescription": "Zamjenjuje osnovni prompt svakog modela čija porodica nema vlastitu zamjenu.",
+  "drift.settings.prompts.allDescription":
+    "Zamjenjuje osnovni prompt svakog modela čija porodica nema vlastitu zamjenu.",
   "drift.settings.prompts.allPlaceholder": "Prazno: svaka porodica modela koristi vlastiti prompt.",
   "drift.provider.pasteCode": "Zalijepi autorizacijski kod iz preglednika.",
   "drift.provider.enterCode": "Unesi ovaj kod u pregledniku",
@@ -632,7 +663,8 @@ export const drift = {
   "drift.provider.browser": "preglednik",
   "drift.provider.connectFailed": "Nije moguće povezati {{provider}}. Provjerite pristupne podatke i pokušajte ponovo.",
   "drift.provider.connected": "{{provider}} je povezan. Pristupni podaci su sačuvani.",
-  "drift.provider.credentialRemovedStillConnected": "Sačuvani pristupni podaci za {{provider}} su uklonjeni, ali veza ostaje aktivna putem okruženja ili konfiguracije.",
+  "drift.provider.credentialRemovedStillConnected":
+    "Sačuvani pristupni podaci za {{provider}} su uklonjeni, ali veza ostaje aktivna putem okruženja ili konfiguracije.",
   "drift.provider.disconnectFailed": "Nije moguće prekinuti vezu s {{provider}}. Pokušajte ponovo.",
   "drift.provider.disconnected": "Veza s {{provider}} je prekinuta. Sačuvani pristupni podaci su uklonjeni.",
   "drift.provider.disconnecting": "Prekidanje veze...",
@@ -649,7 +681,8 @@ export const drift = {
   "drift.question.asyncHint": "Rad koji ne zavisi od vašeg odgovora može se nastaviti dok odlučujete.",
   "drift.question.blocking": "Čeka se odgovor",
   "drift.question.pending": "Zahtjevi na čekanju: {{count}}",
-  "drift.question.sendFailed": "Nije moguće poslati vaš odgovor. Vaši odgovori su još uvijek ovdje. Pokušajte ih ponovo poslati.",
+  "drift.question.sendFailed":
+    "Nije moguće poslati vaš odgovor. Vaši odgovori su još uvijek ovdje. Pokušajte ih ponovo poslati.",
   "drift.question.sending": "Slanje...",
   "drift.question.customHint": "Dodajte odgovor koji nije naveden iznad",
   "drift.question.customPlaceholder": "Unesite vlastiti odgovor...",

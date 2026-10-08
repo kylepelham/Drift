@@ -1,8 +1,9 @@
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
-import type { Connection } from "../engine/store"
-import { useEngine } from "../engine"
+import { activeWorkspace, workspacesReady } from "../state/workspaces"
 import { pluginsSettled } from "../plugins"
 import { hasNativeWindow } from "../shell"
+import { useEngine } from "../engine"
+import { DriftLogo } from "./logo"
 import { t } from "../state/i18n"
 import {
   splashDuration,
@@ -11,8 +12,8 @@ import {
   splashMascotAnimation,
   type SplashExitAnimation,
 } from "../state/startup"
-import { activeWorkspace, workspacesReady } from "../state/workspaces"
-import { DriftLogo } from "./logo"
+
+import type { Connection } from "../engine/store"
 
 const splashExitDurations: Record<SplashExitAnimation, number> = { wave: 650, fade: 340, lift: 560 }
 

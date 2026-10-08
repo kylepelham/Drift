@@ -1,5 +1,6 @@
-import { afterEach, expect, test } from "bun:test"
 import { connectEvents } from "../src/engine/native/events"
+import { afterEach, expect, test } from "bun:test"
+
 import type { Envelope, Frame } from "../src/engine/native/client"
 
 type Socket = { send(text: string): void; close(): void }
@@ -32,13 +33,18 @@ function fakeEngine() {
     received,
     latest: () => sockets[sockets.length - 1],
     send: (frame: Frame) => sockets[sockets.length - 1].send(JSON.stringify(frame)),
-    hello: (seq: number, instance = "one") => sockets[sockets.length - 1].send(JSON.stringify({ type: "hello", version: "0", instance, seq })),
+    hello: (seq: number, instance = "one") =>
+      sockets[sockets.length - 1].send(JSON.stringify({ type: "hello", version: "0", instance, seq })),
     stop: () => server.stop(true),
   }
 }
 
 function workspaceEvent(seq: number): Envelope {
-  return { seq, type: "workspace.created", workspace: { id: `w${seq}`, path: "C:/w", name: "w", icon: "", lastUsed: 0 } }
+  return {
+    seq,
+    type: "workspace.created",
+    workspace: { id: `w${seq}`, path: "C:/w", name: "w", icon: "", lastUsed: 0 },
+  }
 }
 
 const until = (predicate: () => boolean) =>
@@ -247,7 +253,10 @@ test("closing during hydration drops the held events", async () => {
   const engine = fakeEngine()
   const seen: number[] = []
   let finish!: () => void
-  const stream = connectEvents(engine.target, { hydrate: () => new Promise<void>((resolve) => (finish = resolve)), event: (e) => seen.push(e.seq) })
+  const stream = connectEvents(engine.target, {
+    hydrate: () => new Promise<void>((resolve) => (finish = resolve)),
+    event: (e) => seen.push(e.seq),
+  })
   stops.push(engine.stop)
   await until(() => engine.cursors.length === 1)
   engine.hello(0)
@@ -273,5 +282,8 @@ test("the open workspace is told to the engine at once, on each change and again
   engine.latest().close()
   await until(() => engine.cursors.length === 2)
   await until(() => engine.received.length === 3)
-  expect(engine.received[2], "a new socket starts with nothing open").toEqual({ type: "workspace.open", directory: "C:/two" })
+  expect(engine.received[2], "a new socket starts with nothing open").toEqual({
+    type: "workspace.open",
+    directory: "C:/two",
+  })
 })

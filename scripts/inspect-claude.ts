@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
 import { closeSync, fstatSync, openSync, readSync, realpathSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -12,8 +12,17 @@ const identifierPattern = /\b(?:CLAUDE_CODE_|ANTHROPIC_|BUN_|DISABLE_|ENABLE_)[A
 const prefixes = ["CLAUDE_CODE_", "ANTHROPIC_", "BUN_", "DISABLE_", "ENABLE_"]
 
 export const defaultMarkers = [
-  "Bun v", "bun:main", "BUN_BE_BUN", "__bun", "sourceMappingURL=", "source-map",
-  "JavaScriptCore", "bytecode", "CLAUDE_CODE_", "ANTHROPIC_", "2.1.85",
+  "Bun v",
+  "bun:main",
+  "BUN_BE_BUN",
+  "__bun",
+  "sourceMappingURL=",
+  "source-map",
+  "JavaScriptCore",
+  "bytecode",
+  "CLAUDE_CODE_",
+  "ANTHROPIC_",
+  "2.1.85",
 ]
 
 function within(size: number, offset: number, length: number) {
@@ -23,12 +32,18 @@ function within(size: number, offset: number, length: number) {
 function peLayout(header: Buffer) {
   if (header.length < 64 || header.toString("ascii", 0, 2) !== "MZ") throw new Error("Missing DOS header")
   const pe = header.readUInt32LE(0x3c)
-  if (!within(header.length, pe, 24) || header.toString("ascii", pe, pe + 4) !== "PE\0\0") throw new Error("Invalid PE signature or offset")
+  if (!within(header.length, pe, 24) || header.toString("ascii", pe, pe + 4) !== "PE\0\0")
+    throw new Error("Invalid PE signature or offset")
   const count = header.readUInt16LE(pe + 6)
   const optional = pe + 24
   const optionalSize = header.readUInt16LE(pe + 20)
   const sectionsOffset = optional + optionalSize
-  if (optionalSize < 2 || !within(header.length, optional, optionalSize) || !within(header.length, sectionsOffset, count * 40)) throw new Error("Truncated PE headers")
+  if (
+    optionalSize < 2 ||
+    !within(header.length, optional, optionalSize) ||
+    !within(header.length, sectionsOffset, count * 40)
+  )
+    throw new Error("Truncated PE headers")
   const magic = header.readUInt16LE(optional)
   if (magic !== 0x10b && magic !== 0x20b) throw new Error("Unsupported optional header")
   const dataDirectory = optional + (magic === 0x20b ? 112 : 96)
@@ -70,9 +85,19 @@ export function parsePe(header: Buffer, fileSize: number) {
   const sections = peSections(header, fileSize, sectionsOffset, count)
   const headersEnd = header.readUInt32LE(optional + 60)
   if (headersEnd > fileSize) throw new Error("Headers outside file")
-  const imageEnd = Math.max(headersEnd, sectionsOffset + count * 40, ...sections.filter((section) => section.raw.end > section.raw.start).map((section) => section.raw.end))
+  const imageEnd = Math.max(
+    headersEnd,
+    sectionsOffset + count * 40,
+    ...sections.filter((section) => section.raw.end > section.raw.start).map((section) => section.raw.end),
+  )
   const overlay = imageEnd < fileSize ? { start: imageEnd, end: fileSize } : null
-  return { machine: header.readUInt16LE(pe + 4), format: magic === 0x20b ? "PE32+" : "PE32", sections, certificate, overlay }
+  return {
+    machine: header.readUInt16LE(pe + 4),
+    format: magic === 0x20b ? "PE32+" : "PE32",
+    sections,
+    certificate,
+    overlay,
+  }
 }
 
 export function readableRuns(data: Buffer, minimum = 4096, base = 0): Range[] {
@@ -96,7 +121,10 @@ function isPrintable(byte: number | undefined) {
 
 export function findOffsets(data: Buffer, expression: RegExp, base = 0, ownedLength = data.length) {
   const offsets: number[] = []
-  const regex = new RegExp(expression.source, expression.flags.includes("g") ? expression.flags : `${expression.flags}g`)
+  const regex = new RegExp(
+    expression.source,
+    expression.flags.includes("g") ? expression.flags : `${expression.flags}g`,
+  )
   for (const match of data.toString("latin1").matchAll(regex)) {
     if (match.index >= ownedLength) break
     offsets.push(base + match.index)
@@ -170,7 +198,12 @@ function boundedRegexWidth(pattern: string) {
 
 type Marker = { label: string; regex: RegExp; width: number }
 
-function addMarker(markers: Marker[], seen: Map<string, "literal" | "regex">, marker: Marker, kind: "literal" | "regex") {
+function addMarker(
+  markers: Marker[],
+  seen: Map<string, "literal" | "regex">,
+  marker: Marker,
+  kind: "literal" | "regex",
+) {
   const previous = seen.get(marker.label)
   if (previous && previous !== kind) throw new Error(`Marker label collision: ${marker.label}`)
   if (previous) return
@@ -182,8 +215,14 @@ function compileMarkers(literals: string[], regexes: string[]) {
   const markers: Marker[] = []
   const seen = new Map<string, "literal" | "regex">()
   for (const label of literals) {
-    if (!label || label.length > 256 || /[^\x00-\x7f]/.test(label)) throw new Error("Literal must be 1..256 ASCII bytes")
-    addMarker(markers, seen, { label, regex: new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), width: Buffer.byteLength(label) }, "literal")
+    if (!label || label.length > 256 || /[^\x00-\x7f]/.test(label))
+      throw new Error("Literal must be 1..256 ASCII bytes")
+    addMarker(
+      markers,
+      seen,
+      { label, regex: new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), width: Buffer.byteLength(label) },
+      "literal",
+    )
   }
   for (const pattern of regexes) {
     const width = boundedRegexWidth(pattern)
@@ -194,12 +233,21 @@ function compileMarkers(literals: string[], regexes: string[]) {
   return markers
 }
 
-function updateMatches(fd: number, size: number, chunk: Buffer, position: number, owned: number, markers: Marker[], results: Map<string, { count: number; windows: object[] }>) {
+function updateMatches(
+  fd: number,
+  size: number,
+  chunk: Buffer,
+  position: number,
+  owned: number,
+  markers: Marker[],
+  results: Map<string, { count: number; windows: object[] }>,
+) {
   for (const marker of markers) {
     const entry = results.get(marker.label)!
     for (const offset of findOffsets(chunk, marker.regex, position, owned)) {
       entry.count++
-      if (entry.windows.length < markerLimit) entry.windows.push({ offset, ...fingerprint(fd, size, offset, marker.width) })
+      if (entry.windows.length < markerLimit)
+        entry.windows.push({ offset, ...fingerprint(fd, size, offset, marker.width) })
     }
   }
 }
@@ -222,7 +270,12 @@ function scanReadable(chunk: Buffer, position: number, openRun: number, runs: Ra
   return openRun
 }
 
-function countIdentifiers(bytes: Buffer, owned: number, previous: number | undefined, identifiers: Map<string, number>) {
+function countIdentifiers(
+  bytes: Buffer,
+  owned: number,
+  previous: number | undefined,
+  identifiers: Map<string, number>,
+) {
   const prefix = previous === undefined ? "" : String.fromCharCode(previous)
   const text = prefix + bytes.toString("latin1")
   for (const match of text.matchAll(identifierPattern)) {
@@ -233,18 +286,34 @@ function countIdentifiers(bytes: Buffer, owned: number, previous: number | undef
 }
 
 function summarizeIdentifiers(identifiers: Map<string, number>) {
-  const groups = Object.fromEntries(prefixes.map((prefix) => {
-    const entries = [...identifiers].filter(([name]) => name.startsWith(prefix))
-    return [prefix, { distinct: entries.length, occurrences: entries.reduce((total, [, count]) => total + count, 0) }]
-  }))
-  const top = [...identifiers].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 80).map(([name, count]) => ({ name, count }))
+  const groups = Object.fromEntries(
+    prefixes.map((prefix) => {
+      const entries = [...identifiers].filter(([name]) => name.startsWith(prefix))
+      return [prefix, { distinct: entries.length, occurrences: entries.reduce((total, [, count]) => total + count, 0) }]
+    }),
+  )
+  const top = [...identifiers]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 80)
+    .map(([name, count]) => ({ name, count }))
   return { distinct: identifiers.size, occurrences: [...identifiers.values()].reduce((a, b) => a + b, 0), groups, top }
 }
 
 function summarizeRuns(fd: number, runs: Range[]) {
   const ranked = [...runs].sort((a, b) => b.end - b.start - (a.end - a.start)).slice(0, 30)
-  const largestReadableRuns = ranked.map((range) => ({ ...range, bytes: range.end - range.start, sha256: hashRange(fd, range) }))
-  return { chunkSize, overlap, readableMinimum: 4096, readableRunCount: runs.length, readableBytes: runs.reduce((total, run) => total + run.end - run.start, 0), largestReadableRuns }
+  const largestReadableRuns = ranked.map((range) => ({
+    ...range,
+    bytes: range.end - range.start,
+    sha256: hashRange(fd, range),
+  }))
+  return {
+    chunkSize,
+    overlap,
+    readableMinimum: 4096,
+    readableRunCount: runs.length,
+    readableBytes: runs.reduce((total, run) => total + run.end - run.start, 0),
+    largestReadableRuns,
+  }
 }
 
 export function inspect(file: string, literals = defaultMarkers, regexes: string[] = []) {
@@ -270,7 +339,10 @@ export function inspect(file: string, literals = defaultMarkers, regexes: string
     }
     if (openRun >= 0 && size - openRun >= 4096) mergeRun(runs, { start: openRun, end: size })
     return {
-      file: path.basename(file), size, sha256: digest.digest("hex"), pe,
+      file: path.basename(file),
+      size,
+      sha256: digest.digest("hex"),
+      pe,
       scan: summarizeRuns(fd, runs),
       markers: Object.fromEntries(matches),
       identifiers: summarizeIdentifiers(identifiers),
@@ -292,14 +364,33 @@ Manifest scans the entire file; offsets and ranges are decimal, end exclusive. W
 `
 
 function options(args: string[]) {
-  const result: { input?: string; output?: string; extract?: string; probe?: string; literal: string[]; regex: string[] } = { literal: [], regex: [] }
+  const result: {
+    input?: string
+    output?: string
+    extract?: string
+    probe?: string
+    literal: string[]
+    regex: string[]
+  } = { literal: [], regex: [] }
   const setters: Record<string, (value: string) => void> = {
-    "--input": (value) => { result.input = value },
-    "--output": (value) => { result.output = value },
-    "--extract": (value) => { result.extract = value },
-    "--probe": (value) => { result.probe = value },
-    "--literal": (value) => { result.literal.push(value) },
-    "--regex": (value) => { result.regex.push(value) },
+    "--input": (value) => {
+      result.input = value
+    },
+    "--output": (value) => {
+      result.output = value
+    },
+    "--extract": (value) => {
+      result.extract = value
+    },
+    "--probe": (value) => {
+      result.probe = value
+    },
+    "--literal": (value) => {
+      result.literal.push(value)
+    },
+    "--regex": (value) => {
+      result.regex.push(value)
+    },
   }
   for (let i = 0; i < args.length; i++) {
     const key = args[i]
@@ -331,7 +422,8 @@ function extract(input: string, destination: string, range: string) {
   if (!match) throw new Error("Extraction range must be START:END in decimal")
   const start = Number(match[1])
   const end = Number(match[2])
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start || end - start > 16 * chunkSize) throw new Error("Extraction requires a valid range <= 16 MiB")
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start || end - start > 16 * chunkSize)
+    throw new Error("Extraction requires a valid range <= 16 MiB")
   const output = extractDestination(destination)
   const fd = openSync(input, "r")
   try {
@@ -352,7 +444,11 @@ function probe(input: string, value: string) {
     const size = fstatSync(fd).size
     if (offset >= size) throw new Error("Probe offset outside file")
     const bytes = readAt(fd, offset, Math.min(96, size - offset))
-    const text = [...bytes].map((byte) => byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : `\\x${byte.toString(16).padStart(2, "0")}`).join("")
+    const text = [...bytes]
+      .map((byte) =>
+        byte >= 32 && byte <= 126 ? String.fromCharCode(byte) : `\\x${byte.toString(16).padStart(2, "0")}`,
+      )
+      .join("")
     console.log(JSON.stringify({ offset, end: offset + bytes.length, sha256: sha256(bytes), ascii: text }))
   } finally {
     closeSync(fd)
@@ -368,7 +464,9 @@ if (import.meta.main) {
       if (!args.output) throw new Error("--extract requires --output")
       extract(args.input!, args.output, args.extract)
     } else {
-      const report = JSON.stringify(inspect(args.input!, args.literal.length ? args.literal : defaultMarkers, args.regex), null, 2) + "\n"
+      const report =
+        JSON.stringify(inspect(args.input!, args.literal.length ? args.literal : defaultMarkers, args.regex), null, 2) +
+        "\n"
       if (args.output) writeFileSync(args.output, report, { flag: "wx" })
       else console.log(report)
     }

@@ -1,17 +1,25 @@
-import type { Engine } from "../engine"
-import { previousUserMessage, resolveModel, savedChoice } from "../engine/store"
-import { emitThreadArchived } from "../plugins"
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
-import { prefsFor } from "../state/prefs"
+import { previousUserMessage, resolveModel, savedChoice } from "../engine/store"
+import { activeWorkspace, archiveSession } from "../state/workspaces"
 import { selectedSession, selectSession } from "../state/selection"
 import { setTheme, theme, themes } from "../state/theme"
-import { activeWorkspace, archiveSession } from "../state/workspaces"
-import { t } from "../state/i18n"
-import { openMcpServers } from "./mcp"
-import { restoreReverted } from "./revert"
+import { emitThreadArchived } from "../plugins"
 import { archiveFailed } from "./workspaces"
+import { restoreReverted } from "./revert"
+import { prefsFor } from "../state/prefs"
+import { openMcpServers } from "./mcp"
+import { t } from "../state/i18n"
 
-export type SlashPreset = { value: string; label: string; description: string; usage?: string; execute?: boolean; literal?: boolean }
+import type { Engine } from "../engine"
+
+export type SlashPreset = {
+  value: string
+  label: string
+  description: string
+  usage?: string
+  execute?: boolean
+  literal?: boolean
+}
 export type SlashItem = {
   name: string
   description: string
@@ -30,7 +38,12 @@ const builtins: SlashItem[] = [
     needsSession: true,
     usage: "[active|all]",
     presets: [
-      { value: "active", label: "drift.slash.fork.active", description: "drift.slash.fork.active.description", execute: true },
+      {
+        value: "active",
+        label: "drift.slash.fork.active",
+        description: "drift.slash.fork.active.description",
+        execute: true,
+      },
       { value: "all", label: "drift.slash.fork.all", description: "drift.slash.fork.all.description", execute: true },
     ],
   },
@@ -84,7 +97,9 @@ export function slashItem(engine: Engine, name: string) {
 export function slashPresets(item: SlashItem, query: string) {
   const value = query.toLowerCase()
   return (item.presets ?? [])
-    .map((preset) => preset.literal ? preset : { ...preset, label: t(preset.label), description: t(preset.description) })
+    .map((preset) =>
+      preset.literal ? preset : { ...preset, label: t(preset.label), description: t(preset.description) },
+    )
     .filter((preset) => !value || preset.value.trim().toLowerCase().startsWith(value))
 }
 
@@ -125,7 +140,10 @@ export async function runSlash(engine: Engine, item: SlashItem, args: string) {
       .catch((cause: unknown) => archiveFailed(engine, cause))
   }
   if (item.name === "compact" && current) {
-    return engine.actions.summarize(current, resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model))
+    return engine.actions.summarize(
+      current,
+      resolveModel(engine.state, prefsFor(current, savedChoice(engine.state, current)).model),
+    )
   }
   if (item.name === "undo" && current) {
     const marker = engine.state.sessions[current]?.revert?.messageID

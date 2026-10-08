@@ -1,24 +1,39 @@
+import { containImage, fitImage, imageWheelScale, maxImageScale, zoomImageAt } from "../src/ui/image-transform"
+import * as solid from "solid-js/dist/solid.js"
 import { expect, mock, test } from "bun:test"
 import * as ts from "typescript"
-import * as solid from "solid-js/dist/solid.js"
-import { containImage, fitImage, imageWheelScale, maxImageScale, zoomImageAt } from "../src/ui/image-transform"
 
 const source = await Bun.file(new URL("../src/ui/lightbox.tsx", import.meta.url)).text()
 const parsed = ts.createSourceFile("lightbox.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-const executable = parsed.statements.filter((node) => !ts.isImportDeclaration(node))
-  .map((node) => node.getText(parsed).replace(/^export /, "")).join("\n")
+const executable = parsed.statements
+  .filter((node) => !ts.isImportDeclaration(node))
+  .map((node) => node.getText(parsed).replace(/^export /, ""))
+  .join("\n")
 // Keep the component bodies and callbacks intact; JSX becomes inspectable nodes,
 // while signals and component disposal use real Solid without a DOM or global mocks.
-const compile = new Function("solid", "URL", "activateModal", `
+const compile = new Function(
+  "solid",
+  "URL",
+  "activateModal",
+  `
   const { createSignal, onCleanup, onMount } = solid;
   const Show = "Show", Portal = "Portal", IconX = "IconX", ImageViewer = "ImageViewer";
   const t = (key) => key;
   const jsx = (type, props, ...children) => ({ type, props: { ...props, children } });
-  ${ts.transpileModule(executable, { fileName: "lightbox.tsx", compilerOptions: {
-    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None, jsx: ts.JsxEmit.React, jsxFactory: "jsx",
-  } }).outputText}
+  ${
+    ts.transpileModule(executable, {
+      fileName: "lightbox.tsx",
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.None,
+        jsx: ts.JsxEmit.React,
+        jsxFactory: "jsx",
+      },
+    }).outputText
+  }
   return { openLightbox, image, Lightbox };
-`)
+`,
+)
 
 function setupLightbox() {
   let sequence = 0
@@ -35,11 +50,12 @@ function setupLightbox() {
   const state = compile(solid, urls, activateModal)
   const host = solid.createRoot((dispose: () => void) => {
     const host = state.Lightbox()
-    const renderDialog = () => solid.createRoot((dispose: () => void) => {
-      const portal = host.props.children[0](state.image())
-      const dialog = portal.props.children[0]
-      return { node: dialog.type(dialog.props), close: dialog.props.onClose, dispose }
-    })
+    const renderDialog = () =>
+      solid.createRoot((dispose: () => void) => {
+        const portal = host.props.children[0](state.image())
+        const dialog = portal.props.children[0]
+        return { node: dialog.type(dialog.props), close: dialog.props.onClose, dispose }
+      })
     return { dispose, renderDialog }
   })
   return { ...state, urls, activateModal, modalCleanups, ...host }
@@ -165,30 +181,52 @@ test("lightbox puts filename, secondary metadata, and close in viewer slots with
 test("slotted viewer toolbar is one row with compact reset and hidden mobile dimensions; default toolbar is unchanged", async () => {
   const source = await Bun.file(new URL("../src/ui/image-viewer.tsx", import.meta.url)).text()
   const ast = ts.createSourceFile("image-viewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-  const canvas = ast.statements.find((node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "ImageCanvas")!
-  const compact = canvas.body!.statements.find((node) => ts.isVariableStatement(node)
-    && node.declarationList.declarations.some((declaration) => declaration.name.getText(ast) === "compactToolbar"))!
+  const canvas = ast.statements.find(
+    (node): node is ts.FunctionDeclaration => ts.isFunctionDeclaration(node) && node.name?.text === "ImageCanvas",
+  )!
+  const compact = canvas.body!.statements.find(
+    (node) =>
+      ts.isVariableStatement(node) &&
+      node.declarationList.declarations.some((declaration) => declaration.name.getText(ast) === "compactToolbar"),
+  )!
   let toolbar!: ts.JsxElement
   function visit(node: ts.Node) {
-    if (ts.isJsxElement(node) && node.openingElement.attributes.properties.some((attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(ast) === "data-image-toolbar")) toolbar = node
+    if (
+      ts.isJsxElement(node) &&
+      node.openingElement.attributes.properties.some(
+        (attribute) => ts.isJsxAttribute(attribute) && attribute.name.getText(ast) === "data-image-toolbar",
+      )
+    )
+      toolbar = node
     ts.forEachChild(node, visit)
   }
   visit(canvas)
   // Execute the actual toolbar JSX and click handlers with fixed image state.
-  const render = new Function("props", "reset", "zoom", `
+  const render = new Function(
+    "props",
+    "reset",
+    "zoom",
+    `
     const jsx = (type, props, ...children) => ({ type, props: { ...props, children } });
     const Show = "Show", IconRestore = "IconRestore", t = (key) => key;
     const natural = () => ({ width: 6000, height: 240 }), view = () => ({ scale: 0.5 });
-    ${ts.transpileModule(`${compact.getText(ast)}; return (${toolbar.getText(ast)});`, {
-      fileName: "toolbar.tsx", compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, jsxFactory: "jsx" },
-    }).outputText}
-  `)
+    ${
+      ts.transpileModule(`${compact.getText(ast)}; return (${toolbar.getText(ast)});`, {
+        fileName: "toolbar.tsx",
+        compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, jsxFactory: "jsx" },
+      }).outputText
+    }
+  `,
+  )
   for (const slotted of [false, true]) {
     const reset = mock(() => {})
     const zoom = mock((_scale: number) => {})
     const props = slotted ? { toolbarStart: "filename", toolbarEnd: "close" } : {}
     const row = render(props, reset, zoom)
-    expect(row.props.classList).toEqual({ "flex-wrap justify-center": !slotted, "flex-nowrap whitespace-nowrap": slotted })
+    expect(row.props.classList).toEqual({
+      "flex-wrap justify-center": !slotted,
+      "flex-nowrap whitespace-nowrap": slotted,
+    })
     expect(row.props.children[0]).toBe(props.toolbarStart)
     expect(row.props.children.at(-1)).toBe(props.toolbarEnd)
     const [, minus, percent, plus, fit, actual, dimensions] = row.props.children
@@ -209,7 +247,9 @@ test("slotted viewer toolbar is one row with compact reset and hidden mobile dim
     expect(label.props.children[0].props.class).toBe("size-4 lg:hidden")
     expect(label.props.children[1].props.class).toBe("hidden lg:inline")
     expect(actual.props["aria-label"]).toBe("drift.lightbox.actualSize")
-    expect(dimensions.props.children[0](() => dimensions.props.when).props.classList).toEqual({ "hidden lg:inline": slotted })
+    expect(dimensions.props.children[0](() => dimensions.props.when).props.classList).toEqual({
+      "hidden lg:inline": slotted,
+    })
   }
 })
 
@@ -270,7 +310,26 @@ test("both image hosts use the same transform viewer with ordinary wheel zoom an
 })
 
 test("every locale explains image gestures and keyboard controls", async () => {
-  for (const locale of ["en", "ar", "br", "bs", "da", "de", "es", "fr", "ja", "ko", "no", "pl", "ru", "th", "tr", "uk", "zh", "zht"]) {
+  for (const locale of [
+    "en",
+    "ar",
+    "br",
+    "bs",
+    "da",
+    "de",
+    "es",
+    "fr",
+    "ja",
+    "ko",
+    "no",
+    "pl",
+    "ru",
+    "th",
+    "tr",
+    "uk",
+    "zh",
+    "zht",
+  ]) {
     const { drift } = await import(`../src/i18n/${locale}`)
     expect(drift["drift.lightbox.controls"]).toBeString()
     expect(drift["drift.lightbox.controls"].length).toBeGreaterThan(0)

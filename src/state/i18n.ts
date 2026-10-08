@@ -1,6 +1,6 @@
-import { createSignal } from "solid-js"
-import { dict, drift } from "../i18n/en"
 import { createLatestOnly } from "./latest"
+import { dict, drift } from "../i18n/en"
+import { createSignal } from "solid-js"
 
 type Dictionary = Record<string, string>
 const english = { ...dict, ...drift } as Dictionary
@@ -56,7 +56,10 @@ export async function loadDictionary(language: string) {
 export function t(key: string, variables?: Record<string, string | number>) {
   const value = dictionary()[key] ?? english[key] ?? key
   if (!variables) return value
-  return Object.entries(variables).reduce((text, [name, replacement]) => text.replaceAll(`{{${name}}}`, String(replacement)), value)
+  return Object.entries(variables).reduce(
+    (text, [name, replacement]) => text.replaceAll(`{{${name}}}`, String(replacement)),
+    value,
+  )
 }
 
 export function agentLabel(name: string) {

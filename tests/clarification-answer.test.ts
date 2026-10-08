@@ -1,8 +1,9 @@
-import { expect, test } from "bun:test"
-import type { MessageEntry } from "../src/engine/store"
-import { messageText } from "../src/engine/store"
-import { clarificationAnswer } from "../src/ui/clarification-answer"
 import { entrySearchText, transcriptMatches } from "../src/state/transcript-search"
+import { clarificationAnswer } from "../src/ui/clarification-answer"
+import { messageText } from "../src/engine/store"
+import { expect, test } from "bun:test"
+
+import type { MessageEntry } from "../src/engine/store"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -13,17 +14,26 @@ const requestID = "que_A1b2C3d4"
 const single = { header: "Color", question: "Which color?", answers: ["Blue"] }
 const items = [
   { header: "Colors", question: "Which colors?", answers: ["Blue", "Green, teal"] },
-  { header: "Notes", question: "Any notes?\nInclude details.", answers: ["  Keep raw\n\ntext <unchanged>\r\nwith spaces  "] },
+  {
+    header: "Notes",
+    question: "Any notes?\nInclude details.",
+    answers: ["  Keep raw\n\ntext <unchanged>\r\nwith spaces  "],
+  },
   { header: "Missing", question: "Anything else?", answers: [] },
 ]
-const legacyBody = "Which colors?\nBlue, Green, teal\n\nAny notes?\nKeep raw\ntext <unchanged>\n\nAnything else?\nUnanswered"
+const legacyBody =
+  "Which colors?\nBlue, Green, teal\n\nAny notes?\nKeep raw\ntext <unchanged>\n\nAnything else?\nUnanswered"
 const legacyText = `Answer to clarification ${requestID}:\n${legacyBody}`
 
 function entry(text = legacyText, metadata?: Record<string, unknown>): MessageEntry {
   return {
     info: {
-      id: "u1", sessionID: "s1", role: "user", time: { created: 1 },
-      agent: "plan", model: { providerID: "test", modelID: "test" },
+      id: "u1",
+      sessionID: "s1",
+      role: "user",
+      time: { created: 1 },
+      agent: "plan",
+      model: { providerID: "test", modelID: "test" },
     },
     parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "text", text, ...(metadata ? { metadata } : {}) }],
   }
@@ -49,8 +59,7 @@ test("legacy search preserves the full displayed body but excludes the protocol 
   expect(entrySearchText(message)).toBe(legacyBody)
   for (const query of ["Which colors?", "Blue", "Unanswered"])
     expect(transcriptMatches([message], query)).toEqual([{ messageId: "u1", count: 1 }])
-  for (const query of [requestID, "Answer to clarification"])
-    expect(transcriptMatches([message], query)).toEqual([])
+  for (const query of [requestID, "Answer to clarification"]) expect(transcriptMatches([message], query)).toEqual([])
 })
 
 test("clarification search cache follows metadata changes even when raw text and answer lengths stay the same", () => {
@@ -68,16 +77,23 @@ test("ordinary and malformed clarification messages still search their raw displ
     entry(legacyText, { driftClarification: { version: 2, requestID, items } }),
     { ...entry(), parts: [...entry().parts, ...entry("attachment text").parts] },
     { ...entry(), info: { ...entry().info, role: "assistant" } } as MessageEntry,
-  ]) expect(transcriptMatches([message], "Answer to clarification")).toEqual([{ messageId: "u1", count: 1 }])
+  ])
+    expect(transcriptMatches([message], "Answer to clarification")).toEqual([{ messageId: "u1", count: 1 }])
 })
 
 test("exact driftClarification version 1 metadata renders a single question without protocol text", () => {
   expect(clarificationAnswer(structured([single]))).toEqual({
-    items: [single], text: "Which color?\nBlue", preview: "Blue",
+    items: [single],
+    text: "Which color?\nBlue",
+    preview: "Blue",
   })
-  expect(clarificationAnswer(entry("ordinary message", {
-    driftClarification: { version: 1, requestID, items: [single] },
-  }))).toEqual(clarificationAnswer(structured([single])))
+  expect(
+    clarificationAnswer(
+      entry("ordinary message", {
+        driftClarification: { version: 1, requestID, items: [single] },
+      }),
+    ),
+  ).toEqual(clarificationAnswer(structured([single])))
 })
 
 test("multiple questions preserve multiselect boundaries, custom multiline text, and empty answers", () => {
@@ -93,12 +109,17 @@ test("multiple questions preserve multiselect boundaries, custom multiline text,
   expect(result.items[0].answers).toEqual(["Blue", "Green, teal"])
 })
 
-test.each([{ answers: [] }, { answers: [""] }, { answers: ["", "  ", "\n"] }])("empty answers are retained, not dropped or invented: %j", ({ answers }) => {
-  const item = { header: "", question: "Optional?", answers }
-  expect(clarificationAnswer(structured([item]))).toEqual({
-    items: [item], text: `Optional?\n${answers.join(", ")}`, preview: answers.join(", "),
-  })
-})
+test.each([{ answers: [] }, { answers: [""] }, { answers: ["", "  ", "\n"] }])(
+  "empty answers are retained, not dropped or invented: %j",
+  ({ answers }) => {
+    const item = { header: "", question: "Optional?", answers }
+    expect(clarificationAnswer(structured([item]))).toEqual({
+      items: [item],
+      text: `Optional?\n${answers.join(", ")}`,
+      preview: answers.join(", "),
+    })
+  },
+)
 
 test("metadata survives a persistence-like JSON roundtrip without mutating stored text or answers", () => {
   const persisted = JSON.stringify(structured())
@@ -131,10 +152,17 @@ test.each([
   ["non-array items", { version: 1, requestID, items: {} }],
   ["empty items", { version: 1, requestID, items: [] }],
   ...[
-    null, "question", {}, { ...single, header: undefined }, { ...single, header: 1 },
-    { ...single, question: null }, { ...single, question: undefined },
-    { ...single, answers: undefined }, { ...single, answers: "Blue" },
-    { ...single, answers: ["Blue", null] }, { ...single, answers: [42] },
+    null,
+    "question",
+    {},
+    { ...single, header: undefined },
+    { ...single, header: 1 },
+    { ...single, question: null },
+    { ...single, question: undefined },
+    { ...single, answers: undefined },
+    { ...single, answers: "Blue" },
+    { ...single, answers: ["Blue", null] },
+    { ...single, answers: [42] },
   ].map((item, index) => [`invalid item ${index}`, { version: 1, requestID, items: [single, item] }]),
 ])("malformed metadata (%s) falls back to raw text even with a valid legacy prefix", (_, metadata) => {
   const message = entry(legacyText, { driftClarification: metadata })
@@ -146,41 +174,65 @@ test.each([
 
 test("other metadata names and nested lookalikes do not opt ordinary messages into collapsing", () => {
   const data = { version: 1, requestID, items: [single] }
-  for (const metadata of [{ clarification: data }, { driftclarification: data }, { other: { driftClarification: data } }])
+  for (const metadata of [
+    { clarification: data },
+    { driftclarification: data },
+    { other: { driftClarification: data } },
+  ])
     expect(clarificationAnswer(entry("ordinary message", metadata))).toBeUndefined()
 })
 
-test.each(["metadata", "legacy"])("%s detection excludes assistant, synthetic, multipart, and attachment messages", (format) => {
-  const message = format === "metadata" ? structured() : entry()
-  const part = message.parts[0]
-  const file = { id: "f1", messageID: "u1", sessionID: "s1", type: "file", mime: "image/png", url: "file:///image.png" } as const
-  const excluded = [
-    { ...message, info: { ...message.info, role: "assistant" } } as MessageEntry,
-    { ...message, parts: [{ ...part, synthetic: true }] } as MessageEntry,
-    { ...message, parts: [part, { ...part, id: "p2" }] },
-    { ...message, parts: [part, file] },
-    { ...message, parts: [file, part] },
-    { ...message, parts: [file] },
-    { ...message, parts: [] },
-    { ...message, parts: [{ ...part, type: "reasoning" }] } as MessageEntry,
-  ]
-  for (const candidate of excluded) expect(clarificationAnswer(candidate)).toBeUndefined()
-  expect(clarificationAnswer(entry("Please keep this ordinary user message expanded."))).toBeUndefined()
-})
+test.each(["metadata", "legacy"])(
+  "%s detection excludes assistant, synthetic, multipart, and attachment messages",
+  (format) => {
+    const message = format === "metadata" ? structured() : entry()
+    const part = message.parts[0]
+    const file = {
+      id: "f1",
+      messageID: "u1",
+      sessionID: "s1",
+      type: "file",
+      mime: "image/png",
+      url: "file:///image.png",
+    } as const
+    const excluded = [
+      { ...message, info: { ...message.info, role: "assistant" } } as MessageEntry,
+      { ...message, parts: [{ ...part, synthetic: true }] } as MessageEntry,
+      { ...message, parts: [part, { ...part, id: "p2" }] },
+      { ...message, parts: [part, file] },
+      { ...message, parts: [file, part] },
+      { ...message, parts: [file] },
+      { ...message, parts: [] },
+      { ...message, parts: [{ ...part, type: "reasoning" }] } as MessageEntry,
+    ]
+    for (const candidate of excluded) expect(clarificationAnswer(candidate)).toBeUndefined()
+    expect(clarificationAnswer(entry("Please keep this ordinary user message expanded."))).toBeUndefined()
+  },
+)
 
 test("an answer that carries held worker results along still renders as the answer", () => {
   const message = structured([single])
-  const rider = { id: "p0", messageID: "u1", sessionID: "s1", type: "text", text: "Background task \"Survey\" replied", synthetic: true } as const
+  const rider = {
+    id: "p0",
+    messageID: "u1",
+    sessionID: "s1",
+    type: "text",
+    text: 'Background task "Survey" replied',
+    synthetic: true,
+  } as const
   expect(clarificationAnswer({ ...message, parts: [rider, ...message.parts] })).toEqual(clarificationAnswer(message))
 })
 
-test.each(["\n", "\r\n"])("legacy que_ID protocol recognizes persisted replies with %j and preserves the entire body", (newline) => {
-  const body = `${legacyBody}${newline}\nA custom answer?\nYes: keep this colon\n\nAnswer to clarification que_Embedded:\nDo not strip this\n  `
-  const message = entry(`Answer to clarification ${requestID}:${newline}${body}`)
-  const persisted = JSON.stringify(message)
-  expect(clarificationAnswer(JSON.parse(persisted))).toEqual({ items: [], text: body, preview: "" })
-  expect(JSON.stringify(message)).toBe(persisted)
-})
+test.each(["\n", "\r\n"])(
+  "legacy que_ID protocol recognizes persisted replies with %j and preserves the entire body",
+  (newline) => {
+    const body = `${legacyBody}${newline}\nA custom answer?\nYes: keep this colon\n\nAnswer to clarification que_Embedded:\nDo not strip this\n  `
+    const message = entry(`Answer to clarification ${requestID}:${newline}${body}`)
+    const persisted = JSON.stringify(message)
+    expect(clarificationAnswer(JSON.parse(persisted))).toEqual({ items: [], text: body, preview: "" })
+    expect(JSON.stringify(message)).toBe(persisted)
+  },
+)
 
 test.each([
   "Answer to clarification que_X:\nQ?\nA",
@@ -211,7 +263,12 @@ test.each([
 test("old and new clarification rows estimate 40px regardless of answer length or font size", async () => {
   const { estimatedTimelineRow } = await import("../src/ui/chat")
   const long = "A long custom answer\n".repeat(100)
-  for (const message of [entry(), structured(), entry(`Answer to clarification ${requestID}:\n${long}`), structured([{ ...single, answers: [long] }])]) {
+  for (const message of [
+    entry(),
+    structured(),
+    entry(`Answer to clarification ${requestID}:\n${long}`),
+    structured([{ ...single, answers: [long] }]),
+  ]) {
     for (const fontSize of [13, 16, 24]) {
       expect(estimatedTimelineRow(message, fontSize)).toBe(40)
       expect(estimatedTimelineRow(message, fontSize, [...message.parts])).toBe(40)
@@ -235,15 +292,24 @@ test("normal estimates and explicit thinking/summary modes are unaffected", asyn
     { ...message, info: { ...message.info, role: "assistant" } } as MessageEntry,
     { ...message, parts: [{ ...message.parts[0], synthetic: true }] } as MessageEntry,
     { ...message, parts: [...message.parts, ...entry("attachment text").parts] },
-    { ...message, parts: [...message.parts, { id: "f1", messageID: "u1", sessionID: "s1", type: "file", mime: "image/png", url: "file:///image.png" }] } as MessageEntry,
-  ]) expect(estimatedTimelineRow(candidate)).toBeGreaterThanOrEqual(96)
+    {
+      ...message,
+      parts: [
+        ...message.parts,
+        { id: "f1", messageID: "u1", sessionID: "s1", type: "file", mime: "image/png", url: "file:///image.png" },
+      ],
+    } as MessageEntry,
+  ])
+    expect(estimatedTimelineRow(candidate)).toBeGreaterThanOrEqual(96)
 })
 
 test("clarification UI uses a closed native disclosure with full QAs, copy/revert, and no normal bubble footer", async () => {
   const ts = await import("typescript")
   const source = await Bun.file("src/ui/message.tsx").text()
   const parsed = ts.createSourceFile("message.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-  const userBubble = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "UserBubble")!
+  const userBubble = parsed.statements.find(
+    (node) => ts.isFunctionDeclaration(node) && node.name?.text === "UserBubble",
+  )!
   expect(userBubble).toBeDefined()
   const elements: import("typescript").JsxElement[] = []
   function visit(node: import("typescript").Node) {
@@ -251,11 +317,20 @@ test("clarification UI uses a closed native disclosure with full QAs, copy/rever
     ts.forEachChild(node, visit)
   }
   visit(userBubble)
-  const branch = elements.find((node) => node.openingElement.tagName.getText(parsed) === "Show" &&
-    node.openingElement.attributes.properties.some((attr) => ts.isJsxAttribute(attr) &&
-      attr.name.getText(parsed) === "when" && attr.initializer?.getText(parsed) === "{clarification()}"))!
+  const branch = elements.find(
+    (node) =>
+      node.openingElement.tagName.getText(parsed) === "Show" &&
+      node.openingElement.attributes.properties.some(
+        (attr) =>
+          ts.isJsxAttribute(attr) &&
+          attr.name.getText(parsed) === "when" &&
+          attr.initializer?.getText(parsed) === "{clarification()}",
+      ),
+  )!
   expect(branch).toBeDefined()
-  const fallback = branch.openingElement.attributes.properties.find((attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "fallback")!
+  const fallback = branch.openingElement.attributes.properties.find(
+    (attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "fallback",
+  )!
   expect(fallback.getText(parsed)).toContain("bg-surface")
   expect(fallback.getText(parsed)).toContain("model()")
 
@@ -263,21 +338,34 @@ test("clarification UI uses a closed native disclosure with full QAs, copy/rever
   branch.children.forEach(visit)
   const details = elements.filter((node) => node.openingElement.tagName.getText(parsed) === "details")
   expect(details).toHaveLength(1)
-  expect(details[0].openingElement.attributes.properties.some((attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "open")).toBe(false)
+  expect(
+    details[0].openingElement.attributes.properties.some(
+      (attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "open",
+    ),
+  ).toBe(false)
   const summary = elements.find((node) => node.openingElement.tagName.getText(parsed) === "summary")!
   expect(summary).toBeDefined()
   expect(summary.parent).toBe(details[0])
   expect(summary.getText(parsed)).toContain('t("drift.question.answered")')
   expect(summary.getText(parsed)).toContain("answer().preview")
-  expect(summary.openingElement.attributes.properties.some((attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "data-find-ignore")).toBe(true)
-  const ignored = elements.flatMap((node) => [...node.openingElement.attributes.properties])
+  expect(
+    summary.openingElement.attributes.properties.some(
+      (attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "data-find-ignore",
+    ),
+  ).toBe(true)
+  const ignored = elements
+    .flatMap((node) => [...node.openingElement.attributes.properties])
     .filter((attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "data-find-ignore")
   expect(ignored.map((attr) => attr.getText(parsed))).toEqual([
-    "data-find-ignore", 'data-find-ignore={item.answers.length ? undefined : ""}',
+    "data-find-ignore",
+    'data-find-ignore={item.answers.length ? undefined : ""}',
   ])
   expect(fallback.getText(parsed)).not.toContain("data-find-ignore")
 
-  const expanded = details[0].children.filter((node) => node !== summary).map((node) => node.getText(parsed)).join("\n")
+  const expanded = details[0].children
+    .filter((node) => node !== summary)
+    .map((node) => node.getText(parsed))
+    .join("\n")
   expect(expanded).toContain("<For each={answer().items}>")
   expect(expanded).toContain("{item.question}")
   expect(expanded).toContain('item.answers.join(", ")')

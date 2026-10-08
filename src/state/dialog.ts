@@ -1,5 +1,5 @@
-import { shellInvoke } from "../shell"
 import { isRemoteRuntime } from "../runtime"
+import { shellInvoke } from "../shell"
 
 export async function pickFolder(): Promise<string | null> {
   if (isRemoteRuntime()) return window.prompt("Workspace directory path on the Drift host:")

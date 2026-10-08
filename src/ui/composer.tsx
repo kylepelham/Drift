@@ -1,19 +1,31 @@
+import { dragHasFiles, dropStagesAttachment, dropTargetActive, nextDragDepth, splitDroppedFiles } from "./drag-drop"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js"
-import { useEngine } from "../engine"
 import { modelInfo, resolveModel, savedChoice, sessionBusy, type QuestionRequest } from "../engine/store"
+import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit"
+import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
+import { appendDictation, formatDictationElapsed } from "../voice/transcript"
+import { createMentionAutocomplete, mentionFiles } from "./composer-mentions"
+import { formatModelContext, lmStudioModelReady } from "../state/lm-studio"
+import { AttentionStrip, PermissionCard, QuestionCard } from "./attention"
+import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons"
 import { emitThreadCreated, transformComposerSubmit } from "../plugins"
-import {
-  clearEdits,
-  modelVisible,
-  orderedModelProviderIds,
-  prefsFor,
-  seedPrefs,
-  sendableVariant,
-  updatePrefs,
-} from "../state/prefs"
-import { onKeybind } from "../state/keybinds"
+import { defaultVisibleModelIds, ModelManager } from "./model-manager"
+import { modelInstalled, refreshVoiceModels } from "../voice/models"
+import { selectedSession, selectSession } from "../state/selection"
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n"
-import type { Permission } from "../engine/shapes"
+import { normalizeDir, smallContextTokens } from "../engine/store"
+import { interruptResponseAnimations } from "./response-animation"
+import { dictationEnabled, dictationModel } from "../state/voice"
+import { ComposerSlashMenu } from "./composer-slash-menu"
+import { localAsks, resolveAsk } from "../state/asks"
+import { createSlashMenu } from "./composer-slash"
+import { Picker, type PickerItem } from "./picker"
+import { ProviderIcon } from "./provider-icon"
+import { onKeybind } from "../state/keybinds"
+import { openSettings } from "./settings"
+import { openLightbox } from "./lightbox"
+import { shellInvoke } from "../shell"
+import { useEngine } from "../engine"
 import {
   canNavigateComposerHistory,
   clearComposerDraft,
@@ -28,15 +40,15 @@ import {
   type ComposerDraft,
   type StagedFile,
 } from "../state/composer"
-import { selectedSession, selectSession } from "../state/selection"
-import { formatModelContext, lmStudioModelReady } from "../state/lm-studio"
-import { shellInvoke } from "../shell"
-import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces"
-import { normalizeDir, smallContextTokens } from "../engine/store"
-import { localAsks, resolveAsk } from "../state/asks"
-import { AttentionStrip, PermissionCard, QuestionCard } from "./attention"
-import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons"
-import { dictationEnabled, dictationModel } from "../state/voice"
+import {
+  formatAttachmentBytes,
+  prepareAttachment,
+  prepareAttachmentsForSend,
+  resolveAttachmentKind,
+  unsupportedModelAttachment,
+  type AttachmentFailure,
+  type AttachmentKind,
+} from "../attachments"
 import {
   dictationActive,
   dictationElapsed,
@@ -47,29 +59,17 @@ import {
   stopDictation,
   toggleDictation,
 } from "../voice/dictation"
-import { modelInstalled, refreshVoiceModels } from "../voice/models"
-import { appendDictation, formatDictationElapsed } from "../voice/transcript"
-import { openSettings } from "./settings"
-import { createMentionAutocomplete, mentionFiles } from "./composer-mentions"
-import { createSlashMenu } from "./composer-slash"
-import { ComposerSlashMenu } from "./composer-slash-menu"
-import { openLightbox } from "./lightbox"
-import { Picker, type PickerItem } from "./picker"
-import { defaultVisibleModelIds, ModelManager } from "./model-manager"
-import { ProviderIcon } from "./provider-icon"
-import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit"
 import {
-  formatAttachmentBytes,
-  prepareAttachment,
-  prepareAttachmentsForSend,
-  resolveAttachmentKind,
-  unsupportedModelAttachment,
-  type AttachmentFailure,
-  type AttachmentKind,
-} from "../attachments"
-import { interruptResponseAnimations } from "./response-animation"
-import { dragHasFiles, dropStagesAttachment, dropTargetActive, nextDragDepth, splitDroppedFiles } from "./drag-drop"
+  clearEdits,
+  modelVisible,
+  orderedModelProviderIds,
+  prefsFor,
+  seedPrefs,
+  sendableVariant,
+  updatePrefs,
+} from "../state/prefs"
 
+import type { Permission } from "../engine/shapes"
 
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
 // (Tailwind spacing 50 = 12.5rem = 200px); otherwise the element and its inline height disagree.
@@ -82,7 +82,8 @@ const localProviders = ["ollama", "lmstudio"]
 /** The picker's line under a model: a small or unknown window is warned about, and LM Studio shows its loaded window. */
 export function modelDetail(providerID: string, model: { id: string; limit: { context: number } }) {
   const context = model.limit.context
-  if (context > 0 && context < smallContextTokens) return t("drift.model.smallContext", { size: formatModelContext(context) })
+  if (context > 0 && context < smallContextTokens)
+    return t("drift.model.smallContext", { size: formatModelContext(context) })
   // A local model not yet loaded runs at whatever window its server picks, and compaction cannot plan for it.
   if (context === 0 && localProviders.includes(providerID)) return t("drift.model.unknownContext")
   return providerID === "lmstudio" ? `${model.id} | ${formatModelContext(context)} context` : undefined
@@ -208,7 +209,13 @@ export function Composer() {
     })
   }
 
-  function showFileFailure(key: string, filename: string, reason: AttachmentFailure, kind?: AttachmentKind, limit?: number) {
+  function showFileFailure(
+    key: string,
+    filename: string,
+    reason: AttachmentFailure,
+    kind?: AttachmentKind,
+    limit?: number,
+  ) {
     if (scope() !== key) return
     if (reason === "archive" || reason === "binary")
       return setFileError(t("drift.composer.fileUnsupported", { filename }))
@@ -255,7 +262,10 @@ export function Composer() {
       // A missed drop must never make the browser navigate to the dropped file, wherever it landed.
       event.preventDefault()
       if (!ready() || !event.dataTransfer || !dropStagesAttachment(event.target)) return
-      const dropped = splitDroppedFiles(Array.from(event.dataTransfer.items ?? []), Array.from(event.dataTransfer.files ?? []))
+      const dropped = splitDroppedFiles(
+        Array.from(event.dataTransfer.items ?? []),
+        Array.from(event.dataTransfer.files ?? []),
+      )
       if (dropped.files.length) void addFiles(dropped.files)
       // After addFiles' synchronous error reset, so the notice survives staging kicking off.
       if (dropped.directories) setFileError(t("drift.composer.folderUnsupported"))
@@ -343,9 +353,7 @@ export function Composer() {
       const provider = providers.find((item) => item.id === providerID)
       if (!provider) return []
       return Object.values(provider.models)
-        .filter((model) =>
-          provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall,
-        )
+        .filter((model) => (provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall))
         .sort((a, b) => (b.release_date ?? "").localeCompare(a.release_date ?? "") || a.name.localeCompare(b.name))
         .map((model) => ({
           id: `${provider.id}/${model.id}`,
@@ -397,7 +405,11 @@ export function Composer() {
         const selectedPrefs = prefsFor(existing, savedChoice(engine.state, existing))
         const selectedModel = resolveModel(engine.state, selectedPrefs.model)
         const selectedVariants = Object.keys(modelInfo(engine.state, selectedModel)?.variants ?? {})
-        return { selectedPrefs, selectedModel, selectedVariant: sendableVariant(selectedPrefs.variant, selectedVariants) }
+        return {
+          selectedPrefs,
+          selectedModel,
+          selectedVariant: sendableVariant(selectedPrefs.variant, selectedVariants),
+        }
       },
       transform: transformComposerSubmit,
       newSession: engine.actions.newSession,
@@ -420,10 +432,7 @@ export function Composer() {
           return { ok: false as const, error: message }
         }
         const attachments = await prepareAttachmentsForSend(snapshot.staged)
-        const files = [
-          ...mentionFiles(text, snapshot.mentions, workspace.path),
-          ...attachments.files,
-        ]
+        const files = [...mentionFiles(text, snapshot.mentions, workspace.path), ...attachments.files]
         const prompt = [text, attachments.text].filter(Boolean).join("\n\n")
         const result = await engine.actions.send(id, prompt, {
           model: prepared.selectedModel,
@@ -583,7 +592,8 @@ export function Composer() {
                   permission().sessionID !== selectedSession()
                     ? {
                         label: t("drift.composer.pendingInThread", {
-                          thread: engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
+                          thread:
+                            engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
                         }),
                         onOpen: () =>
                           openAttentionSession(
@@ -610,7 +620,8 @@ export function Composer() {
                   <option value={request.id}>
                     {request.async ? "" : `${t("drift.question.blocking")}: `}
                     {request.questions[0]?.header || t("drift.question.number", { number: 1 })}
-                    {" - "}{engine.state.sessions[request.sessionID]?.title || t("drift.composer.anotherThread")}
+                    {" - "}
+                    {engine.state.sessions[request.sessionID]?.title || t("drift.composer.anotherThread")}
                   </option>
                 )}
               </For>
@@ -632,7 +643,9 @@ export function Composer() {
                         request().sessionID !== selectedSession()
                           ? {
                               label: t("drift.composer.pendingInThread", {
-                                thread: engine.state.sessions[request().sessionID]?.title || t("drift.composer.anotherThread"),
+                                thread:
+                                  engine.state.sessions[request().sessionID]?.title ||
+                                  t("drift.composer.anotherThread"),
                               }),
                               onOpen: () => openAttentionSession(request().sessionID, request().directory),
                             }
@@ -788,7 +801,9 @@ export function Composer() {
             <Show when={autoAcceptOn()}>
               <button
                 class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
-                title={engine.state.autoAcceptAll ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")}
+                title={
+                  engine.state.autoAcceptAll ? t("drift.permissions.autoGlobal") : t("drift.permissions.autoThread")
+                }
                 aria-label={t("command.permissions.autoaccept.disable")}
                 disabled={engine.state.autoAcceptAll}
                 onClick={toggleAutoAccept}
@@ -898,7 +913,9 @@ function AttachmentChip(props: { file: StagedFile; remove: () => void }) {
           title={title()}
         >
           <Show when={kind() === "pdf" && props.file.meta.thumbnail}>
-            {(thumbnail) => <img src={thumbnail()} alt="" class="h-10 w-8 rounded-sm border border-edge object-cover" />}
+            {(thumbnail) => (
+              <img src={thumbnail()} alt="" class="h-10 w-8 rounded-sm border border-edge object-cover" />
+            )}
           </Show>
           <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
             {label()}

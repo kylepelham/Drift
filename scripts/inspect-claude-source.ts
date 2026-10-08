@@ -1,10 +1,18 @@
-import { createHash } from "node:crypto"
 import { closeSync, fstatSync, openSync, readSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
 import path from "node:path"
+
 import type * as TypeScript from "typescript"
 
 type TS = typeof TypeScript
-type Owner = { name: string; kind: string; offset: number; end: number; parent?: number; calls: { callee: string; offset: number }[] }
+type Owner = {
+  name: string
+  kind: string
+  offset: number
+  end: number
+  parent?: number
+  calls: { callee: string; offset: number }[]
+}
 type EnvAccess = { kind: "property" | "literal" | "dynamic" | "object"; offset: number; owner?: number; name?: string }
 type TenguCall = { name: string; callee: string; offset: number; owner?: number }
 const chunkSize = 1024 * 1024
@@ -28,7 +36,12 @@ function calleeOf(ts: TS, expression: TypeScript.LeftHandSideExpression): string
 }
 
 function isProcessEnv(ts: TS, node: TypeScript.Node) {
-  return ts.isPropertyAccessExpression(node) && node.name.text === "env" && ts.isIdentifier(node.expression) && node.expression.text === "process"
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    node.name.text === "env" &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "process"
+  )
 }
 
 function bareProcessEnv(ts: TS, node: TypeScript.Node) {
@@ -44,13 +57,24 @@ function bracketEnvName(ts: TS, node: TypeScript.ElementAccessExpression) {
   return /^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(argument.text) ? argument.text : undefined
 }
 
-function envAccess(ts: TS, node: TypeScript.Node, root: TypeScript.SourceFile, base: number, owner?: Owner): EnvAccess | undefined {
+function envAccess(
+  ts: TS,
+  node: TypeScript.Node,
+  root: TypeScript.SourceFile,
+  base: number,
+  owner?: Owner,
+): EnvAccess | undefined {
   if (ts.isPropertyAccessExpression(node) && isProcessEnv(ts, node.expression)) {
     return { kind: "property", name: node.name.text, offset: base + node.getStart(root), owner: owner?.offset }
   }
   if (ts.isElementAccessExpression(node) && isProcessEnv(ts, node.expression)) {
     const name = bracketEnvName(ts, node)
-    return { kind: name === undefined ? "dynamic" : "literal", name, offset: base + node.getStart(root), owner: owner?.offset }
+    return {
+      kind: name === undefined ? "dynamic" : "literal",
+      name,
+      offset: base + node.getStart(root),
+      owner: owner?.offset,
+    }
   }
   if (bareProcessEnv(ts, node)) {
     return { kind: "object", offset: base + node.getStart(root), owner: owner?.offset }
@@ -65,13 +89,23 @@ function functionWithBody(ts: TS, node: TypeScript.Node): node is TypeScript.Fun
 function syntacticDiagnostics(ts: TS, root: TypeScript.SourceFile, base: number) {
   const options: TypeScript.CompilerOptions = { allowJs: true, noResolve: true, noLib: true }
   const host = ts.createCompilerHost(options)
-  host.getSourceFile = (fileName) => fileName === root.fileName ? root : undefined
+  host.getSourceFile = (fileName) => (fileName === root.fileName ? root : undefined)
   host.fileExists = (fileName) => fileName === root.fileName
   const program = ts.createProgram([root.fileName], options, host)
-  return program.getSyntacticDiagnostics(root).map((item) => ({ code: item.code, offset: base + (item.start ?? 0), length: item.length ?? 0 }))
+  return program
+    .getSyntacticDiagnostics(root)
+    .map((item) => ({ code: item.code, offset: base + (item.start ?? 0), length: item.length ?? 0 }))
 }
 
-function recordCall(ts: TS, node: TypeScript.CallExpression, root: TypeScript.SourceFile, base: number, owner: Owner | undefined, calls: TenguCall[], topLevelCalls: { callee: string; offset: number }[]) {
+function recordCall(
+  ts: TS,
+  node: TypeScript.CallExpression,
+  root: TypeScript.SourceFile,
+  base: number,
+  owner: Owner | undefined,
+  calls: TenguCall[],
+  topLevelCalls: { callee: string; offset: number }[],
+) {
   const callee = calleeOf(ts, node.expression)
   if (!callee) return
   const offset = base + node.getStart(root)
@@ -91,7 +125,8 @@ function callGroups(calls: TenguCall[]) {
     group.names.add(call.name)
     groups.set(call.callee, group)
   }
-  return [...groups].map(([callee, group]) => ({ callee, count: group.count, distinctNames: group.names.size }))
+  return [...groups]
+    .map(([callee, group]) => ({ callee, count: group.count, distinctNames: group.names.size }))
     .sort((a, b) => b.count - a.count || a.callee.localeCompare(b.callee))
 }
 
@@ -99,12 +134,21 @@ function callCategories(calls: TenguCall[]) {
   const labels = ["candidateFlagAccessor", "telemetryEvent", "otherCallee"] as const
   const categories = new Map(labels.map((label) => [label, { count: 0, names: new Set<string>() }]))
   for (const call of calls) {
-    const label = ["F8", "p5", "oS"].includes(call.callee) ? "candidateFlagAccessor" : call.callee === "c" ? "telemetryEvent" : "otherCallee"
+    const label = ["F8", "p5", "oS"].includes(call.callee)
+      ? "candidateFlagAccessor"
+      : call.callee === "c"
+        ? "telemetryEvent"
+        : "otherCallee"
     const group = categories.get(label)!
     group.count++
     group.names.add(call.name)
   }
-  return Object.fromEntries(labels.map((label) => [label, { count: categories.get(label)!.count, distinctNames: categories.get(label)!.names.size }]))
+  return Object.fromEntries(
+    labels.map((label) => [
+      label,
+      { count: categories.get(label)!.count, distinctNames: categories.get(label)!.names.size },
+    ]),
+  )
 }
 
 export function indexSource(ts: TS, data: Buffer, base: number) {
@@ -119,7 +163,14 @@ export function indexSource(ts: TS, data: Buffer, base: number) {
     nodes++
     if (ts.isStringLiteral(node)) stringLiterals++
     if (functionWithBody(ts, node)) {
-      owner = { name: nameOf(ts, node), kind: ts.SyntaxKind[node.kind], offset: base + node.getStart(root), end: base + node.end, parent: owner?.offset, calls: [] }
+      owner = {
+        name: nameOf(ts, node),
+        kind: ts.SyntaxKind[node.kind],
+        offset: base + node.getStart(root),
+        end: base + node.end,
+        parent: owner?.offset,
+        calls: [],
+      }
       functions.push(owner)
     }
     if (ts.isCallExpression(node)) recordCall(ts, node, root, base, owner, tenguCalls, topLevelCalls)
@@ -131,10 +182,16 @@ export function indexSource(ts: TS, data: Buffer, base: number) {
   const diagnostics = syntacticDiagnostics(ts, root, base)
   const directEnv = environmentAccesses.filter((item) => item.kind === "property")
   const summary = {
-    nodes, stringLiterals, functionCount: functions.length, parseDiagnostics: diagnostics.length,
+    nodes,
+    stringLiterals,
+    functionCount: functions.length,
+    parseDiagnostics: diagnostics.length,
     directCallReferences: topLevelCalls.length + functions.reduce((total, fn) => total + fn.calls.length, 0),
-    tenguCalls: tenguCalls.length, distinctTenguNames: new Set(tenguCalls.map((call) => call.name)).size,
-    tenguByCallee: callGroups(tenguCalls), tenguCategories: callCategories(tenguCalls), directEnvAccesses: directEnv.length,
+    tenguCalls: tenguCalls.length,
+    distinctTenguNames: new Set(tenguCalls.map((call) => call.name)).size,
+    tenguByCallee: callGroups(tenguCalls),
+    tenguCategories: callCategories(tenguCalls),
+    directEnvAccesses: directEnv.length,
     distinctDirectEnvNames: new Set(directEnv.map((item) => item.name)).size,
     otherEnvAccesses: environmentAccesses.length - directEnv.length,
   }
@@ -146,7 +203,13 @@ function parseRange(value: string, size: number) {
   if (!match) throw new Error("--range must be START:END in decimal bytes")
   const start = Number(match[1])
   const end = Number(match[2])
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start || end > size || end - start > maxRange) {
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(end) ||
+    end <= start ||
+    end > size ||
+    end - start > maxRange
+  ) {
     throw new Error("Range must be inside the file and no larger than 16 MiB")
   }
   return { start, end }
@@ -178,7 +241,9 @@ export async function inspectSource(input: string, range: string) {
     const { start, end } = parseRange(range, size)
     const data = readRange(fd, start, end)
     return {
-      file: path.basename(input), fileSize: size, fileSha256: fileHash(fd, size),
+      file: path.basename(input),
+      fileSize: size,
+      fileSha256: fileHash(fd, size),
       source: { start, end, sha256: createHash("sha256").update(data).digest("hex") },
       typescriptVersion: ts.version,
       ...indexSource(ts, data, start),
@@ -203,12 +268,21 @@ function options(args: string[]) {
 if (import.meta.main) {
   try {
     if (process.argv.includes("--help")) {
-      console.log("Usage: bun scripts/inspect-claude-source.ts --input FILE --range START:END --output INDEX.json\nAll offsets are decimal, end exclusive. Range <=16 MiB. Output must not exist. Index stores structure and names, never source text or call arguments.")
+      console.log(
+        "Usage: bun scripts/inspect-claude-source.ts --input FILE --range START:END --output INDEX.json\nAll offsets are decimal, end exclusive. Range <=16 MiB. Output must not exist. Index stores structure and names, never source text or call arguments.",
+      )
     } else {
       const args = options(process.argv.slice(2))
       const report = await inspectSource(args.input, args.range)
       writeFileSync(args.output, JSON.stringify(report) + "\n", { flag: "wx" })
-      console.log(JSON.stringify({ fileSha256: report.fileSha256, source: report.source, typescriptVersion: report.typescriptVersion, ...report.summary }))
+      console.log(
+        JSON.stringify({
+          fileSha256: report.fileSha256,
+          source: report.source,
+          typescriptVersion: report.typescriptVersion,
+          ...report.summary,
+        }),
+      )
     }
   } catch (error) {
     console.error(error instanceof Error ? error.message : error)

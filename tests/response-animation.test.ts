@@ -77,7 +77,10 @@ test("response reveal staggers compositor animation state", () => {
     return { node, properties, classes }
   }
   const nodes = [fakeNode(), fakeNode(), fakeNode()]
-  const finish = revealResponseNodes(nodes.map((entry) => entry.node), 200)
+  const finish = revealResponseNodes(
+    nodes.map((entry) => entry.node),
+    200,
+  )
 
   expect(nodes.map((entry) => entry.properties.get("--response-reveal-delay"))).toEqual(["0ms", "55ms", "110ms"])
   expect(nodes[0].properties.get("--response-reveal-fade")).toBe("90ms")
@@ -117,7 +120,10 @@ test("markdown reveal never drives rendering from animation frames", async () =>
   expect(animation).not.toContain("requestAnimationFrame")
   expect(animation).not.toContain("createRevealPacer")
   // The standalone code viewer uses one frame to scroll to a linked line, not to reveal text.
-  const revealSource = markdown.replace(/export function ProgressiveCodeView[\s\S]*?(?=\nfunction markdownNodeSignature)/, "")
+  const revealSource = markdown.replace(
+    /export function ProgressiveCodeView[\s\S]*?(?=\nfunction markdownNodeSignature)/,
+    "",
+  )
   expect(revealSource).not.toContain("requestAnimationFrame")
   expect(markdown).not.toContain("setRevealed")
   // Formatting newlines under tr/thead/tbody must remain text nodes. Animated spans there become

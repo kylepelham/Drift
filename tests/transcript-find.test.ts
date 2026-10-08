@@ -8,7 +8,11 @@ let scrollFindOccurrence: typeof import("../src/ui/transcript-find").scrollFindO
 class ElementDouble {
   open = false
   scrollIntoView = mock((_options: ScrollIntoViewOptions) => undefined)
-  constructor(public tagName: string, public parentElement: ElementDouble | null = null, public ignored = false) {}
+  constructor(
+    public tagName: string,
+    public parentElement: ElementDouble | null = null,
+    public ignored = false,
+  ) {}
   closest(selector: string): ElementDouble | null {
     for (let node: ElementDouble | null = this; node; node = node.parentElement) {
       if (selector === "[data-find-ignore]" && node.ignored) return node
@@ -24,12 +28,20 @@ class RangeDouble {
   startOffset!: number
   endContainer!: TextDouble
   endOffset!: number
-  setStart(node: TextDouble, offset: number) { this.startContainer = node; this.startOffset = offset }
-  setEnd(node: TextDouble, offset: number) { this.endContainer = node; this.endOffset = offset }
+  setStart(node: TextDouble, offset: number) {
+    this.startContainer = node
+    this.startOffset = offset
+  }
+  setEnd(node: TextDouble, offset: number) {
+    this.endContainer = node
+    this.endOffset = offset
+  }
 }
 
 class HighlightDouble {
-  constructor(...ranges: RangeDouble[]) { this.ranges = ranges }
+  constructor(...ranges: RangeDouble[]) {
+    this.ranges = ranges
+  }
   ranges: RangeDouble[]
 }
 
@@ -37,15 +49,17 @@ const registry = new Map<string, HighlightDouble>()
 const text = (nodeValue: string, parentElement: ElementDouble): TextDouble => ({ nodeValue, parentElement })
 const row = (id: string, nodes: TextDouble[]) => ({ dataset: { mid: id }, nodes })
 function container(...rows: ReturnType<typeof row>[]) {
-  return { querySelectorAll: (selector: string) => {
-    expect(selector).toBe("[data-mid]")
-    return rows
-  } } as unknown as HTMLElement
+  return {
+    querySelectorAll: (selector: string) => {
+      expect(selector).toBe("[data-mid]")
+      return rows
+    },
+  } as unknown as HTMLElement
 }
 
 beforeEach(async () => {
   originalGlobals = globalNames.map((name) => Object.getOwnPropertyDescriptor(globalThis, name))
-  const set = (name: typeof globalNames[number], value: unknown) =>
+  const set = (name: (typeof globalNames)[number], value: unknown) =>
     Object.defineProperty(globalThis, name, { configurable: true, writable: true, value })
   if (!("localStorage" in globalThis)) set("localStorage", { getItem: () => null, setItem: () => undefined })
   ;({ paintFindHighlights, scrollFindOccurrence } = await import("../src/ui/transcript-find"))
@@ -54,11 +68,13 @@ beforeEach(async () => {
   set("Highlight", HighlightDouble)
   set("Range", RangeDouble)
   set("NodeFilter", { SHOW_TEXT: 4 })
-  set("document", { createTreeWalker: (root: ReturnType<typeof row>, whatToShow: number) => {
-    expect(whatToShow).toBe(4)
-    let index = 0
-    return { nextNode: () => root.nodes[index++] ?? null }
-  } })
+  set("document", {
+    createTreeWalker: (root: ReturnType<typeof row>, whatToShow: number) => {
+      expect(whatToShow).toBe(4)
+      let index = 0
+      return { nextNode: () => root.nodes[index++] ?? null }
+    },
+  })
 })
 
 afterEach(() => {
@@ -138,7 +154,13 @@ test("ordinary navigation still scrolls, missing active rows do not highlight, a
 
 test("chat gates disclosure navigation by query and occurrence identity rather than repaint or flat cursor", async () => {
   const ts = await import("typescript")
-  const parsed = ts.createSourceFile("chat.tsx", await Bun.file("src/ui/chat.tsx").text(), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const parsed = ts.createSourceFile(
+    "chat.tsx",
+    await Bun.file("src/ui/chat.tsx").text(),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  )
   const calls: import("typescript").CallExpression[] = []
   function visit(node: import("typescript").Node) {
     if (ts.isCallExpression(node)) calls.push(node)
@@ -152,7 +174,11 @@ test("chat gates disclosure navigation by query and occurrence identity rather t
   if (!ts.isIfStatement(guard)) throw new Error("Navigation must be guarded")
   expect(guard.expression.getText(parsed)).toBe("active && target !== scrolledFindOccurrence")
   expect(guard.thenStatement.getText(parsed)).toContain("scrolledFindOccurrence = target")
-  const identity = calls.find((node) => node.expression.getText(parsed) === "JSON.stringify" && node.arguments[0]?.getText(parsed).includes("occurrence.messageId"))!
+  const identity = calls.find(
+    (node) =>
+      node.expression.getText(parsed) === "JSON.stringify" &&
+      node.arguments[0]?.getText(parsed).includes("occurrence.messageId"),
+  )!
   expect(identity.arguments[0].getText(parsed)).toBe("[value, occurrence.messageId, occurrence.index]")
   const paint = calls.find((node) => node.expression.getText(parsed) === "paintFindHighlights")!
   expect(paint.arguments.map((node) => node.getText(parsed))).toEqual(["scroller", "value", "occurrence"])

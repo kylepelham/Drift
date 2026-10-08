@@ -18,7 +18,9 @@ test("each day's first thread carries a heading, newest first", async () => {
   expect(headings.get("a")).toBe("Today")
   expect(headings.get("c")).toBe("Yesterday")
   expect(headings.get("d")).toBe(new Date(at(2026, 10, 3)).toLocaleDateString(undefined, { weekday: "long" }))
-  expect(headings.get("e")).toBe(new Date(at(2026, 9, 20)).toLocaleDateString(undefined, { day: "numeric", month: "short" }))
+  expect(headings.get("e")).toBe(
+    new Date(at(2026, 9, 20)).toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+  )
   expect(headings.get("f"), "another year names its year").toContain("2025")
 })
 

@@ -102,7 +102,14 @@ function tentacleMaterial(phase: number, amp: number, len: number): THREE.Shader
   })
 }
 
-function makeTentacle(radius: number, len: number, angle: number, dist: number, phase: number, amp: number): THREE.Mesh {
+function makeTentacle(
+  radius: number,
+  len: number,
+  angle: number,
+  dist: number,
+  phase: number,
+  amp: number,
+): THREE.Mesh {
   const geo = new THREE.CylinderGeometry(radius, radius * 0.28, len, 8, 40, true)
   geo.translate(0, -len / 2, 0)
   const mesh = new THREE.Mesh(geo, tentacleMaterial(phase, amp, len))

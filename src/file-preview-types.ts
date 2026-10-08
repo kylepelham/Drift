@@ -25,12 +25,45 @@ const byExtension = new Map(
   filePreviewTypes.flatMap((type) => extensions[type].split(" ").map((extension) => [extension, type] as const)),
 )
 const textNames = new Set([
-  "readme", "license", "licence", "copying", "authors", "changelog", "notice",
-  "makefile", "gnumakefile", "dockerfile", "containerfile", "gemfile", "rakefile", "procfile", "justfile",
-  ".env", ".gitignore", ".gitattributes", ".gitmodules", ".gitconfig", ".gitkeep",
-  ".dockerignore", ".editorconfig", ".npmrc", ".yarnrc", ".nvmrc", ".node-version", ".python-version",
-  ".bashrc", ".bash_profile", ".bash_logout", ".zshrc", ".zprofile", ".profile",
-  ".prettierrc", ".prettierignore", ".eslintrc", ".eslintignore", ".browserslistrc",
+  "readme",
+  "license",
+  "licence",
+  "copying",
+  "authors",
+  "changelog",
+  "notice",
+  "makefile",
+  "gnumakefile",
+  "dockerfile",
+  "containerfile",
+  "gemfile",
+  "rakefile",
+  "procfile",
+  "justfile",
+  ".env",
+  ".gitignore",
+  ".gitattributes",
+  ".gitmodules",
+  ".gitconfig",
+  ".gitkeep",
+  ".dockerignore",
+  ".editorconfig",
+  ".npmrc",
+  ".yarnrc",
+  ".nvmrc",
+  ".node-version",
+  ".python-version",
+  ".bashrc",
+  ".bash_profile",
+  ".bash_logout",
+  ".zshrc",
+  ".zprofile",
+  ".profile",
+  ".prettierrc",
+  ".prettierignore",
+  ".eslintrc",
+  ".eslintignore",
+  ".browserslistrc",
 ])
 
 function filename(path: string) {
@@ -40,22 +73,48 @@ function filename(path: string) {
 /** Filename classification only, not content validation or permission to read the path. */
 export function filePreviewType(path: string): FilePreviewType | undefined {
   const name = filename(path)
-  if (textNames.has(name) || /^\.env\.(?:local|development|production|test|staging|example|sample)(?:\.local)?$/.test(name))
+  if (
+    textNames.has(name) ||
+    /^\.env\.(?:local|development|production|test|staging|example|sample)(?:\.local)?$/.test(name)
+  )
     return "text"
   const dot = name.lastIndexOf(".")
   return dot < 0 ? undefined : byExtension.get(name.slice(dot + 1))
 }
 
-const mimeByExtension = new Map(Object.entries({
-  pdf: "application/pdf",
-  png: "image/png", apng: "image/apng", jpg: "image/jpeg", jpeg: "image/jpeg", jfif: "image/jpeg",
-  gif: "image/gif", webp: "image/webp", avif: "image/avif", bmp: "image/bmp", ico: "image/x-icon",
-  svg: "image/svg+xml",
-  csv: "text/csv", tsv: "text/tab-separated-values",
-  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg",
-  m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", aif: "audio/aiff", aiff: "audio/aiff",
-  mp4: "video/mp4", m4v: "video/mp4", webm: "video/webm", ogv: "video/ogg", mov: "video/quicktime",
-}))
+const mimeByExtension = new Map(
+  Object.entries({
+    pdf: "application/pdf",
+    png: "image/png",
+    apng: "image/apng",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    jfif: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    avif: "image/avif",
+    bmp: "image/bmp",
+    ico: "image/x-icon",
+    svg: "image/svg+xml",
+    csv: "text/csv",
+    tsv: "text/tab-separated-values",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    ogg: "audio/ogg",
+    oga: "audio/ogg",
+    opus: "audio/ogg",
+    m4a: "audio/mp4",
+    aac: "audio/aac",
+    flac: "audio/flac",
+    aif: "audio/aiff",
+    aiff: "audio/aiff",
+    mp4: "video/mp4",
+    m4v: "video/mp4",
+    webm: "video/webm",
+    ogv: "video/ogg",
+    mov: "video/quicktime",
+  }),
+)
 
 /** Raw HTML/code bytes stay plain text; HTML rendering uses a separate sanitized, sandboxed document. SVG blobs are image-only. */
 export function filePreviewMime(path: string): string {

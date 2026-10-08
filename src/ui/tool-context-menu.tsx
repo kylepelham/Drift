@@ -1,8 +1,9 @@
-import type { ToolPart } from "../engine/shapes"
-import { createSignal, For, Show } from "solid-js"
 import { toolContextActions, type ToolContextAction } from "../tool-actions"
-import { fixedMenuPosition } from "../state/zoom"
+import { createSignal, For, Show } from "solid-js"
 import { createDismissOnOutside } from "./dismiss"
+import { fixedMenuPosition } from "../state/zoom"
+
+import type { ToolPart } from "../engine/shapes"
 
 type MenuState = { x: number; y: number; actions: ToolContextAction[] }
 
@@ -66,7 +67,9 @@ export function ToolContextMenuHost() {
                 }}
               >
                 <span class="min-w-0 flex-1 truncate">{action.label}</span>
-                <Show when={action.detail}>{(detail) => <span class="shrink-0 text-xs text-ink-faint">{detail()}</span>}</Show>
+                <Show when={action.detail}>
+                  {(detail) => <span class="shrink-0 text-xs text-ink-faint">{detail()}</span>}
+                </Show>
               </button>
             )}
           </For>

@@ -4,14 +4,22 @@ import { dragReorder } from "../src/ui/drag-reorder"
 class TrackedTarget extends EventTarget {
   listeners = new Map<string, Set<EventListenerOrEventListenerObject>>()
 
-  override addEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: AddEventListenerOptions | boolean) {
+  override addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: AddEventListenerOptions | boolean,
+  ) {
     super.addEventListener(type, listener, options)
     if (!listener) return
     if (!this.listeners.has(type)) this.listeners.set(type, new Set())
     this.listeners.get(type)!.add(listener)
   }
 
-  override removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null, options?: EventListenerOptions | boolean) {
+  override removeEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: EventListenerOptions | boolean,
+  ) {
     super.removeEventListener(type, listener, options)
     if (listener) this.listeners.get(type)?.delete(listener)
     if (!this.listeners.get(type)?.size) this.listeners.delete(type)
@@ -126,16 +134,21 @@ function setup({ scale = 1, scrollTop = 32, sticky = false, position = "" } = {}
   header.rect = () => {
     const naturalTop = root.getBoundingClientRect().top
     const offset = Number.parseFloat(header.style.top) || 0
-    const top = header.style.position === "relative"
-      ? naturalTop + offset * scale
-      : sticky ? Math.max(naturalTop, 100 + offset * scale) : naturalTop
+    const top =
+      header.style.position === "relative"
+        ? naturalTop + offset * scale
+        : sticky
+          ? Math.max(naturalTop, 100 + offset * scale)
+          : naturalTop
     return { top, bottom: top + 16 * scale, height: 16 * scale }
   }
   Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: win })
   Object.defineProperty(globalThis, "getComputedStyle", {
     configurable: true,
     writable: true,
-    value: (element: FakeElement) => ({ position: element.style.position || (sticky && element === header ? "sticky" : "static") }),
+    value: (element: FakeElement) => ({
+      position: element.style.position || (sticky && element === header ? "sticky" : "static"),
+    }),
   })
   const moves: [string, string | null][] = []
   let dragged = 0
@@ -154,8 +167,14 @@ function setup({ scale = 1, scrollTop = 32, sticky = false, position = "" } = {}
   header.removeEventListener("pointerdown", down)
 
   return {
-    win, container, items, root, header, moves,
-    move: (dy = 8, extra: Partial<PointerEvent> = {}) => win.dispatchEvent(pointer("pointermove", startY + dy * scale, extra)),
+    win,
+    container,
+    items,
+    root,
+    header,
+    moves,
+    move: (dy = 8, extra: Partial<PointerEvent> = {}) =>
+      win.dispatchEvent(pointer("pointermove", startY + dy * scale, extra)),
     up: (dy = 8) => win.dispatchEvent(pointer("pointerup", startY + dy * scale)),
     scroll: (top: number) => {
       container.scrollTop = top
@@ -335,20 +354,23 @@ test("unrelated pointers cannot move, cancel, or commit the drag", () => {
 })
 
 for (const position of ["", "sticky"]) {
-  test.each([1, 0.8, 1.3])("already-stuck header preserves its offset and restores inline position '" + position + "' at zoom %s", (scale) => {
-    const drag = setup({ scale, sticky: true, scrollTop: 80, position })
-    const top = drag.header.getBoundingClientRect().top
-    expect(top).toBeGreaterThan(drag.root.getBoundingClientRect().top)
-    drag.move()
-    expect(drag.header.style.position).toBe("relative")
-    expect(Number.parseFloat(drag.header.style.top)).toBeCloseTo(39, 8)
-    expect(drag.header.getBoundingClientRect().top).toBeCloseTo(top + 8 * scale, 8)
-    drag.scroll(120)
-    expect(Number.parseFloat(drag.header.style.top)).toBeCloseTo(39, 8)
-    expect(drag.header.getBoundingClientRect().top).toBeCloseTo(top + 8 * scale, 8)
-    drag.up()
-    expect(drag.moves).toEqual([["b", "d"]])
-    drag.expectClean(true)
-    expect(drag.header.getBoundingClientRect().top).toBeCloseTo(top, 8)
-  })
+  test.each([1, 0.8, 1.3])(
+    "already-stuck header preserves its offset and restores inline position '" + position + "' at zoom %s",
+    (scale) => {
+      const drag = setup({ scale, sticky: true, scrollTop: 80, position })
+      const top = drag.header.getBoundingClientRect().top
+      expect(top).toBeGreaterThan(drag.root.getBoundingClientRect().top)
+      drag.move()
+      expect(drag.header.style.position).toBe("relative")
+      expect(Number.parseFloat(drag.header.style.top)).toBeCloseTo(39, 8)
+      expect(drag.header.getBoundingClientRect().top).toBeCloseTo(top + 8 * scale, 8)
+      drag.scroll(120)
+      expect(Number.parseFloat(drag.header.style.top)).toBeCloseTo(39, 8)
+      expect(drag.header.getBoundingClientRect().top).toBeCloseTo(top + 8 * scale, 8)
+      drag.up()
+      expect(drag.moves).toEqual([["b", "d"]])
+      drag.expectClean(true)
+      expect(drag.header.getBoundingClientRect().top).toBeCloseTo(top, 8)
+    },
+  )
 }

@@ -1,11 +1,14 @@
-import { readFilePreview } from "../file-preview"
 import { filePreviewLimits, filePreviewMime, filePreviewType } from "../file-preview-types"
 import { classifyMarkdownLink } from "./markdown-links"
+import { readFilePreview } from "../file-preview"
 import { openLightbox } from "./lightbox"
 
 export const markdownImageAttribute = "data-document-image"
 
-export function observeMarkdownImages(root: HTMLElement, input: { parent?: string; directory?: string; enabled: boolean; hash?: string; interactive?: boolean }): () => void {
+export function observeMarkdownImages(
+  root: HTMLElement,
+  input: { parent?: string; directory?: string; enabled: boolean; hash?: string; interactive?: boolean },
+): () => void {
   const { parent, directory, enabled } = input
   const hash = input.hash?.replace(/^#/, "")
   let disposed = false
@@ -29,8 +32,11 @@ export function observeMarkdownImages(root: HTMLElement, input: { parent?: strin
     const url = image.getAttribute("src") ?? ""
     const cached = [...cache.values()].find((item) => item.url === url && !item.error)
     if (cached?.blob) return { url, blob: cached.blob }
-    if (!image.getAttribute(markdownImageAttribute) &&
-      (classifyMarkdownLink(url).kind === "external" || /^data:image\//i.test(url))) return { url }
+    if (
+      !image.getAttribute(markdownImageAttribute) &&
+      (classifyMarkdownLink(url).kind === "external" || /^data:image\//i.test(url))
+    )
+      return { url }
   }
 
   function restoreControl(image: HTMLImageElement) {
@@ -44,18 +50,36 @@ export function observeMarkdownImages(root: HTMLElement, input: { parent?: strin
   function decorate(image: HTMLImageElement) {
     if (input.interactive === false) return
     if (controls.has(image) || image.closest("a[href],button") || !imageSource(image)) return
-    controls.set(image, controlAttributes.map((name) => image.getAttribute(name)))
+    controls.set(
+      image,
+      controlAttributes.map((name) => image.getAttribute(name)),
+    )
     image.setAttribute("role", "button")
     image.setAttribute("tabindex", "0")
-    image.setAttribute("class", `${image.getAttribute("class") ?? ""} cursor-zoom-in focus-visible:outline-2 focus-visible:outline-accent`)
+    image.setAttribute(
+      "class",
+      `${image.getAttribute("class") ?? ""} cursor-zoom-in focus-visible:outline-2 focus-visible:outline-accent`,
+    )
   }
 
   function activateImage(event: MouseEvent | KeyboardEvent) {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return
-    if (event.type === "click" ? (event as MouseEvent).button !== 0 :
-      (event as KeyboardEvent).repeat || !["Enter", " "].includes((event as KeyboardEvent).key)) return
+    if (
+      event.type === "click"
+        ? (event as MouseEvent).button !== 0
+        : (event as KeyboardEvent).repeat || !["Enter", " "].includes((event as KeyboardEvent).key)
+    )
+      return
     const image = (event.target as Element | null)?.closest<HTMLImageElement>("img")
-    if (!image || !root.contains(image) || !controls.has(image) || image.closest("a[href],button") || !image.complete || !image.naturalWidth) return
+    if (
+      !image ||
+      !root.contains(image) ||
+      !controls.has(image) ||
+      image.closest("a[href],button") ||
+      !image.complete ||
+      !image.naturalWidth
+    )
+      return
     const source = imageSource(image)
     if (!source) return
     event.preventDefault()
@@ -77,7 +101,10 @@ export function observeMarkdownImages(root: HTMLElement, input: { parent?: strin
   function alignHash() {
     if (disposed || !aligning) return
     const target = [...root.querySelectorAll<HTMLElement>("[id]")].find((element) => element.id === hash)
-    if (target) { scrolled = true; target.scrollIntoView({ block: "start", behavior: "instant" }) }
+    if (target) {
+      scrolled = true
+      target.scrollIntoView({ block: "start", behavior: "instant" })
+    }
   }
 
   function settleAlignment() {
@@ -96,8 +123,9 @@ export function observeMarkdownImages(root: HTMLElement, input: { parent?: strin
 
   // Capture input on the owning document, including the enclosing scroller and its scrollbar.
   // Do not listen for scroll: our own alignment and browser scroll anchoring also emit it.
-  if (hash) for (const type of interactionEvents)
-    ownerDocument.addEventListener(type, stopAlignment, { capture: true, passive: true })
+  if (hash)
+    for (const type of interactionEvents)
+      ownerDocument.addEventListener(type, stopAlignment, { capture: true, passive: true })
 
   async function update() {
     if (disposed) return
@@ -111,7 +139,10 @@ export function observeMarkdownImages(root: HTMLElement, input: { parent?: strin
       image.removeAttribute("src")
       urls.delete(image)
     }
-    if (running) { pending = true; return }
+    if (running) {
+      pending = true
+      return
+    }
     running = true
     try {
       for (const image of root.querySelectorAll<HTMLImageElement>(`img[${markdownImageAttribute}]`)) {
@@ -120,7 +151,14 @@ export function observeMarkdownImages(root: HTMLElement, input: { parent?: strin
         seen.add(image)
         const raw = image.getAttribute(markdownImageAttribute) ?? ""
         const link = classifyMarkdownLink(raw, parent)
-        if (!enabled || !parent || !directory || link.kind !== "file" || link.path.startsWith("//") || filePreviewType(link.path) !== "image") {
+        if (
+          !enabled ||
+          !parent ||
+          !directory ||
+          link.kind !== "file" ||
+          link.path.startsWith("//") ||
+          filePreviewType(link.path) !== "image"
+        ) {
           image.title = "Only enabled local workspace images can be previewed"
           continue
         }
@@ -178,15 +216,21 @@ export function observeMarkdownImages(root: HTMLElement, input: { parent?: strin
       running = false
       if (pending) {
         pending = false
-        queueMicrotask(() => { void update() })
+        queueMicrotask(() => {
+          void update()
+        })
       }
     }
   }
 
   // Only child replacement matters. Our src/title changes must not trigger new reads.
-  const observer = new MutationObserver(() => { void update() })
+  const observer = new MutationObserver(() => {
+    void update()
+  })
   observer.observe(root, { childList: true, subtree: true })
-  queueMicrotask(() => { void update() })
+  queueMicrotask(() => {
+    void update()
+  })
   return () => {
     disposed = true
     stopAlignment()

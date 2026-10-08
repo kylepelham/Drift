@@ -1,7 +1,7 @@
 // Browser dev loop: a headless engine (drift-engined) on a scratch data directory, and Vite pointed at it.
 import { mkdtempSync, rmSync } from "node:fs"
-import os from "node:os"
 import path from "node:path"
+import os from "node:os"
 
 const root = path.resolve(import.meta.dirname, "..")
 const runtime = mkdtempSync(path.join(os.tmpdir(), "drift-dev-"))
@@ -9,7 +9,11 @@ Bun.spawnSync(["cargo", "build", "-q", "-p", "drift-engined"], { cwd: root, stdo
 // Run a copy so cargo can rebuild the real binary while dev is up.
 const binary = path.join(runtime, "drift-engined.exe")
 await Bun.write(binary, Bun.file(path.join(root, "target", "debug", "drift-engined.exe")))
-const engine = Bun.spawn([binary, "--data-dir", path.join(runtime, "data")], { cwd: root, stdout: "pipe", stderr: "inherit" })
+const engine = Bun.spawn([binary, "--data-dir", path.join(runtime, "data")], {
+  cwd: root,
+  stdout: "pipe",
+  stderr: "inherit",
+})
 const target = await readTarget(engine.stdout)
 
 const vite = Bun.spawn([process.execPath, "x", "vite"], {

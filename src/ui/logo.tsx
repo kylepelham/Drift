@@ -1,5 +1,6 @@
-import type { JSX } from "solid-js"
 import logoSource from "../assets/logo.svg?raw"
+
+import type { JSX } from "solid-js"
 
 // Inlined rather than referenced by URL: `.drift-logo` paints `background: currentColor` behind
 // the mask, so a mask image that is still loading shows the element's full square in the accent

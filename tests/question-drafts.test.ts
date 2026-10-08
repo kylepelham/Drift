@@ -40,8 +40,12 @@ test("remount-equivalent reads retain sending and failure without allowing dupli
   expect(questionSubmissionState(requestID)).toEqual(mounted)
   expect(questionDraftState(requestID, 2).step).toBe(1)
   let duplicates = 0
-  await submitQuestionAnswer(requestID, true, [["Changed"]], () => { duplicates++ })
-  await submitQuestionAnswer(requestID, true, null, () => { duplicates++ })
+  await submitQuestionAnswer(requestID, true, [["Changed"]], () => {
+    duplicates++
+  })
+  await submitQuestionAnswer(requestID, true, null, () => {
+    duplicates++
+  })
   expect(duplicates).toBe(0)
 
   pending.resolve(false)
@@ -52,25 +56,30 @@ test("remount-equivalent reads retain sending and failure without allowing dupli
   expect(questionDraftState(requestID, 2).drafts).toEqual([draft, draft])
 })
 
-test.each(["false", "throw", "reject"])("async %s retains the first answer and prevents edits on retry", async (failure) => {
-  updateQuestionDraft(requestID, 1, 0, draft)
-  const answers = [["Tests", "Custom answer"]]
-  expect(await submitQuestionAnswer(requestID, true, answers, () => {
-    if (failure === "throw") throw new Error("offline")
-    if (failure === "reject") return Promise.reject(new Error("offline"))
-    return false
-  })).toBe(false)
-  updateQuestionDraft(requestID, 1, 0, { ...draft, selected: ["Changed"], custom: "Changed custom" })
-  expect(questionDraftState(requestID, 1).drafts[0]).toEqual(draft)
-  expect(questionSubmissionState(requestID)).toEqual({ sending: false, failed: true, answers })
-  const sent: (string[][] | null)[] = []
-  await submitQuestionAnswer(requestID, true, [["Silently changed"]], (payload) => {
-    sent.push(payload)
-    return false
-  })
-  expect(sent).toEqual([answers])
-  expect(questionSubmissionState(requestID)?.answers).toEqual(answers)
-})
+test.each(["false", "throw", "reject"])(
+  "async %s retains the first answer and prevents edits on retry",
+  async (failure) => {
+    updateQuestionDraft(requestID, 1, 0, draft)
+    const answers = [["Tests", "Custom answer"]]
+    expect(
+      await submitQuestionAnswer(requestID, true, answers, () => {
+        if (failure === "throw") throw new Error("offline")
+        if (failure === "reject") return Promise.reject(new Error("offline"))
+        return false
+      }),
+    ).toBe(false)
+    updateQuestionDraft(requestID, 1, 0, { ...draft, selected: ["Changed"], custom: "Changed custom" })
+    expect(questionDraftState(requestID, 1).drafts[0]).toEqual(draft)
+    expect(questionSubmissionState(requestID)).toEqual({ sending: false, failed: true, answers })
+    const sent: (string[][] | null)[] = []
+    await submitQuestionAnswer(requestID, true, [["Silently changed"]], (payload) => {
+      sent.push(payload)
+      return false
+    })
+    expect(sent).toEqual([answers])
+    expect(questionSubmissionState(requestID)?.answers).toEqual(answers)
+  },
+)
 
 test("drafts and original answers cannot be mutated through inputs, reads, or delivery callbacks", async () => {
   const input = { ...draft, selected: [...draft.selected] }
@@ -96,7 +105,9 @@ test("drafts and original answers cannot be mutated through inputs, reads, or de
   mounted.answers!.push(["Extra read row"])
   mounted.sending = false
   expect(questionSubmissionState(requestID)).toEqual({
-    sending: true, failed: false, answers: [["Tests", "Custom answer"], ["Docs"]],
+    sending: true,
+    failed: false,
+    answers: [["Tests", "Custom answer"], ["Docs"]],
   })
   updateQuestionDraft(requestID, 1, 0, { ...draft, custom: "Editing while sending" })
   expect(questionDraftState(requestID, 1).drafts[0]).toEqual(draft)
@@ -110,31 +121,37 @@ test("drafts and original answers cannot be mutated through inputs, reads, or de
   expect(sent).toEqual([[["Tests", "Custom answer"], ["Docs"]]])
 })
 
-test.each([true, undefined])("confirmed %s clears drafts and submission without touching other requests", async (completed) => {
-  updateQuestionDraft(requestID, 1, 0, draft)
-  updateQuestionDraft(otherID, 1, 0, draft)
-  await submitQuestionAnswer(requestID, true, [["Tests"]], () => false)
-  await submitQuestionAnswer(otherID, true, [["Other"]], () => false)
-  const other = questionSubmissionState(otherID)
-  expect(await submitQuestionAnswer(requestID, true, [["Changed"]], () => completed)).toBe(true)
-  expect(questionSubmissionState(requestID)).toBeUndefined()
-  expect(questionDraftState(requestID, 1).drafts[0].selected).toEqual([])
-  expect(questionSubmissionState(otherID)).toEqual(other)
-  expect(questionDraftState(otherID, 1).drafts[0]).toEqual(draft)
-  updateQuestionDraft(requestID, 1, 0, draft)
-  expect(questionDraftState(requestID, 1).drafts[0]).toEqual(draft)
-})
+test.each([true, undefined])(
+  "confirmed %s clears drafts and submission without touching other requests",
+  async (completed) => {
+    updateQuestionDraft(requestID, 1, 0, draft)
+    updateQuestionDraft(otherID, 1, 0, draft)
+    await submitQuestionAnswer(requestID, true, [["Tests"]], () => false)
+    await submitQuestionAnswer(otherID, true, [["Other"]], () => false)
+    const other = questionSubmissionState(otherID)
+    expect(await submitQuestionAnswer(requestID, true, [["Changed"]], () => completed)).toBe(true)
+    expect(questionSubmissionState(requestID)).toBeUndefined()
+    expect(questionDraftState(requestID, 1).drafts[0].selected).toEqual([])
+    expect(questionSubmissionState(otherID)).toEqual(other)
+    expect(questionDraftState(otherID, 1).drafts[0]).toEqual(draft)
+    updateQuestionDraft(requestID, 1, 0, draft)
+    expect(questionDraftState(requestID, 1).drafts[0]).toEqual(draft)
+  },
+)
 
-test.each(["false", "throw", "true"])("late %s after authoritative clear cannot resurrect a request", async (result) => {
-  const pending = deferred()
-  const submission = submitQuestionAnswer(requestID, true, [["Original"]], () => pending.promise)
-  clearQuestionDraft(requestID)
-  if (result === "throw") pending.reject(new Error("late failure"))
-  else pending.resolve(result === "true")
-  expect(await submission).toBeUndefined()
-  expect(questionSubmissionState(requestID)).toBeUndefined()
-  expect(questionDraftState(requestID, 1).drafts[0].selected).toEqual([])
-})
+test.each(["false", "throw", "true"])(
+  "late %s after authoritative clear cannot resurrect a request",
+  async (result) => {
+    const pending = deferred()
+    const submission = submitQuestionAnswer(requestID, true, [["Original"]], () => pending.promise)
+    clearQuestionDraft(requestID)
+    if (result === "throw") pending.reject(new Error("late failure"))
+    else pending.resolve(result === "true")
+    expect(await submission).toBeUndefined()
+    expect(questionSubmissionState(requestID)).toBeUndefined()
+    expect(questionDraftState(requestID, 1).drafts[0].selected).toEqual([])
+  },
+)
 
 test.each(["false", "throw", "true"])("late %s cannot overwrite newer drafts or submission state", async (result) => {
   const old = deferred()

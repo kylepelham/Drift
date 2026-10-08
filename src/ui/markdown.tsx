@@ -1,21 +1,20 @@
-import DOMPurify from "dompurify"
-import { marked } from "marked"
-import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
+import { AmbiguousCitationError, citationHref, classifyMarkdownLink, resolveMarkdownCitation } from "./markdown-links"
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { shellInvoke } from "../shell"
-import { backendInvoke } from "../backend"
+import { markdownImageAttribute, observeMarkdownImages } from "./markdown-images"
 import { previewParentDirectory, readFilePreview } from "../file-preview"
+import { animateResponses, responseAnimationSpeed } from "../state/prefs"
 import { filePreviewMime, filePreviewType } from "../file-preview-types"
 import { shouldPreviewFile } from "../state/file-preview-prefs"
-import { openFilePreview } from "../state/file-preview"
-import { openFile } from "../tool-actions"
 import { resolveFileLanguage } from "../syntax-language"
-import { t } from "../state/i18n"
+import { openFilePreview } from "../state/file-preview"
 import { syntaxTheme } from "../state/code"
-import { animateResponses, responseAnimationSpeed } from "../state/prefs"
-import { AmbiguousCitationError, citationHref, classifyMarkdownLink, resolveMarkdownCitation } from "./markdown-links"
-import { markdownImageAttribute, observeMarkdownImages } from "./markdown-images"
+import { backendInvoke } from "../backend"
+import { openFile } from "../tool-actions"
 import { openLightbox } from "./lightbox"
+import { shellInvoke } from "../shell"
+import DOMPurify from "dompurify"
+import { t } from "../state/i18n"
+import { marked } from "marked"
 import {
   responseAnimationInterruptEvent,
   responseBurstSize,
@@ -25,6 +24,8 @@ import {
   shouldPreserveResponseReveal,
   shouldQueueResponseRedraw,
 } from "./response-animation"
+
+import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki"
 
 marked.use({ gfm: true, breaks: true })
 
@@ -509,8 +510,12 @@ export function sanitizeMarkdownDocumentHtml(html: string) {
   purifier.addHook("uponSanitizeAttribute", (node, attribute) => {
     if (attribute.attrName === "class" && (node.nodeName !== "CODE" || !/^language-[\w-]+$/.test(attribute.attrValue)))
       attribute.keepAttr = false
-    if (attribute.attrName === "href" && node.nodeName === "A" &&
-      node.namespaceURI === "http://www.w3.org/1999/xhtml" && classifyMarkdownLink(attribute.attrValue).kind === "file")
+    if (
+      attribute.attrName === "href" &&
+      node.nodeName === "A" &&
+      node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
+      classifyMarkdownLink(attribute.attrValue).kind === "file"
+    )
       attribute.forceKeepAttr = true
   })
   purifier.addHook("afterSanitizeAttributes", (node) => {
@@ -519,20 +524,81 @@ export function sanitizeMarkdownDocumentHtml(html: string) {
     else if (node.nodeName === "IMG") node.setAttribute("title", "Only local workspace images can be previewed")
   })
   const clean = purifier.sanitize(html, {
-    ALLOWED_TAGS: ["a", "p", "br", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "code",
-      "em", "strong", "b", "i", "del", "s", "u", "sub", "sup", "kbd", "samp", "var", "ul", "ol", "li",
-      "dl", "dt", "dd", "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "div", "span",
-      "details", "summary", "figure", "figcaption", "img"],
+    ALLOWED_TAGS: [
+      "a",
+      "p",
+      "br",
+      "hr",
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "blockquote",
+      "pre",
+      "code",
+      "em",
+      "strong",
+      "b",
+      "i",
+      "del",
+      "s",
+      "u",
+      "sub",
+      "sup",
+      "kbd",
+      "samp",
+      "var",
+      "ul",
+      "ol",
+      "li",
+      "dl",
+      "dt",
+      "dd",
+      "table",
+      "caption",
+      "thead",
+      "tbody",
+      "tfoot",
+      "tr",
+      "th",
+      "td",
+      "div",
+      "span",
+      "details",
+      "summary",
+      "figure",
+      "figcaption",
+      "img",
+    ],
     ALLOWED_ATTR: ["href", "alt", "title", "class", "colspan", "rowspan", "scope", "start", "reversed"],
     ALLOW_DATA_ATTR: false,
     ALLOW_ARIA_ATTR: false,
-    FORBID_CONTENTS: ["script", "style", "svg", "math", "iframe", "object", "embed", "audio", "video", "picture", "template"],
+    FORBID_CONTENTS: [
+      "script",
+      "style",
+      "svg",
+      "math",
+      "iframe",
+      "object",
+      "embed",
+      "audio",
+      "video",
+      "picture",
+      "template",
+    ],
     RETURN_DOM_FRAGMENT: true,
   })
   const ids = new Set<string>()
   const suffixes = new Map<string, number>()
   for (const heading of clean.querySelectorAll<HTMLElement>("h1,h2,h3,h4,h5,h6")) {
-    const base = (heading.textContent ?? "").trim().toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, "").replace(/\s+/g, "-") || "section"
+    const base =
+      (heading.textContent ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+        .replace(/\s+/g, "-") || "section"
     let suffix = suffixes.get(base) ?? 0
     let id = suffix ? `${base}-${suffix}` : base
     while (ids.has(id)) id = `${base}-${++suffix}`
@@ -565,9 +631,12 @@ export function sanitizeMarkdownHtml(html: string, documentPreview = false) {
     markdownPurifier.addHook("uponSanitizeAttribute", (node, attribute) => {
       // Only explicit local anchor destinations bypass the default URI filter, never image sources or other schemes.
       if (
-        node.nodeName === "A" && node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
-        attribute.attrName === "href" && classifyMarkdownLink(citationHref(attribute.attrValue), "/").kind === "file"
-      ) attribute.forceKeepAttr = true
+        node.nodeName === "A" &&
+        node.namespaceURI === "http://www.w3.org/1999/xhtml" &&
+        attribute.attrName === "href" &&
+        classifyMarkdownLink(citationHref(attribute.attrValue), "/").kind === "file"
+      )
+        attribute.forceKeepAttr = true
     })
     markdownPurifier.addHook("afterSanitizeAttributes", (node) => {
       const raw = images.get(node)
@@ -577,7 +646,12 @@ export function sanitizeMarkdownHtml(html: string, documentPreview = false) {
   return markdownPurifier.sanitize(html)
 }
 
-export async function openMarkdownLink(event: MouseEvent, directory?: string, workspaceDirectory = directory, fileGroups?: () => readonly (readonly string[])[]) {
+export async function openMarkdownLink(
+  event: MouseEvent,
+  directory?: string,
+  workspaceDirectory = directory,
+  fileGroups?: () => readonly (readonly string[])[],
+) {
   if (event.defaultPrevented || (event.button !== 0 && event.button !== 1)) return
   const anchor = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]")
   if (!anchor) return
@@ -606,12 +680,21 @@ export async function openMarkdownLink(event: MouseEvent, directory?: string, wo
   if (link.kind === "unsupported") throw new Error("The link is invalid or its workspace directory is unavailable")
   if (fileGroups) link = resolveMarkdownCitation(href, directory, fileGroups())
   if (link.kind !== "file") return
-  await openWorkspaceFile(link, workspaceDirectory, href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : undefined)
+  await openWorkspaceFile(
+    link,
+    workspaceDirectory,
+    href.includes("#") ? decodeURIComponent(href.slice(href.indexOf("#") + 1)) : undefined,
+  )
 }
 
 /** Opens a file the way a file link in a reply does: images in the lightbox, previewable files in the viewer, anything else in the editor. */
-export async function openWorkspaceFile(link: { path: string; line?: number; column?: number }, workspaceDirectory?: string, hash?: string) {
-  if (filePreviewType(link.path) === "image" && shouldPreviewFile(link.path) && backendInvoke()) return openImageLink(link.path)
+export async function openWorkspaceFile(
+  link: { path: string; line?: number; column?: number },
+  workspaceDirectory?: string,
+  hash?: string,
+) {
+  if (filePreviewType(link.path) === "image" && shouldPreviewFile(link.path) && backendInvoke())
+    return openImageLink(link.path)
   if (workspaceDirectory && shouldPreviewFile(link.path) && backendInvoke()) {
     openFilePreview({ ...link, directory: workspaceDirectory, hash })
     return
@@ -623,7 +706,12 @@ export async function openWorkspaceFile(link: { path: string; line?: number; col
 async function openImageLink(path: string) {
   const { bytes } = await readFilePreview({ path, directory: previewParentDirectory(path) })
   const mime = filePreviewMime(path)
-  openLightbox({ url: "", blob: new Blob([bytes], { type: mime }), filename: path.slice(path.lastIndexOf("/") + 1), mime })
+  openLightbox({
+    url: "",
+    blob: new Blob([bytes], { type: mime }),
+    filename: path.slice(path.lastIndexOf("/") + 1),
+    mime,
+  })
 }
 
 export function decorateCodeBlocks(root: HTMLElement) {
@@ -651,7 +739,12 @@ export function decorateCodeBlocks(root: HTMLElement) {
   }
 }
 
-export function markdownClick(event: MouseEvent, directory?: string, workspaceDirectory = directory, fileGroups?: () => readonly (readonly string[])[]) {
+export function markdownClick(
+  event: MouseEvent,
+  directory?: string,
+  workspaceDirectory = directory,
+  fileGroups?: () => readonly (readonly string[])[],
+) {
   if (event.defaultPrevented || event.button !== 0) return
   const button = (event.target as Element).closest<HTMLButtonElement>(copyButtonAttribute)
   if (!button) return openMarkdownLink(event, directory, workspaceDirectory, fileGroups)
@@ -746,10 +839,13 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
     const count = chunks().length
     queueMicrotask(() => {
       observer?.disconnect()
-      if (!("IntersectionObserver" in window)) return setActive(new Set(Array.from({ length: count }, (_, index) => index)))
+      if (!("IntersectionObserver" in window))
+        return setActive(new Set(Array.from({ length: count }, (_, index) => index)))
       observer = new IntersectionObserver(
         (entries) => {
-          const visible = entries.filter((entry) => entry.isIntersecting).map((entry) => Number((entry.target as HTMLElement).dataset.chunk))
+          const visible = entries
+            .filter((entry) => entry.isIntersecting)
+            .map((entry) => Number((entry.target as HTMLElement).dataset.chunk))
           if (!visible.length) return
           setActive((current) => new Set([...current, ...visible]))
         },
@@ -770,7 +866,11 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
   })
 
   return (
-    <div ref={root} class="transcript-tool-output code-view code-stream overflow-auto rounded-lg border border-edge" classList={{ "max-h-80": !props.fill, "min-h-0 flex-1": props.fill }}>
+    <div
+      ref={root}
+      class="transcript-tool-output code-view code-stream overflow-auto rounded-lg border border-edge"
+      classList={{ "max-h-80": !props.fill, "min-h-0 flex-1": props.fill }}
+    >
       <For each={chunks()}>
         {(code, index) => (
           <div class="code-stream-chunk" data-chunk={index()}>
@@ -785,7 +885,9 @@ export function ProgressiveCodeView(props: { code: string; filename: string; fil
 }
 
 function markdownNodeSignature(node: Node) {
-  return node.nodeType === Node.ELEMENT_NODE ? (node as Element).outerHTML : `${node.nodeType}:${node.textContent ?? ""}`
+  return node.nodeType === Node.ELEMENT_NODE
+    ? (node as Element).outerHTML
+    : `${node.nodeType}:${node.textContent ?? ""}`
 }
 
 type MarkdownAddition = Text | HTMLElement
@@ -817,11 +919,7 @@ function markMarkdownAddition(previous: Node | undefined, next: Node, additions:
     additions.push(suffix)
     return
   }
-  if (
-    next.nodeType !== Node.ELEMENT_NODE ||
-    (previous as Element).tagName !== (next as Element).tagName
-  )
-    return
+  if (next.nodeType !== Node.ELEMENT_NODE || (previous as Element).tagName !== (next as Element).tagName) return
   const previousChildren = [...previous.childNodes]
   const nextChildren = [...next.childNodes]
   for (let index = 0; index < nextChildren.length; index++) {
@@ -923,27 +1021,37 @@ export function Markdown(props: {
   async function handleClick(event: MouseEvent) {
     setLinkError(undefined)
     try {
-      if (event.type === "auxclick") await openMarkdownLink(event, props.directory, props.workspaceDirectory ?? props.directory, props.fileGroups)
+      if (event.type === "auxclick")
+        await openMarkdownLink(event, props.directory, props.workspaceDirectory ?? props.directory, props.fileGroups)
       else await markdownClick(event, props.directory, props.workspaceDirectory ?? props.directory, props.fileGroups)
     } catch (cause) {
-      setLinkError(cause instanceof AmbiguousCitationError
-        ? t("drift.markdown.ambiguousCitation", { href: cause.href, files: cause.files.join(", ") })
-        : `${t("drift.markdown.linkFailed")} ${cause instanceof Error ? cause.message : String(cause)}`)
+      setLinkError(
+        cause instanceof AmbiguousCitationError
+          ? t("drift.markdown.ambiguousCitation", { href: cause.href, files: cause.files.join(", ") })
+          : `${t("drift.markdown.linkFailed")} ${cause instanceof Error ? cause.message : String(cause)}`,
+      )
     }
   }
   // Reconcile can swap slot text without notifying consumers, so revision forces reparse and render.
   const html = createMemo(() => {
     void props.revision
-    return sanitizeMarkdownHtml(marked.parse(props.documentPreview ? props.text : prepareMarkdown(props.text, props.humanAuthored), { async: false }), props.documentPreview)
+    return sanitizeMarkdownHtml(
+      marked.parse(props.documentPreview ? props.text : prepareMarkdown(props.text, props.humanAuthored), {
+        async: false,
+      }),
+      props.documentPreview,
+    )
   })
   createEffect(() => {
     if (props.documentPreview) return
     void props.responseID
-    onCleanup(observeMarkdownImages(root, {
-      parent: props.directory,
-      directory: props.workspaceDirectory ?? props.directory,
-      enabled: shouldPreviewFile("image.png"),
-    }))
+    onCleanup(
+      observeMarkdownImages(root, {
+        parent: props.directory,
+        directory: props.workspaceDirectory ?? props.directory,
+        enabled: shouldPreviewFile("image.png"),
+      }),
+    )
   })
   onMount(() => window.addEventListener(responseAnimationInterruptEvent, finishActiveReveal))
   onCleanup(() => {
@@ -1052,9 +1160,17 @@ export function Markdown(props: {
         class="md"
         classList={{ "md-user": props.humanAuthored }}
         onClick={handleClick}
-        onAuxClick={(event) => { if (event.button === 1) void handleClick(event) }}
+        onAuxClick={(event) => {
+          if (event.button === 1) void handleClick(event)
+        }}
       />
-      <Show when={linkError()}>{(error) => <div role="alert" class="mt-1 text-xs text-danger">{error()}</div>}</Show>
+      <Show when={linkError()}>
+        {(error) => (
+          <div role="alert" class="mt-1 text-xs text-danger">
+            {error()}
+          </div>
+        )}
+      </Show>
     </>
   )
 }

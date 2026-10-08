@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test"
 import { closeOnBackdropPointerDown, ModalStack } from "../src/ui/modal"
+import { expect, test } from "bun:test"
 
 test("modal backdrop closes only when the pointer starts outside the dialog", () => {
   const backdrop = {}

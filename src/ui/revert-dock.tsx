@@ -1,10 +1,11 @@
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
-import { useEngine } from "../engine"
-import type { MessageEntry } from "../engine/store"
-import { t } from "../state/i18n"
-import { selectedSession } from "../state/selection"
-import { Chevron } from "./controls"
 import { restoreReverted, revertDockEntries, revertPreview } from "./revert"
+import { selectedSession } from "../state/selection"
+import { useEngine } from "../engine"
+import { Chevron } from "./controls"
+import { t } from "../state/i18n"
+
+import type { MessageEntry } from "../engine/store"
 
 export function RevertDock() {
   const engine = useEngine()
@@ -15,7 +16,12 @@ export function RevertDock() {
     if (!id) return []
     return revertDockEntries(engine.state.transcripts[id] ?? [], engine.state.sessions[id]?.revert?.messageID)
   })
-  createEffect(on(() => `${selectedSession()}|${items().length}|${items()[0]?.info.id ?? ""}`, () => setOpen(false)))
+  createEffect(
+    on(
+      () => `${selectedSession()}|${items().length}|${items()[0]?.info.id ?? ""}`,
+      () => setOpen(false),
+    ),
+  )
 
   async function restore(entry: MessageEntry) {
     const id = selectedSession()

@@ -108,12 +108,14 @@ export const dict = {
   "provider.connect.status.inProgress": "Authorization in progress...",
   "provider.connect.status.waiting": "Waiting for authorization...",
   "session.question.progress": "{{current}} of {{total}} questions",
-  "session.question.deliveryUnconfirmed": "Delivery is unconfirmed. Answers are locked; retry will send your original submitted answer.",
+  "session.question.deliveryUnconfirmed":
+    "Delivery is unconfirmed. Answers are locked; retry will send your original submitted answer.",
   "session.question.retryOriginal": "Retry original answer",
   "session.todo.progress": "{{done}} of {{total}} todos completed",
   "session.todo.title": "Todos",
   "settings.agents.title": "Agents",
-  "settings.general.notifications.agent.description": "Show system notification when the agent is complete or needs attention",
+  "settings.general.notifications.agent.description":
+    "Show system notification when the agent is complete or needs attention",
   "settings.general.notifications.agent.title": "Agent",
   "settings.general.notifications.errors.description": "Show system notification when an error occurs",
   "settings.general.notifications.errors.title": "Errors",
@@ -204,7 +206,8 @@ export const dict = {
   "sound.option.yup04": "Yup 04",
   "sound.option.yup05": "Yup 05",
   "sound.option.yup06": "Yup 06",
-  "toast.permissions.autoaccept.on.description": "Permission requests are approved automatically, except for secret files and anything outside the workspace",
+  "toast.permissions.autoaccept.on.description":
+    "Permission requests are approved automatically, except for secret files and anything outside the workspace",
   "drift.settings.code": "Code",
   "drift.code.syntax": "Syntax",
   "drift.code.layout": "Code layout",
@@ -239,12 +242,14 @@ export const dict = {
   "drift.mcp.edit": "Edit server",
   "drift.mcp.remove": "Remove",
   "drift.mcp.confirmRemove": "Remove?",
-  "drift.mcp.engineDescription": "Servers the engine offers in every workspace. A server connects as soon as it is saved and enabled.",
+  "drift.mcp.engineDescription":
+    "Servers the engine offers in every workspace. A server connects as soon as it is saved and enabled.",
   "drift.mcp.status.disconnected": "disconnected",
   "drift.mcp.removed": "{{name}} removed.",
   "drift.mcp.name": "Server name",
   "drift.mcp.nameRequired": "Enter a server name.",
-  "drift.mcp.form.nameInvalid": "Use 1-128 letters, numbers, underscores or hyphens: the name starts each of its tools' names.",
+  "drift.mcp.form.nameInvalid":
+    "Use 1-128 letters, numbers, underscores or hyphens: the name starts each of its tools' names.",
   "drift.mcp.form.type": "Transport",
   "drift.mcp.form.local": "Local stdio",
   "drift.mcp.form.remote": "Remote HTTP",
@@ -266,7 +271,8 @@ export const dict = {
   "drift.mcp.form.urlInvalid": "Use an HTTP or HTTPS URL.",
   "drift.mcp.form.pairInvalid": "Names must be non-empty and unique.",
   "drift.mcp.registrySearch": "Search MCP servers by name, publisher or what they do",
-  "drift.mcp.registrySource": "Popular servers from the GitHub MCP Registry. Searches also cover the official MCP Registry.",
+  "drift.mcp.registrySource":
+    "Popular servers from the GitHub MCP Registry. Searches also cover the official MCP Registry.",
   "drift.mcp.registryLoadFailed": "Could not load the MCP Registry.",
   "drift.mcp.registry.filter": "Show",
   "drift.mcp.registry.filter.all": "All",
@@ -283,13 +289,16 @@ export const dict = {
   "drift.mcp.registry.required": "required",
   "drift.mcp.registry.optional": "optional",
   "drift.mcp.registry.secret": "Secret",
-  "drift.mcp.registry.secretNote": "Secrets are kept by the engine and never shown again; edit the server to replace one.",
+  "drift.mcp.registry.secretNote":
+    "Secrets are kept by the engine and never shown again; edit the server to replace one.",
   "drift.mcp.registry.installing": "Installing...",
   "drift.mcp.registry.stars": "{{count}} stars on GitHub",
   "drift.mcp.registry.needsKey": "Needs a key",
-  "drift.mcp.registry.note.remote": "Runs on the publisher's servers. If it asks you to sign in, your browser opens when it connects.",
+  "drift.mcp.registry.note.remote":
+    "Runs on the publisher's servers. If it asks you to sign in, your browser opens when it connects.",
   "drift.mcp.registry.note.docker": "Runs in a Docker container on this machine. Docker must be installed and running.",
-  "drift.mcp.registry.note.latest": "Runs on this machine with {{runtime}}, which fetches the newest release each time it starts.",
+  "drift.mcp.registry.note.latest":
+    "Runs on this machine with {{runtime}}, which fetches the newest release each time it starts.",
   "drift.mcp.registry.note.local": "Runs on this machine with {{runtime}}, pinned to this version.",
   "drift.mcp.install": "Install",
   "drift.mcp.installedLabel": "Installed",
@@ -298,7 +307,7 @@ export const dict = {
 
 export const drift = {
   "drift.slash.argumentDetails": "Details for {{name}}",
-  "drift.markdown.ambiguousCitation": "Ambiguous file link \"{{href}}\". Use a longer path to choose between: {{files}}",
+  "drift.markdown.ambiguousCitation": 'Ambiguous file link "{{href}}". Use a longer path to choose between: {{files}}',
   "drift.preview.settings.title": "File previews",
   "drift.preview.settings.mode": "Preview mode",
   "drift.preview.settings.description": "Choose which file types open in a preview.",
@@ -331,23 +340,28 @@ export const drift = {
   "drift.preview.tableTruncated": "Showing the first {{rows}} rows",
   "drift.preview.mediaError": "This media file could not be played.",
   "drift.preview.pdfPassword": "Password-protected PDFs cannot be previewed.",
-  "drift.remote.enableDescription": "Use Drift from your phone, tablet, or another computer on this network. Anyone you link can control Drift and read this computer's workspaces.",
+  "drift.remote.enableDescription":
+    "Use Drift from your phone, tablet, or another computer on this network. Anyone you link can control Drift and read this computer's workspaces.",
   "drift.remote.connect.title": "Connect a device",
   "drift.remote.connect.open": "Scan the code with the device's camera, or open this address on it:",
-  "drift.remote.connect.warning": "The browser warns once that the connection is not private. That is expected for a certificate this computer made. Choose Advanced, then continue.",
+  "drift.remote.connect.warning":
+    "The browser warns once that the connection is not private. That is expected for a certificate this computer made. Choose Advanced, then continue.",
   "drift.remote.connect.code": "Enter the code the device shows:",
   "drift.remote.link.waiting": "{{name}} ({{address}}) is waiting for its code",
   "drift.remote.devices.title": "Devices",
   "drift.remote.devices.lastSeen": "active {{time}}",
   "drift.remote.certificate.title": "Stop the certificate warning",
-  "drift.remote.certificate.description": "Open the sign-in page on the device and download its certificate, then install it as a trusted certificate. Check that its fingerprint matches this one first. It can only vouch for private network addresses.",
+  "drift.remote.certificate.description":
+    "Open the sign-in page on the device and download its certificate, then install it as a trusted certificate. Check that its fingerprint matches this one first. It can only vouch for private network addresses.",
   "drift.remote.title": "Remote Access",
   "drift.remote.statusStarting": "Starting",
   "drift.remote.statusError": "Error",
   "drift.remote.clipboardError": "Could not copy",
-  "drift.settings.shellTimeout.scope": "Shell timeouts terminate process trees. They do not affect models, MCP servers, or network calls.",
+  "drift.settings.shellTimeout.scope":
+    "Shell timeouts terminate process trees. They do not affect models, MCP servers, or network calls.",
   "drift.remote.connected": "Connected to Drift",
-  "drift.remote.manageOnDesktop": "Linked devices, passwords, and Remote Access itself are managed in Drift on the host computer.",
+  "drift.remote.manageOnDesktop":
+    "Linked devices, passwords, and Remote Access itself are managed in Drift on the host computer.",
   "drift.remote.enable": "Enable Remote Access",
   "drift.remote.noLanAddress": "No reachable LAN address found",
   "drift.remote.copied": "Copied",
@@ -360,7 +374,8 @@ export const drift = {
   "drift.remote.devices.revoke": "Sign out",
   "drift.remote.devices.revokeAll": "Sign out all devices",
   "drift.remote.password.title": "Password sign-in",
-  "drift.remote.password.description": "Optional. Lets a device sign in with a username and password instead of a code.",
+  "drift.remote.password.description":
+    "Optional. Lets a device sign in with a username and password instead of a code.",
   "drift.remote.password.on": "On for {{username}}",
   "drift.remote.password.off": "Off",
   "drift.remote.password.setUp": "Set up",
@@ -395,7 +410,8 @@ export const drift = {
   "drift.settings.prompts.agentsDescription": "Each agent's prompt, model and limits.",
   "drift.settings.prompts.agentPrompt": "Agent prompt",
   "drift.message.forkHere": "Fork from here",
-  "drift.settings.prompts.behaviorRefused": "The engine does not apply \"{{field}}\" as written. Use model, positive steps, tool names, permission rules or a text variant. Sampling and provider-specific options are unsupported.",
+  "drift.settings.prompts.behaviorRefused":
+    'The engine does not apply "{{field}}" as written. Use model, positive steps, tool names, permission rules or a text variant. Sampling and provider-specific options are unsupported.',
   "drift.settings.agents.automaticSmallModel": "Automatic small model",
   "drift.settings.agents.currentModel": "Current model",
   "drift.settings.agents.currentSessionModel": "Current session model",
@@ -405,7 +421,8 @@ export const drift = {
   "drift.settings.prompts.systemPrompt": "System prompt",
   "drift.slash.fork": "Fork stable active context",
   "drift.slash.fork.active": "Active context",
-  "drift.slash.fork.active.description": "Fork the current compacted context, excluding the in-flight turn and subagent links.",
+  "drift.slash.fork.active.description":
+    "Fork the current compacted context, excluding the in-flight turn and subagent links.",
   "drift.slash.fork.all": "All history",
   "drift.slash.fork.all.description": "Fork all completed conversation history. This can take longer.",
   "drift.slash.fork.invalid": "Use /fork active or /fork all.",
@@ -413,7 +430,8 @@ export const drift = {
   "drift.slash.spawn.required": "Say what the new thread should do after /spawn.",
   "drift.settings.toolExecution": "Tool execution",
   "drift.settings.shellTimeout.title": "Shell timeout",
-  "drift.settings.shellTimeout.description": "Stop shell commands and their child processes after this duration. Changes apply to new calls.",
+  "drift.settings.shellTimeout.description":
+    "Stop shell commands and their child processes after this duration. Changes apply to new calls.",
   "drift.settings.shellTimeout.noTimeout": "No timeout",
   "drift.settings.shellTimeout.preset1": "1 minute",
   "drift.settings.shellTimeout.preset5": "5 minutes",
@@ -438,7 +456,8 @@ export const drift = {
   "drift.about.row.app.title": "Drift version",
   "drift.about.row.app.description": "The version of this app build.",
   "drift.about.row.native.title": "Drift engine",
-  "drift.about.row.native.description": "The version of Drift's built-in engine, and whether the app is connected to it.",
+  "drift.about.row.native.description":
+    "The version of Drift's built-in engine, and whether the app is connected to it.",
   "drift.about.native.connected": "connected",
   "drift.about.native.offline": "offline",
   "drift.about.row.updates.title": "Automatic updates",
@@ -546,13 +565,15 @@ export const drift = {
   "drift.lightbox.actualSize": "Actual size",
   "drift.lightbox.image": "image",
   "drift.lightbox.resetZoom": "Reset zoom",
-  "drift.lightbox.controls": "Scroll to zoom. Drag to pan. Double-click to zoom. Use +/-, arrows, 0 to fit, or 1 for actual size.",
+  "drift.lightbox.controls":
+    "Scroll to zoom. Drag to pan. Double-click to zoom. Use +/-, arrows, 0 to fit, or 1 for actual size.",
   "drift.markdown.codeCopied": "Code copied",
   "drift.markdown.copied": "Copied",
   "drift.markdown.copyCode": "Copy code",
   "drift.permission.always": "Always allow in this workspace",
   "drift.mcp.enable": "Enable {{name}}",
-  "drift.prompt.tooLarge": "Prompt failed: its attachments come to {{size}}, more than the {{limit}} one prompt can carry. Send fewer or smaller files.",
+  "drift.prompt.tooLarge":
+    "Prompt failed: its attachments come to {{size}}, more than the {{limit}} one prompt can carry. Send fewer or smaller files.",
   "drift.mcp.status.offHere": "off in this workspace",
   "drift.mcp.scope.chosen": "on for this workspace only",
   "drift.mcp.scope.elsewhere": "on in other workspaces",
@@ -565,7 +586,8 @@ export const drift = {
   "drift.plugins.tab.installed": "Installed",
   "drift.plugins.tab.registry": "Registry",
   "drift.plugins.registrySearch": "Search plugins",
-  "drift.plugins.registrySource": "From the Drift-Plugins registry on GitHub. Each is a sandboxed WebAssembly component; its download is checked against the registry's hash.",
+  "drift.plugins.registrySource":
+    "From the Drift-Plugins registry on GitHub. Each is a sandboxed WebAssembly component; its download is checked against the registry's hash.",
   "drift.plugins.registryLoadFailed": "The registry could not be loaded.",
   "drift.plugins.registryEmpty": "No plugins match.",
   "drift.plugins.category": "Category",
@@ -583,7 +605,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "Remove?",
   "drift.plugins.removed": "{{name}} was removed.",
   "drift.plugins.source": "Source",
-  "drift.plugins.configNote": "Settings are written to the plugin's entry in your drift.json. Edit them later from the Installed tab.",
+  "drift.plugins.configNote":
+    "Settings are written to the plugin's entry in your drift.json. Edit them later from the Installed tab.",
   "drift.plugins.fieldType.string": "text",
   "drift.plugins.fieldType.list": "comma-separated",
   "drift.plugins.fieldType.number": "number",
@@ -600,10 +623,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "GitHub repository",
   "drift.registry.sources.kind.azure_devops": "Azure DevOps repository",
   "drift.registry.sources.kind.folder": "Folder or share",
-  "drift.registry.sources.kindHint.url": "A JSON document at a URL; downloads are wherever the document points. A token is sent only to that host.",
-  "drift.registry.sources.kindHint.github": "A file in a repository, private with a token (a fine-grained token with Contents read is enough). Downloads inside the repository use the token too.",
-  "drift.registry.sources.kindHint.azure_devops": "A file in an Azure DevOps Git repository, with a personal access token that has Code (Read). Paste the repository's web URL.",
-  "drift.registry.sources.kindHint.folder": "A folder on this machine or a network share holding the document, with the files it names beside it. No server needed.",
+  "drift.registry.sources.kindHint.url":
+    "A JSON document at a URL; downloads are wherever the document points. A token is sent only to that host.",
+  "drift.registry.sources.kindHint.github":
+    "A file in a repository, private with a token (a fine-grained token with Contents read is enough). Downloads inside the repository use the token too.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "A file in an Azure DevOps Git repository, with a personal access token that has Code (Read). Paste the repository's web URL.",
+  "drift.registry.sources.kindHint.folder":
+    "A folder on this machine or a network share holding the document, with the files it names beside it. No server needed.",
   "drift.registry.sources.location.url": "URL",
   "drift.registry.sources.location.github": "Repository URL",
   "drift.registry.sources.location.azure_devops": "Repository URL",
@@ -619,16 +646,22 @@ export const drift = {
   "drift.registry.sources.token.url": "Bearer token",
   "drift.registry.sources.token.github": "Access token",
   "drift.registry.sources.token.azure_devops": "Personal access token",
-  "drift.registry.sources.tokenHint": "Kept in Drift's credential store, never in a file; leave empty for a public source.",
-  "drift.registry.sources.tokenKept": "A token is stored. Type a new one to replace it, or clear the field to remove it.",
+  "drift.registry.sources.tokenHint":
+    "Kept in Drift's credential store, never in a file; leave empty for a public source.",
+  "drift.registry.sources.tokenKept":
+    "A token is stored. Type a new one to replace it, or clear the field to remove it.",
   "drift.registry.sources.hasToken": "Has a token",
   "drift.registry.sources.allowHttp": "Allow plain http",
-  "drift.registry.sources.allowHttpHint": "Anyone on the network path can read or change what is fetched. Only for an internal source with no https.",
+  "drift.registry.sources.allowHttpHint":
+    "Anyone on the network path can read or change what is fetched. Only for an internal source with no https.",
   "drift.registry.sources.caPem": "Extra root certificate",
-  "drift.registry.sources.caPemHint": "PEM of an internal CA to trust for this source, for a server whose certificate your machine does not already trust.",
+  "drift.registry.sources.caPemHint":
+    "PEM of an internal CA to trust for this source, for a server whose certificate your machine does not already trust.",
   "drift.registry.sources.yours": "From your sources",
-  "drift.registry.sources.pluginsDescription": "Registries besides Drift's own. A team can publish its plugins at one https URL and everyone installs them from here.",
-  "drift.registry.sources.mcpDescription": "Registries besides GitHub's and the official one. A team can publish the MCP servers it standardises on at one https URL and everyone installs them from here.",
+  "drift.registry.sources.pluginsDescription":
+    "Registries besides Drift's own. A team can publish its plugins at one https URL and everyone installs them from here.",
+  "drift.registry.sources.mcpDescription":
+    "Registries besides GitHub's and the official one. A team can publish the MCP servers it standardises on at one https URL and everyone installs them from here.",
   "drift.registry.sources.empty": "No sources added.",
   "drift.registry.sources.add": "Add a source",
   "drift.registry.sources.addButton": "Add",
@@ -637,17 +670,22 @@ export const drift = {
   "drift.registry.sources.remove": "Remove source",
   "drift.registry.sources.loadFailed": "Your sources could not be read.",
   "drift.registry.sources.failed": "{{name}} could not be loaded: {{error}}",
-  "drift.registry.sources.pluginsFormat": "A JSON document in the Drift-Plugins registry.json format: each plugin with its download URL and SHA-256.",
-  "drift.registry.sources.mcpFormat": "A JSON document in the MCP registry format: a servers list, as the official registry's API returns it.",
-  "drift.plugins.registrySourceWithOwn": "From your sources and the Drift-Plugins registry on GitHub. Each is a sandboxed WebAssembly component; its download is checked against its registry's hash.",
+  "drift.registry.sources.pluginsFormat":
+    "A JSON document in the Drift-Plugins registry.json format: each plugin with its download URL and SHA-256.",
+  "drift.registry.sources.mcpFormat":
+    "A JSON document in the MCP registry format: a servers list, as the official registry's API returns it.",
+  "drift.plugins.registrySourceWithOwn":
+    "From your sources and the Drift-Plugins registry on GitHub. Each is a sandboxed WebAssembly component; its download is checked against its registry's hash.",
   "drift.plugins.configRaw": "This plugin's settings as JSON; no registry describes its fields.",
   "drift.plugins.saving": "Saving...",
   "drift.plugins.saved": "{{name}}'s settings were saved.",
-  "drift.plugins.packNote": "Markdown skills, unpacked into {{folder}}. Drift offers them to the model as it does your own skills; a pack runs no code, but its text reaches the model, so install packs you trust.",
+  "drift.plugins.packNote":
+    "Markdown skills, unpacked into {{folder}}. Drift offers them to the model as it does your own skills; a pack runs no code, but its text reaches the model, so install packs you trust.",
   "drift.settings.skills": "Skills",
   "drift.skills.mixed": "Some on, some off",
   "drift.skills.packs": "Skill packs",
-  "drift.skills.empty": "No skills yet. Put a folder with a SKILL.md under {{folder}}, or install one from the registry.",
+  "drift.skills.empty":
+    "No skills yet. Put a folder with a SKILL.md under {{folder}}, or install one from the registry.",
   "drift.skills.packCount": "{{on}} of {{count}} on",
   "drift.skills.count": "{{count}} skills",
   "drift.skills.single": "one skill",
@@ -657,15 +695,18 @@ export const drift = {
   "drift.skills.reinstall": "Reinstall",
   "drift.skills.installed": "{{name}} is installed with {{count}} skills; they are offered from the next turn.",
   "drift.skills.registrySearch": "Search skills",
-  "drift.skills.registrySource": "From the Drift-Plugins registry on GitHub. A skill is Markdown the model reads; nothing runs.",
-  "drift.skills.registrySourceWithOwn": "From your sources and the Drift-Plugins registry on GitHub. A skill is Markdown the model reads; nothing runs.",
+  "drift.skills.registrySource":
+    "From the Drift-Plugins registry on GitHub. A skill is Markdown the model reads; nothing runs.",
+  "drift.skills.registrySourceWithOwn":
+    "From your sources and the Drift-Plugins registry on GitHub. A skill is Markdown the model reads; nothing runs.",
   "drift.plugins.reload": "Reload",
   "drift.plugins.loading": "Loading plugins...",
-  "drift.plugins.empty": "No plugins. List WebAssembly components under \"plugins\" in {{path}}, then reload.",
+  "drift.plugins.empty": 'No plugins. List WebAssembly components under "plugins" in {{path}}, then reload.',
   "drift.plugins.file": "Listed in {{path}}",
   "drift.settings.permissions": "Permissions",
   "drift.permissions.rules": "Rules for every workspace",
-  "drift.permissions.rulesDescription": "Apply in every workspace, after the rules in a workspace's drift.json. The first rule that matches decides.",
+  "drift.permissions.rulesDescription":
+    "Apply in every workspace, after the rules in a workspace's drift.json. The first rule that matches decides.",
   "drift.permissions.empty": "No rules yet. Drift's defaults apply.",
   "drift.permissions.add": "Add rule",
   "drift.permissions.kind": "Kind",
@@ -696,7 +737,8 @@ export const drift = {
   "drift.permissions.grant.folder": "{{folder}} and everything in it",
   "drift.permission.alwaysCovers": "Always allows: {{what}}",
   "drift.permission.reason.outside": "It asks because it reaches outside the workspace.",
-  "drift.permission.reason.unresolved": "It asks because it uses a variable or ~ that Drift cannot read before it runs.",
+  "drift.permission.reason.unresolved":
+    "It asks because it uses a variable or ~ that Drift cannot read before it runs.",
   "drift.permission.reason.secret": "It asks because it names a file that may hold secrets.",
   "drift.permission.reason.searches": "It asks because a recursive search would read secret files too.",
   "drift.permission.reason.beyondUndo": "It asks because undo cannot put this back.",
@@ -719,7 +761,8 @@ export const drift = {
   "drift.settings.prompts.family.claude": "Claude",
   "drift.settings.prompts.family.gemini": "Gemini",
   "drift.settings.prompts.family.default": "Other models",
-  "drift.settings.prompts.allDescription": "Replaces the base prompt for every model whose family has no replacement of its own.",
+  "drift.settings.prompts.allDescription":
+    "Replaces the base prompt for every model whose family has no replacement of its own.",
   "drift.settings.prompts.allPlaceholder": "Empty: each model family uses its own prompt.",
   "drift.import.progress": "Importing from opencode",
   "drift.import.description": "Bringing your opencode conversations in. Keep working; each appears as it lands.",
@@ -769,7 +812,8 @@ export const drift = {
   "drift.message.tokensPerSecond": "{{rate}} tok/s",
   "drift.lmStudio.apiToken": "API token (only when server authentication is enabled)",
   "drift.lmStudio.contextTooSmall": "Reload at 32K+",
-  "drift.lmStudio.description": "Discovers models and loaded context directly from the local LM Studio server. No API key is needed by default.",
+  "drift.lmStudio.description":
+    "Discovers models and loaded context directly from the local LM Studio server. No API key is needed by default.",
   "drift.lmStudio.discovered": "{{count}} local models discovered",
   "drift.lmStudio.modelReady": "Ready",
   "drift.lmStudio.noReady": "Load a tool-capable model with at least 32K context in LM Studio, then refresh.",
@@ -792,7 +836,8 @@ export const drift = {
   "drift.mcp.form.timeoutNone": "No limit",
   "drift.mcp.form.timeoutInvalid": "The timeout must be a whole number of seconds above zero.",
   "drift.mcp.form.app": "Sign-in app (optional)",
-  "drift.mcp.form.appHint": "Only for servers that do not let Drift register itself. Use the app you registered with the server's sign-in provider, with http://127.0.0.1 as its redirect. Leave empty and Drift registers itself.",
+  "drift.mcp.form.appHint":
+    "Only for servers that do not let Drift register itself. Use the app you registered with the server's sign-in provider, with http://127.0.0.1 as its redirect. Leave empty and Drift registers itself.",
   "drift.mcp.form.clientId": "Client ID",
   "drift.mcp.form.clientSecret": "Client secret",
   "drift.mcp.form.clientSecretNone": "Only for a confidential app",
@@ -812,7 +857,8 @@ export const drift = {
   "drift.provider.browser": "browser",
   "drift.provider.connectFailed": "Could not connect {{provider}}. Check the credential and try again.",
   "drift.provider.connected": "{{provider}} connected. Credential saved.",
-  "drift.provider.credentialRemovedStillConnected": "{{provider}}'s saved credential was removed, but it remains connected through environment or config.",
+  "drift.provider.credentialRemovedStillConnected":
+    "{{provider}}'s saved credential was removed, but it remains connected through environment or config.",
   "drift.provider.disconnectFailed": "Could not disconnect {{provider}}. Try again.",
   "drift.provider.disconnected": "{{provider}} disconnected. Stored credential removed.",
   "drift.provider.disconnecting": "Disconnecting...",
@@ -870,13 +916,15 @@ export const drift = {
   "drift.storage.actions": "Manage",
   "drift.storage.compact": "Compact database",
   "drift.storage.compact.action": "Compact",
-  "drift.storage.compact.description": "Returns free space to the disk. Needs the database idle, so close your threads first.",
+  "drift.storage.compact.description":
+    "Returns free space to the disk. Needs the database idle, so close your threads first.",
   "drift.storage.compacting": "Compacting...",
   "drift.storage.estimated": "Sizes are estimated from a sample so this screen opens instantly.",
   "drift.storage.free": "Reusable space",
   "drift.storage.prune": "Clean up now",
   "drift.storage.prune.action": "Clean up",
-  "drift.storage.prune.description": "Removes undo history, images and shell output nothing needs any more. Drift also does this every few hours.",
+  "drift.storage.prune.description":
+    "Removes undo history, images and shell output nothing needs any more. Drift also does this every few hours.",
   "drift.storage.pruning": "Cleaning up...",
   "drift.storage.refresh": "Refresh",
   "drift.storage.sessions": "Threads",
@@ -896,7 +944,8 @@ export const drift = {
   "drift.storage.table.output": "Shell output",
   "drift.storage.table.output.hint": "kept a week",
   "drift.settings.autoCompact.title": "Compact automatically",
-  "drift.settings.autoCompact.description": "Summarise older messages when a conversation nears its model's context window. /compact always works.",
+  "drift.settings.autoCompact.description":
+    "Summarise older messages when a conversation nears its model's context window. /compact always works.",
   "drift.settings.summaries.collapsed.description": "Start compaction summaries folded.",
   "drift.settings.summaries.collapsed.title": "Collapse summaries by default",
   "drift.settings.summaries.collapsible.description": "Fold engine compaction summaries behind an expandable divider.",
@@ -904,11 +953,13 @@ export const drift = {
   "drift.settings.toolErrors.description": "Choose the initial state. Error rows remain clickable either way.",
   "drift.settings.toolErrors.title": "Expand tool errors by default",
   "drift.settings.dayDividers.title": "Day dividers in the sidebar",
-  "drift.settings.dayDividers.description": "Separate each workspace's threads by the day they were last active: Today, Yesterday, then earlier days.",
+  "drift.settings.dayDividers.description":
+    "Separate each workspace's threads by the day they were last active: Today, Yesterday, then earlier days.",
   "drift.sidebar.today": "Today",
   "drift.sidebar.yesterday": "Yesterday",
   "drift.settings.responseAnimation.title": "Smooth response reveals",
-  "drift.settings.responseAnimation.description": "Smoothly reveal large bursts of live assistant text. Historical responses remain instant.",
+  "drift.settings.responseAnimation.description":
+    "Smoothly reveal large bursts of live assistant text. Historical responses remain instant.",
   "drift.settings.responseAnimation.speed.title": "Reveal speed",
   "drift.settings.responseAnimation.speed.description": "Choose how quickly live assistant text is typed into view.",
   "drift.settings.responseAnimation.speed.value": "{{speed}} characters/sec",
@@ -992,25 +1043,30 @@ export const drift = {
   "drift.titlebar.minimize": "Minimize",
   "drift.titlebar.restore": "Restore",
   "drift.voice": "Voice",
-  "drift.voice.acceleration.cpu": "No compatible GPU was found, so transcription runs on the processor. Choose a smaller model to keep it responsive.",
+  "drift.voice.acceleration.cpu":
+    "No compatible GPU was found, so transcription runs on the processor. Choose a smaller model to keep it responsive.",
   "drift.voice.acceleration.gpu": "Your GPU is being used, which makes the larger models roughly ten times faster.",
   "drift.voice.acceleration.off": "Processor",
   "drift.voice.acceleration.on": "GPU",
   "drift.voice.acceleration.title": "Hardware acceleration",
   "drift.voice.dictation": "Dictation",
-  "drift.voice.dictation.enabled.description": "Adds a microphone button to the composer so you can speak your message. Off until you turn it on.",
+  "drift.voice.dictation.enabled.description":
+    "Adds a microphone button to the composer so you can speak your message. Off until you turn it on.",
   "drift.voice.dictation.enabled.title": "Dictate in the composer",
-  "drift.voice.dictation.keyterms.description": "Comma separated terms to recognize more reliably, such as repo, library, and product names.",
+  "drift.voice.dictation.keyterms.description":
+    "Comma separated terms to recognize more reliably, such as repo, library, and product names.",
   "drift.voice.dictation.keyterms.placeholder": "Drift, Tauri, SolidJS",
   "drift.voice.dictation.keyterms.title": "Custom vocabulary",
   "drift.voice.dictation.language.auto": "Detect automatically",
   "drift.voice.dictation.language.description": "Pick the language you speak, or let the model detect it.",
   "drift.voice.dictation.language.title": "Spoken language",
-  "drift.voice.dictation.privacy": "Speech is transcribed on this machine. No audio leaves your computer and nothing is stored.",
+  "drift.voice.dictation.privacy":
+    "Speech is transcribed on this machine. No audio leaves your computer and nothing is stored.",
   "drift.voice.error.download": "The model download failed.",
   "drift.voice.error.microphone": "Could not start the microphone.",
   "drift.voice.error.noMicrophone": "No microphone was found.",
-  "drift.voice.error.permission": "Drift needs microphone access. Allow it in Windows privacy settings, then try again.",
+  "drift.voice.error.permission":
+    "Drift needs microphone access. Allow it in Windows privacy settings, then try again.",
   "drift.voice.error.unsupported": "This build does not include the speech recognizer.",
   "drift.voice.input.description": "Choose the microphone used for new dictation recordings.",
   "drift.voice.input.missing": "The saved microphone is unavailable. Using System default until it reconnects.",
@@ -1020,12 +1076,14 @@ export const drift = {
   "drift.voice.listening": "Listening",
   "drift.voice.model.balanced": "Balanced",
   "drift.voice.model.best": "Best quality",
-  "drift.voice.model.description": "Larger models are more accurate on names and technical terms, smaller ones transcribe faster.",
+  "drift.voice.model.description":
+    "Larger models are more accurate on names and technical terms, smaller ones transcribe faster.",
   "drift.voice.model.download": "Download",
   "drift.voice.model.downloading": "Downloading speech model",
   "drift.voice.model.fastest": "Fastest",
   "drift.voice.model.remove": "Remove",
-  "drift.voice.model.storage.missing": "Not downloaded yet. Needs {{size}} of disk space, and is only fetched when you ask.",
+  "drift.voice.model.storage.missing":
+    "Not downloaded yet. Needs {{size}} of disk space, and is only fetched when you ask.",
   "drift.voice.model.storage.ready": "Downloaded and ready to use offline.",
   "drift.voice.model.storage.title": "Speech model files",
   "drift.voice.model.title": "Speech model",
@@ -1040,5 +1098,5 @@ export const drift = {
   "drift.workspace.remove": "Remove",
   "drift.workspace.removeHint": "Threads are kept for 7 days; re-add the same folder to restore them.",
   "drift.workspace.showThreads": "Show threads",
-  "drift.workspace.useInitials": "Use initials"
+  "drift.workspace.useInitials": "Use initials",
 }

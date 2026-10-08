@@ -1,9 +1,9 @@
+import { dismissImportSummary, importSummary, type ImportSummary } from "../state/opencode-import"
+import { activateModal, closeOnBackdropPointerDown } from "./modal"
 import { For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Portal } from "solid-js/web"
 import { t } from "../state/i18n"
-import { dismissImportSummary, importSummary, type ImportSummary } from "../state/opencode-import"
 import { IconX } from "./icons"
-import { activateModal, closeOnBackdropPointerDown } from "./modal"
 
 /** What the one-time import from opencode brought in and left behind; shown once, then gone. */
 export function ImportSummaryHost() {
@@ -35,7 +35,11 @@ function ImportSummaryDialog(props: { summary: ImportSummary }) {
         >
           <div class="flex items-center justify-between border-b border-edge px-4 py-3">
             <div class="text-sm font-semibold text-ink">{t("drift.import.done.title")}</div>
-            <button title={t("common.close")} class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink" onClick={dismissImportSummary}>
+            <button
+              title={t("common.close")}
+              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+              onClick={dismissImportSummary}
+            >
               <IconX />
             </button>
           </div>
@@ -45,7 +49,9 @@ function ImportSummaryDialog(props: { summary: ImportSummary }) {
                 <li>{t("drift.import.done.conversations", { count: s().conversations.toLocaleString() })}</li>
               </Show>
               <Show when={s().undoable > 0}>
-                <li class="text-ink-muted">{t("drift.import.done.undoable", { count: s().undoable.toLocaleString() })}</li>
+                <li class="text-ink-muted">
+                  {t("drift.import.done.undoable", { count: s().undoable.toLocaleString() })}
+                </li>
               </Show>
               <Show when={s().signIns.length > 0}>
                 <li>{t("drift.import.done.signIns", { names: s().signIns.join(", ") })}</li>
@@ -57,16 +63,30 @@ function ImportSummaryDialog(props: { summary: ImportSummary }) {
                 <li>{t("drift.import.done.files", { count: s().files })}</li>
               </Show>
             </ul>
-            <Group title={t("drift.import.done.waiting")} items={waiting().map(([directory, count]) => `${directory} (${count})`)} />
+            <Group
+              title={t("drift.import.done.waiting")}
+              items={waiting().map(([directory, count]) => `${directory} (${count})`)}
+            />
             <Group title={t("drift.import.done.pending")} items={s().pending} />
             <Group title={t("drift.import.done.leftOut.signIns")} items={left().signIns} />
             <Group title={t("drift.import.done.leftOut.plugins")} items={left().plugins} />
             <Group title={t("drift.import.done.leftOut.settings")} items={left().settings} />
             <Group title={t("drift.import.done.leftOut.servers")} items={left().servers} />
-            <Group title={t("drift.import.done.leftOut.failed")} items={[...left().failed, ...(s().failed > 0 ? [t("drift.import.done.conversations", { count: s().failed.toLocaleString() })] : [])]} />
+            <Group
+              title={t("drift.import.done.leftOut.failed")}
+              items={[
+                ...left().failed,
+                ...(s().failed > 0
+                  ? [t("drift.import.done.conversations", { count: s().failed.toLocaleString() })]
+                  : []),
+              ]}
+            />
           </div>
           <div class="flex justify-end border-t border-edge px-4 py-3">
-            <button class="h-8 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105" onClick={dismissImportSummary}>
+            <button
+              class="h-8 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105"
+              onClick={dismissImportSummary}
+            >
               {t("drift.import.done.close")}
             </button>
           </div>
@@ -82,7 +102,13 @@ function Group(props: { title: string; items: string[] }): JSX.Element {
       <div>
         <div class="mb-1 text-xs font-medium text-ink-muted">{props.title}</div>
         <ul class="space-y-0.5 text-xs text-ink-faint">
-          <For each={props.items}>{(item) => <li class="truncate" title={item}>{item}</li>}</For>
+          <For each={props.items}>
+            {(item) => (
+              <li class="truncate" title={item}>
+                {item}
+              </li>
+            )}
+          </For>
         </ul>
       </div>
     </Show>

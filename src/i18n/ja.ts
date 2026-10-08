@@ -58,7 +58,8 @@ export const dict = {
   "dialog.project.edit.color.select": "{{color}}の色を選択",
   "context.usage.cost": "コスト",
   "context.usage.clickToView": "クリックしてコンテキストを表示",
-  "toast.permissions.autoaccept.on.description": "権限リクエストは自動的に承認されます（秘密ファイルとワークスペース外のものを除く）",
+  "toast.permissions.autoaccept.on.description":
+    "権限リクエストは自動的に承認されます（秘密ファイルとワークスペース外のものを除く）",
   "error.page.action.updateTo": "{{version}}にアップデート",
   "notification.permission.title": "権限が必要です",
   "notification.question.title": "質問",
@@ -182,7 +183,8 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "現在のモデル",
   "drift.slash.argumentDetails": "{{name}} の詳細",
-  "drift.markdown.ambiguousCitation": "ファイルリンク \"{{href}}\" を特定できません。次の候補から選べるよう、より詳しいパスを指定してください: {{files}}",
+  "drift.markdown.ambiguousCitation":
+    'ファイルリンク "{{href}}" を特定できません。次の候補から選べるよう、より詳しいパスを指定してください: {{files}}',
   "drift.preview.settings.title": "ファイルプレビュー",
   "drift.preview.settings.mode": "プレビューモード",
   "drift.preview.settings.description": "プレビューで開くファイルの種類を選択します。",
@@ -218,10 +220,12 @@ export const drift = {
   "drift.remote.statusStarting": "起動中",
   "drift.remote.statusError": "エラー",
   "drift.remote.clipboardError": "コピーできませんでした",
-  "drift.settings.shellTimeout.scope": "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
+  "drift.settings.shellTimeout.scope":
+    "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
   "drift.settings.toolExecution": "ツール実行",
   "drift.settings.shellTimeout.title": "シェルのタイムアウト",
-  "drift.settings.shellTimeout.description": "この時間を過ぎるとシェルコマンドと子プロセスを停止します。変更は新しい呼び出しに適用されます。",
+  "drift.settings.shellTimeout.description":
+    "この時間を過ぎるとシェルコマンドと子プロセスを停止します。変更は新しい呼び出しに適用されます。",
   "drift.settings.shellTimeout.noTimeout": "タイムアウトなし",
   "drift.settings.shellTimeout.preset1": "1分",
   "drift.settings.shellTimeout.preset5": "5分",
@@ -241,26 +245,27 @@ export const drift = {
   "drift.settings.about": "Driftについて",
   "drift.settings.toolErrors.title": "ツールエラーをデフォルトで展開",
   "drift.settings.dayDividers.title": "サイドバーの日付区切り",
-  "drift.settings.dayDividers.description": "各ワークスペースのスレッドを最後に活動した日で区切ります: 今日、昨日、それ以前。",
+  "drift.settings.dayDividers.description":
+    "各ワークスペースのスレッドを最後に活動した日で区切ります: 今日、昨日、それ以前。",
   "drift.sidebar.today": "今日",
   "drift.sidebar.yesterday": "昨日",
   "drift.settings.responseAnimation.title": "応答を滑らかに表示",
-  "drift.settings.responseAnimation.description": "進行中のアシスタント応答に追加された大量のテキストを滑らかに表示します。過去の応答は即座に表示されます。",
+  "drift.settings.responseAnimation.description":
+    "進行中のアシスタント応答に追加された大量のテキストを滑らかに表示します。過去の応答は即座に表示されます。",
   "drift.settings.responseAnimation.speed.title": "表示速度",
-  "drift.settings.responseAnimation.speed.description": "アシスタントのライブテキストを画面に表示する速さを選択します。",
+  "drift.settings.responseAnimation.speed.description":
+    "アシスタントのライブテキストを画面に表示する速さを選択します。",
   "drift.settings.responseAnimation.speed.value": "1秒あたり{{speed}}文字",
   "drift.settings.toolErrors.description": "初期状態を選択します。どちらを選んでもエラー行はクリックできます。",
   "drift.settings.summaries": "要約",
   "drift.settings.summaries.collapsible.title": "折りたたみ可能な圧縮要約",
-  "drift.settings.summaries.collapsible.description":
-    "エンジンの圧縮要約を、展開できる区切り線の下にまとめます。",
+  "drift.settings.summaries.collapsible.description": "エンジンの圧縮要約を、展開できる区切り線の下にまとめます。",
   "drift.settings.summaries.collapsed.title": "要約をデフォルトで折りたたむ",
   "drift.settings.summaries.collapsed.description": "圧縮要約を折りたたんだ状態で表示します。",
   "drift.settings.customPalette": "カスタムパレット",
   "drift.settings.typography": "書体",
   "drift.settings.customCss": "カスタムCSS",
-  "drift.settings.customCss.description":
-    "Driftの組み込みスタイルの後にローカルで適用されます。上限は20 KBです。",
+  "drift.settings.customCss.description": "Driftの組み込みスタイルの後にローカルで適用されます。上限は20 KBです。",
   "drift.sidebar.workspaces": "ワークスペース",
   "drift.sidebar.archived": "アーカイブ済み",
   "drift.sidebar.addWorkspace": "ワークスペースを追加",
@@ -291,7 +296,8 @@ export const drift = {
   "drift.about.row.app.description": "このアプリのビルドのバージョンです。",
   "drift.about.row.updates.title": "自動アップデート",
   "drift.about.row.updates.installed": "これはインストール済みのコピーなので、自身を更新できます。",
-  "drift.about.row.updates.local": "これはローカルビルドです。インストール済みのコピーは自身を更新できますが、これはできません。",
+  "drift.about.row.updates.local":
+    "これはローカルビルドです。インストール済みのコピーは自身を更新できますが、これはできません。",
   "drift.about.updates.available": "利用可能",
   "drift.about.updates.unavailable": "ローカルビルド",
   "drift.about.row.website.title": "ウェブサイト",
@@ -359,7 +365,8 @@ export const drift = {
   "drift.lightbox.actualSize": "実際のサイズ",
   "drift.lightbox.image": "画像",
   "drift.lightbox.resetZoom": "ズームをリセット",
-  "drift.lightbox.controls": "スクロールで拡大・縮小、ドラッグで画像を移動、ダブルクリックでズームできます。+/-キーで拡大・縮小、矢印キーで移動、0キーで画面に合わせて表示、1キーで実際のサイズで表示します。",
+  "drift.lightbox.controls":
+    "スクロールで拡大・縮小、ドラッグで画像を移動、ダブルクリックでズームできます。+/-キーで拡大・縮小、矢印キーで移動、0キーで画面に合わせて表示、1キーで実際のサイズで表示します。",
   "drift.markdown.codeCopied": "コードをコピーしました",
   "drift.markdown.copied": "コピーしました",
   "drift.markdown.copyCode": "コードをコピー",
@@ -367,20 +374,23 @@ export const drift = {
   "drift.mcp.confirmRemove": "削除しますか？",
   "drift.permission.always": "このワークスペースで常に許可",
   "drift.mcp.enable": "{{name}}を有効化",
-  "drift.prompt.tooLarge": "送信できませんでした: 添付ファイルの合計が {{size}} で、1 回のプロンプトの上限 {{limit}} を超えています。ファイルを減らすか小さくしてください。",
+  "drift.prompt.tooLarge":
+    "送信できませんでした: 添付ファイルの合計が {{size}} で、1 回のプロンプトの上限 {{limit}} を超えています。ファイルを減らすか小さくしてください。",
   "drift.mcp.status.offHere": "このワークスペースではオフ",
   "drift.mcp.scope.chosen": "このワークスペースだけでオン",
   "drift.mcp.scope.elsewhere": "ほかのワークスペースでオン",
   "drift.mcp.onHere": "このワークスペースでオンにする",
   "drift.mcp.offHere": "このワークスペースでオフにする",
-  "drift.mcp.switchHint": "すべてのワークスペースでオン。プラグボタンはこのワークスペースだけでオンまたはオフにします。",
+  "drift.mcp.switchHint":
+    "すべてのワークスペースでオン。プラグボタンはこのワークスペースだけでオンまたはオフにします。",
   "drift.settings.plugins": "プラグイン",
   "drift.plugins.loaded": "読み込み済み",
   "drift.plugins.off": "オフ",
   "drift.plugins.tab.installed": "インストール済み",
   "drift.plugins.tab.registry": "レジストリ",
   "drift.plugins.registrySearch": "プラグインを検索",
-  "drift.plugins.registrySource": "GitHub の Drift-Plugins レジストリから。各プラグインはサンドボックス化された WebAssembly コンポーネントで、ダウンロードはレジストリのハッシュと照合されます。",
+  "drift.plugins.registrySource":
+    "GitHub の Drift-Plugins レジストリから。各プラグインはサンドボックス化された WebAssembly コンポーネントで、ダウンロードはレジストリのハッシュと照合されます。",
   "drift.plugins.registryLoadFailed": "レジストリを読み込めませんでした。",
   "drift.plugins.registryEmpty": "一致するプラグインはありません。",
   "drift.plugins.category": "カテゴリ",
@@ -398,7 +408,8 @@ export const drift = {
   "drift.plugins.confirmRemove": "削除しますか？",
   "drift.plugins.removed": "{{name}} を削除しました。",
   "drift.plugins.source": "ソース",
-  "drift.plugins.configNote": "設定は drift.json のプラグイン項目に書き込まれます。あとで「インストール済み」タブから編集できます。",
+  "drift.plugins.configNote":
+    "設定は drift.json のプラグイン項目に書き込まれます。あとで「インストール済み」タブから編集できます。",
   "drift.plugins.fieldType.string": "テキスト",
   "drift.plugins.fieldType.list": "カンマ区切り",
   "drift.plugins.fieldType.number": "数値",
@@ -413,10 +424,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "GitHub リポジトリ",
   "drift.registry.sources.kind.azure_devops": "Azure DevOps リポジトリ",
   "drift.registry.sources.kind.folder": "フォルダーまたは共有",
-  "drift.registry.sources.kindHint.url": "URL にある JSON 文書。ダウンロードは文書が指す先から行われます。トークンはそのホストにのみ送られます。",
-  "drift.registry.sources.kindHint.github": "リポジトリ内のファイル。プライベートの場合はトークンが必要です（Contents 読み取り権限のきめ細かいトークンで十分）。リポジトリ内のダウンロードにもトークンが使われます。",
-  "drift.registry.sources.kindHint.azure_devops": "Azure DevOps の Git リポジトリ内のファイル。Code (Read) を持つ個人用アクセストークンを使います。リポジトリの Web URL を貼り付けてください。",
-  "drift.registry.sources.kindHint.folder": "このマシンまたはネットワーク共有上のフォルダー。文書と、文書が指すファイルを並べて置きます。サーバーは不要です。",
+  "drift.registry.sources.kindHint.url":
+    "URL にある JSON 文書。ダウンロードは文書が指す先から行われます。トークンはそのホストにのみ送られます。",
+  "drift.registry.sources.kindHint.github":
+    "リポジトリ内のファイル。プライベートの場合はトークンが必要です（Contents 読み取り権限のきめ細かいトークンで十分）。リポジトリ内のダウンロードにもトークンが使われます。",
+  "drift.registry.sources.kindHint.azure_devops":
+    "Azure DevOps の Git リポジトリ内のファイル。Code (Read) を持つ個人用アクセストークンを使います。リポジトリの Web URL を貼り付けてください。",
+  "drift.registry.sources.kindHint.folder":
+    "このマシンまたはネットワーク共有上のフォルダー。文書と、文書が指すファイルを並べて置きます。サーバーは不要です。",
   "drift.registry.sources.location.github": "リポジトリ URL",
   "drift.registry.sources.location.azure_devops": "リポジトリ URL",
   "drift.registry.sources.location.folder": "フォルダー",
@@ -431,16 +446,22 @@ export const drift = {
   "drift.registry.sources.token.url": "Bearer トークン",
   "drift.registry.sources.token.github": "アクセストークン",
   "drift.registry.sources.token.azure_devops": "個人用アクセストークン",
-  "drift.registry.sources.tokenHint": "Drift の資格情報ストアに保存され、ファイルには書かれません。公開ソースなら空のままで構いません。",
-  "drift.registry.sources.tokenKept": "トークンが保存されています。置き換えるには新しいものを入力し、削除するには欄を空にしてください。",
+  "drift.registry.sources.tokenHint":
+    "Drift の資格情報ストアに保存され、ファイルには書かれません。公開ソースなら空のままで構いません。",
+  "drift.registry.sources.tokenKept":
+    "トークンが保存されています。置き換えるには新しいものを入力し、削除するには欄を空にしてください。",
   "drift.registry.sources.hasToken": "トークンあり",
   "drift.registry.sources.allowHttp": "平文の http を許可",
-  "drift.registry.sources.allowHttpHint": "ネットワーク経路上の誰でも取得内容を読んだり改変したりできます。https のない社内ソースだけに。",
+  "drift.registry.sources.allowHttpHint":
+    "ネットワーク経路上の誰でも取得内容を読んだり改変したりできます。https のない社内ソースだけに。",
   "drift.registry.sources.caPem": "追加のルート証明書",
-  "drift.registry.sources.caPemHint": "このソース用に信頼する社内 CA の PEM。お使いのマシンが証明書を信頼していないサーバー向け。",
+  "drift.registry.sources.caPemHint":
+    "このソース用に信頼する社内 CA の PEM。お使いのマシンが証明書を信頼していないサーバー向け。",
   "drift.registry.sources.yours": "あなたのソースから",
-  "drift.registry.sources.pluginsDescription": "Drift 自身のもの以外のレジストリ。チームがプラグインを 1 つの https URL で公開すれば、全員がここからインストールできます。",
-  "drift.registry.sources.mcpDescription": "GitHub と公式以外のレジストリ。チームが標準とする MCP サーバーを 1 つの https URL で公開すれば、全員がここからインストールできます。",
+  "drift.registry.sources.pluginsDescription":
+    "Drift 自身のもの以外のレジストリ。チームがプラグインを 1 つの https URL で公開すれば、全員がここからインストールできます。",
+  "drift.registry.sources.mcpDescription":
+    "GitHub と公式以外のレジストリ。チームが標準とする MCP サーバーを 1 つの https URL で公開すれば、全員がここからインストールできます。",
   "drift.registry.sources.empty": "ソースは追加されていません。",
   "drift.registry.sources.add": "ソースを追加",
   "drift.registry.sources.addButton": "追加",
@@ -449,17 +470,22 @@ export const drift = {
   "drift.registry.sources.remove": "ソースを削除",
   "drift.registry.sources.loadFailed": "ソースを読み取れませんでした。",
   "drift.registry.sources.failed": "{{name}} を読み込めませんでした: {{error}}",
-  "drift.registry.sources.pluginsFormat": "Drift-Plugins の registry.json 形式の JSON 文書。各プラグインにダウンロード URL と SHA-256 を含みます。",
+  "drift.registry.sources.pluginsFormat":
+    "Drift-Plugins の registry.json 形式の JSON 文書。各プラグインにダウンロード URL と SHA-256 を含みます。",
   "drift.registry.sources.mcpFormat": "MCP レジストリ形式の JSON 文書。公式レジストリ API が返す servers リストです。",
-  "drift.plugins.registrySourceWithOwn": "あなたのソースと GitHub の Drift-Plugins レジストリから。各プラグインはサンドボックス化された WebAssembly コンポーネントで、ダウンロードはそのレジストリのハッシュと照合されます。",
-  "drift.plugins.configRaw": "このプラグインの設定を JSON で表示しています。フィールドを記述するレジストリがありません。",
+  "drift.plugins.registrySourceWithOwn":
+    "あなたのソースと GitHub の Drift-Plugins レジストリから。各プラグインはサンドボックス化された WebAssembly コンポーネントで、ダウンロードはそのレジストリのハッシュと照合されます。",
+  "drift.plugins.configRaw":
+    "このプラグインの設定を JSON で表示しています。フィールドを記述するレジストリがありません。",
   "drift.plugins.saving": "保存中...",
   "drift.plugins.saved": "{{name}} の設定を保存しました。",
-  "drift.plugins.packNote": "Markdown のスキルを {{folder}} に展開します。Drift はあなた自身のスキルと同じようにモデルに提供します。パックはコードを実行しませんが、その文章はモデルに届くため、信頼できるパックだけをインストールしてください。",
+  "drift.plugins.packNote":
+    "Markdown のスキルを {{folder}} に展開します。Drift はあなた自身のスキルと同じようにモデルに提供します。パックはコードを実行しませんが、その文章はモデルに届くため、信頼できるパックだけをインストールしてください。",
   "drift.settings.skills": "スキル",
   "drift.skills.mixed": "一部のみ有効",
   "drift.skills.packs": "スキルパック",
-  "drift.skills.empty": "スキルはまだありません。{{folder}} に SKILL.md を含むフォルダーを置くか、レジストリからインストールしてください。",
+  "drift.skills.empty":
+    "スキルはまだありません。{{folder}} に SKILL.md を含むフォルダーを置くか、レジストリからインストールしてください。",
   "drift.skills.packCount": "{{count}} 個中 {{on}} 個が有効",
   "drift.skills.count": "{{count}} 個のスキル",
   "drift.skills.single": "スキル 1 個",
@@ -467,17 +493,22 @@ export const drift = {
   "drift.skills.all": "すべて選択",
   "drift.skills.none": "選択を解除",
   "drift.skills.reinstall": "再インストール",
-  "drift.skills.installed": "{{name}} を {{count}} 個のスキルとともにインストールしました。次のターンから提供されます。",
+  "drift.skills.installed":
+    "{{name}} を {{count}} 個のスキルとともにインストールしました。次のターンから提供されます。",
   "drift.skills.registrySearch": "スキルを検索",
-  "drift.skills.registrySource": "GitHub の Drift-Plugins レジストリから。スキルはモデルが読む Markdown で、何も実行されません。",
-  "drift.skills.registrySourceWithOwn": "あなたのソースと GitHub の Drift-Plugins レジストリから。スキルはモデルが読む Markdown で、何も実行されません。",
+  "drift.skills.registrySource":
+    "GitHub の Drift-Plugins レジストリから。スキルはモデルが読む Markdown で、何も実行されません。",
+  "drift.skills.registrySourceWithOwn":
+    "あなたのソースと GitHub の Drift-Plugins レジストリから。スキルはモデルが読む Markdown で、何も実行されません。",
   "drift.plugins.reload": "再読み込み",
   "drift.plugins.loading": "プラグインを読み込んでいます...",
-  "drift.plugins.empty": "プラグインはありません。{{path}} の \"plugins\" に WebAssembly コンポーネントを記載して再読み込みしてください。",
+  "drift.plugins.empty":
+    'プラグインはありません。{{path}} の "plugins" に WebAssembly コンポーネントを記載して再読み込みしてください。',
   "drift.plugins.file": "{{path}} に記載",
   "drift.settings.permissions": "権限",
   "drift.permissions.rules": "すべてのワークスペースのルール",
-  "drift.permissions.rulesDescription": "各ワークスペースで、その drift.json のルールの後に適用されます。最初に一致したルールが決定します。",
+  "drift.permissions.rulesDescription":
+    "各ワークスペースで、その drift.json のルールの後に適用されます。最初に一致したルールが決定します。",
   "drift.permissions.empty": "まだルールはありません。Drift の既定の動作が適用されます。",
   "drift.permissions.add": "ルールを追加",
   "drift.permissions.kind": "種類",
@@ -541,7 +572,8 @@ export const drift = {
   "drift.settings.prompts.family.all": "すべてのモデル",
   "drift.settings.prompts.family.codex": "GPT と Codex",
   "drift.settings.prompts.family.default": "その他のモデル",
-  "drift.settings.prompts.allDescription": "独自の置き換えがないファミリーのすべてのモデルについて、ベースプロンプトを置き換えます。",
+  "drift.settings.prompts.allDescription":
+    "独自の置き換えがないファミリーのすべてのモデルについて、ベースプロンプトを置き換えます。",
   "drift.settings.prompts.allPlaceholder": "空欄: 各モデルファミリーが独自のプロンプトを使います。",
   "drift.provider.pasteCode": "ブラウザーに表示された認証コードを貼り付けてください。",
   "drift.provider.enterCode": "このコードをブラウザーで入力してください",
@@ -600,7 +632,8 @@ export const drift = {
   "drift.provider.browser": "ブラウザー",
   "drift.provider.connectFailed": "{{provider}}に接続できませんでした。認証情報を確認して、もう一度お試しください。",
   "drift.provider.connected": "{{provider}}に接続しました。認証情報を保存しました。",
-  "drift.provider.credentialRemovedStillConnected": "保存済みの{{provider}}の認証情報は削除されましたが、環境変数または設定を通じて接続中です。",
+  "drift.provider.credentialRemovedStillConnected":
+    "保存済みの{{provider}}の認証情報は削除されましたが、環境変数または設定を通じて接続中です。",
   "drift.provider.disconnectFailed": "{{provider}}を切断できませんでした。もう一度お試しください。",
   "drift.provider.disconnected": "{{provider}}を切断しました。保存済みの認証情報を削除しました。",
   "drift.provider.disconnecting": "切断中...",
@@ -617,7 +650,8 @@ export const drift = {
   "drift.question.asyncHint": "回答を検討している間も、回答に依存しない作業は続行できます。",
   "drift.question.blocking": "回答待ち",
   "drift.question.pending": "保留中のリクエスト: {{count}}件",
-  "drift.question.sendFailed": "回答を送信できませんでした。入力した回答はそのまま残っています。もう一度送信してください。",
+  "drift.question.sendFailed":
+    "回答を送信できませんでした。入力した回答はそのまま残っています。もう一度送信してください。",
   "drift.question.sending": "送信中...",
   "drift.question.customHint": "上記にない回答を追加",
   "drift.question.customPlaceholder": "独自の回答を入力...",

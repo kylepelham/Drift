@@ -1,13 +1,14 @@
-import { createSignal } from "solid-js"
-import { isRemoteRuntime } from "../runtime"
-import { shellEvents } from "../shell"
-import { parseNavigationHash, pushRemoteSelection } from "./navigation"
-import { applyMirroredSession } from "./selection"
-import { persisted } from "./persist"
 import { publishMirrorSelection, publishMirrorWorkspaceOrder } from "./mirror"
-import { forgetCachedSessions } from "./session-cache"
-import type { ArchivePurge } from "../engine/actions"
 import { driftStore, type ArchivedSession, type Workspace } from "./store"
+import { parseNavigationHash, pushRemoteSelection } from "./navigation"
+import { forgetCachedSessions } from "./session-cache"
+import { applyMirroredSession } from "./selection"
+import { isRemoteRuntime } from "../runtime"
+import { createSignal } from "solid-js"
+import { shellEvents } from "../shell"
+import { persisted } from "./persist"
+
+import type { ArchivePurge } from "../engine/actions"
 
 const [rawWorkspaces, setWorkspaces] = createSignal<Workspace[]>([])
 const [workspacesReady, setWorkspacesReady] = createSignal(false)
@@ -39,7 +40,9 @@ export function applyMirroredWorkspaceOrder(ids: string[]) {
 }
 
 export function moveWorkspace(id: string, beforeId: string | null) {
-  const ids = workspaces().map((w) => w.id).filter((x) => x !== id)
+  const ids = workspaces()
+    .map((w) => w.id)
+    .filter((x) => x !== id)
   const index = beforeId ? ids.indexOf(beforeId) : -1
   ids.splice(index < 0 ? ids.length : index, 0, id)
   setWorkspaceOrder(ids)

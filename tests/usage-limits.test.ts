@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test"
-import type { MessageEntry } from "../src/engine/store"
-import { estimateContextBreakdown } from "../src/engine/context-breakdown"
 import { refreshUsage, resetLabel, resetTitle, usageFor, usageTone, windowLabel } from "../src/state/usage-limits"
+import { estimateContextBreakdown } from "../src/engine/context-breakdown"
+import { afterEach, beforeEach, expect, mock, test } from "bun:test"
+
+import type { MessageEntry } from "../src/engine/store"
 
 const minute = 60_000
 const now = Date.UTC(2026, 8, 28, 12, 0)
@@ -10,7 +11,11 @@ let original: PropertyDescriptor | undefined
 
 beforeEach(() => {
   original = Object.getOwnPropertyDescriptor(globalThis, "__TAURI__")
-  invoke = mock(async () => ({ status: "ok", plan: "max", windows: [{ kind: "session", label: null, usedPercent: 91, resetsAt: now + 49 * minute }] }))
+  invoke = mock(async () => ({
+    status: "ok",
+    plan: "max",
+    windows: [{ kind: "session", label: null, usedPercent: 91, resetsAt: now + 49 * minute }],
+  }))
   Object.defineProperty(globalThis, "__TAURI__", { configurable: true, writable: true, value: { core: { invoke } } })
 })
 
@@ -68,7 +73,10 @@ test("providers without plan windows resolve to null, which hides the section", 
 })
 
 function entry(role: "user" | "assistant", parts: unknown[], extra: Record<string, unknown> = {}): MessageEntry {
-  return { info: { id: `${role}-${Math.random()}`, role, time: { created: 0 }, ...extra }, parts } as unknown as MessageEntry
+  return {
+    info: { id: `${role}-${Math.random()}`, role, time: { created: 0 }, ...extra },
+    parts,
+  } as unknown as MessageEntry
 }
 
 test("the breakdown estimates transcript categories and attributes the rest to system and tools", () => {
@@ -118,7 +126,9 @@ test("the context meter shows usage limits and the breakdown, and remote access 
   expect(await Bun.file("src/ui/header.tsx").text()).toContain("<ContextMeter sessionId=")
   expect(await Bun.file("src/ui/debug.tsx").text()).toContain("<ContextSection sessionId=")
   const remote = await Bun.file("src-tauri/src/remote.rs").text()
-  expect(remote).toContain('"provider_usage" => value(crate::usage_limits::provider_usage(app.state(), arg(args, "provider")?).await?)')
+  expect(remote).toContain(
+    '"provider_usage" => value(crate::usage_limits::provider_usage(app.state(), arg(args, "provider")?).await?)',
+  )
   expect(await Bun.file("src-tauri/src/main.rs").text()).toContain("usage_limits::provider_usage,")
 })
 
@@ -130,7 +140,9 @@ test("settings lists usage for every linked provider and forced refresh skips th
   await refreshUsage("zai-coding-plan", Date.now(), true)
   expect(invoke.mock.calls.length).toBe(calls + 1)
   const settings = await Bun.file("src/ui/settings.tsx").text()
-  expect(settings).toContain('items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]')
+  expect(settings).toContain(
+    'items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]',
+  )
   expect(settings).toContain("<UsageLimitsSection />")
   const section = await Bun.file("src/ui/settings-usage.tsx").text()
   expect(section).toContain("engine.state.connected.includes(provider.id)")

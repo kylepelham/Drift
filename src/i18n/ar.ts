@@ -58,7 +58,8 @@ export const dict = {
   "dialog.project.edit.color.select": "اختر لون {{color}}",
   "context.usage.cost": "تكلفة",
   "context.usage.clickToView": "انقر لعرض السياق",
-  "toast.permissions.autoaccept.on.description": "تتم الموافقة على طلبات الأذونات تلقائيًا، باستثناء الملفات السرية وأي شيء خارج مساحة العمل",
+  "toast.permissions.autoaccept.on.description":
+    "تتم الموافقة على طلبات الأذونات تلقائيًا، باستثناء الملفات السرية وأي شيء خارج مساحة العمل",
   "error.page.action.updateTo": "تحديث إلى {{version}}",
   "notification.permission.title": "مطلوب إذن",
   "notification.question.title": "سؤال",
@@ -181,7 +182,7 @@ export const dict = {
 export const drift = {
   "drift.settings.agents.currentModel": "النموذج الحالي",
   "drift.slash.argumentDetails": "تفاصيل {{name}}",
-  "drift.markdown.ambiguousCitation": "رابط الملف \"{{href}}\" غير محدد. استخدم مسارًا أطول للاختيار بين: {{files}}",
+  "drift.markdown.ambiguousCitation": 'رابط الملف "{{href}}" غير محدد. استخدم مسارًا أطول للاختيار بين: {{files}}',
   "drift.preview.settings.title": "معاينات الملفات",
   "drift.preview.settings.mode": "وضع المعاينة",
   "drift.preview.settings.description": "اختر أنواع الملفات التي تُفتح في المعاينة.",
@@ -217,10 +218,12 @@ export const drift = {
   "drift.remote.statusStarting": "جارٍ البدء",
   "drift.remote.statusError": "خطأ",
   "drift.remote.clipboardError": "تعذر النسخ",
-  "drift.settings.shellTimeout.scope": "تنهي مهل الصدفة أشجار العمليات. ولا تؤثر على النماذج أو خوادم MCP أو اتصالات الشبكة.",
+  "drift.settings.shellTimeout.scope":
+    "تنهي مهل الصدفة أشجار العمليات. ولا تؤثر على النماذج أو خوادم MCP أو اتصالات الشبكة.",
   "drift.settings.toolExecution": "تنفيذ الأدوات",
   "drift.settings.shellTimeout.title": "مهلة الصدفة",
-  "drift.settings.shellTimeout.description": "يوقف أوامر الصدفة والعمليات التابعة لها بعد هذه المدة. تنطبق التغييرات على الاستدعاءات الجديدة.",
+  "drift.settings.shellTimeout.description":
+    "يوقف أوامر الصدفة والعمليات التابعة لها بعد هذه المدة. تنطبق التغييرات على الاستدعاءات الجديدة.",
   "drift.settings.shellTimeout.noTimeout": "بلا مهلة",
   "drift.settings.shellTimeout.preset1": "دقيقة واحدة",
   "drift.settings.shellTimeout.preset5": "5 دقائق",
@@ -240,11 +243,13 @@ export const drift = {
   "drift.settings.about": "حول",
   "drift.settings.toolErrors.title": "توسيع أخطاء الأدوات افتراضيًا",
   "drift.settings.dayDividers.title": "فواصل الأيام في الشريط الجانبي",
-  "drift.settings.dayDividers.description": "افصل محادثات كل مساحة عمل حسب يوم آخر نشاط: اليوم، أمس، ثم الأيام السابقة.",
+  "drift.settings.dayDividers.description":
+    "افصل محادثات كل مساحة عمل حسب يوم آخر نشاط: اليوم، أمس، ثم الأيام السابقة.",
   "drift.sidebar.today": "اليوم",
   "drift.sidebar.yesterday": "أمس",
   "drift.settings.responseAnimation.title": "كشف الردود بسلاسة",
-  "drift.settings.responseAnimation.description": "اعرض الدفعات الكبيرة من نص المساعد المباشر بسلاسة. تبقى الردود السابقة فورية.",
+  "drift.settings.responseAnimation.description":
+    "اعرض الدفعات الكبيرة من نص المساعد المباشر بسلاسة. تبقى الردود السابقة فورية.",
   "drift.settings.responseAnimation.speed.title": "سرعة العرض",
   "drift.settings.responseAnimation.speed.description": "اختر سرعة كتابة نص المساعد المباشر على الشاشة.",
   "drift.settings.responseAnimation.speed.value": "{{speed}} حرف/ث",
@@ -357,7 +362,8 @@ export const drift = {
   "drift.lightbox.actualSize": "الحجم الفعلي",
   "drift.lightbox.image": "صورة",
   "drift.lightbox.resetZoom": "إعادة تعيين التكبير",
-  "drift.lightbox.controls": "مرّر للتكبير والتصغير. اسحب لتحريك الصورة. انقر مرتين للتكبير. استخدم +/- للتكبير والتصغير، ومفاتيح الأسهم للتحريك، و0 لملاءمة العرض، أو 1 للحجم الفعلي.",
+  "drift.lightbox.controls":
+    "مرّر للتكبير والتصغير. اسحب لتحريك الصورة. انقر مرتين للتكبير. استخدم +/- للتكبير والتصغير، ومفاتيح الأسهم للتحريك، و0 لملاءمة العرض، أو 1 للحجم الفعلي.",
   "drift.markdown.codeCopied": "تم نسخ الكود",
   "drift.markdown.copied": "تم النسخ",
   "drift.markdown.copyCode": "نسخ الكود",
@@ -365,7 +371,8 @@ export const drift = {
   "drift.mcp.confirmRemove": "إزالة؟",
   "drift.permission.always": "السماح دائمًا في مساحة العمل هذه",
   "drift.mcp.enable": "تمكين {{name}}",
-  "drift.prompt.tooLarge": "تعذّر الإرسال: حجم المرفقات {{size}}، وهو أكثر من {{limit}} التي تتسع لها الرسالة الواحدة. أرسل ملفات أقل أو أصغر.",
+  "drift.prompt.tooLarge":
+    "تعذّر الإرسال: حجم المرفقات {{size}}، وهو أكثر من {{limit}} التي تتسع لها الرسالة الواحدة. أرسل ملفات أقل أو أصغر.",
   "drift.mcp.status.offHere": "متوقف في مساحة العمل هذه",
   "drift.mcp.scope.chosen": "مفعّل لمساحة العمل هذه فقط",
   "drift.mcp.scope.elsewhere": "مفعّل في مساحات عمل أخرى",
@@ -378,7 +385,8 @@ export const drift = {
   "drift.plugins.tab.installed": "المثبّتة",
   "drift.plugins.tab.registry": "السجل",
   "drift.plugins.registrySearch": "البحث عن إضافات",
-  "drift.plugins.registrySource": "من سجل Drift-Plugins على GitHub. كل إضافة مكوّن WebAssembly معزول، ويُتحقق من التنزيل بمقارنته بتجزئة السجل.",
+  "drift.plugins.registrySource":
+    "من سجل Drift-Plugins على GitHub. كل إضافة مكوّن WebAssembly معزول، ويُتحقق من التنزيل بمقارنته بتجزئة السجل.",
   "drift.plugins.registryLoadFailed": "تعذّر تحميل السجل.",
   "drift.plugins.registryEmpty": "لا توجد إضافات مطابقة.",
   "drift.plugins.category": "الفئة",
@@ -411,10 +419,14 @@ export const drift = {
   "drift.registry.sources.kind.github": "مستودع GitHub",
   "drift.registry.sources.kind.azure_devops": "مستودع Azure DevOps",
   "drift.registry.sources.kind.folder": "مجلد أو مشاركة",
-  "drift.registry.sources.kindHint.url": "مستند JSON على رابط؛ التنزيلات من حيث يشير المستند. يُرسل الرمز إلى ذلك المضيف فقط.",
-  "drift.registry.sources.kindHint.github": "ملف في مستودع، خاص برمز (يكفي رمز دقيق بصلاحية قراءة Contents). التنزيلات داخل المستودع تستخدم الرمز أيضًا.",
-  "drift.registry.sources.kindHint.azure_devops": "ملف في مستودع Git على Azure DevOps، برمز وصول شخصي بصلاحية Code (Read). الصق رابط الويب للمستودع.",
-  "drift.registry.sources.kindHint.folder": "مجلد على هذا الجهاز أو مشاركة شبكية يحوي المستند والملفات التي يسميها بجانبه. لا حاجة لخادم.",
+  "drift.registry.sources.kindHint.url":
+    "مستند JSON على رابط؛ التنزيلات من حيث يشير المستند. يُرسل الرمز إلى ذلك المضيف فقط.",
+  "drift.registry.sources.kindHint.github":
+    "ملف في مستودع، خاص برمز (يكفي رمز دقيق بصلاحية قراءة Contents). التنزيلات داخل المستودع تستخدم الرمز أيضًا.",
+  "drift.registry.sources.kindHint.azure_devops":
+    "ملف في مستودع Git على Azure DevOps، برمز وصول شخصي بصلاحية Code (Read). الصق رابط الويب للمستودع.",
+  "drift.registry.sources.kindHint.folder":
+    "مجلد على هذا الجهاز أو مشاركة شبكية يحوي المستند والملفات التي يسميها بجانبه. لا حاجة لخادم.",
   "drift.registry.sources.location.github": "رابط المستودع",
   "drift.registry.sources.location.azure_devops": "رابط المستودع",
   "drift.registry.sources.location.folder": "المجلد",
@@ -433,12 +445,15 @@ export const drift = {
   "drift.registry.sources.tokenKept": "هناك رمز محفوظ. اكتب رمزًا جديدًا لاستبداله، أو أفرغ الحقل لإزالته.",
   "drift.registry.sources.hasToken": "له رمز",
   "drift.registry.sources.allowHttp": "السماح بـ http غير المشفّر",
-  "drift.registry.sources.allowHttpHint": "يمكن لأي أحد على مسار الشبكة قراءة ما يُجلب أو تغييره. لمصدر داخلي بلا https فقط.",
+  "drift.registry.sources.allowHttpHint":
+    "يمكن لأي أحد على مسار الشبكة قراءة ما يُجلب أو تغييره. لمصدر داخلي بلا https فقط.",
   "drift.registry.sources.caPem": "شهادة جذر إضافية",
   "drift.registry.sources.caPemHint": "PEM لمرجع مصدّق داخلي يُوثق به لهذا المصدر، لخادم لا يثق جهازك بشهادته.",
   "drift.registry.sources.yours": "من مصادرك",
-  "drift.registry.sources.pluginsDescription": "سجلات غير سجل Drift الخاص. ينشر الفريق إضافاته على عنوان https واحد فيثبّتها الجميع من هنا.",
-  "drift.registry.sources.mcpDescription": "سجلات غير سجل GitHub والسجل الرسمي. ينشر الفريق خوادم MCP المعتمدة لديه على عنوان https واحد فيثبّتها الجميع من هنا.",
+  "drift.registry.sources.pluginsDescription":
+    "سجلات غير سجل Drift الخاص. ينشر الفريق إضافاته على عنوان https واحد فيثبّتها الجميع من هنا.",
+  "drift.registry.sources.mcpDescription":
+    "سجلات غير سجل GitHub والسجل الرسمي. ينشر الفريق خوادم MCP المعتمدة لديه على عنوان https واحد فيثبّتها الجميع من هنا.",
   "drift.registry.sources.empty": "لم تُضف أي مصادر.",
   "drift.registry.sources.add": "إضافة مصدر",
   "drift.registry.sources.addButton": "إضافة",
@@ -447,13 +462,16 @@ export const drift = {
   "drift.registry.sources.remove": "إزالة المصدر",
   "drift.registry.sources.loadFailed": "تعذّر قراءة مصادرك.",
   "drift.registry.sources.failed": "تعذّر تحميل {{name}}: {{error}}",
-  "drift.registry.sources.pluginsFormat": "مستند JSON بصيغة registry.json الخاصة بـ Drift-Plugins: كل إضافة مع رابط تنزيلها وتجزئة SHA-256.",
+  "drift.registry.sources.pluginsFormat":
+    "مستند JSON بصيغة registry.json الخاصة بـ Drift-Plugins: كل إضافة مع رابط تنزيلها وتجزئة SHA-256.",
   "drift.registry.sources.mcpFormat": "مستند JSON بصيغة سجل MCP: قائمة servers كما تعيدها واجهة السجل الرسمي.",
-  "drift.plugins.registrySourceWithOwn": "من مصادرك ومن سجل Drift-Plugins على GitHub. كل إضافة مكوّن WebAssembly معزول، ويُتحقق من التنزيل بمقارنته بتجزئة سجلها.",
+  "drift.plugins.registrySourceWithOwn":
+    "من مصادرك ومن سجل Drift-Plugins على GitHub. كل إضافة مكوّن WebAssembly معزول، ويُتحقق من التنزيل بمقارنته بتجزئة سجلها.",
   "drift.plugins.configRaw": "إعدادات هذه الإضافة بصيغة JSON؛ لا يصف أي سجل حقولها.",
   "drift.plugins.saving": "جارٍ الحفظ...",
   "drift.plugins.saved": "تم حفظ إعدادات {{name}}.",
-  "drift.plugins.packNote": "مهارات Markdown تُفك إلى {{folder}}. يقدّمها Drift للنموذج كمهاراتك؛ الحزمة لا تنفّذ كودًا لكن نصها يصل إلى النموذج، فثبّت الحزم التي تثق بها فقط.",
+  "drift.plugins.packNote":
+    "مهارات Markdown تُفك إلى {{folder}}. يقدّمها Drift للنموذج كمهاراتك؛ الحزمة لا تنفّذ كودًا لكن نصها يصل إلى النموذج، فثبّت الحزم التي تثق بها فقط.",
   "drift.settings.skills": "المهارات",
   "drift.skills.mixed": "بعضها مفعّل وبعضها لا",
   "drift.skills.packs": "حزم المهارات",
@@ -468,14 +486,16 @@ export const drift = {
   "drift.skills.installed": "تم تثبيت {{name}} مع {{count}} مهارة؛ تُعرض من الدور التالي.",
   "drift.skills.registrySearch": "البحث عن مهارات",
   "drift.skills.registrySource": "من سجل Drift-Plugins على GitHub. المهارة نص Markdown يقرؤه النموذج؛ لا يُنفّذ شيء.",
-  "drift.skills.registrySourceWithOwn": "من مصادرك ومن سجل Drift-Plugins على GitHub. المهارة نص Markdown يقرؤه النموذج؛ لا يُنفّذ شيء.",
+  "drift.skills.registrySourceWithOwn":
+    "من مصادرك ومن سجل Drift-Plugins على GitHub. المهارة نص Markdown يقرؤه النموذج؛ لا يُنفّذ شيء.",
   "drift.plugins.reload": "إعادة التحميل",
   "drift.plugins.loading": "جارٍ تحميل الإضافات...",
-  "drift.plugins.empty": "لا توجد إضافات. أدرج مكوّنات WebAssembly تحت \"plugins\" في {{path}} ثم أعد التحميل.",
+  "drift.plugins.empty": 'لا توجد إضافات. أدرج مكوّنات WebAssembly تحت "plugins" في {{path}} ثم أعد التحميل.',
   "drift.plugins.file": "مدرجة في {{path}}",
   "drift.settings.permissions": "الأذونات",
   "drift.permissions.rules": "قواعد لكل مساحات العمل",
-  "drift.permissions.rulesDescription": "تُطبَّق في كل مساحة عمل بعد قواعد drift.json الخاصة بها. أول قاعدة مطابقة هي التي تقرر.",
+  "drift.permissions.rulesDescription":
+    "تُطبَّق في كل مساحة عمل بعد قواعد drift.json الخاصة بها. أول قاعدة مطابقة هي التي تقرر.",
   "drift.permissions.empty": "لا توجد قواعد بعد. تُطبق إعدادات Drift الافتراضية.",
   "drift.permissions.add": "إضافة قاعدة",
   "drift.permissions.kind": "النوع",
@@ -598,7 +618,8 @@ export const drift = {
   "drift.provider.browser": "المتصفح",
   "drift.provider.connectFailed": "تعذر الاتصال بـ {{provider}}. تحقق من بيانات الاعتماد وحاول مجددًا.",
   "drift.provider.connected": "تم توصيل {{provider}}. حُفظت بيانات الاعتماد.",
-  "drift.provider.credentialRemovedStillConnected": "أُزيلت بيانات اعتماد {{provider}} المحفوظة، لكنه لا يزال متصلًا عبر البيئة أو التكوين.",
+  "drift.provider.credentialRemovedStillConnected":
+    "أُزيلت بيانات اعتماد {{provider}} المحفوظة، لكنه لا يزال متصلًا عبر البيئة أو التكوين.",
   "drift.provider.disconnectFailed": "تعذر قطع الاتصال بـ {{provider}}. حاول مجددًا.",
   "drift.provider.disconnected": "تم قطع اتصال {{provider}}. أُزيلت بيانات الاعتماد المخزنة.",
   "drift.provider.disconnecting": "جارٍ قطع الاتصال...",

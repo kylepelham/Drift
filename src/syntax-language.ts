@@ -37,8 +37,7 @@ async function languageCatalog() {
       const shikiNames = new Map<string, SyntaxLanguage>()
       for (const info of shiki.bundledLanguagesInfo) {
         const language = info.id as SyntaxLanguage
-        for (const name of [info.id, info.name, ...(info.aliases ?? [])])
-          shikiNames.set(normalized(name), language)
+        for (const name of [info.id, info.name, ...(info.aliases ?? [])]) shikiNames.set(normalized(name), language)
       }
 
       const extensions = new Map<string, LanguageMatch>()
@@ -64,7 +63,8 @@ async function languageCatalog() {
           }),
         )
         const preferred = !!declared && (editor === declared || relatedEditorMode)
-        for (const extension of data.extensions ?? []) addCandidate(extensions, normalized(extension), language, preferred)
+        for (const extension of data.extensions ?? [])
+          addCandidate(extensions, normalized(extension), language, preferred)
         for (const filename of data.filenames ?? []) addCandidate(filenames, normalized(filename), language, preferred)
       }
       return { extensions, filenames, shikiNames }

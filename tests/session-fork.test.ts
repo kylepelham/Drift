@@ -1,5 +1,5 @@
-import { expect, mock, test } from "bun:test"
 import { createSignal } from "solid-js/dist/solid.js"
+import { expect, mock, test } from "bun:test"
 import * as ts from "typescript"
 
 const source = await Bun.file(new URL("../src/ui/workspaces.tsx", import.meta.url)).text()
@@ -16,28 +16,48 @@ function setup() {
   let selection = "source"
   let workspace = "workspace"
   let finish!: (session: { id: string } | undefined) => void
-  const pending = new Promise<{ id: string } | undefined>((resolve) => { finish = resolve })
+  const pending = new Promise<{ id: string } | undefined>((resolve) => {
+    finish = resolve
+  })
   const fork = mock(() => pending)
-  const selectSession = mock((id: string) => { selection = id })
+  const selectSession = mock((id: string) => {
+    selection = id
+  })
   const dependencies = {
     createSignal,
     useEngine: () => ({ actions: { fork } }),
     selectedSession: () => selection,
     activeWorkspaceId: () => workspace,
-    selectWorkspace: (id: string) => { workspace = id },
+    selectWorkspace: (id: string) => {
+      workspace = id
+    },
     selectSession,
     t: (key: string) => key,
     ago: () => "now",
-    RowButton: "button", StatusDot: "status", IconBranch: "branch", IconArchive: "archive",
+    RowButton: "button",
+    StatusDot: "status",
+    IconBranch: "branch",
+    IconArchive: "archive",
     jsx: (type: string, props: Node["props"], ...children: Node[]): Node => ({ type, props, children }),
   }
-  const render = new Function(...Object.keys(dependencies), `${compiled}\nreturn ThreadItem({ sessionId: "source", title: "Long session", updated: 0, workspace: { id: "workspace" } });`)
+  const render = new Function(
+    ...Object.keys(dependencies),
+    `${compiled}\nreturn ThreadItem({ sessionId: "source", title: "Long session", updated: 0, workspace: { id: "workspace" } });`,
+  )
   const tree = render(...Object.values(dependencies)) as Node
   const buttons = (node: Node): Node[] => {
     if (!node || typeof node !== "object") return []
     return [...(node.type === "button" ? [node] : []), ...node.children.flatMap(buttons)]
   }
-  return { fork, selectSession, finish, click: buttons(tree)[0].props.onClick!, navigate: (id: string) => { selection = id } }
+  return {
+    fork,
+    selectSession,
+    finish,
+    click: buttons(tree)[0].props.onClick!,
+    navigate: (id: string) => {
+      selection = id
+    },
+  }
 }
 
 test("sidebar forks all finished history and ignores repeat clicks until the copy finishes", async () => {

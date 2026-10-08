@@ -1,11 +1,12 @@
-import { createSignal, Index, onCleanup, onMount, Show, type JSX, type Setter } from "solid-js"
-import { Portal } from "solid-js/web"
-import type { McpServerConfig, McpServerConfigView } from "../../engine/store"
 import { mcpConfigFromForm, mcpFormState, updatePair, type McpFormState, type McpPair } from "../../state/mcp-form"
+import { createSignal, Index, onCleanup, onMount, Show, type JSX, type Setter } from "solid-js"
+import { activateModal, closeOnBackdropPointerDown } from "../modal"
+import { IconPlus, IconX } from "../icons"
+import { Portal } from "solid-js/web"
 import { t } from "../../state/i18n"
 import { Toggle } from "../controls"
-import { IconPlus, IconX } from "../icons"
-import { activateModal, closeOnBackdropPointerDown } from "../modal"
+
+import type { McpServerConfig, McpServerConfigView } from "../../engine/store"
 
 /** The engine names a server's tools `<server>_<tool>`, so a name is what a tool name may hold. */
 export const mcpServerName = /^[A-Za-z0-9_-]{1,128}$/
@@ -73,10 +74,16 @@ export function McpEditor(props: {
             </Field>
             <Field label={t("drift.mcp.form.type")} required>
               <div class="flex rounded-lg border border-edge bg-overlay/50 p-1">
-                <Choice active={form().type === "stdio"} onClick={() => setForm((value) => ({ ...value, type: "stdio" }))}>
+                <Choice
+                  active={form().type === "stdio"}
+                  onClick={() => setForm((value) => ({ ...value, type: "stdio" }))}
+                >
                   {t("drift.mcp.form.local")}
                 </Choice>
-                <Choice active={form().type !== "stdio"} onClick={() => setForm((value) => ({ ...value, type: value.type === "sse" ? "sse" : "http" }))}>
+                <Choice
+                  active={form().type !== "stdio"}
+                  onClick={() => setForm((value) => ({ ...value, type: value.type === "sse" ? "sse" : "http" }))}
+                >
                   {t("drift.mcp.form.remote")}
                 </Choice>
               </div>
@@ -87,10 +94,16 @@ export function McpEditor(props: {
             <Show when={form().type !== "stdio"}>
               <Field label={t("drift.mcp.form.transport")} required>
                 <div class="flex rounded-lg border border-edge bg-overlay/50 p-1">
-                  <Choice active={form().type === "http"} onClick={() => setForm((value) => ({ ...value, type: "http" }))}>
+                  <Choice
+                    active={form().type === "http"}
+                    onClick={() => setForm((value) => ({ ...value, type: "http" }))}
+                  >
                     {t("drift.mcp.transport.streamable_http")}
                   </Choice>
-                  <Choice active={form().type === "sse"} onClick={() => setForm((value) => ({ ...value, type: "sse" }))}>
+                  <Choice
+                    active={form().type === "sse"}
+                    onClick={() => setForm((value) => ({ ...value, type: "sse" }))}
+                  >
                     {t("drift.mcp.transport.sse")}
                   </Choice>
                 </div>
@@ -117,7 +130,13 @@ export function McpEditor(props: {
                   <Field label={t("drift.mcp.form.clientId")}>
                     <TextInput
                       value={form().clientId}
-                      onInput={(clientId) => setForm((value) => ({ ...value, clientId, secretSaved: value.secretSaved && clientId.trim() === value.clientId.trim() }))}
+                      onInput={(clientId) =>
+                        setForm((value) => ({
+                          ...value,
+                          clientId,
+                          secretSaved: value.secretSaved && clientId.trim() === value.clientId.trim(),
+                        }))
+                      }
                       label={t("drift.mcp.form.clientId")}
                       mono
                     />
@@ -128,7 +147,9 @@ export function McpEditor(props: {
                       value={form().clientSecret}
                       onInput={(clientSecret) => setForm((value) => ({ ...value, clientSecret }))}
                       label={t("drift.mcp.form.clientSecret")}
-                      placeholder={t(form().secretSaved ? "drift.mcp.form.savedValue" : "drift.mcp.form.clientSecretNone")}
+                      placeholder={t(
+                        form().secretSaved ? "drift.mcp.form.savedValue" : "drift.mcp.form.clientSecretNone",
+                      )}
                       mono
                     />
                   </Field>
@@ -154,7 +175,11 @@ export function McpEditor(props: {
               />
             </Field>
             <div class="flex items-center gap-2.5 text-[0.78rem] text-ink">
-              <Toggle label={t("drift.mcp.readOnlyTrusted")} checked={trusted()} onChange={() => setTrusted((value) => !value)} />
+              <Toggle
+                label={t("drift.mcp.readOnlyTrusted")}
+                checked={trusted()}
+                onChange={() => setTrusted((value) => !value)}
+              />
               <span>{t("drift.mcp.readOnlyTrusted")}</span>
             </div>
             <Show when={error()}>
@@ -205,7 +230,10 @@ function LocalFields(props: { form: McpFormState; setForm: Setter<McpFormState> 
                     class="flex size-8 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:border-danger hover:text-danger"
                     title={t("drift.mcp.form.removeArgument")}
                     onClick={() =>
-                      props.setForm((value) => ({ ...value, command: value.command.filter((_, item) => item !== index) }))
+                      props.setForm((value) => ({
+                        ...value,
+                        command: value.command.filter((_, item) => item !== index),
+                      }))
                     }
                   >
                     <IconX class="size-3.5" />
@@ -271,7 +299,10 @@ function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: 
             </div>
           )}
         </Index>
-        <AddButton label={t("drift.mcp.form.addPair")} onClick={() => props.onChange([...props.pairs, { key: "", value: "" }])} />
+        <AddButton
+          label={t("drift.mcp.form.addPair")}
+          onClick={() => props.onChange([...props.pairs, { key: "", value: "" }])}
+        />
       </div>
     </Field>
   )
