@@ -3,6 +3,7 @@
 /// The local date as `YYYY-MM-DD`; the UTC date only if the system will not say.
 pub fn local_date() -> String {
     let (year, month, day) = local().unwrap_or_else(utc);
+
     format!("{year:04}-{month:02}-{day:02}")
 }
 
@@ -25,6 +26,7 @@ fn local() -> Option<(i64, u32, u32)> {
     if unsafe { libc::localtime_r(&libc::time(std::ptr::null_mut()), &mut now) }.is_null() {
         return None;
     }
+
     Some((
         i64::from(now.tm_year) + 1900,
         u32::try_from(now.tm_mon + 1).ok()?,
@@ -41,6 +43,7 @@ fn utc() -> (i64, u32, u32) {
     let seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |duration| duration.as_secs());
+
     civil_from_days(i64::try_from(seconds / 86_400).unwrap_or(0))
 }
 

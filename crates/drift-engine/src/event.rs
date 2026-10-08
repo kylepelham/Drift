@@ -105,7 +105,7 @@ pub struct Hub {
     /// Random per process; sequence numbers only mean something within one instance.
     pub instance: String,
     ring: Mutex<Ring>,
-    tx: broadcast::Sender<Envelope>,
+    sender: broadcast::Sender<Envelope>,
 }
 
 struct Ring {
@@ -132,7 +132,8 @@ pub enum Replay {
 
 impl Hub {
     pub fn new(capacity: usize) -> Self {
-        let (tx, _) = broadcast::channel(capacity);
+        let (sender, _) = broadcast::channel(capacity);
+
         Self {
             instance: crate::random_hex(8),
             ring: Mutex::new(Ring {
@@ -141,7 +142,7 @@ impl Hub {
                 events: VecDeque::with_capacity(capacity),
                 evicted: 0,
             }),
-            tx,
+            sender,
         }
     }
 
@@ -150,13 +151,15 @@ impl Hub {
         let seq = ring.next_seq;
         ring.next_seq += 1;
         let envelope = Envelope { seq, event };
+
         if ring.events.len() == ring.capacity
             && let Some(dropped) = ring.events.pop_front()
         {
             ring.evicted = dropped.seq;
         }
         ring.events.push_back(envelope.clone());
-        let _ = self.tx.send(envelope);
+        let _ = self.sender.send(envelope);
+
         seq
     }
 
@@ -166,7 +169,8 @@ impl Hub {
         let mut ring = self.ring.lock().unwrap();
         let seq = ring.next_seq;
         ring.next_seq += 1;
-        let _ = self.tx.send(Envelope { seq, event });
+        let _ = self.sender.send(Envelope { seq, event });
+
         seq
     }
 
@@ -178,11 +182,12 @@ impl Hub {
     /// Subscribes and replays everything after `cursor` in one step so no event falls between.
     pub fn attach(&self, cursor: Option<u64>) -> Attached {
         let ring = self.ring.lock().unwrap();
-        let rx = self.tx.subscribe();
+        let rx = self.sender.subscribe();
         let replay = match cursor {
             None => Replay::Events(Vec::new()),
             Some(cursor) => ring.since(cursor),
         };
+
         Attached {
             seq: ring.next_seq - 1,
             replay,
@@ -205,7 +210,7 @@ impl Ring {
         if cursor < self.evicted {
             return Replay::Stale;
         }
-        Replay::Events(self.events.iter().filter(|e| e.seq > cursor).cloned().collect())
+        Replay::Events(self.events.iter().filter(|event| event.seq > cursor).cloned().collect())
     }
 }
 

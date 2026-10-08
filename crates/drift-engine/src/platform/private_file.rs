@@ -7,6 +7,7 @@ pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("file has no parent directory"))?;
+
     std::fs::create_dir_all(parent)?;
     let temporary = Temporary(parent.join(format!(".credentials-{}.tmp", crate::random_hex(16))));
     let mut options = std::fs::OpenOptions::new();
@@ -16,14 +17,17 @@ pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
+
     let mut file = options.open(&temporary.0)?;
     restrict(&temporary.0)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
+
     replace(&temporary.0, path)?;
     #[cfg(unix)]
     std::fs::File::open(parent)?.sync_all()?;
+
     Ok(())
 }
 
@@ -46,6 +50,7 @@ fn replace(from: &Path, to: &Path) -> io::Result<()> {
     use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW};
     let wide = |path: &Path| path.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
     let (from, to) = (wide(from), wide(to));
+
     for attempt in 0..20 {
         // SAFETY: both path buffers are NUL-terminated and remain live for the move operation.
         if unsafe {
@@ -85,6 +90,7 @@ pub fn restrict(path: &Path) -> io::Result<()> {
     let descriptor: Vec<u16> = descriptor.encode_utf16().chain([0]).collect();
     let name: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
     let mut security = std::ptr::null_mut();
+
     // SAFETY: strings are NUL-terminated; the allocated descriptor stays live until LocalFree below.
     unsafe {
         if ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -107,6 +113,7 @@ pub fn restrict(path: &Path) -> io::Result<()> {
             return Err(error);
         }
     }
+
     Ok(())
 }
 

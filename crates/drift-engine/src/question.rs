@@ -72,19 +72,22 @@ pub struct NotPending;
 
 impl Questions {
     pub async fn ask(&self, hub: &Hub, request: Request, abort: &CancellationToken) -> Answers {
-        let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().push((request.clone(), Some(tx)));
+        let (response, answered) = oneshot::channel();
+        self.pending.lock().unwrap().push((request.clone(), Some(response)));
         hub.publish(Event::QuestionAsked {
             request: request.clone(),
         });
+
         let answers = tokio::select! {
-            answers = rx => answers.ok().flatten(),
+            answers = answered => answers.ok().flatten(),
             () = abort.cancelled() => None,
         };
+
         self.pending
             .lock()
             .unwrap()
             .retain(|(pending, _)| pending.id != request.id);
+
         answers
     }
 
@@ -108,17 +111,19 @@ impl Questions {
         let mut pending = self.pending.lock().unwrap();
         let index = pending
             .iter()
-            .position(|(request, tx)| request.id == request_id && tx.is_some())
+            .position(|(request, response)| request.id == request_id && response.is_some())
             .ok_or(NotPending)?;
-        let (request, tx) = pending.remove(index);
+        let (request, response) = pending.remove(index);
         drop(pending);
-        if let Some(tx) = tx {
-            let _ = tx.send(answers);
+
+        if let Some(response) = response {
+            let _ = response.send(answers);
         }
         hub.publish(Event::QuestionReplied {
             request_id: request.id,
             session_id: request.session_id,
         });
+
         Ok(())
     }
 
@@ -137,7 +142,7 @@ impl Questions {
     /// The lock a decision on `request_id` holds; the same one for every caller while any holds it.
     pub fn decision(&self, request_id: &str) -> Arc<tokio::sync::Mutex<()>> {
         let mut decisions = self.decisions.lock().unwrap();
-        // Locks nobody holds or waits on are dropped as new ones are made.
+        // A decision lock can be removed only after every caller has released its Arc.
         decisions.retain(|_, lock| Arc::strong_count(lock) > 1);
         decisions.entry(request_id.into()).or_default().clone()
     }
@@ -147,7 +152,7 @@ impl Questions {
         self.pending
             .lock()
             .unwrap()
-            .retain(|(request, tx)| request.session_id != session_id || tx.is_some());
+            .retain(|(request, response)| request.session_id != session_id || response.is_some());
     }
 
     pub fn pending(&self) -> Vec<Request> {

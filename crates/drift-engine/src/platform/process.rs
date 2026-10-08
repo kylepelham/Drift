@@ -30,6 +30,7 @@ mod imp {
                 if job.is_null() {
                     return Err(io::Error::last_os_error());
                 }
+
                 let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
                 info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
                 let size = std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32;
@@ -43,6 +44,7 @@ mod imp {
                     CloseHandle(job);
                     return Err(io::Error::last_os_error());
                 }
+
                 let process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
                 if process.is_null() {
                     CloseHandle(job);
@@ -54,6 +56,7 @@ mod imp {
                     CloseHandle(job);
                     return Err(io::Error::last_os_error());
                 }
+
                 Ok(Self(job))
             }
         }
@@ -106,16 +109,19 @@ mod imp {
         let pid = child
             .id()
             .ok_or_else(|| io::Error::other("suspended child has no process ID"))?;
+
         // SAFETY: this call takes only flags and a process id, and returns an owned snapshot handle.
         let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
         if snapshot == INVALID_HANDLE_VALUE {
             return Err(io::Error::last_os_error());
         }
+
         let result = resume_thread(snapshot, pid);
         // SAFETY: the snapshot is valid and has not been closed by resume_thread.
         unsafe {
             CloseHandle(snapshot);
         }
+
         result
     }
 
@@ -269,6 +275,7 @@ async fn spawn_with(
     command.kill_on_drop(true);
     prepare(command);
     imp::suspend(command);
+
     let mut child = command.spawn()?;
     let owned = child
         .id()
@@ -281,6 +288,7 @@ async fn spawn_with(
             return Err(error);
         }
     };
+
     if let Err(error) = imp::resume(&child) {
         tree.kill();
         let _ = child.kill().await;
@@ -288,6 +296,7 @@ async fn spawn_with(
         tree.stop().await;
         return Err(error);
     }
+
     Ok((child, tree))
 }
 
@@ -312,11 +321,13 @@ fn merged(live: &std::ffi::OsStr, saved: Option<std::ffi::OsString>) -> std::ffi
     let key = |dir: &std::path::Path| dir.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase();
     let mut dirs: Vec<std::path::PathBuf> = std::env::split_paths(live).collect();
     let mut seen: std::collections::HashSet<String> = dirs.iter().map(|dir| key(dir)).collect();
+
     for dir in saved.iter().flat_map(std::env::split_paths) {
         if !dir.as_os_str().is_empty() && seen.insert(key(&dir)) {
             dirs.push(dir);
         }
     }
+
     std::env::join_paths(dirs).unwrap_or_else(|_| live.to_os_string())
 }
 
@@ -361,6 +372,7 @@ fn registry_string(root: windows_sys::Win32::System::Registry::HKEY, key: &str, 
     if sized != 0 || size == 0 {
         return None;
     }
+
     let mut buffer = vec![0u16; size as usize / 2 + 1];
     let mut written = (buffer.len() * 2) as u32;
     // SAFETY: the UTF-16 buffer is aligned and its byte capacity is passed in written.
@@ -378,6 +390,7 @@ fn registry_string(root: windows_sys::Win32::System::Registry::HKEY, key: &str, 
     if read != 0 {
         return None;
     }
+
     let text = String::from_utf16_lossy(&buffer[..written as usize / 2]);
     Some(text.trim_end_matches('\0').to_string())
 }

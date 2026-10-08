@@ -118,8 +118,10 @@ impl Engine {
         store.interrupt_unfinished_tasks()?;
         tool::stage::recover_leftovers(&store);
         let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
+
         let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
         let catalog = with_user_providers(Catalog::load(data_dir), &credentials);
+
         let permissions = Permissions::new(Policy {
             rules: store.setting(PERMISSION_RULES_KEY)?.unwrap_or_default(),
         });
@@ -130,8 +132,10 @@ impl Engine {
         if store.setting::<bool>(AUTO_ACCEPT_ALL_KEY)?.unwrap_or(false) {
             permissions.set_auto_accept(&Hub::new(0), None, true);
         }
+
         let mcp = mcp::Servers::new(credentials.clone(), store.clone());
         let background_limit = session::tasks::stored_background_limit(&store);
+
         Ok(Arc::new_cyclic(|me| Self {
             me: me.clone(),
             data_dir: data_dir.to_path_buf(),
@@ -198,7 +202,9 @@ impl Engine {
         let Some(session) = self.store.set_session_auto_accept(session_id, on)? else {
             return Ok(None);
         };
+
         self.permissions.set_auto_accept(&self.hub, Some(session_id), on);
+
         Ok(Some(session))
     }
 
@@ -206,10 +212,11 @@ impl Engine {
     pub fn set_auto_accept_all(&self, on: bool) -> rusqlite::Result<()> {
         self.store.set_setting(AUTO_ACCEPT_ALL_KEY, &on)?;
         self.permissions.set_auto_accept(&self.hub, None, on);
+
         Ok(())
     }
 
-    /// A workspace's stored grants, any twin kept by an older build dropped.
+    /// A workspace's stored grants with duplicates from older builds removed.
     fn stored_grants(&self, workspace_id: &str) -> Vec<permission::Grant> {
         let stored: Vec<permission::Grant> = self
             .store
@@ -218,11 +225,13 @@ impl Engine {
             .flatten()
             .unwrap_or_default();
         let mut unique: Vec<permission::Grant> = Vec::with_capacity(stored.len());
+
         for grant in stored {
             if !unique.contains(&grant) {
                 unique.push(grant);
             }
         }
+
         unique
     }
 
@@ -238,6 +247,7 @@ impl Engine {
         self.store.remove_setting(&grants_key(workspace_id))?;
         self.store.remove_setting(&session::trust::key(workspace_id))?;
         self.permissions.forget_workspace(workspace_id);
+
         Ok(())
     }
 
@@ -250,6 +260,7 @@ impl Engine {
     pub fn set_permission_rules(&self, rules: Vec<permission::Rule>) -> rusqlite::Result<()> {
         self.store.set_setting(PERMISSION_RULES_KEY, &rules)?;
         self.permissions.set_policy(Policy { rules });
+
         Ok(())
     }
 
@@ -263,14 +274,16 @@ impl Engine {
     pub fn workspace_config(&self, workspace: &Path) -> config::Config {
         let mut config = config::Config::load_skipping(workspace, &self.disabled_skills());
         config.apply_overrides(&self.agent_overrides.read().unwrap());
+
         config
     }
 
-    /// Housekeeping at startup and every [`MAINTENANCE_INTERVAL`] after, for as long as the engine
-    /// lives: unreferenced snapshot content, old shell output logs and images no call names go.
+    /// Runs housekeeping at startup and every [`MAINTENANCE_INTERVAL`] until the engine drops.
+    /// Removes unreferenced snapshots and images, and expired shell output logs.
     pub async fn maintain(self: Arc<Self>) {
         let engine = Arc::downgrade(&self);
         drop(self);
+
         let mut every = tokio::time::interval(MAINTENANCE_INTERVAL);
         loop {
             every.tick().await;
@@ -283,6 +296,7 @@ impl Engine {
     pub async fn clean_up(&self) -> usize {
         self.prune_snapshots().await;
         self.prune_tool_output(TOOL_OUTPUT_RETENTION);
+
         self.store.prune_blobs().unwrap_or(0)
     }
 
@@ -301,6 +315,7 @@ impl Engine {
         let Some(deleted) = self.store.purge_removed_workspace(id)? else {
             return Ok(WorkspacePurge::InUse);
         };
+
         for session in &sessions {
             self.permissions.forget_session(session);
             self.questions.forget_session(session);
@@ -310,6 +325,7 @@ impl Engine {
             });
         }
         self.snapshots.forget(id);
+
         Ok(WorkspacePurge::Purged(deleted))
     }
 
@@ -317,11 +333,12 @@ impl Engine {
     pub fn prune_tool_output(&self, age: std::time::Duration) {
         let root = self.data_dir.join("tool-output");
         let Ok(sessions) = std::fs::read_dir(&root) else { return };
+
         for session in sessions.flatten() {
             for file in std::fs::read_dir(session.path()).into_iter().flatten().flatten() {
                 let old = file
                     .metadata()
-                    .and_then(|m| m.modified())
+                    .and_then(|metadata| metadata.modified())
                     .is_ok_and(|at| at.elapsed().is_ok_and(|elapsed| elapsed > age));
                 if old {
                     let _ = std::fs::remove_file(file.path());
@@ -337,6 +354,7 @@ impl Engine {
         let (Ok(workspaces), Ok(mut blobs)) = (self.store.workspaces(), self.store.recorded_blobs()) else {
             return;
         };
+
         for workspace in workspaces {
             let keep = blobs.remove(&workspace.id).unwrap_or_default();
             let path = tool::canonical(Path::new(&workspace.path));
@@ -356,6 +374,7 @@ impl Engine {
         {
             llm::openai::codex::shape(openai);
         }
+
         catalog
     }
 
@@ -364,6 +383,7 @@ impl Engine {
         if Catalog::cache_is_fresh(&self.data_dir) {
             return;
         }
+
         if let Ok(catalog) = Catalog::refresh(&self.http, &self.data_dir).await {
             let mut catalog = with_user_providers(catalog, &self.credentials);
             for (id, models) in self.local_models.lock().unwrap().iter() {
@@ -396,7 +416,7 @@ impl Engine {
                 .unwrap()
                 .providers
                 .get(id)
-                .and_then(|p| p.api.clone())
+                .and_then(|provider| provider.api.clone())
                 .unwrap_or_else(|| default.into());
             let found = llm::local::discover(&self.http, id, &base, &self.local_shown).await;
             self.credentials.set_keyless(id, found.is_some());
@@ -424,7 +444,7 @@ impl Engine {
 /// How a removed workspace's purge went.
 #[derive(Debug, PartialEq)]
 pub enum WorkspacePurge {
-    /// Its conversations are gone, this many.
+    /// The number of deleted conversations.
     Purged(usize),
     /// Not removed, or restored since: nothing was deleted.
     InUse,
@@ -444,6 +464,7 @@ fn with_user_providers(catalog: Catalog, credentials: &Credentials) -> Catalog {
             credentials.set_keyless(id, true);
         }
     }
+
     catalog.with_user(&user)
 }
 
@@ -504,11 +525,13 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
         starting.recover_tasks().await;
         starting.maintain().await;
     });
+
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let addr = listener.local_addr()?;
     let router = api::router(engine);
     let task = tokio::spawn(async move {
         let _ = axum::serve(listener, router).await;
     });
+
     Ok(Server { addr, task })
 }
