@@ -14,7 +14,7 @@ mod tree;
 
 pub use import::ImportCheckpoints;
 pub use mcp::Renamed;
-pub use sessions::{Admit, Admitted, Handover, NewSession, Pick, Purge, SessionFilter};
+pub use sessions::{Admission, Admit, Admitted, Handover, NewSession, Pick, Purge, SessionFilter};
 pub use staged::StagedReplacement;
 pub use tasks::{Launch, NewTask};
 

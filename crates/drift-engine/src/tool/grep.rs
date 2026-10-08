@@ -76,9 +76,15 @@ impl Tool for Grep {
             let rules = engine.permissions.compiled(&policy, &agent_policy);
             let allowed = move |path: &Path| {
                 super::read_ask(&read_root, path, "Search").is_none_or(|ask| {
-                    engine
-                        .permissions
-                        .covered_by_approval(&session, &rules, &policy, &agent_policy, &ask)
+                    engine.permissions.covered_by_approval(
+                        &session,
+                        &rules,
+                        crate::permission::Policies {
+                            workspace: &policy,
+                            agent: &agent_policy,
+                        },
+                        &ask,
+                    )
                 })
             };
             let found = tokio::task::spawn_blocking(move || {

@@ -27,6 +27,33 @@ pub struct SessionFilter<'a> {
     pub limit: usize,
 }
 
+pub struct Admission<'a> {
+    pub pick: Pick<'a>,
+    pub parts: Vec<Part>,
+    pub submission: Option<(&'a str, &'a str)>,
+    pub handover: Handover<'a>,
+}
+
+struct NewMessage<'a> {
+    session_id: &'a str,
+    role: Role,
+    model: Option<&'a ModelRef>,
+    agent: Option<&'a str>,
+    summary: bool,
+}
+
+impl<'a> NewMessage<'a> {
+    fn new(session_id: &'a str, role: Role, model: Option<&'a ModelRef>) -> Self {
+        Self {
+            session_id,
+            role,
+            model,
+            agent: None,
+            summary: false,
+        }
+    }
+}
+
 impl Store {
     pub fn create_session(&self, new: NewSession) -> rusqlite::Result<Session> {
         self.create_branch(new, None)
@@ -120,24 +147,29 @@ impl Store {
     }
 
     pub fn create_message(&self, session_id: &str, role: Role, model: Option<&ModelRef>) -> rusqlite::Result<Message> {
-        insert_message(&self.lock(), session_id, role, model, None, false)
+        insert_message(&self.lock(), NewMessage::new(session_id, role, model))
     }
 
     /// A turn's reply, marked with the agent that turn runs as, whatever the session has since switched to.
     pub fn create_reply(&self, session_id: &str, model: &ModelRef, agent: &str) -> rusqlite::Result<Message> {
         insert_message(
             &self.lock(),
-            session_id,
-            Role::Assistant,
-            Some(model),
-            Some(agent),
-            false,
+            NewMessage {
+                agent: Some(agent),
+                ..NewMessage::new(session_id, Role::Assistant, Some(model))
+            },
         )
     }
 
     /// The streaming assistant message a compaction writes its summary into.
     pub fn create_summary_message(&self, session_id: &str, model: &ModelRef) -> rusqlite::Result<Message> {
-        insert_message(&self.lock(), session_id, Role::Assistant, Some(model), None, true)
+        insert_message(
+            &self.lock(),
+            NewMessage {
+                summary: true,
+                ..NewMessage::new(session_id, Role::Assistant, Some(model))
+            },
+        )
     }
 
     pub fn save_message(&self, message: &Message) -> rusqlite::Result<()> {
@@ -782,21 +814,27 @@ impl Store {
         parts: Vec<Part>,
         submission: Option<(&str, &str)>,
     ) -> rusqlite::Result<Admitted> {
-        match self.admit_delivering(session_id, Pick::model(model), parts, submission, Handover::default())? {
+        let admission = Admission {
+            pick: Pick::model(model),
+            parts,
+            submission,
+            handover: Handover::default(),
+        };
+
+        match self.admit_delivering(session_id, admission)? {
             Admit::New(admitted) => Ok(*admitted),
             _ => Err(rusqlite::Error::QueryReturnedNoRows),
         }
     }
 
     /// [`Self::admit_prompt`] that also hands worker results over and settles a reused submission id, all in one write.
-    pub fn admit_delivering(
-        &self,
-        session_id: &str,
-        pick: Pick,
-        parts: Vec<Part>,
-        submission: Option<(&str, &str)>,
-        handover: Handover,
-    ) -> rusqlite::Result<Admit> {
+    pub fn admit_delivering(&self, session_id: &str, admission: Admission<'_>) -> rusqlite::Result<Admit> {
+        let Admission {
+            pick,
+            parts,
+            submission,
+            handover,
+        } = admission;
         let conn = self.lock();
         let Handover { delivery, held } = handover;
         transaction(&conn, |conn| {
@@ -894,7 +932,7 @@ fn admit_in(
         conn.prepare_cached("UPDATE session SET updated_at = ?2 WHERE id = ?1")?
             .execute(params![session_id, id::now_ms()])?;
     }
-    let message = insert_message(conn, session_id, Role::User, Some(model), None, false)?;
+    let message = insert_message(conn, NewMessage::new(session_id, Role::User, Some(model)))?;
     if let Some((id, hash)) = submission {
         conn.prepare_cached(
             "INSERT INTO submission(id, session_id, message_id, payload_hash, created_at) VALUES(?1, ?2, ?3, ?4, ?5)",
@@ -1064,14 +1102,15 @@ pub(super) fn transaction<T>(
 }
 
 /// `agent` defaults to the one the session runs as now.
-fn insert_message(
-    conn: &Connection,
-    session_id: &str,
-    role: Role,
-    model: Option<&ModelRef>,
-    agent: Option<&str>,
-    summary: bool,
-) -> rusqlite::Result<Message> {
+fn insert_message(conn: &Connection, new: NewMessage<'_>) -> rusqlite::Result<Message> {
+    let NewMessage {
+        session_id,
+        role,
+        model,
+        agent,
+        summary,
+    } = new;
+
     let agent = match agent {
         Some(agent) => Some(agent.to_string()),
         None => conn
@@ -1259,10 +1298,12 @@ mod admission_tests {
             store
                 .admit_delivering(
                     session,
-                    Pick::model(&model),
-                    vec![Part::Text { text: "hi".into() }],
-                    Some(("sub_1", hash)),
-                    Handover::default(),
+                    Admission {
+                        pick: Pick::model(&model),
+                        parts: vec![Part::Text { text: "hi".into() }],
+                        submission: Some(("sub_1", hash)),
+                        handover: Handover::default(),
+                    },
                 )
                 .unwrap()
         };

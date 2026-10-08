@@ -844,10 +844,12 @@ async fn a_delivery_that_already_landed_carries_no_held_result_with_it() {
         .store
         .admit_delivering(
             &h.session.id,
-            crate::store::Pick::model(&crate::session::turn::tests::model()),
-            vec![],
-            None,
-            handover,
+            crate::store::Admission {
+                pick: crate::store::Pick::model(&crate::session::turn::tests::model()),
+                parts: vec![],
+                submission: None,
+                handover,
+            },
         )
         .unwrap();
     assert!(matches!(admitted, crate::store::Admit::Delivered), "nothing written");

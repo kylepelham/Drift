@@ -180,7 +180,16 @@ fn copy_message(
     for (part, boundary) in parts {
         let copy = id::new("prt");
         if boundary {
-            copy_boundary(conn, &part, &copy, &message_id, session_id, copies)?;
+            copy_boundary(
+                conn,
+                &part,
+                BoundaryCopy {
+                    part_id: &copy,
+                    message_id: &message_id,
+                    session_id,
+                },
+                copies,
+            )?;
             continue;
         }
         conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json, provider_signature) SELECT ?1, ?2, ?3, json, provider_signature FROM part WHERE id = ?4")?.execute(params![copy, message_id, session_id, part])?;
@@ -189,12 +198,17 @@ fn copy_message(
 }
 
 /// A compaction boundary, pointed at the copy of the tail it kept.
+struct BoundaryCopy<'a> {
+    part_id: &'a str,
+    message_id: &'a str,
+    session_id: &'a str,
+}
+
+/// Copies a compaction boundary and points its tail at the corresponding copied message.
 fn copy_boundary(
     conn: &Connection,
     part: &str,
-    copy: &str,
-    message_id: &str,
-    session_id: &str,
+    destination: BoundaryCopy<'_>,
     copies: &HashMap<String, String>,
 ) -> rusqlite::Result<()> {
     let json: String = conn
@@ -205,7 +219,12 @@ fn copy_boundary(
         *tail_from = tail_from.as_ref().and_then(|tail| copies.get(tail).cloned());
     }
     conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json) VALUES(?1, ?2, ?3, ?4)")?
-        .execute(params![copy, message_id, session_id, parsed.stored()])?;
+        .execute(params![
+            destination.part_id,
+            destination.message_id,
+            destination.session_id,
+            parsed.stored()
+        ])?;
     Ok(())
 }
 

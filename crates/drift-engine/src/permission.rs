@@ -112,6 +112,25 @@ pub struct Policy {
     pub rules: Vec<Rule>,
 }
 
+#[derive(Clone, Copy)]
+pub struct Policies<'a> {
+    pub workspace: &'a Policy,
+    pub agent: &'a Policy,
+}
+
+struct CommandDecision<'a> {
+    written: &'a str,
+    canonical: Option<&'a String>,
+    default: Decision,
+}
+
+struct TargetDecision<'a> {
+    kind: &'a str,
+    targets: &'a [&'a str],
+    wildcards: bool,
+    default: Decision,
+}
+
 impl Policy {
     pub fn explicit(&self, ask: &Ask) -> Option<Decision> {
         self.rules
@@ -416,24 +435,37 @@ impl Permissions {
             return self.decide_target(
                 session_id,
                 workspace,
-                "read",
-                &ask.targets(),
-                false,
-                fallback(ask.default_allow),
+                TargetDecision {
+                    kind: "read",
+                    targets: &ask.targets(),
+                    wildcards: false,
+                    default: fallback(ask.default_allow),
+                },
             );
         }
         if ask.kind != "bash" {
             return self.decide_target(
                 session_id,
                 workspace,
-                &ask.kind,
-                &ask.targets(),
-                true,
-                fallback(ask.default_allow),
+                TargetDecision {
+                    kind: &ask.kind,
+                    targets: &ask.targets(),
+                    wildcards: true,
+                    default: fallback(ask.default_allow),
+                },
             );
         }
         let Some(commands) = &ask.commands else {
-            return self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false, Decision::Ask);
+            return self.decide_target(
+                session_id,
+                workspace,
+                TargetDecision {
+                    kind: "bash",
+                    targets: &[&ask.pattern],
+                    wildcards: false,
+                    default: Decision::Ask,
+                },
+            );
         };
         // A line `Bash::ask` judged to stay inside the workspace runs unless a rule or grant says otherwise.
         let default = fallback(ask.default_allow);
@@ -441,14 +473,31 @@ impl Permissions {
             .iter()
             .enumerate()
             .map(|(index, command)| {
-                self.decide_command(session_id, workspace, command, ask.canonical.get(index), default)
+                self.decide_command(
+                    session_id,
+                    workspace,
+                    CommandDecision {
+                        written: command,
+                        canonical: ask.canonical.get(index),
+                        default,
+                    },
+                )
             })
             .collect();
         if decisions.contains(&Decision::Deny) {
             Decision::Deny
         } else if !ask.writes.is_empty() {
             // A redirection that writes a file is judged as the whole line, never by a grant for its program.
-            self.decide_target(session_id, workspace, "bash", &[&ask.pattern], false, default)
+            self.decide_target(
+                session_id,
+                workspace,
+                TargetDecision {
+                    kind: "bash",
+                    targets: &[&ask.pattern],
+                    wildcards: false,
+                    default,
+                },
+            )
         } else if decisions.iter().all(|d| *d == Decision::Allow) {
             Decision::Allow
         } else {
@@ -458,15 +507,22 @@ impl Permissions {
 
     /// One command as written; and, for deny rules only, as it actually runs (`FOO=1 git push` is a
     /// `git push`, PowerShell's `rm` is `Remove-Item`). Approvals and allow rules see only what was written.
-    fn decide_command(
-        &self,
-        session_id: &str,
-        workspace: &Policy,
-        command: &str,
-        canonical: Option<&String>,
-        default: Decision,
-    ) -> Decision {
-        let written = self.decide_target(session_id, workspace, "bash", &[command], true, default);
+    fn decide_command(&self, session_id: &str, workspace: &Policy, decision: CommandDecision<'_>) -> Decision {
+        let CommandDecision {
+            written: command,
+            canonical,
+            default,
+        } = decision;
+        let written = self.decide_target(
+            session_id,
+            workspace,
+            TargetDecision {
+                kind: "bash",
+                targets: &[command],
+                wildcards: true,
+                default,
+            },
+        );
         let Some(canonical) = canonical.filter(|c| !c.is_empty() && c.as_str() != command) else {
             return written;
         };
@@ -482,15 +538,14 @@ impl Permissions {
 
     /// A deny rule first, so an "always" kept for the workspace never outlasts a rule added after it;
     /// then "always" answers (a subagent's parents' included); then the workspace's drift.json and the global policy.
-    fn decide_target(
-        &self,
-        session_id: &str,
-        workspace: &Policy,
-        kind: &str,
-        targets: &[&str],
-        wildcards: bool,
-        default: Decision,
-    ) -> Decision {
+    fn decide_target(&self, session_id: &str, workspace: &Policy, decision: TargetDecision<'_>) -> Decision {
+        let TargetDecision {
+            kind,
+            targets,
+            wildcards,
+            default,
+        } = decision;
+
         let global = self.policy.lock().unwrap().rules.clone();
         let rule = workspace
             .rules
@@ -554,29 +609,25 @@ impl Permissions {
     }
 
     /// A file inside a search already approved: only an explicit rule can exclude it, and an ask rule yields to a session grant.
-    pub fn covered_by_approval(
-        &self,
-        session_id: &str,
-        rules: &Compiled,
-        workspace: &Policy,
-        agent: &Policy,
-        ask: &Ask,
-    ) -> bool {
+    pub fn covered_by_approval(&self, session_id: &str, rules: &Compiled, policies: Policies<'_>, ask: &Ask) -> bool {
         match rules.explicit(ask) {
             None | Some(Decision::Allow) => true,
             Some(Decision::Deny) => false,
-            Some(Decision::Ask) => self.decide_under(session_id, workspace, agent, ask) == Decision::Allow,
+            Some(Decision::Ask) => {
+                self.decide_under(session_id, policies.workspace, policies.agent, ask) == Decision::Allow
+            }
         }
     }
 
     pub async fn check_under(
         &self,
         hub: &Hub,
-        workspace: &Policy,
-        agent: &Policy,
+        policies: Policies<'_>,
         request: Request,
         abort: &CancellationToken,
     ) -> Outcome {
+        let Policies { workspace, agent } = policies;
+
         if agent.explicit(&request.ask) == Some(Decision::Deny) {
             return Outcome::Refused;
         }

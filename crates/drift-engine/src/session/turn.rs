@@ -734,12 +734,14 @@ impl Engine {
             .collect();
         let admitted = self.store.admit_delivering(
             session_id,
-            pick,
-            parts,
-            submission,
-            Handover {
-                delivery,
-                held: carried,
+            crate::store::Admission {
+                pick,
+                parts,
+                submission,
+                handover: Handover {
+                    delivery,
+                    held: carried,
+                },
             },
         );
         for task in &held {
@@ -2462,8 +2464,10 @@ impl Engine {
             .permissions
             .check_under(
                 &self.hub,
-                &scope.plan.config.policy(),
-                &scope.plan.config.agent_policy(&scope.plan.session.agent),
+                permission::Policies {
+                    workspace: &scope.plan.config.policy(),
+                    agent: &scope.plan.config.agent_policy(&scope.plan.session.agent),
+                },
                 request,
                 scope.abort,
             )
