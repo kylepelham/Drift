@@ -6,6 +6,7 @@ import { t } from "../state/i18n"
 
 export function Titlebar() {
   const shell = shellWindow()
+  // eslint-disable-next-line solid/components-return-once -- Shell availability is fixed at webview startup.
   if (!shell) return null
   const [maximized, setMaximized] = createSignal(false)
   const [update, setUpdate] = createSignal<string | null>(null)
@@ -91,7 +92,7 @@ function WindowButton(props: { label: string; danger?: boolean; onClick: () => v
       title={props.label}
       class="flex h-full w-11 items-center justify-center text-ink-faint transition-colors"
       classList={{ "hover:bg-danger hover:text-white": props.danger, "hover:bg-raised hover:text-ink": !props.danger }}
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       <svg class="size-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2">
         {props.children}

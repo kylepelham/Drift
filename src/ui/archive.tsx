@@ -64,7 +64,7 @@ export function ArchiveModal(props: { onClose: () => void }) {
             <button
               title={t("common.close")}
               class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-              onClick={props.onClose}
+              onClick={() => props.onClose()}
             >
               <IconX />
             </button>
@@ -131,7 +131,7 @@ function ArchiveRow(props: { title: string; detail: string; icon?: JSX.Element; 
       <button
         title={t("drift.titlebar.restore")}
         class="flex size-8 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-        onClick={props.onRestore}
+        onClick={() => props.onRestore()}
       >
         <IconRestore />
       </button>

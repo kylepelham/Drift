@@ -106,8 +106,9 @@ export function PromptsSection() {
   }
 
   function saveBase(id: string) {
+    const content = baseDraft(id)
     void run(async () => {
-      setBase(await engine.actions.saveBasePrompt(id, baseDraft(id)))
+      setBase(await engine.actions.saveBasePrompt(id, content))
       setBaseDrafts(id, undefined!)
     })
   }
@@ -273,7 +274,7 @@ function ListItem(props: {
         "text-ink-muted hover:bg-raised/60 hover:text-ink": !props.active,
       }}
       aria-current={props.active ? "true" : undefined}
-      onClick={props.onSelect}
+      onClick={() => props.onSelect()}
     >
       <span class="min-w-0 flex-1 truncate">{props.label}</span>
       <Show when={props.problem}>
@@ -376,12 +377,7 @@ function AgentEditor(props: {
 }) {
   const engine = useEngine()
   const capability = () => agentModelCapability(props.agent)
-  const inherited = () =>
-    props.agent.name === "title"
-      ? t("drift.settings.agents.automaticSmallModel")
-      : props.agent.name === "compaction"
-        ? t("drift.settings.agents.currentSessionModel")
-        : t("drift.settings.agents.currentModel")
+  const inherited = () => t(inheritedModelLabel(props.agent.name))
   const models = createMemo(() => [
     { id: "", label: inherited() },
     ...agentModelOptions(engine.state, capability() ?? "tools"),
@@ -596,7 +592,7 @@ function ToolRow(props: { label: string; count?: string; on: boolean; onToggle: 
   return (
     <div
       class="flex min-h-10 cursor-pointer items-center gap-3 border-b border-edge/70 px-1 py-1.5 hover:bg-raised/40"
-      onClick={props.onToggle}
+      onClick={() => props.onToggle()}
     >
       <span class="min-w-0 flex-1 truncate text-[0.82rem] text-ink">{props.label}</span>
       <Show when={props.count}>
@@ -620,7 +616,7 @@ function Actions(props: {
         <button
           class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
           disabled={props.saving}
-          onClick={props.onReset}
+          onClick={() => props.onReset()}
         >
           {t("common.reset")}
         </button>
@@ -628,7 +624,7 @@ function Actions(props: {
       <button
         class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
         disabled={props.saving || !props.dirty}
-        onClick={props.onSave}
+        onClick={() => props.onSave()}
       >
         {t("common.save")}
       </button>
@@ -692,7 +688,7 @@ export function draftOf(config: Record<string, unknown>): AgentDraft {
     ? config.tools.filter((tool): tool is string => typeof tool === "string" && tool !== "*")
     : []
   const excluding = listed.length > 0 && listed.every((tool) => tool.startsWith("!"))
-  const toolMode: ToolMode = !listed.length ? "all" : excluding ? "except" : "only"
+  const toolMode = draftToolMode(listed, excluding)
   return {
     prompt: text(config.prompt),
     model: text(config.model),
@@ -732,4 +728,17 @@ function sameDraft(a: AgentDraft, b: AgentDraft) {
     same(a.tools, b.tools) &&
     same(a.permissions, b.permissions)
   )
+}
+
+function inheritedModelLabel(agent: string) {
+  if (agent === "title") return "drift.settings.agents.automaticSmallModel"
+  if (agent === "compaction") return "drift.settings.agents.currentSessionModel"
+
+  return "drift.settings.agents.currentModel"
+}
+
+function draftToolMode(listed: string[], excluding: boolean): ToolMode {
+  if (!listed.length) return "all"
+
+  return excluding ? "except" : "only"
 }

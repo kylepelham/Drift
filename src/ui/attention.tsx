@@ -404,13 +404,7 @@ export function QuestionCard(props: {
                   disabled={sending() || (!locked() && !questionAnswer(draft()).length)}
                   onClick={advance}
                 >
-                  {sending()
-                    ? t("drift.question.sending")
-                    : locked()
-                      ? t("session.question.retryOriginal")
-                      : step() + 1 < props.questions.length
-                        ? t("dialog.releaseNotes.action.next")
-                        : t("common.submit")}
+                  {t(questionSubmitLabel(sending(), locked(), step() + 1 < props.questions.length))}
                 </button>
               </div>
             </div>
@@ -436,6 +430,14 @@ export function selectQuestionCustom(draft: QuestionDraft, multiple: boolean): Q
 export function questionAnswer(draft: QuestionDraft) {
   const custom = draft.custom.trim()
   return [...draft.selected, ...(draft.customSelected && custom ? [custom] : [])]
+}
+
+function questionSubmitLabel(sending: boolean, locked: boolean, hasNext: boolean) {
+  if (sending) return "drift.question.sending"
+  if (locked) return "session.question.retryOriginal"
+  if (hasNext) return "dialog.releaseNotes.action.next"
+
+  return "common.submit"
 }
 
 function ChoiceMark(props: { checked: boolean; multiple: boolean }) {
@@ -467,7 +469,7 @@ function ActionButton(props: { label: string; danger?: boolean; title?: string; 
         "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": !props.danger,
         "border-danger/40 text-danger hover:bg-danger/10": props.danger,
       }}
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       {props.label}
     </button>

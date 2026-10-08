@@ -84,7 +84,7 @@ export function dragReorder(
     const others = boxes.filter((box) => box.el !== root)
     target = others.filter((box, index) => box.mid < (index < origIndex ? rectTop : rectBottom) + dy).length
     others.forEach((box, index) => {
-      const shift = index >= target && index < origIndex ? slot : index >= origIndex && index < target ? -slot : 0
+      const shift = displacedSlot(index, target, origIndex, slot)
       box.el.style.transform = shift ? `translateY(${shift / scale}px)` : ""
     })
   }
@@ -141,4 +141,11 @@ export function dragReorder(
   container?.addEventListener("scroll", update, { passive: true })
   header.addEventListener("lostpointercapture", onLostCapture)
   return () => finish(false)
+}
+
+function displacedSlot(index: number, target: number, original: number, slot: number) {
+  if (index >= target && index < original) return slot
+  if (index >= original && index < target) return -slot
+
+  return 0
 }

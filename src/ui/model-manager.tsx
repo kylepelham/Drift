@@ -61,7 +61,7 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
             <button
               title={t("common.close")}
               class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-              onClick={props.onClose}
+              onClick={() => props.onClose()}
             >
               <IconX />
             </button>

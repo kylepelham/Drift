@@ -121,7 +121,7 @@ export function HtmlPreview(props: { text: string; filename: string; path: strin
               onKeyDown={(event) => {
                 if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return
                 event.preventDefault()
-                const next = event.key === "Home" ? false : event.key === "End" ? true : !value
+                const next = sourceTabFromKey(event.key, value)
                 setSource(next)
                 event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[id="${id}-${next}"]`)?.focus()
               }}
@@ -198,4 +198,11 @@ export function HtmlPreview(props: { text: string; filename: string; path: strin
       </div>
     </div>
   )
+}
+
+function sourceTabFromKey(key: string, current: boolean) {
+  if (key === "Home") return false
+  if (key === "End") return true
+
+  return !current
 }

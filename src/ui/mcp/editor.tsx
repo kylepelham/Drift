@@ -1,5 +1,5 @@
 import { mcpConfigFromForm, mcpFormState, updatePair, type McpFormState, type McpPair } from "../../state/mcp-form"
-import { createSignal, Index, onCleanup, onMount, Show, type JSX, type Setter } from "solid-js"
+import { createSignal, Index, onCleanup, onMount, Show, untrack, type JSX, type Setter } from "solid-js"
 import { activateModal, closeOnBackdropPointerDown } from "../modal"
 import { IconPlus, IconX } from "../icons"
 import { Portal } from "solid-js/web"
@@ -18,9 +18,10 @@ export function McpEditor(props: {
   onSave: (name: string, config: McpServerConfig, readOnlyTrusted: boolean) => Promise<void>
 }) {
   let dialog!: HTMLDivElement
-  const [name, setName] = createSignal(props.server?.name ?? "")
-  const [form, setForm] = createSignal(mcpFormState(props.server?.config))
-  const [trusted, setTrusted] = createSignal(props.server?.readOnlyTrusted ?? true)
+  const initialServer = untrack(() => props.server)
+  const [name, setName] = createSignal(initialServer?.name ?? "")
+  const [form, setForm] = createSignal(mcpFormState(initialServer?.config))
+  const [trusted, setTrusted] = createSignal(initialServer?.readOnlyTrusted ?? true)
   const [error, setError] = createSignal("")
   const [submitting, setSubmitting] = createSignal(false)
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
@@ -63,7 +64,7 @@ export function McpEditor(props: {
             <button
               title={t("common.close")}
               class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-              onClick={props.onClose}
+              onClick={() => props.onClose()}
             >
               <IconX />
             </button>
@@ -351,7 +352,7 @@ function Choice(props: { active: boolean; onClick: () => void; children: JSX.Ele
       aria-pressed={props.active}
       class="min-w-0 flex-1 rounded-md px-2.5 py-1 text-xs transition-colors"
       classList={{ "bg-raised text-ink": props.active, "text-ink-faint hover:text-ink": !props.active }}
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       {props.children}
     </button>
@@ -363,7 +364,7 @@ function Button(props: { onClick: () => void; children: JSX.Element }) {
     <button
       type="button"
       class="h-8 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       {props.children}
     </button>
@@ -375,7 +376,7 @@ function AddButton(props: { label: string; onClick: () => void }) {
     <button
       type="button"
       class="flex h-8 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       <IconPlus class="size-3.5" />
       {props.label}

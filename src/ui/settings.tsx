@@ -21,13 +21,12 @@ import { PromptsSection } from "./settings-prompts"
 import { SkillsSection } from "./settings-skills"
 import { VoiceSection } from "./settings-voice"
 import { ProviderIcon } from "./provider-icon"
+import { Chevron, Toggle } from "./controls"
 import { isRemoteRuntime } from "../runtime"
 import { Portal } from "solid-js/web"
 import { useEngine } from "../engine"
 import { readDataUrl } from "./files"
 import { McpManagement } from "./mcp"
-import { Chevron } from "./controls"
-import { Toggle } from "./controls"
 import { t } from "../state/i18n"
 import { Picker } from "./picker"
 import {
@@ -397,11 +396,17 @@ export function settingsSearchResults(query: string): SettingsSearchItem[] {
     .sort((left, right) => {
       const leftTitle = normalizeSettingsSearch(left.title)
       const rightTitle = normalizeSettingsSearch(right.title)
-      const rank = (title: string) =>
-        title === value ? 0 : title.startsWith(value) ? 1 : title.includes(value) ? 2 : 3
-      return rank(leftTitle) - rank(rightTitle)
+      return settingsTitleRank(leftTitle, value) - settingsTitleRank(rightTitle, value)
     })
     .slice(0, 40)
+}
+
+function settingsTitleRank(title: string, query: string) {
+  if (title === query) return 0
+  if (title.startsWith(query)) return 1
+  if (title.includes(query)) return 2
+
+  return 3
 }
 
 const [settingsOpen, setSettingsOpen] = createSignal(false)
@@ -555,7 +560,7 @@ function SettingsModal(props: { onClose: () => void }) {
             <button
               title={t("common.close")}
               class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-              onClick={props.onClose}
+              onClick={() => props.onClose()}
             >
               <IconX />
             </button>
@@ -1297,11 +1302,7 @@ function LmStudioConnect(props: { providerName: string; onNotice: (notice: Provi
                       "border-edge text-ink-faint": !usable() && !lowContext(),
                     }}
                   >
-                    {usable()
-                      ? t("drift.lmStudio.modelReady")
-                      : lowContext()
-                        ? t("drift.lmStudio.contextTooSmall")
-                        : t("drift.lmStudio.notLoaded")}
+                    {t(lmStudioStatusLabel(usable(), lowContext()))}
                   </span>
                 </div>
               )
@@ -1499,11 +1500,7 @@ function ProviderConnect(props: {
             disabled={pending() !== null || !key().trim()}
             onClick={() => void connectApi()}
           >
-            {pending() === "connect"
-              ? t("provider.connect.status.inProgress")
-              : props.connected
-                ? t("common.save")
-                : t("common.connect")}
+            {t(providerConnectLabel(pending() === "connect", props.connected))}
           </button>
         </div>
       </Show>
@@ -1595,7 +1592,7 @@ function AuthorizationHint(props: {
         <button class={link} onClick={copyLink}>
           {copied() ? t("drift.provider.linkCopied") : t("drift.provider.copyLink")}
         </button>
-        <button class={link} onClick={props.onCancel}>
+        <button class={link} onClick={() => props.onCancel()}>
           {t("common.cancel")}
         </button>
       </div>
@@ -1607,15 +1604,15 @@ function KeybindsSection() {
   const [capturing, setCapturing] = createSignal<KeybindAction | null>(null)
 
   createEffect(() => {
-    const action = capturing()
-    if (!action) return
+    const initialAction = capturing()
+    if (!initialAction) return
     const capture = (event: KeyboardEvent) => {
       event.preventDefault()
       event.stopPropagation()
       if (event.key === "Escape") return setCapturing(null)
       const combo = eventCombo(event)
       if (!combo) return
-      setCombo(action, combo)
+      setCombo(initialAction, combo)
       setCapturing(null)
     }
     document.addEventListener("keydown", capture, true)
@@ -1636,11 +1633,7 @@ function KeybindsSection() {
               }}
               onClick={() => setCapturing(capturing() === def.action ? null : def.action)}
             >
-              {capturing() === def.action
-                ? `${t("settings.shortcuts.pressKeys")}...`
-                : comboFor(def.action)
-                  ? formatCombo(comboFor(def.action))
-                  : t("settings.shortcuts.unassigned")}
+              {shortcutLabel(capturing() === def.action, def.action)}
             </button>
             <button
               title={t("settings.shortcuts.unassigned")}
@@ -1684,21 +1677,9 @@ function AboutSection() {
         </SettingsRow>
         <SettingsRow
           title={t("drift.about.row.updates.title")}
-          description={
-            updateSupported() === undefined
-              ? t("drift.about.starting")
-              : updateSupported()
-                ? t("drift.about.row.updates.installed")
-                : t("drift.about.row.updates.local")
-          }
+          description={t(updateSupportLabel(updateSupported(), true))}
         >
-          <span class="text-[0.75rem] text-ink-muted">
-            {updateSupported() === undefined
-              ? t("common.loading")
-              : updateSupported()
-                ? t("drift.about.updates.available")
-                : t("drift.about.updates.unavailable")}
-          </span>
+          <span class="text-[0.75rem] text-ink-muted">{t(updateSupportLabel(updateSupported(), false))}</span>
         </SettingsRow>
         <Show when={engine.state.startupError}>
           <div class="px-1 py-2.5 text-[0.72rem] leading-relaxed text-danger">{engine.state.startupError}</div>
@@ -2025,35 +2006,39 @@ function FontField(props: { label: string; value: string; onInput: (value: strin
 }
 
 function SectionIcon(props: { section: Section }) {
+  const icons = {
+    General: IconSliders,
+    Appearance: IconPalette,
+    Code: IconCode,
+    Notifications: IconBell,
+    Voice: IconMic,
+    Shortcuts: IconKeyboard,
+    Tools: IconSliders,
+    Providers: IconChip,
+    Usage: IconGauge,
+    MCP: IconShieldCheck,
+    Skills: IconSparkles,
+    Plugins: IconPlug,
+    Prompts: IconCode,
+    Permissions: IconShieldCheck,
+    Storage: IconArchive,
+    "Remote Access": IconShieldCheck,
+    About: IconInfo,
+  }
   const icon = () => {
-    if (props.section === "General") return <IconSliders />
-    if (props.section === "Appearance") return <IconPalette />
-    if (props.section === "Code") return <IconCode />
-    if (props.section === "Notifications") return <IconBell />
-    if (props.section === "Voice") return <IconMic />
-    if (props.section === "Shortcuts") return <IconKeyboard />
-    if (props.section === "Tools") return <IconSliders />
-    if (props.section === "Providers") return <IconChip />
-    if (props.section === "Usage") return <IconGauge />
-    if (props.section === "MCP") return <IconShieldCheck />
-    if (props.section === "Skills") return <IconSparkles />
-    if (props.section === "Plugins") return <IconPlug />
-    if (props.section === "Prompts") return <IconCode />
-    if (props.section === "Permissions") return <IconShieldCheck />
-    if (props.section === "Storage") return <IconArchive />
-    if (props.section === "Remote Access") return <IconShieldCheck />
-    return <IconInfo />
+    const Component = icons[props.section] ?? IconInfo
+    return <Component />
   }
   return <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">{icon()}</span>
 }
 
 function ThemeRow(props: { name: ThemeName }) {
-  const meta = themeMeta[props.name]
+  const meta = () => themeMeta[props.name]
   const active = () => theme() === props.name
   const swatch = () =>
     props.name === "drift-custom"
       ? ([customTheme().background, customTheme().surface, customTheme().accent] as [string, string, string])
-      : meta.swatch
+      : meta().swatch
   return (
     <button
       class="flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors"
@@ -2074,11 +2059,38 @@ function ThemeRow(props: { name: ThemeName }) {
         </For>
       </span>
       <span class="min-w-0 flex-1 truncate text-sm" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
-        {t(meta.label)}
+        {t(meta().label)}
       </span>
       <Show when={active()}>
         <IconCheck class="size-4 shrink-0 text-accent" />
       </Show>
     </button>
   )
+}
+
+function lmStudioStatusLabel(usable: boolean, lowContext: boolean) {
+  if (usable) return "drift.lmStudio.modelReady"
+  if (lowContext) return "drift.lmStudio.contextTooSmall"
+
+  return "drift.lmStudio.notLoaded"
+}
+
+function providerConnectLabel(connecting: boolean, connected: boolean) {
+  if (connecting) return "provider.connect.status.inProgress"
+
+  return connected ? "common.save" : "common.connect"
+}
+
+function shortcutLabel(capturing: boolean, action: KeybindAction) {
+  if (capturing) return `${t("settings.shortcuts.pressKeys")}...`
+
+  const combo = comboFor(action)
+  return combo ? formatCombo(combo) : t("settings.shortcuts.unassigned")
+}
+
+function updateSupportLabel(supported: boolean | undefined, description: boolean) {
+  if (supported === undefined) return description ? "drift.about.starting" : "common.loading"
+  if (description) return supported ? "drift.about.row.updates.installed" : "drift.about.row.updates.local"
+
+  return supported ? "drift.about.updates.available" : "drift.about.updates.unavailable"
 }

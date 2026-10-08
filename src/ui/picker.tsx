@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show, untrack, type JSX } from "solid-js"
 import { createDismissOnOutside } from "./dismiss"
 import { fixedMenuPosition } from "../state/zoom"
 import { Portal } from "solid-js/web"
@@ -71,7 +71,7 @@ export function Picker(props: {
     enabled: open,
     inside: () => [root, panel],
     onDismiss: () => setOpen(false),
-    resize: props.floating,
+    resize: untrack(() => props.floating),
   })
 
   const pick = (id: string) => {

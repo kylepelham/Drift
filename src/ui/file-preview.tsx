@@ -69,10 +69,7 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
         setLoaded(result)
       })
       .catch((cause: unknown) => {
-        if (!disposed)
-          setError(
-            cause instanceof Error ? cause.message : typeof cause === "string" ? cause : t("drift.preview.error"),
-          )
+        if (!disposed) setError(previewError(cause))
       })
   })
 
@@ -81,9 +78,7 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
     try {
       await openFile(props.file.path, { line: props.file.line, column: props.file.column, editorOnly: true })
     } catch (cause) {
-      setEditorError(
-        cause instanceof Error ? cause.message : typeof cause === "string" ? cause : t("drift.preview.error"),
-      )
+      setEditorError(previewError(cause))
     }
   }
 
@@ -259,4 +254,11 @@ function TablePreview(props: { text: string; path: string }) {
       </table>
     </div>
   )
+}
+
+function previewError(cause: unknown) {
+  if (cause instanceof Error) return cause.message
+  if (typeof cause === "string") return cause
+
+  return t("drift.preview.error")
 }

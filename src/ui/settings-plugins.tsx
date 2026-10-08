@@ -226,7 +226,7 @@ function PluginRow(props: {
           title={props.confirming ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
           aria-label={props.confirming ? t("drift.plugins.confirmRemove") : t("drift.plugins.remove")}
           class="flex items-center gap-1 rounded-md border border-danger/40 px-2 py-1 text-xs text-danger hover:bg-danger/10 disabled:opacity-40"
-          onClick={props.onRemove}
+          onClick={() => props.onRemove()}
         >
           {props.confirming ? t("drift.plugins.confirmRemove") : <IconTrash class="size-3.5" />}
         </button>
@@ -236,7 +236,7 @@ function PluginRow(props: {
           title={t("common.edit")}
           aria-label={t("common.edit")}
           class="flex items-center rounded-md border border-edge px-2 py-1 text-xs text-ink-muted hover:text-ink disabled:opacity-40"
-          onClick={props.onEdit}
+          onClick={() => props.onEdit()}
         >
           <IconSquarePen class="size-3.5" />
         </button>
@@ -296,6 +296,10 @@ function PluginRegistry(props: {
     ),
   )
   const installed = (plugin: RegistryPlugin) => props.installed.has(installedPath(plugin.id))
+
+  async function installSelected(plugin: RegistryPlugin, config: Record<string, unknown>) {
+    if (await props.onInstall(plugin, config)) setSelected()
+  }
 
   return (
     <Show when={!sourcesOpen()} fallback={<RegistrySourcesSheet kind="plugins" onBack={closeSources} />}>
@@ -399,9 +403,7 @@ function PluginRegistry(props: {
             disabled={props.disabled}
             busy={props.busy === plugin().id}
             onBack={() => setSelected()}
-            onInstall={async (config) => {
-              if (await props.onInstall(plugin(), config)) setSelected()
-            }}
+            onInstall={(config) => installSelected(plugin(), config)}
           />
         )}
       </Show>
@@ -414,7 +416,7 @@ function RegistryCard(props: { plugin: RegistryPlugin; installed: boolean; onOpe
     <button
       type="button"
       class="group flex min-w-0 flex-col gap-2 rounded-lg border border-edge bg-surface p-3 text-left transition-colors hover:border-edge-strong hover:bg-raised/40 focus-visible:border-accent focus-visible:outline-none"
-      onClick={props.onOpen}
+      onClick={() => props.onOpen()}
     >
       <div class="flex min-w-0 items-start gap-2.5">
         <LogoTile image={props.plugin.image} title={props.plugin.name} />
@@ -543,7 +545,7 @@ function EditSheet(props: {
       : JSON.parse(raw())
   return (
     <div class="space-y-4">
-      <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={props.onBack}>
+      <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={() => props.onBack()}>
         <IconArrowUp class="size-3.5 -rotate-90" />
         {t("drift.mcp.registry.back")}
       </button>
@@ -576,7 +578,7 @@ function EditSheet(props: {
         <ConfigFields fields={props.registry!.config} typed={typed()} onTyped={setTyped} values={stored()} />
       </Show>
       <div class="flex items-center justify-end gap-2">
-        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>
+        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={() => props.onBack()}>
           {t("common.cancel")}
         </button>
         <button
@@ -602,7 +604,7 @@ function InstallSheet(props: {
   const [typed, setTyped] = createSignal<Record<string, string>>({})
   return (
     <div class="space-y-4">
-      <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={props.onBack}>
+      <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={() => props.onBack()}>
         <IconArrowUp class="size-3.5 -rotate-90" />
         {t("drift.mcp.registry.back")}
       </button>
@@ -636,7 +638,7 @@ function InstallSheet(props: {
       </Show>
 
       <div class="flex items-center justify-end gap-2">
-        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>
+        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={() => props.onBack()}>
           {t("common.cancel")}
         </button>
         <button
@@ -645,13 +647,7 @@ function InstallSheet(props: {
           onClick={() => void props.onInstall(buildConfig(props.plugin.config, typed()))}
         >
           {props.installed ? <IconCheck class="size-3.5" /> : <IconPlus class="size-3.5" />}
-          {t(
-            props.installed
-              ? "drift.plugins.installedLabel"
-              : props.busy
-                ? "drift.plugins.installing"
-                : "drift.plugins.install",
-          )}
+          {t(pluginInstallLabel(props.installed, props.busy))}
         </button>
       </div>
     </div>
@@ -680,7 +676,7 @@ export function Tab(props: { active: boolean; onClick: () => void; children: JSX
       aria-pressed={props.active}
       class="min-w-0 flex-1 rounded-md px-2.5 py-1.5 text-xs"
       classList={{ "bg-raised text-ink": props.active, "text-ink-faint hover:text-ink": !props.active }}
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       {props.children}
     </button>
@@ -689,4 +685,11 @@ export function Tab(props: { active: boolean; onClick: () => void; children: JSX
 
 function formatSize(bytes: number) {
   return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`
+}
+
+function pluginInstallLabel(installed: boolean, busy: boolean) {
+  if (installed) return "drift.plugins.installedLabel"
+  if (busy) return "drift.plugins.installing"
+
+  return "drift.plugins.install"
 }

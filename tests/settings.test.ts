@@ -1,3 +1,4 @@
+import "./source"
 import { expect, test } from "bun:test"
 
 const settingsStorage = new Map<string, string>()
@@ -84,8 +85,9 @@ test("base prompts and agents are one Server setting, with inherited values styl
 test("model-family base prompts are edited and reset in the engine, never through the shell's family overrides", async () => {
   const settings = await Bun.file("src/ui/settings.tsx").text()
   const editor = await Bun.file("src/ui/settings-prompts.tsx").text()
-  expect(editor).toContain("engine.actions.saveBasePrompt(id, baseDraft(id))")
-  expect(editor).toContain("engine.actions.resetBasePrompt(id)")
+  expect(editor).toContainCode("const content = baseDraft(id)")
+  expect(editor).toContainCode("engine.actions.saveBasePrompt(id, content)")
+  expect(editor).toContainCode("engine.actions.resetBasePrompt(id)")
   expect(editor).not.toContain("readOnly")
   expect(settings).not.toContain("`family:")
   expect(settings).not.toContain("familyUnavailable")

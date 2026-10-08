@@ -467,8 +467,8 @@ function Tab(props: {
       aria-pressed={props.active}
       class="min-w-0 flex-1 rounded-md px-2.5 py-1.5 text-xs"
       classList={{ "bg-raised text-ink": props.active, "text-ink-faint hover:text-ink": !props.active }}
-      onClick={props.onClick}
-      onKeyDown={props.onKeyDown}
+      onClick={() => props.onClick()}
+      onKeyDown={(event) => props.onKeyDown?.(event)}
     >
       {props.children}
     </button>

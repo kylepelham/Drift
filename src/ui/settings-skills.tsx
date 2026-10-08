@@ -356,6 +356,10 @@ function SkillRegistry(props: {
     ),
   )
 
+  async function installSelected(pack: RegistryPlugin, chosen: string[]) {
+    if (await props.onInstall(pack, chosen)) setSelected()
+  }
+
   return (
     <Show when={!sourcesOpen()} fallback={<RegistrySourcesSheet kind="plugins" onBack={closeSources} />}>
       <Show
@@ -465,9 +469,7 @@ function SkillRegistry(props: {
             disabled={props.disabled}
             busy={props.busy === pack().id}
             onBack={() => setSelected()}
-            onInstall={async (chosen) => {
-              if (await props.onInstall(pack(), chosen)) setSelected()
-            }}
+            onInstall={(chosen) => installSelected(pack(), chosen)}
           />
         )}
       </Show>
@@ -500,7 +502,7 @@ function PackSheet(props: {
   const everyOn = () => off().size === 0
   return (
     <div class="space-y-4">
-      <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={props.onBack}>
+      <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={() => props.onBack()}>
         <IconArrowUp class="size-3.5 -rotate-90" />
         {t("drift.mcp.registry.back")}
       </button>
@@ -566,7 +568,7 @@ function PackSheet(props: {
         {t("drift.plugins.packNote", { folder: `${skillsFolder}/${props.pack.id}` })}
       </div>
       <div class="flex items-center justify-end gap-2">
-        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>
+        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={() => props.onBack()}>
           {t("common.cancel")}
         </button>
         <button
@@ -575,15 +577,16 @@ function PackSheet(props: {
           onClick={() => void props.onInstall(chosen())}
         >
           {props.installed ? <IconCheck class="size-3.5" /> : <IconPlus class="size-3.5" />}
-          {t(
-            props.busy
-              ? "drift.plugins.installing"
-              : props.installed
-                ? "drift.skills.reinstall"
-                : "drift.plugins.install",
-          )}
+          {t(packInstallLabel(props.busy, props.installed))}
         </button>
       </div>
     </div>
   )
+}
+
+function packInstallLabel(busy: boolean, installed: boolean) {
+  if (busy) return "drift.plugins.installing"
+  if (installed) return "drift.skills.reinstall"
+
+  return "drift.plugins.install"
 }

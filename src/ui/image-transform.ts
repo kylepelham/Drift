@@ -34,6 +34,13 @@ export function containImage(view: ImageTransform, image: ImageSize, viewport: I
 }
 
 export function imageWheelScale(delta: number, mode: number, height: number) {
-  const pixels = delta * (mode === 1 ? 16 : mode === 2 ? height : 1)
+  const pixels = delta * wheelUnit(mode, height)
   return Math.exp(-Math.max(-500, Math.min(500, pixels)) * 0.002)
+}
+
+function wheelUnit(mode: number, height: number) {
+  if (mode === 1) return 16
+  if (mode === 2) return height
+
+  return 1
 }

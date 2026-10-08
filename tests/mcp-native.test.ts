@@ -1,3 +1,4 @@
+import "./source"
 import { mcpConfigFromForm, mcpFormState, mcpRemoteUrlAllowed, updatePair } from "../src/state/mcp-form"
 import { expect, test } from "bun:test"
 import {
@@ -542,7 +543,8 @@ test("a row has one switch and a connect button that stays in place; read-only t
   expect(manager).toContain("disabled={props.disabled || !runtime()}")
   expect(manager).toContain("mcpSave(name, config, { create: !previous, readOnlyTrusted, directory: here() })")
   const editor = await Bun.file("src/ui/mcp/editor.tsx").text()
-  expect(editor).toContain("createSignal(props.server?.readOnlyTrusted ?? true)")
+  expect(editor).toContainCode("const initialServer = untrack(() => props.server)")
+  expect(editor).toContainCode("createSignal(initialServer?.readOnlyTrusted ?? true)")
   expect(editor).toContain('label={t("drift.mcp.readOnlyTrusted")}')
 })
 

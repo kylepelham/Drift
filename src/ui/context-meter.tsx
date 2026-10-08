@@ -132,8 +132,12 @@ export function ContextSection(props: { sessionId: string }) {
 function BreakdownBar(props: { segments: BreakdownSegment[]; context: number }) {
   const [hovered, setHovered] = createSignal<number>()
   const share = (tokens: number) => (tokens / props.context) * 100
-  const offset = (index: number) =>
-    props.segments.slice(0, index).reduce((sum, segment) => sum + share(segment.tokens), 0)
+  const offset = (index: number) => {
+    let sum = 0
+    for (const segment of props.segments.slice(0, index)) sum += share(segment.tokens)
+
+    return sum
+  }
   const tip = () => {
     const index = hovered()
     const segment = index === undefined ? undefined : props.segments[index]

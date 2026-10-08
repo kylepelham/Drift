@@ -1,9 +1,9 @@
 import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces"
 import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen } from "../state/navigation"
 import { listenOpencodeImport, opencodeImport } from "../state/opencode-import"
+import { createSignal, For, onCleanup, Show, untrack } from "solid-js"
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons"
 import { selectedSession, selectSession } from "../state/selection"
-import { createSignal, For, onCleanup, Show } from "solid-js"
 import { normalizeDir } from "../engine/store"
 import { pickFolder } from "../state/dialog"
 import { persisted } from "../state/persist"
@@ -47,7 +47,7 @@ export function Sidebar() {
   const [moveStatus, setMoveStatus] = createSignal<{ error: boolean; text: string } | null>(null)
   const [width, setWidth] = createSignal(clampSidebarWidth(storedSidebarWidth()))
   let resizeStartX = 0
-  let resizeStartWidth = width()
+  let resizeStartWidth = untrack(width)
   let resizeScale = 1
 
   async function add() {
@@ -109,7 +109,7 @@ export function Sidebar() {
   }
 
   function resizeWithKeyboard(event: KeyboardEvent) {
-    const direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0
+    const direction = resizeDirection(event.key)
     if (!direction) return
     event.preventDefault()
     const next = clampSidebarWidth(width() + direction * 16)
@@ -294,7 +294,7 @@ function SidebarFooter(props: { onSettings: () => void }) {
       <button
         data-sidebar-navigation
         class="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-ink-muted transition-colors hover:bg-raised hover:text-ink"
-        onClick={props.onSettings}
+        onClick={() => props.onSettings()}
       >
         <IconGear />
         <span>{t("sidebar.settings")}</span>
@@ -314,4 +314,11 @@ function SidebarFooter(props: { onSettings: () => void }) {
 function shortPath(path: string) {
   const parts = path.replaceAll("\\", "/").split("/").filter(Boolean)
   return parts.slice(-2).join("/") || path
+}
+
+function resizeDirection(key: string) {
+  if (key === "ArrowLeft") return -1
+  if (key === "ArrowRight") return 1
+
+  return 0
 }

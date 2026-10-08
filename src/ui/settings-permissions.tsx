@@ -7,6 +7,7 @@ import { t } from "../state/i18n"
 import { Picker } from "./picker"
 
 import type { PermissionGrant, PermissionRule } from "../engine/native/client"
+import type { JSX } from "solid-js"
 
 /** The kinds tools ask with; `*` covers them all. */
 export const permissionKinds = [
@@ -365,7 +366,7 @@ export function AddRule(props: { disabled?: boolean; onAdd: () => void }) {
     <button
       class="flex h-8 items-center gap-1.5 rounded-md border border-edge px-2.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
       disabled={props.disabled}
-      onClick={props.onAdd}
+      onClick={() => props.onAdd()}
     >
       <IconPlus class="size-3.5" />
       {t("drift.permissions.add")}
@@ -373,12 +374,7 @@ export function AddRule(props: { disabled?: boolean; onAdd: () => void }) {
   )
 }
 
-function RowButton(props: {
-  title: string
-  disabled?: boolean
-  onClick: () => void
-  children: import("solid-js").JSX.Element
-}) {
+function RowButton(props: { title: string; disabled?: boolean; onClick: () => void; children: JSX.Element }) {
   return (
     <button
       type="button"
@@ -386,7 +382,7 @@ function RowButton(props: {
       aria-label={props.title}
       disabled={props.disabled}
       class="flex size-8 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-30"
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       {props.children}
     </button>

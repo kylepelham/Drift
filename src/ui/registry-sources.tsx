@@ -14,6 +14,8 @@ import {
   type SourceKind,
 } from "../state/registry-sources"
 
+import type { JSX } from "solid-js"
+
 const sourceKinds: SourceKind[] = ["url", "github", "azure_devops", "folder"]
 
 type Draft = {
@@ -346,13 +348,13 @@ function SourceForm(props: {
         </Show>
       </div>
       <div class="flex items-center justify-end gap-2">
-        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onCancel}>
+        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={() => props.onCancel()}>
           {t("common.cancel")}
         </button>
         <button
           class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink disabled:opacity-40"
           disabled={!canSave()}
-          onClick={props.onSave}
+          onClick={() => props.onSave()}
         >
           {t(props.busy ? "drift.plugins.saving" : "common.save")}
         </button>
@@ -364,7 +366,7 @@ function SourceForm(props: {
 const input =
   "h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-xs text-ink outline-none placeholder:text-ink-faint focus:border-accent"
 
-function Field(props: { label: string; hint?: string; problem?: string; children: import("solid-js").JSX.Element }) {
+function Field(props: { label: string; hint?: string; problem?: string; children: JSX.Element }) {
   return (
     <label class="block space-y-1">
       <div class="text-xs font-medium text-ink">{props.label}</div>

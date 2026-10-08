@@ -35,6 +35,7 @@ import {
   Show,
   Switch,
   For,
+  untrack,
   type JSX,
 } from "solid-js"
 
@@ -557,8 +558,8 @@ export function SessionMenu(props: {
 
 export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () => void }) {
   let dialog!: HTMLDivElement
-  const [name, setName] = createSignal(props.workspace.name)
-  const [icon, setIcon] = createSignal(props.workspace.icon)
+  const [name, setName] = createSignal(untrack(() => props.workspace.name))
+  const [icon, setIcon] = createSignal(untrack(() => props.workspace.icon))
   onMount(() => onCleanup(activateModal(dialog, props.onClose)))
 
   async function save() {
@@ -626,7 +627,7 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
         <div class="flex justify-end gap-2">
           <button
             class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
-            onClick={props.onClose}
+            onClick={() => props.onClose()}
           >
             {t("common.cancel")}
           </button>
@@ -652,7 +653,7 @@ function MenuItem(props: { label: string; danger?: boolean; disabled?: boolean; 
         "cursor-default text-ink-faint": props.disabled,
       }}
       disabled={props.disabled}
-      onClick={props.onClick}
+      onClick={() => props.onClick()}
     >
       {props.label}
     </button>

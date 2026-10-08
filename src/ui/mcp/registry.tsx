@@ -1,6 +1,6 @@
 import { IconArrowUp, IconArrowUpRight, IconCheck, IconKey, IconPlus, IconSearch, IconSliders } from "../icons"
+import { createMemo, createSignal, For, onCleanup, onMount, Show, untrack, type JSX } from "solid-js"
 import { loadRegistrySources, registrySources, sourcesOf } from "../../state/registry-sources"
-import { createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { RegistrySourcesSheet } from "../registry-sources"
 import { openExternal } from "../../shell"
 import { useEngine } from "../../engine"
@@ -125,6 +125,10 @@ export function McpRegistry(props: {
   const visible = createMemo(() => popular().filter(matches))
   const extra = createMemo(() => more().filter(matches))
   const installed = (server: RegistryServer) => props.installed.has(registryInstallName(server))
+
+  async function installSelected(server: RegistryServer, config: McpServerConfig) {
+    if (await props.onInstall(server, config)) setSelected()
+  }
 
   return (
     <Show when={!sourcesOpen()} fallback={<RegistrySourcesSheet kind="mcp" onBack={closeSources} />}>
@@ -267,9 +271,7 @@ export function McpRegistry(props: {
             installed={installed(entry().server)}
             disabled={props.disabled}
             onBack={() => setSelected()}
-            onInstall={async (config) => {
-              if (await props.onInstall(entry().server, config)) setSelected()
-            }}
+            onInstall={(config) => installSelected(entry().server, config)}
           />
         )}
       </Show>
@@ -283,7 +285,7 @@ function RegistryCard(props: { entry: Entry; installed: boolean; onOpen: () => v
     <button
       type="button"
       class="group flex min-w-0 flex-col gap-2 rounded-lg border border-edge bg-surface p-3 text-left transition-colors hover:border-edge-strong hover:bg-raised/40 focus-visible:border-accent focus-visible:outline-none"
-      onClick={props.onOpen}
+      onClick={() => props.onOpen()}
     >
       <div class="flex min-w-0 items-start gap-2.5">
         <LogoTile image={server().listing?.image} title={title(server())} />
@@ -313,7 +315,7 @@ function InstallSheet(props: {
   onInstall: (config: McpServerConfig) => Promise<void>
 }) {
   const server = () => props.entry.server
-  const [optionId, setOptionId] = createSignal(preferredOption(props.entry.options)?.id ?? "")
+  const [optionId, setOptionId] = createSignal(untrack(() => preferredOption(props.entry.options)?.id ?? ""))
   const [values, setValues] = createSignal<Record<string, string>>({})
   const [busy, setBusy] = createSignal(false)
   const option = () => props.entry.options.find((item) => item.id === optionId()) ?? props.entry.options[0]
@@ -321,7 +323,7 @@ function InstallSheet(props: {
   const listing = () => server().listing
   return (
     <div class="space-y-4">
-      <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={props.onBack}>
+      <button class="flex items-center gap-1.5 text-xs text-ink-faint hover:text-ink" onClick={() => props.onBack()}>
         <IconArrowUp class="size-3.5 -rotate-90" />
         {t("drift.mcp.registry.back")}
       </button>
@@ -408,7 +410,7 @@ function InstallSheet(props: {
         )}
       </Show>
       <div class="flex items-center justify-end gap-2">
-        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={props.onBack}>
+        <button class="rounded-md px-3 py-1.5 text-xs text-ink-muted hover:text-ink" onClick={() => props.onBack()}>
           {t("common.cancel")}
         </button>
         <button
@@ -426,13 +428,7 @@ function InstallSheet(props: {
           }}
         >
           {props.installed ? <IconCheck class="size-3.5" /> : <IconPlus class="size-3.5" />}
-          {t(
-            props.installed
-              ? "drift.mcp.installedLabel"
-              : busy()
-                ? "drift.mcp.registry.installing"
-                : "drift.mcp.install",
-          )}
+          {t(installLabel(props.installed, busy()))}
         </button>
       </div>
     </div>
@@ -441,6 +437,13 @@ function InstallSheet(props: {
 
 function title(server: RegistryServer) {
   return server.title ?? server.name.split("/").at(-1) ?? server.name
+}
+
+function installLabel(installed: boolean, busy: boolean) {
+  if (installed) return "drift.mcp.installedLabel"
+  if (busy) return "drift.mcp.registry.installing"
+
+  return "drift.mcp.install"
 }
 
 function Byline(props: { server: RegistryServer }) {
