@@ -213,7 +213,8 @@ mod tests {
                     .push(request.split("\r\n\r\n").nth(1).unwrap_or_default().to_string());
                 let text = body.to_string();
                 let reply = format!(
-                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                    "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\n\
+                     content-length: {}\r\nconnection: close\r\n\r\n{text}",
                     text.len()
                 );
                 socket.write_all(reply.as_bytes()).await.unwrap();
@@ -236,7 +237,14 @@ mod tests {
     #[tokio::test]
     async fn a_device_code_is_started_and_shows_the_code_and_the_page_to_open() {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let answer = serde_json::json!({ "device_code": "dev", "user_code": "WXYZ-9876", "verification_uri": "https://accounts.x.ai/device", "verification_uri_complete": "https://accounts.x.ai/device?code=WXYZ-9876", "interval": 0, "expires_in": 600 });
+        let answer = serde_json::json!({
+            "device_code": "dev",
+            "user_code": "WXYZ-9876",
+            "verification_uri": "https://accounts.x.ai/device",
+            "verification_uri_complete": "https://accounts.x.ai/device?code=WXYZ-9876",
+            "interval": 0,
+            "expires_in": 600
+        });
         let (url, seen) = endpoint(vec![(200, answer)]).await;
         let started = start_at(&reqwest::Client::new(), &url).await.unwrap();
         assert_eq!(

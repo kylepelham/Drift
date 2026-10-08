@@ -89,11 +89,27 @@ mod tests {
         seen.lock().unwrap().last().unwrap().2.clone()
     }
 
+    /// What the stand-in streams for Claude: one text block, then the stop.
+    const CLAUDE_SSE: &str = "event: content_block_start\n\
+        data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+        event: content_block_delta\n\
+        data: {\"type\":\"content_block_delta\",\"index\":0,\
+        \"delta\":{\"type\":\"text_delta\",\"text\":\"claude on vertex\"}}\n\n\
+        event: message_delta\n\
+        data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\
+        \"usage\":{\"output_tokens\":3}}\n\n";
+
+    /// What the stand-in streams for Gemini: one finished text candidate.
+    const GEMINI_SSE: &str = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"gemini on vertex\"}]},\
+        \"finishReason\":\"STOP\"}]}\n\n";
+
     /// A local stand-in for Vertex that answers each publisher with its own SSE and records the paths.
     async fn fake() -> (String, Seen) {
         use axum::extract::{OriginalUri, State};
+        use axum::http::HeaderMap;
+
         let seen: Seen = Default::default();
-        let handler = |State(seen): State<Seen>, OriginalUri(uri): OriginalUri, headers: axum::http::HeaderMap| async move {
+        let handler = |State(seen): State<Seen>, OriginalUri(uri): OriginalUri, headers: HeaderMap| async move {
             let auth = headers
                 .get("authorization")
                 .and_then(|v| v.to_str().ok())
@@ -106,9 +122,9 @@ mod tests {
                 .to_string();
             seen.lock().unwrap().push((uri.to_string(), auth, beta));
             let body = if uri.path().contains("/publishers/anthropic/") {
-                "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"claude on vertex\"}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":3}}\n\n"
+                CLAUDE_SSE
             } else {
-                "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"gemini on vertex\"}]},\"finishReason\":\"STOP\"}]}\n\n"
+                GEMINI_SSE
             };
             ([("content-type", "text/event-stream")], body)
         };
@@ -156,13 +172,14 @@ mod tests {
             .await;
         assert_eq!(texts(gemini), "gemini on vertex");
         let seen = recorded.lock().unwrap().clone();
+        let publishers = "/v1/projects/proj/locations/us-east5/publishers";
         assert_eq!(
             seen[0].0,
-            "/v1/projects/proj/locations/us-east5/publishers/anthropic/models/claude-sonnet-4-5@20250929:streamRawPredict"
+            format!("{publishers}/anthropic/models/claude-sonnet-4-5@20250929:streamRawPredict")
         );
         assert_eq!(
             seen[1].0,
-            "/v1/projects/proj/locations/us-east5/publishers/google/models/gemini-3.6-flash:streamGenerateContent?alt=sse"
+            format!("{publishers}/google/models/gemini-3.6-flash:streamGenerateContent?alt=sse")
         );
         assert!(seen.iter().all(|(_, auth, _)| auth == "Bearer tok"));
         assert!(seen.iter().all(|(_, _, beta)| beta.is_empty()), "no budget, no beta");

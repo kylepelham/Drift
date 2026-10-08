@@ -326,9 +326,8 @@ mod tests {
     fn unknown_frames_and_http_errors_keep_their_classification() {
         let unknown = first_error(&frame(&[(":message-type", "surprise")], b"{}"));
         assert!(matches!(unknown, Error::Malformed(_)));
-        assert!(
-            matches!(api_error(403, "", r#"{"message":"no access"}"#), Error::Unauthenticated(ref m) if m == "no access")
-        );
+        let denied = api_error(403, "", r#"{"message":"no access"}"#);
+        assert!(matches!(denied, Error::Unauthenticated(ref m) if m == "no access"));
         assert_eq!(
             retryable(&api_error(400, "ThrottlingException", r#"{"message":"slow"}"#)),
             Some((400, false)),

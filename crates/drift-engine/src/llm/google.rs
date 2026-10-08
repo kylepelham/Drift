@@ -284,7 +284,12 @@ mod tests {
 
     #[test]
     fn a_service_account_signs_an_rs256_assertion() {
-        let file = json!({ "type": "service_account", "client_email": "drift@example.iam.gserviceaccount.com", "private_key": throwaway_key(), "token_uri": TOKEN_URL });
+        let file = json!({
+            "type": "service_account",
+            "client_email": "drift@example.iam.gserviceaccount.com",
+            "private_key": throwaway_key(),
+            "token_uri": TOKEN_URL
+        });
         let jwt = assertion(&file, 1_700_000_000).unwrap();
         let parts: Vec<&str> = jwt.split('.').collect();
         assert_eq!(parts.len(), 3);
@@ -425,8 +430,12 @@ mod tests {
         let busy = token_from(&client, user_file(&url, "r"), &Timeouts::default())
             .await
             .unwrap_err();
+        let seven_seconds = Some(Duration::from_secs(7));
         assert!(
-            matches!(busy, Error::Api { status: 503, retryable: true, retry_after: Some(wait), .. } if wait == Duration::from_secs(7)),
+            matches!(
+                busy,
+                Error::Api { status: 503, retryable: true, retry_after, .. } if retry_after == seven_seconds
+            ),
             "{busy:?}"
         );
         let (url, _) = endpoint(200, json!({ "access_token": "late" }), vec![], Duration::from_secs(5)).await;
@@ -445,7 +454,11 @@ mod tests {
 
     #[test]
     fn a_bad_key_is_a_clear_error_not_a_panic() {
-        let file = json!({ "type": "service_account", "client_email": "x", "private_key": "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n" });
+        let file = json!({
+            "type": "service_account",
+            "client_email": "x",
+            "private_key": "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"
+        });
         assert!(
             assertion(&file, 0)
                 .unwrap_err()

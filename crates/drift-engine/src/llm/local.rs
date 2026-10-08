@@ -242,23 +242,42 @@ mod tests {
 
     #[tokio::test]
     async fn a_running_server_lists_its_chat_models_and_a_stopped_one_lists_nothing() {
+        let listed = json!({
+            "data": [{ "id": "qwen3-coder" }, { "id": "text-embedding-nomic" }, { "id": "llava" }, { "id": "no-tools" }]
+        });
+        let detailed = json!({ "data": [
+            {
+                "id": "qwen3-coder",
+                "type": "llm",
+                "state": "loaded",
+                "loaded_context_length": 65536,
+                "max_context_length": 262144,
+                "capabilities": ["tool_use"]
+            },
+            {
+                "id": "llava",
+                "type": "vlm",
+                "state": "not-loaded",
+                "max_context_length": 4096,
+                "capabilities": ["tool_use"]
+            },
+            { "id": "no-tools", "type": "llm", "max_context_length": 8192, "capabilities": ["vision"] }
+        ] });
         let app = axum::Router::new()
-            .route("/v1/models", axum::routing::get(|| async { axum::Json(json!({ "data": [{ "id": "qwen3-coder" }, { "id": "text-embedding-nomic" }, { "id": "llava" }, { "id": "no-tools" }] })) }))
+            .route(
+                "/v1/models",
+                axum::routing::get(move || async move { axum::Json(listed) }),
+            )
             .route(
                 "/api/v0/models",
-                axum::routing::get(|| async {
-                    axum::Json(json!({ "data": [
-                        { "id": "qwen3-coder", "type": "llm", "state": "loaded", "loaded_context_length": 65536, "max_context_length": 262144, "capabilities": ["tool_use"] },
-                        { "id": "llava", "type": "vlm", "state": "not-loaded", "max_context_length": 4096, "capabilities": ["tool_use"] },
-                        { "id": "no-tools", "type": "llm", "max_context_length": 8192, "capabilities": ["vision"] }
-                    ] }))
-                }),
+                axum::routing::get(move || async move { axum::Json(detailed) }),
             );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}/v1", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = crate::llm::http::client();
+
         let models = discover(&client, "lmstudio", &base, &Shown::default()).await.unwrap();
         let found: Vec<(&str, u64, bool)> = models
             .iter()
@@ -269,6 +288,8 @@ mod tests {
             [("qwen3-coder", 65536, false), ("llava", 0, true)],
             "a loaded model's window; an unloaded one's is unknown; embeddings and tool-less models stay out"
         );
+
+        // A port nothing listens on.
         let stopped = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await
             .unwrap()
@@ -281,21 +302,65 @@ mod tests {
         );
     }
 
+    /// What Ollama's `/api/show` answers for each model the test installs.
+    fn shown_model(model: Option<&str>) -> Value {
+        let info = |n: u64| json!({ "llama.context_length": n });
+        match model {
+            Some("set") => json!({
+                "parameters": "temperature 0.7\nnum_ctx 32768",
+                "model_info": info(131072),
+                "capabilities": ["completion", "tools", "vision"]
+            }),
+            Some("tiny") => json!({
+                "parameters": "num_ctx 8192",
+                "model_info": info(2048),
+                "capabilities": ["completion", "tools"]
+            }),
+            Some("chatty") => json!({ "model_info": info(8192), "capabilities": ["completion"] }),
+            _ => json!({ "model_info": info(131072) }),
+        }
+    }
+
     #[tokio::test]
     async fn ollama_models_get_the_window_ollama_runs_them_with() {
         use std::sync::atomic::{AtomicUsize, Ordering};
+
         let shows = std::sync::Arc::new(AtomicUsize::new(0));
         let counted = shows.clone();
         let build = std::sync::Arc::new(AtomicUsize::new(1));
         let rebuilt = build.clone();
+        let listed = json!({
+            "data": [
+                { "id": "loaded:latest" },
+                { "id": "set" },
+                { "id": "unset" },
+                { "id": "tiny" },
+                { "id": "chatty" }
+            ]
+        });
+        let running = json!({
+            "models": [{ "name": "loaded:latest", "model": "loaded:latest", "context_length": 262144 }]
+        });
         let app = axum::Router::new()
-            .route("/v1/models", axum::routing::get(|| async { axum::Json(json!({ "data": [{ "id": "loaded:latest" }, { "id": "set" }, { "id": "unset" }, { "id": "tiny" }, { "id": "chatty" }] })) }))
-            .route("/api/ps", axum::routing::get(|| async { axum::Json(json!({ "models": [{ "name": "loaded:latest", "model": "loaded:latest", "context_length": 262144 }] })) }))
+            .route(
+                "/v1/models",
+                axum::routing::get(move || async move { axum::Json(listed) }),
+            )
+            .route(
+                "/api/ps",
+                axum::routing::get(move || async move { axum::Json(running) }),
+            )
             .route(
                 "/api/tags",
                 axum::routing::get(move || {
                     let build = rebuilt.load(Ordering::SeqCst);
-                    let tags = json!({ "models": [{ "name": "loaded:latest", "digest": "l" }, { "name": "set", "digest": format!("set-{build}") }, { "name": "unset", "digest": "u" }, { "name": "tiny", "digest": "t" }, { "name": "chatty", "digest": "c" }] });
+                    let tags = json!({ "models": [
+                        { "name": "loaded:latest", "digest": "l" },
+                        { "name": "set", "digest": format!("set-{build}") },
+                        { "name": "unset", "digest": "u" },
+                        { "name": "tiny", "digest": "t" },
+                        { "name": "chatty", "digest": "c" }
+                    ] });
                     async move { axum::Json(tags) }
                 }),
             )
@@ -303,15 +368,7 @@ mod tests {
                 "/api/show",
                 axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
                     counted.fetch_add(1, Ordering::SeqCst);
-                    async move {
-                        let info = |n: u64| json!({ "llama.context_length": n });
-                        axum::Json(match body["model"].as_str() {
-                            Some("set") => json!({ "parameters": "temperature 0.7\nnum_ctx 32768", "model_info": info(131072), "capabilities": ["completion", "tools", "vision"] }),
-                            Some("tiny") => json!({ "parameters": "num_ctx 8192", "model_info": info(2048), "capabilities": ["completion", "tools"] }),
-                            Some("chatty") => json!({ "model_info": info(8192), "capabilities": ["completion"] }),
-                            _ => json!({ "model_info": info(131072) }),
-                        })
-                    }
+                    async move { axum::Json(shown_model(body["model"].as_str())) }
                 }),
             );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -320,6 +377,7 @@ mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = crate::llm::http::client();
         let shown = Shown::default();
+
         let models = discover(&client, "ollama", &base, &shown).await.unwrap();
         let found: Vec<(&str, u64, bool)> = models
             .iter()
@@ -333,14 +391,17 @@ mod tests {
                 ("unset", 0, false),
                 ("tiny", 2048, false)
             ],
-            "loaded as allocated; else num_ctx within the trained length; else unknown; vision read from its capabilities; a model without tools left out"
+            "loaded as allocated; else num_ctx within the trained length; else unknown; \
+             vision read from its capabilities; a model without tools left out"
         );
+
         discover(&client, "ollama", &base, &shown).await.unwrap();
         assert_eq!(
             shows.load(Ordering::SeqCst),
             5,
             "each installed model is shown once, not every poll"
         );
+
         build.store(2, Ordering::SeqCst);
         discover(&client, "ollama", &base, &shown).await.unwrap();
         assert_eq!(

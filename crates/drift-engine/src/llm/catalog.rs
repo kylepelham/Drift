@@ -372,7 +372,12 @@ mod overlay_tests {
     fn the_users_providers_repoint_add_and_list_models() {
         let user: BTreeMap<String, ProviderConfig> = serde_json::from_value(serde_json::json!({
             "lmstudio": { "baseUrl": "http://192.168.1.5:1234/v1" },
-            "gateway": { "name": "Our gateway", "baseUrl": "https://gw.example/v1", "apiKeyEnv": "GW_KEY", "models": { "big": { "context": 200000, "images": true } } }
+            "gateway": {
+                "name": "Our gateway",
+                "baseUrl": "https://gw.example/v1",
+                "apiKeyEnv": "GW_KEY",
+                "models": { "big": { "context": 200000, "images": true } }
+            }
         }))
         .unwrap();
         let catalog = Catalog::bundled().with_user(&user);

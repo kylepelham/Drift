@@ -480,7 +480,10 @@ mod tests {
         assert_eq!(
             feed(
                 &mut state,
-                r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"read","arguments":""}}]}}]}"#
+                &json!({ "choices": [{ "delta": { "tool_calls": [
+                    { "index": 0, "id": "call_a", "function": { "name": "read", "arguments": "" } }
+                ] } }] })
+                .to_string()
             ),
             vec![]
         );
@@ -498,7 +501,15 @@ mod tests {
         assert_eq!(
             feed(
                 &mut state,
-                r#"{"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":20}}}"#
+                &json!({
+                    "choices": [],
+                    "usage": {
+                        "prompt_tokens": 50,
+                        "completion_tokens": 7,
+                        "prompt_tokens_details": { "cached_tokens": 20 }
+                    }
+                })
+                .to_string()
             ),
             vec![]
         );
@@ -554,7 +565,11 @@ mod tests {
     #[test]
     fn a_stream_that_never_says_why_it_finished_is_refused_with_its_calls() {
         let mut state = StreamState::default();
-        state.chunks(r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_a","function":{"name":"bash","arguments":"{\"command\":\"rm -rf"}}]}}]}"#).unwrap();
+        let call = json!({ "choices": [{ "delta": { "tool_calls": [
+            { "index": 0, "id": "call_a", "function": { "name": "bash", "arguments": "{\"command\":\"rm -rf" } }
+        ] } }] });
+        state.chunks(&call.to_string()).unwrap();
+
         let error = state.chunks("[DONE]").unwrap_err();
         assert!(error.to_string().contains("without a finish reason"), "{error}");
     }
@@ -584,9 +599,8 @@ mod tests {
             matches!(overloaded, Err(Error::Api { retryable: true, .. })),
             "an upstream overload passed through retries"
         );
-        assert!(
-            matches!(StreamState::default().chunks(r#"{"error":{"message":"key","code":401}}"#), Err(Error::Unauthenticated(ref m)) if m == "key")
-        );
+        let unauthenticated = StreamState::default().chunks(r#"{"error":{"message":"key","code":401}}"#);
+        assert!(matches!(unauthenticated, Err(Error::Unauthenticated(ref m)) if m == "key"));
         let mut state = StreamState::default();
         state
             .chunks(r#"{"choices":[{"delta":{"content":"x"},"finish_reason":"length"}]}"#)

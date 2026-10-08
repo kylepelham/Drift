@@ -246,7 +246,11 @@ mod tests {
             });
             assert_eq!(
                 sent[0]["content"][0],
-                json!({ "type": "input_file", "filename": "document.pdf", "file_data": "data:application/pdf;base64,JVBERi0=" })
+                json!({
+                    "type": "input_file",
+                    "filename": "document.pdf",
+                    "file_data": "data:application/pdf;base64,JVBERi0="
+                })
             );
         }
 
@@ -424,7 +428,11 @@ mod tests {
             assert_eq!(
                 feed(
                     &mut state,
-                    r#"{"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","encrypted_content":"enc"}}"#
+                    &json!({
+                        "type": "response.output_item.done",
+                        "item": { "type": "reasoning", "id": "rs_1", "encrypted_content": "enc" }
+                    })
+                    .to_string()
                 ),
                 vec![Chunk::ReasoningSignature("enc".into()), Chunk::BlockStop]
             );
@@ -455,11 +463,12 @@ mod tests {
         fn function_call_deltas_finish_with_usage_and_tool_stop() {
             let mut state = StreamState::default();
             let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
+            let call = json!({ "type": "function_call", "id": "fc_1", "call_id": "call_1", "name": "read" });
 
             assert_eq!(
                 feed(
                     &mut state,
-                    r#"{"type":"response.output_item.added","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":""}}"#
+                    &json!({ "type": "response.output_item.added", "item": with_arguments(&call, "") }).to_string()
                 ),
                 vec![Chunk::ToolUseStart {
                     id: "call_1".into(),
@@ -476,13 +485,24 @@ mod tests {
             assert_eq!(
                 feed(
                     &mut state,
-                    r#"{"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{\"path\":\"a\"}"}}"#
+                    &json!({ "type": "response.output_item.done", "item": with_arguments(&call, r#"{"path":"a"}"#) })
+                        .to_string()
                 ),
                 vec![Chunk::BlockStop]
             );
             let done = feed(
                 &mut state,
-                r#"{"type":"response.completed","response":{"usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":40},"output_tokens":9}}}"#,
+                &json!({
+                    "type": "response.completed",
+                    "response": {
+                        "usage": {
+                            "input_tokens": 100,
+                            "input_tokens_details": { "cached_tokens": 40 },
+                            "output_tokens": 9
+                        }
+                    }
+                })
+                .to_string(),
             );
             assert_eq!(
                 done,
@@ -498,11 +518,23 @@ mod tests {
             );
         }
 
+        /// `call` with its `arguments` set, as an output item event carries it.
+        fn with_arguments(call: &Value, arguments: &str) -> Value {
+            let mut item = call.clone();
+            item["arguments"] = json!(arguments);
+            item
+        }
+
         #[test]
         fn a_call_without_deltas_takes_arguments_from_done() {
             let mut state = StreamState::default();
-            state.chunks(r#"{"type":"response.output_item.added","item":{"type":"function_call","id":"fc_1","call_id":"c","name":"read"}}"#).unwrap();
-            let done = state.chunks(r#"{"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"c","name":"read","arguments":"{}"}}"#).unwrap();
+            let call = json!({ "type": "function_call", "id": "fc_1", "call_id": "c", "name": "read" });
+
+            let added = json!({ "type": "response.output_item.added", "item": call });
+            state.chunks(&added.to_string()).unwrap();
+
+            let finished = json!({ "type": "response.output_item.done", "item": with_arguments(&call, "{}") });
+            let done = state.chunks(&finished.to_string()).unwrap();
             assert_eq!(done, vec![Chunk::ToolInputDelta("{}".into()), Chunk::BlockStop]);
         }
 
@@ -527,9 +559,8 @@ mod tests {
             let refused = StreamState::default().chunks(r#"{"type":"error","code":"invalid_prompt","message":"no"}"#);
             assert!(matches!(refused, Err(Error::Api { retryable: false, .. })));
             assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
-            assert!(
-                matches!(api_error(401, r#"{"error":{"message":"token expired"}}"#), Error::Unauthenticated(ref m) if m == "token expired")
-            );
+            let expired = api_error(401, r#"{"error":{"message":"token expired"}}"#);
+            assert!(matches!(expired, Error::Unauthenticated(ref m) if m == "token expired"));
         }
     }
 }

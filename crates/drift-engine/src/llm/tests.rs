@@ -304,7 +304,10 @@ fn a_modes_body_fields_merge_into_the_adapters_own() {
     super::apply_mode(&mut body, &request);
     assert_eq!(
         body,
-        serde_json::json!({ "reasoning": { "effort": "high", "summary": "auto", "mode": "pro" }, "service_tier": "priority" })
+        serde_json::json!({
+            "reasoning": { "effort": "high", "summary": "auto", "mode": "pro" },
+            "service_tier": "priority"
+        })
     );
 }
 

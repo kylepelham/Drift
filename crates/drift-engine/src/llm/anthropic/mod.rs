@@ -237,7 +237,10 @@ mod tests {
             });
             assert_eq!(
                 sent,
-                json!({ "type": "document", "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBERi0=" } })
+                json!({
+                    "type": "document",
+                    "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBERi0=" }
+                })
             );
         }
 

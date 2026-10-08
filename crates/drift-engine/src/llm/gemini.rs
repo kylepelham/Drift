@@ -511,7 +511,17 @@ mod tests {
         );
         let mut call = feed(
             &mut state,
-            r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}},"thoughtSignature":"sig"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":3,"thoughtsTokenCount":4}}"#,
+            &json!({
+                "candidates": [{
+                    "content": { "parts": [{
+                        "functionCall": { "name": "read", "args": { "path": "a" } },
+                        "thoughtSignature": "sig"
+                    }] },
+                    "finishReason": "STOP"
+                }],
+                "usageMetadata": { "promptTokenCount": 10, "candidatesTokenCount": 3, "thoughtsTokenCount": 4 }
+            })
+            .to_string(),
         );
         let Chunk::ToolUseStart { id, .. } = &mut call[1] else {
             panic!("{call:?}")
@@ -565,7 +575,16 @@ mod tests {
 
     #[test]
     fn a_call_signature_without_thought_text_round_trips_on_its_own_part() {
-        let chunks = StreamState::default().chunks(r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","args":{"path":"a"}},"thoughtSignature":"call-sig"}]},"finishReason":"STOP"}]}"#).unwrap();
+        let signed = json!({
+            "candidates": [{
+                "content": { "parts": [{
+                    "functionCall": { "name": "read", "args": { "path": "a" } },
+                    "thoughtSignature": "call-sig"
+                }] },
+                "finishReason": "STOP"
+            }]
+        });
+        let chunks = StreamState::default().chunks(&signed.to_string()).unwrap();
         assert!(chunks.contains(&Chunk::PartSignature("call-sig".into())));
         assert!(
             !chunks
