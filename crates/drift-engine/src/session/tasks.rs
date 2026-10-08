@@ -574,6 +574,7 @@ impl Engine {
         else {
             return;
         };
+
         for task in self.store.owed_background(parent).unwrap_or_default() {
             let engine = self.clone();
             runtime.spawn(async move { engine.deliver(&task.id).await });
@@ -601,6 +602,7 @@ impl Engine {
             steer_only: !wakes,
             ..super::turn::Admission::default()
         };
+
         match self.admit(owner, prompt, how).await {
             Ok(_) | Err(TurnError::SubmissionReused) => self.publish_task(&task.id),
             Err(TurnError::Stopped) => self.hold(&task.id),
@@ -713,6 +715,7 @@ impl Engine {
             let _ = self.store.mark_task_delivered(&task.id);
             return self.publish_task(&task.id);
         };
+
         let status = if task.state == TaskState::Replied {
             ToolStatus::Done
         } else {
@@ -726,6 +729,7 @@ impl Engine {
             mode: Some("foreground".into()),
             ..Default::default()
         };
+
         self.settle_delivering(
             &mut row,
             super::turn::Settlement::new(

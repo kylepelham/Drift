@@ -1,13 +1,15 @@
 //! User commands retain execution settings and use the existing permission and worker machinery.
 
+use std::fmt::Write as _;
+use std::path::Path;
+use std::sync::Arc;
+
+use serde_json::{Value, json};
+
 use super::turn::{Admission, Prompt, Receipt, TurnError};
 use super::types::{ModelRef, Part};
 use crate::Engine;
 use crate::config::AgentKind;
-use serde_json::{Value, json};
-use std::fmt::Write as _;
-use std::path::Path;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub(crate) struct Bootstrap {
@@ -47,6 +49,7 @@ fn command_calls(input: CommandCalls<'_>) -> Vec<Bootstrap> {
             model: None,
         }];
     }
+
     if input.delegated {
         let arguments = json!({
             "description": name,
@@ -96,6 +99,7 @@ impl Engine {
         let Some(server) = &command.server else {
             return Ok(command.expand(arguments));
         };
+
         let name = command
             .name
             .split_once(':')
@@ -124,12 +128,12 @@ impl Engine {
         if let Some(problem) = config.problems.first() {
             return Err(TurnError::Config(problem.clone()).into());
         }
+
         let command = config
             .commands
             .iter()
             .find(|command| command.name == name)
             .ok_or(CommandError::Missing)?;
-
         let agent = command.agent.as_deref().unwrap_or(&session.agent);
         let definition = config.agent(agent).ok_or(TurnError::UnknownAgent)?;
         if definition.kind == AgentKind::Action {
@@ -140,6 +144,7 @@ impl Engine {
         definition
             .usable()
             .map_err(|error| TurnError::Config(error.to_string()))?;
+
         let model = model.or_else(|| command.model.clone());
         let delegated = command.subtask == Some(true) || definition.kind == AgentKind::Subagent;
         let text = self.command_text(command, &workspace, arguments).await?;
@@ -164,6 +169,7 @@ impl Engine {
             text: &text,
             lines,
         });
+
         // Direct commands temporarily use their chosen agent and model; skills and tasks keep the session's.
         let chosen = !routed && (command.agent.is_some() || model.is_some());
         let shown = if routed {
@@ -208,6 +214,7 @@ fn shell_lines(text: &str) -> (String, Vec<String>) {
         let Some(length) = rest[start + 2..].find('`') else {
             break;
         };
+
         let line = rest[start + 2..start + 2 + length].trim();
         output.push_str(&rest[..start]);
         if line.is_empty() {
@@ -218,8 +225,8 @@ fn shell_lines(text: &str) -> (String, Vec<String>) {
         }
         rest = &rest[start + 3 + length..];
     }
-    output.push_str(rest);
 
+    output.push_str(rest);
     (output, lines)
 }
 
@@ -227,6 +234,7 @@ fn shell_lines(text: &str) -> (String, Vec<String>) {
 /// References not found in the workspace remain plain text.
 fn mentions(workspace: &Path, text: &str) -> Vec<Part> {
     let mut seen = std::collections::HashSet::new();
+
     text.split_whitespace()
         .filter_map(|word| word.strip_prefix('@'))
         .map(|name| name.trim_end_matches(['.', ',', ';', ':', ')', '!', '?']))

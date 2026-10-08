@@ -58,6 +58,7 @@ pub(super) fn waits(call: &CallTrace) -> bool {
     let Ok(input) = serde_json::from_str::<serde_json::Value>(&call.input) else {
         return false;
     };
+
     let command = input["command"].as_str().unwrap_or_default().to_ascii_lowercase();
     let mut words = command.split(|character: char| !character.is_ascii_alphanumeric() && character != '-');
 

@@ -78,6 +78,7 @@ impl Early {
         else {
             return;
         };
+
         let tool = plan.offered(name).filter(|tool| tool.starts_early());
         let Some(tool) = tool.filter(|_| !self.closed) else {
             self.closed = true;

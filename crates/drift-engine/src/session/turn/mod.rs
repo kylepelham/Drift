@@ -484,6 +484,7 @@ impl Engine {
         let Ok(Some(reply)) = self.store.last_reply(session_id) else {
             return false;
         };
+
         let rounds = self.store.nudges_since_prompt(session_id).unwrap_or(usize::MAX);
         let Some(text) = drive::next(&plan.session, &reply, rounds) else {
             return false;

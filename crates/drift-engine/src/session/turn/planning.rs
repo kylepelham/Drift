@@ -251,6 +251,7 @@ impl Engine {
             if newest.is_none() || newest == self.turns.began(&plan.session.id) {
                 return Ok(());
             }
+
             plan.turn_only = false;
             if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
                 running.turn_only = false;
@@ -260,6 +261,7 @@ impl Engine {
         let Ok(Some(session)) = self.store.session(&plan.session.id) else {
             return Ok(());
         };
+
         let model = session.model.clone().filter(|model| *model != plan.model_ref);
         let variant = session.variant.clone().or_else(|| {
             plan.config

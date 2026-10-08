@@ -85,6 +85,7 @@ impl Engine {
                 self.pause(plan, reason.to_string());
                 break;
             }
+
             let limits = plan.config.limits_for(&plan.session.agent);
             if wrapping.is_none() && steps + 1 >= limits.steps {
                 wrapping = Some(WrapUp::Steps(limits.steps));
@@ -102,6 +103,7 @@ impl Engine {
             else {
                 break;
             };
+
             self.hub.publish(Event::MessageCreated {
                 message: message.clone(),
             });

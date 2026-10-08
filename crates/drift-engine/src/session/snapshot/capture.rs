@@ -13,6 +13,7 @@ impl Snapshots {
         if source.is_none() && self.too_many.lock().unwrap().contains(workspace) {
             return Err(Error::TooManyFiles);
         }
+
         self.ensure(workspace).await?;
         let lock = self.lock_for(workspace);
         let _held = lock.lock().await;
@@ -53,6 +54,7 @@ impl Snapshots {
         if let Some(known) = self.sources.lock().unwrap().get(workspace) {
             return known.clone();
         }
+
         let found = find_source(workspace).await;
         self.sources
             .lock()
@@ -69,6 +71,7 @@ impl Snapshots {
         if marker.exists() {
             return;
         }
+
         let index = git_dir.join("index");
         if tokio::fs::copy(&source.index, &index).await.is_err() {
             return;
@@ -159,6 +162,7 @@ impl Snapshots {
         tokio::fs::write(&path, RAW_ATTRIBUTES)
             .await
             .map_err(|error| Error::Failed(error.to_string()))?;
+
         match tokio::fs::remove_file(self.git_dir(workspace).join("index")).await {
             Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(Error::Failed(error.to_string())),
             _ => Ok(()),
@@ -177,6 +181,7 @@ impl Snapshots {
             self.too_many.lock().unwrap().insert(workspace.to_path_buf());
             return Err(Error::TooManyFiles);
         };
+
         self.exclude(workspace, &large).await?;
 
         Ok(large)
@@ -229,6 +234,7 @@ pub(super) fn large_files(root: &Path, limit: usize) -> Option<Vec<(String, Stam
         let Some(metadata) = entry.metadata().ok().filter(std::fs::Metadata::is_file) else {
             continue;
         };
+
         files += 1;
         if files > limit {
             return None;
@@ -237,6 +243,7 @@ pub(super) fn large_files(root: &Path, limit: usize) -> Option<Vec<(String, Stam
             let Ok(path) = entry.path().strip_prefix(root) else {
                 continue;
             };
+
             large.push((
                 path.to_string_lossy().replace('\\', "/"),
                 (metadata.len(), metadata.modified().ok()),

@@ -40,6 +40,7 @@ pub(crate) fn append<'a>(
     target: &impl Target,
 ) {
     let mut used = std::collections::HashSet::new();
+
     for message in transcript.into_iter().filter(|message| replayable(message)) {
         match message.info.role {
             Role::User => push(out, LlmRole::User, user_blocks(message)),
@@ -149,6 +150,7 @@ pub(crate) fn clarification_text(request_id: &str, items: &[super::types::Clarif
 /// Provider-signed reasoning is retained for the adapter to validate.
 pub(super) fn drop_earlier_reasoning(transcript: &mut [MessageWithParts], started: Option<&str>) {
     let Some(started) = started else { return };
+
     for message in transcript
         .iter_mut()
         .filter(|message| message.info.role == Role::Assistant && message.info.id.as_str() < started)
@@ -172,6 +174,7 @@ pub(super) fn drop_earlier_reasoning(transcript: &mut [MessageWithParts], starte
 /// Each provider adapter decides which reasoning fields its wire accepts.
 fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> {
     let finished = message.info.status == MessageStatus::Done;
+
     message
         .parts
         .iter()
@@ -243,6 +246,7 @@ fn replayed_input(input: &serde_json::Value, status: ToolStatus, output: Option<
 fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
     let mut results = Vec::new();
     let mut images = Vec::new();
+
     for row in &message.parts {
         let Part::ToolCall {
             call_id,
@@ -259,6 +263,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
         if replayed_input(input, *status, output.as_deref()).is_none() {
             continue;
         }
+
         let (content, is_error) = match (status, output) {
             (ToolStatus::Done, Some(output)) => (output.clone(), false),
             (ToolStatus::Error | ToolStatus::Denied, Some(output)) => (output.clone(), true),
@@ -294,8 +299,8 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
             }));
         }
     }
-    results.extend(images);
 
+    results.extend(images);
     results
 }
 

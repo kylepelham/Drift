@@ -101,6 +101,7 @@ impl<'a> Assembler<'a> {
 
     fn start(&mut self, part: Part) -> rusqlite::Result<()> {
         self.stop_block()?;
+
         let row = self.store.add_part(&self.message.id, &self.message.session_id, part)?;
         self.hub.publish(Event::PartCreated { part: row.clone() });
         self.open = Some(Open {
@@ -109,6 +110,7 @@ impl<'a> Assembler<'a> {
             length: 0,
             saved: std::time::Instant::now(),
         });
+
         Ok(())
     }
 
@@ -119,6 +121,7 @@ impl<'a> Assembler<'a> {
             Part::Text { text } | Part::Reasoning { text, .. } => text.push_str(delta),
             _ => return Ok(()),
         }
+
         self.store.stream_part(&open.row);
         let offset = open.length;
         open.length += delta.encode_utf16().count();
@@ -129,10 +132,12 @@ impl<'a> Assembler<'a> {
             delta: delta.into(),
             offset,
         });
+
         if open.saved.elapsed() >= CHECKPOINT {
             open.saved = std::time::Instant::now();
             self.store.checkpoint_part(&open.row)?;
         }
+
         Ok(())
     }
 
@@ -140,6 +145,7 @@ impl<'a> Assembler<'a> {
         if let Some(open) = &mut self.open {
             change(&mut open.row.part);
         }
+
         Ok(())
     }
 
@@ -148,14 +154,17 @@ impl<'a> Assembler<'a> {
         let Some(mut open) = self.open.take() else {
             return Ok(());
         };
+
         if let Part::ToolCall { input, .. } = &mut open.row.part {
             *input = parse_input(&open.tool_json);
         }
         self.store.save_part(&open.row)?;
         self.hub.publish(Event::PartUpdated { part: open.row.clone() });
+
         if matches!(open.row.part, Part::ToolCall { .. }) {
             self.calls.push(open.row);
         }
+
         Ok(())
     }
 }
@@ -164,6 +173,7 @@ fn parse_input(json: &str) -> Value {
     if json.trim().is_empty() {
         return Value::Object(Default::default());
     }
+
     serde_json::from_str(json).unwrap_or_else(|_| Value::String(json.to_string()))
 }
 
@@ -194,6 +204,7 @@ mod tests {
         let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
         let mut rx = hub.attach(None).rx;
         let mut assembler = Assembler::new(&store, &hub, &message);
+
         for chunk in [
             Chunk::Usage(Usage {
                 input: 5,
@@ -222,6 +233,7 @@ mod tests {
         ] {
             assembler.apply(chunk).unwrap();
         }
+
         assert_eq!(
             assembler.usage,
             Usage {
@@ -233,6 +245,7 @@ mod tests {
         );
         assert_eq!(assembler.stop, Some(StopReason::ToolUse));
         assert_eq!(assembler.calls.len(), 1);
+
         let parts = store.transcript(&session.id).unwrap().remove(0).parts;
         assert_eq!(
             parts[0].part,
@@ -258,6 +271,7 @@ mod tests {
                 _ => "other",
             });
         }
+
         assert_eq!(
             kinds,
             [
@@ -274,6 +288,7 @@ mod tests {
         let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
         let mut rx = hub.attach(None).rx;
         let mut assembler = Assembler::new(&store, &hub, &message);
+
         for chunk in [
             Chunk::TextStart,
             Chunk::TextDelta("héllo ".into()),
@@ -281,6 +296,7 @@ mod tests {
         ] {
             assembler.apply(chunk).unwrap();
         }
+
         let parts = store.transcript(&session.id).unwrap().remove(0).parts;
         assert_eq!(
             parts[0].part,
@@ -289,6 +305,7 @@ mod tests {
             },
             "a reader mid-stream sees every published delta"
         );
+
         let offsets: Vec<usize> = std::iter::from_fn(|| rx.try_recv().ok())
             .filter_map(|envelope| match envelope.event {
                 Event::PartDelta { offset, .. } => Some(offset),
@@ -296,6 +313,7 @@ mod tests {
             })
             .collect();
         assert_eq!(offsets, [0, 6], "in UTF-16 units, as a browser counts");
+
         assembler.apply(Chunk::BlockStop).unwrap();
         store
             .lock()
@@ -323,6 +341,7 @@ mod tests {
             .create_message(&session.id, Role::Assistant, Some(&model))
             .unwrap();
         let hub = Hub::new(64);
+
         {
             let mut assembler = Assembler::new(&store, &hub, &message);
             for chunk in [
@@ -337,20 +356,26 @@ mod tests {
                 assembler.apply(chunk).unwrap();
             }
         }
+
         message.status = crate::session::types::MessageStatus::Done;
         store.save_message(&message).unwrap();
         drop(store);
+
         let store = crate::store::open(&dir).unwrap();
         let transcript = store.transcript(&session.id).unwrap();
         assert_eq!(
             transcript[0].parts[0].provider_signature.as_deref(),
             Some("opaque-signature")
         );
+
         let mut sent = Vec::new();
         super::super::convert::append(&mut sent, &transcript, &model);
-        assert!(
-            matches!(&sent[0].blocks[0], crate::llm::Block::Signed { part, signature } if signature == "opaque-signature" && matches!(part.as_ref(), crate::llm::Block::ToolUse { .. }))
-        );
+        let crate::llm::Block::Signed { part, signature } = &sent[0].blocks[0] else {
+            panic!("a signed call replays signed to the same model");
+        };
+        assert_eq!(signature, "opaque-signature");
+        assert!(matches!(part.as_ref(), crate::llm::Block::ToolUse { .. }));
+
         let fork = store
             .fork_session(
                 &session.id,
@@ -373,6 +398,7 @@ mod tests {
                 .as_deref(),
             Some("opaque-signature")
         );
+
         let mut switched = Vec::new();
         super::super::convert::append(
             &mut switched,
@@ -383,6 +409,7 @@ mod tests {
             },
         );
         assert!(matches!(switched[0].blocks[0], crate::llm::Block::ToolUse { .. }));
+
         drop(store);
         std::fs::remove_dir_all(dir).unwrap();
     }

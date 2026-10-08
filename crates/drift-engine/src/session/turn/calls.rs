@@ -154,6 +154,7 @@ impl Engine {
         else {
             return Err(Outcome::Allowed);
         };
+
         let command_model = metadata
             .as_ref()
             .filter(|metadata| metadata.engine_command.is_some())

@@ -254,6 +254,7 @@ impl Engine {
                 unrecorded: Vec::new(),
             });
         };
+
         let shifted = match revert.files_from() {
             Some(from) => self.shift(&session, from, None, Direction::Forward).await?,
             None => Shifted::default(),
@@ -355,12 +356,14 @@ impl Engine {
             shifted.kept.push(net.path);
             return Ok(None);
         };
+
         let path = file.to_string_lossy().into_owned();
         let current = self.snapshots.current(&previous_workspace, &path).await?;
         if current != expected.blob {
             shifted.kept.push(net.path);
             return Ok(None);
         }
+
         self.snapshots
             .put(&self.store, &target_workspace, &path, target.blob.as_deref())
             .await
@@ -515,6 +518,7 @@ fn recorded_changes(part: &Part) -> Option<Record> {
     else {
         return None;
     };
+
     let changes = metadata
         .changes
         .as_ref()?
@@ -545,6 +549,7 @@ fn written_without_record(part: &Part) -> Vec<String> {
     if !matches!(name.as_str(), "edit" | "write" | "apply_patch") {
         return Vec::new();
     }
+
     let mut paths: Vec<String> = ["filePath", "path"]
         .iter()
         .filter_map(|key| input[*key].as_str().map(str::to_string))

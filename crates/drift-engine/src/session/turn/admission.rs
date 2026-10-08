@@ -317,6 +317,7 @@ impl Engine {
         let Some(running) = self.turns.steering.lock().unwrap().get(session_id).cloned() else {
             return Ok(None);
         };
+
         let session = if running.turn_only {
             self.store.session(session_id)?
         } else {

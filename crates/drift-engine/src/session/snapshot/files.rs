@@ -48,6 +48,7 @@ impl Snapshots {
         } else {
             vec!["hash-object", "--no-filters", "--", &file]
         };
+
         self.git(workspace, &args).await.map(Some)
     }
 

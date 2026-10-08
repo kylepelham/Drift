@@ -12,6 +12,7 @@ impl Engine {
         let Some(row) = last.filter(|_| !scope.plan.config.checks.is_empty() && !files.is_empty()) else {
             return;
         };
+
         files.sort();
         files.dedup();
 
@@ -39,6 +40,7 @@ impl Engine {
         else {
             return;
         };
+
         let capture = self.capture_before(&scope.plan.workspace, named).await;
         let bytes = match &capture {
             Ok(_) => Vec::new(),
@@ -128,6 +130,7 @@ impl Engine {
         let Part::ToolCall { output, metadata, .. } = &mut row.part else {
             return;
         };
+
         let mut text = output.take().unwrap_or_default();
         let mut meta = metadata.take().unwrap_or_default();
         for note in &notes {
@@ -171,6 +174,7 @@ impl StepWrites {
         else {
             return;
         };
+
         let files: Vec<PathBuf> = metadata.file_paths().map(Into::into).collect();
         if files.is_empty() {
             return;

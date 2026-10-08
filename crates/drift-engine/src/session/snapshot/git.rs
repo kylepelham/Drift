@@ -79,6 +79,7 @@ impl Snapshots {
         if git_dir.join("HEAD").exists() {
             return Ok(());
         }
+
         let lock = self.lock_for(workspace);
         let _held = lock.lock().await;
         if git_dir.join("HEAD").exists() {

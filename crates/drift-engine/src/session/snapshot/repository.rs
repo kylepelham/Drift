@@ -54,6 +54,7 @@ pub(super) async fn unconverted_changes(workspace: &Path, changes: Vec<FileChang
     if modified.is_empty() {
         return changes;
     }
+
     let mut paths = String::new();
     for change in &modified {
         let _ = writeln!(paths, "{}", change.path);
@@ -61,6 +62,7 @@ pub(super) async fn unconverted_changes(workspace: &Path, changes: Vec<FileChang
     let Some(hashed) = plain_git(workspace, &["hash-object", "--stdin-paths"], Some(paths.as_bytes())).await else {
         return changes;
     };
+
     let hashed = String::from_utf8_lossy(&hashed);
     let same: HashSet<_> = modified
         .iter()

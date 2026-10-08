@@ -66,6 +66,7 @@ impl Engine {
         let Some(start) = self.store.view_start(session_id).ok()? else {
             return self.store.transcript(session_id).ok();
         };
+
         let mut window = self.store.messages_from(session_id, &start).ok()?;
         if compaction::view(&window).summary.is_none() {
             return self.store.transcript(session_id).ok();

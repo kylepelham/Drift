@@ -104,6 +104,7 @@ impl Engine {
         let Some((plugin, reason)) = ended.continued else {
             return false;
         };
+
         let pick = Pick {
             model: &plan.model_ref,
             variant: None,
@@ -118,6 +119,7 @@ impl Engine {
             abort: Some(abort),
             delivery: None,
         };
+
         match self.admit_fenced(&plan.session.id, prompt) {
             Ok(admitted) => {
                 self.announce(&plan.session.id, admitted);
@@ -169,6 +171,7 @@ impl Engine {
             self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);
         }
+
         stored.clone_from(&call.input);
 
         Ok((call.input, true))

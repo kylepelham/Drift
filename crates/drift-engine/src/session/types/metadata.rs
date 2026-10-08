@@ -224,6 +224,7 @@ fn metadata_field<T: serde::de::DeserializeOwned + Serialize>(
     if serde_json::to_value(&parsed).ok().as_ref() != Some(value) {
         return None;
     }
+
     fields.remove(key);
 
     Some(parsed)
