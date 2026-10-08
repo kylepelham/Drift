@@ -286,7 +286,7 @@ fn a_conversation_arrives_in_its_workspace_with_every_part_in_this_engines_shape
     assert_eq!(
         (
             input["filePath"].as_str(),
-            metadata.as_ref().unwrap()["diff"].as_str(),
+            metadata.as_ref().unwrap().diff.as_deref(),
             *started_at,
             *finished_at
         ),
@@ -524,8 +524,8 @@ fn display_copies_no_view_reads_are_left_behind_and_a_patched_files_diff_becomes
         panic!()
     };
     assert_eq!(
-        patched,
-        &json!({ "diff": "whole", "files": [{ "filePath": "C:/repo/a.rs", "relativePath": "a.rs", "type": "update", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-a\n+b" }] })
+        serde_json::to_value(patched).unwrap(),
+        json!({ "diff": "whole", "files": [{ "filePath": "C:/repo/a.rs", "relativePath": "a.rs", "type": "update", "additions": 1, "deletions": 1, "patch": "@@ -1 +1 @@\n-a\n+b" }] })
     );
     let Part::ToolCall {
         metadata: Some(read),
@@ -536,8 +536,8 @@ fn display_copies_no_view_reads_are_left_behind_and_a_patched_files_diff_becomes
         panic!()
     };
     assert_eq!(
-        (read, output.as_deref()),
-        (&json!({ "truncated": false }), Some("1: a")),
+        (serde_json::to_value(read).unwrap(), output.as_deref()),
+        (json!({ "truncated": false }), Some("1: a")),
         "what the model read stays"
     );
 }
@@ -564,9 +564,9 @@ fn a_diff_too_big_for_any_panel_is_dropped_and_the_call_keeps_its_output() {
         panic!()
     };
     assert_eq!(
-        (metadata, output.as_deref()),
+        (serde_json::to_value(metadata).unwrap(), output.as_deref()),
         (
-            &json!({ "files": [{ "filePath": "gen.rs", "additions": 400000, "deletions": 0 }] }),
+            json!({ "files": [{ "filePath": "gen.rs", "additions": 400000, "deletions": 0 }] }),
             Some("Success.")
         )
     );
@@ -633,7 +633,7 @@ fn edit(path: &Path, diff: &str) -> serde_json::Value {
 
 /// Each recorded change of the conversation's calls, by path, with the content its versions hold.
 fn recorded(store: &Store, session: &str, kept: &Kept) -> Vec<(String, Option<String>, Option<String>)> {
-    let content = |blob: &serde_json::Value| blob.as_str().map(|id| kept.0[id].clone());
+    let content = |blob: &Option<Option<String>>| blob.as_ref().and_then(Option::as_ref).map(|id| kept.0[id].clone());
     let mut changes = Vec::new();
     for message in store.transcript(session).unwrap() {
         for row in message.parts {
@@ -645,15 +645,11 @@ fn recorded(store: &Store, session: &str, kept: &Kept) -> Vec<(String, Option<St
                 continue;
             };
             assert!(
-                metadata.get("changes").is_none() || metadata["at"] == message.info.id.as_str(),
+                metadata.changes.is_none() || metadata.at.as_deref() == Some(message.info.id.as_str()),
                 "stamped with its own message"
             );
-            for change in metadata["changes"].as_array().into_iter().flatten() {
-                changes.push((
-                    change["path"].as_str().unwrap().to_string(),
-                    content(&change["before"]),
-                    content(&change["after"]),
-                ));
+            for change in metadata.changes.iter().flatten() {
+                changes.push((change.path.clone(), content(&change.before), content(&change.after)));
             }
         }
     }

@@ -2,11 +2,13 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use super::ToolMetadata;
 use super::edit::Change;
 use super::patch::{self, Op};
 use super::text::TextFormat;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str, stage};
 use crate::llm::ToolSpec;
+use crate::session::types::MetadataFile;
 use crate::store::Store;
 
 pub struct ApplyPatch;
@@ -117,11 +119,15 @@ impl Tool for ApplyPatch {
                 if listed.len() == 1 { "" } else { "s" },
                 listed.join("\n")
             );
-            let changes: Vec<Value> = plan.changes.iter().map(Change::json).collect();
+            let changes = plan.changes.iter().map(Change::metadata).collect();
             Ok(Output {
                 title: plan.touched.join(", "),
                 output,
-                metadata: json!({ "files": files, "fileChanges": changes }),
+                metadata: ToolMetadata {
+                    files: Some(files.into_iter().map(MetadataFile::Path).collect()),
+                    file_changes: Some(changes),
+                    ..Default::default()
+                },
             })
         })
     }
@@ -331,18 +337,17 @@ mod tests {
             out.output, "Patched 3 files:\nA dir/new.txt (+1 -0)\nR b.txt (+1 -1)\nD gone.txt (+0 -1)",
             "one line per file, as opencode answers"
         );
-        let kinds: Vec<&str> = out.metadata["fileChanges"]
-            .as_array()
+        let kinds: Vec<&str> = out
+            .metadata
+            .file_changes
+            .as_ref()
             .unwrap()
             .iter()
-            .map(|change| change["type"].as_str().unwrap())
+            .map(|change| change.kind.as_str())
             .collect();
         assert_eq!(kinds, ["add", "move", "delete"]);
         assert!(
-            out.metadata["fileChanges"][1]["patch"]
-                .as_str()
-                .unwrap()
-                .contains("+TWO"),
+            out.metadata.file_changes.as_ref().unwrap()[1].patch.contains("+TWO"),
             "the diff is in the metadata"
         );
         let titles: Vec<String> = ApplyPatch

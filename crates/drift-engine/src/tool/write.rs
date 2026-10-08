@@ -1,9 +1,11 @@
 use serde_json::{Value, json};
 
+use super::ToolMetadata;
 use super::edit::{Change, diff};
 use super::text::TextFormat;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
+use crate::session::types::MetadataFile;
 
 pub struct Write;
 
@@ -104,7 +106,13 @@ impl Tool for Write {
             Ok(Output {
                 title: name.clone(),
                 output,
-                metadata: json!({ "created": created, "files": [path.to_string_lossy()], "diff": change.patch, "fileChanges": [change.json()] }),
+                metadata: ToolMetadata {
+                    created: Some(created),
+                    files: Some(vec![MetadataFile::Path(path.to_string_lossy().into_owned())]),
+                    diff: Some(change.patch.clone()),
+                    file_changes: Some(vec![change.metadata()]),
+                    ..Default::default()
+                },
             })
         })
     }
@@ -130,11 +138,14 @@ mod tests {
             out.output, "Created a/b/c.txt (1 line).",
             "a new file is not echoed back to the model"
         );
-        assert!(out.metadata["diff"].as_str().unwrap().contains("+hello"));
+        assert!(out.metadata.diff.as_deref().unwrap().contains("+hello"));
         assert_eq!(
             (
-                out.metadata["created"].as_bool(),
-                out.metadata["fileChanges"][0]["type"].as_str()
+                out.metadata.created,
+                out.metadata
+                    .file_changes
+                    .as_ref()
+                    .map(|changes| changes[0].kind.as_str())
             ),
             (Some(true), Some("add"))
         );
@@ -177,7 +188,7 @@ mod tests {
             .run(&sandbox.ctx, json!({ "path": "blob.bin", "content": "text" }))
             .await
             .unwrap();
-        assert_eq!(out.metadata["created"], false);
+        assert_eq!(out.metadata.created, Some(false));
         std::fs::create_dir_all(sandbox.ctx.resolve("dir")).unwrap();
         let err = Write
             .run(&sandbox.ctx, json!({ "path": "dir", "content": "x" }))

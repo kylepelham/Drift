@@ -1128,12 +1128,16 @@ async fn a_patch_in_a_real_turn_keeps_its_display_diff_beside_undos_record() {
         panic!("{:?}", transcript[1].parts)
     };
     assert_eq!(*status, ToolStatus::Done, "{output:?}");
-    assert!(metadata["changes"][0]["path"].is_string(), "undo's record: {metadata}");
-    assert_eq!(
-        metadata["fileChanges"][0]["relativePath"], "new.txt",
-        "the display record survives undo's merge: {metadata}"
+    assert!(
+        !metadata.changes.as_ref().unwrap()[0].path.is_empty(),
+        "undo's record: {metadata:?}"
     );
-    assert!(metadata["fileChanges"][0]["patch"].as_str().unwrap().contains("+fresh"));
+    assert_eq!(
+        metadata.file_changes.as_ref().unwrap()[0].relative_path,
+        "new.txt",
+        "the display record survives undo's merge: {metadata:?}"
+    );
+    assert!(metadata.file_changes.as_ref().unwrap()[0].patch.contains("+fresh"));
 }
 
 #[tokio::test]
@@ -1324,10 +1328,10 @@ async fn asks_wait_for_a_reply_and_mutations_snapshot_first() {
         panic!()
     };
     assert_eq!(*status, ToolStatus::Done);
-    let changes = &metadata.as_ref().unwrap()["changes"];
-    assert_eq!(changes[0]["path"], "new.txt", "{metadata:?}");
+    let changes = metadata.as_ref().unwrap().changes.as_ref().unwrap();
+    assert_eq!(changes[0].path, "new.txt", "{metadata:?}");
     assert!(
-        changes[0]["before"].is_null() && changes[0]["after"].is_string(),
+        changes[0].before == Some(None) && changes[0].after.as_ref().is_some_and(Option::is_some),
         "a new file: nothing before, a blob after"
     );
 }
@@ -1369,8 +1373,8 @@ async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() 
         }
     };
     assert_eq!(
-        running.unwrap()["shellTimeoutMs"],
-        400,
+        running.unwrap().shell_timeout_ms,
+        Some(Some(400)),
         "the badge has the limit while the command runs"
     );
     until_idle(&h).await;
@@ -1381,11 +1385,11 @@ async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() 
     assert_eq!(*status, ToolStatus::Error);
     let metadata = metadata.as_ref().unwrap();
     assert_eq!(
-        (metadata["timedOut"].as_bool(), metadata["shellTimeoutMs"].as_u64()),
+        (metadata.timed_out, metadata.shell_timeout_ms.flatten()),
         (Some(true), Some(400))
     );
     assert!(
-        metadata["changes"].is_array(),
+        metadata.changes.is_some(),
         "what the command changed is recorded next to the timeout details"
     );
 }
@@ -2301,11 +2305,11 @@ async fn a_command_whose_tree_cannot_be_captured_still_runs_and_says_so() {
             .contains("could not record what this command changed"),
         "{output:?}"
     );
-    assert!(metadata.as_ref().unwrap()["historyError"].is_string());
-    let note = metadata.as_ref().unwrap()["historyError"].as_str().unwrap();
+    assert!(metadata.as_ref().unwrap().history_error.is_some());
+    let note = metadata.as_ref().unwrap().history_error.as_deref().unwrap();
     assert_eq!(
-        metadata.as_ref().unwrap()["notes"],
-        json!([note]),
+        metadata.as_ref().unwrap().notes.as_ref(),
+        Some(&vec![note.to_string()]),
         "listed apart, so the UI shows it under the call"
     );
 }
@@ -2554,8 +2558,11 @@ async fn any_tool_result_past_the_bound_is_cut_to_its_ends_with_the_whole_on_dis
         "{}",
         output.len()
     );
-    let file = metadata.as_ref().unwrap()["resultFile"]
-        .as_str()
+    let file = metadata
+        .as_ref()
+        .unwrap()
+        .result_file
+        .as_deref()
         .expect("the whole result is kept");
     assert!(std::fs::read_to_string(file).unwrap().contains(&body));
     let sent = h.provider.requests.lock().unwrap()[1].clone();
@@ -3289,7 +3296,7 @@ async fn a_subagent_at_its_step_limit_hands_back_what_it_found() {
     let Part::ToolCall { metadata, .. } = &parent[1].parts[0].part else {
         panic!()
     };
-    assert_eq!(metadata.as_ref().unwrap()["outcome"], "incomplete");
+    assert_eq!(metadata.as_ref().unwrap().outcome.as_deref(), Some("incomplete"));
     let last = format!("{:?}", h.provider.requests.lock().unwrap().last().unwrap().messages);
     assert!(
         last.contains("FINDINGS") && last.contains("reached its step or repeat limit"),
@@ -4203,7 +4210,7 @@ async fn a_command_that_only_reads_is_not_captured_and_one_that_writes_is() {
         .iter()
         .flat_map(|m| &m.parts)
         .filter_map(|row| match &row.part {
-            Part::ToolCall { metadata, .. } => Some(metadata.as_ref().is_some_and(|m| m.get("changes").is_some())),
+            Part::ToolCall { metadata, .. } => Some(metadata.as_ref().is_some_and(|m| m.changes.is_some())),
             _ => None,
         })
         .collect();
@@ -4264,11 +4271,10 @@ async fn whole_tree_calls_in_a_step_chain_their_captures_and_a_file_tool_write_b
             Part::ToolCall {
                 metadata: Some(meta), ..
             } => Some(
-                meta["changes"]
-                    .as_array()
-                    .into_iter()
+                meta.changes
+                    .iter()
                     .flatten()
-                    .filter_map(|c| c["path"].as_str().map(String::from))
+                    .map(|change| change.path.clone())
                     .collect(),
             ),
             _ => None,
@@ -4394,7 +4400,7 @@ async fn a_running_command_shows_its_output_before_it_ends() {
                     metadata: Some(metadata),
                     ..
                 } = part.part
-                && metadata["output"].as_str().is_some_and(|out| out.contains("early"))
+                && metadata.output.as_deref().is_some_and(|out| out.contains("early"))
             {
                 return metadata;
             }
@@ -4402,10 +4408,7 @@ async fn a_running_command_shows_its_output_before_it_ends() {
     })
     .await
     .expect("the output so far is published while the command runs");
-    assert!(
-        shown.get("shellTimeoutMs").is_some(),
-        "running metadata is kept beside it"
-    );
+    assert!(shown.shell_timeout_ms.is_some(), "running metadata is kept beside it");
     until_idle(&h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let Part::ToolCall { status, output, .. } = &transcript[1].parts[0].part else {
@@ -4441,7 +4444,10 @@ async fn a_configured_formatter_runs_after_a_write() {
     let Part::ToolCall { metadata, output, .. } = &transcript[1].parts[0].part else {
         panic!()
     };
-    assert_eq!(metadata.as_ref().unwrap()["formatted"][0], "tidy: note.txt");
+    assert_eq!(
+        metadata.as_ref().unwrap().formatted.as_ref().unwrap()[0],
+        "tidy: note.txt"
+    );
     assert!(
         output
             .as_deref()
@@ -4463,7 +4469,7 @@ async fn a_configured_formatter_runs_after_a_write() {
         panic!()
     };
     assert!(
-        metadata.as_ref().unwrap().get("formatted").is_none() && !output.as_deref().unwrap().contains("formatter"),
+        metadata.as_ref().unwrap().formatted.is_none() && !output.as_deref().unwrap().contains("formatter"),
         "a formatter that changed nothing is not mentioned"
     );
 }
@@ -5103,9 +5109,10 @@ fn call_outputs(h: &Harness, message: usize) -> Vec<(String, serde_json::Value)>
         .parts
         .iter()
         .filter_map(|row| match &row.part {
-            Part::ToolCall { output, metadata, .. } => {
-                Some((output.clone().unwrap_or_default(), metadata.clone().unwrap_or_default()))
-            }
+            Part::ToolCall { output, metadata, .. } => Some((
+                output.clone().unwrap_or_default(),
+                serde_json::to_value(metadata).unwrap(),
+            )),
             _ => None,
         })
         .collect()
@@ -5239,7 +5246,10 @@ async fn configured_checks_report_problems_with_the_write_and_stop_cuts_them_off
             && output.contains("unused import in"),
         "{output}"
     );
-    assert_eq!(metadata.as_ref().unwrap()["checks"][0]["status"], "problems");
+    assert_eq!(
+        metadata.as_ref().unwrap().checks.as_ref().unwrap()[0].status,
+        CheckStatus::Problems
+    );
 
     h.provider
         .push(tool_call("write", r#"{"path": "b.rs", "content": "fn main() {}\n"}"#));
@@ -5416,7 +5426,7 @@ async fn a_task_runs_a_hidden_child_and_returns_its_reply() {
             .unwrap()
             .starts_with("a.txt contains alpha\n\n(task_id:")
     );
-    let child_id = metadata.as_ref().unwrap()["sessionId"].as_str().unwrap().to_string();
+    let child_id = metadata.as_ref().unwrap().session_id.clone().unwrap();
     let child = h.engine.store.session(&child_id).unwrap().unwrap();
     assert_eq!(child.parent_id.as_deref(), Some(h.session.id.as_str()));
     assert_eq!(child.visibility, Visibility::Hidden);
@@ -5530,7 +5540,7 @@ fn task_call(transcript: &[MessageWithParts]) -> (ToolStatus, String, serde_json
     (
         *status,
         output.clone().unwrap_or_default(),
-        metadata.clone().unwrap_or_default(),
+        serde_json::to_value(metadata).unwrap(),
     )
 }
 

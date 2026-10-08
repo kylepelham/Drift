@@ -4,6 +4,7 @@ use std::time::SystemTime;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
+use super::ToolMetadata;
 use super::{Ask, Context, FileGlob, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
 
@@ -73,7 +74,12 @@ impl Tool for Glob {
             Ok(Output {
                 title: input["pattern"].as_str().unwrap_or_default().into(),
                 output,
-                metadata: json!({ "count": found.len(), "total": total, "truncated": truncated }),
+                metadata: ToolMetadata {
+                    count: Some(found.len()),
+                    total: Some(total),
+                    truncated: Some(truncated),
+                    ..Default::default()
+                },
             })
         })
     }

@@ -615,7 +615,14 @@ impl Engine {
         } else {
             ToolStatus::Error
         };
-        let metadata = serde_json::json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": task.state.as_str(), "mode": "foreground" });
+        let metadata = super::types::ToolMetadata {
+            session_id: Some(task.session_id.clone()),
+            task_id: Some(task.id.clone()),
+            agent: Some(task.agent.clone()),
+            outcome: Some(task.state.as_str().into()),
+            mode: Some("foreground".into()),
+            ..Default::default()
+        };
         self.settle_delivering(
             &mut row,
             status,

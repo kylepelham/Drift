@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{Answer, CallError, Key, Live, REPLACEMENT_WAIT, Slot};
 use crate::llm::ToolSpec;
+use crate::tool::ToolMetadata;
 use crate::tool::{Ask, Context, Output, RunFuture, Tool, ToolError};
 
 /// A server's tool as a turn was offered it: the client it was planned with, and the server's slot for what came after.
@@ -262,9 +263,12 @@ impl Tool for McpTool {
             if answer.is_error {
                 return Err(ToolError(answer.text));
             }
-            let mut metadata = json!({ "server": self.server });
+            let mut metadata = ToolMetadata {
+                server: Some(self.server.clone()),
+                ..Default::default()
+            };
             if !answer.images.is_empty() {
-                metadata["images"] = crate::tool::image::metadata(&answer.images);
+                metadata.images = Some(crate::tool::image::metadata(&answer.images));
             }
             Ok(Output {
                 title: format!("{}: {}", self.server, self.tool.name),

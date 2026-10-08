@@ -7,7 +7,6 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
 
@@ -17,6 +16,7 @@ use super::compaction::{self, Trigger};
 use super::oneshot::Resolved;
 use super::prompt;
 use super::tasks::Claimant;
+use super::types::{CheckStatus, ToolCheck, ToolMetadata};
 use crate::Engine;
 use crate::config::Config;
 use crate::event::{Event, SessionStatus};
@@ -1151,9 +1151,12 @@ impl Engine {
             });
             let mut rows = Vec::new();
             for bootstrap in bootstraps {
-                let mut metadata = json!({ "engineCommand": bootstrap.command });
+                let mut metadata = ToolMetadata {
+                    engine_command: Some(bootstrap.command),
+                    ..Default::default()
+                };
                 if let Some(model) = &bootstrap.model {
-                    metadata["commandModel"] = json!(format!("{}/{}", model.provider, model.model));
+                    metadata.command_model = Some(format!("{}/{}", model.provider, model.model));
                 }
                 let part = Part::ToolCall {
                     call_id: id::new("call"),
@@ -1162,7 +1165,7 @@ impl Engine {
                     status: ToolStatus::Pending,
                     title: None,
                     output: None,
-                    metadata: Some(metadata),
+                    metadata: Some(Box::new(metadata)),
                     started_at: None,
                     finished_at: None,
                 };
@@ -1983,29 +1986,28 @@ impl Engine {
             return;
         };
         let mut text = output.take().unwrap_or_default();
-        let mut meta = metadata.take().unwrap_or_else(|| json!({}));
+        let mut meta = metadata.take().unwrap_or_default();
         for note in &notes {
             crate::tool::add_note(&mut text, &mut meta, note);
         }
         *output = Some(text);
-        meta["checks"] = checks_metadata(reports, workspace);
+        meta.checks = Some(checks_metadata(reports, workspace));
         if !changed.is_empty() {
-            meta["checkChanged"] = json!(changed);
+            meta.check_changed = Some(changed);
         }
         if !elsewhere.is_empty() {
-            meta["checkObserved"] = json!(elsewhere);
+            meta.check_observed = Some(elsewhere);
         }
         if !unrecorded.is_empty() {
-            let mut all: Vec<serde_json::Value> = meta["unrecorded"].as_array().cloned().unwrap_or_default();
-            all.extend(unrecorded.iter().map(|path| json!(path)));
-            meta["unrecorded"] = json!(all);
+            meta.unrecorded
+                .get_or_insert_default()
+                .extend(unrecorded.iter().cloned());
         }
         if !changes.is_empty() {
             // After the call's own changes, so undo chains them: the check's rewrite is put back first.
-            match meta.get_mut("changes").and_then(serde_json::Value::as_array_mut) {
-                Some(list) => list.extend(changes.iter().map(|change| json!(change))),
-                None => meta["changes"] = json!(changes),
-            }
+            meta.changes
+                .get_or_insert_default()
+                .extend(changes.iter().cloned().map(Into::into));
         }
         *metadata = Some(meta);
         // Unsaved, they are not shown either: what the user sees is what the model will be sent.
@@ -2036,8 +2038,8 @@ impl Engine {
         };
         let command_model = metadata
             .as_ref()
-            .filter(|metadata| metadata["engineCommand"].is_string())
-            .and_then(|metadata| metadata["commandModel"].as_str())
+            .filter(|metadata| metadata.engine_command.is_some())
+            .and_then(|metadata| metadata.command_model.as_deref())
             .and_then(crate::config::parse_model);
         let mut ctx = Context {
             workspace: scope.plan.workspace.clone(),
@@ -2120,7 +2122,7 @@ impl Engine {
             Err(outcome) => return outcome,
         };
         if let (Some(running), Part::ToolCall { metadata, .. }) = (tool.running_metadata(&ctx, &input), &mut row.part) {
-            *metadata = merge(running, metadata.take());
+            *metadata = running.merged(metadata.take().map(|metadata| *metadata)).map(Box::new);
         }
         if let Err(error) = self.start_call(&mut row) {
             self.settle(
@@ -2161,14 +2163,10 @@ impl Engine {
                 };
                 (status, Some(title), text, meta)
             }
-            Err(error) => (ToolStatus::Error, None, error.0, serde_json::Value::Null),
+            Err(error) => (ToolStatus::Error, None, error.0, ToolMetadata::null()),
         };
         // A command that exited non-zero failed as far as a plugin is concerned, though the model reads it as a result.
-        let failed = status == ToolStatus::Error
-            || meta
-                .get("exit")
-                .and_then(serde_json::Value::as_i64)
-                .is_some_and(|code| code != 0);
+        let failed = status == ToolStatus::Error || meta.exit.is_some_and(|code| code != 0);
         let (text, meta) = self.hook_after(scope, &name, hooked, failed, text, meta).await;
         let (mut meta, text) = self.keep_images(&scope.message.id, meta, text).await;
         // Every result, MCP and tools yet to come included, reaches the model within one bound.
@@ -2179,24 +2177,29 @@ impl Engine {
             .join(format!("{call_id}.result.log"));
         let (text, spilled) = crate::tool::spool::bound(text, spill);
         if let Some(file) = spilled {
-            meta = merge(meta, Some(json!({ "resultFile": file.to_string_lossy() }))).unwrap_or_default();
+            meta = meta
+                .merged(Some(ToolMetadata {
+                    result_file: Some(file.to_string_lossy().into_owned()),
+                    ..Default::default()
+                }))
+                .unwrap_or_default();
         }
         // After formatting, and on failure too: a failed or stopped command may still have written.
         let (status, mut text, changes) = match capture {
             Some(capture) => self.history_of(scope, capture, status, text).await,
             None => (status, text, None),
         };
-        if let Some(note) = changes.as_ref().and_then(|history| history["historyError"].as_str()) {
+        if let Some(note) = changes.as_ref().and_then(|history| history.history_error.as_deref()) {
             crate::tool::add_note(&mut text, &mut meta, note);
         }
         // A result this call hands over is acknowledged in the write that saves it, if the call holds its claim.
         let claimant = Claimant::call(&scope.plan.session.id, &call_id);
         let delivers = meta
-            .get("delivers")
-            .and_then(serde_json::Value::as_str)
+            .delivers
+            .as_deref()
             .filter(|task| self.workers.holds(task, &claimant))
             .map(str::to_owned);
-        self.settle_delivering(&mut row, status, title, text, merge(meta, changes), delivers.as_deref());
+        self.settle_delivering(&mut row, status, title, text, meta.merged(changes), delivers.as_deref());
         self.release_claims(&claimant);
         if writes {
             scope.wrote.lock().unwrap().note(&row);
@@ -2270,8 +2273,8 @@ impl Engine {
         input: Option<serde_json::Value>,
         failed: bool,
         text: String,
-        mut meta: serde_json::Value,
-    ) -> (String, serde_json::Value) {
+        mut meta: ToolMetadata,
+    ) -> (String, ToolMetadata) {
         let Some(input) = input else { return (text, meta) };
         let result = crate::hook::ToolResult {
             session_id: scope.plan.session.id.clone(),
@@ -2375,7 +2378,7 @@ impl Engine {
         capture: super::changes::Capture,
         status: ToolStatus,
         text: String,
-    ) -> (ToolStatus, String, Option<serde_json::Value>) {
+    ) -> (ToolStatus, String, Option<ToolMetadata>) {
         let plan = scope.plan;
         // `owner` names the workspace whose history holds these blobs, wherever it or the session moves.
         let owner = &plan.session.workspace_id;
@@ -2384,17 +2387,27 @@ impl Engine {
         *scope.tree.lock().unwrap() = recorded.as_ref().ok().and_then(|recorded| recorded.tree.clone());
         match recorded {
             Ok(recorded) => {
-                let mut changes = json!({ "changes": recorded.changes, "owner": owner, "at": recorded.at });
+                let mut changes = ToolMetadata {
+                    changes: Some(recorded.changes.into_iter().map(Into::into).collect()),
+                    owner: Some(owner.clone()),
+                    at: Some(recorded.at),
+                    ..Default::default()
+                };
                 if !recorded.unrecorded.is_empty() {
-                    changes["unrecorded"] = json!(recorded.unrecorded);
+                    changes.unrecorded = Some(recorded.unrecorded);
                 }
                 (status, text, Some(changes))
             }
             Err(lost) => {
                 let status = if lost.put_back { ToolStatus::Error } else { status };
                 // The caller adds `historyError` after the output as a note.
-                let history =
-                    json!({ "changes": [], "owner": owner, "unrecorded": lost.unrecorded, "historyError": lost.note });
+                let history = ToolMetadata {
+                    changes: Some(Vec::new()),
+                    owner: Some(owner.clone()),
+                    unrecorded: Some(lost.unrecorded),
+                    history_error: Some(lost.note),
+                    ..Default::default()
+                };
                 (status, text, Some(history))
             }
         }
@@ -2495,20 +2508,14 @@ impl Engine {
         scope: &CallScope<'_>,
         call_id: &str,
         mut text: String,
-        metadata: serde_json::Value,
-    ) -> (String, serde_json::Value) {
+        metadata: ToolMetadata,
+    ) -> (String, ToolMetadata) {
         let asker = super::trust::Asker {
             message_id: &scope.message.id,
             call_id,
             abort: scope.abort,
         };
-        let files: Vec<PathBuf> = metadata["files"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|file| file.as_str())
-            .map(PathBuf::from)
-            .collect();
+        let files: Vec<PathBuf> = metadata.file_paths().map(PathBuf::from).collect();
         // Formatters are asked about apart from checks, so refusing one never stops the other.
         let config = &scope.plan.config;
         let (written, workspace, formatters) = (
@@ -2546,9 +2553,11 @@ impl Engine {
         if let Some(note) = crate::lsp::note(&found, &scope.plan.workspace) {
             crate::tool::add_note(&mut text, &mut metadata, &note);
         }
-        let mut metadata = with_formatted(metadata, formatted);
+        if !formatted.is_empty() {
+            metadata.formatted = Some(formatted);
+        }
         if !found.is_empty() {
-            metadata["diagnostics"] = crate::lsp::metadata(&found, &scope.plan.workspace);
+            metadata.diagnostics = Some(crate::lsp::metadata(&found, &scope.plan.workspace));
         }
         (text, metadata)
     }
@@ -2557,18 +2566,13 @@ impl Engine {
     async fn format_written(
         &self,
         plan: &Plan,
-        metadata: &serde_json::Value,
+        metadata: &ToolMetadata,
         overrides: &std::collections::BTreeMap<String, crate::config::FormatterConfig>,
         local: &[PathBuf],
     ) -> Vec<String> {
         let formatters = crate::edit::format::resolve(overrides);
         let mut formatted = Vec::new();
-        for file in metadata["files"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|f| f.as_str())
-        {
+        for file in metadata.file_paths() {
             let before = tokio::fs::read(file).await.ok();
             let Some(name) =
                 crate::edit::format::format(Path::new(file), &plan.workspace, &formatters, &self.store, local).await
@@ -2587,12 +2591,7 @@ impl Engine {
 
     /// Scales the images a call returned within provider limits and moves them to the blob table,
     /// leaving `{mime, hash}` in its metadata; a scaled or dropped image is said in the result.
-    async fn keep_images(
-        &self,
-        message_id: &str,
-        mut meta: serde_json::Value,
-        mut text: String,
-    ) -> (serde_json::Value, String) {
+    async fn keep_images(&self, message_id: &str, mut meta: ToolMetadata, mut text: String) -> (ToolMetadata, String) {
         let returned = crate::tool::image::returned(&meta);
         if returned.is_empty() {
             return (meta, text);
@@ -2623,7 +2622,7 @@ impl Engine {
                 Err(reason) => text.push_str(&format!("\n\n[an image ({mime}) is not shown: {reason}]")),
             }
         }
-        meta["images"] = crate::tool::image::stored_metadata(&stored);
+        meta.images = Some(crate::tool::image::stored_metadata(&stored));
         (meta, text)
     }
 
@@ -2648,7 +2647,7 @@ impl Engine {
             let Some(engine) = engine.upgrade() else { return };
             let mut row = running.lock().unwrap();
             if let Part::ToolCall { metadata, .. } = &mut row.part {
-                *metadata = merge(metadata.take().unwrap_or_default(), Some(patch));
+                *metadata = metadata.take().unwrap_or_default().merged(Some(patch)).map(Box::new);
             }
             engine.hub.publish_transient(Event::PartUpdated { part: row.clone() });
         })
@@ -2733,7 +2732,7 @@ impl Engine {
         new_status: ToolStatus,
         new_title: Option<String>,
         text: String,
-        meta: Option<serde_json::Value>,
+        meta: Option<ToolMetadata>,
     ) {
         self.settle_delivering(row, new_status, new_title, text, meta, None);
     }
@@ -2745,7 +2744,7 @@ impl Engine {
         new_status: ToolStatus,
         new_title: Option<String>,
         text: String,
-        meta: Option<serde_json::Value>,
+        meta: Option<ToolMetadata>,
         delivers: Option<&str>,
     ) {
         if let Part::ToolCall {
@@ -2762,19 +2761,18 @@ impl Engine {
             *output = Some(text);
             let command = metadata
                 .as_ref()
-                .and_then(|meta| meta["engineCommand"].as_str())
+                .and_then(|meta| meta.engine_command.as_deref())
                 .map(str::to_string);
-            let mut value = meta.unwrap_or(serde_json::Value::Null);
-            if let Some(object) = value.as_object_mut() {
-                object.remove("engineCommand");
-            }
+            let mut value = meta.unwrap_or_else(ToolMetadata::null);
+            value.engine_command = None;
+            value.extra.remove("engineCommand");
             if let Some(command) = command {
-                if !value.is_object() {
-                    value = json!({});
+                if value.legacy.is_some() {
+                    value = ToolMetadata::default();
                 }
-                value["engineCommand"] = json!(command);
+                value.engine_command = Some(command);
             }
-            *metadata = (!value.is_null()).then_some(value);
+            *metadata = (!value.is_null()).then(|| Box::new(value));
             *finished_at = Some(id::now_ms());
         }
         let saved = match delivers {
@@ -3161,13 +3159,7 @@ impl StepWrites {
         else {
             return;
         };
-        let files: Vec<std::path::PathBuf> = meta["files"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|file| file.as_str())
-            .map(Into::into)
-            .collect();
+        let files: Vec<std::path::PathBuf> = meta.file_paths().map(Into::into).collect();
         if files.is_empty() {
             return;
         }
@@ -3224,36 +3216,24 @@ fn checks_note(
     })
 }
 
-fn checks_metadata(reports: &[crate::edit::check::Report], workspace: &Path) -> serde_json::Value {
+fn checks_metadata(reports: &[crate::edit::check::Report], workspace: &Path) -> Vec<ToolCheck> {
     use crate::edit::check::Verdict;
-    let entry = |report: &crate::edit::check::Report| match &report.verdict {
-        Verdict::Passed => json!({ "check": check_label(report, workspace), "status": "passed" }),
-        Verdict::Problems(said) => {
-            json!({ "check": check_label(report, workspace), "status": "problems", "output": said })
-        }
-        Verdict::Unavailable(why) => {
-            json!({ "check": check_label(report, workspace), "status": "unavailable", "output": why })
+    let entry = |report: &crate::edit::check::Report| {
+        let (status, output) = match &report.verdict {
+            Verdict::Passed => (CheckStatus::Passed, None),
+            Verdict::Problems(said) => (CheckStatus::Problems, Some(said.clone())),
+            Verdict::Unavailable(why) => (CheckStatus::Unavailable, Some(why.clone())),
+        };
+
+        ToolCheck {
+            check: check_label(report, workspace),
+            status,
+            output,
+            extra: Default::default(),
         }
     };
-    json!(reports.iter().map(entry).collect::<Vec<_>>())
-}
 
-fn with_formatted(mut metadata: serde_json::Value, formatted: Vec<String>) -> serde_json::Value {
-    if !formatted.is_empty() {
-        metadata["formatted"] = serde_json::json!(formatted);
-    }
-    metadata
-}
-
-fn merge(metadata: serde_json::Value, extra: Option<serde_json::Value>) -> Option<serde_json::Value> {
-    match (metadata, extra) {
-        (serde_json::Value::Object(mut base), Some(serde_json::Value::Object(extra))) => {
-            base.extend(extra);
-            Some(serde_json::Value::Object(base))
-        }
-        (serde_json::Value::Null, extra) => extra,
-        (metadata, _) => Some(metadata),
-    }
+    reports.iter().map(entry).collect()
 }
 
 #[cfg(test)]

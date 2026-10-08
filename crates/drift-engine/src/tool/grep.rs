@@ -6,6 +6,7 @@ use grep::searcher::{BinaryDetection, SearcherBuilder};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
+use super::ToolMetadata;
 use super::sensitive::is_sensitive;
 use super::{Ask, Context, FileGlob, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
@@ -106,7 +107,15 @@ impl Tool for Grep {
                     found.restricted
                 ));
             }
-            let metadata = json!({ "count": found.lines.len(), "total": found.total.min(MAX_COUNTED), "capped": found.total > MAX_COUNTED, "truncated": found.total > found.lines.len(), "withheld": found.withheld, "restricted": found.restricted });
+            let metadata = ToolMetadata {
+                count: Some(found.lines.len()),
+                total: Some(found.total.min(MAX_COUNTED)),
+                capped: Some(found.total > MAX_COUNTED),
+                truncated: Some(found.total > found.lines.len()),
+                withheld: Some(found.withheld),
+                restricted: Some(found.restricted),
+                ..Default::default()
+            };
             Ok(Output {
                 title: input["pattern"].as_str().unwrap_or_default().into(),
                 output,
@@ -291,7 +300,7 @@ mod tests {
             "{}",
             out.output
         );
-        assert_eq!(out.metadata["withheld"], 1);
+        assert_eq!(out.metadata.withheld, Some(1));
 
         let named = json!({ "pattern": "token", "path": ".env" });
         assert!(
@@ -323,7 +332,7 @@ mod tests {
         );
         let all = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
         assert_eq!(
-            (all.metadata["count"].as_u64(), all.metadata["truncated"].as_bool()),
+            (all.metadata.count, all.metadata.truncated),
             (Some(120), Some(false)),
             "120 matches fit"
         );
@@ -332,12 +341,8 @@ mod tests {
         }
         let past = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
         assert_eq!(
-            (
-                past.metadata["count"].as_u64(),
-                past.metadata["total"].as_u64(),
-                past.metadata["truncated"].as_bool()
-            ),
-            (Some(MAX_MATCHES as u64), Some(220), Some(true))
+            (past.metadata.count, past.metadata.total, past.metadata.truncated),
+            (Some(MAX_MATCHES), Some(220), Some(true))
         );
         let lines: Vec<&str> = past.output.lines().collect();
         assert_eq!(
@@ -361,12 +366,8 @@ mod tests {
         }
         let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
         assert_eq!(
-            (
-                out.metadata["capped"].as_bool(),
-                out.metadata["total"].as_u64(),
-                out.metadata["count"].as_u64()
-            ),
-            (Some(true), Some(MAX_COUNTED as u64), Some(MAX_MATCHES as u64))
+            (out.metadata.capped, out.metadata.total, out.metadata.count),
+            (Some(true), Some(MAX_COUNTED), Some(MAX_MATCHES))
         );
         assert!(
             out.output.contains("more than 2000 matches, so the search stopped"),
@@ -398,7 +399,7 @@ mod tests {
         });
         let out = Grep.run(&sandbox.ctx, json!({ "pattern": "hit" })).await.unwrap();
         assert!(out.output.contains("hit public") && !out.output.contains("hit restricted"));
-        assert_eq!(out.metadata["restricted"], 1);
+        assert_eq!(out.metadata.restricted, Some(1));
     }
 
     #[tokio::test]
@@ -432,7 +433,7 @@ mod tests {
             "{}",
             ruled.output
         );
-        assert_eq!(ruled.metadata["restricted"], 1);
+        assert_eq!(ruled.metadata.restricted, Some(1));
     }
 
     #[tokio::test]

@@ -189,7 +189,7 @@ fn the_model_hears_a_bounded_list_and_the_metadata_keeps_the_same() {
         "ten per file across three files, then the cap"
     );
     assert!(!note.contains("f3.rs"), "thirty in all");
-    assert_eq!(metadata(&found, &dir).as_array().unwrap().len(), MAX_TOTAL);
+    assert_eq!(metadata(&found, &dir).len(), MAX_TOTAL);
     assert_eq!(clip(&"x".repeat(400)).chars().count(), MAX_MESSAGE_CHARS + 3);
 }
 

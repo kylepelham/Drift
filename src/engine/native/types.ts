@@ -1042,6 +1042,8 @@ export interface components {
             command: string[];
             extensions: string[];
         };
+        /** @enum {string} */
+        CheckStatus: "passed" | "problems" | "unavailable";
         /** @description One answered question: what was asked and what the user chose or typed. */
         Clarified: {
             answers: string[];
@@ -1332,6 +1334,14 @@ export interface components {
         Health: {
             version: string;
         };
+        HistoryChange: {
+            after?: string | null;
+            before?: string | null;
+            observed?: boolean | null;
+            path: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** @description Replies can ride the socket so a permission prompt never waits on a new HTTP connection. */
         Incoming: (components["schemas"]["ReplyBody"] & {
             requestId: string;
@@ -1444,6 +1454,9 @@ export interface components {
         MessageStatus: "streaming" | "done" | "aborted" | "error" | "paused";
         MessageWithParts: components["schemas"]["Message"] & {
             parts: components["schemas"]["PartRow"][];
+        };
+        MetadataFile: string | {
+            [key: string]: unknown;
         };
         /** @enum {string} */
         Mode: "foreground" | "background";
@@ -1565,7 +1578,7 @@ export interface components {
             /** Format: int64 */
             finishedAt?: number | null;
             input: unknown;
-            metadata?: unknown;
+            metadata?: components["schemas"]["ToolMetadata"] | null;
             name: string;
             output?: string | null;
             /** Format: int64 */
@@ -1999,10 +2012,107 @@ export interface components {
         };
         /** @enum {string} */
         TodoStatus: "pending" | "in_progress" | "completed" | "cancelled";
+        ToolCheck: {
+            check: string;
+            output?: string | null;
+            status: components["schemas"]["CheckStatus"];
+        } & {
+            [key: string]: unknown;
+        };
+        ToolDiagnostic: {
+            /** Format: int32 */
+            column: number;
+            file: string;
+            /** Format: int32 */
+            line: number;
+            message: string;
+            server: string;
+        } & {
+            [key: string]: unknown;
+        };
+        ToolFileChange: {
+            additions: number;
+            deletions: number;
+            filePath: string;
+            patch: string;
+            relativePath: string;
+            type: string;
+        } & {
+            [key: string]: unknown;
+        };
+        ToolImage: {
+            data?: string | null;
+            hash?: string | null;
+            mime: string;
+        } & {
+            [key: string]: unknown;
+        };
         ToolInfo: {
             description: string;
             name: string;
             read_only: boolean;
+        };
+        ToolMetadata: {
+            agent?: string | null;
+            answers?: string[][] | null;
+            async?: boolean | null;
+            at?: string | null;
+            bytes?: number | null;
+            capped?: boolean | null;
+            changes?: components["schemas"]["HistoryChange"][] | null;
+            checkChanged?: string[] | null;
+            checkObserved?: string[] | null;
+            checks?: components["schemas"]["ToolCheck"][] | null;
+            commandModel?: string | null;
+            contentType?: string | null;
+            count?: number | null;
+            created?: boolean | null;
+            delivers?: string | null;
+            diagnostics?: components["schemas"]["ToolDiagnostic"][] | null;
+            diff?: string | null;
+            engineCommand?: string | null;
+            /** Format: int64 */
+            exit?: number | null;
+            fileChanges?: components["schemas"]["ToolFileChange"][] | null;
+            files?: components["schemas"]["MetadataFile"][] | null;
+            formatted?: string[] | null;
+            historyError?: string | null;
+            images?: components["schemas"]["ToolImage"][] | null;
+            large?: boolean | null;
+            lines?: number | null;
+            mode?: string | null;
+            notes?: string[] | null;
+            open?: number | null;
+            outcome?: string | null;
+            output?: string | null;
+            /** Format: int64 */
+            outputBytes?: number | null;
+            outputFile?: string | null;
+            owner?: string | null;
+            path?: string | null;
+            reason?: string | null;
+            redirect?: string | null;
+            replacements?: number | null;
+            requestId?: string | null;
+            restricted?: number | null;
+            resultFile?: string | null;
+            running?: boolean | null;
+            server?: string | null;
+            sessionId?: string | null;
+            /** Format: int64 */
+            shellTimeoutMs?: number | null;
+            shown?: number | null;
+            state?: string | null;
+            stopped?: boolean | null;
+            taskId?: string | null;
+            timedOut?: boolean | null;
+            total?: number | null;
+            truncated?: boolean | null;
+            unrecorded?: string[] | null;
+            uri?: string | null;
+            withheld?: number | null;
+        } & {
+            [key: string]: unknown;
         };
         /** @description A tool an agent's `tools` list can name, as Settings offers it. */
         ToolName: {

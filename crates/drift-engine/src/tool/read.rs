@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
 
@@ -101,7 +102,11 @@ impl Tool for Read {
             Ok(Output {
                 title: name,
                 output,
-                metadata: json!({ "lines": total, "shown": shown }),
+                metadata: ToolMetadata {
+                    lines: Some(Some(total)),
+                    shown: Some(shown),
+                    ..Default::default()
+                },
             })
         })
     }
@@ -150,7 +155,12 @@ async fn read_large(ctx: &Context, path: &std::path::Path, offset: usize, limit:
     Ok(Output {
         title: name,
         output,
-        metadata: json!({ "lines": null, "shown": shown, "large": true }),
+        metadata: ToolMetadata {
+            lines: Some(None),
+            shown: Some(shown),
+            large: Some(true),
+            ..Default::default()
+        },
     })
 }
 
@@ -306,7 +316,10 @@ fn attached(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> 
             "{name} is {kind} ({mime}, {} KB); it follows this result.",
             bytes.len().div_ceil(1024)
         ),
-        metadata: json!({ "images": super::image::metadata(&[file]) }),
+        metadata: ToolMetadata {
+            images: Some(super::image::metadata(&[file])),
+            ..Default::default()
+        },
     })
 }
 
@@ -449,7 +462,7 @@ mod tests {
             "{}",
             first.output.len()
         );
-        let shown = first.metadata["shown"].as_u64().unwrap() as usize;
+        let shown = first.metadata.shown.unwrap();
         assert!(shown > 10 && shown < 1_000);
         assert!(
             first.output.ends_with(&format!("read with offset {})", shown + 1)),

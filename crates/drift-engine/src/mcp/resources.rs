@@ -4,6 +4,7 @@
 use serde_json::{Value, json};
 
 use crate::llm::ToolSpec;
+use crate::tool::ToolMetadata;
 use crate::tool::{Ask, Context, Output, RunFuture, Tool, ToolError, required_str};
 
 pub struct ListResources;
@@ -92,9 +93,13 @@ impl Tool for ReadResource {
                 .read_resource(server, Some(&ctx.workspace), uri)
                 .await
                 .map_err(ToolError)?;
-            let mut metadata = json!({ "server": server, "uri": uri });
+            let mut metadata = ToolMetadata {
+                server: Some(server.into()),
+                uri: Some(uri.into()),
+                ..Default::default()
+            };
             if !answer.images.is_empty() {
-                metadata["images"] = crate::tool::image::metadata(&answer.images);
+                metadata.images = Some(crate::tool::image::metadata(&answer.images));
             }
             Ok(Output {
                 title: format!("{server}: {uri}"),

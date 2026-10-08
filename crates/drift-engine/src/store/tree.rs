@@ -114,16 +114,18 @@ impl Store {
             else {
                 continue;
             };
-            let Some(changes) = metadata.get("changes").and_then(|c| c.as_array()) else {
+            let Some(changes) = metadata.changes.as_ref() else {
                 continue;
             };
-            let owner = metadata["owner"].as_str().map_or(session_workspace, str::to_string);
+            let owner = metadata.owner.unwrap_or(session_workspace);
             let kept = blobs.entry(owner).or_default();
             for change in changes {
                 kept.extend(
-                    ["before", "after"]
-                        .iter()
-                        .filter_map(|side| change[side].as_str().map(str::to_string)),
+                    [change.before.as_ref(), change.after.as_ref()]
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .cloned(),
                 );
             }
         }

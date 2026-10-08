@@ -1,7 +1,9 @@
 use serde_json::{Value, json};
 
+use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, required_str};
 use crate::llm::ToolSpec;
+use crate::session::types::MetadataFile;
 
 pub struct Skill;
 
@@ -58,7 +60,11 @@ impl Tool for Skill {
             Ok(Output {
                 title: skill.name.clone(),
                 output: format!("Skill directory: {}\n\n{}{listed}", skill.path, instructions),
-                metadata: json!({ "path": skill.path, "files": files }),
+                metadata: ToolMetadata {
+                    path: Some(skill.path.clone()),
+                    files: Some(files.into_iter().map(MetadataFile::Path).collect()),
+                    ..Default::default()
+                },
             })
         })
     }
@@ -113,7 +119,7 @@ mod tests {
             "{}",
             listed.output
         );
-        assert_eq!(listed.metadata["files"].as_array().unwrap().len(), 1);
+        assert_eq!(listed.metadata.files.as_ref().unwrap().len(), 1);
         assert!(
             Skill
                 .run(&sandbox.ctx, json!({ "name": "nope" }))

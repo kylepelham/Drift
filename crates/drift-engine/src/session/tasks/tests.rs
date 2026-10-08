@@ -428,7 +428,7 @@ async fn task_output_answers_for_this_conversations_tasks_and_waits_only_as_aske
         "{}",
         out.output
     );
-    assert!(out.metadata.get("delivers").is_none());
+    assert!(out.metadata.delivers.is_none());
 
     h.engine.end_task(&running.id, TaskState::Replied, "the answer");
     let out = crate::tool::task::TaskOutput
@@ -436,7 +436,11 @@ async fn task_output_answers_for_this_conversations_tasks_and_waits_only_as_aske
         .await
         .unwrap();
     assert!(out.output.ends_with("replied\n\nthe answer"), "{}", out.output);
-    assert_eq!(out.metadata["delivers"], running.id, "this call hands it over");
+    assert_eq!(
+        out.metadata.delivers.as_deref(),
+        Some(running.id.as_str()),
+        "this call hands it over"
+    );
     assert!(
         !h.engine.store.task(&running.id).unwrap().unwrap().delivered,
         "not until the call's result is saved"
@@ -482,7 +486,7 @@ async fn a_result_being_read_is_not_delivered_again_and_one_being_delivered_is_n
     h.engine.end_task(&task.id, TaskState::Replied, "the answer");
     h.engine.deliver(&task.id).await;
     let out = reading.await.unwrap();
-    assert_eq!(out.metadata["delivers"], task.id);
+    assert_eq!(out.metadata.delivers.as_deref(), Some(task.id.as_str()));
     assert!(
         delivered_results(&h.engine.store.transcript(&h.session.id).unwrap()).is_empty(),
         "no second copy as a message"
@@ -519,7 +523,7 @@ async fn a_result_being_read_is_not_delivered_again_and_one_being_delivered_is_n
         "{}",
         out.output
     );
-    assert!(out.metadata.get("delivers").is_none());
+    assert!(out.metadata.delivers.is_none());
 }
 
 #[tokio::test]
@@ -533,7 +537,7 @@ async fn a_result_whose_call_was_not_saved_is_still_owed_and_arrives_as_a_messag
         .run(&context(&h, &h.session.id, "reading"), json!({ "task_id": task.id }))
         .await
         .unwrap();
-    assert_eq!(out.metadata["delivers"], task.id);
+    assert_eq!(out.metadata.delivers.as_deref(), Some(task.id.as_str()));
     let mut row = call_row(&h, "reading");
     h.engine.store.lock().execute_batch("CREATE TEMP TRIGGER no_room BEFORE UPDATE ON part WHEN NEW.json LIKE '%the answer%' BEGIN SELECT RAISE(ABORT, 'disk is full'); END;").unwrap();
     h.engine.settle_delivering(
@@ -578,8 +582,8 @@ async fn a_foreground_result_stays_its_launching_calls_even_when_saving_it_fails
         )
         .await
         .unwrap();
-    let task_id = out.metadata["taskId"].as_str().unwrap().to_string();
-    assert_eq!(out.metadata["delivers"], task_id.as_str());
+    let task_id = out.metadata.task_id.clone().unwrap();
+    assert_eq!(out.metadata.delivers.as_deref(), Some(task_id.as_str()));
 
     // Another call cannot take it, before or after the launching call's save fails.
     let reader = context(&h, &h.session.id, "reader");
@@ -1106,7 +1110,7 @@ async fn the_same_launch_again_gets_what_it_launched_and_makes_nothing_new() {
         .run(&ctx, background("Again", "CHILD again"))
         .await
         .unwrap();
-    assert_eq!(first.metadata["taskId"], second.metadata["taskId"]);
+    assert_eq!(first.metadata.task_id, second.metadata.task_id);
     assert!(
         second.output.starts_with("Started Again in the background"),
         "{}",
@@ -1128,7 +1132,7 @@ async fn the_same_launch_again_gets_what_it_launched_and_makes_nothing_new() {
     );
     let again = crate::tool::task::Task.run(&ctx, front).await.unwrap();
     assert_eq!(
-        (again.output.as_str(), again.metadata["mode"].as_str()),
+        (again.output.as_str(), again.metadata.mode.as_deref()),
         (first.output.as_str(), Some("foreground")),
         "a foreground replay is its result, not a background receipt"
     );
@@ -1207,7 +1211,7 @@ async fn a_worker_cut_off_at_its_output_limit_is_incomplete_not_an_answer() {
         crate::session::types::ToolStatus::Error,
         "not a successful task"
     );
-    assert_eq!(metadata.as_ref().unwrap()["outcome"], "incomplete");
+    assert_eq!(metadata.as_ref().unwrap().outcome.as_deref(), Some("incomplete"));
     let output = output.as_deref().unwrap();
     assert!(
         output.contains("not a complete answer") && output.contains("The first half of an ans"),
@@ -1245,7 +1249,7 @@ async fn a_worker_whose_reply_the_provider_refused_says_so_not_that_it_was_cut_o
         panic!()
     };
     assert_eq!(*status, crate::session::types::ToolStatus::Error);
-    assert_eq!(metadata.as_ref().unwrap()["outcome"], "refused");
+    assert_eq!(metadata.as_ref().unwrap().outcome.as_deref(), Some("refused"));
     let output = output.as_deref().unwrap();
     assert!(
         output.contains("safety filter") && !output.contains("output limit"),

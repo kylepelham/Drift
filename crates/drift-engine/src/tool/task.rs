@@ -3,6 +3,7 @@
 
 use serde_json::{Value, json};
 
+use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, required_str};
 use crate::config::AgentKind;
 use crate::event::Event;
@@ -166,7 +167,7 @@ impl Tool for Task {
 
     /// Only a reply or a launch is a result; a failed or stopped subagent is a failed call that still links to its transcript.
     fn failed(&self, output: &Output) -> bool {
-        !matches!(output.metadata["outcome"].as_str(), Some("replied" | "launched"))
+        !matches!(output.metadata.outcome.as_deref(), Some("replied" | "launched"))
     }
 }
 
@@ -231,9 +232,16 @@ fn own_result(ctx: &Context, task_id: &str, outcome: &str) -> Result<Output, Too
         "{said}\n\n(task_id: {}; pass it to task to continue this subagent's conversation)",
         task.id
     );
-    let mut metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": outcome, "mode": task.mode.as_str() });
+    let mut metadata = ToolMetadata {
+        session_id: Some(task.session_id.clone()),
+        task_id: Some(task.id.clone()),
+        agent: Some(task.agent.clone()),
+        outcome: Some(outcome.into()),
+        mode: Some(task.mode.as_str().into()),
+        ..Default::default()
+    };
     if claimed {
-        metadata["delivers"] = json!(task.id);
+        metadata.delivers = Some(task.id.clone());
     }
     Ok(Output {
         title: task.description.clone(),
@@ -248,7 +256,15 @@ fn receipt(task: &TaskRecord) -> Output {
         "Started {} in the background as {} (@{}). Carry on with other work: its result will arrive in this conversation when it finishes. Use task_output only if you cannot continue without it.",
         task.description, task.id, task.agent
     );
-    let metadata = json!({ "sessionId": task.session_id, "taskId": task.id, "agent": task.agent, "outcome": "launched", "mode": task.mode.as_str(), "reason": task.reason });
+    let metadata = ToolMetadata {
+        session_id: Some(task.session_id.clone()),
+        task_id: Some(task.id.clone()),
+        agent: Some(task.agent.clone()),
+        outcome: Some("launched".into()),
+        mode: Some(task.mode.as_str().into()),
+        reason: Some(task.reason.clone()),
+        ..Default::default()
+    };
     Output {
         title: task.description.clone(),
         output,
@@ -337,9 +353,14 @@ impl Tool for TaskOutput {
                 task = owned(ctx, &input)?;
             }
             let hands_over = claimed && task.state.is_terminal() && !task.delivered;
-            let mut metadata = json!({ "taskId": task.id, "state": task.state.as_str(), "sessionId": task.session_id });
+            let mut metadata = ToolMetadata {
+                task_id: Some(task.id.clone()),
+                state: Some(task.state.as_str().into()),
+                session_id: Some(task.session_id.clone()),
+                ..Default::default()
+            };
             if hands_over {
-                metadata["delivers"] = json!(task.id);
+                metadata.delivers = Some(task.id.clone());
             }
             Ok(Output {
                 title: task.description.clone(),
@@ -460,7 +481,11 @@ impl Tool for ReadThread {
             Ok(Output {
                 title: child.title.clone(),
                 output: lines.join("\n"),
-                metadata: json!({ "sessionId": id, "running": running }),
+                metadata: ToolMetadata {
+                    session_id: Some(id.into()),
+                    running: Some(running),
+                    ..Default::default()
+                },
             })
         })
     }

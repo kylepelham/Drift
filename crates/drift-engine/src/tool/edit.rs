@@ -4,8 +4,10 @@ use super::text::TextFormat;
 use serde_json::{Value, json};
 use similar::TextDiff;
 
+use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
+use crate::session::types::{MetadataFile, ToolFileChange};
 
 /// Lines of context shown around the closest region on a miss.
 const NEAR_CONTEXT: usize = 3;
@@ -91,7 +93,13 @@ impl Tool for Edit {
             Ok(Output {
                 title: name.clone(),
                 output: format!("Edited {}: {replacements} replacement{plural}.", change.summary()),
-                metadata: json!({ "replacements": replacements, "files": [path.to_string_lossy()], "diff": change.patch, "fileChanges": [change.json()] }),
+                metadata: ToolMetadata {
+                    replacements: Some(replacements),
+                    files: Some(vec![MetadataFile::Path(path.to_string_lossy().into_owned())]),
+                    diff: Some(change.patch.clone()),
+                    file_changes: Some(vec![change.metadata()]),
+                    ..Default::default()
+                },
             })
         })
     }
@@ -221,8 +229,16 @@ impl Change {
         }
     }
 
-    pub fn json(&self) -> Value {
-        json!({ "filePath": self.path, "relativePath": self.name, "type": self.kind, "patch": self.patch, "additions": self.additions, "deletions": self.deletions })
+    pub fn metadata(&self) -> ToolFileChange {
+        ToolFileChange {
+            file_path: self.path.clone(),
+            relative_path: self.name.clone(),
+            kind: self.kind.into(),
+            patch: self.patch.clone(),
+            additions: self.additions,
+            deletions: self.deletions,
+            extra: Default::default(),
+        }
     }
 
     /// The line the model reads instead of the diff.
@@ -281,16 +297,16 @@ mod tests {
             "the model reads one line, not the diff"
         );
         assert!(
-            out.metadata["diff"]
-                .as_str()
-                .unwrap()
-                .contains("-fn b() {}\n+fn c() {}"),
+            out.metadata.diff.as_deref().unwrap().contains("-fn b() {}\n+fn c() {}"),
             "the UI's diff is in the metadata"
         );
         assert_eq!(
             (
-                out.metadata["fileChanges"][0]["additions"].as_u64(),
-                out.metadata["fileChanges"][0]["relativePath"].as_str()
+                out.metadata.file_changes.as_ref().map(|changes| changes[0].additions),
+                out.metadata
+                    .file_changes
+                    .as_ref()
+                    .map(|changes| changes[0].relative_path.as_str())
             ),
             (Some(1), Some("a.rs"))
         );
@@ -329,7 +345,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "z\ny\nz\n");
-        assert_eq!(out.metadata["replacements"], 2);
+        assert_eq!(out.metadata.replacements, Some(2));
     }
 
     #[tokio::test]
@@ -344,7 +360,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), b"z\r\nz\r\n");
-        assert_eq!(out.metadata["replacements"], 2);
+        assert_eq!(out.metadata.replacements, Some(2));
     }
 
     #[tokio::test]

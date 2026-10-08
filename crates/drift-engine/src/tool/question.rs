@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::llm::ToolSpec;
 use crate::question::{self, Question as Item};
@@ -71,7 +72,11 @@ impl Tool for Question {
                 return Ok(Output {
                     title: items[0].header.clone(),
                     output,
-                    metadata: json!({ "requestId": id, "async": true }),
+                    metadata: ToolMetadata {
+                        request_id: Some(id),
+                        asynchronous: Some(true),
+                        ..Default::default()
+                    },
                 });
             }
             let answers = ctx.engine.questions.ask(&ctx.engine.hub, request, &ctx.abort).await;
@@ -86,7 +91,10 @@ impl Tool for Question {
             Ok(Output {
                 title: items[0].header.clone(),
                 output: lines.join("\n"),
-                metadata: json!({ "answers": answers }),
+                metadata: ToolMetadata {
+                    answers: Some(answers),
+                    ..Default::default()
+                },
             })
         })
     }

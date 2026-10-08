@@ -58,7 +58,7 @@ async fn an_async_question_returns_at_once_and_its_answer_starts_a_turn_once() {
         output.as_deref().unwrap().starts_with("Asked the user"),
         "the call did not wait"
     );
-    assert_eq!(metadata.as_ref().unwrap()["async"], true);
+    assert_eq!(metadata.as_ref().unwrap().asynchronous, Some(true));
 
     h.provider.push(text("deploying"));
     h.engine

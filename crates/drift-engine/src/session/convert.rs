@@ -196,7 +196,7 @@ fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> 
                 Part::ToolCall {
                     metadata: Some(metadata),
                     ..
-                } if metadata["engineCommand"].is_string() => None,
+                } if metadata.engine_command.is_some() => None,
                 Part::ToolCall {
                     call_id,
                     name,
@@ -262,7 +262,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
         };
         if let Some(command) = metadata
             .as_ref()
-            .and_then(|metadata| metadata["engineCommand"].as_str())
+            .and_then(|metadata| metadata.engine_command.as_deref())
         {
             let ran = input["command"]
                 .as_str()
@@ -280,7 +280,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
                 is_error,
             });
         }
-        let returned = crate::tool::image::stored(metadata.as_ref());
+        let returned = crate::tool::image::stored(metadata.as_deref());
         if !returned.is_empty() {
             images.push(Block::Text(format!("The {name} call ({call_id}) returned this:")));
             images.extend(returned.into_iter().map(|image| Block::Stored {
@@ -451,7 +451,9 @@ mod tests {
     fn returned_images_follow_every_result_of_the_turn() {
         let mut with_image = call(ToolStatus::Done, Some("an image"));
         if let Part::ToolCall { metadata, .. } = &mut with_image {
-            *metadata = Some(json!({ "images": [{ "mime": "image/png", "hash": "abc" }] }));
+            *metadata = Some(Box::new(
+                json!({ "images": [{ "mime": "image/png", "hash": "abc" }] }).into(),
+            ));
         }
         let mut second = call(ToolStatus::Done, Some("text"));
         if let Part::ToolCall { call_id, .. } = &mut second {

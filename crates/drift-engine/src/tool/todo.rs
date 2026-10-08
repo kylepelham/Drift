@@ -1,5 +1,6 @@
 use serde_json::{Value, json};
 
+use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError};
 use crate::event::Event;
 use crate::llm::ToolSpec;
@@ -54,7 +55,11 @@ impl Tool for TodoWrite {
             Ok(Output {
                 title: format!("{open} of {} remaining", todos.len()),
                 output: serde_json::to_string_pretty(&todos).unwrap(),
-                metadata: json!({ "count": todos.len(), "open": open }),
+                metadata: ToolMetadata {
+                    count: Some(todos.len()),
+                    open: Some(open),
+                    ..Default::default()
+                },
             })
         })
     }

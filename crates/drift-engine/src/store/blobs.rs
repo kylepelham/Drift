@@ -95,7 +95,9 @@ mod tests {
             status: ToolStatus::Done,
             title: None,
             output: Some("shot".into()),
-            metadata: Some(serde_json::json!({ "images": [{ "mime": "image/png", "hash": hash }] })),
+            metadata: Some(Box::new(
+                serde_json::json!({ "images": [{ "mime": "image/png", "hash": hash }] }).into(),
+            )),
             started_at: None,
             finished_at: None,
         };

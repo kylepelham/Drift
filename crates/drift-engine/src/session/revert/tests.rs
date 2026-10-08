@@ -246,7 +246,8 @@ async fn undo_follows_the_order_writes_finished_not_the_order_their_messages_beg
         h.engine.store.create_reply(&h.session.id, &model, "build").unwrap(),
     );
     let (b_at, a_at) = (crate::id::new("chg"), crate::id::new("chg"));
-    let call = |at: &str, before: &Option<String>, after: &Option<String>| Part::ToolCall {
+    let call = |at: &str, before: &Option<String>, after: &Option<String>| {
+        Part::ToolCall {
         call_id: crate::id::new("call"),
         name: "write".into(),
         input: json!({}),
@@ -254,10 +255,11 @@ async fn undo_follows_the_order_writes_finished_not_the_order_their_messages_beg
         title: None,
         output: None,
         metadata: Some(
-            json!({ "changes": [{ "path": "shared.txt", "before": before, "after": after }], "owner": h.session.workspace_id, "at": at }),
+            Box::new(json!({ "changes": [{ "path": "shared.txt", "before": before, "after": after }], "owner": h.session.workspace_id, "at": at }).into()),
         ),
         started_at: None,
         finished_at: None,
+    }
     };
     h.engine
         .store

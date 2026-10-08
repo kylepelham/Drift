@@ -35,6 +35,7 @@ use utoipa::ToSchema;
 
 use crate::llm::ToolSpec;
 use crate::llm::catalog::ToolProfile;
+pub use crate::session::types::ToolMetadata;
 
 /// Shared across one session: which files the model has read, so edits are never blind, and which
 /// subdirectory instruction files it has already been shown.
@@ -126,14 +127,14 @@ pub struct Context {
 /// Metadata a running call publishes as it goes (a command's output so far). It is shown, never
 /// stored: the part's saved state is its result.
 #[derive(Clone, Default)]
-pub struct Progress(Option<Arc<dyn Fn(Value) + Send + Sync>>);
+pub struct Progress(Option<Arc<dyn Fn(ToolMetadata) + Send + Sync>>);
 
 impl Progress {
-    pub fn new(show: impl Fn(Value) + Send + Sync + 'static) -> Self {
+    pub fn new(show: impl Fn(ToolMetadata) + Send + Sync + 'static) -> Self {
         Self(Some(Arc::new(show)))
     }
 
-    pub fn show(&self, metadata: Value) {
+    pub fn show(&self, metadata: ToolMetadata) {
         if let Some(show) = &self.0 {
             show(metadata);
         }
@@ -332,8 +333,8 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
 pub struct Output {
     pub title: String,
     pub output: String,
-    #[serde(default, skip_serializing_if = "Value::is_null")]
-    pub metadata: Value,
+    #[serde(default = "ToolMetadata::null", skip_serializing_if = "ToolMetadata::is_null")]
+    pub metadata: ToolMetadata,
 }
 
 impl Output {
@@ -341,24 +342,22 @@ impl Output {
         Self {
             title: title.into(),
             output: output.into(),
-            metadata: Value::Null,
+            metadata: ToolMetadata::null(),
         }
     }
 }
 
 /// Adds Drift's own remark about a call: after its output for the model, and in `metadata.notes` for the UI to show beneath.
-pub fn add_note(output: &mut String, metadata: &mut Value, note: &str) {
+pub fn add_note(output: &mut String, metadata: &mut ToolMetadata, note: &str) {
     if !output.is_empty() {
         output.push_str("\n\n");
     }
     output.push_str(note);
-    if !metadata.is_object() {
-        *metadata = Value::Object(Default::default());
+    if metadata.legacy.is_some() {
+        *metadata = ToolMetadata::default();
     }
-    match metadata.get_mut("notes").and_then(Value::as_array_mut) {
-        Some(notes) => notes.push(Value::from(note)),
-        None => metadata["notes"] = Value::from(vec![note]),
-    }
+    metadata.extra.remove("notes");
+    metadata.notes.get_or_insert_default().push(note.into());
 }
 
 /// Anything that goes back to the model as an error result. Text is written for the model.
@@ -547,7 +546,7 @@ pub trait Tool: Send + Sync {
         false
     }
     /// Metadata to show while the call runs, before its result exists.
-    fn running_metadata(&self, _ctx: &Context, _input: &Value) -> Option<Value> {
+    fn running_metadata(&self, _ctx: &Context, _input: &Value) -> Option<ToolMetadata> {
         None
     }
     /// The call returns promptly by itself once `ctx.abort` fires, with a result worth keeping

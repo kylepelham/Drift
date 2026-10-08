@@ -3,8 +3,8 @@
 //! to the blob table and keeps `{mime, hash}`, and the request loads them again, only the newest few,
 //! and only for a model that reads that kind.
 
+use crate::session::types::{ToolImage, ToolMetadata};
 use base64::Engine as _;
-use serde_json::{Value, json};
 
 /// An image's base64 size a provider accepts (Anthropic's limit is 5 MB); larger ones are scaled down.
 pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
@@ -163,52 +163,55 @@ pub fn sniff(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// `images` as a tool's metadata.
-pub fn metadata(images: &[Image]) -> Value {
-    json!(
-        images
-            .iter()
-            .map(|image| json!({ "mime": image.mime, "data": image.base64 }))
-            .collect::<Vec<_>>()
-    )
+pub fn metadata(images: &[Image]) -> Vec<ToolImage> {
+    images
+        .iter()
+        .map(|image| ToolImage {
+            mime: image.mime.clone(),
+            data: Some(image.base64.clone()),
+            hash: None,
+            extra: Default::default(),
+        })
+        .collect()
 }
 
 /// The images a tool's metadata hands over, before they are stored.
-pub fn returned(metadata: &Value) -> Vec<Image> {
-    let Value::Array(images) = &metadata["images"] else {
-        return Vec::new();
-    };
-    images
+pub fn returned(metadata: &ToolMetadata) -> Vec<Image> {
+    metadata
+        .images
         .iter()
+        .flatten()
         .filter_map(|image| {
             Some(Image {
-                mime: image["mime"].as_str()?.into(),
-                base64: image["data"].as_str()?.into(),
+                mime: image.mime.clone(),
+                base64: image.data.clone()?,
             })
         })
         .collect()
 }
 
 /// `stored` as a call's saved metadata.
-pub fn stored_metadata(stored: &[Stored]) -> Value {
-    json!(
-        stored
-            .iter()
-            .map(|image| json!({ "mime": image.mime, "hash": image.hash }))
-            .collect::<Vec<_>>()
-    )
+pub fn stored_metadata(stored: &[Stored]) -> Vec<ToolImage> {
+    stored
+        .iter()
+        .map(|image| ToolImage {
+            mime: image.mime.clone(),
+            data: None,
+            hash: Some(image.hash.clone()),
+            extra: Default::default(),
+        })
+        .collect()
 }
 
 /// The images a stored call names.
-pub fn stored(metadata: Option<&Value>) -> Vec<Stored> {
-    let Some(Value::Array(images)) = metadata.map(|m| &m["images"]) else {
-        return Vec::new();
-    };
-    images
-        .iter()
+pub fn stored(metadata: Option<&ToolMetadata>) -> Vec<Stored> {
+    metadata
+        .into_iter()
+        .flat_map(|metadata| metadata.images.iter().flatten())
         .filter_map(|image| {
             Some(Stored {
-                mime: image["mime"].as_str()?.into(),
-                hash: image["hash"].as_str()?.into(),
+                mime: image.mime.clone(),
+                hash: image.hash.clone()?,
             })
         })
         .collect()
@@ -225,7 +228,10 @@ mod tests {
         assert_eq!(sniff(b"plain text"), None);
         let image = Image::from_bytes("image/png", b"\x89PNG");
         assert_eq!(
-            returned(&json!({ "images": metadata(std::slice::from_ref(&image)) })),
+            returned(&ToolMetadata {
+                images: Some(metadata(std::slice::from_ref(&image))),
+                ..Default::default()
+            }),
             vec![image.clone()]
         );
         assert_eq!(image.bytes().as_deref(), Some(&b"\x89PNG"[..]));
@@ -234,9 +240,10 @@ mod tests {
             hash: "abc".into(),
         };
         assert_eq!(
-            stored(Some(
-                &json!({ "images": stored_metadata(std::slice::from_ref(&saved)) })
-            )),
+            stored(Some(&ToolMetadata {
+                images: Some(stored_metadata(std::slice::from_ref(&saved))),
+                ..Default::default()
+            })),
             vec![saved]
         );
         assert!(stored(None).is_empty());

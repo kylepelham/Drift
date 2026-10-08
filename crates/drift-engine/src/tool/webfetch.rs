@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
+use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, image, required_str};
 use crate::llm::ToolSpec;
 
@@ -60,7 +61,10 @@ impl Tool for WebFetch {
                 return Ok(Output {
                     title: url.into(),
                     output,
-                    metadata: json!({ "redirect": target }),
+                    metadata: ToolMetadata {
+                        redirect: Some(target),
+                        ..Default::default()
+                    },
                 });
             }
             let status = response.status();
@@ -97,7 +101,11 @@ impl Tool for WebFetch {
             Ok(Output {
                 title: url.into(),
                 output: text.trim().into(),
-                metadata: json!({ "contentType": content_type, "bytes": bytes.len() }),
+                metadata: ToolMetadata {
+                    content_type: Some(content_type),
+                    bytes: Some(bytes.len()),
+                    ..Default::default()
+                },
             })
         })
     }
@@ -213,7 +221,12 @@ fn fetched_file(url: &str, mime: &str, bytes: &[u8]) -> Result<Output, ToolError
             "{url} is {mime} ({} KB); it follows this result.",
             bytes.len().div_ceil(1024)
         ),
-        metadata: json!({ "contentType": mime, "bytes": bytes.len(), "images": image::metadata(&[file]) }),
+        metadata: ToolMetadata {
+            content_type: Some(mime.into()),
+            bytes: Some(bytes.len()),
+            images: Some(image::metadata(&[file])),
+            ..Default::default()
+        },
     })
 }
 
@@ -411,8 +424,10 @@ mod tests {
             stopped.output
         );
         assert!(
-            stopped.metadata["redirect"]
-                .as_str()
+            stopped
+                .metadata
+                .redirect
+                .as_deref()
                 .unwrap()
                 .starts_with("http://localhost:")
         );

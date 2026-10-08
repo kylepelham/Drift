@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use drift_engine::session::types::{
     Ending, Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, Todo, TodoStatus,
-    ToolStatus, Usage, Visibility,
+    ToolMetadata, ToolStatus, Usage, Visibility,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -121,11 +121,11 @@ fn with_record(part: Part, record: Option<&Value>, message_id: &str) -> Part {
     else {
         return part;
     };
-    let mut metadata = metadata.unwrap_or_else(|| Value::Object(Default::default()));
-    for (key, value) in record.as_object().into_iter().flatten() {
-        metadata[key] = value.clone();
-    }
-    metadata["at"] = Value::String(message_id.into());
+    let mut metadata = metadata
+        .unwrap_or_default()
+        .merged(Some(record.clone().into()))
+        .unwrap();
+    metadata.at = Some(message_id.into());
     Part::ToolCall {
         call_id,
         name,
@@ -133,7 +133,7 @@ fn with_record(part: Part, record: Option<&Value>, message_id: &str) -> Part {
         status,
         title,
         output,
-        metadata: Some(metadata),
+        metadata: Some(Box::new(metadata)),
         started_at,
         finished_at,
     }
@@ -269,7 +269,9 @@ fn tool_call(data: &Value) -> Option<Part> {
         status,
         title: state["title"].as_str().map(String::from),
         output: output.map(String::from),
-        metadata: Some(slim(data["tool"].as_str()?, state["metadata"].clone())).filter(Value::is_object),
+        metadata: Some(slim(data["tool"].as_str()?, state["metadata"].clone()))
+            .filter(Value::is_object)
+            .map(|metadata| Box::new(ToolMetadata::from(metadata))),
         started_at: state["time"]["start"].as_i64(),
         finished_at: state["time"]["end"].as_i64(),
     })

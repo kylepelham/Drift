@@ -11,8 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::session::types::ToolDiagnostic;
 use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
-use serde::Serialize;
 
 use client::Client;
 pub use client::Diagnostic;
@@ -312,30 +312,21 @@ pub fn note(found: &[Found], workspace: &Path) -> Option<String> {
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
-#[derive(Serialize)]
-struct Shown<'a> {
-    file: String,
-    server: &'a str,
-    line: u32,
-    column: u32,
-    message: String,
-}
-
 /// The same errors as the call's metadata keeps them.
-pub fn metadata(found: &[Found], workspace: &Path) -> serde_json::Value {
-    let shown: Vec<Shown> = found
+pub fn metadata(found: &[Found], workspace: &Path) -> Vec<ToolDiagnostic> {
+    found
         .iter()
         .flat_map(|entry| entry.errors.iter().take(MAX_PER_FILE).map(move |error| (entry, error)))
         .take(MAX_TOTAL)
-        .map(|(entry, error)| Shown {
+        .map(|(entry, error)| ToolDiagnostic {
             file: crate::tool::display(&entry.file, workspace),
-            server: &entry.server,
+            server: entry.server.clone(),
             line: error.line,
             column: error.column,
             message: clip(&error.message),
+            extra: Default::default(),
         })
-        .collect();
-    serde_json::to_value(shown).unwrap_or_default()
+        .collect()
 }
 
 fn clip(message: &str) -> String {

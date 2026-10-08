@@ -259,13 +259,16 @@ impl Tool for Bash {
     }
 
     /// The limit shows while the command runs, so the user can see when it will be stopped.
-    fn running_metadata(&self, ctx: &Context, input: &Value) -> Option<Value> {
-        Some(json!({ "shellTimeoutMs": limit_for(ctx, input).map(|d| d.as_millis() as u64) }))
+    fn running_metadata(&self, ctx: &Context, input: &Value) -> Option<super::ToolMetadata> {
+        Some(super::ToolMetadata {
+            shell_timeout_ms: Some(limit_for(ctx, input).map(|d| d.as_millis() as u64)),
+            ..Default::default()
+        })
     }
 
     /// A command stopped by its time limit or by the user failed, though its partial output still matters.
     fn failed(&self, output: &Output) -> bool {
-        output.metadata["timedOut"] == true || output.metadata["stopped"] == true
+        output.metadata.timed_out == Some(true) || output.metadata.stopped == Some(true)
     }
 }
 
@@ -316,7 +319,10 @@ async fn collect(child: &mut tokio::process::Child, spool: &mut Spool, progress:
             () = &mut drain, if exited.is_some() => return Ended::Exited { code: exited.unwrap_or(-1), lingering: true },
             _ = tick.tick(), if spool.total() != shown => {
                 shown = spool.total();
-                progress.show(json!({ "output": spool.recent(SHOWN_BYTES) }));
+                progress.show(super::ToolMetadata {
+                    output: Some(spool.recent(SHOWN_BYTES)),
+                    ..Default::default()
+                });
             }
         }
     }
@@ -342,13 +348,17 @@ fn without_blank_ends(text: &str) -> &str {
 
 fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>) -> Output {
     let mut text = without_blank_ends(&spooled.text).to_string();
-    let mut metadata = json!({ "shellTimeoutMs": limit.map(|d| d.as_millis() as u64), "outputBytes": spooled.total });
+    let mut metadata = super::ToolMetadata {
+        shell_timeout_ms: Some(limit.map(|d| d.as_millis() as u64)),
+        output_bytes: Some(spooled.total),
+        ..Default::default()
+    };
     if let Some(file) = &spooled.file {
-        metadata["outputFile"] = json!(file.to_string_lossy());
+        metadata.output_file = Some(file.to_string_lossy().into_owned());
     }
     let notes: Vec<String> = match ended {
         Ended::Exited { code, lingering } => {
-            metadata["exit"] = json!(code);
+            metadata.exit = Some(code.into());
             let lingered = lingering.then(|| "Background processes still held the output open when the command finished; they were stopped. Run long-lived processes outside Drift.".to_string());
             lingered
                 .into_iter()
@@ -356,14 +366,14 @@ fn report(title: String, spooled: Spooled, ended: Ended, limit: Option<Duration>
                 .collect()
         }
         Ended::TimedOut => {
-            metadata["timedOut"] = json!(true);
+            metadata.timed_out = Some(true);
             let seconds = limit.map_or(0, |d| d.as_secs());
             vec![format!(
                 "The command and its child processes were stopped after {seconds} s. If it needs longer and is not waiting for input, run it again with a larger `timeout` in milliseconds."
             )]
         }
         Ended::Stopped => {
-            metadata["stopped"] = json!(true);
+            metadata.stopped = Some(true);
             vec!["The user stopped the command and its child processes.".into()]
         }
         Ended::Failed(error) => vec![error],
@@ -638,12 +648,12 @@ mod tests {
         assert!(out.output.contains("hello.txt"), "{}", out.output);
         assert!(out.output.ends_with("exit code 3"));
         assert_eq!(
-            out.metadata["notes"],
-            json!(["exit code 3"]),
+            out.metadata.notes,
+            Some(vec!["exit code 3".to_string()]),
             "said by Drift, not printed by the command"
         );
         assert_eq!(out.title, "list files");
-        assert_eq!(out.metadata["exit"], 3);
+        assert_eq!(out.metadata.exit, Some(3));
     }
 
     #[tokio::test]
@@ -764,10 +774,7 @@ mod tests {
             .unwrap();
         assert!(bash.failed(&stopped), "a command stopped by its limit is a failed call");
         assert_eq!(
-            (
-                stopped.metadata["timedOut"].as_bool(),
-                stopped.metadata["shellTimeoutMs"].as_u64()
-            ),
+            (stopped.metadata.timed_out, stopped.metadata.shell_timeout_ms.flatten()),
             (Some(true), Some(1500))
         );
         assert!(stopped.output.contains("stopped after"), "{}", stopped.output);
@@ -780,12 +787,14 @@ mod tests {
         sandbox.ctx.engine.set_shell_timeout(Some(Duration::from_millis(300)));
         assert_eq!(
             bash.running_metadata(&sandbox.ctx, &json!({ "command": sleep }))
-                .unwrap()["shellTimeoutMs"],
-            300
+                .unwrap()
+                .shell_timeout_ms,
+            Some(Some(300))
         );
         let by_setting = bash.run(&sandbox.ctx, json!({ "command": sleep })).await.unwrap();
         assert_eq!(
-            by_setting.metadata["timedOut"], true,
+            by_setting.metadata.timed_out,
+            Some(true),
             "without a `timeout` the Settings limit applies"
         );
 
@@ -796,7 +805,7 @@ mod tests {
         };
         let unlimited = bash.run(&sandbox.ctx, json!({ "command": quick })).await.unwrap();
         assert!(
-            !bash.failed(&unlimited) && unlimited.metadata["shellTimeoutMs"].is_null(),
+            !bash.failed(&unlimited) && unlimited.metadata.shell_timeout_ms == Some(None),
             "no limit lets it finish"
         );
     }
@@ -1163,7 +1172,7 @@ mod tests {
         abort.cancel();
         let out = running.await.unwrap().unwrap();
         assert!(started.elapsed() < Duration::from_secs(3), "Stop is prompt");
-        assert!(bash.failed(&out) && out.metadata["stopped"] == true);
+        assert!(bash.failed(&out) && out.metadata.stopped == Some(true));
         assert!(
             out.output.starts_with("early") && out.output.contains("stopped the command"),
             "{}",
@@ -1190,7 +1199,7 @@ mod tests {
             started.elapsed()
         );
         assert!(out.output.starts_with("done"), "{}", out.output);
-        assert_eq!(out.metadata["exit"], 0);
+        assert_eq!(out.metadata.exit, Some(0));
         assert!(!bash.failed(&out));
         if matches!(bash.shell, Shell::Bash(_)) {
             assert!(
@@ -1216,13 +1225,10 @@ mod tests {
             out.output.len()
         );
         assert!(out.output.starts_with("line 1") && out.output.contains("line 40000"));
-        let file = out.metadata["outputFile"].as_str().expect("the whole output is kept");
+        let file = out.metadata.output_file.as_deref().expect("the whole output is kept");
         let whole = std::fs::read_to_string(file).unwrap();
         assert_eq!(whole.lines().count(), 40000);
-        assert_eq!(
-            out.metadata["outputBytes"].as_u64(),
-            Some(std::fs::metadata(file).unwrap().len())
-        );
+        assert_eq!(out.metadata.output_bytes, Some(std::fs::metadata(file).unwrap().len()));
     }
 }
 
@@ -1247,7 +1253,7 @@ mod tree_tests {
         tokio::time::sleep(Duration::from_millis(600)).await;
         abort.cancel();
         let result = running.await.unwrap().unwrap();
-        assert_eq!(result.metadata["stopped"], true);
+        assert_eq!(result.metadata.stopped, Some(true));
         tokio::time::sleep(Duration::from_millis(3000)).await;
         assert!(
             !sandbox.ctx.workspace.join("late.txt").exists(),

@@ -469,11 +469,15 @@ fn recorded_changes(part: &Part) -> Option<Record> {
     else {
         return None;
     };
-    let changes = serde_json::from_value(metadata.get("changes")?.clone()).ok()?;
-    let text = |key: &str| metadata[key].as_str().map(str::to_string);
+    let changes = metadata
+        .changes
+        .as_ref()?
+        .iter()
+        .map(|change| change.snapshot())
+        .collect();
     Some(Record {
-        owner: text("owner"),
-        at: text("at"),
+        owner: metadata.owner.clone(),
+        at: metadata.at.clone(),
         changes,
     })
 }
@@ -498,17 +502,14 @@ fn written_without_record(part: &Part) -> Vec<String> {
         .iter()
         .filter_map(|key| input[*key].as_str().map(str::to_string))
         .collect();
-    for file in metadata
-        .as_ref()
-        .and_then(|m| m["files"].as_array())
-        .into_iter()
-        .flatten()
-    {
-        paths.extend(
-            ["filePath", "movePath"]
-                .iter()
-                .filter_map(|key| file[*key].as_str().map(str::to_string)),
-        );
+    for file in metadata.as_ref().and_then(|m| m.files.as_ref()).into_iter().flatten() {
+        if let super::types::MetadataFile::Imported(file) = file {
+            paths.extend(
+                ["filePath", "movePath"]
+                    .iter()
+                    .filter_map(|key| file.get(*key)?.as_str().map(str::to_string)),
+            );
+        }
     }
     paths.dedup();
     paths
