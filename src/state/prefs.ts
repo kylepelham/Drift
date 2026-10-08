@@ -153,13 +153,19 @@ export type SessionChoice = { agent?: string; variant?: string | null; model?: M
 /** An unsent edit, else what the session runs as, else the global default. */
 export function prefsFor(sessionId: string | null | undefined, saved: SessionChoice) {
   const own = (sessionId && sessionPrefs()[sessionId]) || {}
-  const savedVariant = saved.variant !== undefined ? saved.variant : variantPref()
 
   return {
     model: own.model !== undefined ? own.model : (saved.model ?? modelPref()),
     agent: own.agent ?? saved.agent ?? agentPref(),
-    variant: own.variant !== undefined ? own.variant : savedVariant,
+    variant: preferredVariant(own.variant, saved.variant),
   }
+}
+
+function preferredVariant(own: string | null | undefined, saved: string | null | undefined) {
+  if (own !== undefined) return own
+  if (saved !== undefined) return saved
+
+  return variantPref()
 }
 
 /** The level to send: null for the model's default, `undefined` (left out, so the session keeps its own) for one this model does not offer. */

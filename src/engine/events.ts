@@ -25,6 +25,21 @@ import type { SetStoreFunction } from "solid-js/store"
 
 type SetEngineState = SetStoreFunction<EngineState>
 
+const extendedEventTypes = new Set([
+  "question.v2.asked",
+  "question.asked",
+  "question.v2.replied",
+  "question.v2.rejected",
+  "question.replied",
+  "question.rejected",
+  "permission.v2.replied",
+  "permission.replied",
+  "tui.toast.show",
+  "message.part.delta",
+  "session.compacted",
+  "session.next.moved",
+])
+
 export function reduce(set: SetEngineState, event: Event, directory?: string, reconcile?: (sessionID: string) => void) {
   if (reduceExtended(set, event, directory, reconcile)) return
 
@@ -37,21 +52,7 @@ function reduceExtended(
   directory?: string,
   reconcile?: (sessionID: string) => void,
 ) {
-  const handled = new Set([
-    "question.v2.asked",
-    "question.asked",
-    "question.v2.replied",
-    "question.v2.rejected",
-    "question.replied",
-    "question.rejected",
-    "permission.v2.replied",
-    "permission.replied",
-    "tui.toast.show",
-    "message.part.delta",
-    "session.compacted",
-    "session.next.moved",
-  ])
-  if (!handled.has(event.type)) return false
+  if (!extendedEventTypes.has(event.type)) return false
 
   reduceRaw(set, event, directory, reconcile)
   return true
