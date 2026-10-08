@@ -5,6 +5,7 @@ import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
 import { normalizeDir } from "../engine/store";
+import { WorkspaceGroup } from "./workspaces";
 import { pickFolder } from "../state/dialog";
 import { persisted } from "../state/persist";
 import { openSettings } from "./settings";
@@ -12,20 +13,19 @@ import { ArchiveModal } from "./archive";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import {
-    SessionMenu,
-    WorkspaceEditModal,
-    WorkspaceGroup,
-    WorkspaceMenu,
-    type SessionMenuState,
-    type WorkspaceMenuState,
-} from "./workspaces";
-import {
     SessionSearchBar,
     SessionSearchResults,
     sessionSearchActive,
     sessionSearchOpen,
     toggleSessionSearch,
 } from "./session-search";
+import {
+    SessionMenu,
+    WorkspaceEditModal,
+    WorkspaceMenu,
+    type SessionMenuState,
+    type WorkspaceMenuState,
+} from "./workspace-dialogs";
 
 import type { Workspace } from "../state/store";
 

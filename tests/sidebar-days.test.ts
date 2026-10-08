@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 const at = (y: number, m: number, d: number, h = 12) => new Date(y, m - 1, d, h).getTime();
 
 test("each day's first thread carries a heading, newest first", async () => {
-    const { dayDividers } = await import("../src/ui/workspaces");
+    const { dayDividers } = await import("../src/ui/workspace-presentation");
     const now = at(2026, 10, 7, 15);
     const rows = [
         { id: "a", updated: at(2026, 10, 7, 14) },
@@ -25,7 +25,7 @@ test("each day's first thread carries a heading, newest first", async () => {
 });
 
 test("a thread active just after midnight is today's, one just before is yesterday's", async () => {
-    const { dayLabel } = await import("../src/ui/workspaces");
+    const { dayLabel } = await import("../src/ui/workspace-presentation");
     const now = at(2026, 10, 7, 0);
     expect(dayLabel(new Date(2026, 9, 7, 0, 1).getTime(), now)).toBe("Today");
     expect(dayLabel(new Date(2026, 9, 6, 23, 59).getTime(), now)).toBe("Yesterday");

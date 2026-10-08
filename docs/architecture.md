@@ -66,6 +66,10 @@ thinking indicators, and pending asks stay accurate for all of them at once. Swi
 workspaces (`EngineProvider.setDirectory`) loads that workspace's conversation list once per
 connection; session-keyed state persists.
 
+Workspace menus and editing live in `workspace-dialogs.tsx`; date headings and avatar
+initials live in `workspace-presentation.ts`. The list keeps its worker status logic,
+including queued background workers' outlined dots and absence of a running timer.
+
 The sidebar keeps workspace row geometry fixed while revealing actions, so hover never
 moves the thread list. Its 192-480px width is pointer and keyboard resizable and stored
 as a UI preference. Settings > General > Display can turn on day dividers (off by default):
