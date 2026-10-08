@@ -1,11 +1,13 @@
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
 import { hiddenParent } from "./sessions";
+import { messageModel } from "./messages";
 
-import type { Command, Message, Part, SessionStatus, ToolPart } from "./shapes";
+import type { Command, Part, SessionStatus, ToolPart } from "./shapes";
 import type { ModelInfo, ProviderInfo } from "./catalog";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
 import type { Session } from "./sessions";
+import type { Message } from "./messages";
 import type {
     McpServerConfig,
     McpServerConfigView,
@@ -58,7 +60,7 @@ export function interruptStaleTools(
                 return part;
             if (liveTools[part.id] === part.sessionID) return part;
             changed = true;
-            const completed = (entry.info as { time: { completed?: number } }).time.completed;
+            const completed = entry.info.finishedAt;
             const start = "time" in part.state ? part.state.time.start : undefined;
             const metadata = "metadata" in part.state ? part.state.metadata : undefined;
             return {
@@ -82,7 +84,7 @@ export function messageText(entry: MessageEntry) {
 
 // Engine IDs are not chronologically sortable (the embedded timestamp wraps), so order by time first.
 export function compareMessages(a: MessageEntry, b: MessageEntry) {
-    return (a.info.time?.created ?? 0) - (b.info.time?.created ?? 0) || a.info.id.localeCompare(b.info.id);
+    return (a.info.createdAt ?? 0) - (b.info.createdAt ?? 0) || a.info.id.localeCompare(b.info.id);
 }
 
 function messageBoundary(entries: MessageEntry[], id: string | undefined, entry: MessageEntry) {
@@ -335,16 +337,8 @@ export function modelInfo(state: EngineState, ref: ModelRef | null): ModelInfo |
     return state.providers.find((p) => p.id === ref.providerID)?.models[ref.modelID];
 }
 
-type TokenUsage = {
-    input: number;
-    output: number;
-    reasoning: number;
-    cache: { read: number; write: number };
-    total?: number;
-};
-
-function tokenCount(tokens: TokenUsage) {
-    return tokens.total || tokens.input + tokens.output + tokens.cache.read + tokens.cache.write;
+function tokenCount(usage: components["schemas"]["Usage"]) {
+    return usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 }
 
 // Ceiling on how much of the context window is set aside for the model's own reply, and the slice
@@ -369,18 +363,15 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
     const entries = state.transcripts[sessionId] ?? [];
     // Usage from before the latest compaction no longer describes what the model sees.
     const newestFirst = [...entries].reverse();
-    const summaryAt = newestFirst.findIndex((entry) => !!(entry.info as { summary?: boolean }).summary);
+    const summaryAt = newestFirst.findIndex((entry) => !!entry.info.summary);
     const sinceSummary = summaryAt < 0 ? newestFirst : newestFirst.slice(0, summaryAt);
     const last = sinceSummary.find((entry) => {
-        if (entry.info.role !== "assistant" || !("tokens" in entry.info)) return false;
-        return tokenCount(entry.info.tokens as TokenUsage) > 0;
+        return entry.info.role === "assistant" && tokenCount(entry.info.usage) > 0;
     });
-    if (!last || !("tokens" in last.info)) return null;
-    const tokens = last.info.tokens as TokenUsage;
+    if (!last) return null;
+    const tokens = last.info.usage;
     const count = tokenCount(tokens);
-    const model =
-        modelInfo(state, modelRef ?? null) ??
-        modelInfo(state, { providerID: last.info.providerID, modelID: last.info.modelID });
+    const model = modelInfo(state, modelRef ?? null) ?? modelInfo(state, messageModel(last.info));
     const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number };
     const context = limits.context ?? 0;
     if (!context || !count) return null;

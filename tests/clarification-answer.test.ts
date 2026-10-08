@@ -390,6 +390,6 @@ test("clarification UI uses a closed native disclosure with full QAs, copy/rever
     expect(special).toContain("group-focus-within:opacity-100");
     expect(special).not.toMatch(/bg-surface|<Markdown|<AssistantFlow|\bmodel\(\)|\btime\(\)|\bagentLabel\(/);
     expect(userBubble.getText(parsed)).toContain("clarification()?.text ?? messageText(props.entry)");
-    expect(userBubble.getText(parsed)).toContain("engine.actions.revert(info().sessionID, info().id, keepFiles)");
+    expect(userBubble.getText(parsed)).toContainCode("engine.actions.revert(info().sessionId, info().id, keepFiles)");
     expect(userBubble.getText(parsed)).toContain("if (clarification()) restored.text = text()");
 });

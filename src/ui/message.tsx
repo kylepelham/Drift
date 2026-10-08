@@ -7,17 +7,18 @@ import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrat
 import { collapseCompaction, compactionCollapsed } from "../state/prefs";
 import { selectedSession, selectSession } from "../state/selection";
 import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
+import { messageModel, messageProblem } from "../engine/messages";
 import { createStore, reconcile, unwrap } from "solid-js/store";
 import { citationFileGroups } from "./citation-files";
 import { emitMessageRendered } from "../plugins";
 import { agentLabel, t } from "../state/i18n";
 import { TextShimmer } from "./text-shimmer";
-import { errorText } from "../engine/error";
 import { useEngine } from "../engine";
 import { Markdown } from "./markdown";
 import { Chevron } from "./controls";
 
-import type { AssistantMessage, Part, PluginPart, ToolPart, UserMessage } from "../engine/shapes";
+import type { Part, PluginPart, ToolPart } from "../engine/shapes";
+import type { Message, MessageProblem } from "../engine/messages";
 
 /** `hideError`: the reply's failure is no longer news (it is being retried, or the session went on), so its error box is left out; a stop's divider stays. */
 export function MessageView(props: {
@@ -30,12 +31,12 @@ export function MessageView(props: {
 }) {
     onMount(() =>
         emitMessageRendered({
-            sessionId: props.entry.info.sessionID,
+            sessionId: props.entry.info.sessionId,
             messageId: props.entry.info.id,
             role: props.entry.info.role,
         }),
     );
-    const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction();
+    const summary = () => props.entry.info.summary && collapseCompaction();
     return (
         <Show
             when={props.entry.info.role === "assistant"}
@@ -59,8 +60,8 @@ export function MessageView(props: {
 }
 
 /** A turn that paused itself says why; a plain stop reads as interrupted. */
-function interruptionText(error: NonNullable<AssistantMessage["error"]>) {
-    const reason = (error.data as { message?: string } | undefined)?.message;
+function interruptionText(error: MessageProblem) {
+    const reason = error.text;
     return reason && reason !== "Interrupted" ? reason : t("drift.message.interrupted");
 }
 
@@ -70,9 +71,9 @@ export function messageVisible(entry: MessageEntry) {
             !!messageText(entry) ||
             entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "plugin")
         );
-    const info = entry.info as AssistantMessage;
+    const info = entry.info;
     if (info.summary && collapseCompaction()) return true;
-    return entry.parts.some(partVisible) || !!info.error;
+    return entry.parts.some(partVisible) || !!messageProblem(info);
 }
 
 function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; thinking?: boolean }) {
@@ -114,7 +115,7 @@ export function boundaryCompactions(entry: MessageEntry, collapsible: boolean, s
 
 function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: boolean }) {
     const engine = useEngine();
-    const info = () => props.entry.info as UserMessage;
+    const info = () => props.entry.info;
     const answered = createMemo(() => clarificationAnswer(props.entry));
     // A spawned thread's instruction folds like an answer: a label, a preview, the full text on open.
     const clarification = createMemo(
@@ -126,14 +127,14 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     const files = () => props.entry.parts.filter((part) => part.type === "file");
     const plugins = () => props.entry.parts.filter((part): part is PluginPart => part.type === "plugin");
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
-    const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID;
-    const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
+    const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     // Shift keeps every file as it is: only the conversation goes back.
     const revert = async (keepFiles: boolean) => {
         const restored = draftFromMessage(props.entry);
         if (clarification()) restored.text = text();
-        if (await engine.actions.revert(info().sessionID, info().id, keepFiles))
-            setComposerDraft(composerScope(info().sessionID), restored);
+        if (await engine.actions.revert(info().sessionId, info().id, keepFiles))
+            setComposerDraft(composerScope(info().sessionId), restored);
     };
     return (
         <Show
@@ -149,7 +150,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                                         {(file) => (
                                             <FilePartView
                                                 part={file}
-                                                directory={engine.state.sessions[info().sessionID]?.directory}
+                                                directory={engine.state.sessions[info().sessionId]?.directory}
                                             />
                                         )}
                                     </For>
@@ -162,9 +163,9 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                                         fallback={
                                             <Markdown
                                                 text={text()}
-                                                directory={engine.state.sessions[info().sessionID]?.directory}
+                                                directory={engine.state.sessions[info().sessionId]?.directory}
                                                 fileGroups={() =>
-                                                    citationFileGroups(engine.state, info().sessionID, info().id)
+                                                    citationFileGroups(engine.state, info().sessionId, info().id)
                                                 }
                                                 done
                                                 humanAuthored={!generated()}
@@ -177,7 +178,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                             </Show>
                             <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
                                 <span>
-                                    {agentLabel(info().agent)} · {model()} · {time()}
+                                    {agentLabel(info().agent ?? "build")} · {model()} · {time()}
                                 </span>
                                 <button
                                     title={`${t("drift.message.revertHere")}
@@ -306,8 +307,8 @@ export function groupParts(parts: Part[]): PartGroup[] {
 
 function assistantBoundary(entry: MessageEntry) {
     if (entry.info.role !== "assistant") return true;
-    const info = entry.info as AssistantMessage;
-    return !!info.summary || !!info.error || entry.parts.some((part) => part.type === "compaction");
+    const info = entry.info;
+    return !!info.summary || !!messageProblem(info) || entry.parts.some((part) => part.type === "compaction");
 }
 
 export function assistantFlowContinues(previous: MessageEntry, next: MessageEntry) {
@@ -415,19 +416,20 @@ export function updatePartGroupSlots(
 
 function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; hideError?: boolean }) {
     const engine = useEngine();
-    const info = () => props.entry.info as AssistantMessage;
+    const info = () => props.entry.info;
+    const problem = () => messageProblem(info());
     const slots = new Map<string, PartGroupSlot>();
     const [groups, setGroups] = createSignal<PartGroupSlot[]>([]);
     createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)));
-    const visible = () => groups().length > 0 || !!info().error || (!!props.footer && !!info().time.completed);
+    const visible = () => groups().length > 0 || !!problem() || (!!props.footer && !!info().finishedAt);
     /** A new conversation with this conversation's history through this reply, opened only if the user is still here. */
     const forkHere = async () => {
-        const source = info().sessionID;
+        const source = info().sessionId;
         const forked = await engine.actions.fork(source, info().id);
         if (forked && selectedSession() === source) selectSession(forked.id);
     };
     const liveTextPartID = () => {
-        if (info().time.completed || !sessionBusy(engine.state, info().sessionID)) return undefined;
+        if (info().finishedAt || !sessionBusy(engine.state, info().sessionId)) return undefined;
         return [...props.entry.parts].reverse().find((part) => part.type === "text" && !part.time?.end)?.id;
     };
     return (
@@ -446,17 +448,17 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                                         revision={group.revision?.()}
                                         responseID={`${info().id}:${single().part.id}`}
                                         live={single().part.id === liveTextPartID()}
-                                        orchestrated={info().mode === ORCHESTRATOR_AGENT}
+                                        orchestrated={info().agent === ORCHESTRATOR_AGENT}
                                     />
                                 )}
                             </Match>
                         </Switch>
                     )}
                 </For>
-                <Show when={!(props.hideError && info().error?.name !== "MessageAbortedError") && info().error}>
+                <Show when={!(props.hideError && !problem()?.interrupted) && problem()}>
                     {(error) => (
                         <Show
-                            when={error().name !== "MessageAbortedError"}
+                            when={!error().interrupted}
                             fallback={
                                 <div class="flex items-center gap-3 py-1 text-xs text-ink-faint" role="status">
                                     <div class="h-px flex-1 bg-edge" />
@@ -469,14 +471,14 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                                 class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger"
                                 role="alert"
                             >
-                                {errorText(error())}
+                                {error().text}
                             </div>
                         </Show>
                     )}
                 </Show>
-                <Show when={props.footer && info().time.completed}>
+                <Show when={props.footer && info().finishedAt}>
                     <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
-                        <span>{info().modelID}</span>
+                        <span>{info().model?.model ?? ""}</span>
                         <span>{formatTokens(info())}</span>
                         <Show when={tokensPerSecond(props.entry)}>
                             {(rate) => <span>{t("drift.message.tokensPerSecond", { rate: rate() })}</span>}
@@ -484,7 +486,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                         <Show when={info().cost > 0}>
                             <span>${info().cost.toFixed(3)}</span>
                         </Show>
-                        <span>{formatDuration(info().time.completed! - info().time.created)}</span>
+                        <span>{formatDuration(info().finishedAt! - info().createdAt)}</span>
                         <button
                             title={t("drift.message.copyResponse")}
                             class="rounded p-0.5 hover:bg-raised hover:text-ink"
@@ -521,30 +523,30 @@ function formatDuration(ms: number) {
 // Only the spans the model spent generating text or reasoning count toward the rate; wall time
 // also covers tool runs and subagent waits, which made the shown rate meaningless.
 export function generationMs(entry: MessageEntry) {
-    const info = entry.info as AssistantMessage;
+    const info = entry.info;
     let total = 0;
     for (const part of entry.parts) {
         if (part.type !== "text" && part.type !== "reasoning") continue;
         const time = (part as { time?: { start?: number; end?: number } }).time;
         if (time?.start === undefined) continue;
-        const end = time.end ?? info.time.completed;
+        const end = time.end ?? info.finishedAt;
         if (end) total += Math.max(0, end - time.start);
     }
     return total;
 }
 
 export function tokensPerSecond(entry: MessageEntry) {
-    const info = entry.info as AssistantMessage;
-    const elapsed = generationMs(entry) || (info.time.completed ?? 0) - info.time.created;
-    const tokens = info.tokens.output + info.tokens.reasoning;
+    const info = entry.info;
+    const elapsed = generationMs(entry) || (info.finishedAt ?? 0) - info.createdAt;
+    const tokens = info.usage.output;
     if (elapsed <= 0 || tokens <= 0) return null;
     return (tokens / (elapsed / 1000)).toFixed(1);
 }
 
-function formatTokens(info: AssistantMessage) {
+function formatTokens(info: Message) {
     const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
     return t("drift.message.tokenCounts", {
-        input: compact(info.tokens.input),
-        output: compact(info.tokens.output),
+        input: compact(info.usage.input),
+        output: compact(info.usage.output),
     });
 }

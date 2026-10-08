@@ -1,7 +1,7 @@
 import { EngineError, maxRequestBytes, type Client, type PermissionGrant, type PermissionRule } from "./native/client";
-import { adaptMessage, adaptPart, type NativeMessageWithParts } from "./native/adapt";
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store";
+import { adaptPart, type NativeMessageWithParts } from "./native/adapt";
 import { applyProviderCatalog } from "../state/provider-cache";
 import { formatAttachmentBytes } from "../attachments";
 import { handOverAutoAccept } from "../state/prefs";
@@ -102,9 +102,9 @@ export function createActions(
         });
     }
 
-    function entries(messages: NativeMessageWithParts[], directory: string): MessageEntry[] {
+    function entries(messages: NativeMessageWithParts[]): MessageEntry[] {
         return messages.map(({ parts, ...info }) => ({
-            info: adaptMessage(info, directory),
+            info,
             parts: parts.map(adaptPart),
         }));
     }
@@ -113,9 +113,8 @@ export function createActions(
         const captured = captureRevisions(state);
         const existed = id in state.sessions;
         const messages = await requireClient().messages(id, { limit: pageSize });
-        const directory = state.sessions[id]?.directory ?? "";
         const loaded = interruptStaleTools(
-            entries(messages, directory).sort(compareMessages),
+            entries(messages).sort(compareMessages),
             state.liveTools,
             t("drift.message.interrupted"),
         );
@@ -202,9 +201,8 @@ export function createActions(
         const cursor = state.cursors[id];
         if (!cursor) return false;
         const older = await requireClient().messages(id, { before: cursor, limit: pageSize });
-        const directory = state.sessions[id]?.directory ?? "";
         const sorted = interruptStaleTools(
-            entries(older, directory).sort(compareMessages),
+            entries(older).sort(compareMessages),
             state.liveTools,
             t("drift.message.interrupted"),
         );

@@ -1,76 +1,9 @@
 // Message, part and catalog conversions retained until their views consume native records.
-import type { AssistantMessage, Message, Part, ToolPart } from "../shapes";
+import type { Part, ToolPart } from "../shapes";
 import type { components } from "./types";
 
-type NativeMessage = components["schemas"]["Message"];
 type NativePartRow = components["schemas"]["PartRow"];
 export type NativeMessageWithParts = components["schemas"]["MessageWithParts"];
-
-/** The engine marks every message with its agent; this only fills the field its schema leaves optional. */
-const defaultAgent = "build";
-
-export function adaptMessage(message: NativeMessage, directory: string): Message {
-    const model = message.model ?? { provider: "", model: "" };
-    const agent = message.agent ?? defaultAgent;
-    if (message.role === "user") {
-        return {
-            id: message.id,
-            sessionID: message.sessionId,
-            role: "user",
-            time: { created: message.createdAt },
-            agent,
-            model: { providerID: model.provider, modelID: model.model },
-        };
-    }
-    const assistant: AssistantMessage = {
-        id: message.id,
-        sessionID: message.sessionId,
-        role: "assistant",
-        time: { created: message.createdAt, ...(message.finishedAt ? { completed: message.finishedAt } : {}) },
-        parentID: "",
-        modelID: model.model,
-        providerID: model.provider,
-        mode: agent,
-        path: { cwd: directory, root: directory },
-        cost: message.cost,
-        tokens: {
-            input: message.usage.input,
-            output: message.usage.output,
-            reasoning: 0,
-            cache: { read: message.usage.cacheRead, write: message.usage.cacheWrite },
-        },
-    };
-    if (message.status === "error")
-        assistant.error = { name: "UnknownError", data: { message: message.error ?? "The turn failed" } };
-    if (message.status === "aborted")
-        assistant.error = { name: "MessageAbortedError", data: { message: "Interrupted" } };
-    // The turn stopped itself at a limit: an interruption with its reason, not a failure.
-    if (message.status === "paused")
-        assistant.error = { name: "MessageAbortedError", data: { message: message.error ?? "Paused" } };
-    if (message.status === "done") assistant.finish = "stop";
-    applyMessageEnding(assistant, message);
-    if (message.summary) assistant.summary = true;
-
-    return assistant;
-}
-
-function applyMessageEnding(assistant: AssistantMessage, message: NativeMessage) {
-    // A finished reply that did not end on its own says how (`ending`), and `error` says it in words.
-    if (message.status === "done" && message.ending === "length") {
-        assistant.finish = "length";
-        assistant.error = {
-            name: "MessageOutputLengthError",
-            data: { message: message.error ?? "The reply stopped at the output limit." },
-        };
-    }
-    if (message.status === "done" && message.ending === "refused") {
-        assistant.finish = "content-filter";
-        assistant.error = {
-            name: "UnknownError",
-            data: { message: message.error ?? "The provider's safety filter ended the reply." },
-        };
-    }
-}
 
 export function adaptPart(row: NativePartRow): Part {
     const base = { id: row.id, sessionID: row.sessionId, messageID: row.messageId };

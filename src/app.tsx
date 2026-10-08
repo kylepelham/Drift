@@ -14,6 +14,7 @@ import { EngineProvider, useEngine } from "./engine";
 import { Chat, forwardWheelToChat } from "./ui/chat";
 import { selectedSession } from "./state/selection";
 import { FilePreviewHost } from "./ui/file-preview";
+import { messageProblem } from "./engine/messages";
 import { bindCodePreferences } from "./state/code";
 import { hiddenParent } from "./engine/sessions";
 import { initKeybinds } from "./state/keybinds";
@@ -149,8 +150,8 @@ function OrchestratorBinding() {
             parentID: hiddenParent(state.sessions[id]),
             lastMessage: last && {
                 role: last.info.role,
-                completed: !!(last.info as { time: { completed?: number } }).time.completed,
-                errored: !!(last.info as { error?: unknown }).error,
+                completed: !!last.info.finishedAt,
+                errored: !!messageProblem(last.info),
                 text: messageText(last),
             },
             rounds: nudgesSincePrompt(entries as never),

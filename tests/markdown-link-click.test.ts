@@ -675,7 +675,7 @@ test("all four Markdown callers pass their owning session directory, including d
     expect(callers).toHaveLength(4);
     expect(callers.every((tag) => tag.includes("fileGroups="))).toBe(true);
     expect(callers.map((tag) => tag.match(/\bdirectory=\{([^}]+)\}/)?.[1].replace(/\s+/g, ""))).toEqual([
-        "engine.state.sessions[info().sessionID]?.directory",
+        "engine.state.sessions[info().sessionId]?.directory",
         "engine.state.sessions[part().sessionID]?.directory",
         "engine.state.sessions[props.part.sessionID]?.directory",
         "engine.state.sessions[delegatedChildId(engine.state,props.part)??props.part.sessionID]?.directory",

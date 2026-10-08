@@ -33,8 +33,11 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
 - Catalog models use the generated native schema, including ordered reasoning variants
   and optional context limits. The persisted catalog restores SDK-era caches at the storage
   boundary; live provider responses are stored without capability placeholders.
-- `src/engine/native/adapt.ts` maps the engine's messages and parts onto the shapes
+- `src/engine/native/adapt.ts` maps the engine's parts onto the shapes
   the views render (`src/engine/shapes.ts`).
+- Messages are stored as native records. `src/engine/messages.ts` derives visible failure
+  and interruption text from their status and ending; it never replaces their usage,
+  timestamps, agent or provider model reference with SDK fields.
 - `src/engine/store.ts` holds the state shape plus pure helpers (`visibleSessions`,
   `resolveModel`, `sessionBusy`). No IO.
 - `src/engine/events.ts` is the reducer: one function per event type, applied with

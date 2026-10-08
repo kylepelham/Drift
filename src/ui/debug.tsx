@@ -52,7 +52,7 @@ export function DebugPanel() {
 function DebugRow(props: { entry: MessageEntry }) {
     const [expanded, setExpanded] = createSignal(false);
     const time = () =>
-        new Date(props.entry.info.time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+        new Date(props.entry.info.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     return (
         <div class="border-b border-edge/60">
             <button

@@ -81,7 +81,7 @@ test("all locales distinguish the async question tool name", async () => {
 
 const assistant = (id: string, parts: unknown[], extra: Record<string, unknown> = {}) =>
     ({
-        info: { id, sessionID: "s1", role: "assistant", time: { created: 1 }, ...extra },
+        info: { id, sessionId: "s1", role: "assistant", createdAt: 1, ...extra },
         parts,
     }) as MessageEntry;
 
@@ -131,7 +131,7 @@ test("timeline pitch keeps turn, compaction, and error breaks without trailing s
     const regular = assistant("a1", [text("one", "a1")]);
     const continuation = assistant("a2", [text("two", "a2")]);
     const summary = assistant("a3", [text("summary", "a3")], { summary: true });
-    const failed = assistant("a4", [], { error: { name: "ProviderError" } });
+    const failed = assistant("a4", [], { status: "error", error: "The turn failed" });
     const user = {
         info: { id: "u1", sessionID: "s1", role: "user", time: { created: 2 } },
         parts: [text("question", "u1")],
@@ -151,8 +151,9 @@ test("tokens per second uses generation time, not tool and subagent wall time", 
             id: "a1",
             sessionID: "s1",
             role: "assistant",
-            time: { created: 0, completed: 600_000 },
-            tokens: { input: 10, output: 500, reasoning: 100, cache: { read: 0, write: 0 } },
+            createdAt: 0,
+            finishedAt: 600_000,
+            usage: { input: 10, output: 600, cacheRead: 0, cacheWrite: 0 },
             cost: 0,
             modelID: "m",
         },
@@ -199,8 +200,9 @@ test("tokens per second uses generation time, not tool and subagent wall time", 
             id: "a2",
             sessionID: "s1",
             role: "assistant",
-            time: { created: 0, completed: 20_000 },
-            tokens: { input: 1, output: 100, reasoning: 0, cache: { read: 0, write: 0 } },
+            createdAt: 0,
+            finishedAt: 20_000,
+            usage: { input: 1, output: 100, cacheRead: 0, cacheWrite: 0 },
         },
         parts: [{ id: "p1", messageID: "a2", sessionID: "s1", type: "text", text: "t", time: { start: 10_000 } }],
     } as never;

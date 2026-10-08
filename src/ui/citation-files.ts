@@ -14,7 +14,7 @@ export function citationFileGroups(
     const directory = state.sessions[sessionID]?.directory;
     const entries = (state.transcripts[sessionID] ?? []).filter(
         (entry) =>
-            entry.info.sessionID === sessionID && (beforeTime === undefined || entry.info.time.created <= beforeTime),
+            entry.info.sessionId === sessionID && (beforeTime === undefined || entry.info.createdAt <= beforeTime),
     );
     const end = messageID ? entries.findIndex((entry) => entry.info.id === messageID) : entries.length - 1;
     if (!directory || end < 0) return [];

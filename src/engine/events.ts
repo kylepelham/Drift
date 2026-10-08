@@ -1,7 +1,7 @@
 import { clearQuestionDraft } from "../state/question-drafts";
-import { adaptMessage, adaptPart } from "./native/adapt";
 import { sessionInWorkspace } from "./sessions";
 import { questionForCard } from "./questions";
+import { adaptPart } from "./native/adapt";
 import { produce } from "solid-js/store";
 import {
     bumpRevision,
@@ -21,10 +21,11 @@ import {
     type QuestionRequest,
 } from "./store";
 
-import type { Message, Part, SessionStatus } from "./shapes";
 import type { Session, WorkspaceIndex } from "./sessions";
 import type { SetStoreFunction } from "solid-js/store";
+import type { Part, SessionStatus } from "./shapes";
 import type { components } from "./native/types";
+import type { Message } from "./messages";
 
 type SetEngineState = SetStoreFunction<EngineState>;
 type Event = components["schemas"]["Event"];
@@ -75,7 +76,7 @@ function reduceContentEvent(
     switch (event.type) {
         case "message.created":
         case "message.updated":
-            return upsertMessage(set, adaptMessage(event.message, ""));
+            return upsertMessage(set, event.message);
         case "message.removed":
             return dropMessage(set, event.sessionId, event.messageId);
         case "part.created":
@@ -209,14 +210,14 @@ function upsertMessage(set: SetEngineState, info: Message) {
     set(
         produce((draft) => {
             if (info.role === "assistant")
-                draft.sessionModels[info.sessionID] = {
-                    providerID: info.providerID,
-                    modelID: info.modelID,
+                draft.sessionModels[info.sessionId] = {
+                    providerID: info.model?.provider ?? "",
+                    modelID: info.model?.model ?? "",
                     messageId: info.id,
                 };
-            const list = draft.loaded[info.sessionID] ? draft.transcripts[info.sessionID] : undefined;
+            const list = draft.loaded[info.sessionId] ? draft.transcripts[info.sessionId] : undefined;
             if (!list) return;
-            bumpRevision(draft, messageRevisionKey(info.sessionID, info.id));
+            bumpRevision(draft, messageRevisionKey(info.sessionId, info.id));
             const index = list.findIndex((entry) => entry.info.id === info.id);
             if (index >= 0) list[index].info = info;
             else list.push({ info, parts: [] });

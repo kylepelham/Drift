@@ -1,7 +1,8 @@
 import { hiddenParent, sessionInWorkspace } from "../src/engine/sessions";
-import { adaptMessage, adaptPart } from "../src/engine/native/adapt";
+import { messageProblem } from "../src/engine/messages";
 import { toolElapsedMs } from "../src/ui/tool-duration";
 import { createEngineState } from "../src/engine/store";
+import { adaptPart } from "../src/engine/native/adapt";
 import { variantNames } from "../src/engine/catalog";
 import { reduce } from "../src/engine/events";
 import { expect, test } from "bun:test";
@@ -57,27 +58,27 @@ test("subagents nest under their parent while spawned threads stay top level wit
     expect(spawned.parentId).toBe("ses_1");
 });
 
-test("assistant messages carry tokens, cost and errors in the legacy shape", () => {
-    const info = adaptMessage(
-        {
-            id: "msg_1",
-            sessionId: "ses_1",
-            role: "assistant",
-            status: "error",
-            model: { provider: "anthropic", model: "claude" },
-            usage: { input: 5, output: 7, cacheRead: 1, cacheWrite: 2 },
-            cost: 0.5,
-            error: "boom",
-            createdAt: 1,
-            finishedAt: 2,
-        },
-        "C:/repo",
-    );
-    if (info.role !== "assistant") throw new Error("expected assistant");
-    expect(info.tokens).toEqual({ input: 5, output: 7, reasoning: 0, cache: { read: 1, write: 2 } });
-    expect(info.cost).toBe(0.5);
-    expect(info.error).toEqual({ name: "UnknownError", data: { message: "boom" } });
-    expect(info.time).toEqual({ created: 1, completed: 2 });
+test("native assistant messages retain usage, cost and errors in the store", () => {
+    const info: components["schemas"]["Message"] = {
+        id: "msg_1",
+        sessionId: "ses_1",
+        role: "assistant",
+        status: "error",
+        model: { provider: "anthropic", model: "claude" },
+        usage: { input: 5, output: 7, cacheRead: 1, cacheWrite: 2 },
+        cost: 0.5,
+        error: "boom",
+        createdAt: 1,
+        finishedAt: 2,
+    };
+    const [state, set] = createEngineState();
+    set("loaded", "ses_1", true);
+    set("transcripts", "ses_1", []);
+
+    reduce(set, { type: "message.created", message: info });
+
+    expect(state.transcripts.ses_1[0].info).toEqual(info);
+    expect(messageProblem(info)).toEqual({ text: "boom", interrupted: false });
 });
 
 test("sessions and messages keep the agent they actually ran as", () => {
@@ -91,10 +92,10 @@ test("sessions and messages keep the agent they actually ran as", () => {
         createdAt: 1,
         agent: "plan",
     };
-    const asked = adaptMessage({ ...base, id: "msg_u", role: "user", status: "done" }, "C:/repo");
-    const replied = adaptMessage({ ...base, id: "msg_a", role: "assistant", status: "done" }, "C:/repo");
+    const asked = { ...base, id: "msg_u", role: "user", status: "done" };
+    const replied = { ...base, id: "msg_a", role: "assistant", status: "done" };
     expect(asked.role === "user" && asked.agent).toBe("plan");
-    expect(replied.role === "assistant" && replied.mode).toBe("plan");
+    expect(replied.role === "assistant" && replied.agent).toBe("plan");
 });
 
 test("a reply that stopped at its output limit shows why", () => {
@@ -107,33 +108,24 @@ test("a reply that stopped at its output limit shows why", () => {
         cost: 0,
         createdAt: 1,
     };
-    type Shown = { finish?: string; error?: { name: string; data: { message: string } } };
-    const cut = adaptMessage(
-        { ...base, status: "done", ending: "length", error: "The reply stopped at the output limit (32000 tokens)." },
-        "C:/repo",
-    ) as Shown;
-    expect(cut.finish).toBe("length");
-    expect(cut.error).toEqual({
-        name: "MessageOutputLengthError",
-        data: { message: "The reply stopped at the output limit (32000 tokens)." },
+    const cut = messageProblem({
+        ...base,
+        status: "done",
+        ending: "length",
+        error: "The reply stopped at the output limit (32000 tokens).",
     });
-    const refused = adaptMessage(
-        { ...base, status: "done", ending: "refused", error: "Blocked, in any words." },
-        "C:/repo",
-    ) as Shown;
-    expect(refused.finish).toBe("content-filter");
-    expect(refused.error?.data.message).toBe("Blocked, in any words.");
-    const paused = adaptMessage(
-        { ...base, status: "paused", error: "Paused after 200 steps, this turn's limit." },
-        "C:/repo",
-    ) as { error?: { name: string; data: { message: string } } };
-    expect(paused.error).toEqual({
-        name: "MessageAbortedError",
-        data: { message: "Paused after 200 steps, this turn's limit." },
+    expect(cut).toEqual({
+        text: "The reply stopped at the output limit (32000 tokens).",
+        interrupted: false,
     });
-    const whole = adaptMessage({ ...base, status: "done" }, "C:/repo") as { finish?: string; error?: unknown };
-    expect(whole.finish).toBe("stop");
-    expect(whole.error).toBeUndefined();
+    const refused = messageProblem({ ...base, status: "done", ending: "refused", error: "Blocked, in any words." });
+    expect(refused?.text).toBe("Blocked, in any words.");
+    const paused = messageProblem({ ...base, status: "paused", error: "Paused after 200 steps, this turn's limit." });
+    expect(paused).toEqual({
+        text: "Paused after 200 steps, this turn's limit.",
+        interrupted: true,
+    });
+    expect(messageProblem({ ...base, status: "done" })).toBeUndefined();
 });
 
 test("a mention keeps the file it names, so undo restores it as a mention and its chip can open it", async () => {
@@ -249,20 +241,17 @@ test("an async question keeps its flag for the Answer later card", async () => {
 });
 
 test("a compaction becomes the boundary part and summary message the transcript already draws", () => {
-    const summary = adaptMessage(
-        {
-            id: "msg_2",
-            sessionId: "ses_1",
-            role: "assistant",
-            status: "done",
-            model: { provider: "anthropic", model: "claude" },
-            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-            cost: 0,
-            createdAt: 1,
-            summary: true,
-        },
-        "C:/repo",
-    );
+    const summary: components["schemas"]["Message"] = {
+        id: "msg_2",
+        sessionId: "ses_1",
+        role: "assistant",
+        status: "done",
+        model: { provider: "anthropic", model: "claude" },
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        cost: 0,
+        createdAt: 1,
+        summary: true,
+    };
     expect((summary as { summary?: boolean }).summary).toBeTrue();
     const boundary = adaptPart({
         id: "prt_1",

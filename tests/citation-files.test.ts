@@ -17,7 +17,7 @@ function tool(id: string, name: string, input: Record<string, unknown>, metadata
 }
 
 function message(id: string, role: "user" | "assistant", created: number, parts: Part[] = []): MessageEntry {
-    return { info: { id, sessionID: "session", role, time: { created } }, parts } as MessageEntry;
+    return { info: { id, sessionId: "session", role, createdAt: created }, parts } as MessageEntry;
 }
 
 function state(entries: MessageEntry[]): Pick<EngineState, "sessions" | "transcripts"> {

@@ -1,4 +1,5 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
+import { messageModel, messageProblem } from "../engine/messages";
 import { clarificationAnswer } from "./clarification-answer";
 import { clearReveal, revealTarget } from "./session-search";
 import { lmStudioModelReady } from "../state/lm-studio";
@@ -9,7 +10,6 @@ import { variantNames } from "../engine/catalog";
 import { ProviderIcon } from "./provider-icon";
 import { codeFontSize } from "../state/code";
 import { TextShimmer } from "./text-shimmer";
-import { errorText } from "../engine/error";
 import { IconArrowDown } from "./icons";
 import { useEngine } from "../engine";
 import { partVisible } from "./parts";
@@ -51,7 +51,7 @@ import {
     updatePrefs,
 } from "../state/prefs";
 
-import type { AssistantMessage, Part, SessionStatus } from "../engine/shapes";
+import type { Part, SessionStatus } from "../engine/shapes";
 
 const estimatedRow = 96;
 const overscan = 800;
@@ -91,7 +91,7 @@ export function Chat() {
                 return entry.info.id < revertedAt;
             })
             .sort(compareMessages);
-        return mergeCompactionEntries(sorted);
+        return sorted;
     });
     const spawnedCopy = createMemo(() => {
         const id = selectedSession();
@@ -129,8 +129,8 @@ export function Chat() {
         if (!error) return null;
         const latest = entries().at(-1);
         if (latest?.info.role !== "assistant") return error;
-        const messageError = (latest.info as { error?: { name: string; data?: unknown } }).error;
-        return messageError && messageError.name !== "MessageAbortedError" ? null : error;
+        const problem = messageProblem(latest.info);
+        return problem && !problem.interrupted ? null : error;
     });
     const thinking = createMemo(() => {
         const id = selectedSession();
@@ -159,10 +159,7 @@ export function Chat() {
     const thinkingOnly = (entry?: MessageEntry) =>
         !!entry && thinking()?.messageID === entry.info.id && !messageVisible(entry);
     const collapsedSummary = (entry: MessageEntry) =>
-        entry.info.role === "assistant" &&
-        !!(entry.info as AssistantMessage).summary &&
-        collapseCompaction() &&
-        compactionCollapsed();
+        entry.info.role === "assistant" && !!entry.info.summary && collapseCompaction() && compactionCollapsed();
 
     createEffect(() => {
         const id = selectedSession();
@@ -220,7 +217,7 @@ export function Chat() {
     let loadingOlder = false;
 
     function rowEstimate(entry: MessageEntry, parts: Part[], fontSize: number, thinking: boolean, collapsed: boolean) {
-        const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionID, entry.info.id)];
+        const rev = engine.state.revisions[messageRevisionKey(entry.info.sessionId, entry.info.id)];
         const cached = estimates.get(entry.info.id);
         if (
             cached &&
@@ -758,24 +755,8 @@ function toolRevision(part: RevisionPart) {
 
 /** A spawned thread starts with a copy of its source; copied messages keep their times, so they are older than the thread. */
 export function copiedCount(entries: MessageEntry[], threadCreated: number) {
-    const own = entries.findIndex((entry) => entry.info.time.created >= threadCreated);
+    const own = entries.findIndex((entry) => entry.info.createdAt >= threadCreated);
     return own < 0 ? entries.length : own;
-}
-
-export function mergeCompactionEntries(entries: MessageEntry[]) {
-    return entries.filter((entry, index) => {
-        const next = entries[index + 1];
-        const boundary =
-            entry.info.role === "user" &&
-            entry.parts.some((part) => part.type === "compaction") &&
-            entry.parts.every((part) => part.type === "compaction" || (part.type === "text" && part.synthetic));
-        const summary =
-            next?.info.role === "assistant" &&
-            !!(next.info as { summary?: boolean }).summary &&
-            "parentID" in next.info &&
-            next.info.parentID === entry.info.id;
-        return !boundary || !summary;
-    });
 }
 
 export function timelineEntries(entries: MessageEntry[], activeMessageID?: string | null) {
@@ -801,21 +782,21 @@ function timelineRowVisible(
     if (entry.info.role === "user") return true;
     // A failure the session has moved past (a retry, or a new prompt) is no longer news.
     if (failedAttempt(entry) && next) return false;
-    const info = entry.info as AssistantMessage;
+    const info = entry.info;
     return (
         !!groups?.length ||
         !!info.summary ||
-        !!info.error ||
+        !!messageProblem(info) ||
         entry.info.id === active ||
-        (!!info.time.completed && next?.info.role !== "assistant")
+        (!!info.finishedAt && next?.info.role !== "assistant")
     );
 }
 
 /** A reply that failed before showing anything: what the engine retries. */
 export function failedAttempt(entry: MessageEntry) {
     if (entry.info.role !== "assistant") return false;
-    const error = (entry.info as AssistantMessage).error;
-    return !!error && error.name !== "MessageAbortedError" && !entry.parts.some(partVisible);
+    const problem = messageProblem(entry.info);
+    return !!problem && !problem.interrupted && !entry.parts.some(partVisible);
 }
 
 /** The retry line stays up while the attempt after a run of failures is in flight, until it fails or shows output. */
@@ -829,8 +810,8 @@ export function retryInFlight(
     let attempt = 0;
     while (index - attempt - 1 >= 0 && failedAttempt(entries[index - attempt - 1])) attempt += 1;
     if (attempt === 0) return undefined;
-    const last = entries[index - 1].info as AssistantMessage;
-    return { type: "retry", attempt, message: errorText(last.error), next: 0 };
+    const last = entries[index - 1].info;
+    return { type: "retry", attempt, message: messageProblem(last)?.text ?? "An error occurred", next: 0 };
 }
 
 export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
@@ -840,22 +821,19 @@ export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
 export function thinkingState(entries: MessageEntry[], status?: string) {
     if (status !== "busy" && status !== "retry") return null;
     const newestFirst = [...entries].reverse();
-    const unfinished = newestFirst.find(
-        (entry) => entry.info.role === "assistant" && !(entry.info as { time: { completed?: number } }).time.completed,
-    );
+    const unfinished = newestFirst.find((entry) => entry.info.role === "assistant" && !entry.info.finishedAt);
     // A user turn newer than every assistant message has no response row yet, so the indicator
     // anchors under that prompt; otherwise it stays on the assistant turn that is actually running.
     const anchor =
         unfinished ?? newestFirst.find((entry) => entry.info.role === "user" || entry.info.role === "assistant");
     if (!anchor) return null;
-    const assistants = thinkingAssistants(entries, anchor);
-    const error = assistants.find(
-        (entry) =>
-            (entry.info as { error?: { name?: string } }).error &&
-            (entry.info as { error?: { name?: string } }).error?.name !== "MessageAbortedError",
-    );
+    const assistants = anchor.info.role === "assistant" ? [anchor] : [];
+    const error = assistants.find((entry) => {
+        const problem = messageProblem(entry.info);
+        return problem && !problem.interrupted;
+    });
     // After a failure the turn is over, unless another attempt is already under way.
-    if (status === "busy" && error && !(unfinished && !(unfinished.info as { error?: unknown }).error)) return null;
+    if (status === "busy" && error && !(unfinished && !messageProblem(unfinished.info))) return null;
     const heading = assistants
         .flatMap((entry) => entry.parts)
         .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
@@ -871,28 +849,12 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
     return { messageID: owner.info.id, heading, compaction };
 }
 
-function thinkingAssistants(entries: MessageEntry[], anchor: MessageEntry) {
-    const parentID = thinkingParent(anchor);
-    if (parentID)
-        return entries.filter(
-            (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === parentID,
-        );
-
-    return anchor.info.role === "assistant" ? [anchor] : [];
-}
-
-function thinkingParent(anchor: MessageEntry) {
-    if (anchor.info.role === "user") return anchor.info.id;
-
-    return "parentID" in anchor.info ? anchor.info.parentID : undefined;
-}
-
 // Whether this timeline row renders a compaction divider that can carry the shimmer itself.
 // Summary rows only show the divider when the collapsible presentation is enabled; with it off,
 // the summary streams as a plain assistant flow and the generic indicator stays.
 export function compactionThinkingRow(entry: MessageEntry, collapsible: boolean) {
     if (entry.info.role === "user") return entry.parts.some((part) => part.type === "compaction");
-    return collapsible && !!(entry.info as AssistantMessage).summary;
+    return collapsible && !!entry.info.summary;
 }
 
 export function reasoningHeading(text: string) {
@@ -945,7 +907,7 @@ function Row(props: {
     // Assistant rows remount during virtualization and session switches; replaying an entrance
     // animation on those makes streamed output flicker, so only fresh user rows fade in.
     const fadeIn = untrack(
-        () => Date.now() - props.entry.info.time.created < freshMessageMs && props.entry.info.role === "user",
+        () => Date.now() - props.entry.info.createdAt < freshMessageMs && props.entry.info.role === "user",
     );
     const pitch = () => {
         if (props.nextThinking) return "none";
@@ -1007,13 +969,9 @@ function Row(props: {
                 {(status) => (
                     <SessionRetry
                         status={status()}
-                        sessionID={props.entry.info.sessionID}
+                        sessionID={props.entry.info.sessionId}
                         messageID={props.entry.info.id}
-                        model={
-                            props.entry.info.role === "assistant"
-                                ? { providerID: props.entry.info.providerID, modelID: props.entry.info.modelID }
-                                : undefined
-                        }
+                        model={props.entry.info.role === "assistant" ? messageModel(props.entry.info) : undefined}
                     />
                 )}
             </Show>

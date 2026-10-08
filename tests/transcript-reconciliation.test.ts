@@ -1,7 +1,7 @@
 import { captureRevisions, createEngineState, mergeTranscriptSnapshot, messageRevisionKey } from "../src/engine/store";
-import { adaptMessage, adaptPart } from "../src/engine/native/adapt";
 import { sessionInWorkspace } from "../src/engine/sessions";
 import { reduce, withDelta } from "../src/engine/events";
+import { adaptPart } from "../src/engine/native/adapt";
 import { createActions } from "../src/engine/actions";
 import { expect, test } from "bun:test";
 
@@ -24,7 +24,7 @@ function message(text: string): MessageWithParts {
 
 function entry(text: string) {
     const { parts, ...info } = message(text);
-    return { info: adaptMessage(info, "C:/repo"), parts: parts.map(adaptPart) };
+    return { info, parts: parts.map(adaptPart) };
 }
 
 test("a delta gap leaves the cached prefix and revision unchanged and requests reconciliation", () => {
@@ -55,7 +55,7 @@ test("a snapshot repairs a shorter prefix even when a live message revision adva
     reduce(set, update);
     const merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions);
     expect(merged[0]!.parts[0]).toMatchObject({ text: "hello world" });
-    expect(merged[0]!.info).toMatchObject({ finish: "stop" });
+    expect(merged[0]!.info).toMatchObject({ status: "done" });
     const ahead = mergeTranscriptSnapshot(
         [entry("hello world!")],
         [entry("hello")],
@@ -123,7 +123,7 @@ test("a snapshot restores an entire missed part after a live message revision ad
     const merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions);
     expect(merged[0]!.parts).toHaveLength(1);
     expect(merged[0]!.parts[0]).toMatchObject({ id: "p", text: "hello world" });
-    expect(merged[0]!.info).toMatchObject({ finish: "stop" });
+    expect(merged[0]!.info).toMatchObject({ status: "done" });
 });
 
 test("a removed message survives a racing transcript snapshot", () => {

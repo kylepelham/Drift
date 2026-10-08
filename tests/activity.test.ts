@@ -533,23 +533,9 @@ test("streamed tool replacements retain mounted group and plugin identities", as
     });
 });
 
-test("compaction boundary merges into its adjacent summary", async () => {
-    const { mergeCompactionEntries } = await import("../src/ui/chat");
-    const boundary = {
-        info: { id: "u1", role: "user", sessionID: "s1" },
-        parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "compaction", auto: true }],
-    };
-    const summary = {
-        info: { id: "a1", role: "assistant", sessionID: "s1", parentID: "u1", summary: true },
-        parts: [{ id: "p2", messageID: "a1", sessionID: "s1", type: "text", text: "summary" }],
-    };
-    expect(mergeCompactionEntries([boundary, summary] as never).map((entry) => entry.info.id)).toEqual(["a1"]);
-    expect(mergeCompactionEntries([boundary] as never).map((entry) => entry.info.id)).toEqual(["u1"]);
-});
-
 test("a spawned thread's copied messages are the ones older than the thread", async () => {
     const { copiedCount } = await import("../src/ui/chat");
-    const entry = (id: string, created: number) => ({ info: { id, time: { created } }, parts: [] });
+    const entry = (id: string, createdAt: number) => ({ info: { id, createdAt }, parts: [] });
     const transcript = [
         entry("copied-prompt", 10),
         entry("copied-reply", 20),
@@ -691,26 +677,26 @@ test("assistant row estimates account for wrapping and fenced code", async () =>
 
 test("thinking remains attached to an assistant while the session is active", async () => {
     const { thinkingAfterMessage } = await import("../src/ui/chat");
-    const message = (id: string, role: "user" | "assistant", parentID?: string, completed?: number) =>
-        ({ info: { id, role, parentID, time: { created: 1, completed } }, parts: [] }) as never;
+    const message = (id: string, role: "user" | "assistant") =>
+        ({ info: { id, role, createdAt: 1 }, parts: [] }) as never;
     const first = message("u1", "user");
-    const response = message("a1", "assistant", "u1");
+    const response = message("a1", "assistant");
     const steer = message("u2", "user");
     // A running assistant owns the indicator even when the user steers with a newer message.
     expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("a1");
     // Once every assistant is complete, a newer user prompt anchors it under that prompt.
-    response.info.time.completed = 2;
+    response.info.finishedAt = 2;
     expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("u2");
-    const steeredResponse = message("a2", "assistant", "u2");
+    const steeredResponse = message("a2", "assistant");
     expect(thinkingAfterMessage([first, response, steer, steeredResponse], "busy")).toBe("a2");
     expect(thinkingAfterMessage([first, response, steer, steeredResponse], "retry")).toBe("a2");
     expect(thinkingAfterMessage([first, response, steer, steeredResponse], "idle")).toBeNull();
     // The very first prompt of a session has no assistant yet.
     expect(thinkingAfterMessage([first], "busy")).toBe("u1");
 
-    steeredResponse.info.time.completed = 3;
+    steeredResponse.info.finishedAt = 3;
     const compacted = {
-        info: { id: "a3", role: "assistant", parentID: "u3", summary: true, time: { created: 4, completed: 5 } },
+        info: { id: "a3", role: "assistant", summary: true, createdAt: 4, finishedAt: 5 },
         parts: [],
     } as never;
     // A completed compaction summary never captures the indicator from a newer user prompt.
@@ -794,8 +780,9 @@ test("busy thinking is suppressed by an assistant error while retry remains visi
                 id: "a1",
                 role: "assistant",
                 parentID: "u1",
-                time: { created: 2 },
-                error: { name: "APIError", data: { message: "failed" } },
+                createdAt: 2,
+                status: "error",
+                error: "failed",
             },
             parts: [],
         },
@@ -834,11 +821,10 @@ test("context usage skips a trailing zero-token assistant message", async () => 
     const assistant = (id: string, total: number) => ({
         info: {
             id,
-            sessionID: "s1",
+            sessionId: "s1",
             role: "assistant",
-            providerID: "openai",
-            modelID: "gpt-5",
-            tokens: { total, input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+            model: { provider: "openai", model: "gpt-5" },
+            usage: { input: total, output: 0, cacheRead: 0, cacheWrite: 0 },
         },
         parts: [],
     });
@@ -889,11 +875,10 @@ test("GPT-6 context meter retains catalog input headroom past the old OAuth thre
             {
                 info: {
                     id: "a1",
-                    sessionID: "s1",
+                    sessionId: "s1",
                     role: "assistant",
-                    providerID: "openai",
-                    modelID: "gpt-6-astra",
-                    tokens: { total: count, input: count, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                    model: { provider: "openai", model: "gpt-6-astra" },
+                    usage: { input: count, output: 0, cacheRead: 0, cacheWrite: 0 },
                 },
                 parts: [],
             },
@@ -1039,9 +1024,10 @@ test("failed attempts the engine retried collapse into one retry line that stays
         info: {
             id,
             role: "assistant",
-            parentID: "u1",
-            time: { created, completed: created },
-            error: { name: "APIError", data: { message: "overloaded_error: Overloaded" } },
+            createdAt: created,
+            finishedAt: created,
+            status: "error",
+            error: "overloaded_error: Overloaded",
         },
         parts: [],
     });
@@ -1049,7 +1035,7 @@ test("failed attempts the engine retried collapse into one retry line that stays
         { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
         failed("a1", 2),
         failed("a2", 3),
-        { info: { id: "a3", role: "assistant", parentID: "u1", time: { created: 4 } }, parts: [] },
+        { info: { id: "a3", role: "assistant", createdAt: 4 }, parts: [] },
     ] as never;
     expect(failedAttempt((entries as never[])[1])).toBeTrue();
     const thinking = thinkingState(entries, "busy");
@@ -1063,7 +1049,7 @@ test("failed attempts the engine retried collapse into one retry line that stays
     const answered = [
         ...(entries as never[]).slice(0, 3),
         {
-            info: { id: "a3", role: "assistant", parentID: "u1", time: { created: 4 } },
+            info: { id: "a3", role: "assistant", createdAt: 4 },
             parts: [{ id: "p", type: "text", text: "hello", sessionID: "s", messageID: "a3" }],
         },
     ] as never;
@@ -1076,13 +1062,14 @@ test("a failure stops showing once the session goes on, by a retry or a new prom
         info: {
             id: "a1",
             role: "assistant",
-            parentID: "u1",
-            time: { created: 2, completed: 2 },
-            error: { name: "APIError", data: { message: "Overloaded" } },
+            createdAt: 2,
+            finishedAt: 2,
+            status: "error",
+            error: "Overloaded",
         },
         parts: [],
     };
-    const stopped = { ...failed, info: { ...failed.info, error: { name: "MessageAbortedError" } } };
+    const stopped = { ...failed, info: { ...failed.info, status: "aborted" } };
     expect(failedAttempt(failed as never)).toBeTrue();
     expect(failedAttempt(stopped as never), "a stop is kept as its divider").toBeFalse();
     const source = await Bun.file("src/ui/chat.tsx").text();
