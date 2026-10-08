@@ -185,6 +185,7 @@ mod tests {
         #[tokio::test]
         async fn a_codex_request_carries_its_session_and_residency() {
             use base64::Engine as _;
+
             let _ = rustls::crypto::ring::default_provider().install_default();
             let seen: std::sync::Arc<std::sync::Mutex<Option<axum::http::HeaderMap>>> = Default::default();
             let recorded = seen.clone();
@@ -197,9 +198,11 @@ mod tests {
                     )
                 }
             }));
+
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let url = format!("http://{}", listener.local_addr().unwrap());
             tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
             let access = format!(
                 "h.{}.s",
                 base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -215,12 +218,14 @@ mod tests {
                 cache_key: Some("ses_1".into()),
                 ..request()
             };
+
             let _ = OpenAi::new(&url)
                 .stream(&request, &credential)
                 .await
                 .unwrap()
                 .collect::<Vec<_>>()
                 .await;
+
             let headers = seen.lock().unwrap().clone().unwrap();
             assert_eq!(
                 (
@@ -403,6 +408,7 @@ mod tests {
         fn stream_events_map_to_chunks() {
             let mut state = StreamState::default();
             let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
+
             assert_eq!(feed(&mut state, r#"{"type":"response.created","response":{}}"#), vec![]);
             assert_eq!(
                 feed(
@@ -436,6 +442,7 @@ mod tests {
                 ),
                 vec![Chunk::ReasoningSignature("enc".into()), Chunk::BlockStop]
             );
+
             assert_eq!(
                 feed(
                     &mut state,
@@ -490,6 +497,7 @@ mod tests {
                 ),
                 vec![Chunk::BlockStop]
             );
+
             let done = feed(
                 &mut state,
                 &json!({

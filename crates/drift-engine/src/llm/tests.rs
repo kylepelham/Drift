@@ -140,6 +140,7 @@ async fn anthropic_streams_thinking_text_and_tool_use() {
             Chunk::Stop(StopReason::ToolUse),
         ]
     );
+
     let seen = fake.seen.lock().unwrap();
     let seen = seen.as_ref().unwrap();
     assert_eq!(seen.headers["x-api-key"], "k");
@@ -159,6 +160,7 @@ async fn a_key_with_a_thinking_budget_and_tools_asks_for_interleaved_thinking() 
     }];
     request.reasoning = Some(crate::llm::catalog::Reasoning::Budget { tokens: 4096 });
     let key = Credential::ApiKey { key: "k".into() };
+
     Anthropic::new(&url)
         .stream(&request, &key)
         .await
@@ -169,6 +171,7 @@ async fn a_key_with_a_thinking_budget_and_tools_asks_for_interleaved_thinking() 
         fake.seen.lock().unwrap().as_ref().unwrap().headers["anthropic-beta"],
         "interleaved-thinking-2025-05-14"
     );
+
     request.reasoning = Some(crate::llm::catalog::Reasoning::Effort { level: "high".into() });
     Anthropic::new(&url)
         .stream(&request, &key)
@@ -245,6 +248,7 @@ async fn a_fast_entry_sends_its_base_model_with_the_modes_field_and_beta_beside_
     let mut request = request();
     request.model = fast.wire("claude-opus-5-5-fast").into();
     request.mode = fast.mode.clone();
+
     Anthropic::new(&url)
         .stream(&request, &Credential::ApiKey { key: "k".into() })
         .await
@@ -260,6 +264,7 @@ async fn a_fast_entry_sends_its_base_model_with_the_modes_field_and_beta_beside_
         );
         assert_eq!(seen.headers["anthropic-beta"], "fast-mode-2026-02-01");
     }
+
     let credential = Credential::OAuth {
         access: "tok".into(),
         refresh: String::new(),
@@ -272,6 +277,7 @@ async fn a_fast_entry_sends_its_base_model_with_the_modes_field_and_beta_beside_
         .unwrap()
         .collect::<Vec<_>>()
         .await;
+
     let seen = fake.seen.lock().unwrap();
     let betas = seen
         .as_ref()
@@ -365,12 +371,14 @@ async fn a_stream_that_stalls_mid_reply_fails_instead_of_hanging() {
         .unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
     let mut provider = Anthropic::new(&url);
     provider.timeouts.idle = std::time::Duration::from_millis(300);
     let mut stream = provider
         .stream(&request(), &Credential::ApiKey { key: "k".into() })
         .await
         .unwrap();
+
     assert!(matches!(stream.next().await, Some(Ok(Chunk::Usage(_)))));
     let stalled = tokio::time::timeout(std::time::Duration::from_secs(3), stream.next())
         .await

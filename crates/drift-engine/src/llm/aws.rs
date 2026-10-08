@@ -286,6 +286,7 @@ mod tests {
             path,
             "/model/anthropic.claude-sonnet-4-5-v1%3A0/invoke-with-response-stream"
         );
+
         let request = Signing {
             method: "POST",
             host: "bedrock-runtime.us-east-1.amazonaws.com",
@@ -305,6 +306,7 @@ mod tests {
             "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260101/us-east-1/bedrock/aws4_request, ",
             "SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=",
         )));
+
         let with_token = sign(
             &request,
             &Keys {

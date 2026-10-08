@@ -553,9 +553,11 @@ mod tests {
             ],
             vec![],
         );
+
         let (call, denied) = hooks.before_tool(call()).await;
         assert_eq!(call.input["command"], "ls -la");
         assert_eq!(denied, Some(("b".to_owned(), "no".to_owned())));
+
         let result = ToolResult {
             session_id: "s".into(),
             workspace: "w".into(),

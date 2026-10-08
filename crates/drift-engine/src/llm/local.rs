@@ -263,6 +263,7 @@ mod tests {
             },
             { "id": "no-tools", "type": "llm", "max_context_length": 8192, "capabilities": ["vision"] }
         ] });
+
         let app = axum::Router::new()
             .route(
                 "/v1/models",

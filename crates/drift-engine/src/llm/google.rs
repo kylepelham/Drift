@@ -290,9 +290,11 @@ mod tests {
             "private_key": throwaway_key(),
             "token_uri": TOKEN_URL
         });
+
         let jwt = assertion(&file, 1_700_000_000).unwrap();
         let parts: Vec<&str> = jwt.split('.').collect();
         assert_eq!(parts.len(), 3);
+
         let claims: Value = serde_json::from_slice(
             &base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .decode(parts[1])
@@ -307,6 +309,7 @@ mod tests {
                 Some(1_700_003_600)
             )
         );
+
         assert_eq!(
             base64::engine::general_purpose::URL_SAFE_NO_PAD
                 .decode(parts[2])
@@ -332,6 +335,7 @@ mod tests {
         delay: Duration,
     ) -> (String, Arc<AtomicUsize>) {
         use axum::extract::State;
+
         let _ = rustls::crypto::ring::default_provider().install_default();
         let calls = Arc::new(AtomicUsize::new(0));
         let handler = move |State(calls): State<Arc<AtomicUsize>>, form: String| {
@@ -350,12 +354,14 @@ mod tests {
                 response
             }
         };
+
         let app = axum::Router::new()
             .route("/token", axum::routing::post(handler))
             .with_state(calls.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}/token", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
         (url, calls)
     }
 
@@ -409,6 +415,7 @@ mod tests {
     async fn refused_credentials_and_googles_own_trouble_are_told_apart() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = crate::llm::http::client();
+
         let (url, _) = endpoint(
             400,
             json!({ "error": "invalid_grant", "error_description": "Token has been expired or revoked." }),
@@ -420,6 +427,7 @@ mod tests {
             token_from(&client, user_file(&url, "r"), &Timeouts::default()).await,
             Err(Error::Unauthenticated(_))
         ));
+
         let (url, _) = endpoint(
             503,
             json!({ "error": "backend_error" }),
@@ -438,6 +446,7 @@ mod tests {
             ),
             "{busy:?}"
         );
+
         let (url, _) = endpoint(200, json!({ "access_token": "late" }), vec![], Duration::from_secs(5)).await;
         let quick = Timeouts {
             headers: Duration::from_millis(200),

@@ -96,6 +96,7 @@ mod tests {
         ] {
             assert_eq!(accepted(id), offered, "{id}");
         }
+
         let mut provider = crate::llm::catalog::Catalog::bundled().providers["openai"].clone();
         shape(&mut provider);
         assert!(provider.models.keys().all(|id| accepted(id)) && !provider.models.is_empty());

@@ -367,12 +367,14 @@ mod tests {
             "my_server_search",
             "a `_` in a server's name alone changes nothing"
         );
+
         let names = wire_names(&Given::new(), &[("a_b", "c"), ("a", "b_c"), ("a", "d")]);
         assert!(
             names[0] != names[1] && names[0].starts_with("a_b_c_") && names[1].starts_with("a_b_c_"),
             "only names that meet get a hash: {names:?}"
         );
         assert_eq!(names[2], "a_d");
+
         let builtin: Vec<String> = crate::tool::Registry::builtin()
             .specs(crate::llm::catalog::ToolProfile::Edit)
             .into_iter()
@@ -385,6 +387,7 @@ mod tests {
             builtin.iter().all(|name| super::RESERVED.contains(&name.as_str())),
             "every built-in name an MCP tool could spell is reserved: {builtin:?}"
         );
+
         let long = wire_name("server", &"x".repeat(80));
         assert_eq!(long.len(), 60, "room left for the subscription route's mcp_ prefix");
         assert_ne!(long, wire_name("server", &"x".repeat(81)), "cut names stay apart");
@@ -405,6 +408,7 @@ mod tests {
         let read_only = tool("Searches", schema.clone()).annotate(ToolAnnotations::new().read_only(true));
         let reworded =
             tool("Searches the docs", schema.clone()).annotate(ToolAnnotations::with_title("Search").read_only(true));
+
         assert!(behaves_alike(&read_only, &reworded));
         assert!(
             !behaves_alike(&read_only, &tool("Searches", schema.clone())),
@@ -417,6 +421,7 @@ mod tests {
             ),
             "another input"
         );
+
         let plain = tool("Searches", schema.clone());
         assert!(
             behaves_alike(

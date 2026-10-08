@@ -280,6 +280,7 @@ mod tests {
         ));
         assert!(throttled.to_string().contains("Too many requests"));
         assert_eq!(retryable(&throttled), Some((429, true)));
+
         let internal = first_error(&frame(
             &[
                 (":message-type", "exception"),
@@ -288,6 +289,7 @@ mod tests {
             br#"{"message":"oops"}"#,
         ));
         assert_eq!(retryable(&internal), Some((500, true)));
+
         let model = br#"{"message":"stream failed","originalStatusCode":529,"originalMessage":"Overloaded"}"#;
         let overloaded = first_error(&frame(
             &[
@@ -302,6 +304,7 @@ mod tests {
             "the model's own status is kept"
         );
         assert!(overloaded.to_string().contains("Overloaded"));
+
         let invalid = first_error(&frame(
             &[
                 (":message-type", "exception"),
@@ -310,6 +313,7 @@ mod tests {
             br#"{"message":"bad input"}"#,
         ));
         assert_eq!(retryable(&invalid), Some((400, false)));
+
         let errored = first_error(&frame(
             &[
                 (":message-type", "error"),
@@ -378,6 +382,7 @@ mod tests {
         ]
         .concat();
         let (url, seen) = fake(reply).await;
+
         let mut request = crate::llm::tests::request();
         request.model = "us.anthropic.claude-sonnet-4-5-v1:0".into();
         let keys = aws::Keys {
@@ -391,6 +396,7 @@ mod tests {
             .unwrap();
         let chunks: Vec<Chunk> = stream.map(Result::unwrap).collect().await;
         assert!(chunks.contains(&Chunk::TextDelta("from bedrock".into())));
+
         let (path, auth, body) = seen.lock().unwrap()[0].clone();
         assert_eq!(
             path,
@@ -404,6 +410,7 @@ mod tests {
         let sent: Value = serde_json::from_str(&body).unwrap();
         assert_eq!(sent["anthropic_version"], VERSION);
         assert!(sent.get("anthropic_beta").is_none(), "no budget, no beta");
+
         let (budget_url, budget_seen) = fake(Vec::new()).await;
         let mut budgeted = request.clone();
         budgeted.tools = vec![crate::llm::ToolSpec {

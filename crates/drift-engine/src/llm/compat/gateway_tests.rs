@@ -183,6 +183,7 @@ fn a_tool_loop_caches_past_the_prompt_that_started_it() {
         role: Role::User,
         blocks: vec![Block::Text("go".into())],
     };
+
     let mut body = body(&Request {
         model: "anthropic/claude-sonnet-4.5".into(),
         messages: vec![prompt, call("x"), result("x"), call("y"), result("y")],

@@ -152,6 +152,7 @@ mod tests {
                 .filter_map(|c| if let Chunk::TextDelta(t) = c { Some(t) } else { None })
                 .collect::<String>()
         };
+
         let mut request = crate::llm::tests::request();
         request.model = "claude-sonnet-4-5@20250929".into();
         let claude: Vec<Chunk> = vertex
@@ -162,6 +163,7 @@ mod tests {
             .collect()
             .await;
         assert_eq!(texts(claude), "claude on vertex");
+
         request.model = "gemini-3.6-flash".into();
         let gemini: Vec<Chunk> = vertex
             .send(&request, "tok", &target)
@@ -171,6 +173,7 @@ mod tests {
             .collect()
             .await;
         assert_eq!(texts(gemini), "gemini on vertex");
+
         let seen = recorded.lock().unwrap().clone();
         let publishers = "/v1/projects/proj/locations/us-east5/publishers";
         assert_eq!(
@@ -183,6 +186,7 @@ mod tests {
         );
         assert!(seen.iter().all(|(_, auth, _)| auth == "Bearer tok"));
         assert!(seen.iter().all(|(_, _, beta)| beta.is_empty()), "no budget, no beta");
+
         request.model = "claude-sonnet-4-5@20250929".into();
         request.tools = vec![crate::llm::ToolSpec {
             name: "read".into(),

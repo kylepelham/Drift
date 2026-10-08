@@ -267,6 +267,7 @@ mod tests {
                 ],
                 ..request()
             };
+
             let built = body(&request);
             let (used, answered) = (
                 &built["messages"][0]["content"][0]["id"],
@@ -412,6 +413,7 @@ mod tests {
                     is_error: false,
                 }],
             });
+
             let previous = body(&request());
             let next = body(&next);
             assert_eq!(breakpoints(&next), 4, "never more than Anthropic allows");
@@ -422,6 +424,7 @@ mod tests {
                 marked(&previous, 2),
                 "the step before wrote at the block this one reads from"
             );
+
             let unmarked = |body: &Value| {
                 body["messages"]
                     .to_string()
@@ -527,6 +530,7 @@ mod tests {
                     None,
                 ),
             ];
+
             for (event, data, expected) in cases {
                 assert_eq!(chunks(event, data).unwrap().into_iter().next(), expected, "{event}");
             }

@@ -509,6 +509,7 @@ mod tests {
             ),
             vec![Chunk::ReasoningStart, Chunk::ReasoningDelta("th".into())]
         );
+
         let mut call = feed(
             &mut state,
             &json!({
@@ -551,6 +552,7 @@ mod tests {
                 Chunk::Stop(StopReason::ToolUse),
             ]
         );
+
         let mut plain = StreamState::default();
         assert_eq!(
             feed(&mut plain, r#"{"candidates":[{"content":{"parts":[{"text":"Hi"}]}}]}"#),
@@ -563,6 +565,7 @@ mod tests {
             ),
             vec![Chunk::BlockStop, Chunk::Stop(StopReason::MaxTokens)]
         );
+
         assert!(matches!(
             StreamState::default().chunks(r#"{"error":{"status":"UNAVAILABLE","message":"x"}}"#),
             Err(Error::Api { retryable: true, .. })

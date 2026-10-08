@@ -353,9 +353,11 @@ mod tests {
             expires_at: 9,
             account: None,
         };
+
         store.set("p", &stale).unwrap();
         assert!(store.replace_if("p", &stale, &fresh).unwrap());
         assert_eq!(store.get("p"), Some(fresh.clone()));
+
         let login = Credential::ApiKey { key: "k".into() };
         store.set("p", &login).unwrap();
         assert!(
@@ -363,18 +365,21 @@ mod tests {
             "a login after the refresh started must win"
         );
         assert_eq!(store.get("p"), Some(login));
+
         store.remove("p").unwrap();
         assert!(
             !store.replace_if("p", &stale, &fresh).unwrap(),
             "a logout must not be undone"
         );
         assert!(store.get("p").is_none());
+
         std::fs::remove_file(path).ok();
     }
 
     #[test]
     fn concurrent_logins_and_refreshes_never_resurrect_a_replaced_credential() {
         use std::sync::Arc;
+
         let path = std::env::temp_dir().join(format!("drift-cred-{}.json", crate::random_hex(4)));
         let store = Arc::new(Credentials::in_file(path.clone()));
         let stale = Credential::OAuth {
@@ -389,6 +394,7 @@ mod tests {
             expires_at: 9,
             account: None,
         };
+
         for _ in 0..50 {
             store.set("p", &stale).unwrap();
             let refresher = {
@@ -400,11 +406,13 @@ mod tests {
                 let store = store.clone();
                 std::thread::spawn(move || store.remove("p").unwrap())
             };
+
             let replaced = refresher.join().unwrap();
             logout.join().unwrap();
             // A refresh based on older credentials must never undo a concurrent logout.
             assert_eq!(store.get("p"), None, "replaced={replaced}");
         }
+
         std::fs::remove_file(path).ok();
     }
 
@@ -416,12 +424,14 @@ mod tests {
             "AWS_ACCESS_KEY_ID".to_string(),
             "GOOGLE_APPLICATION_CREDENTIALS".to_string(),
         ];
+
         for provider in ["amazon-bedrock", "google-vertex", "google-vertex-anthropic"] {
             assert!(
                 !matches!(store.resolve(provider, &env), Some(Credential::ApiKey { .. })),
                 "{provider}"
             );
         }
+
         store
             .set(
                 "amazon-bedrock",
@@ -437,6 +447,7 @@ mod tests {
             }),
             "a key saved in Settings wins"
         );
+
         std::fs::remove_file(path).ok();
     }
 
@@ -465,6 +476,7 @@ mod keyring_tests {
         if keyring::Entry::store_status().is_err() {
             return;
         }
+
         let store = Credentials {
             backend: Backend::Keyring,
             write_lock: Mutex::default(),
@@ -478,6 +490,7 @@ mod keyring_tests {
             expires_at: 1,
             account: Some("acc".into()),
         };
+
         store.set(&key, &long).unwrap();
         assert_eq!(store.get(&key), Some(long));
         store.remove(&key).unwrap();
@@ -489,6 +502,7 @@ mod keyring_tests {
                 .is_err(),
             "chunks are removed too"
         );
+
         store.remove(INDEX).ok();
     }
 }

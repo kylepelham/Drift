@@ -168,6 +168,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
     let tools = engine.mcp.tools(&engine.store, Some(&here()));
     let names: Vec<String> = tools.iter().map(|t| t.spec().name).collect();
     assert_eq!(names, ["echo_echo", "echo_shout"]);
+
     let ctx = Context {
         agent: "build".into(),
         workspace: here(),
@@ -181,6 +182,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
         progress: Default::default(),
         command_model: None,
     };
+
     let echo = tools.iter().find(|t| t.spec().name == "echo_echo").unwrap();
     let read_only = echo.ask(&ctx, &json!({})).unwrap();
     assert_eq!(
@@ -190,6 +192,7 @@ async fn a_saved_server_connects_and_its_tools_appear_prefixed() {
         crate::permission::Decision::Allow,
         "read-only tools need no approval by default"
     );
+
     let denied = crate::permission::Policy {
         rules: vec![crate::permission::Rule {
             kind: "mcp".into(),
@@ -420,6 +423,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
         cwd: None,
         timeout_seconds: None,
     };
+
     engine.store.save_mcp_server("probe", &slow).unwrap();
     let started = std::time::Instant::now();
     let connecting = tokio::spawn({
@@ -433,6 +437,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
                 .map(|_| ())
         }
     });
+
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     let replaced = ServerConfig::Stdio {
         command: "node".into(),
@@ -448,6 +453,7 @@ async fn a_config_change_during_connect_discards_the_late_connection() {
         })
         .await
         .unwrap();
+
     assert!(connecting.await.unwrap().is_err(), "the stale connect must not succeed");
     assert!(
         started.elapsed() < std::time::Duration::from_millis(1200),

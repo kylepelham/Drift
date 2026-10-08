@@ -246,6 +246,7 @@ mod tests {
             "expires_in": 600
         });
         let (url, seen) = endpoint(vec![(200, answer)]).await;
+
         let started = start_at(&reqwest::Client::new(), &url).await.unwrap();
         assert_eq!(
             (

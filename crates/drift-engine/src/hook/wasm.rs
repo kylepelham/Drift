@@ -400,6 +400,7 @@ pub(super) mod tests {
         let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
         let runtime = Runtime::new(&cache).unwrap();
         let plugin = runtime.load(&path, site()).await.unwrap();
+
         assert_eq!(plugin.name(), "guard");
         assert_eq!(
             plugin.capabilities,
@@ -415,6 +416,7 @@ pub(super) mod tests {
             plugin.before_tool(&call("read", "git push --force")).await,
             BeforeTool::Allow
         );
+
         let failed = ToolResult {
             session_id: "s1".into(),
             workspace: "C:/work".into(),
@@ -437,6 +439,7 @@ pub(super) mod tests {
                 .await,
             AfterTool::Keep
         );
+
         plugin
             .session(&SessionEvent {
                 id: "s1".into(),
@@ -446,6 +449,7 @@ pub(super) mod tests {
                 kind: SessionKind::Created,
             })
             .await;
+
         // A second load of the same file comes from the cache the first one wrote.
         assert!(std::fs::read_dir(&cache).is_ok_and(|entries| entries.count() > 0));
         runtime.load(&path, site()).await.unwrap();
@@ -470,6 +474,7 @@ pub(super) mod tests {
             agent: "build".into(),
             text: text.into(),
         };
+
         assert_eq!(
             plugin.turn_end(&reply("Changed nothing.")).await,
             TurnEnd::Accept,
@@ -479,12 +484,14 @@ pub(super) mod tests {
             plugin.turn_end(&reply("Done. @guard test")).await,
             TurnEnd::Note("tests passed".into())
         );
+
         std::fs::write(&failing, "").unwrap();
         let outcome = plugin.turn_end(&reply("Done. @guard test")).await;
         assert!(
             matches!(&outcome, TurnEnd::Continue(reason) if reason.contains("exit code 1")),
             "{outcome:?}"
         );
+
         let prompt = PromptEvent {
             session_id: "s1".into(),
             workspace: workspace.to_string_lossy().into_owned(),
@@ -492,6 +499,7 @@ pub(super) mod tests {
             text: "hello".into(),
         };
         assert_eq!(plugin.prompt_submit(&prompt).await, PromptSubmit::Keep);
+
         let _ = std::fs::remove_dir_all(&cache);
     }
 
@@ -536,6 +544,7 @@ mod load_tests {
                 },
             ]
         };
+
         let listed = hooks
             .load(
                 &cache,
@@ -554,9 +563,11 @@ mod load_tests {
             ("x", true, Some("a plugin is a .wasm component"))
         );
         assert!(hooks.is_empty(), "a plugin that is off is not consulted");
+
         let listed = hooks.load(&cache, entries(), &[], std::sync::Weak::new()).await;
         assert!(listed[0].enabled && !hooks.is_empty());
         assert_eq!(listed[0].capabilities, vec!["notify".to_owned(), "process".to_owned()]);
+
         let _ = std::fs::remove_dir_all(&cache);
     }
 }
