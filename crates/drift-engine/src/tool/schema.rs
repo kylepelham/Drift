@@ -17,7 +17,8 @@ fn check(schema: &Value, value: &Value, at: &str, found: &mut Vec<String>) {
     } else {
         format!("`{at}`")
     };
-    if let Some(expected) = types(schema).filter(|types| !types.iter().any(|t| is(value, t))) {
+
+    if let Some(expected) = types(schema).filter(|types| !types.iter().any(|expected| is(value, expected))) {
         found.push(format!("{name} must be {}, not {}", expected.join(" or "), kind(value)));
         return;
     }
@@ -25,6 +26,7 @@ fn check(schema: &Value, value: &Value, at: &str, found: &mut Vec<String>) {
         let listed: Vec<String> = choices.iter().map(Value::to_string).collect();
         found.push(format!("{name} must be one of {}", listed.join(", ")));
     }
+
     if let Value::Object(fields) = value {
         for missing in schema["required"]
             .as_array()
@@ -44,6 +46,7 @@ fn check(schema: &Value, value: &Value, at: &str, found: &mut Vec<String>) {
             }
         }
     }
+
     if let (Value::Array(items), Some(each)) = (value, schema.get("items").filter(|each| each.is_object())) {
         for (index, item) in items.iter().enumerate() {
             check(each, item, &format!("{at}[{index}]"), found);
@@ -67,7 +70,7 @@ fn types(schema: &Value) -> Option<Vec<&str>> {
 fn is(value: &Value, kind: &str) -> bool {
     match kind {
         "string" => value.is_string(),
-        "integer" => value.is_i64() || value.is_u64() || value.as_f64().is_some_and(|n| n.fract() == 0.0),
+        "integer" => value.is_i64() || value.is_u64() || value.as_f64().is_some_and(|number| number.fract() == 0.0),
         "number" => value.is_number(),
         "boolean" => value.is_boolean(),
         "object" => value.is_object(),

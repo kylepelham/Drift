@@ -26,6 +26,7 @@ impl TextFormat {
         } else {
             text.to_string()
         };
+
         if bom { format!("\u{feff}{body}") } else { body }
     }
 }

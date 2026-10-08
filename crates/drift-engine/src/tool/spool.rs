@@ -18,6 +18,7 @@ pub fn bound(text: String, path: PathBuf) -> (String, Option<PathBuf>) {
     if text.len() <= MAX_RESULT_BYTES {
         return (text, None);
     }
+
     let mut spool = Spool::new(Some(path));
     spool.push(text.as_bytes());
     let kept = spool.finish();
@@ -63,6 +64,7 @@ impl Spool {
             self.small.extend_from_slice(bytes);
             return;
         }
+
         if self.head.is_empty() {
             let small = std::mem::take(&mut self.small);
             self.open_file();
@@ -83,6 +85,7 @@ impl Spool {
         self.tail.extend(&bytes[into_head..]);
         let excess = self.tail.len().saturating_sub(TAIL_BYTES);
         self.tail.drain(..excess);
+
         let room = MAX_SPOOLED_BYTES.saturating_sub(self.written).min(bytes.len() as u64) as usize;
         if let Some(file) = &mut self.file
             && room > 0
@@ -101,6 +104,7 @@ impl Spool {
         };
         let from = end.len().saturating_sub(max);
         let text = String::from_utf8_lossy(&end[from..]).into_owned();
+
         if from == 0 && self.head.is_empty() {
             text
         } else {
@@ -120,6 +124,7 @@ impl Spool {
                 file: None,
             };
         }
+
         let file = self.file.take().and_then(|_| self.path.clone());
         let omitted = self.total - (self.head.len() + self.tail.len()) as u64;
         let whole = match &file {
@@ -131,6 +136,7 @@ impl Spool {
             ),
             None => "it was not kept".into(),
         };
+
         let tail: Vec<u8> = self.tail.into_iter().collect();
         let text = format!(
             "{}\n\n... {omitted} bytes omitted; {whole} ...\n\n{}",
@@ -165,7 +171,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("drift-spool-{}", crate::random_hex(4)));
         let path = dir.join("out.log");
         let mut spool = Spool::new(Some(path.clone()));
-        let chunk: Vec<u8> = (0..4096u32).map(|i| b'a' + (i % 26) as u8).collect();
+        let chunk: Vec<u8> = (0..4096u32).map(|index| b'a' + (index % 26) as u8).collect();
         spool.push(b"FIRST LINE\n");
         for _ in 0..2_500 {
             spool.push(&chunk);

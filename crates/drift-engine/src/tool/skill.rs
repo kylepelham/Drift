@@ -44,6 +44,7 @@ impl Tool for Skill {
                         .expand(arguments)
                 },
             );
+
             // The instructions as the turn's config read them, never the file as it is now.
             let dir = std::path::PathBuf::from(&skill.path);
             let files = tokio::task::spawn_blocking(move || files_in(&dir))
@@ -57,6 +58,7 @@ impl Tool for Skill {
                     files.join("\n")
                 )
             };
+
             Ok(Output {
                 title: skill.name.clone(),
                 output: format!("Skill directory: {}\n\n{}{listed}", skill.path, instructions),
@@ -81,6 +83,7 @@ fn files_in(dir: &std::path::Path) -> Vec<String> {
         .take(MAX_FILES)
         .map(|entry| entry.path().display().to_string())
         .collect();
+
     files.sort();
     files
 }

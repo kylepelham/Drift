@@ -41,16 +41,18 @@ impl Tool for TodoWrite {
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
-            let todos: Vec<Todo> =
-                serde_json::from_value(input["todos"].clone()).map_err(|e| ToolError(format!("invalid todos: {e}")))?;
+            let todos: Vec<Todo> = serde_json::from_value(input["todos"].clone())
+                .map_err(|error| ToolError(format!("invalid todos: {error}")))?;
+
             ctx.engine.store.set_todos(&ctx.session_id, &todos)?;
             ctx.engine.hub.publish(Event::TodoUpdated {
                 session_id: ctx.session_id.clone(),
                 todos: todos.clone(),
             });
+
             let open = todos
                 .iter()
-                .filter(|t| !matches!(t.status, TodoStatus::Completed | TodoStatus::Cancelled))
+                .filter(|todo| !matches!(todo.status, TodoStatus::Completed | TodoStatus::Cancelled))
                 .count();
             Ok(Output {
                 title: format!("{open} of {} remaining", todos.len()),

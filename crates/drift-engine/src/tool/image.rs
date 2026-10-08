@@ -67,6 +67,7 @@ pub fn normalize(image: Image) -> Result<(Image, Option<String>), ImageError> {
     if image.mime == PDF {
         return Ok((image, None));
     }
+
     let bytes = image.bytes().ok_or(ImageError::InvalidBase64)?;
     if bytes.len() > MAX_SOURCE_BYTES {
         return Err(ImageError::TooLarge);
@@ -75,11 +76,14 @@ pub fn normalize(image: Image) -> Result<(Image, Option<String>), ImageError> {
     if width <= MAX_SIDE && height <= MAX_SIDE && image.base64.len() <= MAX_IMAGE_BYTES {
         return Ok((image, None));
     }
+
     let decoded = reader(&bytes)?.decode().map_err(ImageError::Decode)?;
     sizes(width, height)
-        .find_map(|(w, h)| {
-            encoded(&decoded.resize_exact(w, h, image::imageops::FilterType::Lanczos3))
-                .map(|image| (image, Some(format!("scaled from {width}x{height} to {w}x{h}"))))
+        .find_map(|(to_width, to_height)| {
+            encoded(&decoded.resize_exact(to_width, to_height, image::imageops::FilterType::Lanczos3)).map(|image| {
+                let note = format!("scaled from {width}x{height} to {to_width}x{to_height}");
+                (image, Some(note))
+            })
         })
         .ok_or(ImageError::CannotScale { width, height })
 }
@@ -88,6 +92,7 @@ fn reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, Im
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
         .map_err(ImageError::ReadIo)?;
+
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_DECODED_SIDE);
     limits.max_image_height = Some(MAX_DECODED_SIDE);
@@ -104,8 +109,9 @@ fn sizes(width: u32, height: u32) -> impl Iterator<Item = (u32, u32)> {
         ((width as f64 * scale).round() as u32).max(1),
         ((height as f64 * scale).round() as u32).max(1),
     );
-    std::iter::successors(Some(first), |&(w, h)| {
-        (w > 1 || h > 1).then(|| ((w * 3 / 4).max(1), (h * 3 / 4).max(1)))
+
+    std::iter::successors(Some(first), |&(width, height)| {
+        (width > 1 || height > 1).then(|| ((width * 3 / 4).max(1), (height * 3 / 4).max(1)))
     })
     .take(32)
 }
@@ -132,10 +138,11 @@ fn png(picture: &image::DynamicImage) -> Option<Image> {
 fn jpeg(picture: &image::DynamicImage) -> Option<Image> {
     let rgba = picture.to_rgba8();
     let rgb = image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
-        let [r, g, b, a] = rgba.get_pixel(x, y).0;
-        let over_white = |channel: u8| ((channel as u16 * a as u16 + 255 * (255 - a as u16)) / 255) as u8;
-        image::Rgb([over_white(r), over_white(g), over_white(b)])
+        let [red, green, blue, alpha] = rgba.get_pixel(x, y).0;
+        let over_white = |channel: u8| ((channel as u16 * alpha as u16 + 255 * (255 - alpha as u16)) / 255) as u8;
+        image::Rgb([over_white(red), over_white(green), over_white(blue)])
     });
+
     JPEG_QUALITIES.iter().find_map(|&quality| {
         let mut jpeg = Vec::new();
         let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality);
@@ -295,8 +302,8 @@ mod tests {
         };
         let pixels: Vec<[u8; 4]> = (0..1600 * 1600).map(|_| noise()).collect();
         let large = png(1600, 1600, |x, y| {
-            let p = pixels[(y * 1600 + x) as usize];
-            [p[0], p[1], p[2]]
+            let pixel = pixels[(y * 1600 + x) as usize];
+            [pixel[0], pixel[1], pixel[2]]
         });
         assert!(large.base64.len() > MAX_IMAGE_BYTES);
         let (image, note) = normalize(large).unwrap();

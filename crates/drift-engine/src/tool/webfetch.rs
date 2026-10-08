@@ -44,37 +44,20 @@ impl Tool for WebFetch {
                 return Err(ToolError("url must start with http:// or https://".into()));
             }
             let format = input["format"].as_str().unwrap_or("markdown");
-            let mut response = fetch(ctx, url, BROWSER).await?;
-            // Cloudflare challenges a browser agent whose TLS does not look like a browser's; an honest one often passes.
-            if response.status() == reqwest::StatusCode::FORBIDDEN
-                && response
-                    .headers()
-                    .get("cf-mitigated")
-                    .is_some_and(|value| value == "challenge")
-            {
-                response = fetch(ctx, url, HONEST).await?;
-            }
+
+            let response = respond(ctx, url).await?;
             if let Some(target) = elsewhere(&response) {
-                let output = format!(
-                    "{url} redirects to {target}, outside the site that was approved (another host or port, or down to plain http), which was not fetched. Fetch {target} to follow it."
-                );
-                return Ok(Output {
-                    title: url.into(),
-                    output,
-                    metadata: ToolMetadata {
-                        redirect: Some(target),
-                        ..Default::default()
-                    },
-                });
+                return Ok(redirected(url, target));
             }
             let status = response.status();
             if !status.is_success() {
                 return Err(ToolError(format!("{url} answered {status}")));
             }
+
             let content_type = response
                 .headers()
                 .get("content-type")
-                .and_then(|v| v.to_str().ok())
+                .and_then(|value| value.to_str().ok())
                 .unwrap_or("")
                 .to_string();
             let bytes = tokio::select! {
@@ -88,16 +71,9 @@ impl Tool for WebFetch {
             if bytes.len() > MAX_BYTES {
                 return Err(ToolError(format!("{url} is {} bytes; too large to fetch", bytes.len())));
             }
+
             let body = String::from_utf8_lossy(&bytes);
-            let text = if content_type.contains("text/html") && format != "html" {
-                if format == "text" {
-                    strip_tags(&body)
-                } else {
-                    markdown(&body)
-                }
-            } else {
-                body.into_owned()
-            };
+            let text = page_text(body, &content_type, format);
             Ok(Output {
                 title: url.into(),
                 output: text.trim().into(),
@@ -109,6 +85,47 @@ impl Tool for WebFetch {
             })
         })
     }
+}
+
+/// The page as a browser asks for it, asked again honestly when Cloudflare challenges the browser agent.
+async fn respond(ctx: &Context, url: &str) -> Result<reqwest::Response, ToolError> {
+    let response = fetch(ctx, url, BROWSER).await?;
+    // Cloudflare challenges a browser agent whose TLS does not look like a browser's; an honest one often passes.
+    let challenged = response.status() == reqwest::StatusCode::FORBIDDEN
+        && response
+            .headers()
+            .get("cf-mitigated")
+            .is_some_and(|value| value == "challenge");
+    if challenged {
+        return fetch(ctx, url, HONEST).await;
+    }
+    Ok(response)
+}
+
+/// The answer for a redirect off the approved origin: where it points, unfetched.
+fn redirected(url: &str, target: String) -> Output {
+    let output = format!(
+        "{url} redirects to {target}, outside the site that was approved (another host or port, or down to plain http), which was not fetched. Fetch {target} to follow it."
+    );
+    Output {
+        title: url.into(),
+        output,
+        metadata: ToolMetadata {
+            redirect: Some(target),
+            ..Default::default()
+        },
+    }
+}
+
+/// HTML as markdown or plain text unless raw HTML was asked for; any other body as it came.
+fn page_text(body: std::borrow::Cow<'_, str>, content_type: &str, format: &str) -> String {
+    if !content_type.contains("text/html") || format == "html" {
+        return body.into_owned();
+    }
+    if format == "text" {
+        return strip_tags(&body);
+    }
+    markdown(&body)
 }
 
 /// Pages are asked for as a browser would; sites that refuse unknown agents are the common case.
@@ -131,6 +148,7 @@ fn client() -> reqwest::Client {
             _ => attempt.stop(),
         }
     });
+
     CLIENT
         .get_or_init(|| {
             reqwest::Client::builder()
@@ -143,10 +161,10 @@ fn client() -> reqwest::Client {
 }
 
 /// The same host, on the same scheme and port, or moved from http to https (the usual upgrade).
-fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
-    let upgrade = a.scheme() == "http" && b.scheme() == "https" && a.port().is_none() && b.port().is_none();
-    let same = a.scheme() == b.scheme() && a.port_or_known_default() == b.port_or_known_default();
-    a.host_str() == b.host_str() && (same || upgrade)
+fn same_origin(from: &reqwest::Url, to: &reqwest::Url) -> bool {
+    let upgrade = from.scheme() == "http" && to.scheme() == "https" && from.port().is_none() && to.port().is_none();
+    let same = from.scheme() == to.scheme() && from.port_or_known_default() == to.port_or_known_default();
+    from.host_str() == to.host_str() && (same || upgrade)
 }
 
 async fn fetch(ctx: &Context, url: &str, agent: &str) -> Result<reqwest::Response, ToolError> {
@@ -159,8 +177,9 @@ async fn fetch(ctx: &Context, url: &str, agent: &str) -> Result<reqwest::Respons
             "text/html, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5",
         )
         .header("accept-language", "en-US,en;q=0.9");
+
     tokio::select! {
-        response = request.send() => response.map_err(|e| ToolError(format!("request failed: {e}"))),
+        response = request.send() => response.map_err(|error| ToolError(format!("request failed: {error}"))),
         () = ctx.abort.cancelled() => Err(ToolError("aborted".into())),
     }
 }
@@ -170,6 +189,7 @@ fn elsewhere(response: &reqwest::Response) -> Option<String> {
     if !response.status().is_redirection() {
         return None;
     }
+
     let location = response.headers().get("location")?.to_str().ok()?;
     response.url().join(location).ok().map(String::from)
 }
@@ -187,17 +207,19 @@ async fn read_capped(mut response: reqwest::Response, url: &str) -> Result<Vec<u
     if let Some(size) = response.content_length().filter(|size| *size > cap as u64) {
         return Err(too_large(size));
     }
+
     let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|e| ToolError(format!("read failed: {e}")))?
+        .map_err(|error| ToolError(format!("read failed: {error}")))?
     {
         bytes.extend_from_slice(&chunk);
         if bytes.len() > cap {
             return Err(too_large(bytes.len() as u64));
         }
     }
+
     Ok(bytes)
 }
 
@@ -214,6 +236,7 @@ fn fetched_file(url: &str, mime: &str, bytes: &[u8]) -> Result<Output, ToolError
             limit / 1024 / 1024
         )));
     }
+
     let file = image::Image::from_bytes(mime, bytes);
     Ok(Output {
         title: url.into(),
@@ -242,6 +265,7 @@ fn strip_tags(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut skip_until: Option<&str> = None;
     let mut rest = html;
+
     while let Some(start) = rest.find('<') {
         if skip_until.is_none() {
             out.push_str(&rest[..start]);
@@ -266,186 +290,13 @@ fn strip_tags(html: &str) -> String {
     if skip_until.is_none() {
         out.push_str(rest);
     }
+
     out.split('\n')
         .map(str::trim)
-        .filter(|l| !l.is_empty())
+        .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::tests::Sandbox;
-    use super::*;
-    use axum::Router;
-    use axum::routing::get;
-
-    async fn page() -> axum::response::Html<&'static str> {
-        axum::response::Html(
-            "<html><head><style>x{}</style><script>bad()</script></head><body><h1>Title</h1><p>Hello <b>world</b></p></body></html>",
-        )
-    }
-
-    async fn serve() -> String {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let app = Router::new()
-            .route("/page", get(page))
-            .route(
-                "/shot",
-                get(|| async {
-                    (
-                        [("content-type", "application/octet-stream")],
-                        b"\x89PNG\r\n\x1a\nrest".to_vec(),
-                    )
-                }),
-            )
-            .route(
-                "/doc",
-                get(|| async { ([("content-type", "application/pdf")], b"%PDF-1.7\n...".to_vec()) }),
-            )
-            .route("/hop", get(|| async { axum::response::Redirect::temporary("/page") }))
-            .route(
-                "/challenged",
-                get(|headers: axum::http::HeaderMap| async move {
-                    let honest = headers
-                        .get("user-agent")
-                        .is_some_and(|agent| agent.to_str().unwrap_or_default().starts_with("Drift/"));
-                    if honest {
-                        (axum::http::StatusCode::OK, [("cf-mitigated", "")], "<p>passed</p>")
-                    } else {
-                        (
-                            axum::http::StatusCode::FORBIDDEN,
-                            [("cf-mitigated", "challenge")],
-                            "challenge",
-                        )
-                    }
-                }),
-            )
-            .route(
-                "/endless",
-                get(|| async {
-                    let chunk = bytes::Bytes::from(vec![b'x'; 64 * 1024]);
-                    axum::body::Body::from_stream(futures_util::stream::repeat_with(move || {
-                        Ok::<_, std::io::Error>(chunk.clone())
-                    }))
-                }),
-            );
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        url
-    }
-
-    #[tokio::test]
-    async fn an_image_or_pdf_comes_back_to_look_at_not_as_text() {
-        let sandbox = Sandbox::new("webfetch-files");
-        let url = serve().await;
-        for (path, mime) in [("shot", "image/png"), ("doc", "application/pdf")] {
-            let out = WebFetch
-                .run(&sandbox.ctx, json!({ "url": format!("{url}/{path}") }))
-                .await
-                .unwrap();
-            assert_eq!(image::returned(&out.metadata)[0].mime, mime, "{path}");
-            assert!(out.output.contains("it follows this result"));
-        }
-    }
-
-    #[tokio::test]
-    async fn html_becomes_markdown_or_text() {
-        let sandbox = Sandbox::new("webfetch");
-        let url = serve().await;
-        let md = WebFetch
-            .run(&sandbox.ctx, json!({ "url": format!("{url}/page") }))
-            .await
-            .unwrap();
-        assert!(md.output.contains("# Title"), "{}", md.output);
-        assert!(md.output.contains("**world**"));
-        assert!(!md.output.contains("bad()"));
-        let text = WebFetch
-            .run(&sandbox.ctx, json!({ "url": format!("{url}/page"), "format": "text" }))
-            .await
-            .unwrap();
-        assert_eq!(text.output, "Title\nHello world");
-        let missing = WebFetch
-            .run(&sandbox.ctx, json!({ "url": format!("{url}/nope") }))
-            .await
-            .unwrap_err();
-        assert!(missing.0.contains("404"));
-        assert!(WebFetch.run(&sandbox.ctx, json!({ "url": "ftp://x" })).await.is_err());
-    }
-
-    #[test]
-    fn an_upgrade_to_https_on_the_same_host_is_followed_and_nothing_else_off_origin() {
-        let url = |text: &str| reqwest::Url::parse(text).unwrap();
-        assert!(same_origin(&url("http://site.dev/a"), &url("https://site.dev/b")));
-        assert!(same_origin(&url("https://site.dev/a"), &url("https://site.dev/b")));
-        assert!(
-            !same_origin(&url("https://site.dev/a"), &url("http://site.dev/b")),
-            "never down to http"
-        );
-        assert!(!same_origin(&url("https://site.dev/a"), &url("https://other.dev/a")));
-        assert!(!same_origin(
-            &url("https://site.dev/a"),
-            &url("https://site.dev:8443/a")
-        ));
-    }
-
-    #[tokio::test]
-    async fn redirects_are_followed_only_within_the_origin_and_a_challenge_is_retried_honestly() {
-        let sandbox = Sandbox::new("webfetch-redirect");
-        let url = serve().await;
-        let followed = WebFetch
-            .run(&sandbox.ctx, json!({ "url": format!("{url}/hop") }))
-            .await
-            .unwrap();
-        assert!(
-            followed.output.contains("# Title"),
-            "same origin is followed: {}",
-            followed.output
-        );
-        let away = url.replace("127.0.0.1", "localhost");
-        let app = Router::new().route(
-            "/away",
-            get(move || {
-                let target = format!("{away}/page");
-                async move { axum::response::Redirect::temporary(&target) }
-            }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let stopped = WebFetch
-            .run(&sandbox.ctx, json!({ "url": format!("{origin}/away") }))
-            .await
-            .unwrap();
-        assert!(
-            stopped.output.contains("outside the site that was approved") && !stopped.output.contains("# Title"),
-            "{}",
-            stopped.output
-        );
-        assert!(
-            stopped
-                .metadata
-                .redirect
-                .as_deref()
-                .unwrap()
-                .starts_with("http://localhost:")
-        );
-        let passed = WebFetch
-            .run(&sandbox.ctx, json!({ "url": format!("{url}/challenged") }))
-            .await
-            .unwrap();
-        assert!(passed.output.contains("passed"), "{}", passed.output);
-    }
-
-    #[tokio::test]
-    async fn a_body_past_the_cap_is_given_up_on_while_it_streams() {
-        let sandbox = Sandbox::new("webfetch-endless");
-        let url = serve().await;
-        let refused = WebFetch
-            .run(&sandbox.ctx, json!({ "url": format!("{url}/endless") }))
-            .await
-            .unwrap_err();
-        assert!(refused.0.contains("too large to fetch"), "{}", refused.0);
-    }
-}
+mod tests;

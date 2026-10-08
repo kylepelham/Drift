@@ -15,8 +15,8 @@ enum Scope {
 impl Scope {
     fn conflicts(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Files(a), Self::Files(b)) => a.iter().any(|path| b.binary_search(path).is_ok()),
-            (Self::Tree(a), Self::Tree(b)) => a.starts_with(b) || b.starts_with(a),
+            (Self::Files(mine), Self::Files(theirs)) => mine.iter().any(|path| theirs.binary_search(path).is_ok()),
+            (Self::Tree(mine), Self::Tree(theirs)) => mine.starts_with(theirs) || theirs.starts_with(mine),
             (Self::Tree(root), Self::Files(paths)) | (Self::Files(paths), Self::Tree(root)) => {
                 paths.iter().any(|path| path.starts_with(root))
             }
@@ -71,6 +71,7 @@ pub(crate) async fn files(paths: &[PathBuf]) -> Held {
     let mut paths: Vec<PathBuf> = paths.iter().map(|path| path_key(path)).collect();
     paths.sort();
     paths.dedup();
+
     acquire(Scope::Files(paths)).await
 }
 
@@ -95,6 +96,7 @@ async fn acquire(scope: Scope) -> Held {
         state.waiting.push_back((id, scope.clone()));
         Pending(id)
     };
+
     loop {
         let changed = writers().changed.notified();
         tokio::pin!(changed);
@@ -117,6 +119,7 @@ fn grant(id: u64, scope: &Scope) -> bool {
     if active || earlier {
         return false;
     }
+
     state.waiting.retain(|(waiting, _)| *waiting != id);
     state.active.insert(id, scope.clone());
     true
