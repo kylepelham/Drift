@@ -302,6 +302,17 @@ mod tests {
         );
     }
 
+    /// Ollama's `/api/tags`: the installed models, `set` carrying a digest that changes with each `build`.
+    fn installed(build: usize) -> Value {
+        json!({ "models": [
+            { "name": "loaded:latest", "digest": "l" },
+            { "name": "set", "digest": format!("set-{build}") },
+            { "name": "unset", "digest": "u" },
+            { "name": "tiny", "digest": "t" },
+            { "name": "chatty", "digest": "c" }
+        ] })
+    }
+
     /// What Ollama's `/api/show` answers for each model the test installs.
     fn shown_model(model: Option<&str>) -> Value {
         let info = |n: u64| json!({ "llama.context_length": n });
@@ -353,14 +364,7 @@ mod tests {
             .route(
                 "/api/tags",
                 axum::routing::get(move || {
-                    let build = rebuilt.load(Ordering::SeqCst);
-                    let tags = json!({ "models": [
-                        { "name": "loaded:latest", "digest": "l" },
-                        { "name": "set", "digest": format!("set-{build}") },
-                        { "name": "unset", "digest": "u" },
-                        { "name": "tiny", "digest": "t" },
-                        { "name": "chatty", "digest": "c" }
-                    ] });
+                    let tags = installed(rebuilt.load(Ordering::SeqCst));
                     async move { axum::Json(tags) }
                 }),
             )

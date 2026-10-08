@@ -249,15 +249,8 @@ async fn a_tool_list_past_its_ttl_is_listed_again_when_a_turn_is_planned() {
     );
 }
 
-/// Returns one 502 on each non-echo tool's first call and repeated `input_required` for text "ask".
-async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
-    use axum::http::{HeaderMap, Method, StatusCode};
-    use axum::response::IntoResponse;
-
-    let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
-    let failed: Arc<Mutex<std::collections::HashSet<String>>> = Arc::default();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
+/// The stateless server's tools: `echo` and `flaky` read-only, `risky` not; `region` travels as a header.
+fn v2_tools() -> serde_json::Value {
     let schema = json!({ "type": "object", "properties": {
         "text": { "type": "string" },
         "region": { "type": "string", "x-mcp-header": "Region" },
@@ -269,7 +262,32 @@ async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
             "annotations": { "readOnlyHint": read_only }
         })
     };
-    let tools = json!([tool("echo", true), tool("flaky", true), tool("risky", false)]);
+
+    json!([tool("echo", true), tool("flaky", true), tool("risky", false)])
+}
+
+/// The stateless server's answer to `server/discover`.
+fn discovered() -> serde_json::Value {
+    json!({
+        "resultType": "complete",
+        "supportedVersions": ["2026-07-28"],
+        "capabilities": { "tools": {} },
+        "ttlMs": 0,
+        "cacheScope": "public",
+        "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "remote", "version": "0" } },
+    })
+}
+
+/// Returns one 502 on each non-echo tool's first call and repeated `input_required` for text "ask".
+async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
+    use axum::http::{HeaderMap, Method, StatusCode};
+    use axum::response::IntoResponse;
+
+    let seen: Arc<Mutex<Vec<Seen>>> = Arc::default();
+    let failed: Arc<Mutex<std::collections::HashSet<String>>> = Arc::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let tools = v2_tools();
 
     let handler = {
         let seen = seen.clone();
@@ -299,14 +317,7 @@ async fn v2_http_server() -> (String, Arc<Mutex<Vec<Seen>>>) {
                 let name = message["params"]["name"].as_str().unwrap_or_default().to_string();
                 let text = message["params"]["arguments"]["text"].as_str().unwrap_or_default();
                 let result = match rpc.as_str() {
-                    "server/discover" => json!({
-                        "resultType": "complete",
-                        "supportedVersions": ["2026-07-28"],
-                        "capabilities": { "tools": {} },
-                        "ttlMs": 0,
-                        "cacheScope": "public",
-                        "_meta": { "io.modelcontextprotocol/serverInfo": { "name": "remote", "version": "0" } },
-                    }),
+                    "server/discover" => discovered(),
                     "tools/list" => {
                         json!({ "resultType": "complete", "tools": tools, "ttlMs": 0, "cacheScope": "public" })
                     }

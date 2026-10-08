@@ -238,26 +238,8 @@ async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
     };
 
     let metadata = {
-        let base = base.clone();
-        move || {
-            let base = base.clone();
-            async move {
-                let mut metadata = json!({
-                    "issuer": base,
-                    "authorization_endpoint": format!("{base}/authorize"),
-                    "token_endpoint": format!("{base}/token"),
-                    "response_types_supported": ["code"],
-                    "code_challenge_methods_supported": ["S256"],
-                    "grant_types_supported": ["authorization_code", "refresh_token"],
-                    "token_endpoint_auth_methods_supported": ["none", "client_secret_post", "client_secret_basic"],
-                });
-                if app.is_none() {
-                    metadata["registration_endpoint"] = json!(format!("{base}/register"));
-                }
-
-                Json(metadata)
-            }
-        }
+        let metadata = authorization_server(&base, app.is_none());
+        move || async move { Json(metadata) }
     };
 
     let mcp = post(
@@ -303,6 +285,24 @@ async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
     tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
 
     (base, seen)
+}
+
+/// The fake authorization server's metadata; it offers registration only when `registers`.
+fn authorization_server(base: &str, registers: bool) -> serde_json::Value {
+    let mut metadata = json!({
+        "issuer": base,
+        "authorization_endpoint": format!("{base}/authorize"),
+        "token_endpoint": format!("{base}/token"),
+        "response_types_supported": ["code"],
+        "code_challenge_methods_supported": ["S256"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "token_endpoint_auth_methods_supported": ["none", "client_secret_post", "client_secret_basic"],
+    });
+    if registers {
+        metadata["registration_endpoint"] = json!(format!("{base}/register"));
+    }
+
+    metadata
 }
 
 /// Registration, browser authorization and token endpoints for the fake OAuth server.
