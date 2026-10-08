@@ -248,10 +248,12 @@ impl Engine {
             match input.token.as_deref().map(str::trim) {
                 Some("") => self
                     .credentials
-                    .remove_secret(&config::sources::token_key(&source.id))?,
+                    .remove_secret(&config::sources::token_key(&source.id))
+                    .map_err(|error| error.to_string())?,
                 Some(token) => self
                     .credentials
-                    .set_secret(&config::sources::token_key(&source.id), token)?,
+                    .set_secret(&config::sources::token_key(&source.id), token)
+                    .map_err(|error| error.to_string())?,
                 None => {}
             }
             source.has_token = false;

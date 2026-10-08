@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 
-use crate::llm::Credential;
+use crate::llm::{Credential, OAuthError};
 
 pub const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const AUTHORIZE_MAX: &str = "https://claude.ai/oauth/authorize";
@@ -77,7 +77,12 @@ pub fn parse_callback(input: &str) -> Option<(String, String)> {
     Some((code?, state?))
 }
 
-pub async fn exchange(client: &reqwest::Client, code: &str, state: &str, verifier: &str) -> Result<Credential, String> {
+pub async fn exchange(
+    client: &reqwest::Client,
+    code: &str,
+    state: &str,
+    verifier: &str,
+) -> Result<Credential, OAuthError> {
     let body = json!({
         "code": code,
         "state": state,
@@ -89,32 +94,30 @@ pub async fn exchange(client: &reqwest::Client, code: &str, state: &str, verifie
     token_request(client, &body).await
 }
 
-pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Credential, String> {
+pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Credential, OAuthError> {
     let body = json!({ "grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": CLIENT_ID });
     token_request(client, &body).await
 }
 
-async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credential, String> {
+async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credential, OAuthError> {
     let timeouts = crate::llm::http::Timeouts::default();
     let request = client
         .post(token_url())
         .header("accept", "application/json, text/plain, */*")
         .header("user-agent", TOKEN_USER_AGENT)
         .json(body);
-    let response = crate::llm::http::send(request, &timeouts)
-        .await
-        .map_err(|e| e.to_string())?;
+    let response = crate::llm::http::send(request, &timeouts).await?;
     let status = response.status();
     let text = crate::llm::http::bounded_body(response, &timeouts).await;
     if !status.is_success() {
-        return Err(format!("token request failed ({status}): {text}"));
+        return Err(OAuthError::TokenResponse { status, text });
     }
-    let json: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_str(&text)?;
     let field = |key: &str| {
         json[key]
             .as_str()
             .map(str::to_string)
-            .ok_or_else(|| format!("token response lacks {key}"))
+            .ok_or_else(|| OAuthError::MissingTokenField(key.to_owned()))
     };
     let expires_in = json["expires_in"].as_i64().unwrap_or(0);
     Ok(Credential::OAuth {

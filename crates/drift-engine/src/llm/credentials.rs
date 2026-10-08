@@ -4,11 +4,25 @@ use std::collections::BTreeSet;
 use std::path::Path;
 #[cfg(test)]
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
 use super::Credential;
+pub use super::credential_file::FileError;
+
+#[derive(Debug, thiserror::Error)]
+pub enum CredentialError {
+    #[error(transparent)]
+    Keyring(#[from] keyring::Error),
+    #[error(transparent)]
+    File(#[from] FileError),
+    #[error(transparent)]
+    Unavailable(Arc<FileError>),
+    #[cfg(test)]
+    #[error(transparent)]
+    TestFile(#[from] std::io::Error),
+}
 
 const SERVICE: &str = "dev.drift.app";
 const INDEX: &str = "__providers";
@@ -31,7 +45,7 @@ pub struct Credentials {
 enum Backend {
     Keyring,
     Protected(super::credential_file::ProtectedFile),
-    Unavailable(String),
+    Unavailable(Arc<FileError>),
     #[cfg(test)]
     File(PathBuf),
 }
@@ -46,7 +60,7 @@ impl Credentials {
             Ok(()) if !prefer_file => Backend::Keyring,
             _ => match super::credential_file::ProtectedFile::open(data_dir) {
                 Ok(file) => Backend::Protected(file),
-                Err(error) => Backend::Unavailable(error),
+                Err(error) => Backend::Unavailable(Arc::new(error)),
             },
         };
         let this = Self {
@@ -121,20 +135,25 @@ impl Credentials {
         from_env.or_else(keyless).map(|key| Credential::ApiKey { key })
     }
 
-    pub fn set(&self, provider: &str, credential: &Credential) -> Result<(), String> {
+    pub fn set(&self, provider: &str, credential: &Credential) -> Result<(), CredentialError> {
         let _held = self.write_lock.lock().unwrap();
         self.set_locked(provider, credential)
     }
 
-    fn set_locked(&self, provider: &str, credential: &Credential) -> Result<(), String> {
+    fn set_locked(&self, provider: &str, credential: &Credential) -> Result<(), CredentialError> {
         self.write(provider, &serde_json::to_string(credential).unwrap())?;
         let mut index = self.index.lock().unwrap();
         index.insert(provider.into());
         self.write(INDEX, &serde_json::to_string(&*index).unwrap())
     }
 
-    /// Writes only if the stored credential is still xpected; a login or logout in between wins.
-    pub fn replace_if(&self, provider: &str, expected: &Credential, credential: &Credential) -> Result<bool, String> {
+    /// Writes only if the stored credential is still expected; a login or logout in between wins.
+    pub fn replace_if(
+        &self,
+        provider: &str,
+        expected: &Credential,
+        credential: &Credential,
+    ) -> Result<bool, CredentialError> {
         let _held = self.write_lock.lock().unwrap();
         if self.get(provider).as_ref() != Some(expected) {
             return Ok(false);
@@ -143,7 +162,7 @@ impl Credentials {
         Ok(true)
     }
 
-    pub fn remove(&self, provider: &str) -> Result<(), String> {
+    pub fn remove(&self, provider: &str) -> Result<(), CredentialError> {
         let _held = self.write_lock.lock().unwrap();
         self.delete(provider)?;
         let mut index = self.index.lock().unwrap();
@@ -156,12 +175,12 @@ impl Credentials {
         self.read(key)
     }
 
-    pub fn set_secret(&self, key: &str, value: &str) -> Result<(), String> {
+    pub fn set_secret(&self, key: &str, value: &str) -> Result<(), CredentialError> {
         let _held = self.write_lock.lock().unwrap();
         self.write(key, value)
     }
 
-    pub fn remove_secret(&self, key: &str) -> Result<(), String> {
+    pub fn remove_secret(&self, key: &str) -> Result<(), CredentialError> {
         let _held = self.write_lock.lock().unwrap();
         self.delete(key)
     }
@@ -193,7 +212,7 @@ impl Credentials {
         }
     }
 
-    fn write(&self, key: &str, value: &str) -> Result<(), String> {
+    fn write(&self, key: &str, value: &str) -> Result<(), CredentialError> {
         match &self.backend {
             Backend::Keyring => {
                 let chunks: Vec<String> = value
@@ -205,7 +224,7 @@ impl Credentials {
                 let put = |name: String, text: &str| {
                     keyring::Entry::new(SERVICE, &name)
                         .and_then(|e| e.set_password(text))
-                        .map_err(|e| e.to_string())
+                        .map_err(CredentialError::Keyring)
                 };
                 if chunks.len() <= 1 {
                     return put(key.into(), value);
@@ -218,9 +237,9 @@ impl Credentials {
             Backend::Protected(file) => {
                 let mut map = file.read()?;
                 map.insert(key.into(), Value::String(value.into()));
-                file.save(&map)
+                file.save(&map).map_err(CredentialError::File)
             }
-            Backend::Unavailable(error) => Err(error.clone()),
+            Backend::Unavailable(error) => Err(CredentialError::Unavailable(error.clone())),
             #[cfg(test)]
             Backend::File(path) => {
                 let mut map = file_map(path);
@@ -230,7 +249,7 @@ impl Credentials {
         }
     }
 
-    fn delete(&self, key: &str) -> Result<(), String> {
+    fn delete(&self, key: &str) -> Result<(), CredentialError> {
         match &self.backend {
             Backend::Keyring => {
                 let head = keyring::Entry::new(SERVICE, key)
@@ -246,15 +265,15 @@ impl Credentials {
                 }
                 match keyring::Entry::new(SERVICE, key).and_then(|entry| entry.delete_credential()) {
                     Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-                    Err(error) => Err(error.to_string()),
+                    Err(error) => Err(CredentialError::Keyring(error)),
                 }
             }
             Backend::Protected(file) => {
                 let mut map = file.read()?;
                 map.remove(key);
-                file.save(&map)
+                file.save(&map).map_err(CredentialError::File)
             }
-            Backend::Unavailable(error) => Err(error.clone()),
+            Backend::Unavailable(error) => Err(CredentialError::Unavailable(error.clone())),
             #[cfg(test)]
             Backend::File(path) => {
                 let mut map = file_map(path);
@@ -275,8 +294,8 @@ fn file_map(path: &Path) -> serde_json::Map<String, Value> {
 }
 
 #[cfg(test)]
-fn save_file(path: &Path, map: &serde_json::Map<String, Value>) -> Result<(), String> {
-    crate::platform::private_file::write(path, &serde_json::to_vec(map).unwrap()).map_err(|e| e.to_string())
+fn save_file(path: &Path, map: &serde_json::Map<String, Value>) -> Result<(), CredentialError> {
+    crate::platform::private_file::write(path, &serde_json::to_vec(map).unwrap()).map_err(CredentialError::TestFile)
 }
 
 #[cfg(test)]

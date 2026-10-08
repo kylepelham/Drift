@@ -7,8 +7,8 @@ use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-use crate::llm::Credential;
 use crate::llm::anthropic::oauth::base64url;
+use crate::llm::{Credential, OAuthError};
 
 pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const ISSUER: &str = "https://auth.openai.com";
@@ -49,10 +49,13 @@ pub fn start() -> Started {
 }
 
 /// Serves one callback on 1455 and returns the code once the browser lands, checking `state`.
-pub async fn wait_for_callback(expected_state: &str) -> Result<String, String> {
+pub async fn wait_for_callback(expected_state: &str) -> Result<String, OAuthError> {
     let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, CALLBACK_PORT)))
         .await
-        .map_err(|e| format!("port {CALLBACK_PORT} is busy: {e}"))?;
+        .map_err(|source| OAuthError::CallbackPort {
+            port: CALLBACK_PORT,
+            source,
+        })?;
     let (mut socket, params) = next_callback(&listener, "/auth/callback").await?;
     let state_ok = params.get("state").map(String::as_str) == Some(expected_state);
     match (params.get("code"), state_ok) {
@@ -67,7 +70,7 @@ pub async fn wait_for_callback(expected_state: &str) -> Result<String, String> {
         }
         _ => {
             respond(&mut socket, 400, "Sign-in failed: state mismatch or missing code.").await;
-            Err("callback carried a bad state or no code".into())
+            Err(OAuthError::CallbackState)
         }
     }
 }
@@ -76,9 +79,9 @@ pub async fn wait_for_callback(expected_state: &str) -> Result<String, String> {
 pub(crate) async fn next_callback(
     listener: &TcpListener,
     path: &str,
-) -> Result<(tokio::net::TcpStream, HashMap<String, String>), String> {
+) -> Result<(tokio::net::TcpStream, HashMap<String, String>), OAuthError> {
     loop {
-        let (mut socket, _) = listener.accept().await.map_err(|e| e.to_string())?;
+        let (mut socket, _) = listener.accept().await?;
         let mut buffer = vec![0u8; 8192];
         let read = socket.read(&mut buffer).await.unwrap_or(0);
         let request = String::from_utf8_lossy(&buffer[..read]);
@@ -105,7 +108,7 @@ pub(crate) async fn respond(socket: &mut tokio::net::TcpStream, status: u16, tex
     let _ = socket.write_all(response.as_bytes()).await;
     let _ = socket.shutdown().await;
 }
-pub async fn exchange(client: &reqwest::Client, code: &str, verifier: &str) -> Result<Credential, String> {
+pub async fn exchange(client: &reqwest::Client, code: &str, verifier: &str) -> Result<Credential, OAuthError> {
     token_request(
         client,
         &[
@@ -119,7 +122,7 @@ pub async fn exchange(client: &reqwest::Client, code: &str, verifier: &str) -> R
     .await
 }
 
-pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Credential, String> {
+pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Credential, OAuthError> {
     token_request(
         client,
         &[
@@ -131,27 +134,25 @@ pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Cr
     .await
 }
 
-async fn token_request(client: &reqwest::Client, form: &[(&str, &str)]) -> Result<Credential, String> {
+async fn token_request(client: &reqwest::Client, form: &[(&str, &str)]) -> Result<Credential, OAuthError> {
     let encoded: Vec<String> = form.iter().map(|(k, v)| format!("{k}={}", encode(v))).collect();
     let timeouts = crate::llm::http::Timeouts::default();
     let request = client
         .post(format!("{ISSUER}/oauth/token"))
         .header("content-type", "application/x-www-form-urlencoded")
         .body(encoded.join("&"));
-    let response = crate::llm::http::send(request, &timeouts)
-        .await
-        .map_err(|e| e.to_string())?;
+    let response = crate::llm::http::send(request, &timeouts).await?;
     let status = response.status();
     let text = crate::llm::http::bounded_body(response, &timeouts).await;
     if !status.is_success() {
-        return Err(format!("token request failed ({status}): {text}"));
+        return Err(OAuthError::TokenResponse { status, text });
     }
-    let json: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_str(&text)?;
     let field = |key: &str| {
         json[key]
             .as_str()
             .map(str::to_string)
-            .ok_or_else(|| format!("token response lacks {key}"))
+            .ok_or_else(|| OAuthError::MissingTokenField(key.to_owned()))
     };
     let access = field("access_token")?;
     let account = json["id_token"]

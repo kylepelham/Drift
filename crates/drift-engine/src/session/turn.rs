@@ -1092,12 +1092,12 @@ impl Engine {
             "xai" => llm::xai::refresh(&self.http, refresh).await,
             _ => return Ok(credential),
         };
-        let fresh = refreshed.map_err(TurnError::SignInExpired)?;
+        let fresh = refreshed.map_err(|error| TurnError::SignInExpired(error.to_string()))?;
         // If the user signed in or out while we were refreshing, their change stands and this turn uses it.
         if !self
             .credentials
             .replace_if(provider, &credential, &fresh)
-            .map_err(TurnError::Store)?
+            .map_err(|error| TurnError::Store(error.to_string()))?
         {
             return self.credentials.get(provider).ok_or(TurnError::NoCredentials);
         }

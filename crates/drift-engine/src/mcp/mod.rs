@@ -33,7 +33,7 @@ use connect::{SignIn, list_tools, open, within};
 pub(crate) use tool::{Given, wire_names};
 
 pub use error::Error;
-pub use oauth::{forget as forget_sign_in, forget_if_moved, move_sign_in};
+pub use oauth::{SignInError, forget as forget_sign_in, forget_if_moved, move_sign_in};
 pub use tool::McpTool;
 pub use view::{ServerConfigInput, ServerConfigView, ServerView};
 

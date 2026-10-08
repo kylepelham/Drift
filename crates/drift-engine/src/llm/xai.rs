@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use crate::llm::Credential;
 use crate::llm::openai::oauth::encode;
+use crate::llm::{Credential, OAuthError};
 
 /// xAI's public Grok CLI client.
 pub const CLIENT_ID: &str = "b1a00492-073a-47ea-816f-4c329264a828";
@@ -37,11 +37,11 @@ pub struct Device {
     pub lifetime_ms: u64,
 }
 
-pub async fn start(client: &reqwest::Client) -> Result<Device, String> {
+pub async fn start(client: &reqwest::Client) -> Result<Device, OAuthError> {
     start_at(client, DEVICE_URL).await
 }
 
-async fn start_at(client: &reqwest::Client, url: &str) -> Result<Device, String> {
+async fn start_at(client: &reqwest::Client, url: &str) -> Result<Device, OAuthError> {
     let (status, json) = post(
         client,
         url,
@@ -49,13 +49,13 @@ async fn start_at(client: &reqwest::Client, url: &str) -> Result<Device, String>
     )
     .await?;
     if !status.is_success() {
-        return Err(format!("xAI did not start the sign-in ({status})"));
+        return Err(OAuthError::DeviceStart(status));
     }
     let field = |key: &str| {
         json[key]
             .as_str()
             .map(str::to_string)
-            .ok_or_else(|| format!("xAI's answer lacks {key}"))
+            .ok_or_else(|| OAuthError::MissingDeviceField(key.to_owned()))
     };
     let verification_uri = field("verification_uri")?;
     let seconds = |key: &str, default: Duration| {
@@ -77,11 +77,11 @@ async fn start_at(client: &reqwest::Client, url: &str) -> Result<Device, String>
 }
 
 /// Waits for the user to approve the code in their browser, polling as xAI asks.
-pub async fn wait(client: &reqwest::Client, device: &Device) -> Result<Credential, String> {
+pub async fn wait(client: &reqwest::Client, device: &Device) -> Result<Credential, OAuthError> {
     wait_at(client, TOKEN_URL, device).await
 }
 
-async fn wait_at(client: &reqwest::Client, url: &str, device: &Device) -> Result<Credential, String> {
+async fn wait_at(client: &reqwest::Client, url: &str, device: &Device) -> Result<Credential, OAuthError> {
     let deadline = tokio::time::Instant::now() + Duration::from_millis(device.lifetime_ms);
     let mut interval = Duration::from_millis(device.interval_ms);
     while tokio::time::Instant::now() < deadline {
@@ -101,25 +101,25 @@ async fn wait_at(client: &reqwest::Client, url: &str, device: &Device) -> Result
         match json["error"].as_str() {
             Some("authorization_pending") => {}
             Some("slow_down") => interval += SLOW_DOWN,
-            Some("access_denied" | "authorization_denied") => return Err("the sign-in was declined".into()),
-            Some("expired_token") => return Err("the code expired; start the sign-in again".into()),
+            Some("access_denied" | "authorization_denied") => return Err(OAuthError::Declined),
+            Some("expired_token") => return Err(OAuthError::Expired),
             other => {
-                return Err(format!(
-                    "xAI refused the sign-in ({status}): {}",
-                    other.unwrap_or("no reason given")
-                ));
+                return Err(OAuthError::DeviceRefused {
+                    status,
+                    reason: other.unwrap_or("no reason given").to_owned(),
+                });
             }
         }
         tokio::time::sleep(interval.min(deadline.saturating_duration_since(tokio::time::Instant::now()))).await;
     }
-    Err("the code expired before it was approved; start the sign-in again".into())
+    Err(OAuthError::ExpiredBeforeApproval)
 }
 
-pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Credential, String> {
+pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Credential, OAuthError> {
     refresh_at(client, TOKEN_URL, refresh_token).await
 }
 
-async fn refresh_at(client: &reqwest::Client, url: &str, refresh_token: &str) -> Result<Credential, String> {
+async fn refresh_at(client: &reqwest::Client, url: &str, refresh_token: &str) -> Result<Credential, OAuthError> {
     let (status, json) = post(
         client,
         url,
@@ -131,22 +131,22 @@ async fn refresh_at(client: &reqwest::Client, url: &str, refresh_token: &str) ->
     )
     .await?;
     if !status.is_success() {
-        return Err(format!("xAI did not renew the sign-in ({status})"));
+        return Err(OAuthError::DeviceRefresh(status));
     }
     credential(&json, Some(refresh_token))
 }
 
 /// The tokens xAI returned; a refresh that hands back no new refresh token keeps the one it used.
-fn credential(json: &Value, previous_refresh: Option<&str>) -> Result<Credential, String> {
+fn credential(json: &Value, previous_refresh: Option<&str>) -> Result<Credential, OAuthError> {
     let access = json["access_token"]
         .as_str()
-        .ok_or("xAI's answer lacks access_token")?
+        .ok_or_else(|| OAuthError::MissingDeviceField("access_token".into()))?
         .to_string();
     let refresh = json["refresh_token"]
         .as_str()
         .filter(|token| !token.is_empty())
         .or(previous_refresh)
-        .ok_or("xAI's answer lacks refresh_token")?
+        .ok_or_else(|| OAuthError::MissingDeviceField("refresh_token".into()))?
         .to_string();
     let expires_in = json["expires_in"].as_i64().unwrap_or(DEFAULT_EXPIRES_IN);
     Ok(Credential::OAuth {
@@ -161,7 +161,7 @@ async fn post(
     client: &reqwest::Client,
     url: &str,
     form: &[(&str, &str)],
-) -> Result<(reqwest::StatusCode, Value), String> {
+) -> Result<(reqwest::StatusCode, Value), OAuthError> {
     let body: Vec<String> = form
         .iter()
         .map(|(key, value)| format!("{key}={}", encode(value)))
@@ -172,9 +172,7 @@ async fn post(
         .header("content-type", "application/x-www-form-urlencoded")
         .header("accept", "application/json")
         .body(body.join("&"));
-    let response = crate::llm::http::send(request, &timeouts)
-        .await
-        .map_err(|e| e.to_string())?;
+    let response = crate::llm::http::send(request, &timeouts).await?;
     let status = response.status();
     let text = crate::llm::http::bounded_body(response, &timeouts).await;
     Ok((status, serde_json::from_str(&text).unwrap_or(Value::Null)))
@@ -285,7 +283,10 @@ mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (url, _) = endpoint(vec![(400, serde_json::json!({ "error": "access_denied" }))]).await;
         assert_eq!(
-            wait_at(&reqwest::Client::new(), &url, &device()).await.unwrap_err(),
+            wait_at(&reqwest::Client::new(), &url, &device())
+                .await
+                .unwrap_err()
+                .to_string(),
             "the sign-in was declined"
         );
         let (url, seen) = endpoint(vec![(200, serde_json::json!({ "access_token": "fresh" }))]).await;

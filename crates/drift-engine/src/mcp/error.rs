@@ -10,6 +10,8 @@ pub enum Error {
     Tools(rmcp::service::ServiceError),
     #[error("no such server")]
     NotFound,
+    #[error("{name} has no saved value to keep")]
+    MissingSavedValue { name: String },
     #[error("a stdio server runs in a workspace; open one and connect it there")]
     NeedsWorkspace,
     #[error("a remote server has one shared connection")]

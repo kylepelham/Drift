@@ -79,7 +79,7 @@ pub async fn save(
             }
             let config = input
                 .resolve(saved.as_ref().map(|row| &row.config))
-                .map_err(|why| ApiError::new(StatusCode::BAD_REQUEST, "secret", why))?;
+                .map_err(|why| ApiError::new(StatusCode::BAD_REQUEST, "secret", why.to_string()))?;
             let mut row = store.save_mcp_server(&name, &config)?;
             if let Some(trusted) = query.read_only_trusted {
                 store.set_mcp_read_only_trusted(&name, trusted)?;
@@ -139,7 +139,7 @@ pub async fn sign_in(
     let url = engine
         .sign_in_mcp(&name)
         .await
-        .map_err(|why| ApiError::new(StatusCode::BAD_REQUEST, "signin", why))?;
+        .map_err(|why| ApiError::new(StatusCode::BAD_REQUEST, "signin", why.to_string()))?;
     Ok(Json(SignInPage { url }))
 }
 
@@ -156,7 +156,7 @@ pub async fn sign_out(
     engine
         .sign_out_mcp(&name)
         .await
-        .map_err(|why| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", why))?;
+        .map_err(|why| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", why.to_string()))?;
     let row = engine
         .store
         .mcp_server(&name)?

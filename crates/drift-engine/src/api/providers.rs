@@ -78,7 +78,7 @@ pub async fn set_key(
     engine
         .credentials
         .set(&id, &Credential::ApiKey { key: key.into() })
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e.to_string()))?;
     credentials_changed(&engine);
     Ok(StatusCode::NO_CONTENT)
 }
@@ -88,7 +88,7 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -
     engine
         .credentials
         .remove(&id)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e.to_string()))?;
     engine.hub.publish(crate::event::Event::CatalogUpdated {});
     Ok(StatusCode::NO_CONTENT)
 }
@@ -174,7 +174,7 @@ pub async fn oauth_start(
 async fn supergrok_start(engine: &Arc<Engine>) -> Result<Json<OAuthStarted>, ApiError> {
     let device = crate::llm::xai::start(&engine.http)
         .await
-        .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
+        .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e.to_string()))?;
     let state = crate::random_hex(16);
     engine
         .oauth
@@ -218,7 +218,7 @@ pub async fn oauth_finish(
                 .ok_or_else(|| invalid("unknown or expired sign-in state"))?;
             let code = codex::wait_for_callback(&state)
                 .await
-                .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
+                .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e.to_string()))?;
             codex::exchange(&engine.http, &code, &verifier).await
         }
         "xai" => {
@@ -235,11 +235,11 @@ pub async fn oauth_finish(
         }
         _ => return Err(ApiError::not_found("oauth provider")),
     };
-    let credential = credential.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e))?;
+    let credential = credential.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e.to_string()))?;
     engine
         .credentials
         .set(&id, &credential)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e))?;
+        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e.to_string()))?;
     credentials_changed(&engine);
     Ok(StatusCode::NO_CONTENT)
 }

@@ -16,16 +16,6 @@ const CACHE_FILE: &str = "models-2.json";
 const OLDER_CACHES: [&str; 1] = ["models.json"];
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const SMALL_MODEL_MIN_CONTEXT: u64 = 16_000;
-#[derive(Debug, thiserror::Error)]
-pub enum CatalogError {
-    #[error(transparent)]
-    Download(#[from] reqwest::Error),
-    #[error(transparent)]
-    Json(#[from] serde_json::Error),
-    #[error(transparent)]
-    Cache(#[from] std::io::Error),
-}
-
 pub const PROVIDERS: [&str; 11] = [
     "anthropic",
     "openai",
@@ -39,6 +29,16 @@ pub const PROVIDERS: [&str; 11] = [
     "lmstudio",
     "ollama",
 ];
+
+#[derive(Debug, thiserror::Error)]
+pub enum CatalogError {
+    #[error(transparent)]
+    Download(#[from] reqwest::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Cache(#[from] std::io::Error),
+}
 
 /// How a model edits files: what its training makes it good at, decided here and nowhere else.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

@@ -11,10 +11,13 @@ use rmcp::transport::auth::{
 };
 
 use super::{OAuthClient, ServerConfig};
-use crate::llm::credentials::Credentials;
+use crate::llm::credentials::{CredentialError, Credentials};
 
 /// How long a sign-in waits for the browser before giving up.
 const SIGN_IN_WAIT: Duration = Duration::from_secs(10 * 60);
+
+mod error;
+pub use error::SignInError;
 
 /// One server's sign-in in the keychain, as rmcp reads, saves and refreshes it.
 pub(super) struct KeychainStore {
@@ -35,8 +38,8 @@ fn key(server: &str) -> String {
     format!("mcp:{server}")
 }
 
-fn store_error(error: String) -> AuthError {
-    AuthError::InternalError(error)
+fn store_error(error: impl ToString) -> AuthError {
+    AuthError::InternalError(error.to_string())
 }
 
 #[async_trait::async_trait]
@@ -118,7 +121,7 @@ pub(super) fn has_sign_in(credentials: &Credentials, server: &str) -> bool {
 }
 
 /// Forgets a server's sign-in.
-pub fn forget(credentials: &Credentials, server: &str) -> Result<(), String> {
+pub fn forget(credentials: &Credentials, server: &str) -> Result<(), CredentialError> {
     credentials.remove_secret(&key(server))
 }
 
@@ -146,55 +149,51 @@ pub fn forget_if_moved(credentials: &Credentials, server: &str, before: &ServerC
 impl crate::Engine {
     /// Starts signing in to a remote server: returns the page to open in the browser. When the browser
     /// comes back the tokens are stored and the server connects.
-    pub async fn sign_in_mcp(self: &Arc<Self>, name: &str) -> Result<String, String> {
+    pub async fn sign_in_mcp(self: &Arc<Self>, name: &str) -> Result<String, SignInError> {
         let row = self
             .store
-            .mcp_server(name)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("no MCP server named {name}"))?;
+            .mcp_server(name)?
+            .ok_or_else(|| SignInError::MissingServer(name.to_owned()))?;
         let Some((url, app)) = row.config.remote() else {
-            return Err("a server on stdio has no sign-in".into());
+            return Err(SignInError::Stdio);
         };
-        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
-            .await
-            .map_err(|e| e.to_string())?;
-        let redirect = format!(
-            "http://127.0.0.1:{}/callback",
-            listener.local_addr().map_err(|e| e.to_string())?.port()
-        );
-        let mut manager = AuthorizationManager::new(url).await.map_err(|e| e.to_string())?;
-        manager
-            .with_client(crate::llm::http::client())
-            .map_err(|e| e.to_string())?;
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).await?;
+        let redirect = format!("http://127.0.0.1:{}/callback", listener.local_addr()?.port());
+        let mut manager = AuthorizationManager::new(url).await?;
+        manager.with_client(crate::llm::http::client())?;
         manager.set_credential_store(KeychainStore::new(self.credentials.clone(), name));
         let mut state = OAuthState::Unauthorized(manager);
         state
             .start_authorization(request(redirect, app))
             .await
-            .map_err(|e| format!("could not start signing in to {name}: {e}"))?;
-        let page = state.get_authorization_url().await.map_err(|e| e.to_string())?;
+            .map_err(|source| SignInError::Start {
+                server: name.to_owned(),
+                source,
+            })?;
+        let page = state.get_authorization_url().await?;
         let engine = Arc::downgrade(self);
         let server = name.to_string();
         tokio::spawn(async move {
             let finished = tokio::time::timeout(SIGN_IN_WAIT, finish(&listener, &mut state))
                 .await
                 .unwrap_or_else(|_| {
-                    Err(format!(
-                        "no answer from the browser within {} minutes",
-                        SIGN_IN_WAIT.as_secs() / 60
-                    ))
+                    Err(SignInError::BrowserTimeout {
+                        minutes: SIGN_IN_WAIT.as_secs() / 60,
+                    })
                 });
             let Some(engine) = engine.upgrade() else { return };
             match finished {
                 Ok(()) => drop(engine.connect_mcp(&server).await),
-                Err(why) => engine.mcp.sign_in_failed(&server, &engine.store, &engine.hub, &why),
+                Err(why) => engine
+                    .mcp
+                    .sign_in_failed(&server, &engine.store, &engine.hub, &why.to_string()),
             }
         });
         Ok(page)
     }
 
     /// Forgets a server's sign-in and reconnects it without one, so it is plain what it can do signed out.
-    pub async fn sign_out_mcp(self: &Arc<Self>, name: &str) -> Result<(), String> {
+    pub async fn sign_out_mcp(self: &Arc<Self>, name: &str) -> Result<(), SignInError> {
         forget(&self.credentials, name)?;
         self.mcp.disconnect(name, &self.store, &self.hub).await;
         let _ = self.connect_mcp(name).await;
@@ -216,14 +215,14 @@ fn request(redirect: String, app: Option<&OAuthClient>) -> AuthorizationRequest 
 }
 
 /// Waits for the browser's return and trades its code for tokens, which the store keeps.
-async fn finish(listener: &tokio::net::TcpListener, state: &mut OAuthState) -> Result<(), String> {
+async fn finish(listener: &tokio::net::TcpListener, state: &mut OAuthState) -> Result<(), SignInError> {
     let (mut socket, params) = crate::llm::openai::oauth::next_callback(listener, "/callback").await?;
     let (Some(code), Some(csrf)) = (params.get("code"), params.get("state")) else {
         // The authorization server's own reason, when it gave one (`access_denied` and its description).
         let why = match (params.get("error"), params.get("error_description")) {
-            (Some(error), Some(description)) => format!("{error}: {description}"),
-            (Some(error), None) => error.clone(),
-            _ => "the server sent no code".into(),
+            (Some(error), Some(description)) => SignInError::Refused(format!("{error}: {description}")),
+            (Some(error), None) => SignInError::Refused(error.clone()),
+            _ => SignInError::NoCode,
         };
         crate::llm::openai::oauth::respond(&mut socket, 400, &format!("Sign-in failed: {why}")).await;
         return Err(why);
@@ -240,7 +239,7 @@ async fn finish(listener: &tokio::net::TcpListener, state: &mut OAuthState) -> R
         }
         Err(error) => {
             crate::llm::openai::oauth::respond(&mut socket, 400, &format!("Sign-in failed: {error}")).await;
-            Err(error.to_string())
+            Err(SignInError::Auth(error))
         }
     }
 }

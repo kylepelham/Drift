@@ -235,7 +235,7 @@ fn credential(
 
     credentials
         .set(provider, &found)
-        .map_err(|reason| Some(Left::Out(reason)))
+        .map_err(|reason| Some(Left::Out(reason.to_string())))
 }
 
 #[cfg(test)]

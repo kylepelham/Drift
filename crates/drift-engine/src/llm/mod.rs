@@ -12,7 +12,9 @@ pub mod gemini;
 pub mod google;
 pub mod http;
 pub mod local;
+mod oauth_error;
 pub mod openai;
+pub use oauth_error::OAuthError;
 #[cfg(test)]
 mod retry_tests;
 /// Replays canned responses in order and records every request; tests and the conformance harness use it.

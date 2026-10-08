@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn characters_split_across_reads_arrive_whole_at_every_split() {
-        let frames = "event: content_block_delta\ndata: {\"delta\":{\"type\":\"text_delta\",\"text\":\"LEFT € RIGHT 日本 🎉\"}}\n\n\
+        let frames = "event: content_block_delta\ndata: {\"delta\":{\"type\":\"text_delta\",\"text\":\"LEFT € RIGHT 日本 \u{1f389}\"}}\n\n\
                       event: content_block_delta\ndata: {\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\": \\\"ü/café.rs\\\"}\"}}\n\n";
         let bytes = frames.as_bytes();
         let whole = Parser::default().feed(bytes);
@@ -175,7 +175,7 @@ mod tests {
                 .collect()
         };
         assert_eq!(one_by_one, whole, "one byte per read");
-        assert!(whole[0].data.contains("LEFT € RIGHT 日本 🎉") && whole[1].data.contains("café"));
+        assert!(whole[0].data.contains("LEFT € RIGHT 日本 \u{1f389}") && whole[1].data.contains("café"));
     }
 
     #[test]

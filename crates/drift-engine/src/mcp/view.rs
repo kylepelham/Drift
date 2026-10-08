@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use super::{OAuthClient, ServerConfig, ServerRow};
+use super::{Error, OAuthClient, ServerConfig, ServerRow};
 
 /// A server as clients see it: every field but the values of its env vars and headers.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -163,7 +163,7 @@ impl ServerView {
 
 impl ServerConfigInput {
     /// The config to save: kept values come from `saved`, and one with nothing saved to keep is refused, naming it.
-    pub fn resolve(self, saved: Option<&ServerConfig>) -> Result<ServerConfig, String> {
+    pub fn resolve(self, saved: Option<&ServerConfig>) -> Result<ServerConfig, Error> {
         let (saved_env, saved_headers) = match saved {
             Some(ServerConfig::Stdio { env, .. }) => (Some(env), None),
             Some(ServerConfig::Http { headers, .. } | ServerConfig::Sse { headers, .. }) => (None, Some(headers)),
@@ -247,13 +247,13 @@ fn app(sent: Option<OAuthInput>, saved: Option<&OAuthClient>) -> Option<OAuthCli
 fn keep(
     values: BTreeMap<String, Option<String>>,
     saved: Option<&BTreeMap<String, String>>,
-) -> Result<BTreeMap<String, String>, String> {
+) -> Result<BTreeMap<String, String>, Error> {
     values
         .into_iter()
         .map(
             |(name, value)| match value.or_else(|| saved.and_then(|saved| saved.get(&name)).cloned()) {
                 Some(value) => Ok((name, value)),
-                None => Err(format!("{name} has no saved value to keep")),
+                None => Err(Error::MissingSavedValue { name }),
             },
         )
         .collect()
@@ -374,7 +374,7 @@ mod tests {
         let nothing_kept: ServerConfigInput =
             serde_json::from_value(json!({ "type": "stdio", "command": "npx", "env": { "OTHER": null } })).unwrap();
         assert_eq!(
-            nothing_kept.resolve(Some(&saved)).unwrap_err(),
+            nothing_kept.resolve(Some(&saved)).unwrap_err().to_string(),
             "OTHER has no saved value to keep"
         );
         let moved: ServerConfigInput =
