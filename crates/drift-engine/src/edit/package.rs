@@ -24,11 +24,13 @@ const DEPENDENCY_FIELDS: [&str; 3] = ["dependencies", "optionalDependencies", "p
 pub(super) fn fingerprint(launcher: &Path, name: &str) -> (Option<String>, String) {
     let mut digest = Sha256::new();
     digest.update(std::fs::read(launcher).unwrap_or_default());
+
     let root = package_root(launcher, name);
     let version = root
         .as_deref()
         .and_then(|root| manifest(root)["version"].as_str().map(str::to_string));
     let roots: Vec<PathBuf> = root.into_iter().chain(plugins(launcher, name)).collect();
+
     let mut seen = HashMap::new();
     for package in closure(&roots) {
         digest.update(package.to_string_lossy().as_bytes());
@@ -47,6 +49,7 @@ fn plugins(launcher: &Path, name: &str) -> Vec<PathBuf> {
     let Some(project) = launcher.parent().and_then(Path::parent).and_then(Path::parent) else {
         return Vec::new();
     };
+
     let manifest = manifest(project);
     let fields = ["dependencies", "devDependencies", "optionalDependencies"]
         .into_iter()
@@ -57,6 +60,7 @@ fn plugins(launcher: &Path, name: &str) -> Vec<PathBuf> {
             .iter()
             .any(|prefix| bare.starts_with(prefix.as_str()))
     };
+
     fields
         .flat_map(|deps| deps.keys().filter(named).cloned().collect::<Vec<_>>())
         .filter_map(|dependency| resolve(project, &dependency))
@@ -70,6 +74,7 @@ fn package_root(launcher: &Path, name: &str) -> Option<PathBuf> {
     let linked = std::fs::canonicalize(launcher)
         .ok()
         .filter(|target| target.parent() != std::fs::canonicalize(bin).ok().as_deref());
+
     let shim = launcher.with_extension("bunx");
     let text = [launcher, &shim]
         .iter()
@@ -80,6 +85,7 @@ fn package_root(launcher: &Path, name: &str) -> Option<PathBuf> {
     let named = shim_targets(&text)
         .into_iter()
         .map(|target| normalize(&bin.join(target)));
+
     linked
         .into_iter()
         .chain(named)
@@ -102,7 +108,9 @@ fn shim_targets(text: &str) -> Vec<String> {
             let rest = &text[at + marker.len()..];
             let path: String = rest
                 .chars()
-                .take_while(|c| !c.is_whitespace() && !matches!(c, '"' | '\'' | '%' | '*' | '`'))
+                .take_while(|character| {
+                    !character.is_whitespace() && !matches!(character, '"' | '\'' | '%' | '*' | '`')
+                })
                 .collect();
             let path = path.trim_start_matches(['\\', '/']);
             if !path.is_empty() {
@@ -110,6 +118,7 @@ fn shim_targets(text: &str) -> Vec<String> {
             }
         }
     }
+
     found
 }
 
@@ -159,6 +168,7 @@ fn closure(roots: &[PathBuf]) -> BTreeSet<PathBuf> {
             }
         }
     }
+
     seen
 }
 
@@ -186,6 +196,7 @@ fn hash_package(package: &Path, digest: &mut Sha256, seen: &mut HashMap<PathBuf,
             }
         }
     }
+
     files.sort();
     for file in files {
         digest.update(file.strip_prefix(package).unwrap_or(&file).to_string_lossy().as_bytes());
@@ -212,8 +223,9 @@ fn content_hash(file: &Path, seen: &mut HashMap<PathBuf, Seen>) -> [u8; 32] {
     let meta = std::fs::metadata(file).ok();
     let stamp = (
         meta.as_ref().map_or(0, std::fs::Metadata::len),
-        meta.and_then(|m| m.modified().ok()),
+        meta.and_then(|meta| meta.modified().ok()),
     );
+
     let known = KNOWN
         .lock()
         .unwrap()
@@ -225,6 +237,7 @@ fn content_hash(file: &Path, seen: &mut HashMap<PathBuf, Seen>) -> [u8; 32] {
         || Sha256::digest(std::fs::read(file).unwrap_or_default()).into(),
         |(_, _, hash)| hash,
     );
+
     seen.insert(file.to_path_buf(), (stamp.0, stamp.1, hash));
     hash
 }

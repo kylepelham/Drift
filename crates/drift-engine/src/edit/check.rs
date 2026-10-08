@@ -64,9 +64,28 @@ pub async fn run(
     stop: &CancellationToken,
 ) -> Vec<Report> {
     use futures_util::StreamExt;
+
     let deadline = tokio::time::Instant::now() + budget;
-    // Each run owns what it needs, so the runs can go side by side in a future the engine can move between threads.
-    let runs: Vec<(Check, Option<PathBuf>, PathBuf)> = checks
+    let runs = planned(files, workspace, checks);
+
+    futures_util::stream::iter(runs)
+        .map(|(check, file, workspace)| async move {
+            let verdict = run_one(&check, file.as_ref(), &workspace, deadline, stop).await;
+            Report {
+                name: check.name,
+                file,
+                verdict,
+            }
+        })
+        .buffered(PARALLEL)
+        .collect()
+        .await
+}
+
+/// Every run a step's files call for, in config order; each owns what it needs, so the runs can go side by side in a
+/// future the engine can move between threads.
+fn planned(files: &[PathBuf], workspace: &Path, checks: &[Check]) -> Vec<(Check, Option<PathBuf>, PathBuf)> {
+    checks
         .iter()
         .flat_map(|check| {
             let matching: Vec<&PathBuf> = files.iter().filter(|file| applies(check, file)).collect();
@@ -80,19 +99,7 @@ pub async fn run(
                 (false, false) => vec![(check.clone(), None, workspace.to_path_buf())],
             }
         })
-        .collect();
-    futures_util::stream::iter(runs)
-        .map(|(check, file, workspace)| async move {
-            let verdict = run_one(&check, file.as_ref(), &workspace, deadline, stop).await;
-            Report {
-                name: check.name,
-                file,
-                verdict,
-            }
-        })
-        .buffered(PARALLEL)
         .collect()
-        .await
 }
 
 fn applies(check: &Check, file: &Path) -> bool {
@@ -118,6 +125,7 @@ async fn run_one(
     if stop.is_cancelled() || tokio::time::Instant::now() >= deadline {
         return Verdict::Unavailable("stopped or the step's time for checks ran out".into());
     }
+
     let mut parts = check.command.iter().map(|part| match file {
         Some(file) => part.replace("$FILE", &file.to_string_lossy()),
         None => part.clone(),
@@ -126,6 +134,7 @@ async fn run_one(
     let Some(program) = process::which(&named) else {
         return Verdict::Unavailable(format!("{named} is not on PATH"));
     };
+
     let mut command = tokio::process::Command::new(program);
     process::use_current_path(&mut command, &Default::default());
     command
@@ -137,6 +146,7 @@ async fn run_one(
         .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
+
     let (child, tree) = match process::spawn_owned(&mut command).await {
         Ok(owned) => owned,
         Err(error) => return Verdict::Unavailable(format!("could not start {named}: {error}")),
@@ -144,7 +154,7 @@ async fn run_one(
     wait_check(child, tree, deadline.min(tokio::time::Instant::now() + TIMEOUT), stop).await
 }
 
-// Stop and timeouts kill and reap the child before history capture can resume.
+/// Stop and timeouts kill and reap the child before history capture can resume.
 async fn wait_check(
     mut child: tokio::process::Child,
     tree: process::Tree,
@@ -158,10 +168,12 @@ async fn wait_check(
         () = stop.cancelled() => None,
         () = tokio::time::sleep_until(deadline) => None,
     };
+
     tree.kill();
     let _ = child.kill().await;
     drop(child);
     tree.stop().await;
+
     match completed {
         None => Verdict::Unavailable("stopped or the step's time for checks ran out".into()),
         Some(Err(error)) => Verdict::Unavailable(error.to_string()),
@@ -185,12 +197,14 @@ fn shown(stdout: &[u8], stderr: &[u8]) -> String {
         .filter(|text| !text.is_empty())
         .collect::<Vec<_>>()
         .join("\n");
+
     if said.is_empty() {
         return "(it printed nothing, but exited with an error)".into();
     }
     if said.len() <= SHOWN {
         return said;
     }
+
     let cut = (0..=SHOWN).rev().find(|&at| said.is_char_boundary(at)).unwrap_or(0);
     format!("{}\n[{} more bytes not shown]", &said[..cut], said.len() - cut)
 }
@@ -265,7 +279,7 @@ mod tests {
     async fn per_file_runs_go_side_by_side_and_the_steps_budget_bounds_them_all() {
         let dir = std::env::temp_dir().join(format!("drift-check-par-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
-        let files: Vec<PathBuf> = (0..4).map(|i| dir.join(format!("f{i}.ts"))).collect();
+        let files: Vec<PathBuf> = (0..4).map(|index| dir.join(format!("f{index}.ts"))).collect();
         let pause = if cfg!(windows) {
             "ping -n 2 127.0.0.1 > nul && echo $FILE"
         } else {
@@ -284,7 +298,10 @@ mod tests {
             started.elapsed()
         );
         assert_eq!(
-            reports.iter().map(|r| r.file.clone().unwrap()).collect::<Vec<_>>(),
+            reports
+                .iter()
+                .map(|report| report.file.clone().unwrap())
+                .collect::<Vec<_>>(),
             files,
             "in order"
         );
