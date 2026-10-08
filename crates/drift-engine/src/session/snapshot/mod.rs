@@ -188,6 +188,7 @@ impl Snapshots {
                 source.as_ref(),
             )
             .await?;
+
         let oversized = |path: &str| {
             before
                 .oversized
@@ -195,6 +196,7 @@ impl Snapshots {
                 .chain(&after.oversized)
                 .any(|(large, _)| large == path)
         };
+
         let (unrecordable, changes): (Vec<_>, Vec<_>) = parse_raw_diff(&raw)
             .into_iter()
             .partition(|change| oversized(&change.path));
@@ -203,6 +205,7 @@ impl Snapshots {
         } else {
             changes
         };
+
         let mut unrecorded: Vec<String> = unrecordable.into_iter().map(|change| change.path).collect();
         let untouched = |entry: &(String, Stamp)| before.oversized.contains(entry) && after.oversized.contains(entry);
         unrecorded.extend(

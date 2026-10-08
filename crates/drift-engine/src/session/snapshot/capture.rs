@@ -105,9 +105,11 @@ impl Snapshots {
                 Some(source),
             )
             .await?;
+
         let excluded = tokio::fs::read_to_string(self.git_dir(workspace).join("info/exclude"))
             .await
             .unwrap_or_default();
+
         let listed = [modified, untracked].map(|raw| String::from_utf8_lossy(&raw).into_owned());
         let mut candidates: Vec<String> = listed
             .iter()

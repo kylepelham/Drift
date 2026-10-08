@@ -67,6 +67,7 @@ fn unique_ids(used: &mut std::collections::HashSet<String>, calls: &mut [Block],
         if used.insert(id.clone()) {
             continue;
         }
+
         let fresh = (2..)
             .map(|index| format!("{id}_{index}"))
             .find(|candidate| !used.contains(candidate))

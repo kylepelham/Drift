@@ -358,6 +358,7 @@ impl Engine {
             }
             Some(_) => {}
         }
+
         let submission = prompt.submission_id.as_deref().map(|id| (id, payload_hash));
         let pick = Pick {
             model: &target,
@@ -372,6 +373,7 @@ impl Engine {
             abort: how.parent,
             delivery: how.delivery,
         };
+
         let admitted = self.admit_fenced(session_id, prompt)?;
         drop(steering);
         self.count_as_read(session_id, &prepared.read);

@@ -113,6 +113,7 @@ pub fn system(setting: &Setting) -> String {
         "Scratch directory: {} (read and write there without asking; put temporary files there, not in the workspace)",
         crate::tool::scratch_dir().display()
     );
+
     for (server, text) in servers {
         let _ = writeln!(prompt, "\n# Instructions from the {server} MCP server\n\n{text}");
     }

@@ -290,9 +290,11 @@ impl Engine {
                 .with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
             plan.credential = resolved.credential;
         }
+
         plan.session.agent = session.agent;
         plan.variant = variant;
         plan.offer = self.offer(plan);
+
         if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
             *running = Steering::of(plan);
         }

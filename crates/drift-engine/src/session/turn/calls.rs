@@ -41,6 +41,7 @@ impl Engine {
         };
 
         let mut reads = Vec::new();
+
         for row in rows {
             if !call_mutates(plan, &row) {
                 reads.push(row);
@@ -53,6 +54,7 @@ impl Engine {
                 return Outcome::Aborted;
             }
         }
+
         let outcome = self.run_reads(&scope, reads).await;
         if outcome == Outcome::Allowed {
             self.check_step(&scope).await;

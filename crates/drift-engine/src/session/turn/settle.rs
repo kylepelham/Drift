@@ -183,12 +183,14 @@ impl Engine {
             let mut value = meta.unwrap_or_else(ToolMetadata::null);
             value.engine_command = None;
             value.extra.remove("engineCommand");
+
             if let Some(command) = command {
                 if value.legacy.is_some() {
                     value = ToolMetadata::default();
                 }
                 value.engine_command = Some(command);
             }
+
             *metadata = (!value.is_null()).then(|| Box::new(value));
             *finished_at = Some(id::now_ms());
         }

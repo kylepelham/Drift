@@ -416,6 +416,7 @@ impl Engine {
     ) -> Result<(Vec<Net>, Vec<String>), RevertError> {
         let mut calls = Vec::new();
         let mut unrecorded: Vec<String> = Vec::new();
+
         for member in self.store.session_tree(&session.id)? {
             for message in
                 self.store.transcript(&member)?.iter().filter(|message| {
@@ -444,6 +445,7 @@ impl Engine {
                 }
             }
         }
+
         calls.sort_by(|left, right| (&left.stamp, &left.part_id).cmp(&(&right.stamp, &right.part_id)));
         let net = self.fold_recorded_calls(calls);
         unrecorded.dedup();

@@ -36,6 +36,7 @@ impl Engine {
         self.hub.publish(Event::MessageCreated {
             message: message.clone(),
         });
+
         let mut rows = Vec::new();
         for bootstrap in bootstraps {
             let mut metadata = ToolMetadata {
@@ -45,6 +46,7 @@ impl Engine {
             if let Some(model) = &bootstrap.model {
                 metadata.command_model = Some(format!("{}/{}", model.provider, model.model));
             }
+
             let part = Part::ToolCall {
                 call_id: id::new("call"),
                 name: bootstrap.tool,
@@ -56,6 +58,7 @@ impl Engine {
                 started_at: None,
                 finished_at: None,
             };
+
             let row = self.store.add_part(&message.id, &plan.session.id, part)?;
             self.hub.publish(Event::PartCreated { part: row.clone() });
             rows.push(row);

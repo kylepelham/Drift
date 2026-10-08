@@ -402,6 +402,7 @@ impl Engine {
         token: CancellationToken,
     ) -> Result<Option<&'static str>, WorkerAdmissionError> {
         self.workers.register(&task.id, &token);
+
         let planned = tokio::select! {
             planned = self.plan(&task.session_id, &prompt) => planned,
             () = token.cancelled() => Err(TurnError::Stopped),

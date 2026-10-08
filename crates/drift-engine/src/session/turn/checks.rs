@@ -133,9 +133,11 @@ impl Engine {
 
         let mut text = output.take().unwrap_or_default();
         let mut meta = metadata.take().unwrap_or_default();
+
         for note in &notes {
             crate::tool::add_note(&mut text, &mut meta, note);
         }
+
         *output = Some(text);
         meta.checks = Some(checks_metadata(reports, workspace));
         if !changed.is_empty() {
@@ -155,6 +157,7 @@ impl Engine {
                 .get_or_insert_default()
                 .extend(changes.iter().cloned().map(Into::into));
         }
+
         *metadata = Some(meta);
 
         // Publish only saved results so the user and the next model request see the same history.

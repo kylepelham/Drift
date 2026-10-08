@@ -142,11 +142,13 @@ impl Engine {
         })
         .await
         .unwrap_or_default();
+
         let lines: Vec<String> = config
             .project_command_lines("formatter", &files)
             .into_iter()
             .chain(programs.iter().map(|program| program.line.clone()))
             .collect();
+
         let allowed = self.project_commands_allowed(scope.plan, asker, lines).await;
         let overrides = config.only_allowed(|line| allowed.contains(line)).0;
         let local: Vec<PathBuf> = programs
@@ -169,6 +171,7 @@ impl Engine {
         if let Some(note) = crate::lsp::note(&found, &scope.plan.workspace) {
             crate::tool::add_note(&mut text, &mut metadata, &note);
         }
+
         if !formatted.is_empty() {
             metadata.formatted = Some(formatted);
         }
