@@ -11,8 +11,8 @@ examples/
 .vite.log
 .tauri.log
 .tauri/
-engine/.overlay-lock-reclaimed/
-engine/.overlay-lock-candidate-*/
 .build/
 
 releases/
+# Git worktrees for parallel branches.
+.worktrees/
