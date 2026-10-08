@@ -4,6 +4,7 @@ import { messageText } from "../src/engine/store"
 import { expect, test } from "bun:test"
 
 import type { MessageEntry } from "../src/engine/store"
+import type * as TypeScript from "typescript"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -311,8 +312,8 @@ test("clarification UI uses a closed native disclosure with full QAs, copy/rever
     (node) => ts.isFunctionDeclaration(node) && node.name?.text === "UserBubble",
   )!
   expect(userBubble).toBeDefined()
-  const elements: import("typescript").JsxElement[] = []
-  function visit(node: import("typescript").Node) {
+  const elements: TypeScript.JsxElement[] = []
+  function visit(node: TypeScript.Node) {
     if (ts.isJsxElement(node)) elements.push(node)
     ts.forEachChild(node, visit)
   }

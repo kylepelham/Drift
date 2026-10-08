@@ -36,6 +36,7 @@ import {
 } from "solid-js"
 
 import type { FilePart, Part, PluginPart, ReasoningPart, ToolPart } from "../engine/shapes"
+import type { TaskRecord } from "../engine/store"
 
 export const contextTools = new Set(["read", "glob", "grep", "list"])
 const hiddenTools = new Set(["todowrite", "todoread"])
@@ -381,12 +382,10 @@ type PatchFile = {
 export function toolInfo(part: ToolPart): ToolInfo {
   const input = part.state.input as Record<string, unknown>
   const meta = toolMeta(part) ?? {}
-  const text = (key: string) => (typeof input?.[key] === "string" ? (input[key] as string) : undefined)
-  const output = () => (part.state.status === "completed" ? (part.state as { output: string }).output : "")
-  const count = (value: unknown, singular: string, plural: string) =>
-    typeof value === "number"
-      ? ` · ${t(value === 1 ? singular : plural, { count: `${value}${meta.truncated ? "+" : ""}` })}`
-      : ""
+  const text = (key: string) => toolInputText(input, key)
+  const context = contextToolInfo(part, input, meta)
+  if (context) return context
+
   switch (part.tool) {
     case "bash":
       return { title: t("prompt.mode.shell"), subtitle: text("command"), mono: true }
@@ -396,39 +395,90 @@ export function toolInfo(part: ToolPart): ToolInfo {
       return { title: t("settings.permissions.tool.edit.title"), subtitle: filename(text("filePath")) }
     case "apply_patch":
       return { title: t("settings.permissions.tool.edit.title"), subtitle: patchSubtitle(part) }
-    case "read": {
-      const lines = output() ? output().split("\n").length : undefined
-      return {
-        title: t("settings.permissions.tool.read.title"),
-        subtitle: `${filename(text("filePath")) ?? ""}${count(lines, "drift.count.line.one", "drift.count.line.other")}`,
-      }
-    }
-    case "list":
-      return {
-        title: t("settings.permissions.tool.list.title"),
-        subtitle: `${filename(text("path")) ?? ""}${count(meta.count, "drift.count.entry.one", "drift.count.entry.other")}`,
-      }
-    case "glob":
-      return {
-        title: t("settings.permissions.tool.glob.title"),
-        subtitle: `${text("pattern") ?? ""}${count(meta.count, "drift.count.file.one", "drift.count.file.other")}`,
-        mono: true,
-      }
-    case "grep":
-      return {
-        title: t("settings.permissions.tool.grep.title"),
-        subtitle: `${text("pattern") ?? ""}${count(meta.matches, "drift.count.match.one", "drift.count.match.other")}`,
-        mono: true,
-      }
     case "webfetch":
       return { title: t("drift.tool.fetch"), subtitle: text("url"), mono: true }
-    case "websearch": {
-      const results = output() ? (output().match(/^#|^\d+\./gm)?.length ?? undefined) : undefined
+    default:
+      return delegatedToolInfo(part, input, meta)
+  }
+}
+
+function toolInputText(input: Record<string, unknown>, key: string) {
+  return typeof input?.[key] === "string" ? (input[key] as string) : undefined
+}
+
+function toolCount(value: unknown, truncated: unknown, singular: string, plural: string) {
+  if (typeof value !== "number") return ""
+
+  const count = `${value}${truncated ? "+" : ""}`
+  return ` · ${t(value === 1 ? singular : plural, { count })}`
+}
+
+function contextToolInfo(
+  part: ToolPart,
+  input: Record<string, unknown>,
+  meta: Record<string, unknown>,
+): ToolInfo | undefined {
+  const text = (key: string) => toolInputText(input, key)
+  const output = () => (part.state.status === "completed" ? part.state.output : "")
+  const count = (value: unknown, singular: string, plural: string) => toolCount(value, meta.truncated, singular, plural)
+
+  switch (part.tool) {
+    case "read": {
+      const lines = output() ? output().split("\n").length : undefined
+      const path = filename(text("filePath")) ?? ""
+      const suffix = count(lines, "drift.count.line.one", "drift.count.line.other")
+
       return {
-        title: t("common.search.placeholder"),
-        subtitle: `${text("query") ?? ""}${count(results, "drift.count.result.one", "drift.count.result.other")}`,
+        title: t("settings.permissions.tool.read.title"),
+        subtitle: `${path}${suffix}`,
       }
     }
+    case "list": {
+      const path = filename(text("path")) ?? ""
+      const suffix = count(meta.count, "drift.count.entry.one", "drift.count.entry.other")
+
+      return {
+        title: t("settings.permissions.tool.list.title"),
+        subtitle: `${path}${suffix}`,
+      }
+    }
+    case "glob": {
+      const pattern = text("pattern") ?? ""
+      const suffix = count(meta.count, "drift.count.file.one", "drift.count.file.other")
+
+      return {
+        title: t("settings.permissions.tool.glob.title"),
+        subtitle: `${pattern}${suffix}`,
+        mono: true,
+      }
+    }
+    case "grep": {
+      const pattern = text("pattern") ?? ""
+      const suffix = count(meta.matches, "drift.count.match.one", "drift.count.match.other")
+
+      return {
+        title: t("settings.permissions.tool.grep.title"),
+        subtitle: `${pattern}${suffix}`,
+        mono: true,
+      }
+    }
+    case "websearch": {
+      const results = output() ? (output().match(/^#|^\d+\./gm)?.length ?? undefined) : undefined
+      const query = text("query") ?? ""
+      const suffix = count(results, "drift.count.result.one", "drift.count.result.other")
+
+      return {
+        title: t("common.search.placeholder"),
+        subtitle: `${query}${suffix}`,
+      }
+    }
+  }
+}
+
+function delegatedToolInfo(part: ToolPart, input: Record<string, unknown>, meta: Record<string, unknown>): ToolInfo {
+  const text = (key: string) => toolInputText(input, key)
+
+  switch (part.tool) {
     case "task": {
       const agent = text("subagent_type")
       return { title: taskHeading(agent, text("description")) }
@@ -443,17 +493,21 @@ export function toolInfo(part: ToolPart): ToolInfo {
         subtitle: part.state.status === "completed" ? part.state.title : undefined,
       }
     case "question":
-      return {
-        title: t(
-          meta.async === true || input?.async === true ? "drift.tool.asyncQuestion" : "notification.question.title",
-        ),
-        subtitle: text("question") ?? (input?.questions as { header?: string }[] | undefined)?.[0]?.header,
-      }
+      return questionToolInfo(input, meta)
     case "skill":
       return { title: text("name") ?? t("prompt.slash.badge.skill") }
     default:
       return { called: part.tool, subtitle: argsPreview(input), mono: true }
   }
+}
+
+function questionToolInfo(input: Record<string, unknown>, meta: Record<string, unknown>): ToolInfo {
+  const title =
+    meta.async === true || input?.async === true ? "drift.tool.asyncQuestion" : "notification.question.title"
+  const subtitle =
+    toolInputText(input, "question") ?? (input?.questions as { header?: string }[] | undefined)?.[0]?.header
+
+  return { title: t(title), subtitle }
 }
 
 export function taskHeading(agent?: string, description?: string) {
@@ -660,7 +714,7 @@ export function ToolView(props: { part: ToolPart }) {
   }
   const error = () => (state().status === "error" ? (state() as { error: string }).error : null)
   const [open, setOpen] = createSignal(
-    initialToolOpenForPart(props.part.id, props.part.tool, state().status, toolErrorsExpanded()),
+    untrack(() => initialToolOpenForPart(props.part.id, props.part.tool, state().status, toolErrorsExpanded())),
   )
   createEffect(on(error, (value, previous) => setOpen(nextToolOpen(open(), !!previous, !!value, toolErrorsExpanded()))))
   const expanded = () => open()
@@ -810,10 +864,16 @@ export function delegatedTaskStatus(
   // The engine's record outranks the call: a background call finishes at launch, its worker later.
   const metadata = "metadata" in part.state ? (part.state.metadata as { taskId?: unknown } | undefined) : undefined
   const task = taskForCall(state, part.sessionID, part.callID, metadata?.taskId)
-  if (task) return taskActive(task) ? "running" : task.state === "replied" ? "completed" : "error"
+  if (task) return delegatedRecordStatus(task)
   const terminal = delegatedTerminalState(state, part, childId)
   if (terminal) return terminal
   return state.errors[childId] ? "error" : "running"
+}
+
+function delegatedRecordStatus(task: Pick<TaskRecord, "state">): DelegatedTaskStatus {
+  if (taskActive(task)) return "running"
+
+  return task.state === "replied" ? "completed" : "error"
 }
 
 function delegatedTerminalState(
@@ -830,12 +890,16 @@ function delegatedTerminalState(
   const background = part.state.metadata?.background === true || part.state.metadata?.mode === "background"
   if (part.tool === "task" && result !== "running" && !background) return "completed"
 
+  return followingTaskResult(state.transcripts[part.sessionID] ?? [], part.id, pattern)
+}
+
+function followingTaskResult(entries: EngineState["transcripts"][string], partID: string, pattern: RegExp) {
   // Background calls finish their tool part before the work. Find their first later result,
   // never an earlier invocation's result or a later foreground call's output.
   let after = false
-  for (const entry of state.transcripts[part.sessionID] ?? []) {
+  for (const entry of entries) {
     for (const item of entry.parts) {
-      if (item.id === part.id) after = true
+      if (item.id === partID) after = true
       if (!after || item.type !== "text") continue
       const match = item.text.match(pattern)?.[1]
       if (match === "completed" || match === "error") return match
@@ -1405,7 +1469,7 @@ export function DiffPanel(props: { diff: string; filename: string; bare?: boolea
                       class="w-4 shrink-0 text-center text-ink-faint select-none"
                       classList={{ "text-ok": row.kind === "add", "text-danger": row.kind === "del" }}
                     >
-                      {row.kind === "add" ? "+" : row.kind === "del" ? "-" : " "}
+                      {diffSymbol(row.kind)}
                     </span>
                   </Show>
                   <span
@@ -1447,6 +1511,13 @@ function SyntaxTokenView(props: { token: SyntaxToken }) {
     }
   }
   return <span style={style()}>{props.token.content}</span>
+}
+
+function diffSymbol(kind: DiffRow["kind"]) {
+  if (kind === "add") return "+"
+  if (kind === "del") return "-"
+
+  return " "
 }
 
 function PatchPanel(props: { files: PatchFile[] }) {

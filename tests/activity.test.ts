@@ -2,7 +2,9 @@ import { createEngineState } from "../src/engine/store"
 import { reduce } from "../src/engine/events"
 import { expect, test } from "bun:test"
 
+import type * as SolidStore from "solid-js/store"
 import type { Event } from "../src/engine/shapes"
+import type * as Solid from "solid-js"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -341,6 +343,12 @@ test("a compaction draws one marker: the summary row, or the prompt's divider on
 
 test("loaded stale tool states become interrupted without mutating live or completed parts", async () => {
   const { interruptStaleTools } = await import("../src/engine/store")
+  const toolState = (status: "pending" | "running" | "completed") => {
+    if (status === "pending") return { status, input: {}, raw: "" }
+    if (status === "running") return { status, input: {}, time: { start: 2 } }
+
+    return { status, input: {}, output: "ok", title: "", metadata: {}, time: { start: 2, end: 3 } }
+  }
   const tool = (id: string, status: "pending" | "running" | "completed", messageID = "a1") =>
     ({
       id,
@@ -349,12 +357,7 @@ test("loaded stale tool states become interrupted without mutating live or compl
       type: "tool",
       callID: id,
       tool: "bash",
-      state:
-        status === "pending"
-          ? { status, input: {}, raw: "" }
-          : status === "running"
-            ? { status, input: {}, time: { start: 2 } }
-            : { status, input: {}, output: "ok", title: "", metadata: {}, time: { start: 2, end: 3 } },
+      state: toolState(status),
     }) as never
   const entry = {
     info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
@@ -394,10 +397,9 @@ test("streamed tool replacements retain mounted group and plugin identities", as
   // Bun selects Solid's server condition for tests, so load the browser primitives
   // used by Vite to verify the keyed mount behavior without requiring a DOM.
   // @ts-expect-error Solid's browser build shares the package's public types.
-  const { createRoot, createSignal, mapArray, onCleanup } =
-    (await import("solid-js/dist/solid.js")) as typeof import("solid-js")
+  const { createRoot, createSignal, mapArray, onCleanup } = (await import("solid-js/dist/solid.js")) as typeof Solid
   // @ts-expect-error Solid's browser store build shares the package's public types.
-  const { createStore, reconcile } = (await import("solid-js/store/dist/store.js")) as typeof import("solid-js/store")
+  const { createStore, reconcile } = (await import("solid-js/store/dist/store.js")) as typeof SolidStore
   const createSlot = (group: ReturnType<typeof groupParts>[number]) => {
     const [value, setValue] = createStore(group)
     return { id: group.id, value, update: (updated: typeof group) => setValue(reconcile(updated)) }

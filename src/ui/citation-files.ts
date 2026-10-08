@@ -1,6 +1,7 @@
 import { classifyMarkdownLink } from "./markdown-links"
 
 import type { EngineState, MessageEntry } from "../engine/store"
+import type { Part } from "../engine/shapes"
 
 /** Build context only on a click, and stop at the cited message/part so old links stay stable. */
 export function citationFileGroups(
@@ -38,34 +39,36 @@ export function citationFileGroups(
     for (const entry of messages) {
       for (const part of entry.parts) {
         if (part.sessionID !== sessionID) continue
-        if (part.type === "file" && /^file:\/\//i.test(part.url)) {
-          const link = classifyMarkdownLink(part.url)
-          if (link.kind === "file") files.add(link.path)
-        }
-        if (
-          part.type === "tool" &&
-          part.state.status === "completed" &&
-          (beforeTime === undefined || part.state.time.end <= beforeTime)
-        ) {
-          const input = part.state.input
-          const metadata = part.state.metadata
-          if (["read", "write", "edit", "multiedit"].includes(part.tool)) add(input.filePath)
-          if (part.tool === "edit") add((metadata?.filediff as { file?: string } | undefined)?.file)
-          if (part.tool === "apply_patch") {
-            if (Array.isArray(metadata?.files)) {
-              for (const file of metadata.files) {
-                if (!file || typeof file !== "object" || file.type === "delete") continue
-                add(file.movePath ?? file.filePath)
-              }
-            } else if (typeof input.patchText === "string") {
-              for (const match of input.patchText.matchAll(/^\*\*\* (?:Add File|Update File|Move to): (.+)$/gm))
-                add(match[1].trim())
-            }
-          }
-        }
+        collectPart(part, files, add)
         if (entry.info.id === messageID && part.id === partID) break
       }
     }
     return [...files]
+  }
+
+  function collectPart(part: Part, files: Set<string>, add: (value: unknown) => void) {
+    if (part.type === "file" && /^file:\/\//i.test(part.url)) {
+      const link = classifyMarkdownLink(part.url)
+      if (link.kind === "file") files.add(link.path)
+    }
+    if (part.type !== "tool" || part.state.status !== "completed") return
+    if (!(beforeTime === undefined || part.state.time.end <= beforeTime)) return
+
+    const input = part.state.input
+    const metadata = part.state.metadata
+    if (["read", "write", "edit", "multiedit"].includes(part.tool)) add(input.filePath)
+    if (part.tool === "edit") add((metadata?.filediff as { file?: string } | undefined)?.file)
+    if (part.tool === "apply_patch") collectPatchFiles(metadata?.files, input.patchText, add)
+  }
+}
+
+function collectPatchFiles(files: unknown, patch: unknown, add: (value: unknown) => void) {
+  if (Array.isArray(files)) {
+    for (const file of files) {
+      if (!file || typeof file !== "object" || file.type === "delete") continue
+      add(file.movePath ?? file.filePath)
+    }
+  } else if (typeof patch === "string") {
+    for (const match of patch.matchAll(/^\*\*\* (?:Add File|Update File|Move to): (.+)$/gm)) add(match[1].trim())
   }
 }

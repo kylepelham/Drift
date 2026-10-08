@@ -720,20 +720,28 @@ type RevisionPart = {
 export function transcriptRevision(entry?: { parts: RevisionPart[] }) {
   if (!entry) return "0"
   let revision = `${entry.parts.length}`
-  for (const part of entry.parts) {
-    if (part.type === "text" || part.type === "reasoning") {
-      revision += `|${part.type}:${part.text?.length ?? 0}`
-      continue
-    }
-    if (part.type !== "tool") continue
-    const state = part.state
-    revision += `|tool:${state?.status ?? ""}`
-    if (typeof state?.output === "string") revision += `:o${state.output.length}`
-    if (typeof state?.error === "string") revision += `:e${state.error.length}`
-    const metadata = state?.metadata ?? part.metadata
-    if (typeof metadata?.output === "string") revision += `:m${metadata.output.length}`
-    if (typeof metadata?.diff === "string") revision += `:d${metadata.diff.length}`
-  }
+  for (const part of entry.parts) revision += partRevision(part)
+
+  return revision
+}
+
+function partRevision(part: RevisionPart) {
+  if (part.type === "text" || part.type === "reasoning") return `|${part.type}:${part.text?.length ?? 0}`
+  if (part.type !== "tool") return ""
+
+  return toolRevision(part)
+}
+
+function toolRevision(part: RevisionPart) {
+  const state = part.state
+  let revision = `|tool:${state?.status ?? ""}`
+  if (typeof state?.output === "string") revision += `:o${state.output.length}`
+  if (typeof state?.error === "string") revision += `:e${state.error.length}`
+
+  const metadata = state?.metadata ?? part.metadata
+  if (typeof metadata?.output === "string") revision += `:m${metadata.output.length}`
+  if (typeof metadata?.diff === "string") revision += `:d${metadata.diff.length}`
+
   return revision
 }
 
@@ -829,15 +837,7 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
   const anchor =
     unfinished ?? newestFirst.find((entry) => entry.info.role === "user" || entry.info.role === "assistant")
   if (!anchor) return null
-  const parentID =
-    anchor.info.role === "user" ? anchor.info.id : "parentID" in anchor.info ? anchor.info.parentID : undefined
-  const assistants = parentID
-    ? entries.filter(
-        (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === parentID,
-      )
-    : anchor.info.role === "assistant"
-      ? [anchor]
-      : []
+  const assistants = thinkingAssistants(entries, anchor)
   const error = assistants.find(
     (entry) =>
       (entry.info as { error?: { name?: string } }).error &&
@@ -858,6 +858,22 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
       ? !!(owner.info as { summary?: boolean }).summary
       : owner.parts.some((part) => part.type === "compaction")
   return { messageID: owner.info.id, heading, compaction }
+}
+
+function thinkingAssistants(entries: MessageEntry[], anchor: MessageEntry) {
+  const parentID = thinkingParent(anchor)
+  if (parentID)
+    return entries.filter(
+      (entry) => entry.info.role === "assistant" && "parentID" in entry.info && entry.info.parentID === parentID,
+    )
+
+  return anchor.info.role === "assistant" ? [anchor] : []
+}
+
+function thinkingParent(anchor: MessageEntry) {
+  if (anchor.info.role === "user") return anchor.info.id
+
+  return "parentID" in anchor.info ? anchor.info.parentID : undefined
 }
 
 // Whether this timeline row renders a compaction divider that can carry the shimmer itself.
@@ -915,18 +931,17 @@ function Row(props: {
   instruction: boolean
   toggleCopy: (id: string) => void
 }) {
-  const fresh = Date.now() - props.entry.info.time.created < freshMessageMs
   // Assistant rows remount during virtualization and session switches; replaying an entrance
   // animation on those makes streamed output flicker, so only fresh user rows fade in.
-  const fadeIn = fresh && props.entry.info.role === "user"
-  const pitch = () =>
-    props.nextThinking
-      ? "none"
-      : props.next
-        ? timelinePitch(props.entry, props.next)
-        : props.terminalError
-          ? "turn"
-          : "none"
+  const fadeIn = untrack(
+    () => Date.now() - props.entry.info.time.created < freshMessageMs && props.entry.info.role === "user",
+  )
+  const pitch = () => {
+    if (props.nextThinking) return "none"
+    if (props.next) return timelinePitch(props.entry, props.next)
+
+    return props.terminalError ? "turn" : "none"
+  }
   // A running compaction animates its own divider label, so the generic indicator would double up.
   const compactionShimmer = () =>
     props.thinking && !!props.thinkingCompaction && compactionThinkingRow(props.entry, collapseCompaction())
