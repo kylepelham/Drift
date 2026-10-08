@@ -144,7 +144,13 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
         Ok(history) => history,
         Err(error) => return eprintln!("opencode import: {error}"),
     };
-    match drift_migrate::import_sessions(&engine.store, source, &archived, &mut history, &mut announce) {
+    match drift_migrate::import_sessions(drift_migrate::SessionImport {
+        store: &engine.store,
+        source,
+        archived: &archived,
+        blobs: &mut history,
+        progress: &mut announce,
+    }) {
         Ok(report) => {
             if report.imported > 0 || !report.failed.is_empty() {
                 eprintln!(

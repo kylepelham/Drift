@@ -26,7 +26,7 @@ pub trait Blobs {
 }
 
 /// A conversation this run imports, with where it lands.
-pub struct Planned<'a> {
+pub(crate) struct Planned<'a> {
     pub session: &'a OcSession,
     pub owner: String,
     pub root: PathBuf,
@@ -40,7 +40,12 @@ struct Write<'a> {
 }
 
 /// Records by opencode part id, for the recent writing calls whose versions could be rebuilt.
-pub fn records(source: &Source, planned: &[Planned], now: i64, blobs: &mut dyn Blobs) -> rusqlite::Result<Records> {
+pub(crate) fn records(
+    source: &Source,
+    planned: &[Planned],
+    now: i64,
+    blobs: &mut dyn Blobs,
+) -> rusqlite::Result<Records> {
     let mut writes = Vec::new();
     for plan in planned {
         for message in source
@@ -295,7 +300,7 @@ struct Hunk {
 
 /// `current` with a unified diff undone: each hunk's new side must match exactly (line endings
 /// aside) where it says, and is replaced by its old side in the file's own line ending.
-pub fn reverse(diff: &str, current: &str) -> Option<String> {
+fn reverse(diff: &str, current: &str) -> Option<String> {
     let hunks = parse(diff)?;
     let eol = if current.contains("\r\n") { "\r\n" } else { "\n" };
     let mut lines: Vec<String> = current.split_inclusive('\n').map(String::from).collect();
