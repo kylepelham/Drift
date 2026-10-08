@@ -173,7 +173,7 @@ fn task_mode(ctx: &Context, input: &Value, agent: &str) -> Result<(Mode, &'stati
         background_default,
         ctx.engine.background_enabled(),
     )
-    .map_err(ToolError)
+    .map_err(|error| ToolError(error.to_string()))
 }
 
 /// The earlier task a call asks to continue: one of this conversation's, finished.

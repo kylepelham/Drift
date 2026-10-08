@@ -32,6 +32,7 @@ fn the_mode_is_what_was_asked_then_the_agents_default_then_the_foreground() {
     assert!(
         resolve_mode(Some(true), None, false)
             .unwrap_err()
+            .to_string()
             .contains("turned off"),
         "an explicit request is refused, not quietly changed"
     );

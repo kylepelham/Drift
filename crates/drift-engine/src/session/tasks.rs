@@ -125,17 +125,29 @@ pub struct TaskRecord {
     pub generation: i64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ModeError {
+    #[error("background tasks are turned off in Settings; run this task in the foreground")]
+    BackgroundDisabled,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum WorkerAdmissionError {
+    #[error("The subagent was stopped before it finished.")]
+    Stopped,
+    #[error("The subagent could not start: {0}")]
+    Plan(TurnError),
+}
+
 /// How a worker runs, and why. An explicit choice wins; otherwise the agent's default; otherwise the
 /// foreground. Nothing in the prompt's wording decides it.
 pub fn resolve_mode(
     explicit: Option<bool>,
     agent_default: Option<bool>,
     enabled: bool,
-) -> Result<(Mode, &'static str), String> {
+) -> Result<(Mode, &'static str), ModeError> {
     match (explicit, agent_default) {
-        (Some(true), _) if !enabled => {
-            Err("background tasks are turned off in Settings; run this task in the foreground".into())
-        }
+        (Some(true), _) if !enabled => Err(ModeError::BackgroundDisabled),
         (Some(true), _) => Ok((Mode::Background, "requested")),
         (Some(false), _) => Ok((Mode::Foreground, "requested")),
         (None, Some(true)) if enabled => Ok((Mode::Background, "agent default")),
@@ -383,7 +395,7 @@ impl Engine {
         task: &TaskRecord,
         prompt: Prompt,
         token: CancellationToken,
-    ) -> Result<Option<&'static str>, String> {
+    ) -> Result<Option<&'static str>, WorkerAdmissionError> {
         self.workers.register(&task.id, &token);
         let planned = tokio::select! {
             planned = self.plan(&task.session_id, &prompt) => planned,
@@ -392,14 +404,15 @@ impl Engine {
         let plan = match planned {
             Ok(plan) => plan,
             Err(error) => {
-                let (state, text) = if error == TurnError::Stopped {
-                    (TaskState::Stopped, STOPPED.to_string())
+                let (state, failure) = if error == TurnError::Stopped {
+                    (TaskState::Stopped, WorkerAdmissionError::Stopped)
                 } else {
-                    (TaskState::Failed, format!("The subagent could not start: {error}"))
+                    (TaskState::Failed, WorkerAdmissionError::Plan(error))
                 };
+                let text = failure.to_string();
                 self.end_task(&task.id, state, &text);
                 self.workers.forget(&task.id);
-                return Err(text);
+                return Err(failure);
             }
         };
         if task.mode == Mode::Foreground {

@@ -55,7 +55,16 @@ impl Engine {
         let result = self.call_result(scope, &call, result, writes).await;
         let failed = result.status == ToolStatus::Error || result.metadata.exit.is_some_and(|code| code != 0);
         let (text, metadata) = self
-            .hook_after(scope, &call.name, hooked, failed, result.text, result.metadata)
+            .hook_after(
+                scope,
+                AfterTool {
+                    name: &call.name,
+                    input: hooked,
+                    failed,
+                    text: result.text,
+                    metadata: result.metadata,
+                },
+            )
             .await;
         let result = CallResult {
             text,
@@ -131,7 +140,15 @@ impl Engine {
         }
 
         let (input, rewritten) = self
-            .hook_before(scope, row, &name, &tool.spec().input_schema, input)
+            .hook_before(
+                scope,
+                row,
+                BeforeTool {
+                    name: &name,
+                    schema: &tool.spec().input_schema,
+                    input,
+                },
+            )
             .await?;
 
         Ok(PreparedCall {

@@ -32,6 +32,12 @@ use crate::store::{Admit, Admitted, Handover, Pick};
 use crate::tool::{Context, SessionFiles};
 
 mod calls;
+mod hooks;
+mod retry;
+mod settle;
+
+use hooks::{AfterTool, BeforeTool};
+pub(super) use retry::Retry;
 
 /// Retries after a provider fault before the turn gives up and shows the error.
 const MAX_RETRIES: u32 = 8;
@@ -156,6 +162,14 @@ impl From<rusqlite::Error> for TurnError {
 }
 
 impl std::error::Error for TurnError {}
+
+#[derive(Debug, thiserror::Error)]
+enum FollowError {
+    #[error("{0}")]
+    Agent(#[from] TurnError),
+    #[error("Could not switch to {model}: {error}. Send a message to carry on.")]
+    Switch { model: String, error: TurnError },
+}
 
 #[derive(Default)]
 pub struct Turns {
@@ -491,119 +505,6 @@ impl Engine {
                 self.turns.release(session_id);
                 Err(error)
             }
-        }
-    }
-
-    /// Plugins see the user's own prompts before the model does: one may refuse it, rewrite its text or add context beside it.
-    async fn hook_prompt(&self, plan: &Plan, mut prompt: Prompt, how: &Admission<'_>) -> Result<Prompt, TurnError> {
-        if self.hooks.is_empty() || plan.turn_only || !how.bootstrap.is_empty() || how.steer_only {
-            return Ok(prompt);
-        }
-        let text: String = prompt
-            .parts
-            .iter()
-            .filter_map(|part| {
-                if let Part::Text { text } = part {
-                    Some(text.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        if text.trim().is_empty() {
-            return Ok(prompt);
-        }
-        let event = crate::hook::PromptEvent {
-            session_id: plan.session.id.clone(),
-            workspace: plan.workspace.to_string_lossy().into_owned(),
-            agent: plan.session.agent.clone(),
-            text: text.clone(),
-        };
-        let (replaced, context) = self.hooks.prompt_submit(event).await.map_err(|(plugin, reason)| {
-            TurnError::Refused(format!("The {plugin} plugin refused this prompt: {reason}"))
-        })?;
-        if replaced != text {
-            // The first text part takes the whole replacement; the others go, so the model reads one text.
-            let mut first = true;
-            prompt.parts.retain_mut(|part| {
-                let Part::Text { text } = part else { return true };
-                if !first {
-                    return false;
-                }
-                first = false;
-                *text = replaced.clone();
-                true
-            });
-        }
-        prompt
-            .parts
-            .extend(context.into_iter().map(|(plugin, text)| Part::Context { plugin, text }));
-        Ok(prompt)
-    }
-
-    /// A plugin reads the reply that would end the turn and may keep it going with a prompt of its own, a few times at most.
-    async fn hook_turn_end(&self, plan: &Plan, continued: &mut u32, abort: &CancellationToken) -> bool {
-        const MOST: u32 = 3;
-        if self.hooks.is_empty() || plan.turn_only || *continued >= MOST || abort.is_cancelled() {
-            return false;
-        }
-        let Ok(Some(reply)) = self.store.last_reply(&plan.session.id) else {
-            return false;
-        };
-        if reply.info.error.is_some() {
-            return false;
-        }
-        let text: String = reply
-            .parts
-            .iter()
-            .filter_map(|row| {
-                if let Part::Text { text } = &row.part {
-                    Some(text.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        let event = crate::hook::ReplyEvent {
-            session_id: plan.session.id.clone(),
-            workspace: plan.workspace.to_string_lossy().into_owned(),
-            agent: plan.session.agent.clone(),
-            text,
-        };
-        let ended = self.hooks.turn_end(&event).await;
-        for (plugin, note) in ended.notes {
-            if let Ok(row) = self
-                .store
-                .add_part(&reply.info.id, &plan.session.id, Part::Context { plugin, text: note })
-            {
-                self.hub.publish(Event::PartCreated { part: row });
-            }
-        }
-        let Some((plugin, reason)) = ended.continued else {
-            return false;
-        };
-        let pick = Pick {
-            model: &plan.model_ref,
-            variant: None,
-            agent: None,
-            sticky: true,
-        };
-        match self.admit_fenced(
-            &plan.session.id,
-            pick,
-            vec![Part::Context { plugin, text: reason }],
-            None,
-            Some(abort),
-            None,
-        ) {
-            Ok(admitted) => {
-                self.announce(&plan.session.id, admitted);
-                *continued += 1;
-                true
-            }
-            Err(_) => false,
         }
     }
 
@@ -1327,7 +1228,7 @@ impl Engine {
         let mut wrapping = None;
         loop {
             if let Err(reason) = self.follow_session(plan).await {
-                self.pause(plan, reason);
+                self.pause(plan, reason.to_string());
                 break;
             }
             let limits = plan.config.limits_for(&plan.session.agent);
@@ -1410,7 +1311,7 @@ impl Engine {
 
     /// Before each request: a model, agent or level a prompt chose since the last one, written on the
     /// session as it landed, becomes the turn's, so the conversation carries on as that choice.
-    async fn follow_session(&self, plan: &mut Plan) -> Result<(), String> {
+    async fn follow_session(&self, plan: &mut Plan) -> Result<(), FollowError> {
         // A command's agent and model last until the user steers in a prompt of their own; from then on the turn is the session's.
         if plan.turn_only {
             let newest = self.store.newest_prompt(&plan.session.id).ok().flatten();
@@ -1435,15 +1336,16 @@ impl Engine {
             return Ok(());
         }
         if session.agent != plan.session.agent {
-            pickable(&plan.config, &session.agent).map_err(|error| error.to_string())?;
+            pickable(&plan.config, &session.agent)?;
         }
         if let Some(model) = model {
-            let resolved = self.resolve_from(&model, &plan.catalog).await.map_err(|error| {
-                format!(
-                    "Could not switch to {}: {error}. Send a message to carry on.",
-                    model.model
-                )
-            })?;
+            let resolved = self
+                .resolve_from(&model, &plan.catalog)
+                .await
+                .map_err(|error| FollowError::Switch {
+                    model: model.model.clone(),
+                    error,
+                })?;
             plan.model_ref = resolved.model_ref;
             plan.model = resolved.model;
             plan.provider = resolved
@@ -1503,94 +1405,6 @@ impl Engine {
         };
         let system = prompt::system(&setting);
         Offer { tools, system }
-    }
-
-    /// Waits out a retry backoff, which the UI shows, unless the user switches the turn to another
-    /// model first; then it retries at once on that model.
-    async fn wait_to_retry(&self, session_id: &str, attempt: u32, retry: &Retry, abort: &CancellationToken) -> Wait {
-        let delay = retry.delay(attempt);
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        self.turns.retry_waits.lock().unwrap().insert(session_id.into(), sender);
-        let next_at = id::now_ms() + delay.as_millis() as i64;
-        self.hub.publish(Event::SessionRetry {
-            session_id: session_id.into(),
-            attempt,
-            message: retry.message.clone(),
-            next_at,
-        });
-        let wait = tokio::select! {
-            () = tokio::time::sleep(delay) => Wait::Elapsed,
-            Ok(switch) = receiver => Wait::Switched(Box::new(switch)),
-            () = abort.cancelled() => Wait::Stopped,
-        };
-        self.turns.retry_waits.lock().unwrap().remove(session_id);
-        self.hub.publish(Event::SessionStatusChanged {
-            session_id: session_id.into(),
-            status: SessionStatus::Running,
-        });
-        wait
-    }
-
-    /// Moves the turn onto a model the user switched to, and makes it, and any variant chosen with it, the session's from now on.
-    fn adopt(&self, plan: &mut Plan, switch: Switch) {
-        let Switch { resolved, variant } = switch;
-        if let Some(variant) = variant {
-            let _ = self.store.set_session_variant(&plan.session.id, variant.as_deref());
-            plan.variant = variant.or_else(|| {
-                plan.config
-                    .agent(&plan.session.agent)
-                    .and_then(|agent| agent.variant.clone())
-            });
-        }
-        plan.model_ref = resolved.model_ref;
-        plan.model = resolved.model;
-        if let Some(running) = self.turns.steering.lock().unwrap().get_mut(&plan.session.id) {
-            *running = Steering::of(plan);
-        }
-        plan.provider = resolved
-            .provider
-            .with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
-        plan.credential = resolved.credential;
-        // The user chose another model, whose tool profile may differ.
-        plan.offer = self.offer(plan);
-        if let Ok(Some(session)) = self
-            .store
-            .update_session(&plan.session.id, None, Some(&plan.model_ref), None)
-        {
-            self.hub.publish(Event::SessionUpdated { session });
-        }
-    }
-
-    /// Switches a turn that is waiting to retry onto `model`. The model and its credential are checked
-    /// here, so a bad choice fails for the caller instead of inside the turn.
-    pub async fn switch_retry_model(
-        &self,
-        session_id: &str,
-        model: &ModelRef,
-        variant: Option<Option<String>>,
-    ) -> Result<(), TurnError> {
-        if !self.turns.retry_waits.lock().unwrap().contains_key(session_id) {
-            return Err(TurnError::NotRetrying);
-        }
-        let running = self
-            .turns
-            .steering
-            .lock()
-            .unwrap()
-            .get(session_id)
-            .cloned()
-            .ok_or(TurnError::NotRetrying)?;
-        let resolved = self.resolve_from(model, &running.catalog).await?;
-        let waiting = self
-            .turns
-            .retry_waits
-            .lock()
-            .unwrap()
-            .remove(session_id)
-            .ok_or(TurnError::NotRetrying)?;
-        waiting
-            .send(Switch { resolved, variant })
-            .map_err(|_| TurnError::NotRetrying)
     }
 
     /// For a subagent, how its turn ended: a stop wins however late it came; otherwise the last
@@ -1756,28 +1570,6 @@ impl Engine {
                 Retry::from(&error).map_or(Step::Done, Step::Retry)
             }
         }
-    }
-
-    /// Persists the message's terminal state. On failure the published state is an error, and the caller stops.
-    fn finish(&self, message: &mut Message) -> rusqlite::Result<()> {
-        message.finished_at = Some(id::now_ms());
-        let saved = self
-            .store
-            .save_message(message)
-            .and_then(|()| self.store.touch_session(&message.session_id));
-        // The sidebar orders by last activity, so a reply landing moves its conversation up.
-        if let (Ok(()), Ok(Some(session))) = (&saved, self.store.session(&message.session_id)) {
-            self.hub.publish(Event::SessionUpdated { session });
-        }
-        if let Err(error) = &saved {
-            message.status = MessageStatus::Error;
-            message.error = Some(format!("response was not persisted ({error})"));
-            let _ = self.store.save_message(message);
-        }
-        self.hub.publish(Event::MessageUpdated {
-            message: message.clone(),
-        });
-        saved
     }
 
     /// Opens the response. A refused sign-in is renewed once and the request sent again; the turn keeps the new token.
@@ -2038,87 +1830,6 @@ impl Engine {
         } else {
             Outcome::Allowed
         }
-    }
-
-    /// A plugin may refuse the call or change its input; a changed input must still fit the tool. Says whether it changed.
-    async fn hook_before(
-        &self,
-        scope: &CallScope<'_>,
-        row: &mut PartRow,
-        name: &str,
-        schema: &serde_json::Value,
-        input: serde_json::Value,
-    ) -> Result<(serde_json::Value, bool), Outcome> {
-        if self.hooks.is_empty() {
-            return Ok((input, false));
-        }
-        let call = crate::hook::ToolCall {
-            session_id: scope.plan.session.id.clone(),
-            workspace: scope.plan.workspace.to_string_lossy().into_owned(),
-            agent: scope.plan.session.agent.clone(),
-            tool: name.to_owned(),
-            input,
-        };
-        let (call, denied) = self.hooks.before_tool(call).await;
-        if let Some((plugin, reason)) = denied {
-            self.settle(
-                row,
-                ToolStatus::Error,
-                None,
-                format!("The {plugin} plugin refused this call: {reason}"),
-                None,
-            );
-            return Err(Outcome::Allowed);
-        }
-        let Part::ToolCall { input: stored, .. } = &mut row.part else {
-            return Ok((call.input, false));
-        };
-        if *stored == call.input {
-            return Ok((call.input, false));
-        }
-        let problems = crate::tool::schema::problems(schema, &call.input);
-        if !problems.is_empty() {
-            self.settle(
-                row,
-                ToolStatus::Error,
-                None,
-                format!(
-                    "A plugin changed the call so it no longer fits the tool: {}.",
-                    problems.join("; ")
-                ),
-                None,
-            );
-            return Err(Outcome::Allowed);
-        }
-        stored.clone_from(&call.input);
-        Ok((call.input, true))
-    }
-
-    /// A plugin may replace what the model reads or add a note under it.
-    async fn hook_after(
-        &self,
-        scope: &CallScope<'_>,
-        name: &str,
-        input: Option<serde_json::Value>,
-        failed: bool,
-        text: String,
-        mut meta: ToolMetadata,
-    ) -> (String, ToolMetadata) {
-        let Some(input) = input else { return (text, meta) };
-        let result = crate::hook::ToolResult {
-            session_id: scope.plan.session.id.clone(),
-            workspace: scope.plan.workspace.to_string_lossy().into_owned(),
-            agent: scope.plan.session.agent.clone(),
-            tool: name.to_owned(),
-            input,
-            output: text,
-            failed,
-        };
-        let (mut text, notes) = self.hooks.after_tool(result).await;
-        for note in notes {
-            crate::tool::add_note(&mut text, &mut meta, &note);
-        }
-        (text, meta)
     }
 
     /// Holds named files before preparing their approval preview, until the call is recorded.
@@ -2471,159 +2182,6 @@ impl Engine {
             .map_err(|_| "it could not be kept".to_string())?;
         Ok(crate::tool::image::Stored { mime: image.mime, hash })
     }
-
-    /// Publishes a running call's part with what it reports merged into its metadata; nothing is stored.
-    fn progress_for(self: &Arc<Self>, row: &PartRow) -> crate::tool::Progress {
-        let engine = Arc::downgrade(self);
-        let running = Mutex::new(row.clone());
-        crate::tool::Progress::new(move |patch| {
-            let Some(engine) = engine.upgrade() else { return };
-            let mut row = running.lock().unwrap();
-            if let Part::ToolCall { metadata, .. } = &mut row.part {
-                *metadata = metadata.take().unwrap_or_default().merged(Some(patch)).map(Box::new);
-            }
-            engine.hub.publish_transient(Event::PartUpdated { part: row.clone() });
-        })
-    }
-
-    /// Marks the call running in storage before it does anything; a call that cannot be recorded does not run.
-    fn start_call(&self, row: &mut PartRow) -> rusqlite::Result<()> {
-        if let Part::ToolCall { status, started_at, .. } = &mut row.part {
-            *status = ToolStatus::Running;
-            *started_at = Some(id::now_ms());
-        }
-        self.store.save_part(row)?;
-        self.hub.publish(Event::PartUpdated { part: row.clone() });
-        Ok(())
-    }
-
-    /// Ends the turn by itself, visibly: a reply-less message whose `error` is the reason.
-    /// After the wrap-up reply a conversation pauses with the reason; a subagent's reply is its result.
-    fn end_wrap_up(&self, plan: &Plan, wrapping: Option<WrapUp>) {
-        if let Some(wrap_up) = wrapping.filter(|_| plan.session.visibility != Visibility::Hidden) {
-            self.pause(plan, wrap_up.pause_reason());
-        }
-    }
-
-    fn pause(&self, plan: &Plan, reason: String) {
-        let Ok(mut message) = self
-            .store
-            .create_reply(&plan.session.id, &plan.model_ref, &plan.session.agent)
-        else {
-            return;
-        };
-        self.hub.publish(Event::MessageCreated {
-            message: message.clone(),
-        });
-        message.status = MessageStatus::Paused;
-        message.error = Some(reason);
-        let _ = self.finish(&mut message);
-    }
-
-    /// The calls the session's latest reply made, with their inputs and results.
-    fn last_calls(&self, session_id: &str) -> Vec<CallTrace> {
-        let Ok(Some(last)) = self.store.last_reply(session_id) else {
-            return Vec::new();
-        };
-        last.parts
-            .iter()
-            .filter_map(|row| match &row.part {
-                Part::ToolCall {
-                    name, input, output, ..
-                } => Some(CallTrace {
-                    name: name.clone(),
-                    input: input.to_string(),
-                    output: output.clone().unwrap_or_default(),
-                }),
-                _ => None,
-            })
-            .collect()
-    }
-
-    /// Closes the calls a message made that will never run, with the reason, so none stays pending.
-    fn settle_unrun(&self, message: &Message, reason: &str) {
-        let Ok(Some(found)) = self.store.with_parts(&message.id) else {
-            return;
-        };
-        for mut row in found.parts {
-            if matches!(
-                row.part,
-                Part::ToolCall {
-                    status: ToolStatus::Pending,
-                    ..
-                }
-            ) {
-                self.settle(&mut row, ToolStatus::Error, None, format!("Not run: {reason}"), None);
-            }
-        }
-    }
-
-    /// Writes the outcome. If that write fails, what is published is the failure, never a success the store lacks.
-    fn settle(
-        &self,
-        row: &mut PartRow,
-        new_status: ToolStatus,
-        new_title: Option<String>,
-        text: String,
-        meta: Option<ToolMetadata>,
-    ) {
-        self.settle_delivering(row, new_status, new_title, text, meta, None);
-    }
-
-    /// [`Self::settle`] that also marks `delivers` handed over in the same write; a failed write leaves it owed.
-    pub(super) fn settle_delivering(
-        &self,
-        row: &mut PartRow,
-        new_status: ToolStatus,
-        new_title: Option<String>,
-        text: String,
-        meta: Option<ToolMetadata>,
-        delivers: Option<&str>,
-    ) {
-        if let Part::ToolCall {
-            status,
-            title,
-            output,
-            metadata,
-            finished_at,
-            ..
-        } = &mut row.part
-        {
-            *status = new_status;
-            *title = new_title.or(title.take());
-            *output = Some(text);
-            let command = metadata
-                .as_ref()
-                .and_then(|meta| meta.engine_command.as_deref())
-                .map(str::to_string);
-            let mut value = meta.unwrap_or_else(ToolMetadata::null);
-            value.engine_command = None;
-            value.extra.remove("engineCommand");
-            if let Some(command) = command {
-                if value.legacy.is_some() {
-                    value = ToolMetadata::default();
-                }
-                value.engine_command = Some(command);
-            }
-            *metadata = (!value.is_null()).then(|| Box::new(value));
-            *finished_at = Some(id::now_ms());
-        }
-        let saved = match delivers {
-            Some(task) => self.store.save_part_delivering(row, task).map(|_| ()),
-            None => self.store.save_part(row),
-        };
-        if let Err(error) = &saved {
-            if let Part::ToolCall { status, output, .. } = &mut row.part {
-                *status = ToolStatus::Error;
-                *output = Some(format!("result was not persisted ({error}); treat this call as failed"));
-            }
-            let _ = self.store.save_part(row);
-        }
-        self.hub.publish(Event::PartUpdated { part: row.clone() });
-        if let (Some(task), Ok(())) = (delivers, saved) {
-            self.publish_task(task);
-        }
-    }
 }
 
 enum Step {
@@ -2715,53 +2273,6 @@ fn waits(call: &CallTrace) -> bool {
         && command
             .split(|c: char| !c.is_ascii_alphanumeric() && c != '-')
             .any(|word| WAITS.contains(&word))
-}
-
-pub(super) struct Retry {
-    /// The provider's words, for the UI.
-    message: String,
-    /// The wait the provider asked for, if it named one.
-    after: Option<Duration>,
-}
-
-impl Retry {
-    pub(super) fn from(error: &llm::Error) -> Option<Self> {
-        match error {
-            llm::Error::Api {
-                retryable: true,
-                retry_after,
-                ..
-            } => Some(Self {
-                message: error.to_string(),
-                after: *retry_after,
-            }),
-            llm::Error::Transport(_) => Some(Self {
-                message: error.to_string(),
-                after: None,
-            }),
-            _ => None,
-        }
-    }
-
-    /// Worth waiting for: attempts remain and the provider did not ask for longer than we will wait.
-    pub(super) fn message(&self) -> &str {
-        &self.message
-    }
-
-    pub(super) fn allowed(&self, retries: u32) -> bool {
-        retries < MAX_RETRIES && self.after.is_none_or(|after| after <= MAX_REQUESTED_WAIT)
-    }
-
-    /// The provider's wait when it named one, else doubling backoff with jitter, capped.
-    pub(super) fn delay(&self, attempt: u32) -> Duration {
-        if let Some(after) = self.after {
-            return after;
-        }
-        let doubled = RETRY_BASE.saturating_mul(1 << attempt.saturating_sub(1).min(16));
-        let mut byte = [0u8; 1];
-        let _ = getrandom::fill(&mut byte);
-        doubled.mul_f64(0.8 + 0.4 * f64::from(byte[0]) / 255.0).min(MAX_BACKOFF)
-    }
 }
 
 enum Wait {

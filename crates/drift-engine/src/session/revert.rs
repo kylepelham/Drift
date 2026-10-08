@@ -39,6 +39,27 @@ impl From<rusqlite::Error> for RevertError {
     }
 }
 
+#[derive(Debug, thiserror::Error)]
+enum MarkError {
+    #[error("{0}")]
+    Store(#[from] rusqlite::Error),
+    #[error("the session is gone")]
+    Gone,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum ShiftError {
+    #[error("{0}")]
+    Current(#[from] super::snapshot::Error),
+    #[error("{path}: {error}")]
+    Put {
+        path: String,
+        error: super::snapshot::Error,
+    },
+    #[error("could not save the conversation's undo point ({0})")]
+    Mark(MarkError),
+}
+
 /// The session after an undo or redo, and the files it left alone.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct Undone {
@@ -242,12 +263,7 @@ impl Engine {
                 unattributed: shifted.unattributed,
                 unrecorded: shifted.unrecorded,
             }),
-            Err(error) => Err(self
-                .put_back(
-                    shifted.applied,
-                    format!("could not save the conversation's undo point ({error})"),
-                )
-                .await),
+            Err(error) => Err(self.put_back(shifted.applied, ShiftError::Mark(error)).await),
         }
     }
 
@@ -304,7 +320,7 @@ impl Engine {
         net: Net,
         direction: &Direction,
         shifted: &mut Shifted,
-    ) -> Result<Option<Applied>, String> {
+    ) -> Result<Option<Applied>, ShiftError> {
         if net.observed {
             shifted.unattributed.push(net.path);
             return Ok(None);
@@ -324,11 +340,7 @@ impl Engine {
             return Ok(None);
         };
         let path = file.to_string_lossy().into_owned();
-        let current = self
-            .snapshots
-            .current(&previous_workspace, &path)
-            .await
-            .map_err(|e| e.to_string())?;
+        let current = self.snapshots.current(&previous_workspace, &path).await?;
         if current != expected.blob {
             shifted.kept.push(net.path);
             return Ok(None);
@@ -336,7 +348,10 @@ impl Engine {
         self.snapshots
             .put(&self.store, &target_workspace, &path, target.blob.as_deref())
             .await
-            .map_err(|e| format!("{}: {e}", net.path))?;
+            .map_err(|error| ShiftError::Put {
+                path: net.path.clone(),
+                error,
+            })?;
         Ok(Some(Applied {
             workspace: previous_workspace,
             path,
@@ -345,7 +360,7 @@ impl Engine {
     }
 
     /// Returns the paths a failed shift already changed to their content before it, newest first; the shift still holds their turns.
-    async fn put_back(&self, applied: Vec<Applied>, error: String) -> RevertError {
+    async fn put_back(&self, applied: Vec<Applied>, error: ShiftError) -> RevertError {
         let mut stuck = Vec::new();
         for Applied {
             workspace,
@@ -423,12 +438,8 @@ impl Engine {
         Ok((net, unrecorded))
     }
 
-    fn mark(&self, session_id: &str, revert: Option<&Revert>) -> Result<Session, String> {
-        let session = self
-            .store
-            .set_revert(session_id, revert)
-            .map_err(|e| e.to_string())?
-            .ok_or("the session is gone")?;
+    fn mark(&self, session_id: &str, revert: Option<&Revert>) -> Result<Session, MarkError> {
+        let session = self.store.set_revert(session_id, revert)?.ok_or(MarkError::Gone)?;
         // Undone messages may hold a check's full output; the next report must not lean on it.
         self.turns.forget_checked(session_id);
         self.hub.publish(Event::SessionUpdated {
