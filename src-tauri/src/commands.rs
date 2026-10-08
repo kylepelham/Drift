@@ -19,6 +19,7 @@ pub(crate) async fn session_search(
     tauri::async_runtime::spawn_blocking(move || session_search::search(&database, &query, &directory))
         .await
         .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 fn storage_location(native: &crate::native::Native) -> storage::Location {
@@ -38,6 +39,7 @@ pub(crate) async fn storage_stats(
     tauri::async_runtime::spawn_blocking(move || storage::stats(&location, &archived))
         .await
         .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 /// The engine's housekeeping now: undo history and images nothing refers to, shell output past its week.
@@ -49,6 +51,7 @@ pub(crate) async fn storage_prune(native: State<'_, crate::native::Native>) -> R
     tauri::async_runtime::spawn_blocking(move || storage::cleaned(&location, before, images))
         .await
         .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 /// Gives the database's free pages back to the disk; refused while a conversation runs.
@@ -61,6 +64,7 @@ pub(crate) async fn storage_compact(native: State<'_, crate::native::Native>) ->
     tauri::async_runtime::spawn_blocking(move || storage::compact(&location))
         .await
         .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

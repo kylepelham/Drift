@@ -23,6 +23,14 @@ const PAYLOAD_TABLES: [(&str, &str); 2] = [("part", "json"), ("blob", "data")];
 /// The engine's folders beside the database, by the name the UI shows them under.
 const FOLDERS: [(&str, &str); 2] = [("undo", "snapshots"), ("output", "tool-output")];
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StorageError {
+    #[error(transparent)]
+    Database(#[from] rusqlite::Error),
+    #[error("could not compact the database (it is in use): {0}")]
+    Compact(#[source] rusqlite::Error),
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct TableUsage {
@@ -104,29 +112,29 @@ fn folder_bytes(path: &Path) -> i64 {
         .sum()
 }
 
-fn open(database: &Path, read_only: bool) -> Result<Connection, String> {
+fn open(database: &Path, read_only: bool) -> Result<Connection, StorageError> {
     let flags = if read_only {
         OpenFlags::SQLITE_OPEN_READ_ONLY
     } else {
         OpenFlags::SQLITE_OPEN_READ_WRITE
     };
-    let conn = Connection::open_with_flags(database, flags).map_err(|error| error.to_string())?;
-    conn.busy_timeout(BUSY_TIMEOUT).map_err(|error| error.to_string())?;
+    let conn = Connection::open_with_flags(database, flags)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+
     Ok(conn)
 }
 
-fn scalar(conn: &Connection, sql: &str) -> Result<i64, String> {
-    conn.query_row(sql, [], |row| row.get::<_, Option<i64>>(0))
-        .map(|value| value.unwrap_or(0))
-        .map_err(|error| error.to_string())
+fn scalar(conn: &Connection, sql: &str) -> Result<i64, StorageError> {
+    let value = conn.query_row(sql, [], |row| row.get::<_, Option<i64>>(0))?;
+    Ok(value.unwrap_or(0))
 }
 
-fn free_bytes(conn: &Connection) -> Result<i64, String> {
+fn free_bytes(conn: &Connection) -> Result<i64, StorageError> {
     Ok(scalar(conn, "PRAGMA freelist_count")? * scalar(conn, "PRAGMA page_size")?)
 }
 
 /// Mean payload size for a column, sampled from evenly spaced windows of the table.
-fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f64, String> {
+fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f64, StorageError> {
     let max_rowid = scalar(conn, &format!("SELECT MAX(rowid) FROM \"{table}\""))?;
     if max_rowid == 0 {
         return Ok(0.0);
@@ -140,11 +148,10 @@ fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f6
                  SELECT \"{column}\" FROM \"{table}\" WHERE rowid >= ?1 LIMIT ?2
              )"
         );
-        let (bytes, counted): (i64, i64) = conn
-            .query_row(&sql, (stratum * stride, SAMPLE_ROWS_PER_STRATUM), |row| {
+        let (bytes, counted): (i64, i64) =
+            conn.query_row(&sql, (stratum * stride, SAMPLE_ROWS_PER_STRATUM), |row| {
                 Ok((row.get(0)?, row.get(1)?))
-            })
-            .map_err(|error| error.to_string())?;
+            })?;
         total += bytes;
         rows += counted;
     }
@@ -152,7 +159,7 @@ fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f6
 }
 
 /// A conversation counts as archived when the engine marks it or Drift's archive list names it.
-fn session_counts(conn: &Connection, archived: &[String]) -> Result<SessionCounts, String> {
+fn session_counts(conn: &Connection, archived: &[String]) -> Result<SessionCounts, StorageError> {
     let listed = quote_list(archived);
     let extra = if listed.is_empty() {
         String::new()
@@ -179,7 +186,7 @@ fn quote_list(ids: &[String]) -> String {
         .join(",")
 }
 
-pub(crate) fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, String> {
+pub(crate) fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, StorageError> {
     let conn = open(&location.database(), true)?;
     let mut tables = Vec::new();
     for (table, column) in PAYLOAD_TABLES {
@@ -209,7 +216,7 @@ pub(crate) fn stats(location: &Location, archived: &[String]) -> Result<StorageS
 }
 
 /// What a cleanup took away, measured around it.
-pub(crate) fn cleaned(location: &Location, before: i64, images: usize) -> Result<PruneResult, String> {
+pub(crate) fn cleaned(location: &Location, before: i64, images: usize) -> Result<PruneResult, StorageError> {
     let conn = open(&location.database(), true)?;
     Ok(PruneResult {
         removed_rows: images as i64,
@@ -224,11 +231,10 @@ pub(crate) fn total_bytes(location: &Location) -> i64 {
 
 /// Rewrites the database to give its free pages back to the disk. The caller refuses while a
 /// conversation runs: the rewrite holds the database for its whole length.
-pub(crate) fn compact(location: &Location) -> Result<PruneResult, String> {
+pub(crate) fn compact(location: &Location) -> Result<PruneResult, StorageError> {
     let before = location.total_bytes();
     let conn = open(&location.database(), false)?;
-    conn.execute_batch("VACUUM")
-        .map_err(|error| format!("could not compact the database (it is in use): {error}"))?;
+    conn.execute_batch("VACUUM").map_err(StorageError::Compact)?;
     // The rewrite went through the log; folding it back is what makes the file smaller on disk.
     let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
     Ok(PruneResult {

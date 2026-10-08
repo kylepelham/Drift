@@ -16,6 +16,19 @@ const CA_FILE: &str = "remote-access-ca.pem";
 const CA_KEY_FILE: &str = "remote-access-ca-key.pem";
 const CA_NAME: &str = "Drift Remote Access";
 const CA_YEARS: i64 = 10;
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum TlsError {
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Certificate(#[from] rcgen::Error),
+    #[error(transparent)]
+    Pem(#[from] rustls::pki_types::pem::Error),
+    #[error(transparent)]
+    Config(#[from] rustls::Error),
+}
+
 /// Apple rejects TLS leaf certificates valid for more than 825 days, even from user-trusted roots.
 const LEAF_DAYS: i64 = 397;
 /// The CA may only vouch for private-network addresses, so trusting it cannot expose public sites.
@@ -37,14 +50,15 @@ pub(crate) struct Tls {
 }
 
 impl Tls {
-    pub(crate) fn load_or_create(directory: &Path) -> Result<Self, String> {
-        std::fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    pub(crate) fn load_or_create(directory: &Path) -> Result<Self, TlsError> {
+        std::fs::create_dir_all(directory)?;
         let (ca_pem, key_pem) = match read_pair(directory) {
             Some(pair) => pair,
             None => create_pair(directory)?,
         };
-        let key = KeyPair::from_pem(&key_pem).map_err(|error| error.to_string())?;
-        let ca = CertificateDer::from_pem_slice(ca_pem.as_bytes()).map_err(|error| error.to_string())?;
+        let key = KeyPair::from_pem(&key_pem)?;
+        let ca = CertificateDer::from_pem_slice(ca_pem.as_bytes())?;
+
         Ok(Self {
             fingerprint: fingerprint(&ca),
             ca,
@@ -63,7 +77,7 @@ impl Tls {
     }
 
     /// Server configuration whose leaf names the address the client connected to.
-    pub(crate) fn config_for(&self, address: IpAddr) -> Result<Arc<ServerConfig>, String> {
+    pub(crate) fn config_for(&self, address: IpAddr) -> Result<Arc<ServerConfig>, TlsError> {
         if let Some(config) = self.configs.lock().unwrap().get(&address) {
             return Ok(config.clone());
         }
@@ -72,20 +86,18 @@ impl Tls {
         Ok(config)
     }
 
-    fn server_config(&self, address: IpAddr) -> Result<ServerConfig, String> {
+    fn server_config(&self, address: IpAddr) -> Result<ServerConfig, TlsError> {
         let (chain, private) = self.leaf(address)?;
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let mut config = ServerConfig::builder_with_provider(provider)
-            .with_safe_default_protocol_versions()
-            .map_err(|error| error.to_string())?
+            .with_safe_default_protocol_versions()?
             .with_no_client_auth()
-            .with_single_cert(chain, private.into())
-            .map_err(|error| error.to_string())?;
+            .with_single_cert(chain, private.into())?;
         config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
         Ok(config)
     }
 
-    fn leaf(&self, address: IpAddr) -> Result<(Vec<CertificateDer<'static>>, PrivatePkcs8KeyDer<'static>), String> {
+    fn leaf(&self, address: IpAddr) -> Result<(Vec<CertificateDer<'static>>, PrivatePkcs8KeyDer<'static>), TlsError> {
         let now = OffsetDateTime::now_utc();
         let mut params = CertificateParams::default();
         params.distinguished_name.push(DnType::CommonName, address.to_string());
@@ -98,10 +110,8 @@ impl Tls {
         params.use_authority_key_identifier_extension = true;
         params.not_before = now - Duration::days(1);
         params.not_after = now + Duration::days(LEAF_DAYS);
-        let key = KeyPair::generate().map_err(|error| error.to_string())?;
-        let leaf = params
-            .signed_by(&key, &self.issuer)
-            .map_err(|error| error.to_string())?;
+        let key = KeyPair::generate()?;
+        let leaf = params.signed_by(&key, &self.issuer)?;
         let chain = vec![leaf.der().clone(), self.ca.clone()];
         Ok((chain, PrivatePkcs8KeyDer::from(key.serialize_der())))
     }
@@ -138,16 +148,14 @@ fn read_pair(directory: &Path) -> Option<(String, String)> {
     Some((ca, key))
 }
 
-fn create_pair(directory: &Path) -> Result<(String, String), String> {
-    let key = KeyPair::generate().map_err(|error| error.to_string())?;
-    let ca = ca_params(OffsetDateTime::now_utc())
-        .self_signed(&key)
-        .map_err(|error| error.to_string())?;
+fn create_pair(directory: &Path) -> Result<(String, String), TlsError> {
+    let key = KeyPair::generate()?;
+    let ca = ca_params(OffsetDateTime::now_utc()).self_signed(&key)?;
     let (ca_pem, key_pem) = (ca.pem(), key.serialize_pem());
-    drift_engine::platform::private_file::write(&directory.join(CA_KEY_FILE), key_pem.as_bytes())
-        .map_err(|error| error.to_string())?;
-    drift_engine::platform::private_file::write(&directory.join(CA_FILE), ca_pem.as_bytes())
-        .map_err(|error| error.to_string())?;
+
+    drift_engine::platform::private_file::write(&directory.join(CA_KEY_FILE), key_pem.as_bytes())?;
+    drift_engine::platform::private_file::write(&directory.join(CA_FILE), ca_pem.as_bytes())?;
+
     Ok((ca_pem, key_pem))
 }
 

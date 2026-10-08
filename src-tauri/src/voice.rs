@@ -18,6 +18,34 @@ const SAMPLE_RATE: u32 = 16_000;
 const MAX_AUDIO_BYTES: usize = SAMPLE_RATE as usize * 2 * 180;
 const PROGRESS_STEP: u64 = 2 * 1024 * 1024;
 
+#[derive(Debug, thiserror::Error)]
+enum VoiceError {
+    #[error("unknown voice model: {0}")]
+    UnknownModel(String),
+    #[error("model download failed with status {0}")]
+    DownloadStatus(reqwest::StatusCode),
+    #[error("cancelled")]
+    Cancelled,
+    #[error("downloaded model failed its checksum")]
+    Checksum,
+    #[error("the speech model is not downloaded")]
+    ModelMissing,
+    #[error("the speech recognizer is missing from this build")]
+    RecognizerMissing,
+    #[error("unusable audio length")]
+    InvalidAudio,
+    #[error("{0}")]
+    Transcription(String),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Http(#[from] reqwest::Error),
+    #[error(transparent)]
+    Tauri(#[from] tauri::Error),
+    #[error(transparent)]
+    Audio(#[from] base64::DecodeError),
+}
+
 struct ModelSpec {
     id: &'static str,
     file: &'static str,
@@ -66,24 +94,21 @@ struct VoiceProgress {
     total: u64,
 }
 
-fn spec(id: &str) -> Result<&'static ModelSpec, String> {
+fn spec(id: &str) -> Result<&'static ModelSpec, VoiceError> {
     MODELS
         .iter()
         .find(|model| model.id == id)
-        .ok_or_else(|| format!("unknown voice model: {id}"))
+        .ok_or_else(|| VoiceError::UnknownModel(id.to_string()))
 }
 
-fn model_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?
-        .join("voice-models");
-    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+fn model_dir(app: &tauri::AppHandle) -> Result<PathBuf, VoiceError> {
+    let dir = app.path().app_data_dir()?.join("voice-models");
+    std::fs::create_dir_all(&dir)?;
+
     Ok(dir)
 }
 
-fn model_path(app: &tauri::AppHandle, model: &ModelSpec) -> Result<PathBuf, String> {
+fn model_path(app: &tauri::AppHandle, model: &ModelSpec) -> Result<PathBuf, VoiceError> {
     Ok(model_dir(app)?.join(model.file))
 }
 
@@ -131,7 +156,7 @@ pub(crate) fn voice_acceleration() -> bool {
 
 #[tauri::command]
 pub(crate) fn voice_models(app: tauri::AppHandle) -> Result<Vec<VoiceModel>, String> {
-    let dir = model_dir(&app)?;
+    let dir = model_dir(&app).map_err(|error| error.to_string())?;
     Ok(MODELS
         .iter()
         .map(|model| VoiceModel {
@@ -144,7 +169,8 @@ pub(crate) fn voice_models(app: tauri::AppHandle) -> Result<Vec<VoiceModel>, Str
 
 #[tauri::command]
 pub(crate) fn voice_model_remove(app: tauri::AppHandle, id: String) -> Result<(), String> {
-    let path = model_path(&app, spec(&id)?)?;
+    let model = spec(&id).map_err(|error| error.to_string())?;
+    let path = model_path(&app, model).map_err(|error| error.to_string())?;
     if !path.exists() {
         return Ok(());
     }
@@ -162,19 +188,25 @@ pub(crate) async fn voice_model_download(
     download: State<'_, VoiceDownload>,
     id: String,
 ) -> Result<(), String> {
-    let model = spec(&id)?;
-    let destination = model_path(&app, model)?;
+    download_model(&app, &download, &id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn download_model(app: &tauri::AppHandle, download: &VoiceDownload, id: &str) -> Result<(), VoiceError> {
+    let model = spec(id)?;
+    let destination = model_path(app, model)?;
     if destination.is_file() {
         return Ok(());
     }
     download.0.store(false, Ordering::Relaxed);
     let partial = destination.with_extension("part");
-    let result = fetch_model(&app, &download, model, &partial).await;
+    let result = fetch_model(app, download, model, &partial).await;
     if result.is_err() {
         let _ = std::fs::remove_file(&partial);
         return result;
     }
-    std::fs::rename(&partial, &destination).map_err(|error| error.to_string())
+    Ok(std::fs::rename(&partial, &destination)?)
 }
 
 async fn fetch_model(
@@ -182,25 +214,23 @@ async fn fetch_model(
     download: &VoiceDownload,
     model: &ModelSpec,
     partial: &PathBuf,
-) -> Result<(), String> {
-    let response = reqwest::get(format!("{HOST}/{}", model.file))
-        .await
-        .map_err(|error| error.to_string())?;
+) -> Result<(), VoiceError> {
+    let response = reqwest::get(format!("{HOST}/{}", model.file)).await?;
     if !response.status().is_success() {
-        return Err(format!("model download failed with status {}", response.status()));
+        return Err(VoiceError::DownloadStatus(response.status()));
     }
     let total = response.content_length().unwrap_or(model.bytes);
-    let mut file = std::fs::File::create(partial).map_err(|error| error.to_string())?;
+    let mut file = std::fs::File::create(partial)?;
     let mut hasher = Sha1::new();
     let mut received = 0u64;
     let mut announced = 0u64;
     let mut response = response;
-    while let Some(chunk) = response.chunk().await.map_err(|error| error.to_string())? {
+    while let Some(chunk) = response.chunk().await? {
         if download.0.load(Ordering::Relaxed) {
-            return Err("cancelled".into());
+            return Err(VoiceError::Cancelled);
         }
         hasher.update(&chunk);
-        file.write_all(&chunk).map_err(|error| error.to_string())?;
+        file.write_all(&chunk)?;
         received += chunk.len() as u64;
         if received - announced < PROGRESS_STEP && received < total {
             continue;
@@ -215,14 +245,14 @@ async fn fetch_model(
             },
         );
     }
-    file.flush().map_err(|error| error.to_string())?;
+    file.flush()?;
     let digest = hasher.finalize();
     let mut actual = String::with_capacity(digest.len() * 2);
     for byte in digest {
         write!(actual, "{byte:02x}").unwrap();
     }
     if actual != model.sha1 {
-        return Err("downloaded model failed its checksum".into());
+        return Err(VoiceError::Checksum);
     }
     Ok(())
 }
@@ -235,18 +265,28 @@ pub(crate) async fn voice_transcribe(
     language: String,
     prompt: String,
 ) -> Result<String, String> {
-    let model = spec(&id)?;
-    let model_file = model_path(&app, model)?;
+    transcribe(&app, &id, audio, language, prompt)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+async fn transcribe(
+    app: &tauri::AppHandle,
+    id: &str,
+    audio: String,
+    language: String,
+    prompt: String,
+) -> Result<String, VoiceError> {
+    let model = spec(id)?;
+    let model_file = model_path(app, model)?;
     if !model_file.is_file() {
-        return Err("the speech model is not downloaded".into());
+        return Err(VoiceError::ModelMissing);
     }
-    let binary = whisper_binary().ok_or("the speech recognizer is missing from this build")?;
+    let binary = whisper_binary().ok_or(VoiceError::RecognizerMissing)?;
     let fallback = sidecar("whisper-cli").filter(|path| *path != binary);
-    let samples = base64::engine::general_purpose::STANDARD
-        .decode(audio)
-        .map_err(|error| error.to_string())?;
+    let samples = base64::engine::general_purpose::STANDARD.decode(audio)?;
     if samples.is_empty() || samples.len() > MAX_AUDIO_BYTES {
-        return Err("unusable audio length".into());
+        return Err(VoiceError::InvalidAudio);
     }
     tauri::async_runtime::spawn_blocking(move || {
         let attempt = run_whisper(&binary, &model_file, &samples, &language, &prompt);
@@ -259,8 +299,7 @@ pub(crate) async fn voice_transcribe(
             (attempt, _) => attempt,
         }
     })
-    .await
-    .map_err(|error| error.to_string())?
+    .await?
 }
 
 fn run_whisper(
@@ -269,7 +308,7 @@ fn run_whisper(
     samples: &[u8],
     language: &str,
     prompt: &str,
-) -> Result<String, String> {
+) -> Result<String, VoiceError> {
     let wav = std::env::temp_dir().join(format!(
         "drift-voice-{}-{:?}.wav",
         std::process::id(),
@@ -294,16 +333,18 @@ fn run_whisper(
     }
     let output = command.output();
     let _ = std::fs::remove_file(&wav);
-    let output = output.map_err(|error| error.to_string())?;
+    let output = output?;
     if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+        return Err(VoiceError::Transcription(
+            String::from_utf8_lossy(&output.stderr).trim().to_string(),
+        ));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Minimal 16-bit mono PCM header; the sidecar reads files rather than a stream.
-fn write_wav(path: &PathBuf, samples: &[u8]) -> Result<(), String> {
-    let mut file = std::fs::File::create(path).map_err(|error| error.to_string())?;
+fn write_wav(path: &PathBuf, samples: &[u8]) -> std::io::Result<()> {
+    let mut file = std::fs::File::create(path)?;
     let data = samples.len() as u32;
     let byte_rate = SAMPLE_RATE * 2;
     let mut header = Vec::with_capacity(44);
@@ -319,9 +360,9 @@ fn write_wav(path: &PathBuf, samples: &[u8]) -> Result<(), String> {
     header.extend_from_slice(&16u16.to_le_bytes());
     header.extend_from_slice(b"data");
     header.extend_from_slice(&data.to_le_bytes());
-    file.write_all(&header).map_err(|error| error.to_string())?;
-    file.write_all(samples).map_err(|error| error.to_string())?;
-    file.flush().map_err(|error| error.to_string())
+    file.write_all(&header)?;
+    file.write_all(samples)?;
+    file.flush()
 }
 
 #[cfg(test)]

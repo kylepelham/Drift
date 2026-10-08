@@ -409,15 +409,12 @@ fn now_ms() -> i64 {
         .map_or(0, |elapsed| elapsed.as_millis() as i64)
 }
 
-fn client() -> Result<&'static reqwest::Client, String> {
+fn client() -> Result<&'static reqwest::Client, reqwest::Error> {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     if let Some(client) = CLIENT.get() {
         return Ok(client);
     }
-    let built = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .map_err(|error| error.to_string())?;
+    let built = reqwest::Client::builder().timeout(REQUEST_TIMEOUT).build()?;
     Ok(CLIENT.get_or_init(|| built))
 }
 
@@ -458,7 +455,8 @@ pub(crate) async fn provider_usage(
     let Some(request) = request(source, &credential) else {
         return Ok(None);
     };
-    let mut builder = client()?
+    let mut builder = client()
+        .map_err(|error| error.to_string())?
         .get(request.url)
         .header("User-Agent", concat!("drift/", env!("CARGO_PKG_VERSION")));
     for (name, value) in request.headers {

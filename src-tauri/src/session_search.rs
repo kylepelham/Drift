@@ -37,10 +37,10 @@ pub(crate) struct SessionMatch {
     pub excerpt: String,
 }
 
-fn open(database: &Path) -> Result<Connection, String> {
-    let conn =
-        Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|error| error.to_string())?;
-    conn.busy_timeout(BUSY_TIMEOUT).map_err(|error| error.to_string())?;
+fn open(database: &Path) -> rusqlite::Result<Connection> {
+    let conn = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+
     Ok(conn)
 }
 
@@ -106,11 +106,11 @@ pub(crate) fn excerpt(text: &str, query: &str) -> String {
 ///
 /// An empty `directory` searches every workspace on the sidebar. Subagent sessions are excluded:
 /// their work is reachable from the parent thread, and listing both would return it twice.
-pub(crate) fn search(database: &Path, query: &str, directory: &str) -> Result<Vec<SessionMatch>, String> {
+pub(crate) fn search(database: &Path, query: &str, directory: &str) -> rusqlite::Result<Vec<SessionMatch>> {
     search_in(&open(database)?, query, directory)
 }
 
-pub(crate) fn search_in(conn: &Connection, query: &str, directory: &str) -> Result<Vec<SessionMatch>, String> {
+pub(crate) fn search_in(conn: &Connection, query: &str, directory: &str) -> rusqlite::Result<Vec<SessionMatch>> {
     let trimmed = query.trim();
     if trimmed.chars().count() < MIN_QUERY_CHARS {
         return Ok(Vec::new());
@@ -119,9 +119,8 @@ pub(crate) fn search_in(conn: &Connection, query: &str, directory: &str) -> Resu
     let pattern = format!("%{}%", escape_like(&needle));
     let scope = normalize_directory(directory);
 
-    let mut statement = conn
-        .prepare(
-            "WITH recent AS (
+    let mut statement = conn.prepare(
+        "WITH recent AS (
                 SELECT session.id, session.title, workspace.path AS directory, session.updated_at
                 FROM session JOIN workspace ON workspace.id = session.workspace_id
                 WHERE session.visibility = 'sibling' AND workspace.removed_at IS NULL
@@ -137,28 +136,25 @@ pub(crate) fn search_in(conn: &Connection, query: &str, directory: &str) -> Resu
             WHERE part.json LIKE ?3 ESCAPE '\\'
             ORDER BY recent.updated_at DESC, part.id ASC
             LIMIT ?4",
-        )
-        .map_err(|error| error.to_string())?;
+    )?;
 
-    let rows = statement
-        .query_map(
-            rusqlite::params![scope, MAX_SESSIONS_SCANNED, pattern, MAX_ROWS_EXAMINED],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                    row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                    row.get::<_, Option<i64>>(4)?.unwrap_or_default(),
-                    row.get::<_, String>(5)?,
-                ))
-            },
-        )
-        .map_err(|error| error.to_string())?;
+    let rows = statement.query_map(
+        rusqlite::params![scope, MAX_SESSIONS_SCANNED, pattern, MAX_ROWS_EXAMINED],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                row.get::<_, Option<i64>>(4)?.unwrap_or_default(),
+                row.get::<_, String>(5)?,
+            ))
+        },
+    )?;
 
     let mut matches: Vec<SessionMatch> = Vec::new();
     for row in rows {
-        let (session_id, message_id, title, directory, updated_at, data) = row.map_err(|error| error.to_string())?;
+        let (session_id, message_id, title, directory, updated_at, data) = row?;
         if matches.iter().any(|found| found.session_id == session_id) {
             continue;
         }

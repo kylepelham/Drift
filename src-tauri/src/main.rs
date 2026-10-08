@@ -195,7 +195,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         tauri::async_runtime::spawn(async move {
             let access = app.state::<remote::RemoteAccess>();
             if let Err(error) = access.start(app.clone()).await {
-                access.set_error(error);
+                access.set_error(error.to_string());
             }
         });
     }

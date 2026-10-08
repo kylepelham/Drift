@@ -58,17 +58,18 @@ pub(crate) fn start(app: &AppHandle, data_dir: &Path) -> Result<Arc<Engine>, dri
 }
 
 /// Hands the engine the per-agent model and prompt choices saved in Settings.
-pub(crate) fn push_agent_overrides(app: &AppHandle, store: &Store) -> Result<(), String> {
+pub(crate) fn push_agent_overrides(app: &AppHandle, store: &Store) -> rusqlite::Result<()> {
     let overrides = store
-        .prompt_overrides()
-        .map_err(|error| error.to_string())?
+        .prompt_overrides()?
         .into_iter()
         .filter_map(|item| {
             let name = item.key.strip_prefix("agent:")?.to_string();
             Some((name, AgentOverride::from_json(&item.value)))
         })
         .collect::<HashMap<_, _>>();
+
     app.state::<Native>().engine.set_agent_overrides(overrides);
+
     Ok(())
 }
 

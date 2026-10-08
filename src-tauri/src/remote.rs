@@ -39,6 +39,24 @@ const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10
 const MAX_ENGINE_BODY: usize = drift_engine::api::MAX_REQUEST_BYTES;
 const MAX_RPC_BODY: usize = 10 * 1024 * 1024;
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum RemoteError {
+    #[error("remote access is disabled")]
+    Disabled,
+    #[error("could not listen on port {HTTP_PORT}: {0}")]
+    Listen(#[source] std::io::Error),
+    #[error("could not listen for LAN discovery: {0}")]
+    Discovery(#[source] std::io::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Database(#[from] rusqlite::Error),
+    #[error(transparent)]
+    Auth(#[from] remote_auth::AuthError),
+    #[error(transparent)]
+    Tls(#[from] crate::remote_tls::TlsError),
+}
+
 #[derive(RustEmbed)]
 #[folder = "../dist"]
 struct FrontendAssets;
@@ -97,8 +115,8 @@ struct DiscoveryDescriptor {
 }
 
 impl RemoteAccess {
-    pub(crate) fn load(store: &Store, data_dir: &Path) -> Result<Self, String> {
-        let enabled = store.remote_access_enabled().map_err(|error| error.to_string())?;
+    pub(crate) fn load(store: &Store, data_dir: &Path) -> Result<Self, RemoteError> {
+        let enabled = store.remote_access_enabled()?;
         let (auth_revision, _) = watch::channel(0);
         Ok(Self {
             config: Mutex::new(RemoteConfig { enabled, error: None }),
@@ -115,23 +133,21 @@ impl RemoteAccess {
         self.config.lock().unwrap().enabled
     }
 
-    pub(crate) async fn start(&self, app: tauri::AppHandle) -> Result<(), String> {
+    pub(crate) async fn start(&self, app: tauri::AppHandle) -> Result<(), RemoteError> {
         let mut running = self.running.lock().await;
         if !self.config.lock().unwrap().enabled {
-            return Err("remote access is disabled".into());
+            return Err(RemoteError::Disabled);
         }
         if running.is_some() {
             return Ok(());
         }
         let http_listener = tokio::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, HTTP_PORT))
             .await
-            .map_err(|error| format!("could not listen on port {HTTP_PORT}: {error}"))?;
+            .map_err(RemoteError::Listen)?;
         let discovery_socket = tokio::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, DISCOVERY_PORT))
             .await
-            .map_err(|error| format!("could not listen for LAN discovery: {error}"))?;
-        discovery_socket
-            .set_broadcast(true)
-            .map_err(|error| error.to_string())?;
+            .map_err(RemoteError::Discovery)?;
+        discovery_socket.set_broadcast(true)?;
         let (shutdown, http_shutdown) = watch::channel(false);
         let discovery_shutdown = shutdown.subscribe();
         let http = tokio::spawn(accept_loop(
@@ -342,6 +358,7 @@ pub(crate) async fn remote_access_enable(
         config.error = None;
     }
     if let Err(error) = access.start(app).await {
+        let error = error.to_string();
         {
             let mut config = access.config.lock().unwrap();
             config.enabled = false;
@@ -373,7 +390,7 @@ pub(crate) async fn remote_access_disable(
 /// Approves the device showing `code`; returns that device's name.
 #[tauri::command]
 pub(crate) fn remote_access_link(access: tauri::State<'_, RemoteAccess>, code: String) -> Result<String, String> {
-    access.auth().approve(&code)
+    access.auth().approve(&code).map_err(|error| error.to_string())
 }
 
 /// Signs out one linked device, or all of them when `id` is omitted.
@@ -383,7 +400,10 @@ pub(crate) async fn remote_access_revoke(
     store: tauri::State<'_, Store>,
     id: Option<String>,
 ) -> Result<RemoteStatus, String> {
-    access.auth().revoke(id.as_deref(), &store)?;
+    access
+        .auth()
+        .revoke(id.as_deref(), &store)
+        .map_err(|error| error.to_string())?;
     access.invalidate_streams();
     Ok(access.status().await)
 }
@@ -398,7 +418,7 @@ pub(crate) async fn remote_access_set_password(
 ) -> Result<RemoteStatus, String> {
     let credentials = match (username, password) {
         (Some(username), Some(password)) => {
-            remote_auth::validate_credentials(&username, &password)?;
+            remote_auth::validate_credentials(&username, &password).map_err(|error| error.to_string())?;
             let hash = tokio::task::spawn_blocking(move || remote_auth::new_password_hash(&password))
                 .await
                 .map_err(|error| error.to_string())?;
@@ -407,7 +427,10 @@ pub(crate) async fn remote_access_set_password(
         (None, None) => None,
         _ => return Err("Enter both a username and a password.".into()),
     };
-    access.auth().set_password(credentials, &store)?;
+    access
+        .auth()
+        .set_password(credentials, &store)
+        .map_err(|error| error.to_string())?;
     access.invalidate_streams();
     Ok(access.status().await)
 }
@@ -649,6 +672,26 @@ struct RpcRequest {
     args: Value,
 }
 
+#[derive(Debug, thiserror::Error)]
+enum RpcError {
+    #[error("command is not available remotely")]
+    NotAllowed,
+    #[error("missing argument: {0}")]
+    MissingArgument(String),
+    #[error("invalid argument {key}: {source}")]
+    InvalidArgument { key: String, source: serde_json::Error },
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("{0}")]
+    Command(String),
+}
+
+impl From<String> for RpcError {
+    fn from(error: String) -> Self {
+        Self::Command(error)
+    }
+}
+
 macro_rules! remote_commands {
     (
         |$app:ident, $args:ident, $store:ident|;
@@ -662,11 +705,11 @@ macro_rules! remote_commands {
             $app: &tauri::AppHandle,
             command: &str,
             $args: &Value,
-        ) -> Result<Value, String> {
+        ) -> Result<Value, RpcError> {
             let $store = || $app.state::<Store>();
             match command {
                 $($name => $handler,)+
-                _ => Err("command is not available remotely".into()),
+                _ => Err(RpcError::NotAllowed),
             }
         }
     };
@@ -693,7 +736,7 @@ async fn invoke_rpc(
     };
     match result {
         Ok(value) => Json(value).into_response(),
-        Err(error) => (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, Json(json!({ "error": error.to_string() }))).into_response(),
     }
 }
 
@@ -819,24 +862,31 @@ remote_commands! {
         )?),
 }
 
-fn arg<T: DeserializeOwned>(args: &Value, key: &str) -> Result<T, String> {
+fn arg<T: DeserializeOwned>(args: &Value, key: &str) -> Result<T, RpcError> {
     let value = args
         .get(key)
         .cloned()
-        .ok_or_else(|| format!("missing argument: {key}"))?;
-    serde_json::from_value(value).map_err(|error| format!("invalid argument {key}: {error}"))
+        .ok_or_else(|| RpcError::MissingArgument(key.to_string()))?;
+
+    serde_json::from_value(value).map_err(|source| RpcError::InvalidArgument {
+        key: key.to_string(),
+        source,
+    })
 }
 
-fn optional<T: DeserializeOwned>(args: &Value, key: &str) -> Result<Option<T>, String> {
+fn optional<T: DeserializeOwned>(args: &Value, key: &str) -> Result<Option<T>, RpcError> {
     args.get(key)
         .cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|error| format!("invalid argument {key}: {error}"))
+        .map_err(|source| RpcError::InvalidArgument {
+            key: key.to_string(),
+            source,
+        })
 }
 
-fn value<T: Serialize>(value: T) -> Result<Value, String> {
-    serde_json::to_value(value).map_err(|error| error.to_string())
+fn value<T: Serialize>(value: T) -> Result<Value, RpcError> {
+    Ok(serde_json::to_value(value)?)
 }
 
 async fn discovery_loop(socket: tokio::net::UdpSocket, fingerprint: String, mut shutdown: watch::Receiver<bool>) {
@@ -1033,13 +1083,18 @@ mod tests {
             } else {
                 arg::<String>(&missing, key).unwrap_err()
             };
-            assert_eq!(error, format!("missing argument: {key}"));
+            assert_eq!(error.to_string(), format!("missing argument: {key}"));
         }
         for invalid in [Value::Null, json!(false), json!(1), json!([]), json!({})] {
             for key in ["path", "directory"] {
                 let mut args = valid.clone();
                 args[key] = invalid.clone();
-                assert!(arg::<String>(&args, key).unwrap_err().contains("invalid argument"));
+                assert!(
+                    arg::<String>(&args, key)
+                        .unwrap_err()
+                        .to_string()
+                        .contains("invalid argument")
+                );
             }
         }
         for invalid in [
@@ -1054,7 +1109,12 @@ mod tests {
         ] {
             let mut args = valid.clone();
             args["maxBytes"] = invalid;
-            assert!(arg::<u64>(&args, "maxBytes").unwrap_err().contains("invalid argument"));
+            assert!(
+                arg::<u64>(&args, "maxBytes")
+                    .unwrap_err()
+                    .to_string()
+                    .contains("invalid argument")
+            );
         }
         assert!(arg::<u64>(&json!({ "max_bytes": 1 }), "maxBytes").is_err());
         for limit in [40 * 1024 * 1024 + 1, u64::MAX] {

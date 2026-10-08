@@ -8,6 +8,41 @@ use std::path::{Path, PathBuf};
 
 const MAX_PREVIEW_BYTES: u64 = 40 * 1024 * 1024;
 
+#[derive(Debug, thiserror::Error)]
+enum PreviewError {
+    #[error("File preview maxBytes is too large: maximum is 40 MiB")]
+    InvalidLimit,
+    #[error("File preview directory must be an absolute workspace path")]
+    RelativeDirectory,
+    #[error("File preview directory is not a directory")]
+    NotDirectory,
+    #[error("File preview path is missing")]
+    EmptyPath,
+    #[error("File preview path is outside the workspace")]
+    OutsideWorkspace,
+    #[error("File preview path is not a regular file")]
+    NotFile,
+    #[error("File preview is too large: limit is {0} bytes")]
+    TooLarge(u64),
+    #[error("File preview opened file is outside the workspace")]
+    OpenedOutsideWorkspace,
+    #[error("File preview file or directory is missing")]
+    Missing,
+    #[error("File preview could not be read: {0}")]
+    Read(#[source] io::Error),
+    #[error("File preview cannot validate opened file path: {0}")]
+    OpenedPath(#[source] io::Error),
+    #[cfg(windows)]
+    #[error("File preview cannot validate opened file path: path is too long")]
+    PathTooLong,
+    #[cfg(target_os = "linux")]
+    #[error("File preview cannot validate opened file path: file was deleted")]
+    Deleted,
+    #[cfg(not(any(windows, target_os = "linux")))]
+    #[error("File preview cannot validate opened-file containment on this platform")]
+    UnsupportedPlatform,
+}
+
 #[derive(Debug, Serialize)]
 pub(crate) struct FilePreview {
     content: String,
@@ -19,9 +54,10 @@ pub(crate) async fn read_file_preview(path: String, directory: String, max_bytes
     tauri::async_runtime::spawn_blocking(move || read_preview(&path, &directory, max_bytes))
         .await
         .map_err(|error| format!("File preview task failed: {error}"))?
+        .map_err(|error| error.to_string())
 }
 
-fn read_preview(path: &str, directory: &str, max_bytes: u64) -> Result<FilePreview, String> {
+fn read_preview(path: &str, directory: &str, max_bytes: u64) -> Result<FilePreview, PreviewError> {
     read_preview_with_open(path, directory, max_bytes, |path| File::open(path))
 }
 
@@ -30,51 +66,50 @@ fn read_preview_with_open(
     directory: &str,
     max_bytes: u64,
     open: impl FnOnce(&Path) -> io::Result<File>,
-) -> Result<FilePreview, String> {
+) -> Result<FilePreview, PreviewError> {
     if max_bytes > MAX_PREVIEW_BYTES {
-        return Err("File preview maxBytes is too large: maximum is 40 MiB".into());
+        return Err(PreviewError::InvalidLimit);
     }
     let root = Path::new(directory);
     if !root.is_absolute() {
-        return Err("File preview directory must be an absolute workspace path".into());
+        return Err(PreviewError::RelativeDirectory);
     }
     let root = root.canonicalize().map_err(io_error)?;
     if !root.is_dir() {
-        return Err("File preview directory is not a directory".into());
+        return Err(PreviewError::NotDirectory);
     }
     if path.is_empty() {
-        return Err("File preview path is missing".into());
+        return Err(PreviewError::EmptyPath);
     }
     let path = root.join(path).canonicalize().map_err(io_error)?;
     if !path.starts_with(&root) {
-        return Err("File preview path is outside the workspace".into());
+        return Err(PreviewError::OutsideWorkspace);
     }
     let metadata = fs::metadata(&path).map_err(io_error)?;
     if !metadata.is_file() {
-        return Err("File preview path is not a regular file".into());
+        return Err(PreviewError::NotFile);
     }
     if metadata.len() > max_bytes {
-        return Err(format!("File preview is too large: limit is {max_bytes} bytes"));
+        return Err(PreviewError::TooLarge(max_bytes));
     }
     let file = open(&path).map_err(io_error)?;
-    // A checked pathname can be replaced before open. Validate the handle we will read,
-    // without resolving its reported path again through the mutable filesystem.
+    // Validate the open handle because its checked pathname may have been replaced before open.
     let opened_path = opened_file_path(&file)?;
     if !opened_path.is_absolute() || !opened_path.starts_with(&root) {
-        return Err("File preview opened file is outside the workspace".into());
+        return Err(PreviewError::OpenedOutsideWorkspace);
     }
     let metadata = file.metadata().map_err(io_error)?;
     if !metadata.is_file() {
-        return Err("File preview path is not a regular file".into());
+        return Err(PreviewError::NotFile);
     }
     if metadata.len() > max_bytes {
-        return Err(format!("File preview is too large: limit is {max_bytes} bytes"));
+        return Err(PreviewError::TooLarge(max_bytes));
     }
     read_bounded(file, max_bytes)
 }
 
 #[cfg(windows)]
-fn opened_file_path(file: &File) -> Result<PathBuf, String> {
+fn opened_file_path(file: &File) -> Result<PathBuf, PreviewError> {
     use std::ffi::OsString;
     use std::os::windows::{ffi::OsStringExt, io::AsRawHandle};
     use windows_sys::Win32::Storage::FileSystem::{FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW, VOLUME_NAME_DOS};
@@ -92,41 +127,37 @@ fn opened_file_path(file: &File) -> Result<PathBuf, String> {
         )
     } as usize;
     if length == 0 {
-        return Err(format!(
-            "File preview cannot validate opened file path: {}",
-            io::Error::last_os_error()
-        ));
+        return Err(PreviewError::OpenedPath(io::Error::last_os_error()));
     }
     if length >= buffer.len() {
-        return Err("File preview cannot validate opened file path: path is too long".into());
+        return Err(PreviewError::PathTooLong);
     }
     Ok(PathBuf::from(OsString::from_wide(&buffer[..length])))
 }
 
 #[cfg(target_os = "linux")]
-fn opened_file_path(file: &File) -> Result<PathBuf, String> {
+fn opened_file_path(file: &File) -> Result<PathBuf, PreviewError> {
     use std::os::{fd::AsRawFd, unix::ffi::OsStrExt};
 
     // read_link gets the kernel's handle path; canonicalize would re-resolve its name.
-    let path = fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
-        .map_err(|error| format!("File preview cannot validate opened file path: {error}"))?;
+    let path = fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd())).map_err(PreviewError::OpenedPath)?;
     if path.as_os_str().as_bytes().ends_with(b" (deleted)") {
-        return Err("File preview cannot validate opened file path: file was deleted".into());
+        return Err(PreviewError::Deleted);
     }
     Ok(path)
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
-fn opened_file_path(_file: &File) -> Result<PathBuf, String> {
-    Err("File preview cannot validate opened-file containment on this platform".into())
+fn opened_file_path(_file: &File) -> Result<PathBuf, PreviewError> {
+    Err(PreviewError::UnsupportedPlatform)
 }
 
-fn read_bounded(reader: impl Read, max_bytes: u64) -> Result<FilePreview, String> {
+fn read_bounded(reader: impl Read, max_bytes: u64) -> Result<FilePreview, PreviewError> {
     // The extra byte detects growth after metadata without an unbounded allocation/read.
     let mut bytes = Vec::new();
     reader.take(max_bytes + 1).read_to_end(&mut bytes).map_err(io_error)?;
     if bytes.len() as u64 > max_bytes {
-        return Err(format!("File preview is too large: limit is {max_bytes} bytes"));
+        return Err(PreviewError::TooLarge(max_bytes));
     }
     Ok(FilePreview {
         size: bytes.len() as u64,
@@ -134,11 +165,11 @@ fn read_bounded(reader: impl Read, max_bytes: u64) -> Result<FilePreview, String
     })
 }
 
-fn io_error(error: io::Error) -> String {
+fn io_error(error: io::Error) -> PreviewError {
     if error.kind() == io::ErrorKind::NotFound {
-        "File preview file or directory is missing".into()
+        PreviewError::Missing
     } else {
-        format!("File preview could not be read: {error}")
+        PreviewError::Read(error)
     }
 }
 
@@ -146,7 +177,10 @@ fn io_error(error: io::Error) -> String {
 #[test]
 fn file_preview_handle_validation_fails_closed_on_unsupported_platforms() {
     let file = File::open(std::env::current_exe().unwrap()).unwrap();
-    assert!(opened_file_path(&file).unwrap_err().contains("on this platform"));
+    assert!(matches!(
+        opened_file_path(&file),
+        Err(PreviewError::UnsupportedPlatform)
+    ));
 }
 
 #[cfg(all(test, any(windows, target_os = "linux")))]
@@ -170,7 +204,7 @@ mod tests {
         }
 
         fn read(&self, path: &str, max_bytes: u64) -> Result<FilePreview, String> {
-            read_preview(path, self.workspace().to_str().unwrap(), max_bytes)
+            read_preview(path, self.workspace().to_str().unwrap(), max_bytes).map_err(|error| error.to_string())
         }
     }
 
@@ -212,12 +246,16 @@ mod tests {
     fn file_preview_requires_an_absolute_existing_workspace_directory() {
         let fixture = Fixture::new();
         for directory in ["", ".", "workspace", "../workspace"] {
-            assert!(read_preview("file", directory, 1).unwrap_err().contains("absolute"));
+            assert!(matches!(
+                read_preview("file", directory, 1),
+                Err(PreviewError::RelativeDirectory)
+            ));
         }
         let missing = fixture.0.join("missing");
         assert!(
             read_preview("file", missing.to_str().unwrap(), 1)
                 .unwrap_err()
+                .to_string()
                 .contains("missing")
         );
         let file = fixture.0.join("file");
@@ -225,6 +263,7 @@ mod tests {
         assert!(
             read_preview("file", file.to_str().unwrap(), 1)
                 .unwrap_err()
+                .to_string()
                 .contains("not a directory")
         );
     }
@@ -256,9 +295,12 @@ mod tests {
         let limit = file.metadata().unwrap().len();
         File::options().write(true).open(&path).unwrap().set_len(100).unwrap();
         let mut reader = file;
-        assert!(read_bounded(&mut reader, limit).unwrap_err().contains("too large"));
+        assert!(matches!(
+            read_bounded(&mut reader, limit),
+            Err(PreviewError::TooLarge(_))
+        ));
         assert_eq!(io::Seek::stream_position(&mut reader).unwrap(), limit + 1);
-        assert!(read_bounded(io::repeat(0), 1).unwrap_err().contains("too large"));
+        assert!(matches!(read_bounded(io::repeat(0), 1), Err(PreviewError::TooLarge(1))));
     }
 
     #[test]
@@ -342,10 +384,7 @@ mod tests {
                 Ok(file)
             })
             .unwrap_err();
-            assert!(
-                error.contains("opened file is outside the workspace"),
-                "{swap}: {error}"
-            );
+            assert!(matches!(error, PreviewError::OpenedOutsideWorkspace), "{swap}: {error}");
             // try_clone shares the file cursor, so a zero position proves no bytes were read.
             assert_eq!(io::Seek::stream_position(&mut witness.unwrap()).unwrap(), 0);
         }
@@ -383,7 +422,7 @@ mod tests {
             Ok(file)
         })
         .unwrap_err();
-        assert!(error.contains("cannot validate opened file path: file was deleted"));
+        assert!(matches!(error, PreviewError::Deleted));
     }
 
     #[cfg(any(unix, windows))]

@@ -157,7 +157,7 @@ test("agent overrides saved or reset reach the engine for desktop and companion 
   for (const command of ["prompt_save", "prompt_reset"]) {
     const body = prompts.slice(prompts.indexOf(`pub(crate) fn ${command}(`)).split("\n}")[0]!
     expect(body).toContain("app: AppHandle")
-    expect(body.trimEnd().endsWith("crate::native::push_agent_overrides(&app, &store)")).toBeTrue()
+    expect(body).toContainCode("crate::native::push_agent_overrides(&app, &store).map_err(|error| error.to_string())")
     expect(remote).toContain(`prompts::${command}(`)
   }
   const ui = await Bun.file("src/ui/settings-prompts.tsx").text()

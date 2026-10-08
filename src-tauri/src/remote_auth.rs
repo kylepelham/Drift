@@ -28,6 +28,22 @@ const FREE_FAILURES: u32 = 5;
 const MAX_LOCK: Duration = Duration::from_secs(900);
 const TOUCH_INTERVAL_MS: i64 = 60_000;
 
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum AuthError {
+    #[error("Too many devices are waiting to link. Try again in a few minutes.")]
+    TooManyLinks,
+    #[error("No device is waiting with that code. Codes expire after 10 minutes.")]
+    UnknownCode,
+    #[error("Username must be 1 to 64 characters.")]
+    InvalidUsername,
+    #[error("Password must be 8 to 256 characters.")]
+    InvalidPassword,
+    #[error(transparent)]
+    Database(#[from] rusqlite::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
 struct Password {
     username: String,
@@ -72,12 +88,12 @@ pub(crate) struct Auth {
 }
 
 impl Auth {
-    pub(crate) fn load(store: &Store) -> Result<Self, String> {
-        let devices = store.remote_devices().map_err(|error| error.to_string())?;
+    pub(crate) fn load(store: &Store) -> Result<Self, AuthError> {
+        let devices = store.remote_devices()?;
         let password = store
-            .app_setting(PASSWORD_KEY)
-            .map_err(|error| error.to_string())?
+            .app_setting(PASSWORD_KEY)?
             .and_then(|value| serde_json::from_str(&value).ok());
+
         Ok(Self {
             devices: devices
                 .into_iter()
@@ -128,11 +144,11 @@ impl Auth {
         self.password.as_ref().map(|password| password.username.clone())
     }
 
-    fn request_link(&mut self, address: IpAddr, name: String) -> Result<(String, String), String> {
+    fn request_link(&mut self, address: IpAddr, name: String) -> Result<(String, String), AuthError> {
         self.prune(Instant::now());
         let from_address = self.links.iter().filter(|link| link.address == address).count();
         if self.links.len() >= MAX_LINKS || from_address >= MAX_LINKS_PER_ADDRESS {
-            return Err("Too many devices are waiting to link. Try again in a few minutes.".into());
+            return Err(AuthError::TooManyLinks);
         }
         let code = loop {
             let code = random_code();
@@ -154,19 +170,19 @@ impl Auth {
     }
 
     /// Marks the link waiting with `code` approved; the device finishes signing in on its next poll.
-    pub(crate) fn approve(&mut self, code: &str) -> Result<String, String> {
+    pub(crate) fn approve(&mut self, code: &str) -> Result<String, AuthError> {
         self.prune(Instant::now());
         let code = normalize_code(code);
         let link = self
             .links
             .iter_mut()
             .find(|link| !link.approved && link.code == code)
-            .ok_or("No device is waiting with that code. Codes expire after 10 minutes.")?;
+            .ok_or(AuthError::UnknownCode)?;
         link.approved = true;
         Ok(link.name.clone())
     }
 
-    fn poll(&mut self, handle: &str, store: &Store) -> Result<Poll, String> {
+    fn poll(&mut self, handle: &str, store: &Store) -> Result<Poll, AuthError> {
         self.prune(Instant::now());
         let Some(index) = self.links.iter().position(|link| link.handle == handle) else {
             return Ok(Poll::Expired);
@@ -178,7 +194,7 @@ impl Auth {
         self.create_device(link.name, "link", store).map(Poll::Approved)
     }
 
-    fn create_device(&mut self, name: String, method: &str, store: &Store) -> Result<String, String> {
+    fn create_device(&mut self, name: String, method: &str, store: &Store) -> Result<String, AuthError> {
         let token = random_hex(32);
         let now = now_ms();
         let device = RemoteDevice {
@@ -189,34 +205,30 @@ impl Auth {
             created_at: now,
             last_seen_at: now,
         };
-        store.insert_remote_device(&device).map_err(|error| error.to_string())?;
+        store.insert_remote_device(&device)?;
         self.devices.insert(device.token_hash.clone(), device);
         Ok(token)
     }
 
     /// Signs out one device, or every device when `id` is `None`.
-    pub(crate) fn revoke(&mut self, id: Option<&str>, store: &Store) -> Result<(), String> {
-        store
-            .delete_remote_devices(id, None)
-            .map_err(|error| error.to_string())?;
+    pub(crate) fn revoke(&mut self, id: Option<&str>, store: &Store) -> Result<(), AuthError> {
+        store.delete_remote_devices(id, None)?;
         self.devices.retain(|_, device| id.is_some_and(|id| device.id != id));
         Ok(())
     }
 
     /// Replaces or clears the password; sessions created with the old one are signed out.
-    pub(crate) fn set_password(&mut self, password: Option<(String, String)>, store: &Store) -> Result<(), String> {
+    pub(crate) fn set_password(&mut self, password: Option<(String, String)>, store: &Store) -> Result<(), AuthError> {
         let password = password.map(|(username, hash)| Password { username, hash });
         match &password {
             Some(password) => {
-                let encoded = serde_json::to_string(password).map_err(|error| error.to_string())?;
+                let encoded = serde_json::to_string(password)?;
                 store.save_app_setting(PASSWORD_KEY, &encoded)
             }
             None => store.delete_app_setting(PASSWORD_KEY),
-        }
-        .map_err(|error| error.to_string())?;
-        store
-            .delete_remote_devices(None, Some("password"))
-            .map_err(|error| error.to_string())?;
+        }?;
+
+        store.delete_remote_devices(None, Some("password"))?;
         self.devices.retain(|_, device| device.method != "password");
         self.password = password;
         Ok(())
@@ -327,12 +339,12 @@ pub(crate) fn verify_password(password: &str, stored: &str) -> bool {
         && constant_time_eq(hash_password(password, &salt, iterations).as_bytes(), stored.as_bytes())
 }
 
-pub(crate) fn validate_credentials(username: &str, password: &str) -> Result<(), String> {
+pub(crate) fn validate_credentials(username: &str, password: &str) -> Result<(), AuthError> {
     if username.trim().is_empty() || username.trim().chars().count() > 64 {
-        return Err("Username must be 1 to 64 characters.".into());
+        return Err(AuthError::InvalidUsername);
     }
     if !(8..=256).contains(&password.chars().count()) {
-        return Err("Password must be 8 to 256 characters.".into());
+        return Err(AuthError::InvalidPassword);
     }
     Ok(())
 }
@@ -433,7 +445,7 @@ pub(crate) async fn start_link(
             notify(&app);
             Json(json!({ "id": id, "code": display_code(&code), "expiresIn": LINK_TTL.as_secs() })).into_response()
         }
-        Err(error) => failure(StatusCode::TOO_MANY_REQUESTS, &error),
+        Err(error) => failure(StatusCode::TOO_MANY_REQUESTS, &error.to_string()),
     }
 }
 
@@ -449,7 +461,7 @@ pub(crate) async fn poll_link(State(app): State<tauri::AppHandle>, UrlPath(id): 
                 session_cookie(&token),
             )
         }
-        Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error),
+        Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
 }
 
@@ -504,7 +516,7 @@ pub(crate) async fn login(
             notify(&app);
             with_cookie(StatusCode::NO_CONTENT.into_response(), session_cookie(&token))
         }
-        Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error),
+        Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
     }
 }
 
@@ -518,7 +530,7 @@ pub(crate) async fn logout(
 ) -> Response {
     let access = app.state::<RemoteAccess>();
     if let Err(error) = access.auth().revoke(Some(&device.id), &app.state::<Store>()) {
-        return failure(StatusCode::INTERNAL_SERVER_ERROR, &error);
+        return failure(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string());
     }
     access.invalidate_streams();
     notify(&app);
