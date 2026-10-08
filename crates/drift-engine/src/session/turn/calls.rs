@@ -20,6 +20,57 @@ struct CallResult {
 }
 
 impl Engine {
+    /// Calls run in the model's order. Consecutive reads run together; a write waits for what came before it.
+    pub(super) async fn run_calls(
+        self: &Arc<Self>,
+        plan: &Plan,
+        message: &Message,
+        batch: CallBatch,
+        abort: &CancellationToken,
+    ) -> Outcome {
+        let CallBatch { rows, early } = batch;
+        let files = self.turns.files_for(&self.store, &plan.session.id);
+        let scope = CallScope {
+            plan,
+            message,
+            files: &files,
+            abort,
+            wrote: Mutex::default(),
+            tree: Mutex::default(),
+            early: Mutex::new(early),
+        };
+
+        let mut reads = Vec::new();
+        for row in rows {
+            if !call_mutates(plan, &row) {
+                reads.push(row);
+                continue;
+            }
+            if self.run_reads(&scope, std::mem::take(&mut reads)).await == Outcome::Aborted {
+                return Outcome::Aborted;
+            }
+            if self.run_call(&scope, row).await == Outcome::Aborted {
+                return Outcome::Aborted;
+            }
+        }
+        let outcome = self.run_reads(&scope, reads).await;
+        if outcome == Outcome::Allowed {
+            self.check_step(&scope).await;
+        }
+
+        outcome
+    }
+
+    async fn run_reads(self: &Arc<Self>, scope: &CallScope<'_>, reads: Vec<PartRow>) -> Outcome {
+        let outcomes = futures_util::future::join_all(reads.into_iter().map(|row| self.run_call(scope, row))).await;
+
+        if outcomes.contains(&Outcome::Aborted) {
+            Outcome::Aborted
+        } else {
+            Outcome::Allowed
+        }
+    }
+
     pub(super) async fn run_call(self: &Arc<Self>, scope: &CallScope<'_>, mut row: PartRow) -> Outcome {
         let mut call = match self.prepare_call(scope, &mut row).await {
             Ok(call) => call,
@@ -308,4 +359,28 @@ fn invalid_input(tool: &dyn Tool, input: &Value) -> Option<String> {
         "The call did not run: {}. Send it again with arguments that fit the tool's schema.",
         problems.join("; ")
     ))
+}
+
+fn call_mutates(plan: &Plan, row: &PartRow) -> bool {
+    match &row.part {
+        Part::ToolCall { name, input, .. } => plan
+            .offer
+            .tool_named(name)
+            .is_some_and(|(_, tool)| tool.call_mutates(input)),
+        _ => false,
+    }
+}
+
+/// What the model hears for arguments that never parsed: the parser's own complaint, so it can fix the call.
+fn unparsed(input: &Value) -> String {
+    let raw = input.as_str().unwrap_or_default();
+    let reason = serde_json::from_str::<Value>(raw)
+        .err()
+        .map_or_else(|| "they are not a JSON object".to_string(), |error| error.to_string());
+    let shown: String = raw.chars().take(200).collect();
+
+    format!(
+        "The call did not run: its arguments were not valid JSON ({reason}). They began: {shown}\n\
+         Send it again with one JSON object that fits the tool's schema."
+    )
 }

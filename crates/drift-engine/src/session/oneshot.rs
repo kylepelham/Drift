@@ -50,6 +50,7 @@ pub(crate) struct Answer {
     pub usage: Usage,
 }
 
+/// An attempt's deadline and the session in which retries are announced.
 pub(super) struct SendOptions<'a> {
     pub timeout: Duration,
     pub shown_in: Option<&'a str>,

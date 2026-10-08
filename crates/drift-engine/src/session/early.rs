@@ -26,6 +26,7 @@ pub(super) struct Started {
     files: Arc<SessionFiles>,
 }
 
+/// The session and read record used by a speculative read before its reply finishes.
 pub(super) struct ReadScope<'a> {
     pub engine: &'a Arc<Engine>,
     pub plan: &'a Plan,
