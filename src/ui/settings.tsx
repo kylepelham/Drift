@@ -137,7 +137,7 @@ import {
   type ThemeName,
 } from "../state/theme"
 
-import type { ProviderAuthMethod } from "../engine/shapes"
+import type { ProviderAuthMethod } from "../engine/provider-auth"
 
 type ProviderNotice = { tone: "success" | "warning" | "error"; text: string }
 

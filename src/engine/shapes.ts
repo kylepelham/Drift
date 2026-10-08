@@ -815,8 +815,3 @@ export type Model = {
     [key: string]: string
   }
 }
-
-export type ProviderAuthMethod = {
-  type: "oauth" | "api"
-  label: string
-}

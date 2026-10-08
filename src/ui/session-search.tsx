@@ -41,7 +41,7 @@ export function sessionSearchOpen() {
   return expanded()
 }
 
-export function closeSessionSearch() {
+function closeSessionSearch() {
   setExpanded(false)
   setQuery("")
 }

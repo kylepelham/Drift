@@ -27,13 +27,14 @@ import {
   type Notice,
 } from "./store"
 
-// Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
+// Engine actions own HTTP requests; message, part and catalog views still use the adapter.
 import type { Session, WorkspaceIndex } from "./sessions"
+import type { ProviderAuthMethod } from "./provider-auth"
 import type { components } from "./native/types"
 
 type NativeSession = components["schemas"]["Session"]
 
-export type PromptFile = {
+type PromptFile = {
   filename?: string
   mime: string
   url: string
@@ -458,7 +459,7 @@ export function createActions(
     return { ok: true, connected: state.connected.includes(id) }
   }
 
-  async function providerAuthMethods(): Promise<Record<string, { type: "oauth" | "api"; label: string }[]>> {
+  async function providerAuthMethods(): Promise<Record<string, ProviderAuthMethod[]>> {
     return Object.fromEntries(
       Object.entries(authMethods).map(([id, methods]) => [id, methods.map(({ type, label }) => ({ type, label }))]),
     )

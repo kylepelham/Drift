@@ -2,7 +2,7 @@ import { createEffect, createSignal } from "solid-js"
 import { createLatestOnly } from "../state/latest"
 
 /** Matches a trailing `@path` mention at the caret. Shared so the reader and replacer cannot drift. */
-export const mentionPattern = /(^|\s)@([\w./\\-]*)$/
+const mentionPattern = /(^|\s)@([\w./\\-]*)$/
 
 const maxMentionResults = 8
 

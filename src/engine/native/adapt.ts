@@ -1,4 +1,4 @@
-// Native engine shapes to the shapes the UI was built on. Dies at M4 when the UI adopts native types.
+// Message, part and catalog conversions retained until their views consume native records.
 import type { AssistantMessage, Message, Part, ToolPart } from "../shapes"
 import type { ModelInfo, ProviderInfo } from "../store"
 import type { components } from "./types"
@@ -134,7 +134,7 @@ export function adaptPart(row: NativePartRow): Part {
 const FILE_TOOLS = new Set(["read", "edit", "write"])
 
 /** Native tool names for files and patches, as the UI's tool rows, file actions and citations read them. */
-export function adaptToolFields(tool: string, rawInput: Record<string, unknown>, rawMetadata: Record<string, unknown>) {
+function adaptToolFields(tool: string, rawInput: Record<string, unknown>, rawMetadata: Record<string, unknown>) {
   const input = { ...rawInput }
   const metadata = { ...rawMetadata }
   // `changes` is undo's record; `fileChanges` is the tool's per-file diff for display.

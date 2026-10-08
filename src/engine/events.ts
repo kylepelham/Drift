@@ -4,7 +4,6 @@ import { sessionInWorkspace } from "./sessions"
 import { questionForCard } from "./questions"
 import { produce } from "solid-js/store"
 import {
-  bumpAskRevision,
   bumpRevision,
   messageRevisionKey,
   normalizeDir,
@@ -87,11 +86,11 @@ function reduceContentEvent(
     case "permission.asked":
       return addPermission(set, { ...event.request, directory: "" })
     case "permission.replied":
-      return dropPermission(set, event.sessionId, event.requestId, directory)
+      return dropPermission(set, event.sessionId, event.requestId)
     case "question.asked":
       return addQuestion(set, { ...questionForCard(event.request), directory })
     case "question.replied":
-      return dropQuestion(set, event.sessionId, event.requestId, directory)
+      return dropQuestion(set, event.sessionId, event.requestId)
     case "todo.updated":
       return set("todos", event.sessionId, event.todos)
     case "plugin.notice":
@@ -120,7 +119,7 @@ function updateStatus(set: SetEngineState, sessionID: string, status: SessionSta
 
 // The session revision bump outlives the purge so an in-flight snapshot taken before the
 // deletion cannot resurrect the session.
-export function purgeSession(draft: EngineState, id: string) {
+function purgeSession(draft: EngineState, id: string) {
   delete draft.sessions[id]
   delete draft.transcripts[id]
   delete draft.loaded[id]
@@ -298,7 +297,7 @@ function appendPartDelta(set: SetEngineState, ref: PartDeltaRef, reconcile?: (se
       const index = entry?.parts.findIndex((item) => item.id === ref.partId) ?? -1
       if (!entry) return
       if (index < 0) {
-        gap = ref.offset !== undefined
+        gap = true
         return
       }
       const part = entry.parts[index]!
@@ -332,7 +331,6 @@ function trackActivity(draft: EngineState, part: Part & { type: "tool" }) {
 function addQuestion(set: SetEngineState, question: QuestionRequest) {
   set(
     produce((draft) => {
-      bumpAskRevision(draft, "question", question.directory)
       const list = draft.questions[question.sessionId] ?? []
       if (!list.some((existing) => existing.id === question.id)) list.push(question)
       draft.questions[question.sessionId] = list
@@ -340,13 +338,11 @@ function addQuestion(set: SetEngineState, question: QuestionRequest) {
   )
 }
 
-function dropQuestion(set: SetEngineState, sessionID: string, requestID: string, directory?: string) {
+function dropQuestion(set: SetEngineState, sessionID: string, requestID: string) {
   clearQuestionDraft(requestID)
   set(
     produce((draft) => {
       const list = draft.questions[sessionID]
-      const current = list?.find((question) => question.id === requestID)
-      bumpAskRevision(draft, "question", current?.directory ?? directory)
       if (list) draft.questions[sessionID] = list.filter((question) => question.id !== requestID)
     }),
   )
@@ -355,7 +351,6 @@ function dropQuestion(set: SetEngineState, sessionID: string, requestID: string,
 function addPermission(set: SetEngineState, permission: Permission) {
   set(
     produce((draft) => {
-      bumpAskRevision(draft, "permission", permission.directory)
       const list = draft.permissions[permission.sessionId] ?? []
       if (!list.some((existing) => existing.id === permission.id)) list.push(permission)
       draft.permissions[permission.sessionId] = list
@@ -363,13 +358,10 @@ function addPermission(set: SetEngineState, permission: Permission) {
   )
 }
 
-function dropPermission(set: SetEngineState, sessionID: string, permissionID: string, directory?: string) {
+function dropPermission(set: SetEngineState, sessionID: string, permissionID: string) {
   set(
     produce((draft) => {
       const list = draft.permissions[sessionID]
-      const current = list?.find((permission) => permission.id === permissionID)
-      const currentDirectory = current?.directory
-      bumpAskRevision(draft, "permission", typeof currentDirectory === "string" ? currentDirectory : directory)
       if (list) draft.permissions[sessionID] = list.filter((permission) => permission.id !== permissionID)
     }),
   )

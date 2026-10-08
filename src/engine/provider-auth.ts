@@ -1,3 +1,6 @@
+/** Sign-in choices displayed by Settings, in the order supplied by engine actions. */
+export type ProviderAuthMethod = { type: "oauth" | "api"; label: string }
+
 export type AuthorizationPrompt = { code?: string; text?: string }
 
 const deviceCode = /code:\s*([A-Z0-9][A-Z0-9-]{3,})\s*$/i

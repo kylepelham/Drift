@@ -1,39 +1,30 @@
 // Typed access to the native engine. Request and response shapes come from the generated types.
 import type { components, operations } from "./types"
 
+type ErrorBody = components["schemas"]["ErrorBody"]
+
 export type Target = { url: string; token: string }
 
 /** The engine's `MAX_REQUEST_BYTES`: a larger request is cut off mid-upload, which a browser reports only as a failed fetch. */
 export const maxRequestBytes = 64 * 1024 * 1024
-export type Workspace = components["schemas"]["Workspace"]
 export type PluginInfo = components["schemas"]["PluginInfo"]
 export type SkillPack = components["schemas"]["Pack"]
 export type UserSkill = components["schemas"]["UserSkill"]
 export type NewWorkspace = components["schemas"]["NewWorkspace"]
-export type Health = components["schemas"]["Health"]
 export type Frame = components["schemas"]["Frame"]
 export type Envelope = components["schemas"]["Envelope"]
 export type Incoming = components["schemas"]["Incoming"]
-export type Event = components["schemas"]["Event"]
-export type Session = components["schemas"]["Session"]
 export type MessageWithParts = components["schemas"]["MessageWithParts"]
 export type Prompt = components["schemas"]["Prompt"]
-export type Receipt = components["schemas"]["Receipt"]
-export type PermissionRequest = components["schemas"]["PermissionRequest"]
 export type PermissionRule = components["schemas"]["Rule"]
 export type PermissionGrant = components["schemas"]["Grant"]
-export type QuestionRequest = components["schemas"]["QuestionRequest"]
-export type Todo = components["schemas"]["Todo"]
 export type TaskRecord = components["schemas"]["TaskRecord"]
 export type ReplyBody = components["schemas"]["ReplyBody"]
-export type ProviderStatus = components["schemas"]["ProviderStatus"]
-export type ErrorBody = components["schemas"]["ErrorBody"]
 export type McpServerStatus = components["schemas"]["ServerStatus"]
 /** What the UI sends: a `null` env or header value keeps the saved one. */
 export type McpServerConfig = components["schemas"]["ServerConfigInput"]
 /** What the UI sees: env and header names, never their values. */
 export type McpServerConfigView = components["schemas"]["ServerConfigView"]
-export type WorkspaceConfig = components["schemas"]["Config"]
 
 type Json<Op extends keyof operations, Status extends number> =
   operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never

@@ -97,7 +97,7 @@ export function nextUserMessage(entries: MessageEntry[], after: string) {
     .sort(compareMessages)[0]
 }
 
-export type SessionActivity = { tools: number; lastPartId: string; current?: string }
+type SessionActivity = { tools: number; lastPartId: string; current?: string }
 
 export type Notice = {
   id: string
@@ -107,8 +107,6 @@ export type Notice = {
   created: number
   duration: number
 }
-
-export type AskKind = "permission" | "question"
 
 export type EngineState = {
   connection: Connection
@@ -124,7 +122,6 @@ export type EngineState = {
   loaded: Record<string, boolean>
   permissions: Record<string, Permission[]>
   questions: Record<string, QuestionRequest[]>
-  askRevisions: Record<string, number>
   todos: Record<string, Todo[]>
   /** Workers each session launched, keyed by the launching session, oldest first. */
   tasks: Record<string, TaskRecord[]>
@@ -191,7 +188,6 @@ export function createEngineState() {
     loaded: {},
     permissions: {},
     questions: {},
-    askRevisions: {},
     todos: {},
     tasks: {},
     providers: [],
@@ -238,34 +234,6 @@ export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
     }),
   )
 }
-
-export function putSessions(set: SetStoreFunction<EngineState>, infos: Session[]) {
-  set(
-    "sessions",
-    produce((sessions) => {
-      for (const info of infos) sessions[info.id] = { revert: undefined, ...info }
-    }),
-  )
-  set(
-    "links",
-    produce((links) => {
-      for (const info of infos) linkSpawned(links, info)
-    }),
-  )
-  set(
-    "sessionModels",
-    produce((models) => {
-      for (const info of infos) {
-        const model = info.model
-        if (model) models[info.id] = { providerID: model.provider, modelID: model.model }
-      }
-    }),
-  )
-}
-
-// The engine caps session listings at this size; a shorter page means the snapshot covered its
-// entire scope, so sessions absent from it can be reconciled away.
-export const sessionSnapshotLimit = 100
 
 // Monotonic counters bumped by every live reduction that touches the keyed slice. Snapshot writes
 // compare them against a capture taken before the HTTP request started, so state that raced ahead
@@ -513,20 +481,6 @@ export function sessionBusy(state: EngineState, id: string) {
 
 export function normalizeDir(path: string) {
   return path.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase()
-}
-
-export function askRevisionKey(kind: AskKind, directory: string) {
-  return `${kind}\0${normalizeDir(directory)}`
-}
-
-export function askRevision(state: EngineState, kind: AskKind, directory: string) {
-  return state.askRevisions[askRevisionKey(kind, directory)] ?? 0
-}
-
-export function bumpAskRevision(state: EngineState, kind: AskKind, directory?: string) {
-  if (!directory) return
-  const key = askRevisionKey(kind, directory)
-  state.askRevisions[key] = (state.askRevisions[key] ?? 0) + 1
 }
 
 export function sessionsFor(state: EngineState, directory: string) {

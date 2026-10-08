@@ -691,7 +691,7 @@ export function revertBackfillNeeded(input: {
   return !!input.revertedAt && input.visible === 0 && !!input.loaded && !!input.cursor
 }
 
-export function snapVirtualViewport(
+function snapVirtualViewport(
   scroller: { scrollTop: number; readonly scrollHeight: number; readonly clientHeight: number },
   publish: (top: number, height: number) => void,
 ) {
