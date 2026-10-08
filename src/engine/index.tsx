@@ -1,10 +1,11 @@
 import { createEngineState, putTasks, normalizeDir as normalizeWorkspacePath, type EngineState } from "./store";
 import { createContext, onCleanup, untrack, useContext, type ParentProps } from "solid-js";
-import { createActions, errorMessage, type EngineActions } from "./actions";
 import { createClient, type Client, type Target } from "./native/client";
 import { connectEvents, type EventStream } from "./native/events";
+import { createActions, type EngineActions } from "./actions";
 import { seedProviderCatalog } from "../state/provider-cache";
 import { produce, reconcile } from "solid-js/store";
+import { errorMessage } from "./actions-context";
 import { workspaces } from "../state/workspaces";
 import { resolveTarget } from "./native/target";
 import { reduce } from "./events";

@@ -45,7 +45,9 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
   `produce` for fine-grained solid updates. It consumes the generated native event union
   directly, including `part.delta`, `session.retry`, `permission.asked` and `plugin.notice`.
   There is no SDK record conversion or event-name translation.
-- `src/engine/actions.ts` is the only place engine calls happen.
+- `src/engine/actions.ts` and its `actions-*.ts` groups are the only place engine calls
+  happen. `actions.ts` keeps transcripts, session listing and sending, and merges the
+  groups for sessions, asks, providers and configuration, which share one `ActionContext`.
 - `src/engine/index.tsx` glues it together: provider, hydration, event pump.
 
 ## Rules that keep this sane
