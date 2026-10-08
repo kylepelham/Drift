@@ -5,13 +5,12 @@ import { expect, test } from "bun:test";
 
 import type { ModelInfo, ProviderInfo } from "../src/engine/store";
 
-function model(id: string, name = id, toolcall = true, context = 65536, text = true): ModelInfo {
+function model(id: string, name = id, context = 65536): ModelInfo {
     return {
         id,
         name,
-        capabilities: { toolcall, input: { text }, output: { text } },
-        limit: { context },
-    } as ModelInfo;
+        limit: { context, output: 0 },
+    };
 }
 
 function provider(id: string, models: ModelInfo[]): ProviderInfo {
@@ -32,11 +31,7 @@ test("subagent model choices include hidden tool models and preserve provider-qu
     setHiddenModelIds(["one/cheap"]);
     try {
         const providers = [
-            provider("one", [
-                model("vendor/review", "Smart"),
-                model("cheap", "Cheap"),
-                model("embed", "Embedding", false),
-            ]),
+            provider("one", [model("vendor/review", "Smart"), model("cheap", "Cheap")]),
             provider("two", [model("cheap", "Cheap")]),
             provider("offline", [model("unavailable")]),
         ];
@@ -51,29 +46,21 @@ test("subagent model choices include hidden tool models and preserve provider-qu
 });
 
 test("subagent model choices respect LM Studio context readiness and disconnected providers", () => {
-    const providers = [provider("lmstudio", [model("small", "Small", true, 4096), model("ready")])];
+    const providers = [provider("lmstudio", [model("small", "Small", 4096), model("ready")])];
     expect(agentModelOptions({ providers, connected: ["lmstudio"] }).map((item) => item.id)).toEqual([
         "lmstudio/ready",
     ]);
     expect(agentModelOptions({ providers, connected: [] })).toEqual([]);
 });
 
-test("utility agent choices include text models without tool calling and exclude non-text models", () => {
-    const providers = [
-        provider("one", [
-            model("tools", "Tools"),
-            model("cheap-text", "Cheap text", false),
-            model("embedding", "Embedding", false, 65536, false),
-        ]),
-    ];
+test("utility agent choices use the native catalog and retain local context requirements", () => {
+    const providers = [provider("one", [model("tools", "Tools"), model("cheap-text", "Cheap text")])];
     expect(agentModelOptions({ providers, connected: ["one"] }, "text").map((item) => item.id)).toEqual([
         "one/cheap-text",
         "one/tools",
     ]);
 
-    const local = [
-        provider("lmstudio", [model("small", "Small", false, 4096), model("local-text", "Local text", false)]),
-    ];
+    const local = [provider("lmstudio", [model("small", "Small", 4096), model("local-text", "Local text")])];
     expect(agentModelOptions({ providers: local, connected: ["lmstudio"] }, "text").map((item) => item.id)).toEqual([
         "lmstudio/local-text",
     ]);
@@ -145,7 +132,7 @@ test("reasoning levels come from the pinned model, else from every connected mod
     const { reasoningLevels } = await import("../src/ui/settings-agent-drafts");
     const withLevels = (id: string, levels: string[]) => ({
         ...model(id),
-        variants: Object.fromEntries(levels.map((level) => [level, {}])),
+        variants: levels.map((level) => ({ name: level, kind: "effort", level })),
     });
     const state = {
         providers: [provider("openai", [withLevels("fast", ["low", "high"]), withLevels("deep", ["xhigh", "medium"])])],

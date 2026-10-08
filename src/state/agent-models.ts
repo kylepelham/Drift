@@ -19,10 +19,9 @@ export function agentModelOptions(
             .filter((model) => {
                 if (provider.id === "lmstudio") {
                     if (capability === "tools" && !lmStudioModelReady(model)) return false;
-                    if (capability === "text" && model.limit.context < lmStudioMinimumContext) return false;
+                    if (capability === "text" && (model.limit?.context ?? 0) < lmStudioMinimumContext) return false;
                 }
-                if (capability === "tools") return model.capabilities.toolcall;
-                return model.capabilities.input.text && model.capabilities.output.text;
+                return true;
             })
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((model) => ({

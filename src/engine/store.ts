@@ -1,7 +1,8 @@
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
 import { hiddenParent } from "./sessions";
 
-import type { Command, Message, Model, Part, SessionStatus, ToolPart } from "./shapes";
+import type { Command, Message, Part, SessionStatus, ToolPart } from "./shapes";
+import type { ModelInfo, ProviderInfo } from "./catalog";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
 import type { Session } from "./sessions";
@@ -18,8 +19,7 @@ export type Permission = components["schemas"]["PermissionRequest"] & { director
 type Todo = components["schemas"]["Todo"];
 export type Connection = "idle" | "connecting" | "online" | "offline";
 
-export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> };
-export type ProviderInfo = { id: string; name: string; models: Record<string, ModelInfo> };
+export type { ModelInfo, ProviderInfo } from "./catalog";
 export type ModelRef = { providerID: string; modelID: string };
 /** An agent as the engine resolved it for the workspace, Settings overrides applied. */
 export type AgentInfo = {
@@ -520,10 +520,10 @@ export function resolveModel(state: EngineState, pref: ModelRef | null): ModelRe
         return index < 0 ? providerPriority.length : index;
     };
     for (const provider of [...pool].sort((a, b) => rank(a.id) - rank(b.id))) {
-        const usable = Object.values(provider.models).filter((model) => model.capabilities.toolcall);
+        const usable = Object.values(provider.models);
         if (!usable.length) continue;
         const preferred = provider.models[state.defaultModels[provider.id] ?? ""];
-        const model = preferred?.capabilities.toolcall ? preferred : usable[0];
+        const model = preferred ?? usable[0];
         return { providerID: provider.id, modelID: model.id };
     }
     return null;

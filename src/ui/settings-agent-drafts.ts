@@ -33,7 +33,7 @@ export function reasoningLevels(state: Pick<EngineState, "providers" | "connecte
               .filter((provider) => state.connected.includes(provider.id))
               .flatMap((provider) => Object.values(provider.models));
 
-    const found = new Set(models.flatMap((info) => Object.keys(info.variants ?? {})));
+    const found = new Set(models.flatMap((info) => (info.variants ?? []).map((variant) => variant.name)));
     if (current) found.add(current);
 
     const rank = (level: string) => (levelOrder.includes(level) ? levelOrder.indexOf(level) : levelOrder.length);

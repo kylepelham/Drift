@@ -10,17 +10,20 @@ export type ProviderCatalog = {
     defaultModels: Record<string, string>;
 };
 
-/** Keeps only model fields needed by pickers, capabilities, context limits, and reasoning choices. */
+/** Keeps only the model fields pickers, attachment checks, context limits and reasoning choices read, so large catalogs stay cheap to cache. */
 function compactModel(model: ModelInfo): ModelInfo {
     return {
         id: model.id,
         name: model.name,
-        capabilities: model.capabilities,
         limit: model.limit,
+        attachment: model.attachment,
+        pdf: model.pdf,
+        reasoning: model.reasoning,
+        temperature: model.temperature,
         ...(model.family !== undefined ? { family: model.family } : {}),
         ...(model.release_date !== undefined ? { release_date: model.release_date } : {}),
         ...(model.variants !== undefined ? { variants: model.variants } : {}),
-    } as ModelInfo;
+    };
 }
 
 function compactCatalog(catalog: ProviderCatalog): ProviderCatalog {
@@ -82,10 +85,24 @@ function normalizeModel(candidate: unknown) {
 
     const model = candidate as Record<string, unknown>;
     if (typeof model.id !== "string" || typeof model.name !== "string") return;
-    if (!model.capabilities || typeof model.capabilities !== "object") return;
-    if (!model.limit || typeof model.limit !== "object") return;
 
-    return compactModel(model as unknown as ModelInfo);
+    return compactModel(restoreModel(model));
+}
+
+function restoreModel(model: Record<string, unknown>) {
+    // Older caches stored SDK capabilities and keyed variants rather than native catalog fields.
+    const legacy = model.capabilities as
+        { input?: { image?: boolean; pdf?: boolean }; reasoning?: boolean } | undefined;
+    const variants = Array.isArray(model.variants)
+        ? model.variants
+        : Object.entries((model.variants ?? {}) as Record<string, object>).map(([name, value]) => ({ ...value, name }));
+    return {
+        ...model,
+        attachment: model.attachment ?? legacy?.input?.image,
+        pdf: model.pdf ?? legacy?.input?.pdf,
+        reasoning: model.reasoning ?? legacy?.reasoning,
+        variants,
+    } as ModelInfo;
 }
 
 // Failed or unavailable localStorage leaves the catalog null, so startup seeding does nothing.

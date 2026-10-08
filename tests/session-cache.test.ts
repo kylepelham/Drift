@@ -40,7 +40,6 @@ test("cached threads survive a restart and only the engine may replace them", as
 const model = (id: string, name: string) => ({
     id,
     name,
-    capabilities: { toolcall: true },
     limit: { context: 200_000 },
 });
 
@@ -152,4 +151,31 @@ test("a stored cache is restored and malformed entries are discarded", async () 
             })),
         })["C:/work"],
     ).toHaveLength(cachedSessionLimit);
+});
+
+test("an SDK-era provider cache restores native attachment flags and ordered reasoning levels", async () => {
+    const { normalizeProviderCatalog } = await import("../src/state/provider-cache");
+    const { variantNames } = await import("../src/engine/catalog");
+    const cached = normalizeProviderCatalog({
+        providers: [
+            {
+                id: "anthropic",
+                name: "Anthropic",
+                models: {
+                    sonnet: {
+                        id: "sonnet",
+                        name: "Sonnet",
+                        capabilities: { reasoning: true, input: { image: true, pdf: false } },
+                        limit: { context: 200_000, output: 8192 },
+                        variants: { low: { kind: "effort", level: "low" }, high: { kind: "effort", level: "high" } },
+                    },
+                },
+            },
+        ],
+    });
+    const restored = cached?.providers[0]?.models.sonnet;
+
+    expect(restored).toMatchObject({ attachment: true, pdf: false, reasoning: true });
+    expect(variantNames(restored)).toEqual(["low", "high"]);
+    expect(restored).not.toHaveProperty("capabilities");
 });

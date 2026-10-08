@@ -1,7 +1,8 @@
-import { adaptMessage, adaptPart, adaptProvider } from "../src/engine/native/adapt";
 import { hiddenParent, sessionInWorkspace } from "../src/engine/sessions";
+import { adaptMessage, adaptPart } from "../src/engine/native/adapt";
 import { toolElapsedMs } from "../src/ui/tool-duration";
 import { createEngineState } from "../src/engine/store";
+import { variantNames } from "../src/engine/catalog";
 import { reduce } from "../src/engine/events";
 import { expect, test } from "bun:test";
 
@@ -40,14 +41,8 @@ test("a model's reasoning levels from the catalog become the picker's variants, 
         ],
     };
     const plain = { id: "claude-haiku", name: "Claude Haiku" };
-    const provider = {
-        id: "anthropic",
-        name: "Anthropic",
-        models: { [model.id]: model, [plain.id]: plain },
-    } as unknown as Parameters<typeof adaptProvider>[0];
-    const models = adaptProvider(provider).models as Record<string, { variants?: Record<string, unknown> }>;
-    expect(Object.keys(models["claude-opus-5-5"].variants ?? {})).toEqual(["low", "max"]);
-    expect(models["claude-haiku"].variants).toEqual({});
+    expect(variantNames(model)).toEqual(["low", "max"]);
+    expect(variantNames(plain)).toEqual([]);
 });
 
 test("subagents nest under their parent while spawned threads stay top level with a link", () => {

@@ -40,7 +40,6 @@ test("settings expose the OpenCode language and sound catalogs", async () => {
 test("LM Studio readiness uses the loaded context required by the coding agent", async () => {
     const { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } = await import("../src/state/lm-studio");
     const model = {
-        capabilities: { toolcall: true },
         limit: { context: 4096 },
     };
     expect(lmStudioMinimumContext).toBe(32768);
@@ -48,9 +47,7 @@ test("LM Studio readiness uses the loaded context required by the coding agent",
     expect(formatModelContext(32768)).toBe("32K");
     expect(lmStudioModelReady(model as never)).toBe(false);
     expect(lmStudioModelReady({ ...model, limit: { context: 32768 } } as never)).toBe(true);
-    expect(
-        lmStudioModelReady({ ...model, capabilities: { toolcall: false }, limit: { context: 65536 } } as never),
-    ).toBe(false);
+    expect(lmStudioModelReady({ ...model, limit: undefined } as never)).toBe(false);
 });
 
 test("selected language dictionaries translate settings without loading every locale", async () => {

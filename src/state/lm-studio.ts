@@ -9,5 +9,5 @@ export function formatModelContext(tokens: number) {
 }
 
 export function lmStudioModelReady(model: ModelInfo) {
-    return model.capabilities.toolcall && model.limit.context >= lmStudioMinimumContext;
+    return (model.limit?.context ?? 0) >= lmStudioMinimumContext;
 }

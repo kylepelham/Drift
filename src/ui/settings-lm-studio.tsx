@@ -79,8 +79,7 @@ export function LmStudioConnect(props: { providerName: string; onNotice: (notice
                     <For each={models()}>
                         {(model) => {
                             const usable = () => lmStudioModelReady(model);
-                            const lowContext = () =>
-                                model.capabilities.toolcall && model.limit.context < lmStudioMinimumContext;
+                            const lowContext = () => (model.limit?.context ?? 0) < lmStudioMinimumContext;
 
                             return (
                                 <div class="flex items-center gap-2 rounded-md border border-edge bg-overlay/35 px-2.5 py-2">
@@ -89,7 +88,7 @@ export function LmStudioConnect(props: { providerName: string; onNotice: (notice
                                         <span class="block truncate text-[0.65rem] text-ink-faint">{model.id}</span>
                                     </span>
                                     <span class="shrink-0 text-[0.65rem] tabular-nums text-ink-faint">
-                                        {formatModelContext(model.limit.context)}
+                                        {formatModelContext(model.limit?.context ?? 0)}
                                     </span>
                                     <span
                                         class="shrink-0 rounded-full border px-1.5 py-0.5 text-[0.62rem]"

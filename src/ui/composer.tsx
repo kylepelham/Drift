@@ -19,6 +19,7 @@ import { ComposerSlashMenu } from "./composer-slash-menu";
 import { localAsks, resolveAsk } from "../state/asks";
 import { createSlashMenu } from "./composer-slash";
 import { Picker, type PickerItem } from "./picker";
+import { variantNames } from "../engine/catalog";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
 import { openSettings } from "./settings";
@@ -79,8 +80,8 @@ const clipboardRepublishDelayMs = 100;
 const localProviders = ["ollama", "lmstudio"];
 
 /** The picker's line under a model: a small or unknown window is warned about, and LM Studio shows its loaded window. */
-export function modelDetail(providerID: string, model: { id: string; limit: { context: number } }) {
-    const context = model.limit.context;
+export function modelDetail(providerID: string, model: { id: string; limit?: { context: number } }) {
+    const context = model.limit?.context ?? 0;
     if (context > 0 && context < smallContextTokens)
         return t("drift.model.smallContext", { size: formatModelContext(context) });
     // A local model not yet loaded runs at whatever window its server picks, and compaction cannot plan for it.
@@ -352,9 +353,7 @@ export function Composer() {
             const provider = providers.find((item) => item.id === providerID);
             if (!provider) return [];
             return Object.values(provider.models)
-                .filter((model) =>
-                    provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall,
-                )
+                .filter((model) => provider.id !== "lmstudio" || lmStudioModelReady(model))
                 .sort(
                     (a, b) =>
                         (b.release_date ?? "").localeCompare(a.release_date ?? "") || a.name.localeCompare(b.name),
@@ -389,7 +388,7 @@ export function Composer() {
         return ref ? `${ref.providerID}/${ref.modelID}` : undefined;
     };
 
-    const variants = createMemo(() => Object.keys(modelInfo(engine.state, model())?.variants ?? {}));
+    const variants = createMemo(() => variantNames(modelInfo(engine.state, model())));
     const variantItems = createMemo<PickerItem[]>(() => [
         { id: "default", label: t("common.default") },
         ...variants().map((name) => ({ id: name, label: reasoningLevelLabel(name) })),
@@ -409,7 +408,7 @@ export function Composer() {
             prepare(existing) {
                 const selectedPrefs = prefsFor(existing, savedChoice(engine.state, existing));
                 const selectedModel = resolveModel(engine.state, selectedPrefs.model);
-                const selectedVariants = Object.keys(modelInfo(engine.state, selectedModel)?.variants ?? {});
+                const selectedVariants = variantNames(modelInfo(engine.state, selectedModel));
                 return {
                     selectedPrefs,
                     selectedModel,

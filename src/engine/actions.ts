@@ -1,5 +1,5 @@
 import { EngineError, maxRequestBytes, type Client, type PermissionGrant, type PermissionRule } from "./native/client";
-import { adaptMessage, adaptPart, adaptProvider, type NativeMessageWithParts } from "./native/adapt";
+import { adaptMessage, adaptPart, type NativeMessageWithParts } from "./native/adapt";
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store";
 import { applyProviderCatalog } from "../state/provider-cache";
@@ -392,7 +392,7 @@ export function createActions(
             .catch(() => undefined);
         if (!providers) return false;
         applyProviderCatalog(set, {
-            all: providers.map(adaptProvider),
+            all: providers,
             connected: providers.filter((p) => p.connected).map((p) => p.id),
             default: {},
         });

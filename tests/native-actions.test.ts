@@ -182,8 +182,8 @@ test("providers become the catalog shape the picker reads", async () => {
     expect(h.state.connected).toEqual(["anthropic"]);
     expect(h.state.providers.map((p) => p.id)).toEqual(["anthropic", "openai"]);
     const model = h.state.providers[0]!.models.claude!;
-    expect(model.capabilities.toolcall).toBe(true);
-    expect(model.cost.cache).toEqual({ read: 0.3, write: 3.75 });
+    expect(model.profile).toBe("edit");
+    expect(model.cost).toMatchObject({ cache_read: 0.3, cache_write: 3.75 });
     expect((model as { limit: { context: number } }).limit.context).toBe(200000);
 });
 

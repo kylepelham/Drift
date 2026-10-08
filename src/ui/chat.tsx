@@ -5,6 +5,7 @@ import { lmStudioModelReady } from "../state/lm-studio";
 import { activeWorkspace } from "../state/workspaces";
 import { selectedSession } from "../state/selection";
 import { Picker, type PickerItem } from "./picker";
+import { variantNames } from "../engine/catalog";
 import { ProviderIcon } from "./provider-icon";
 import { codeFontSize } from "../state/code";
 import { TextShimmer } from "./text-shimmer";
@@ -1047,7 +1048,7 @@ function SessionRetry(props: {
         const [providerID, ...rest] = id.split("/");
         const model = { providerID, modelID: rest.join("/") };
         const preferredVariant = prefsFor(props.sessionID, savedChoice(engine.state, props.sessionID)).variant;
-        const variants = Object.keys(modelInfo(engine.state, model)?.variants ?? {});
+        const variants = variantNames(modelInfo(engine.state, model));
         const variant = preferredVariant && variants.includes(preferredVariant) ? preferredVariant : undefined;
         setSubmitting(true);
         const result = await engine.actions.switchRetryModel(props.sessionID, props.messageID, model, variant);
@@ -1113,7 +1114,7 @@ export function retryModelItems(state: EngineState): PickerItem[] {
         const provider = providers.find((item) => item.id === providerID);
         if (!provider) return [];
         return Object.values(provider.models)
-            .filter((model) => (provider.id === "lmstudio" ? lmStudioModelReady(model) : model.capabilities.toolcall))
+            .filter((model) => provider.id !== "lmstudio" || lmStudioModelReady(model))
             .sort((a, b) => a.name.localeCompare(b.name))
             .map((model) => ({
                 id: `${provider.id}/${model.id}`,

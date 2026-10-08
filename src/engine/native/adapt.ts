@@ -1,12 +1,9 @@
 // Message, part and catalog conversions retained until their views consume native records.
 import type { AssistantMessage, Message, Part, ToolPart } from "../shapes";
-import type { ModelInfo, ProviderInfo } from "../store";
 import type { components } from "./types";
 
 type NativeMessage = components["schemas"]["Message"];
 type NativePartRow = components["schemas"]["PartRow"];
-type NativeProvider = components["schemas"]["ProviderStatus"];
-type NativeModel = components["schemas"]["Model"];
 export type NativeMessageWithParts = components["schemas"]["MessageWithParts"];
 
 /** The engine marks every message with its agent; this only fills the field its schema leaves optional. */
@@ -186,46 +183,4 @@ function toolState(row: Extract<NativePartRow, { type: "tool_call" }>): ToolPart
         case "denied":
             return { status: "error", input, error: row.output ?? "Failed", metadata, time: { start, end } };
     }
-}
-
-export function adaptProvider(provider: NativeProvider): ProviderInfo {
-    const models = Object.fromEntries(
-        Object.values(provider.models).map((model) => [model.id, adaptModel(provider.id, model)]),
-    );
-    return { id: provider.id, name: provider.name, models };
-}
-
-function adaptModel(providerID: string, model: NativeModel): ModelInfo {
-    const cost: Partial<NonNullable<NativeModel["cost"]>> = model.cost ?? {};
-    const limit: Partial<NonNullable<NativeModel["limit"]>> = model.limit ?? {};
-    return {
-        id: model.id,
-        providerID,
-        api: { id: model.id, url: "", npm: "" },
-        name: model.name,
-        family: model.family,
-        release_date: model.release_date,
-        capabilities: {
-            temperature: model.temperature,
-            reasoning: model.reasoning,
-            attachment: model.attachment,
-            toolcall: true,
-            input: { text: true, audio: false, image: model.attachment, video: false, pdf: model.pdf ?? false },
-            output: { text: true, audio: false, image: false, video: false, pdf: false },
-        },
-        cost: {
-            input: cost.input ?? 0,
-            output: cost.output ?? 0,
-            cache: { read: cost.cache_read ?? 0, write: cost.cache_write ?? 0 },
-        },
-        limit: {
-            context: limit.context ?? 0,
-            output: limit.output ?? 0,
-            ...(limit.input ? { input: limit.input } : {}),
-        },
-        status: "active",
-        options: {},
-        headers: {},
-        variants: Object.fromEntries((model.variants ?? []).map((variant) => [variant.name, variant])),
-    } as ModelInfo;
 }

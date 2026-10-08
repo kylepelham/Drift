@@ -30,6 +30,9 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
   Request directories are UI-owned routing data, not synthetic permission metadata.
 - `src/engine/provider-auth.ts` owns Settings' sign-in method type; these choices are
   supplied by the actions layer rather than the engine's provider catalog schema.
+- Catalog models use the generated native schema, including ordered reasoning variants
+  and optional context limits. The persisted catalog restores SDK-era caches at the storage
+  boundary; live provider responses are stored without capability placeholders.
 - `src/engine/native/adapt.ts` maps the engine's messages and parts onto the shapes
   the views render (`src/engine/shapes.ts`).
 - `src/engine/store.ts` holds the state shape plus pure helpers (`visibleSessions`,
