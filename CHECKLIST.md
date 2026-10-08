@@ -319,7 +319,7 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [x] Gates check formatting; CI on `next/**` and pull requests with typos, cargo-deny, cargo-machete and nextest; `drift.json` checks TypeScript with ESLint
 - [x] Source-text tests compare code, not layout (`tests/source.ts`)
 - [x] Typed tool-call metadata (`ToolMetadata`), same JSON, typed in the generated client
-- [ ] Shell, importer and headless crates: workspace lints, typed errors, split files, grouped blocks
+- [x] Shell, importer and headless crates: workspace lints, typed errors, split files, grouped blocks
 - [x] ESLint clean, then in the gates and CI
 - [ ] Engine: workspace lints (parameter structs, split functions, `SAFETY` notes), `session/turn.rs` split, typed errors
 - [ ] UI speaks the native engine: `shapes.ts` and `native/adapt.ts` removed, knip clean and in CI
