@@ -130,6 +130,7 @@ fn output_and_thinking_budgets_are_valid_together() {
 
 fn assert_thinking_budgets_fit() {
     let budget = |tokens| Some(Reasoning::Budget { tokens });
+
     for (limit, wanted) in [(4_096, 4_096), (8_192, 8_000), (128_000, 127_000), (2_048, 1_024)] {
         let (max, thinking) = budgets(&model_with(limit, true), budget(wanted));
         assert!(max as u64 <= limit, "{limit}/{wanted}");

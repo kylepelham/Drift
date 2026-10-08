@@ -138,8 +138,10 @@ async fn a_stop_while_a_fixer_runs_still_records_what_it_rewrote() {
         if std::fs::read_to_string(h._dir.join("ws/a.md")).is_ok_and(|text| text.starts_with("fixed")) {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+
     h.engine.abort(&h.session.id);
     until_idle(&h).await;
 
@@ -272,7 +274,9 @@ async fn compaction_forgets_what_checks_said() {
     h.provider.push(text("hello")).push(text("the summary"));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_idle(&h).await;
+
     h.engine.turns.repeated(&h.session.id, "types", Some("3 errors"));
+
     h.engine
         .compact(
             &h.session.id,
@@ -281,6 +285,7 @@ async fn compaction_forgets_what_checks_said() {
         )
         .await
         .unwrap();
+
     assert!(
         !h.engine.turns.repeated(&h.session.id, "types", Some("3 errors")),
         "the summary may not hold the full report, so it is sent again"

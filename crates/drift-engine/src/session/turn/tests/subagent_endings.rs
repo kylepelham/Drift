@@ -15,6 +15,7 @@ fn progress_then(tool: &str, input: &str) -> Vec<Chunk> {
         Chunk::TextDelta("PROGRESS_TEXT".into()),
         Chunk::BlockStop,
     ];
+
     chunks.extend(call_block("toolu_progress", tool, input));
     chunks.push(Chunk::Stop(StopReason::ToolUse));
     chunks
@@ -26,9 +27,12 @@ async fn stop_the_child_when(h: &Harness, left: usize) -> String {
         if h.provider.responses_left() == left {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+
     tokio::time::sleep(Duration::from_millis(50)).await;
+
     let child = child_id(h);
     assert!(h.engine.abort(&child), "the child is running");
     child
@@ -43,6 +47,7 @@ async fn a_subagent_that_fails_after_compacting_reports_the_failure_not_the_summ
         .push(text("SUBAGENT_FAIL_MARK_SUMMARY"))
         .push_error(too_long())
         .push(text("parent carries on"));
+
     h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
     until_idle(&h).await;
 
@@ -67,13 +72,17 @@ async fn a_subagent_stopped_after_compacting_is_not_answered_by_its_summary() {
         .push_error(too_long())
         .push(text("SUBAGENT_STOP_MARK_SUMMARY"))
         .push_stall();
+
     h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
+
     for _ in 0..200 {
         if h.provider.responses_left() == 0 {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;

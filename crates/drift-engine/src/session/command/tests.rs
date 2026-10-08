@@ -183,6 +183,7 @@ async fn a_broken_primary_agent_cannot_be_picked_mid_turn() {
         "---\nmode: primary\ntop_p: 0.5\ntemperature: 0.9\n---\nRuns warm.",
     )
     .unwrap();
+
     let config = h.engine.workspace_config(&h._dir.join("ws"));
     assert!(
         config.agent("warm").unwrap().usable().is_ok(),
@@ -195,11 +196,13 @@ async fn a_broken_primary_agent_cannot_be_picked_mid_turn() {
         "{:?}",
         config.warnings
     );
+
     h.provider
         .push_slow(Duration::from_millis(600), text("busy"))
         .push(text("never"));
     h.engine.submit(&h.session.id, prompt("start")).await.unwrap();
     tokio::time::sleep(Duration::from_millis(100)).await;
+
     let mut switch = prompt("as hot");
     switch.agent = Some("hot".into());
     let refused = h.engine.submit(&h.session.id, switch).await.unwrap_err();
@@ -210,6 +213,7 @@ async fn a_broken_primary_agent_cannot_be_picked_mid_turn() {
         reason.contains("agent hot") && reason.contains("allow, ask or deny"),
         "{refused:?}"
     );
+
     until_idle(&h).await;
     assert_eq!(h.engine.store.session(&h.session.id).unwrap().unwrap().agent, "build");
 }

@@ -82,6 +82,7 @@ async fn a_file_read_before_a_restart_may_be_edited_after_it() {
         if !reopened.turns.is_running(&h.session.id) {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
@@ -168,8 +169,10 @@ async fn stop_ends_a_capture_that_has_not_finished() {
         {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
+
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;

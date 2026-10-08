@@ -20,6 +20,7 @@ fn repo_git(workspace: &Path, args: &[&str]) -> String {
 fn hostile_attributes(snapshots: &Snapshots, workspace: &Path, attributes: &str) {
     std::fs::write(workspace.join(".gitattributes"), attributes).unwrap();
     let git_dir = snapshots.git_dir(workspace);
+
     let config = |key: &str, value: &str| {
         std::process::Command::new("git")
             .arg("--git-dir")
@@ -28,6 +29,7 @@ fn hostile_attributes(snapshots: &Snapshots, workspace: &Path, attributes: &str)
             .status()
             .unwrap()
     };
+
     config("filter.upper.clean", "tr a-z A-Z");
     config("filter.upper.smudge", "cat");
 }
@@ -97,17 +99,21 @@ async fn trees_hold_the_bytes_on_disk_whatever_the_attributes_say() {
     let snapshots = Snapshots::new(&base.join("data"));
     std::fs::write(workspace.join("seed"), "x").unwrap();
     snapshots.take(&workspace).await.unwrap();
+
     hostile_attributes(
         &snapshots,
         &workspace,
         "* text=auto\n*.txt eol=lf ident filter=upper working-tree-encoding=UTF-16\n",
     );
+
     std::fs::write(workspace.join("a.txt"), "one $Id$\r\ntwo\r\n").unwrap();
     std::fs::write(workspace.join("b.md"), "crlf\r\n").unwrap();
     let before = snapshots.take(&workspace).await.unwrap();
+
     std::fs::write(workspace.join("a.txt"), "three\r\n").unwrap();
     std::fs::write(workspace.join("b.md"), "changed\r\n").unwrap();
     let after = snapshots.take(&workspace).await.unwrap();
+
     for change in snapshots
         .changes_between(&workspace, &before, &after)
         .await
@@ -120,6 +126,7 @@ async fn trees_hold_the_bytes_on_disk_whatever_the_attributes_say() {
             "{} after is the file's exact bytes",
             change.path
         );
+
         snapshots
             .put(
                 &crate::store::tests::store(),
@@ -130,8 +137,10 @@ async fn trees_hold_the_bytes_on_disk_whatever_the_attributes_say() {
             .await
             .unwrap();
     }
+
     assert_eq!(std::fs::read(workspace.join("a.txt")).unwrap(), b"one $Id$\r\ntwo\r\n");
     assert_eq!(std::fs::read(workspace.join("b.md")).unwrap(), b"crlf\r\n");
+
     std::fs::remove_dir_all(base).ok();
 }
 

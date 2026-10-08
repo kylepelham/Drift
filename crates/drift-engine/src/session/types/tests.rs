@@ -133,9 +133,18 @@ fn tool_metadata_samples_round_trip_in_stored_parts() {
     for (producer, sample) in METADATA_SAMPLES {
         let metadata: Value = serde_json::from_str(sample).unwrap();
         let stored = serde_json::json!({
-            "type": "tool_call", "callId": "call_saved", "name": producer, "input": {}, "status": "done",
-            "title": "Saved result", "output": "Complete", "metadata": metadata, "startedAt": 1000, "finishedAt": 2000
+            "type": "tool_call",
+            "callId": "call_saved",
+            "name": producer,
+            "input": {},
+            "status": "done",
+            "title": "Saved result",
+            "output": "Complete",
+            "metadata": metadata,
+            "startedAt": 1000,
+            "finishedAt": 2000,
         });
+
         let part = Part::from_stored(&stored.to_string());
         assert!(matches!(part, Part::ToolCall { metadata: Some(_), .. }), "{producer}");
         assert_eq!(
@@ -149,14 +158,17 @@ fn tool_metadata_samples_round_trip_in_stored_parts() {
 #[test]
 fn tool_metadata_schema_declares_the_producers_wire_keys() {
     use utoipa::PartialSchema;
+
     let schema = serde_json::to_value(ToolMetadata::schema()).unwrap();
     let properties = schema["properties"].as_object().unwrap();
+
     for (producer, sample) in METADATA_SAMPLES {
         let metadata: Value = serde_json::from_str(sample).unwrap();
         for key in metadata.as_object().unwrap().keys() {
             assert!(properties.contains_key(key), "{producer}: schema lacks {key}");
         }
     }
+
     assert!(!properties.contains_key("legacy"));
     assert!(!properties.contains_key("extra"));
     assert!(!properties.contains_key("engine_command"));
@@ -183,9 +195,13 @@ fn typed_metadata_overwrites_legacy_keys_without_duplicate_json_fields() {
 #[test]
 fn imported_metadata_and_non_objects_stay_loadable() {
     let samples = [
-        serde_json::json!({ "filediff": {"file": "C:/work/main.rs", "patch": "-old\n+new"},
-            "files": [{"filePath": "C:/work/main.rs", "movePath": "C:/work/new.rs", "custom": 7}],
-            "changes": [{"path": "main.rs"}], "at": "msg_imported", "future": {"version": 2} }),
+        serde_json::json!({
+            "filediff": { "file": "C:/work/main.rs", "patch": "-old\n+new" },
+            "files": [{ "filePath": "C:/work/main.rs", "movePath": "C:/work/new.rs", "custom": 7 }],
+            "changes": [{ "path": "main.rs" }],
+            "at": "msg_imported",
+            "future": { "version": 2 },
+        }),
         serde_json::json!({"notes": null, "exit": "unknown", "images": [{"mime": "image/png", "data": null}]}),
         serde_json::json!({"checks": [{"check": "lint", "status": "passed", "output": null}]}),
         serde_json::json!({"changes": [{"path": "main.rs", "observed": null}]}),
@@ -194,9 +210,11 @@ fn imported_metadata_and_non_objects_stay_loadable() {
         serde_json::json!(42),
         serde_json::json!(false),
     ];
+
     for json in samples {
         let metadata: ToolMetadata = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(metadata).unwrap(), json);
+
         let stored = serde_json::json!({
             "type": "tool_call",
             "callId": "call_imported",
@@ -205,10 +223,12 @@ fn imported_metadata_and_non_objects_stay_loadable() {
             "status": "done",
             "metadata": json,
         });
+
         let part = Part::from_stored(&stored.to_string());
         assert!(matches!(part, Part::ToolCall { .. }));
         assert_eq!(serde_json::from_str::<Value>(&part.stored()).unwrap(), stored);
     }
+
     let null: ToolMetadata = serde_json::from_value(Value::Null).unwrap();
     assert!(null.is_null());
     assert_eq!(serde_json::to_value(null).unwrap(), Value::Null);
@@ -219,16 +239,20 @@ fn typed_metadata_merges_with_the_same_json_precedence() {
     let base = ToolMetadata::from(serde_json::json!({"exit": "unknown", "notes": ["Earlier"], "future": 1}));
     let patch = ToolMetadata::from(serde_json::json!({"exit": 0, "notes": [], "future": 2}));
     let merged = base.merged(Some(patch)).unwrap();
+
     assert_eq!(
         serde_json::to_value(&merged).unwrap(),
         serde_json::json!({"exit": 0, "notes": [], "future": 2})
     );
+
     let merged = merged
         .merged(Some(serde_json::json!({"exit": "unavailable"}).into()))
         .unwrap();
     assert!(merged.exit.is_none());
     assert_eq!(serde_json::to_value(merged).unwrap()["exit"], "unavailable");
+
     assert!(ToolMetadata::null().merged(None).is_none());
+
     let legacy = ToolMetadata::from(serde_json::json!([1]));
     assert_eq!(legacy.clone().merged(Some(ToolMetadata::default())), Some(legacy));
 }
@@ -252,11 +276,13 @@ fn part_serialises_tagged_and_flat_in_row() {
             finished_at: None,
         },
     };
+
     let json = serde_json::to_value(&row).unwrap();
     assert_eq!(json["type"], "tool_call");
     assert_eq!(json["callId"], "toolu_1");
     assert_eq!(json["messageId"], "msg_1");
     assert!(json.get("output").is_none());
+
     let back: PartRow = serde_json::from_value(json).unwrap();
     assert_eq!(back, row);
 }
@@ -276,8 +302,10 @@ fn a_part_never_shadows_its_rows_own_fields() {
             text: "t".into(),
         },
     };
+
     let text = serde_json::to_string(&row).unwrap();
     assert_eq!(text.matches("\"sessionId\"").count(), 1, "{text}");
+
     let back: PartRow = serde_json::from_str(&text).unwrap();
     assert_eq!(back, row);
 }

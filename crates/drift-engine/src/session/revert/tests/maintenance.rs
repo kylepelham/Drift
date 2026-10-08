@@ -13,6 +13,7 @@ fn old_output(h: &Harness, name: &str) -> PathBuf {
 /// Bounded by the wall clock: the paused clock races ahead while the prune waits on its git child.
 async fn until_gone(path: &Path) {
     let deadline = std::time::Instant::now() + Duration::from_secs(30);
+
     while path.exists() {
         assert!(
             std::time::Instant::now() < deadline,
@@ -27,6 +28,7 @@ async fn until_gone(path: &Path) {
 async fn every_blob_undo_needs_is_kept_through_a_prune() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
+
     let kept = h
         .engine
         .store
@@ -42,6 +44,7 @@ async fn every_blob_undo_needs_is_kept_through_a_prune() {
         3,
         "one, two and bee, each once; a file that did not exist has no blob"
     );
+
     h.engine.prune_snapshots().await;
     h.engine.revert(&h.session.id, &second).await.unwrap();
     h.engine.unrevert(&h.session.id).await.unwrap();

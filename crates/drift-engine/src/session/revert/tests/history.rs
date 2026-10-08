@@ -67,10 +67,12 @@ async fn undo_and_redo_merge_one_files_history_across_nested_workspace_moves() {
         "the uninterrupted A -> B -> C chain belongs to this session"
     );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "A");
+
     h.engine.prune_snapshots().await;
     let redone = h.engine.unrevert(&h.session.id).await.unwrap();
     assert!(redone.kept.is_empty());
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "C");
+
     h.engine.revert(&h.session.id, &second).await.unwrap();
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "B");
     h.engine.revert(&h.session.id, &first).await.unwrap();
@@ -91,6 +93,7 @@ async fn a_broken_cross_workspace_chain_preserves_the_entire_file() {
         "C",
         "A -> B then external X -> C is not partially undone to X"
     );
+
     let redone = h.engine.unrevert(&h.session.id).await.unwrap();
     assert_eq!(redone.kept.len(), 1);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "C");
@@ -99,6 +102,7 @@ async fn a_broken_cross_workspace_chain_preserves_the_entire_file() {
 #[tokio::test]
 async fn undo_deduplicates_paths_across_overlapping_historical_workspaces() {
     let h = harness().await;
+
     let root = crate::tool::canonical(&h._dir.join("ws"));
     std::fs::create_dir_all(root.join("sub")).unwrap();
     let nested = h
@@ -106,6 +110,7 @@ async fn undo_deduplicates_paths_across_overlapping_historical_workspaces() {
         .store
         .add_workspace(&root.join("sub").to_string_lossy(), "nested", "")
         .unwrap();
+
     let change = |owner: String, path: &str| {
         let file = crate::tool::canonical(&h.engine.root_of(&owner).unwrap().join(path));
         Net::new(
@@ -119,10 +124,12 @@ async fn undo_deduplicates_paths_across_overlapping_historical_workspaces() {
             Some(file),
         )
     };
+
     let nets = [
         change(h.session.workspace_id.clone(), "sub/a.txt"),
         change(nested.id, "a.txt"),
     ];
+
     let held = tokio::time::timeout(Duration::from_secs(1), h.engine.turns_for(&nets))
         .await
         .expect("one reservation for the same physical file");
@@ -134,6 +141,7 @@ async fn undo_deduplicates_paths_across_overlapping_historical_workspaces() {
         .await
         .is_err()
     );
+
     drop(held);
 }
 
@@ -224,12 +232,14 @@ async fn a_shell_commands_changes_are_reported_but_never_undone() {
             decision: Decision::Allow,
         }],
     });
+
     std::fs::write(h._dir.join("ws/existing.txt"), "before\n").unwrap();
     h.provider
         .push(tool_call("bash", r#"{"command": "echo made > made.txt"}"#))
         .push(text("made it"));
     turn(&h, "make a file").await;
     assert!(read(&h, "made.txt").is_some_and(|text| text.contains("made")));
+
     let prompt_id = h.engine.store.transcript(&h.session.id).unwrap()[0].info.id.clone();
     let undone = h.engine.revert(&h.session.id, &prompt_id).await.unwrap();
     assert_eq!(
@@ -239,6 +249,7 @@ async fn a_shell_commands_changes_are_reported_but_never_undone() {
     );
     assert!(read(&h, "made.txt").is_some(), "left as it is");
     assert_eq!(read(&h, "existing.txt").as_deref(), Some("before\n"));
+
     let redone = h.engine.unrevert(&h.session.id).await.unwrap();
     assert_eq!(redone.unattributed, ["made.txt"]);
 }

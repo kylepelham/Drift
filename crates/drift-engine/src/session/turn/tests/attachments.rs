@@ -261,6 +261,7 @@ async fn malformed_attachments_are_refused_before_admission() {
             "{url}: {refused:?}"
         );
     }
+
     assert!(transcript(&h).is_empty(), "nothing was admitted");
     assert!(h.provider.requests.lock().unwrap().is_empty());
 }

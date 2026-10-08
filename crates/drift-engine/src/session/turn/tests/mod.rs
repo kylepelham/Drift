@@ -159,6 +159,7 @@ async fn until_session_idle(h: &Harness, session_id: &str) {
         if !h.engine.turns.is_running(session_id) {
             return;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("turn never finished");
@@ -307,6 +308,7 @@ async fn until_call_running(h: &Harness) {
         if running {
             return;
         }
+
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     panic!("no call started");
@@ -343,6 +345,7 @@ async fn until_waiting_to_retry(h: &Harness) {
         if h.engine.turns.retry_waits.lock().unwrap().contains_key(&h.session.id) {
             return;
         }
+
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     panic!("the turn never waited to retry");

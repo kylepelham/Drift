@@ -18,10 +18,12 @@ async fn always_holds_for_the_workspace_across_sessions_and_restarts_and_settles
     assert_ne!(first.session_id, second.session_id);
     reply_permission(&h, &first.id, Reply::Always);
     until_idle(&h).await;
+
     for _ in 0..300 {
         if !h.engine.turns.is_running(&other.id) {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 

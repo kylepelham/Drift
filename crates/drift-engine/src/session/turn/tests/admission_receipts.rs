@@ -79,6 +79,7 @@ async fn submit_rejects_bad_plans() {
         h.engine.submit(&h.session.id, no_model).await.err(),
         Some(TurnError::NoModel)
     );
+
     let unknown = Prompt {
         model: Some(ModelRef {
             provider: "anthropic".into(),
@@ -90,10 +91,12 @@ async fn submit_rejects_bad_plans() {
         h.engine.submit(&h.session.id, unknown).await.err(),
         Some(TurnError::UnknownModel)
     );
+
     assert_eq!(
         h.engine.submit("ses_missing", prompt("x")).await.err(),
         Some(TurnError::NoSession)
     );
+
     h.engine.credentials.remove("anthropic").unwrap();
     assert_eq!(
         h.engine.submit(&h.session.id, prompt("x")).await.err(),

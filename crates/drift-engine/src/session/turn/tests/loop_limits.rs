@@ -156,14 +156,17 @@ async fn polling_that_waits_on_purpose_is_allowed_to_repeat() {
     rule(&h, "bash", "*", Decision::Allow);
     std::fs::write(h._dir.join("ws/status.txt"), "pending\n").unwrap();
     let poll = tool_call("bash", r#"{"command": "sleep 0 && cat status.txt"}"#);
+
     h.provider
         .push(poll.clone())
         .push(poll.clone())
         .push(poll.clone())
         .push(poll)
         .push(text("still pending, stopping"));
+
     h.engine.submit(&h.session.id, prompt("wait for it")).await.await_ok();
     until_idle(&h).await;
+
     assert_eq!(
         transcript(&h).last().unwrap().info.status,
         MessageStatus::Done,
@@ -181,6 +184,7 @@ fn only_identical_results_count_as_repeats() {
             output: output.into(),
         }]
     };
+
     let mut repeats = Repeats::default();
     assert_eq!(repeats.record(call("1"), &limits), None);
     assert_eq!(
@@ -191,6 +195,7 @@ fn only_identical_results_count_as_repeats() {
     assert_eq!(repeats.record(call("2"), &limits), None);
     assert_eq!(repeats.record(call("2"), &limits), Some(3));
     assert_eq!(repeats.record(Vec::new(), &limits), None, "a step without calls resets");
+
     let waiting = CallTrace {
         name: "bash".into(),
         input: r#"{"command":"Start-Sleep 5; gh run view"}"#.into(),

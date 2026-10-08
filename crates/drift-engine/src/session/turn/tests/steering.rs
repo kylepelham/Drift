@@ -56,18 +56,21 @@ async fn a_prompt_sent_while_the_last_reply_streams_is_answered_before_the_turn_
 async fn a_prompt_sent_during_another_job_waits_and_then_runs() {
     let h = harness().await;
     assert!(h.engine.turns.claim(&h.session.id, &CancellationToken::new()));
+
     let engine = h.engine.clone();
     let id = h.session.id.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(300)).await;
         engine.turns.release(&id);
     });
+
     h.provider.push(text("after the job"));
     let started = std::time::Instant::now();
     h.engine
         .submit(&h.session.id, prompt("queued"))
         .await
         .expect("queued behind the job");
+
     assert!(started.elapsed() >= Duration::from_millis(250));
     until_idle(&h).await;
     assert_eq!(h.provider.responses_left(), 0);

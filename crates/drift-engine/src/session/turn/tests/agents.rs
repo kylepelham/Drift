@@ -96,6 +96,7 @@ async fn a_prompt_that_picks_plan_runs_as_plan_and_every_message_says_so() {
                 },
             )
             .await;
+
         assert_eq!(
             result.err(),
             Some(TurnError::UnknownAgent),

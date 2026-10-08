@@ -81,19 +81,24 @@ async fn a_prune_keeps_what_history_refers_to_and_drops_the_rest() {
     let snapshots = Snapshots::new(&base.join("data"));
     std::fs::write(workspace.join("kept.txt"), "kept\n").unwrap();
     std::fs::write(workspace.join("dropped.txt"), "dropped\n").unwrap();
+
     let kept = snapshots.record(&workspace, "kept.txt").await.unwrap().unwrap();
     let dropped = snapshots.record(&workspace, "dropped.txt").await.unwrap().unwrap();
+
     snapshots
         .prune_older_than(&workspace, std::slice::from_ref(&kept), "now")
         .await
         .unwrap();
+
     assert!(snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok());
     assert!(snapshots.git(&workspace, &["cat-file", "-e", &dropped]).await.is_err());
+
     snapshots.prune(&workspace, &[]).await.unwrap();
     assert!(
         snapshots.git(&workspace, &["cat-file", "-e", &kept]).await.is_ok(),
         "the grace period protects recent objects"
     );
+
     std::fs::remove_dir_all(base).ok();
 }
 
@@ -105,8 +110,10 @@ async fn a_bound_workspace_keeps_its_history_under_its_owner_wherever_its_direct
     let old = snapshots.record(&workspace, "a.txt").await.unwrap().unwrap();
     let legacy = snapshots.path_dir(&workspace);
     assert!(legacy.join("HEAD").exists());
+
     snapshots.bind("ws_1", &workspace);
     assert!(!legacy.exists(), "the path-named repo was taken over");
+
     std::fs::write(workspace.join("a.txt"), "two\n").unwrap();
     let store = crate::store::tests::store();
     snapshots.put(&store, &workspace, "a.txt", Some(&old)).await.unwrap();
@@ -126,6 +133,7 @@ async fn a_bound_workspace_keeps_its_history_under_its_owner_wherever_its_direct
         "one\n",
         "a workspace pointed elsewhere keeps its history"
     );
+
     std::fs::remove_dir_all(base).ok();
 }
 
@@ -133,9 +141,11 @@ async fn a_bound_workspace_keeps_its_history_under_its_owner_wherever_its_direct
 async fn concurrent_captures_in_one_workspace_do_not_collide() {
     let (base, workspace) = dirs();
     let snapshots = Arc::new(Snapshots::new(&base.join("data")));
+
     for index in 0..8 {
         std::fs::write(workspace.join(format!("f{index}.txt")), format!("{index}\n")).unwrap();
     }
+
     let captures = (0..8).map(|index| {
         let (snapshots, workspace) = (snapshots.clone(), workspace.clone());
         tokio::spawn(async move {
@@ -144,8 +154,10 @@ async fn concurrent_captures_in_one_workspace_do_not_collide() {
             Ok::<_, Error>(tree)
         })
     });
+
     for capture in futures_util::future::join_all(captures).await {
         capture.unwrap().unwrap();
     }
+
     std::fs::remove_dir_all(base).ok();
 }

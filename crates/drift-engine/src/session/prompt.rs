@@ -264,6 +264,7 @@ mod tests {
         std::fs::create_dir_all(&workspace).unwrap();
         std::fs::write(workspace.join("CLAUDE.md"), "claude rules").unwrap();
         std::fs::write(workspace.join("AGENTS.md"), "agent rules").unwrap();
+
         let config = Config::load_with_home(&workspace, None);
         let servers = [("web-test".to_string(), "Start a session first.".to_string())];
         let setting = |agent: &str, delegates: bool| Setting {
@@ -277,6 +278,7 @@ mod tests {
             model: "Claude Opus",
             servers: &servers,
         };
+
         let prompt = system(&setting("plan", false));
         assert!(prompt.starts_with("You are Drift"));
         assert!(
@@ -297,8 +299,10 @@ mod tests {
         assert!(prompt.contains("# Instructions from AGENTS.md\n\nagent rules"));
         assert!(!prompt.contains("claude rules"));
         assert!(!prompt.contains("# Subagents"), "no task tool, no subagent list");
+
         std::fs::create_dir_all(workspace.join(".git")).unwrap();
         assert!(system(&setting("plan", false)).contains("Git repository: yes\n"));
+
         let delegating = system(&setting("build", true));
         assert!(
             delegating.contains("# Subagents")
@@ -306,6 +310,7 @@ mod tests {
                 && delegating.contains("- explore: ")
         );
         assert!(!delegating.contains("- title: "), "actions are not subagents");
+
         let mut broken = config.clone();
         broken.agents.iter_mut().find(|a| a.name == "explore").unwrap().problem =
             Some("uses unsupported controls (temperature)".into());
@@ -318,6 +323,7 @@ mod tests {
             offered.contains("- general: ") && !offered.contains("- explore: "),
             "a broken subagent is not offered"
         );
+
         std::fs::remove_dir_all(workspace).ok();
     }
 
@@ -331,6 +337,7 @@ mod tests {
             instructions: String::new(),
             argument_hint: None,
         };
+
         config.skills = vec![skill("review"), skill("deploy")];
         let workspace = std::env::temp_dir();
         let deny = |kind: &str, name: &str| (kind, name) == ("skill", "deploy") || (kind, name) == ("task", "explore");
@@ -347,8 +354,10 @@ mod tests {
                 servers: &[],
             })
         };
+
         let all = built(true, &NONE_DENIED);
         assert!(all.contains("- review: ") && all.contains("- deploy: ") && all.contains("- explore: "));
+
         let ruled = built(true, &deny);
         assert!(
             ruled.contains("- review: ") && !ruled.contains("- deploy: "),
@@ -394,6 +403,7 @@ mod tests {
                 assert!(prompt.contains(rule), "{family:?} keeps `{rule}`");
             }
         }
+
         assert_eq!(
             prompts.iter().collect::<std::collections::HashSet<_>>().len(),
             4,
@@ -403,6 +413,7 @@ mod tests {
             prompts[0].contains("`apply_patch`") && !prompts[0].contains("`edit` requires"),
             "Codex edits with the tool it is offered"
         );
+
         let replaced = system(&Setting {
             base: "You are my agent.",
             workspace: &workspace,
@@ -428,6 +439,7 @@ mod tests {
                 .ends_with("Do not paste large files you wrote; name their paths."),
             "the shared rules end with the Output section"
         );
+
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut checked = 0;
         for dir in ["session/prompts", "tool/prompts", "config/prompts"] {
@@ -521,6 +533,7 @@ mod tests {
                 tail_from: None,
             },
         });
+
         let mut summary = message(Role::Assistant, None);
         summary.info.summary = true;
         summary.parts.push(PartRow {
@@ -532,6 +545,7 @@ mod tests {
                 text: "what happened".into(),
             },
         });
+
         let mut compacted = numbered(vec![
             message(Role::User, Some("plan")),
             message(Role::Assistant, Some("plan")),
@@ -539,11 +553,13 @@ mod tests {
             summary,
             message(Role::Assistant, Some("plan")),
         ]);
+
         let lead = remind_agents(&config, "plan", &mut compacted);
         assert!(
             lead.len() == 1 && lead[0].contains("# Plan mode"),
             "the prompt was summarised away, so the summary's turn carries plan's reminder: {lead:?}"
         );
+
         let target = super::super::types::ModelRef {
             provider: "anthropic".into(),
             model: "claude".into(),

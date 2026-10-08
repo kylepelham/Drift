@@ -143,6 +143,7 @@ async fn until_running_call(h: &Harness) {
         if running {
             return;
         }
+
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     panic!("no call started");

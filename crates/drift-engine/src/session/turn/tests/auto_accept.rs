@@ -5,12 +5,15 @@ async fn auto_accept_answers_every_ask_and_only_a_deny_rule_still_refuses() {
     let h = harness().await;
     asks_for(&h, "bash");
     let mut events = h.engine.hub.attach(None).rx;
+
     h.provider
         .push(tool_call("bash", r#"{"command": "echo inside"}"#))
         .push(text("done"));
     h.engine.submit(&h.session.id, prompt("go")).await.await_ok();
+
     let waiting = next_ask(&mut events).await;
     assert_eq!(waiting.ask.pattern, "echo inside", "a rule asks");
+
     assert!(
         h.engine
             .set_session_auto_accept(&h.session.id, true)
@@ -19,6 +22,7 @@ async fn auto_accept_answers_every_ask_and_only_a_deny_rule_still_refuses() {
             .auto_accept,
         "stored on the session"
     );
+
     until_idle(&h).await;
     assert_eq!(tool(&transcript(&h)[1].parts[0]).status, ToolStatus::Done);
     assert_auto_accept_policy(&h);

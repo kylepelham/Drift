@@ -8,11 +8,13 @@ fn an_empty_signed_text_part_goes_only_to_the_model_that_signed_it() {
     );
     reply.parts[1].provider_signature = Some("sig".into());
     let transcript = [message(Role::User, vec![Part::Text { text: "q".into() }]), reply];
+
     let same = messages(&transcript, &target());
     let [Block::Text(_), Block::Signed { part, .. }] = &same[1].blocks[..] else {
         panic!("the signed empty text is replayed to the model that wrote it");
     };
     assert!(matches!(part.as_ref(), Block::Text(text) if text.is_empty()));
+
     let other = messages(
         &transcript,
         &ModelRef {
@@ -158,6 +160,7 @@ fn unsigned_reasoning_from_turns_already_over_is_dropped_wherever_the_new_prompt
         reply.info.id = id.into();
         reply
     };
+
     let mut prompt = message(
         Role::User,
         vec![Part::Text {
@@ -166,7 +169,9 @@ fn unsigned_reasoning_from_turns_already_over_is_dropped_wherever_the_new_prompt
     );
     prompt.info.id = "msg_2".into();
     let mut transcript = vec![thought("msg_1"), prompt, thought("msg_3")];
+
     drop_earlier_reasoning(&mut transcript, Some("msg_2"));
+
     let kept = |message: &MessageWithParts| {
         message
             .parts

@@ -110,12 +110,14 @@ fn install_formatter(workspace: &Path, marker: &Path) {
         r#"{ "devDependencies": { "prettier": "^3" } }"#,
     )
     .unwrap();
+
     let (shim, body) = if cfg!(windows) {
         ("prettier.cmd", format!("@echo ran>> \"{}\"\r\n", marker.display()))
     } else {
         ("prettier", format!("#!/bin/sh\necho ran >> '{}'\n", marker.display()))
     };
     std::fs::write(workspace.join("node_modules/.bin").join(shim), body).unwrap();
+
     #[cfg(unix)]
     std::fs::set_permissions(
         workspace.join("node_modules/.bin").join(shim),
@@ -130,11 +132,13 @@ async fn a_formatter_installed_in_the_project_runs_only_once_allowed() {
     rule(&h, "edit", "*", Decision::Allow);
     let marker = h._dir.join("ran.log");
     install_formatter(&h._dir.join("ws"), &marker);
+
     let mut events = h.engine.hub.attach(None).rx;
     h.provider
         .push(tool_call("write", r#"{"path": "a.ts", "content": "let a = 1\n"}"#))
         .push(text("written"));
     h.engine.submit(&h.session.id, prompt("write a")).await.await_ok();
+
     let ask = next_ask(&mut events).await;
     assert_eq!(ask.ask.kind, "project-commands");
     assert!(
@@ -142,6 +146,7 @@ async fn a_formatter_installed_in_the_project_runs_only_once_allowed() {
         "{}",
         ask.ask.pattern
     );
+
     reply_permission(&h, &ask.id, Reply::Deny);
     until_idle(&h).await;
     assert!(

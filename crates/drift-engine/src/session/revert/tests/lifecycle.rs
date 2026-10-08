@@ -211,6 +211,7 @@ async fn undo_puts_back_what_a_subagent_wrote() {
     allow_writes(&h);
     h.provider.push(text("ok"));
     turn(&h, "warm up").await;
+
     h.provider
         .push(tool_call(
             "task",
@@ -221,6 +222,7 @@ async fn undo_puts_back_what_a_subagent_wrote() {
         .push(text("parent done"));
     turn(&h, "delegate").await;
     assert_eq!(read(&h, "c.txt").as_deref(), Some("sea"));
+
     let delegated = h
         .engine
         .store
@@ -239,6 +241,7 @@ async fn undo_puts_back_what_a_subagent_wrote() {
         None,
         "the subagent's write is undone with its parent's prompt"
     );
+
     h.engine.unrevert(&h.session.id).await.unwrap();
     assert_eq!(read(&h, "c.txt").as_deref(), Some("sea"));
 }
@@ -248,10 +251,12 @@ async fn while_undone_a_fork_copies_only_what_is_visible_and_compaction_waits() 
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
     h.engine.revert(&h.session.id, &second).await.unwrap();
+
     let fork = h.engine.fork(&h.session.id, None).unwrap();
     let copied = h.engine.store.transcript(&fork.id).unwrap();
     assert_eq!(copied.len(), 3, "the first prompt, its write and its reply");
     assert!(copied.iter().all(|message| message.info.status == MessageStatus::Done));
+
     assert_eq!(h.engine.start_compaction(&h.session.id), Err(TurnError::Reverted));
     assert!(
         !h.engine.turns.is_running(&h.session.id),

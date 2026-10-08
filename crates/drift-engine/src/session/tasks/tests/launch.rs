@@ -19,6 +19,7 @@ fn the_mode_is_what_was_asked_then_the_agents_default_then_the_foreground() {
         Ok((Mode::Foreground, "agent default"))
     );
     assert_eq!(resolve_mode(None, None, true), Ok((Mode::Foreground, "default")));
+
     assert!(
         resolve_mode(Some(true), None, false)
             .unwrap_err()
@@ -166,12 +167,14 @@ async fn a_workers_permission_wait_blocks_only_that_worker() {
     let h = harness().await;
     crate::session::turn::tests::asks_for(&h, "bash");
     let mut events = h.engine.hub.attach(None).rx;
+
     h.provider
         .push_for("PARENT", launches(&[background("Build", "CHILD build it")]))
         .push_for("PARENT", text("launched the build"))
         .push_for("PARENT", text("build result noted"))
         .push_for("CHILD build", tool_call("bash", r#"{"command": "echo built"}"#))
         .push_for("CHILD build", text("built"));
+
     h.engine.submit(&h.session.id, prompt("PARENT build")).await.unwrap();
     let ask = loop {
         let envelope = tokio::time::timeout(Duration::from_secs(5), events.recv())
@@ -182,12 +185,14 @@ async fn a_workers_permission_wait_blocks_only_that_worker() {
             break request;
         }
     };
+
     let worker = tasks(&h).pop().unwrap();
     assert_eq!(ask.session_id, worker.session_id, "attributed to the worker");
     until("the parent's turn ends while the worker waits", || {
         !h.engine.turns.is_running(&h.session.id)
     })
     .await;
+
     h.engine
         .permissions
         .reply(
@@ -200,6 +205,7 @@ async fn a_workers_permission_wait_blocks_only_that_worker() {
             },
         )
         .unwrap();
+
     until("delivered", || tasks(&h)[0].delivered).await;
     until_idle(&h).await;
     assert_eq!(tasks(&h)[0].state, TaskState::Replied);

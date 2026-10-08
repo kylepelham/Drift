@@ -18,6 +18,7 @@ async fn until_session_idle(h: &Harness, id: &str) {
         if !h.engine.turns.is_running(id) {
             return;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("{id} never finished");
@@ -27,8 +28,10 @@ async fn until_session_idle(h: &Harness, id: &str) {
 async fn a_spawn_starts_at_once_with_the_conversation_and_the_instruction() {
     let h = harness().await;
     conversation(&h).await;
+
     let cutoff = h.engine.store.transcript(&h.session.id).unwrap()[1].info.id.clone();
     h.engine.store.set_session_variant(&h.session.id, Some("high")).unwrap();
+
     h.provider.push(text("Investigating"));
     let spawned = h
         .engine
@@ -36,6 +39,7 @@ async fn a_spawn_starts_at_once_with_the_conversation_and_the_instruction() {
         .await
         .unwrap();
     until_session_idle(&h, &spawned.id).await;
+
     let stored = h.engine.store.session(&spawned.id).unwrap().unwrap();
     assert_eq!(
         (stored.parent_id.as_deref(), stored.visibility),
@@ -49,6 +53,7 @@ async fn a_spawn_starts_at_once_with_the_conversation_and_the_instruction() {
         "it thinks at its source's level"
     );
     assert_eq!(stored.title, "Investigate why I am getting major");
+
     let requests = h.provider.requests.lock().unwrap().clone();
     let sent = format!("{:?}", requests.last().unwrap().messages);
     assert!(
@@ -64,6 +69,7 @@ async fn a_spawn_starts_at_once_with_the_conversation_and_the_instruction() {
         2,
         "no drafting request: one for the source, one for the spawn"
     );
+
     let transcript = h.engine.store.transcript(&spawned.id).unwrap();
     assert_eq!(
         transcript.iter().filter(|m| m.info.role == Role::User).count(),
@@ -92,9 +98,11 @@ async fn a_spawn_starts_at_once_with_the_conversation_and_the_instruction() {
 async fn a_fork_is_not_framed_as_a_spawned_thread() {
     let h = harness().await;
     conversation(&h).await;
+
     let fork = h.engine.fork(&h.session.id, None).unwrap();
     let mut transcript = h.engine.store.transcript(&fork.id).unwrap();
     assert!(transcript.iter().all(|m| !is_copied(&fork, &m.info)));
+
     let before = transcript.clone();
     frame_spawned(&fork, &mut transcript);
     assert_eq!(transcript, before);
@@ -107,9 +115,11 @@ async fn a_conversation_with_nothing_finished_spawns_with_just_the_instruction()
         .store
         .update_session(&h.session.id, None, Some(&crate::session::turn::tests::model()), None)
         .unwrap();
+
     h.provider.push(text("On it"));
     let spawned = h.engine.spawn(&h.session.id, "start fresh").await.unwrap();
     until_session_idle(&h, &spawned.id).await;
+
     assert_eq!(
         h.engine.store.session(&spawned.id).unwrap().unwrap().branch_cutoff,
         None
@@ -127,17 +137,20 @@ async fn stopping_the_source_does_not_stop_what_it_spawned() {
             decision: Decision::Allow,
         }],
     });
+
     let sleep = if cfg!(windows) {
         "ping -n 10 127.0.0.1"
     } else {
         "sleep 10"
     };
+
     h.provider
         .push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();
     h.provider
         .push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     let spawned = h.engine.spawn(&h.session.id, "wait elsewhere").await.unwrap();
+
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
@@ -145,6 +158,7 @@ async fn stopping_the_source_does_not_stop_what_it_spawned() {
         h.engine.turns.is_running(&spawned.id),
         "a spawned thread is not a worker of its source"
     );
+
     assert!(h.engine.abort(&spawned.id));
     until_session_idle(&h, &spawned.id).await;
 }
@@ -165,6 +179,7 @@ async fn subagents_and_empty_instructions_are_refused() {
             model: None,
         })
         .unwrap();
+
     assert!(matches!(
         h.engine.spawn(&subagent.id, "anything").await,
         Err(BranchError::FromSubagent)
@@ -173,6 +188,7 @@ async fn subagents_and_empty_instructions_are_refused() {
         h.engine.spawn(&h.session.id, "  ").await,
         Err(BranchError::EmptyInstruction)
     ));
+
     let count: i64 = h
         .engine
         .store

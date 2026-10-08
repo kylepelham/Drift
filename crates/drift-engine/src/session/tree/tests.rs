@@ -42,12 +42,15 @@ async fn a_move_is_refused_while_a_turn_is_still_planning() {
     let held = lock.lock().await;
     let (engine, id) = (h.engine.clone(), h.session.id.clone());
     let submitted = tokio::spawn(async move { engine.submit(&id, prompt("write it")).await.map(|_| ()) });
+
     for _ in 0..200 {
         if h.engine.turns.is_running(&h.session.id) {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
+
     assert!(
         matches!(h.engine.move_session(&h.session.id, &other.id), Err(TreeError::Busy)),
         "planning holds the session"
@@ -58,9 +61,11 @@ async fn a_move_is_refused_while_a_turn_is_still_planning() {
         .credentials
         .set("anthropic", &crate::llm::Credential::ApiKey { key: "k".into() })
         .unwrap();
+
     drop(held);
     submitted.await.unwrap().unwrap();
     until_idle(&h).await;
+
     assert!(
         h._dir.join("ws/out.txt").exists(),
         "the turn wrote where the session was"
@@ -102,11 +107,13 @@ fn long_bash(h: &Harness) {
             decision: Decision::Allow,
         }],
     });
+
     let sleep = if cfg!(windows) {
         "ping -n 10 127.0.0.1"
     } else {
         "sleep 10"
     };
+
     h.provider
         .push(tool_call("bash", &json!({ "command": sleep }).to_string()));
 }
@@ -153,17 +160,21 @@ async fn a_fork_copies_the_history_into_an_independent_conversation() {
 
     h.provider.push(text("three"));
     h.engine.submit(&fork.id, prompt("third")).await.unwrap();
+
     for _ in 0..200 {
         if !h.engine.turns.is_running(&fork.id) {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+
     assert_eq!(
         texts(&h, &h.session.id).len(),
         4,
         "the source does not see the fork's new turns"
     );
+
     let request = h.provider.requests.lock().unwrap().last().unwrap().clone();
     assert_eq!(request.messages.len(), 5, "the fork replays the copied history");
 }
@@ -179,11 +190,13 @@ async fn a_fork_carries_the_reads_its_copied_history_shows() {
         h.engine.submit(&h.session.id, prompt(ask)).await.unwrap();
         until_idle(&h).await;
     }
+
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let end_of_first = transcript[transcript.iter().rposition(|m| m.info.role == Role::User).unwrap() - 1]
         .info
         .id
         .clone();
+
     let names = |id: &str| {
         let mut paths: Vec<String> = h
             .engine
@@ -196,6 +209,7 @@ async fn a_fork_carries_the_reads_its_copied_history_shows() {
         paths.sort();
         paths
     };
+
     assert_eq!(
         names(&h.engine.fork(&h.session.id, Some(&end_of_first)).unwrap().id),
         ["a.txt"]
@@ -297,19 +311,23 @@ async fn a_move_takes_subagents_but_not_branches_and_waits_for_idle() {
         matches!(h.engine.move_session(&h.session.id, &other.id), Err(TreeError::Busy)),
         "a running subagent blocks the move"
     );
+
     h.engine.abort(&subagent.id);
     for _ in 0..200 {
         if !h.engine.turns.is_running(&subagent.id) {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
     let mut moved = h.engine.move_session(&h.session.id, &other.id).unwrap();
     moved.sort();
+
     let mut expected = vec![h.session.id.clone(), subagent.id.clone()];
     expected.sort();
     assert_eq!(moved, expected);
+
     let workspace_of = |id: &str| h.engine.store.session(id).unwrap().unwrap().workspace_id;
     assert_eq!(workspace_of(&subagent.id), other.id);
     assert_eq!(
@@ -317,6 +335,7 @@ async fn a_move_takes_subagents_but_not_branches_and_waits_for_idle() {
         h.session.workspace_id,
         "a branch is its own conversation and stays put"
     );
+
     assert!(matches!(
         h.engine.move_session(&h.session.id, "nope"),
         Err(TreeError::NoWorkspace)

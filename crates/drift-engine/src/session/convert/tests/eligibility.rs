@@ -25,6 +25,7 @@ fn failed_and_streaming_attempts_are_left_out_but_aborted_partials_stay() {
             vec![Part::Text { text: "final".into() }],
         ),
     ];
+
     let output = messages(&transcript, &target());
     let texts: Vec<_> = output
         .iter()
@@ -34,6 +35,7 @@ fn failed_and_streaming_attempts_are_left_out_but_aborted_partials_stay() {
             _ => None,
         })
         .collect();
+
     assert_eq!(texts, ["q", "partial", "final"]);
 }
 
@@ -50,6 +52,7 @@ fn aborted_rows_replay_only_their_valid_blocks() {
         started_at: None,
         finished_at: None,
     };
+
     let transcript = vec![message_with(
         Role::Assistant,
         MessageStatus::Aborted,
@@ -63,6 +66,7 @@ fn aborted_rows_replay_only_their_valid_blocks() {
             broken,
         ],
     )];
+
     let output = messages(&transcript, &target());
     assert_eq!(output.len(), 1);
     assert_eq!(output[0].blocks, vec![Block::Text("partial".into())]);
@@ -81,10 +85,12 @@ fn a_settled_call_with_broken_arguments_goes_back_with_its_parse_error() {
         started_at: None,
         finished_at: None,
     };
+
     let output = messages(
         &[message_with(Role::Assistant, MessageStatus::Done, vec![refused])],
         &target(),
     );
+
     assert_eq!(
         output[0].blocks,
         vec![Block::ToolUse {
@@ -93,6 +99,7 @@ fn a_settled_call_with_broken_arguments_goes_back_with_its_parse_error() {
             input: json!({})
         }]
     );
+
     let Block::ToolResult {
         call_id,
         content,

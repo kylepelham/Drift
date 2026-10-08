@@ -176,26 +176,32 @@ async fn a_subagent_runs_on_its_agents_pinned_model_and_actions_are_not_agents()
 async fn aborting_the_parent_aborts_a_running_child() {
     let h = harness().await;
     rule(&h, "bash", "*", Decision::Allow);
+
     let sleep = if cfg!(windows) {
         "ping -n 10 127.0.0.1"
     } else {
         "sleep 10"
     };
+
     h.provider
         .push(tool_call("task", r#"{"description": "Wait", "prompt": "wait"}"#))
         .push(tool_call("bash", &json!({ "command": sleep }).to_string()));
     h.engine.submit(&h.session.id, prompt("delegate")).await.await_ok();
     tokio::time::sleep(Duration::from_millis(600)).await;
+
     let child = child_id(&h);
     assert!(h.engine.turns.is_running(&child));
     assert!(h.engine.abort(&h.session.id));
     until_idle(&h).await;
+
     for _ in 0..100 {
         if !h.engine.turns.is_running(&child) {
             break;
         }
+
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
+
     assert!(
         !h.engine.turns.is_running(&child),
         "the child must stop with its parent"
