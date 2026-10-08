@@ -67,8 +67,9 @@ every Rust test, and prints only what failed.
 
 ## Formatting and lint
 
-- `bun run format` formats TypeScript and CSS with Prettier and Rust with rustfmt, both at 120
-  columns. `bun run format:check` is the gate.
+- `bun run format` formats everything Prettier reads (TypeScript, CSS, JSON, YAML, HTML) and Rust with
+  rustfmt: four-space indentation, semicolons in TypeScript and JavaScript, 120 columns
+  (`.editorconfig` tells editors the same). `bun run format:check` is the gate.
 - `bun run lint` runs ESLint: import order (longest line first, multi-line imports after,
   `import type` in its own block), complexity at most 15, no nested ternaries, and Solid's
   reactivity rules. Clippy enforces the same complexity limit in Rust, plus 80 lines per function
