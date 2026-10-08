@@ -66,6 +66,7 @@ test("native clarification search uses rendered questions and answers, not heade
         expect(transcriptMatches([message], query)).toEqual([{ messageId: "u1", count: 1 }]);
     for (const query of [requestID, "Answer to clarification", "Missing", "Unanswered"])
         expect(transcriptMatches([message], query)).toEqual([]);
+
     const repeated = structured([{ ...single, question: "Blue or not Blue?", answers: ["Blue", "Blue"] }]);
     expect(transcriptMatches([repeated], "blue")).toEqual([{ messageId: "u1", count: 4 }]);
 });
@@ -243,9 +244,11 @@ test("old and new clarification rows estimate 40px regardless of answer length o
 test("normal estimates and explicit thinking/summary modes are unaffected", async () => {
     const { estimatedTimelineRow } = await import("../src/ui/timeline-virtual");
     expect(estimatedTimelineRow(entry("Short ordinary message"))).toBe(96);
+
     const long = entry(Array.from({ length: 41 }, () => "line").join("\n"));
     expect(estimatedTimelineRow(long)).toBe(915);
     expect(estimatedTimelineRow(long, 16)).toBe(1112);
+
     const message = structured();
     expect(estimatedTimelineRow(message, 13, message.parts, true)).toBe(32);
     expect(estimatedTimelineRow(message, 13, message.parts, false, true)).toBe(44);

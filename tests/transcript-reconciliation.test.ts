@@ -29,6 +29,7 @@ function entry(text: string) {
 test("a delta gap leaves the cached prefix and revision unchanged and requests reconciliation", () => {
     const [state, set] = createEngineState();
     set("transcripts", "s", [entry("hel")]);
+
     const requested: string[] = [];
     const event = {
         type: "part.delta" as const,
@@ -49,12 +50,15 @@ test("a snapshot repairs a shorter prefix even when a live message revision adva
     const [state, set] = createEngineState();
     set("loaded", "s", true);
     set("transcripts", "s", [entry("hel")]);
+
     const captured = captureRevisions(state);
     const update = { type: "message.updated" as const, message: { ...message(""), status: "done" as const } };
     reduce(set, update);
+
     const merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions);
     expect(merged[0]!.parts[0]).toMatchObject({ text: "hello world" });
     expect(merged[0]!.info).toMatchObject({ status: "done" });
+
     const ahead = mergeTranscriptSnapshot(
         [entry("hello world!")],
         [entry("hello")],
@@ -86,6 +90,7 @@ test("a gap during an HTTP reload fetches a newer snapshot after that reload fin
         ),
     );
     set("transcripts", "s", [entry("hel")]);
+
     const actions = createActions(
         () => client,
         state,
@@ -109,8 +114,11 @@ test("a snapshot restores an entire missed part after a live message revision ad
     cached.parts = [];
     set("loaded", "s", true);
     set("transcripts", "s", [cached]);
+
     const captured = captureRevisions(state);
+
     reduce(set, { type: "message.updated", message: { ...message(""), status: "done" } });
+
     let reconciled = 0;
     reduce(
         set,
@@ -119,6 +127,7 @@ test("a snapshot restores an entire missed part after a live message revision ad
         () => reconciled++,
     );
     expect(reconciled).toBe(1);
+
     const merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions);
     expect(merged[0]!.parts).toHaveLength(1);
     expect(merged[0]!.parts[0]).toMatchObject({ id: "p", text: "hello world" });

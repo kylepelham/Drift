@@ -57,6 +57,7 @@ test("a drive-root citation resolves the current task's file rather than older o
     value.transcripts.other = [
         message("unrelated", "assistant", 4, [tool("other", "read", { filePath: "C:/Elsewhere/AmazingCode.cs" })]),
     ];
+
     const groups = citationFileGroups(value, "session", "response", "citation");
     expect(groups).toEqual([["C:/Projects/App/AmazingCode.cs"], ["C:/Other/AmazingCode.cs"]]);
     expect(resolveMarkdownCitation("AmazingCode.cs:345:21", "C:/", groups)).toEqual({
@@ -77,6 +78,7 @@ test("collects successful reads, edits, writes, patch moves and attachments with
         failed.status = "error";
         failed.output = "missing";
     }
+
     const value = state([
         message("response", "assistant", 1, [
             tool("read", "read", { filePath: "C:\\Project\\100% notes#1.cs" }),
@@ -125,6 +127,7 @@ test("collects successful reads, edits, writes, patch moves and attachments with
 test("delegated result context excludes tools that completed after the result", () => {
     const late = tool("late", "read", { filePath: "C:/Later/AmazingCode.cs" });
     if (late.type === "tool_call") late.finishedAt = 10;
+
     const value = state([
         message("response", "assistant", 1, [
             tool("read", "read", { filePath: "C:/Projects/App/AmazingCode.cs" }),
@@ -149,7 +152,9 @@ test.each([
 ] as const)("resolves citation %s with its position", (href, directory, path, line, column) => {
     const result = resolveMarkdownCitation(href, directory, [["C:/Projects/App/AmazingCode.cs"]]);
     expect(result).toMatchObject({ kind: "file", path });
+
     if (result.kind !== "file") throw new Error("Expected a file");
+
     expect(result.line).toBe(line);
     expect(result.column).toBe(column);
 });

@@ -56,6 +56,7 @@ test("a snapshot that raced an event never moves a task back", () => {
     expect(
         mergeTasks(merged, [task("a", { state: "replied", delivered: true, result: "later copy" })])[1]!.result,
     ).toBe("later copy");
+
     // Held after a Stop is past ended, and carried by the next prompt is past held.
     const held = mergeTasks([task("h", { state: "stopped", held: true })], [task("h", { state: "stopped" })]);
     expect(held[0]!.held).toBe(true);
@@ -161,8 +162,10 @@ test("a worker's sidebar row finds its newest task through its parent", () => {
 test("the dock lists background workers while any is going or owed, and never foreground ones", async () => {
     const { dockTasks } = await import("../src/ui/task-dock");
     const foreground = task("f", { mode: "foreground", state: "running" });
+
     expect(dockTasks(undefined)).toEqual([]);
     expect(dockTasks([foreground])).toEqual([]);
+
     const done = task("a", { state: "replied", delivered: true });
     const going = task("b", { state: "running" });
     expect(dockTasks([foreground, done, going]).map((t) => t.id)).toEqual(["a", "b"]);
@@ -181,6 +184,7 @@ function harness(overrides: Partial<Client>) {
     } as unknown as Client;
     const [state, set] = createEngineState();
     const workspaces = () => ({ path: () => undefined, id: () => undefined });
+
     return { state, actions: createActions(() => client, state, set, workspaces) };
 }
 

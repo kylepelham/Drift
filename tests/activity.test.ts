@@ -166,6 +166,7 @@ test("human-typed prose still renders deliberate fences and tables", async () =>
     const { marked } = await import("marked");
     const fenced = "```powershell\n> $value = 1\n-----\n```";
     expect(prepareMarkdown(fenced, true)).toBe(fenced);
+
     const table = marked.parse(prepareMarkdown("| Name | State |\n| --- | --- |\n| a_b | ok |", true), {
         async: false,
     });
@@ -176,6 +177,7 @@ test("human-typed prose still renders deliberate fences and tables", async () =>
 test("standalone large numbers stay prose while numbered runs remain lists", async () => {
     const { prepareMarkdown } = await import("../src/ui/markdown");
     const { marked } = await import("marked");
+
     expect(prepareMarkdown("20456. it")).toBe("20456\\. it");
     expect(prepareMarkdown("3500000.")).toBe("3500000\\.");
     expect(prepareMarkdown("1234567. and then text", true)).toBe("1234567\\. and then text");
@@ -188,10 +190,12 @@ test("standalone large numbers stay prose while numbered runs remain lists", asy
     expect(prepareMarkdown("intro\n12. step one\nnote\n13. step two")).toBe("intro\n12. step one\nnote\n13. step two");
     expect(prepareMarkdown("20456. it\nnote\n88. other")).toBe("20456\\. it\nnote\n88\\. other");
     expect(prepareMarkdown("1. first\nnote\n20456. it")).toBe("1. first\nnote\n20456\\. it");
+
     // An inline code span inside an item must not cut the sequence: `3.` still has `2.` before it.
     const spanned = "1. one\n2. calls `SetCursor`, which fails\n3. three";
     expect(prepareMarkdown(spanned)).toBe(spanned);
     expect(marked.parse(prepareMarkdown(spanned), { async: false }).match(/<li>/g)).toHaveLength(3);
+
     // Fenced blocks still shield their contents, and a sequence resumes across one.
     const fencedRun = "1. one\n```\n99. not a step\n```\n2. two";
     expect(prepareMarkdown(fencedRun)).toBe(fencedRun);
@@ -411,8 +415,7 @@ test("loaded stale tool states become interrupted without mutating live or compl
 
 test("streamed tool replacements retain mounted group and plugin identities", async () => {
     const { groupParts, updatePartGroupSlots } = await import("../src/ui/message-groups");
-    // Bun selects Solid's server condition for tests, so load the browser primitives
-    // used by Vite to verify the keyed mount behavior without requiring a DOM.
+    // Bun loads Solid's server build in tests; the browser build checks keyed mounting without a DOM.
     // @ts-expect-error Solid's browser build shares the package's public types.
     const { createRoot, createSignal, mapArray, onCleanup } = (await import("solid-js/dist/solid.js")) as typeof Solid;
     // @ts-expect-error Solid's browser store build shares the package's public types.
@@ -450,8 +453,11 @@ test("streamed tool replacements retain mounted group and plugin identities", as
         let cleanups = 0;
         const mounted = mapArray(groups, (slot) => {
             mounts++;
+
             const state = { scrollTop: 37, following: false, pluginRevision: 4 };
+
             onCleanup(() => cleanups++);
+
             return { slot, state };
         });
         const first = mounted();
@@ -589,6 +595,7 @@ test("transcript follow revision tracks lengths and status without embedding lar
     const first = transcriptRevision(part("a".repeat(1_550_000)));
     const sameLength = transcriptRevision(part("b".repeat(1_550_000)));
     const completed = transcriptRevision(part("b".repeat(1_550_000), "completed"));
+
     expect(first).toBe(sameLength);
     expect(first).not.toContain("aaaa");
     expect(first.length).toBeLessThan(64);
@@ -667,6 +674,7 @@ test("assistant row estimates account for wrapping and fenced code", async () =>
     const { estimatedTimelineRow, estimateTextLines } = await import("../src/ui/timeline-virtual");
     expect(estimateTextLines("a".repeat(176), 88)).toBe(2);
     expect(estimateTextLines("```text\n" + "a".repeat(176) + "\n```", 88)).toBe(3);
+
     const entry = {
         info: { id: "a1", role: "assistant", time: { created: 1 } },
         parts: [{ type: "text", text: "a".repeat(849) }],
@@ -894,6 +902,7 @@ test("GPT-6 context meter retains catalog input headroom past the old OAuth thre
 test("the meter keeps a quarter of a small window for the reply when the output limit is unknown", async () => {
     const { replyRoom } = await import("../src/engine/store");
     const { modelDetail } = await import("../src/ui/composer-models");
+
     expect(replyRoom(0, 4_096)).toBe(1_024);
     expect(replyRoom(0, 0)).toBe(32_000);
     expect(replyRoom(64_000, 200_000)).toBe(32_000);
@@ -1004,7 +1013,9 @@ test("identical runtime errors collapse into one visible notice", () => {
             tone: "error",
         });
     toast();
+
     const first = state.notices[0].id;
+
     toast();
     toast();
     expect(state.notices).toHaveLength(1);
@@ -1038,6 +1049,7 @@ test("failed attempts the engine retried collapse into one retry line that stays
         { info: { id: "a3", role: "assistant", createdAt: 4 }, parts: [] },
     ] as never;
     expect(failedAttempt((entries as never[])[1])).toBeTrue();
+
     const thinking = thinkingState(entries, "busy");
     expect(thinking?.messageID, "the attempt in flight still shows activity").toBe("a3");
     expect(retryInFlight(entries, thinking?.messageID)).toEqual({
@@ -1046,6 +1058,7 @@ test("failed attempts the engine retried collapse into one retry line that stays
         message: "overloaded_error: Overloaded",
         next: 0,
     });
+
     const answered = [
         ...(entries as never[]).slice(0, 3),
         {
@@ -1070,10 +1083,13 @@ test("a failure stops showing once the session goes on, by a retry or a new prom
         parts: [],
     };
     const stopped = { ...failed, info: { ...failed.info, status: "aborted" } };
+
     expect(failedAttempt(failed as never)).toBeTrue();
     expect(failedAttempt(stopped as never), "a stop is kept as its divider").toBeFalse();
+
     const state = await Bun.file("src/ui/timeline-state.ts").text();
     const row = await Bun.file("src/ui/timeline-row.tsx").text();
+
     expect(state).toContain("if (failedAttempt(entry) && next) return false");
     expect(row).toContain("hideError={!!props.retry || !!props.next}");
 });

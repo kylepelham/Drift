@@ -52,6 +52,7 @@ test("patchFiles reads per-file apply_patch metadata", async () => {
             metadata: { files: [files[0]] },
         } as unknown as ToolPart),
     ).toBe("app.tsx");
+
     const running = {
         name: "apply_patch",
         status: "running",
@@ -81,6 +82,7 @@ test("tool context actions compose wildcard and tool providers with cleanup", as
         { id: "one", label: "One", run: () => undefined },
         { id: "two", label: "Two", run: () => undefined },
     ]);
+
     expect(toolContextActions(part).map((action) => action.id)).toEqual(["any", "one", "two"]);
     offAny();
     offTool();
@@ -90,6 +92,7 @@ test("tool context actions compose wildcard and tool providers with cleanup", as
 test("file tool actions resolve changed lines and patch targets", async () => {
     const { builtinFileTargets, firstChangedLine } = await import("../src/tool-actions");
     expect(firstChangedLine("@@ -10,3 +20,4 @@\n context\n-old\n+new")).toBe(21);
+
     const edit = {
         name: "edit",
         status: "done",
@@ -99,6 +102,7 @@ test("file tool actions resolve changed lines and patch targets", async () => {
     expect(builtinFileTargets(edit, "S:\\Personal\\Drift")).toEqual([
         { path: "S:\\Personal\\Drift\\src/app.tsx", label: "src/app.tsx", line: 7 },
     ]);
+
     const patch = {
         name: "apply_patch",
         status: "done",

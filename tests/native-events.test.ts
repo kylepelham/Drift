@@ -27,6 +27,7 @@ function fakeEngine() {
             },
         },
     });
+
     return {
         target: { url: `http://127.0.0.1:${server.port}`, token: "t" },
         cursors,
@@ -160,6 +161,7 @@ test("events that arrive during hydration wait for it and skip anything the snap
 test("close stops reconnecting", async () => {
     const engine = fakeEngine();
     const stream = connectEvents(engine.target, { hydrate: () => {}, event: () => {} });
+
     stops.push(engine.stop);
     await until(() => engine.cursors.length === 1);
     stream.close();
@@ -257,6 +259,7 @@ test("closing during hydration drops the held events", async () => {
         hydrate: () => new Promise<void>((resolve) => (finish = resolve)),
         event: (e) => seen.push(e.seq),
     });
+
     stops.push(engine.stop);
     await until(() => engine.cursors.length === 1);
     engine.hello(0);

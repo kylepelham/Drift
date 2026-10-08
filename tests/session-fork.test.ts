@@ -45,10 +45,12 @@ function setup() {
         `${compiled}\nreturn ThreadItem({ sessionId: "source", title: "Long session", updated: 0, workspace: { id: "workspace" } });`,
     );
     const tree = render(...Object.values(dependencies)) as Node;
+
     const buttons = (node: Node): Node[] => {
         if (!node || typeof node !== "object") return [];
         return [...(node.type === "button" ? [node] : []), ...node.children.flatMap(buttons)];
     };
+
     return {
         fork,
         selectSession,

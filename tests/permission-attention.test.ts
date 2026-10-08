@@ -27,6 +27,7 @@ test("every ask that arrives waits on the user: the engine already answered what
 test("the webview no longer answers asks or keeps an always rule of its own", async () => {
     const composer = await Bun.file("src/ui/composer.tsx").text();
     const attention = await Bun.file("src/ui/composer-attention.tsx").text();
+
     expect(composer).not.toContain("replyPermission(");
     expect(attention).not.toContain("replyPermission(");
     expect(await Bun.file("src/state/permission-attention.ts").text()).not.toContain("metadata.always");

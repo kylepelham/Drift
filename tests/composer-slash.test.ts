@@ -21,8 +21,10 @@ afterEach(() => {
 
 function setup(initial: string) {
     const previous = selectedSession();
+
     applyMirroredSession("session");
     cleanups.push(() => applyMirroredSession(previous));
+
     const [draft, setDraft] = solid.createSignal(initial);
     const execute = mock(async (..._args: unknown[]) => {});
     let selection: number | undefined;
@@ -74,10 +76,12 @@ function setup(initial: string) {
         cleanups.push(dispose);
         return run(...Object.values(dependencies), options) as ReturnType<typeof createSlashMenu>;
     });
+
     const key = (name: string, modifiers: Partial<KeyboardEvent> = {}) => {
         const event = { key: name, preventDefault: mock(() => {}), ...modifiers } as unknown as KeyboardEvent;
         return { consumed: menu.handleKey(event), event };
     };
+
     return {
         menu,
         key,

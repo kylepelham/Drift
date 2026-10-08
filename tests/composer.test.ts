@@ -14,6 +14,7 @@ test("composer drafts are isolated by session and new-workspace scope", async ()
     const session = composerScope("s1", "w1");
     const other = composerScope("s2", "w1");
     const fresh = composerScope(null, "w1");
+
     patchComposerDraft(session, { text: "session one" });
     patchComposerDraft(fresh, { text: "new thread" });
     expect(composerDraft(session).text).toBe("session one");
@@ -65,6 +66,7 @@ test("composer history is normalized, deduplicated, and bounded", async () => {
     const first = prependComposerHistory([], draft);
     expect(first).toEqual([{ text: "carry on", mentions: ["src/app.tsx"] }]);
     expect(prependComposerHistory(first, draft)).toBe(first);
+
     const entries = Array.from({ length: maxComposerHistory }, (_, index) => ({
         text: `prompt ${index}`,
         mentions: [],
@@ -92,14 +94,21 @@ test("composer history navigation restores the draft and attachments", async () 
     const newest = navigateComposerHistory(entries, { index: -1, saved: null }, current, "up");
     expect(newest?.draft).toEqual({ text: "newest", staged: [], mentions: ["new.ts"] });
     expect(newest?.cursor).toBe("start");
+
     if (!newest) throw new Error("expected history navigation");
+
     const oldest = navigateComposerHistory(entries, newest.navigation, newest.draft, "up");
     expect(oldest?.draft.text).toBe("oldest");
+
     if (!oldest) throw new Error("expected older history entry");
+
     expect(navigateComposerHistory(entries, oldest.navigation, oldest.draft, "up")).toBeUndefined();
+
     const forward = navigateComposerHistory(entries, oldest.navigation, oldest.draft, "down");
     expect(forward?.draft.text).toBe("newest");
+
     if (!forward) throw new Error("expected newer history entry");
+
     const restored = navigateComposerHistory(entries, forward.navigation, forward.draft, "down");
     expect(restored?.draft).toEqual(current);
     expect(restored?.navigation).toEqual({ index: -1, saved: null });
@@ -164,8 +173,7 @@ test("a drop into an open dialog never stages into the composer behind it", asyn
     expect(dropStagesAttachment(null)).toBeTrue();
     expect(dropStagesAttachment({} as EventTarget)).toBeTrue();
 
-    // Staging is gated on the drop target, while preventDefault stays unconditional so a stray
-    // drop can never navigate the window to the file.
+    // Staging is gated on the drop target; preventDefault stays unconditional so a stray drop never navigates.
     const source = await Bun.file("src/ui/composer-drop.ts").text();
     expect(source).toContainCode("!dropStagesAttachment(event.target)");
     expect(source).toContainCode("event.preventDefault(); if (!ready()");
@@ -179,6 +187,7 @@ test("dropped OS files reach the same staging pipeline as the picker", async () 
     expect(drop).toContainCode("void addFiles(dropped.files)");
     expect(composer).toContainCode("drift.composer.dropFiles");
     expect(drop).toContainCode("drift.composer.folderUnsupported");
+
     // Tauri must not intercept native drops, or WebView2 never fires HTML5 drop with DataTransfer files.
     const conf = JSON.parse(await Bun.file("src-tauri/tauri.conf.json").text());
     expect(conf.app.windows[0].dragDropEnabled).toBeFalse();
@@ -254,6 +263,7 @@ test("model manager defaults to OpenCode's newest recent model per provider fami
 test("model manager orders enabled models first and preserves provider rearrangement", async () => {
     const { mergeModelProviderOrder, reorderModelProviderIds } = await import("../src/state/prefs");
     const { sortManagerModelItems } = await import("../src/ui/model-manager");
+
     expect(mergeModelProviderOrder(["nvidia", "xai"], ["xai", "openai", "nvidia"])).toEqual([
         "nvidia",
         "xai",
@@ -270,6 +280,7 @@ test("model manager orders enabled models first and preserves provider rearrange
         "openai",
     ]);
     expect(reorderModelProviderIds(["nvidia", "xai", "openai"], "nvidia", null)).toEqual(["xai", "openai", "nvidia"]);
+
     const items = [
         { id: "z", label: "Zulu" },
         { id: "b", label: "Beta" },
@@ -348,8 +359,7 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     expect(whitespace.update("wait", "\n ", false)).toEqual({ replace: true, text: "$ wait" });
     expect(whitespace.update("wait", "\n ready", false)).toEqual({ replace: true, text: "$ wait\n\n\n ready" });
 
-    // Replace frames split into a styled command line plus trailing output; unexpected frames fall
-    // back to verbatim output so no text is ever dropped.
+    // Replace frames split into a styled command line and output; unexpected frames stay verbatim.
     expect(shellReplaceSegments("bun run build", "$ bun run build\n\nok\ndone")).toEqual({
         command: "bun run build",
         output: "\n\nok\ndone",
@@ -420,6 +430,7 @@ test("question drafts preserve single, multiple, and custom answers", async () =
         custom: "",
         customSelected: false,
     });
+
     const multiple = selectQuestionOption(selectQuestionOption(empty, "Tests", true), "Docs", true);
     expect(questionAnswer(multiple)).toEqual(["Tests", "Docs"]);
     expect(questionAnswer(selectQuestionOption(multiple, "Tests", true))).toEqual(["Docs"]);
@@ -499,11 +510,13 @@ test("question.replied clears the matching draft and submission before a late fa
     };
     reduce(set, asked);
     updateQuestionDraft("q-event", 1, 0, { selected: ["Keep me"], custom: "", customSelected: false });
+
     let finish!: (completed: boolean) => void;
     const pending = new Promise<boolean>((resolve) => {
         finish = resolve;
     });
     const submission = submitQuestionAnswer("q-event", true, [["Keep me"]], () => pending);
+
     expect(questionSubmissionState("q-event")?.sending).toBe(true);
     reduce(set, {
         type: "question.replied",

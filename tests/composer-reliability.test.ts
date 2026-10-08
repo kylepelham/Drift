@@ -161,7 +161,9 @@ test("SDK rejection and thrown sends preserve newer composer edits", async () =>
             send: async () => {
                 started.resolve();
                 await finish.promise;
+
                 if (failure === "thrown") throw new Error("transport closed");
+
                 return { ok: false, error: "engine rejected the request" };
             },
             admitted: (scope, expected) => void clearComposerDraft(scope, expected),
@@ -330,6 +332,7 @@ test("existing-session submits are single-flight while prompt admission is pendi
                 sends++;
                 started.resolve();
                 await admission.promise;
+
                 return { ok: true };
             },
             admitted: (scope, expected) => void clearComposerDraft(scope, expected),

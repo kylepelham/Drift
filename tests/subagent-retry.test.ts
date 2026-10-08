@@ -22,6 +22,7 @@ test("parent delegated status follows ordinary child errors, resumed work, and c
         input: {},
         output: '<task id="child" state="running">',
     } as never;
+
     set("errors", "child", "usage limit reached");
     expect(delegatedTaskStatus(state, part, "child")).toBe("error");
     set("errors", "child", undefined!);
@@ -66,6 +67,7 @@ test("a live delegated part overrides an older completion marker", async () => {
             ],
         },
     ] as never);
+
     const live = { sessionId: "parent", name: "task", status: "running", input: {}, startedAt: 1 } as never;
     const status = delegatedTaskStatus(state, live, "child");
     expect(status).toBe("running");
@@ -130,6 +132,7 @@ test("failed task cards stay failed when the child is resumed or later completes
         input: {},
         output: "Original failure",
     };
+
     set("status", "child", { type: "busy" });
     expect(delegatedTaskStatus(state, failed, "child")).toBe("error");
     expect(delegatedTaskStatus(state, taskPart("reported-error", '<task id="child" state="error">'), "child")).toBe(
@@ -143,6 +146,7 @@ test("legacy foreground results stay completed without a loaded parent transcrip
     const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     set("status", "child", { type: "busy" });
+
     const legacy = taskPart("legacy", "task_id: child\n<task_result>Already finished</task_result>");
     expect(delegatedTaskStatus(state, legacy, "child")).toBe("completed");
 });
@@ -152,6 +156,7 @@ test("background tasks track work while spawned-thread receipts finish at admiss
     const [state, set] = createEngineState();
     const background = taskPart("background", "Background task started");
     background.metadata = { ...background.metadata, background: true };
+
     const spawned = {
         ...taskPart("spawned", 'Spawned thread "Child" (id child); its seed prompt was accepted for processing.'),
         name: "spawn_thread",
@@ -171,6 +176,7 @@ test("spawned-thread rows only track their own pending, running, or failed invoc
     const { delegatedTaskStatus } = await import("../src/ui/tool-delegation");
     const [state, set] = createEngineState();
     set("errors", "child", "Unrelated sibling error");
+
     const spawned = { ...taskPart("spawned", ""), name: "spawn_thread" };
     for (const status of ["pending", "running"] as const) {
         expect(delegatedTaskStatus(state, { ...spawned, status, input: {} }, "child")).toBe("running");
@@ -313,6 +319,7 @@ test("running delegated rows navigate while terminal rows expand without lifecyc
     expect(delegatedTaskClickPolicy("running", "child")).toBe("navigate");
     expect(delegatedTaskClickPolicy("completed", "child")).toBe("expand");
     expect(delegatedTaskClickPolicy("error", "child")).toBe("expand");
+
     const source = await Bun.file("src/ui/tool-view.tsx").text();
     expect(source).toContain("selectSession(spawnedId()!)");
     expect(source).toContain("function spawnedId()");

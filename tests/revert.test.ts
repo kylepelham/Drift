@@ -97,6 +97,7 @@ test("restoring the newest undone message unreverts fully", async () => {
     const { restoreReverted, revertDockEntries } = await import("../src/ui/revert");
     const engine = fakeEngine(transcript);
     engine.setMarker("01");
+
     const items = revertDockEntries(transcript, engine.getMarker());
     await restoreReverted(engine, "s1", items[0].info.id);
     expect(engine.calls).toEqual(["unrevert:s1"]);
@@ -129,9 +130,7 @@ test("dock previews collapse whitespace to a single line", async () => {
 
 test("a revert older than the loaded page backfills instead of blanking the transcript", async () => {
     const { revertBackfillNeeded } = await import("../src/ui/revert-backfill");
-    // Real shape from a 35k-message session: the marker sat 325 messages back while only the
-    // newest 100 were loaded, so every loaded row was inside the reverted range and the timeline
-    // rendered empty. Backfill must run until a pre-revert row survives the filter.
+    // From a 35k-message session: the marker sat 325 back with only 100 loaded, so backfill must reach it.
     expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 0, loaded: true, cursor: "older" })).toBeTrue();
     // Stops as soon as anything is visible.
     expect(revertBackfillNeeded({ revertedAt: "msg_marker", visible: 1, loaded: true, cursor: "older" })).toBeFalse();
@@ -143,8 +142,7 @@ test("a revert older than the loaded page backfills instead of blanking the tran
 
 test("a failed backfill page is not requested again until the cursor moves", async () => {
     const { revertBackfillAttempt } = await import("../src/ui/revert-backfill");
-    // A page that never arrived leaves the cursor in place, so the retry gate has to key on it:
-    // matching the last failure means asking again would repeat the request that just failed.
+    // A failed page keeps the cursor, so a retry keyed on it would repeat the request that just failed.
     expect(revertBackfillAttempt("ses_one", "older")).toBe(revertBackfillAttempt("ses_one", "older"));
     expect(revertBackfillAttempt("ses_one", "older")).not.toBe(revertBackfillAttempt("ses_one", "older-still"));
     expect(revertBackfillAttempt("ses_one", "older")).not.toBe(revertBackfillAttempt("ses_two", "older"));
@@ -181,6 +179,7 @@ test("retry models come from connected providers once the engine is online", asy
 test("the transcript shows a loading row while reverted history backfills", async () => {
     const source = await Bun.file("src/ui/chat.tsx").text();
     const backfill = await Bun.file("src/ui/revert-backfill.ts").text();
+
     // The empty-state loading row must also cover backfill, otherwise the view is blank mid-page.
     expect(source).toContainCode("timeline().length === 0 && (revertBackfill() ||");
     // Each finished page re-runs the effect, so paging continues past a fully reverted page.

@@ -61,11 +61,13 @@ function harness(overrides: Partial<Client> = {}) {
     } as unknown as Client;
     const [state, set] = createEngineState();
     set("directory", "C:/repo");
+
     const workspaces = () => ({
         path: (id: string) => (id === "w1" ? "C:/repo" : undefined),
         id: (path: string) => (path === "C:/repo" ? "w1" : undefined),
     });
     const actions = createActions(() => client, state, set, workspaces);
+
     return { actions, state, calls };
 }
 
@@ -95,6 +97,7 @@ test("send maps model, agent, files and reasoning effort onto the native prompt"
         files: [{ mime: "image/png", url: "data:image/png;base64,AAAA", filename: "shot.png" }],
     });
     expect(result).toEqual({ ok: true });
+
     const submitted = h.calls[0] as { method: string; args: [string, { submissionId?: string }] };
     expect(typeof submitted.args[1].submissionId).toBe("string");
     delete submitted.args[1].submissionId;
@@ -146,11 +149,13 @@ test("a follow-up names its agent and level only when they change what the sessi
         submit: (_id: string, body: Record<string, unknown>) => (sent.push(body), Promise.resolve({ session: saved })),
     } as Partial<Client>);
     await h.actions.loadSessions("C:/repo");
+
     const named = (index: number) => ({
         agent: sent[index]!.agent,
         variant: sent[index]!.variant,
         hasVariant: "variant" in sent[index]!,
     });
+
     await h.actions.send("ses_1", "same", { model: null, agent: "plan", variant: "high" });
     await h.actions.send("ses_1", "not offered", { model: null, agent: "plan", variant: undefined });
     await h.actions.send("ses_1", "default", { model: null, agent: "plan", variant: null });
@@ -181,6 +186,7 @@ test("providers become the catalog shape the picker reads", async () => {
     await h.actions.refreshProviders();
     expect(h.state.connected).toEqual(["anthropic"]);
     expect(h.state.providers.map((p) => p.id)).toEqual(["anthropic", "openai"]);
+
     const model = h.state.providers[0]!.models.claude!;
     expect(model.profile).toBe("edit");
     expect(model.cost).toMatchObject({ cache_read: 0.3, cache_write: 3.75 });
@@ -223,6 +229,7 @@ test("permission replies translate reject to deny and forget stale requests", as
 test("new sessions are created in the active workspace", async () => {
     const h = harness();
     const created = await h.actions.newSession();
+
     expect(h.calls[0]).toEqual({ method: "createSession", args: [{ workspaceId: "w1" }] });
     expect(created?.id).toBe("ses_new");
     expect(h.state.sessions.ses_new).toBeDefined();
@@ -257,10 +264,12 @@ test("purge deletes for real and only reports success when the engine confirms",
     expect(deleted).toEqual(["ses_1"]);
     expect(ok.state.sessions.ses_1).toBeUndefined();
     expect(ok.calls.some((c) => c.method === "updateSession")).toBe(false);
+
     const failing = harness({ deleteSession: () => Promise.reject(new EngineError(500, "/sessions/x", "store")) });
     failing.state.sessions.ses_1 = { id: "ses_1", directory: "C:/repo" } as never;
     expect(await failing.actions.purgeSession("ses_1")).toBe(false);
     expect(failing.state.sessions.ses_1).toBeDefined();
+
     const gone = harness({ deleteSession: () => Promise.reject(new EngineError(404, "/sessions/x")) });
     expect(await gone.actions.purgeSession("ses_1")).toBe(true);
 });
@@ -269,6 +278,7 @@ test("every send carries a fresh submission id", async () => {
     const h = harness();
     await h.actions.send("ses_1", "a", { model: null, agent: "build" });
     await h.actions.send("ses_1", "b", { model: null, agent: "build" });
+
     const ids = h.calls
         .filter((c) => c.method === "submit")
         .map((c) => (c.args[1] as { submissionId: string }).submissionId);
@@ -288,6 +298,7 @@ test("resending a prompt whose answer was lost reuses its submission id; a refus
         },
     } as Partial<Client>);
     const send = (text: string) => h.actions.send("ses_1", text, { model: null, agent: "build" });
+
     failure = new TypeError("Failed to fetch");
     await send("hello");
     failure = new EngineError(503, "/sessions/ses_1/turns", "store", "busy");
@@ -430,6 +441,7 @@ test("action agents are listed for Settings but hidden from the composer, with t
     };
     const h = harness({ workspaceConfig: () => Promise.resolve(config) } as Partial<Client>);
     await h.actions.refreshAgents();
+
     const [build, title, explore] = h.state.agents as ((typeof h.state.agents)[number] & {
         hidden?: boolean;
         prompt?: string;
@@ -470,6 +482,7 @@ test("a skill's documented choices reach the slash menu, and an MCP prompt's arg
     };
     const h = harness({ workspaceConfig: () => Promise.resolve(config) } as Partial<Client>);
     await h.actions.refreshAgents();
+
     const [design, search, plain] = h.state.commands;
     expect(design).toEqual({
         name: "design",
@@ -533,10 +546,12 @@ test("a removed workspace's purge completes only once the engine holds none of i
     const h = harness({
         purgeWorkspace: (id: string) => {
             calls.push(id);
+
             if (id === "busy")
                 return Promise.reject(new EngineError(409, `/workspaces/${id}/purge`, "busy", "running"));
             if (id === "gone")
                 return Promise.reject(new EngineError(404, `/workspaces/${id}/purge`, "not_found", "workspace"));
+
             return Promise.resolve({ deleted: 3 });
         },
     } as Partial<Client>);
@@ -636,6 +651,7 @@ test("a spawned thread is one call, top level and linked to its source, and load
         },
     } as Partial<Client>);
     const created = await h.actions.spawn("ses_1", "fix lint");
+
     expect(sent).toEqual([["ses_1", "fix lint"]]);
     expect(created?.id).toBe("ses_spawn");
     expect(h.state.sessions.ses_spawn!.visibility).toBe("sibling");
@@ -670,6 +686,7 @@ test("moving resolves the destination workspace and reports the engine's busy re
     } as Partial<Client>);
     expect(await moved.actions.moveSession("ses_1", "C:/repo")).toEqual({ ok: true, moved: ["ses_1", "w1"] });
     expect((await moved.actions.moveSession("ses_1", "D:/unknown")).ok).toBeFalse();
+
     const busy = harness({
         moveSession: () =>
             Promise.reject(new EngineError(409, "/sessions/ses_1/move", "busy", "stop the running turn first")),
@@ -684,6 +701,7 @@ test("moving resolves the destination workspace and reports the engine's busy re
 test("re-pointing a workspace folder moves nothing but waits for running threads", async () => {
     const idle = harness();
     expect(await idle.actions.moveWorkspaceSessions("C:/repo", "D:/repo")).toEqual({ ok: true, moved: [] });
+
     const running = harness({
         sessions: () => Promise.resolve([{ ...session("ses_1"), running: true }]),
     } as Partial<Client>);
@@ -713,12 +731,14 @@ test("a prompt too large for the engine is refused with its size before it is se
     const { maxRequestBytes } = await import("../src/engine/native/client");
     const engine = await Bun.file("crates/drift-engine/src/api/mod.rs").text();
     expect(engine).toContain(`pub const MAX_REQUEST_BYTES: usize = ${maxRequestBytes / 1024 / 1024} * 1024 * 1024;`);
+
     const h = harness();
     // A 2.5 MB screenshot, which the engine's old 2 MB default refused, goes through.
     const shot = { mime: "image/png", filename: "shot.png", url: `data:image/png;base64,${"A".repeat(3_400_000)}` };
     expect(await h.actions.send("ses_1", "look", { model: null, agent: "build", files: [shot] as never })).toEqual({
         ok: true,
     });
+
     const huge = { ...shot, url: `data:image/png;base64,${"A".repeat(maxRequestBytes)}` };
     const result = await h.actions.send("ses_1", "look", { model: null, agent: "build", files: [huge] as never });
     expect(result.ok).toBe(false);
