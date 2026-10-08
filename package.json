@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" vite.config.ts eslint.config.ts && cargo fmt --all",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.ts\" \"scripts/**/*.ts\" vite.config.ts eslint.config.ts && cargo fmt --all --check",
-    "lint": "eslint"
+    "lint": "eslint",
+    "knip": "knip --no-progress"
   },
   "dependencies": {
     "dompurify": "^3.2.4",
