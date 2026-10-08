@@ -712,3 +712,12 @@ test("the line where the engine cut a long output comes out, with how much it cu
     expect(splitOmitted(text)).toEqual({ head: "1\n2\n3", omitted: 1256127, tail: "197661\n200000" });
     expect(splitOmitted("short output\n... not a cut ...")).toBeNull();
 });
+
+test("one reference is one mention: a path never matches inside a longer one", async () => {
+    const { mentionFiles } = await import("../src/ui/composer-mentions");
+    const text = "what is in @src/database/database.ts, and @README.md.";
+
+    const sent = mentionFiles(text, ["src/database", "src/database/database.ts", "README.md"], "C:/repo");
+
+    expect(sent.map((file) => file.filename)).toEqual(["database.ts", "README.md"]);
+});
