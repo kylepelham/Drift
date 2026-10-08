@@ -1,6 +1,7 @@
 //! AWS credentials as the AWS CLI finds them (environment, then the shared profile files) and SigV4 request signing.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use ring::{digest, hmac};
@@ -73,9 +74,7 @@ fn profile_name() -> String {
 }
 
 fn aws_file(variable: &str, name: &str) -> PathBuf {
-    env(variable)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join(".aws").join(name))
+    env(variable).map_or_else(|| home().join(".aws").join(name), PathBuf::from)
 }
 
 fn home() -> PathBuf {
@@ -135,10 +134,11 @@ pub fn sign(request: &Signing, keys: &Keys) -> Vec<(String, String)> {
         headers.push(("x-amz-security-token", token.clone()));
     }
     let signed = headers.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(";");
-    let canonical_headers: String = headers
-        .iter()
-        .map(|(name, value)| format!("{name}:{}\n", value.trim()))
-        .collect();
+    let mut canonical_headers = String::new();
+    for (name, value) in &headers {
+        writeln!(canonical_headers, "{name}:{}", value.trim()).unwrap();
+    }
+
     // Services other than S3 take each path segment encoded twice: once on the wire, once here.
     let canonical_path = request.path.split('/').map(encode).collect::<Vec<_>>().join("/");
     let canonical = format!(
@@ -190,15 +190,19 @@ fn mac(key: &[u8], data: &[u8]) -> Vec<u8> {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(encoded, "{byte:02x}").unwrap();
+    }
+
+    encoded
 }
 
 /// Now as SigV4 writes it.
 pub fn amz_date() -> String {
     let seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+        .map_or(0, |duration| duration.as_secs());
     let (days, rest) = (seconds / 86_400, seconds % 86_400);
     let (year, month, day) = civil(days as i64);
     format!(

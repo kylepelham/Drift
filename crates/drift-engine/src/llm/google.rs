@@ -1,7 +1,8 @@
 //! Google Cloud access tokens from a service account key or gcloud's application-default credentials, cached.
 
+use std::fmt::Write as _;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use base64::Engine as _;
 use serde_json::{Value, json};
@@ -75,7 +76,7 @@ struct Cached {
     expires: i64,
 }
 
-static CACHE: Mutex<Option<std::collections::HashMap<PathBuf, Cached>>> = Mutex::new(None);
+static CACHE: LazyLock<Mutex<std::collections::HashMap<PathBuf, Cached>>> = LazyLock::new(Mutex::default);
 /// One exchange at a time: requests that need a token while one is being minted wait for it.
 static MINTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -107,7 +108,7 @@ async fn token_from(
     let file: Value = serde_json::from_str(&text).map_err(|e| Error::Malformed(format!("{}: {e}", path.display())))?;
     let (token, lifetime) = exchange(client, &file, timeouts).await?;
     let expires = crate::id::now_ms() / 1000 + lifetime;
-    CACHE.lock().unwrap().get_or_insert_with(Default::default).insert(
+    CACHE.lock().unwrap().insert(
         path,
         Cached {
             contents,
@@ -123,18 +124,19 @@ fn cached(path: &PathBuf, contents: &str) -> Option<String> {
     let now = crate::id::now_ms() / 1000;
     let cache = CACHE.lock().unwrap();
     cache
-        .as_ref()?
         .get(path)
         .filter(|c| c.contents == contents && now < c.expires - EARLY_SECONDS)
         .map(|c| c.token.clone())
 }
 
 fn hex_digest(text: &str) -> String {
-    ring::digest::digest(&ring::digest::SHA256, text.as_bytes())
-        .as_ref()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    let digest = ring::digest::digest(&ring::digest::SHA256, text.as_bytes());
+    let mut encoded = String::with_capacity(digest.as_ref().len() * 2);
+    for byte in digest.as_ref() {
+        write!(encoded, "{byte:02x}").unwrap();
+    }
+
+    encoded
 }
 
 /// Trades the credentials for a token and its lifetime in seconds, within the route's time limits.

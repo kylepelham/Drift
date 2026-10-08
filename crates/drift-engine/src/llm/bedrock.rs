@@ -95,12 +95,11 @@ impl Bedrock {
         let frames = super::sse::watched(response.bytes_stream(), self.timeouts.idle);
         Ok(Box::pin(frames.flat_map(move |bytes| {
             let items = match bytes {
-                Ok(bytes) => decoder
-                    .feed(&bytes)
-                    .map_err(Error::Malformed)
-                    .map(|messages| messages.into_iter().flat_map(message_chunks).collect())
-                    .unwrap_or_else(|e| vec![Err(e)]),
-                Err(error) => vec![Err(Error::Transport(error))],
+                Ok(bytes) => decoder.feed(&bytes).map_or_else(
+                    |error| vec![Err(Error::Malformed(error.to_string()))],
+                    |messages| messages.into_iter().flat_map(message_chunks).collect(),
+                ),
+                Err(error) => vec![Err(Error::Transport(error.to_string()))],
             };
             futures_util::stream::iter(items)
         })))
@@ -120,9 +119,10 @@ fn message_chunks(message: super::eventstream::Message) -> Vec<Result<Chunk, Err
             &payload,
         ))],
         (Some("error"), _) => {
-            let message = header(":error-message")
-                .map(str::to_string)
-                .unwrap_or_else(|| String::from_utf8_lossy(&message.payload).into_owned());
+            let message = header(":error-message").map_or_else(
+                || String::from_utf8_lossy(&message.payload).into_owned(),
+                str::to_string,
+            );
             vec![Err(classify(
                 super::STREAMED,
                 header(":error-code").unwrap_or("error"),
@@ -310,6 +310,10 @@ mod tests {
         ));
         assert!(errored.to_string().contains("try later"));
         assert_eq!(retryable(&errored), Some((503, true)));
+    }
+
+    #[test]
+    fn unknown_frames_and_http_errors_keep_their_classification() {
         let unknown = first_error(&frame(&[(":message-type", "surprise")], b"{}"));
         assert!(matches!(unknown, Error::Malformed(_)));
         assert!(

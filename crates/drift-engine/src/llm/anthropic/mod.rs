@@ -102,7 +102,7 @@ pub(super) async fn stream_from(
     let events = sse::events(response.bytes_stream(), timeouts.idle);
     Ok(Box::pin(events.flat_map(move |event| {
         let items: Vec<Result<Chunk, Error>> = match event {
-            Err(error) => vec![Err(Error::Transport(error))],
+            Err(error) => vec![Err(Error::Transport(error.to_string()))],
             Ok(event) => match chunks(&event.event, &event.data) {
                 Ok(chunks) => chunks.into_iter().map(|c| Ok(unprefix(c, subscription))).collect(),
                 Err(error) => vec![Err(error)],
@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(
             (
                 built["tool_choice"].clone(),
-                built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0
+                built["tools"].as_array().is_some_and(|tools| !tools.is_empty())
             ),
             (json!({ "type": "none" }), true)
         );
@@ -650,6 +650,10 @@ mod tests {
         for (event, data, expected) in cases {
             assert_eq!(chunks(event, data).unwrap().into_iter().next(), expected, "{event}");
         }
+    }
+
+    #[test]
+    fn message_deltas_carry_usage_and_stop_reasons() {
         let both = chunks(
             "message_delta",
             r#"{"delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}"#,

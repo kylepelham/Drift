@@ -6,13 +6,13 @@ use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 
 #[derive(Debug, PartialEq)]
-pub struct SseEvent {
+pub(crate) struct SseEvent {
     pub event: String,
     pub data: String,
 }
 
 #[derive(Default)]
-pub struct Parser {
+pub(crate) struct Parser {
     buffer: String,
     /// The start of a character whose remaining bytes are in the next network read.
     pending: Vec<u8>,
@@ -22,7 +22,7 @@ pub struct Parser {
 
 impl Parser {
     /// Feeds bytes and returns every event completed by them.
-    pub fn feed(&mut self, chunk: &[u8]) -> Vec<SseEvent> {
+    pub(crate) fn feed(&mut self, chunk: &[u8]) -> Vec<SseEvent> {
         self.decode(chunk);
         let mut events = Vec::new();
         while let Some(end) = self.buffer.find('\n') {
@@ -88,13 +88,13 @@ impl Parser {
 
 /// Events from a byte stream. Nothing at all for `idle` (not even a comment or ping) means the
 /// connection has stalled: the stream ends with an error rather than waiting forever.
-pub fn events<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<SseEvent, String>>
+pub(crate) fn events<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<SseEvent, StreamError>>
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
     let mut parser = Parser::default();
     watched(bytes, idle).flat_map(move |chunk| {
-        let items: Vec<Result<SseEvent, String>> = match chunk {
+        let items: Vec<Result<SseEvent, StreamError>> = match chunk {
             Ok(bytes) => parser.feed(&bytes).into_iter().map(Ok).collect(),
             Err(error) => vec![Err(error)],
         };
@@ -103,7 +103,7 @@ where
 }
 
 /// A response body that ends with an error once nothing arrives for `idle`.
-pub fn watched<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<Bytes, String>>
+pub(crate) fn watched<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<Bytes, StreamError>>
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
@@ -111,14 +111,24 @@ where
         let mut bytes = state?;
         match tokio::time::timeout(idle, bytes.next()).await {
             Ok(Some(Ok(chunk))) => Some((Ok(chunk), Some(bytes))),
-            Ok(Some(Err(error))) => Some((Err(error.to_string()), None)),
+            Ok(Some(Err(error))) => Some((Err(StreamError::Transport(error)), None)),
             Ok(None) => None,
             Err(_) => Some((
-                Err(format!("the stream stalled: nothing for {} s", idle.as_secs())),
+                Err(StreamError::Stalled {
+                    seconds: idle.as_secs(),
+                }),
                 None,
             )),
         }
     })
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StreamError {
+    #[error(transparent)]
+    Transport(reqwest::Error),
+    #[error("the stream stalled: nothing for {seconds} s")]
+    Stalled { seconds: u64 },
 }
 
 #[cfg(test)]
@@ -186,7 +196,8 @@ mod tests {
             .expect("the idle limit ends the wait")
             .unwrap()
             .unwrap_err();
-        assert!(error.contains("stalled"), "{error}");
+        assert!(matches!(error, StreamError::Stalled { seconds: 0 }), "{error}");
+        assert_eq!(error.to_string(), "the stream stalled: nothing for 0 s");
         assert!(events.next().await.is_none(), "and nothing follows");
     }
 

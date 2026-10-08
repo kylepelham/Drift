@@ -1,5 +1,7 @@
 //! What a subscription-authenticated request must look like: the shape Claude Code itself sends.
 
+use std::fmt::Write as _;
+
 use serde_json::{Value, json};
 
 use super::oauth::sha256;
@@ -100,7 +102,12 @@ fn billing(text: &str) -> String {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(encoded, "{byte:02x}").unwrap();
+    }
+
+    encoded
 }
 
 #[cfg(test)]

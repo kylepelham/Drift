@@ -153,6 +153,7 @@ fn dpapi(bytes: &[u8], protect: bool) -> Result<Vec<u8>, String> {
         cbData: 0,
         pbData: std::ptr::null_mut(),
     };
+    // SAFETY: DPAPI borrows live input bytes and returns a LocalAlloc buffer copied before LocalFree.
     unsafe {
         let success = if protect {
             CryptProtectData(

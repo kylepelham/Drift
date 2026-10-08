@@ -349,8 +349,7 @@ impl Catalog {
     pub fn cache_is_fresh(data_dir: &Path) -> bool {
         std::fs::metadata(cache_path(data_dir))
             .and_then(|meta| meta.modified())
-            .map(|modified| modified.elapsed().unwrap_or(CACHE_TTL) < CACHE_TTL)
-            .unwrap_or(false)
+            .is_ok_and(|modified| modified.elapsed().unwrap_or(CACHE_TTL) < CACHE_TTL)
     }
 
     /// The cached download if it is fresh, else the bundled snapshot.

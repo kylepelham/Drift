@@ -88,7 +88,7 @@ impl OpenAi {
         let events = sse::events(response.bytes_stream(), self.timeouts.idle);
         Ok(Box::pin(events.flat_map(move |event| {
             let items: Vec<Result<Chunk, Error>> = match event {
-                Err(error) => vec![Err(Error::Transport(error))],
+                Err(error) => vec![Err(Error::Transport(error.to_string()))],
                 Ok(event) => match state.chunks(&event.data) {
                     Ok(chunks) => chunks.into_iter().map(Ok).collect(),
                     Err(error) => vec![Err(error)],
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(
             (
                 built["tool_choice"].clone(),
-                built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0
+                built["tools"].as_array().is_some_and(|tools| !tools.is_empty())
             ),
             (json!("none"), true)
         );
@@ -532,6 +532,12 @@ mod tests {
         assert_eq!(built["reasoning"]["effort"], "medium");
         assert_eq!(built["max_output_tokens"], 1000);
         assert_eq!(built["tools"][0]["type"], "function");
+        assert!(body(&request(), true).get("max_output_tokens").is_none());
+    }
+
+    #[test]
+    fn message_blocks_become_responses_input_items() {
+        let built = body(&request(), false);
         let input = built["input"].as_array().unwrap();
         assert_eq!(input[0]["role"], "user");
         assert_eq!(input[0]["content"][0]["type"], "input_text");
@@ -544,7 +550,6 @@ mod tests {
         assert_eq!(input[3]["call_id"], "call_1");
         assert_eq!(input[3]["arguments"], r#"{"path":"a"}"#);
         assert_eq!(input[4]["type"], "function_call_output");
-        assert!(body(&request(), true).get("max_output_tokens").is_none());
     }
 
     #[test]
@@ -601,6 +606,13 @@ mod tests {
             ),
             vec![Chunk::BlockStop]
         );
+    }
+
+    #[test]
+    fn function_call_deltas_finish_with_usage_and_tool_stop() {
+        let mut state = StreamState::default();
+        let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
+
         assert_eq!(
             feed(
                 &mut state,

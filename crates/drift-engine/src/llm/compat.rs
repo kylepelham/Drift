@@ -93,7 +93,7 @@ impl Compat {
         let events = sse::events(response.bytes_stream(), self.timeouts.idle);
         Ok(Box::pin(events.flat_map(move |event| {
             let items: Vec<Result<Chunk, Error>> = match event {
-                Err(error) => vec![Err(Error::Transport(error))],
+                Err(error) => vec![Err(Error::Transport(error.to_string()))],
                 Ok(event) => match state.chunks(&event.data) {
                     Ok(chunks) => chunks.into_iter().map(Ok).collect(),
                     Err(error) => vec![Err(error)],
@@ -477,7 +477,7 @@ mod tests {
         assert_eq!(
             (
                 built["tool_choice"].clone(),
-                built["tools"].as_array().map(Vec::len).unwrap_or(0) > 0
+                built["tools"].as_array().is_some_and(|tools| !tools.is_empty())
             ),
             (json!("none"), true)
         );

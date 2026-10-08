@@ -70,7 +70,7 @@ pub(super) async fn stream_from(
     let events = sse::events(response.bytes_stream(), timeouts.idle);
     Ok(Box::pin(events.flat_map(move |event| {
         let items: Vec<Result<Chunk, Error>> = match event {
-            Err(error) => vec![Err(Error::Transport(error))],
+            Err(error) => vec![Err(Error::Transport(error.to_string()))],
             Ok(event) => match state.chunks(&event.data) {
                 Ok(chunks) => chunks.into_iter().map(Ok).collect(),
                 Err(error) => vec![Err(error)],
@@ -103,10 +103,10 @@ fn body(request: &Request) -> Value {
     let config = &mut body["generationConfig"];
     match &request.reasoning {
         Some(Reasoning::Budget { tokens }) => {
-            config["thinkingConfig"] = json!({ "thinkingBudget": tokens, "includeThoughts": true })
+            config["thinkingConfig"] = json!({ "thinkingBudget": tokens, "includeThoughts": true });
         }
         Some(Reasoning::Effort { level }) => {
-            config["thinkingConfig"] = json!({ "thinkingLevel": level, "includeThoughts": true })
+            config["thinkingConfig"] = json!({ "thinkingLevel": level, "includeThoughts": true });
         }
         None if request.show_thinking => config["thinkingConfig"] = json!({ "includeThoughts": true }),
         None => {}
@@ -145,7 +145,7 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
                 parts.push(part);
             }
             Block::Pdf { base64 } => {
-                parts.push(json!({ "inlineData": { "mimeType": "application/pdf", "data": base64 } }))
+                parts.push(json!({ "inlineData": { "mimeType": "application/pdf", "data": base64 } }));
             }
             Block::Stored { .. } => {}
             Block::ToolUse { id, name, input } => {
