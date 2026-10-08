@@ -1,4 +1,6 @@
-//! Imports opencode conversations once, in pages, without writing to opencode's database.
+//! Imports opencode conversations once into their workspace, without writing to opencode's database.
+//! Reads and writes bounded pages, listing a conversation only after its final page is stored.
+//! Rebuilds recent file edits as native undo records.
 
 mod map;
 mod settings;
@@ -17,13 +19,17 @@ use std::path::{Path, PathBuf};
 
 pub use undo::Blobs;
 
+/// Maximum messages read from opencode in one page.
 const READ_PAGE: usize = 200;
-// Small write transactions keep the store's single connection available to the UI.
+/// Maximum messages in a write page, also bounded by WRITE_BYTES.
+/// Small write transactions keep the store's single connection available to the UI.
 const WRITE_MESSAGES: usize = 100;
+/// Approximate byte limit for a write page.
 const WRITE_BYTES: usize = 2_000_000;
 
 type Workspaces = HashMap<String, (String, PathBuf)>;
 
+/// Stores rebuilt file versions in the engine's native undo history.
 pub struct History<'a> {
     snapshots: &'a drift_engine::session::snapshot::Snapshots,
     runtime: tokio::runtime::Runtime,
@@ -46,12 +52,14 @@ impl Blobs for History<'_> {
     }
 }
 
+/// Results of one import run, with unknown conversations counted under their unmatched directory.
 #[derive(Debug, Default, PartialEq)]
 pub struct Report {
     pub imported: usize,
     /// Brought in by an earlier run, or already a conversation here.
     pub known: usize,
     /// Conversations waiting for a workspace to be added, counted by directory.
+    /// A later run imports them once the workspace exists.
     pub unmatched: BTreeMap<String, usize>,
     /// Conversations that could not be read or written, with why; a later run tries them again.
     pub failed: Vec<(String, String)>,
@@ -61,6 +69,7 @@ pub struct Report {
     pub pending: Vec<String>,
 }
 
+/// Progress notifications for a conversation import run.
 pub enum Progress<'a> {
     /// This many conversations are to be brought in.
     Planned(usize),
@@ -85,6 +94,9 @@ struct ImportRun<'a> {
     pending: HashSet<String>,
 }
 
+/// Imports conversations not yet brought in from import.source and reports progress through import.progress.
+/// Sessions archived in Drift or opencode arrive archived as of the import time.
+/// Rebuilt file versions for undo are stored through import.blobs.
 pub fn import_sessions(import: SessionImport<'_>) -> rusqlite::Result<Report> {
     let source = source::Source::open(import.source)?;
     let workspaces: Workspaces = import
@@ -196,7 +208,8 @@ fn import_planned(
     }
 }
 
-// Subagents inherit their parent's workspace, including when their own directory is elsewhere.
+/// Places a subagent in its parent's workspace, even if its own directory is elsewhere.
+/// Other sessions use the workspace matching their directory, then their repository root.
 fn workspace_for(
     store: &Store,
     session: &source::OcSession,
@@ -229,6 +242,7 @@ fn workspace_for(
     })
 }
 
+/// Returns the listed conversation and its undoable call count, or None if already present.
 fn import_one(
     run: &ImportRun<'_>,
     plan: &undo::Planned,
@@ -258,6 +272,7 @@ fn import_one(
         .map(|session| (session, undoable)))
 }
 
+/// Reads and writes a conversation in pages and returns the number of calls given undo records.
 fn write_pages(run: &ImportRun<'_>, session_id: &str) -> rusqlite::Result<usize> {
     let mut ids = map::Ids::default();
     let mut undoable = 0;
@@ -297,7 +312,7 @@ fn write_pages(run: &ImportRun<'_>, session_id: &str) -> rusqlite::Result<usize>
     Ok(undoable)
 }
 
-// opencode and Drift can spell the same directory with different case, slashes and trailing separators.
+/// Normalizes a directory's case, slash style and trailing separators for workspace matching.
 fn directory_key(path: &str) -> String {
     let path = path.replace('\\', "/").to_lowercase();
     let trimmed = path.trim_end_matches('/');

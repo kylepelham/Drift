@@ -10,6 +10,7 @@ fn edit(path: &Path, diff: &str) -> Value {
     })
 }
 
+/// Returns each recorded change by path, with the content of its before and after versions.
 fn recorded(store: &Store, session: &str, kept: &Kept) -> Vec<(String, Option<String>, Option<String>)> {
     let content = |blob: &Option<Option<String>>| blob.as_ref().and_then(Option::as_ref).map(|id| kept.0[id].clone());
     let mut changes = Vec::new();

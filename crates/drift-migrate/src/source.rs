@@ -1,11 +1,14 @@
-//! Reads a consistent snapshot of opencode's database in bounded pages.
+//! Reads opencode's database read-only, from a consistent snapshot and in bounded pages.
+//! No conversation is held whole in memory, regardless of its length.
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde_json::{Value, json};
 use std::path::Path;
 
-// Large tool parts contain display copies that can be hundreds of megabytes.
+/// Tool parts beyond this byte limit are streamed and reduced to their name, input and output prefix.
+/// Other part kinds are read whole; oversized tool display copies are skipped.
 const OVERSIZED_PART_BYTES: i64 = 8_000_000;
+/// Maximum bytes retained from an oversized call's input or output.
 const KEPT_BYTES: i64 = 64 * 1024;
 
 pub(crate) struct Source {
@@ -43,7 +46,8 @@ pub(crate) struct OcTodo {
     pub priority: String,
 }
 
-// Deserialize only the fields we keep so large display copies are skipped by the streaming reader.
+/// Fields retained from an oversized tool call.
+/// The streaming reader skips all other fields, including display copies, without storing them.
 #[derive(serde::Deserialize)]
 struct BigCall {
     #[serde(rename = "type")]
@@ -100,7 +104,7 @@ fn message_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcMessage> {
 }
 
 impl Source {
-    // A single read transaction keeps every row consistent even while opencode is writing.
+    /// Opens read-only and holds one read transaction, keeping all rows consistent while opencode writes.
     pub(crate) fn open(path: &Path) -> rusqlite::Result<Self> {
         let conn =
             Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
@@ -112,7 +116,8 @@ impl Source {
         Ok(Self { conn })
     }
 
-    // Parent sessions must be planned before subagents can inherit their workspace.
+    /// Returns all conversations, most recently used first so the sidebar fills from the top.
+    /// Subagents follow the conversations that could have started them.
     pub(crate) fn sessions(&self) -> rusqlite::Result<Vec<OcSession>> {
         let mut statement = self.conn.prepare(
             "SELECT s.id, s.parent_id, s.directory, s.title, s.agent, s.model,
@@ -138,7 +143,8 @@ impl Source {
         rows.collect()
     }
 
-    // Per-file diff summaries are display copies that Drift does not use.
+    /// Returns up to limit messages after after's creation time and ID, in written order.
+    /// Per-file diff summaries on user messages are left in the database rather than read.
     pub(crate) fn messages_after(
         &self,
         session_id: &str,
@@ -156,6 +162,7 @@ impl Source {
         rows.collect()
     }
 
+    /// Returns the conversation's newest limit messages, newest first.
     pub(crate) fn newest_messages(&self, session_id: &str, limit: usize) -> rusqlite::Result<Vec<OcMessage>> {
         let mut statement = self.conn.prepare_cached(
             "SELECT id, time_created, '' FROM message WHERE session_id = ?1
@@ -166,6 +173,8 @@ impl Source {
         rows.collect()
     }
 
+    /// Returns a message's parts in order, reducing tool calls larger than OVERSIZED_PART_BYTES.
+    /// Oversized tool calls are streamed from disk rather than held whole in memory.
     pub(crate) fn parts(&self, message_id: &str) -> rusqlite::Result<Vec<OcPart>> {
         let mut statement = self.conn.prepare_cached(
             "SELECT id, rowid, CASE WHEN octet_length(data) <= ?2 THEN data END FROM part
@@ -188,6 +197,7 @@ impl Source {
             .collect()
     }
 
+    /// Reduces a tool call to its retained fields; any other oversized part is read whole.
     fn oversized(&self, rowid: i64) -> rusqlite::Result<String> {
         let stream = self.conn.blob_open("main", "part", "data", rowid, true)?;
 
@@ -208,6 +218,7 @@ impl Source {
             .optional()
     }
 
+    /// Returns a message's part IDs without reading their text.
     pub(crate) fn part_ids(&self, message_id: &str) -> rusqlite::Result<Vec<String>> {
         self.conn
             .prepare_cached("SELECT id FROM part WHERE message_id = ?1 ORDER BY id")?
@@ -215,7 +226,8 @@ impl Source {
             .collect()
     }
 
-    // Older opencode databases have no queue table and are treated as having no pending prompts.
+    /// Returns conversations containing queued prompts that opencode never ran.
+    /// Databases predating the queue table have no pending prompts.
     pub(crate) fn pending_inputs(&self) -> std::collections::HashSet<String> {
         let ids = self
             .conn

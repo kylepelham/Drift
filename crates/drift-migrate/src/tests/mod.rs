@@ -15,7 +15,7 @@ mod lifecycle;
 mod paging;
 mod parts;
 
-// Content hashes let assertions resolve the versions named by undo records.
+/// Keeps file versions by content hash so assertions can read the versions named by undo records.
 #[derive(Default)]
 struct Kept(HashMap<String, String>);
 
@@ -78,6 +78,7 @@ fn dir() -> Dir {
     Dir(path)
 }
 
+/// Creates opencode's tables with the columns read by the importer.
 fn opencode(path: &Path) -> Connection {
     let conn = Connection::open(path).unwrap();
     conn.execute_batch(

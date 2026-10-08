@@ -15,6 +15,8 @@ struct Hunk {
     lines: Vec<Line>,
 }
 
+/// Undoes a unified diff only when every hunk's new side matches at its recorded position.
+/// Matching ignores line endings; replacements use the current file's own line ending.
 pub(super) fn reverse(diff: &str, current: &str) -> Option<String> {
     let hunks = parse(diff)?;
     let line_ending = if current.contains("\r\n") { "\r\n" } else { "\n" };
@@ -65,6 +67,7 @@ fn bare(line: &str) -> &str {
     line.strip_suffix('\r').unwrap_or(line)
 }
 
+/// Reads one file's unified-diff hunks by their line counts so header-like content stays content.
 fn parse(diff: &str) -> Option<Vec<Hunk>> {
     let mut lines = diff.split('\n').peekable();
     let mut hunks = Vec::new();
@@ -126,6 +129,7 @@ fn parse_body(lines: &mut Lines<'_>, mut old_left: usize, mut new_left: usize) -
     Some(body)
 }
 
+/// Parses start[,length], defaulting to length 1 when omitted.
 fn range(text: &str) -> Option<(usize, usize)> {
     match text.split_once(',') {
         Some((start, len)) => Some((start.parse().ok()?, len.parse().ok()?)),

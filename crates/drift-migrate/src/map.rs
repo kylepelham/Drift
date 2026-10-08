@@ -9,15 +9,16 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
-// Token counts are on messages; opencode snapshots belong to a repository Drift does not use.
+/// opencode bookkeeping parts omitted from imported messages.
+/// Token counts are already on messages; snapshots belong to a repository Drift does not use.
 const DROPPED: [&str; 3] = ["step-start", "step-finish", "snapshot"];
-// Large diffs are generated-file display copies, not useful panel content.
+/// Maximum retained display diff size; larger generated-file diffs are dropped from metadata.
 const MAX_DIFF_BYTES: usize = 1_000_000;
 
-// Records use opencode part IDs until mapping attaches them to the native calls.
+/// Rebuilt undo records keyed by opencode part ID until attached to native calls.
 pub(crate) type Records = HashMap<String, Value>;
 
-// The store keeps this session hidden until its final page is written.
+/// Maps a listed conversation; the store keeps it hidden until its final page is written.
 pub(crate) fn session(session: &OcSession, workspace_id: &str) -> Session {
     let model: Value = session
         .model
@@ -48,7 +49,8 @@ pub(crate) fn session(session: &OcSession, workspace_id: &str) -> Session {
     }
 }
 
-// IDs must preserve message order and remain available for later compaction boundaries.
+/// Mints native message IDs in opencode's written order so later turns sort after the imported history.
+/// Keeps earlier mappings for compaction boundaries that refer back to them.
 #[derive(Default)]
 pub(crate) struct Ids {
     last: i64,
@@ -105,6 +107,7 @@ pub(crate) fn message(
     }
 }
 
+/// Merges a call's undo record into its metadata and stamps it with its native message ID.
 fn with_record(mut part: Part, record: Option<&Value>, message_id: &str) -> Part {
     let Some(record) = record else {
         return part;
@@ -165,7 +168,7 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
     }
 }
 
-// opencode reports aborted replies as errors and token limits through either error or finish.
+/// Maps an assistant reply's outcome; opencode reports aborts as errors and token limits as error or finish.
 fn outcome(data: &Value) -> (MessageStatus, Option<String>, Option<Ending>) {
     let error = &data["error"];
     let message = error["data"]["message"]
@@ -183,13 +186,15 @@ fn outcome(data: &Value) -> (MessageStatus, Option<String>, Option<Ending>) {
     }
 }
 
-// The envelope prevents synthetic text from being read back as a native text part.
+/// Keeps an unmapped part's original text in an unknown-part envelope.
+/// Parts such as opencode's synthetic text remain unknown even when they resemble native parts.
 pub(crate) fn kept(data: &str) -> Part {
     Part::Unknown {
         raw: serde_json::json!({ "type": "opencode", "data": data }).to_string(),
     }
 }
 
+/// Maps a part to its native shape, returning None for bookkeeping parts.
 fn part_of<'a>(part: &'a OcPart, minted: &HashMap<String, String>, anthropic: bool) -> Option<(&'a str, Part)> {
     let unknown = || Some((part.id.as_str(), kept(&part.data)));
     let Ok(data) = serde_json::from_str::<Value>(&part.data) else {
@@ -219,7 +224,8 @@ fn part_of<'a>(part: &'a OcPart, minted: &HashMap<String, String>, anthropic: bo
     }
 }
 
-// Replay sends a reasoning signature only to the model that originally wrote it.
+/// Preserves Claude's reasoning signature so the same model can read its signed thinking back.
+/// Replay sends the signature only to the model that originally wrote it.
 fn reasoning(data: &Value, anthropic: bool) -> Option<Part> {
     let text = data["text"].as_str()?.to_string();
     let signed = &data["metadata"]["anthropic"];
@@ -266,7 +272,8 @@ fn tool_call(data: &Value) -> Option<Part> {
     })
 }
 
-// Drift panels use patch text, not the full-file display copies in opencode metadata.
+/// Drops full-file patch copies, read display text and oversized diffs that no Drift view uses.
+/// Renames a patched file's diff to the patch field used by its panel.
 fn slim(tool: &str, mut metadata: Value) -> Value {
     let Some(fields) = metadata.as_object_mut() else {
         return metadata;

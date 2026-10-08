@@ -1,4 +1,6 @@
-//! Rebuilds recent file versions by reversing opencode diffs against today's files.
+//! Rebuilds recent file versions from today's files by reversing opencode diffs, newest edit first across sessions.
+//! A mismatched diff stops reconstruction for every file the call touched, including their older edits.
+//! Those calls get no undo record; undo reports them rather than guessing.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,16 +15,20 @@ mod diff;
 
 use diff::reverse;
 
-// Older edits rarely still match the files on disk.
+/// Only edits in a conversation's newest messages and from the past week get undo records.
+/// Older edits rarely still match the files on disk.
 const RECENT_MESSAGES: usize = 30;
 const RECENT_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 const WRITERS: [&str; 3] = ["edit", "write", "apply_patch"];
 
+/// Stores rebuilt file versions in a workspace's undo history.
 pub trait Blobs {
-    /// Returns the stored blob ID, or None if the workspace history could not store the version.
+    /// Stores bytes in workspace owner's history at root and returns the blob ID.
+    /// Returns None if the version could not be stored.
     fn store(&mut self, owner: &str, root: &Path, bytes: &[u8]) -> Option<String>;
 }
 
+/// A conversation planned for this import run, with its destination workspace and root.
 pub(crate) struct Planned<'a> {
     pub session: &'a OcSession,
     pub owner: String,
@@ -36,6 +42,7 @@ struct Write<'a> {
     plan: &'a Planned<'a>,
 }
 
+/// Builds records keyed by opencode part ID for recent writing calls whose file versions can be rebuilt.
 pub(crate) fn records(
     source: &Source,
     planned: &[Planned],
@@ -91,14 +98,15 @@ fn recent_writes<'a>(source: &Source, planned: &'a [Planned<'a>], now: i64) -> r
     Ok(writes)
 }
 
-// Each file advances backwards through its versions as calls are rebuilt newest first.
+/// Tracks each file's version after the next older call, rebuilding calls newest first.
 #[derive(Default)]
 struct Files {
     versions: HashMap<String, Option<Option<String>>>,
 }
 
 impl Files {
-    // Outer None means lost history; inner None means a known absent file.
+    /// Returns the file's content after the next older call, reading it from disk on first access.
+    /// Outer None means lost history; inner None means a known absent file.
     fn current(&mut self, path: &Path) -> Option<Option<String>> {
         self.versions
             .entry(path_key(path))
@@ -123,13 +131,15 @@ fn read(path: &Path) -> Option<Option<String>> {
     }
 }
 
+/// One file changed by a call, with its content before and after the change.
 struct Change {
     path: PathBuf,
     before: Option<String>,
     after: Option<String>,
 }
 
-// A failed call ends history for all its files so older calls cannot invent an intermediate version.
+/// Builds a call's record for all its files or returns None.
+/// A call that cannot be rebuilt ends history for all its files, including older calls on those files.
 fn record(write: &Write, files: &mut Files, blobs: &mut dyn Blobs) -> Option<Value> {
     let changes = changes(write, files);
     let stored = changes.as_ref().and_then(|changes| {
@@ -166,7 +176,7 @@ fn stored(change: &Change, plan: &Planned, blobs: &mut dyn Blobs) -> Option<File
     })
 }
 
-// Native undo records use relative paths inside the workspace and absolute paths outside it.
+/// Returns a slash-separated path relative to the workspace, or an absolute path outside it.
 fn relative(path: &Path, root: &Path) -> String {
     let path = path.to_string_lossy().replace('\\', "/");
     let root = root.to_string_lossy().replace('\\', "/");
@@ -193,6 +203,7 @@ fn resolve(path: &str, write: &Write) -> PathBuf {
     Path::new(&write.plan.session.directory).join(path)
 }
 
+/// Returns every file named by a call so a failed rebuild can end their histories.
 fn touched(write: &Write) -> Vec<PathBuf> {
     let state = &write.data["state"];
     let mut names: Vec<&str> = state["input"]["filePath"].as_str().into_iter().collect();
@@ -256,7 +267,7 @@ fn edit(write: &Write, state: &Value, files: &mut Files) -> Option<Change> {
     })
 }
 
-// Moves need two records: creation at the destination and removal at the original path.
+/// Rebuilds a patched file; a move creates two changes, adding its new path and removing its old path.
 fn patched(write: &Write, file: &Value, files: &mut Files) -> Option<Vec<Change>> {
     let path = resolve(file["filePath"].as_str()?, write);
     let kind = file["type"].as_str()?;
@@ -302,6 +313,7 @@ fn patched(write: &Write, file: &Value, files: &mut Files) -> Option<Vec<Change>
     }
 }
 
+/// Rebuilds the content before a patch; added files were absent before and deleted files are absent now.
 fn original(diff: &str, kind: &str, current: Option<&str>) -> Option<Option<String>> {
     match kind {
         "add" => reverse(diff, current?)?.is_empty().then_some(None),
