@@ -11,7 +11,7 @@ import { ImportSummaryHost } from "./ui/import-summary";
 import { bindShellTimeoutPolicy } from "./state/prefs";
 import { listenMirrorLiveError } from "./state/mirror";
 import { EngineProvider, useEngine } from "./engine";
-import { Chat, forwardWheelToChat } from "./ui/chat";
+import { forwardWheelToChat } from "./ui/chat-wheel";
 import { selectedSession } from "./state/selection";
 import { FilePreviewHost } from "./ui/file-preview";
 import { messageProblem } from "./engine/messages";
@@ -34,6 +34,7 @@ import { initZoom } from "./state/zoom";
 import { DebugPanel } from "./ui/debug";
 import { PluginHost } from "./plugins";
 import { Sidebar } from "./ui/sidebar";
+import { Chat } from "./ui/chat";
 import { t } from "./state/i18n";
 
 export function App() {

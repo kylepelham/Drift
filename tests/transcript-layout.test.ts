@@ -91,7 +91,7 @@ const assistant = (id: string, parts: unknown[], extra: Record<string, unknown> 
 
 test("assistant grouping and pitch are invariant to provider message chunking", async () => {
     const { groupAssistantEntries } = await import("../src/ui/message-groups");
-    const { timelinePitch } = await import("../src/ui/chat");
+    const { timelinePitch } = await import("../src/ui/timeline-state");
     const one = [assistant("a1", [tool("r1", "a1"), tool("r2", "a1"), tool("r3", "a1"), text("answer", "a1")])];
     const split = [
         assistant("a1", [tool("r1", "a1"), tool("r2", "a1")]),
@@ -131,7 +131,7 @@ test("context grouping stops at meaningful transcript boundaries", async () => {
 });
 
 test("timeline pitch keeps turn, compaction, and error breaks without trailing space", async () => {
-    const { timelinePitch } = await import("../src/ui/chat");
+    const { timelinePitch } = await import("../src/ui/timeline-state");
     const regular = assistant("a1", [text("one", "a1")]);
     const continuation = assistant("a2", [text("two", "a2")]);
     const summary = assistant("a3", [text("summary", "a3")], { summary: true });

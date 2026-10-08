@@ -1,34 +1,30 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
-import { assistantFlowContinues, groupAssistantEntries, type PartGroup } from "./message-groups";
-import { largeUserText, MessageView, messageVisible } from "./message";
-import { messageModel, messageProblem } from "../engine/messages";
-import { clarificationAnswer } from "./clarification-answer";
+import { accumulatedWheelTarget, chatWheelEvent, normalizedWheelDelta, type ForwardedWheel } from "./chat-wheel";
+import { compareMessages, messageRevisionKey, type MessageEntry } from "../engine/store";
+import { collapseCompaction, compactionCollapsed } from "../state/prefs";
 import { clearReveal, revealTarget } from "./session-search";
-import { lmStudioModelReady } from "../state/lm-studio";
-import { activeWorkspace } from "../state/workspaces";
+import { groupAssistantEntries } from "./message-groups";
+import { createRevertBackfill } from "./revert-backfill";
 import { selectedSession } from "../state/selection";
-import { Picker, type PickerItem } from "./picker";
-import { variantNames } from "../engine/catalog";
-import { ProviderIcon } from "./provider-icon";
+import { messageProblem } from "../engine/messages";
 import { codeFontSize } from "../state/code";
 import { TextShimmer } from "./text-shimmer";
+import { messageVisible } from "./message";
+import { EmptyState } from "./chat-empty";
 import { IconArrowDown } from "./icons";
 import { useEngine } from "../engine";
-import { partVisible } from "./parts";
-import { Chevron } from "./controls";
-import { DriftLogo } from "./logo";
+import { Row } from "./timeline-row";
 import { t } from "../state/i18n";
 import {
-    compareMessages,
-    messageRevisionKey,
-    messageText,
-    modelInfo,
-    savedChoice,
-    type EngineState,
-    type MessageEntry,
-    type ModelRef,
-    type SessionStatus,
-} from "../engine/store";
+    estimatedRow,
+    estimatedTimelineRow,
+    resizeCompensation,
+    scrollGestureSticks,
+    shouldShowScrollToBottom,
+    snapVirtualViewport,
+    transcriptRevision,
+    virtualRange,
+} from "./timeline-virtual";
 import {
     activeFindMessage,
     activeFindOccurrence,
@@ -39,32 +35,24 @@ import {
     transcriptFindNeedle,
 } from "./transcript-find";
 import {
-    collapseCompaction,
-    compactionCollapsed,
-    orderedModelProviderIds,
-    prefsFor,
-    updatePrefs,
-} from "../state/prefs";
+    copiedCount,
+    retryInFlight,
+    thinkingState,
+    timelineEntries,
+    timelineParts,
+    timelineRowVisible,
+} from "./timeline-state";
 
 import type { Part } from "../engine/parts";
 
-const estimatedRow = 96;
-const overscan = 800;
 const loadOlderAt = 1200;
-// Within this distance of the bottom the view is considered "at the bottom": it keeps auto-scrolling
-// with new output and hides the jump-to-latest button. scrollGestureSticks and
-// shouldShowScrollToBottom are complementary halves of that decision and must share the threshold.
-const stickyThresholdPx = 80;
 // A wheel gesture is treated as still in progress for this long after the last event, so momentum
 // scrolling does not get mistaken for the user settling on a position.
 const gestureWindowMs = 250;
-// Messages younger than this are treated as newly arrived rather than restored history.
-const freshMessageMs = 2000;
 // The transcript column is padded by pt-14; row offsets are measured from below that padding.
 const headerOffset = 56;
 // Breathing room above a message jumped to from search, so it does not sit under the header.
 const findMargin = 24;
-const maxRetryMessageChars = 80;
 
 export function Chat() {
     const engine = useEngine();
@@ -162,39 +150,7 @@ export function Chat() {
         if (known && engine.state.connection === "online") void engine.actions.openSession(id);
     });
 
-    // A revert that spans more than one transcript page can put every loaded message inside the
-    // reverted range, leaving the timeline empty (the marker itself may not even be loaded). Page
-    // older history in until something pre-revert is visible or the history is exhausted. The
-    // in-flight signal re-runs this effect when each page lands, so the loop advances one page at
-    // a time and stops the moment an entry survives the revert filter.
-    const [revertBackfill, setRevertBackfill] = createSignal(false);
-    const [revertBackfillFailure, setRevertBackfillFailure] = createSignal<string>();
-    createEffect(() => {
-        const id = selectedSession();
-        if (!id || revertBackfill()) return;
-        const cursor = engine.state.cursors[id];
-        if (
-            !revertBackfillNeeded({
-                revertedAt: engine.state.sessions[id]?.revert?.messageId,
-                visible: entries().length,
-                loaded: engine.state.loaded[id],
-                cursor,
-            })
-        )
-            return;
-        // A page that never arrived leaves the cursor untouched, so the next run would ask for the
-        // same page and keep asking. Remember the attempt and wait for the cursor or session to move.
-        const attempt = revertBackfillAttempt(id, cursor);
-        if (revertBackfillFailure() === attempt) return;
-        setRevertBackfill(true);
-        void engine.actions
-            .loadOlder(id)
-            .then((loaded) => {
-                if (!loaded) setRevertBackfillFailure(attempt);
-            })
-            .catch(() => setRevertBackfillFailure(attempt))
-            .finally(() => setRevertBackfill(false));
-    });
+    const revertBackfill = createRevertBackfill(engine, entries);
 
     let scroller!: HTMLDivElement;
     const [stick, setStick] = createSignal(true);
@@ -580,529 +536,6 @@ export function Chat() {
             >
                 <IconArrowDown class="size-4 transition-transform duration-200 group-hover:translate-y-0.5" />
             </button>
-        </div>
-    );
-}
-
-type ForwardedWheel = { deltaY: number; deltaMode: number };
-const chatWheelEvent = "drift:chat-wheel";
-
-export function forwardWheelToChat(event: WheelEvent, boundary: HTMLElement) {
-    if (event.ctrlKey || event.deltaY === 0 || wheelTargetConsumes(event.target, boundary, event.deltaY)) return false;
-    window.dispatchEvent(
-        new CustomEvent<ForwardedWheel>(chatWheelEvent, {
-            detail: { deltaY: event.deltaY, deltaMode: event.deltaMode },
-        }),
-    );
-    event.preventDefault();
-    return true;
-}
-
-function wheelTargetConsumes(target: EventTarget | null, boundary: HTMLElement, deltaY: number) {
-    let element = target instanceof Element ? target : null;
-    while (element) {
-        if (element.hasAttribute("data-wheel-lock")) return true;
-        if (element !== boundary) {
-            const style = getComputedStyle(element);
-            const scrollable = style.overflowY === "auto" || style.overflowY === "scroll";
-            if (scrollable && element.scrollHeight > element.clientHeight) {
-                const remaining = element.scrollHeight - element.clientHeight - element.scrollTop;
-                if ((deltaY < 0 && element.scrollTop > 0) || (deltaY > 0 && remaining > 1)) return true;
-            }
-        }
-        if (element === boundary) break;
-        element = element.parentElement;
-    }
-    return false;
-}
-
-export function normalizedWheelDelta(deltaY: number, deltaMode: number, viewportHeight: number) {
-    if (deltaMode === 1) return deltaY * 16;
-    if (deltaMode === 2) return deltaY * viewportHeight;
-    return deltaY;
-}
-
-export function accumulatedWheelTarget(scrollTop: number, pendingTarget: number | null, delta: number, max: number) {
-    return Math.min(max, Math.max(0, (pendingTarget ?? scrollTop) + delta));
-}
-
-export function estimatedTimelineRow(
-    entry: MessageEntry,
-    fontSize = 13,
-    parts: Part[] = entry.parts,
-    thinkingOnly = false,
-    collapsedSummary = false,
-) {
-    if (thinkingOnly) return 32;
-    if (collapsedSummary) return 44;
-    if (clarificationAnswer(parts === entry.parts ? entry : { ...entry, parts })) return 40;
-    const text = messageText(parts === entry.parts ? entry : { ...entry, parts });
-    const generated = parts.some((part) => part.type === "nudge");
-    if (entry.info.role === "user" && !generated && largeUserText(text))
-        return Math.max(estimatedRow, Math.ceil(text.split("\n").length * fontSize * 1.6 + 62));
-    const width = entry.info.role === "user" ? 72 : 88;
-    const textHeight = estimateTextLines(text, width) * 14 * 1.6;
-    const toolHeight = parts.filter((part) => part.type === "tool_call").length * 56;
-    return Math.max(estimatedRow, Math.ceil(textHeight + toolHeight + (text ? 48 : 0)));
-}
-
-export function estimateTextLines(text: string, width: number) {
-    let fenced = false;
-    return text.split("\n").reduce((total, line) => {
-        if (/^\s*```/.test(line)) {
-            fenced = !fenced;
-            return total + 1;
-        }
-        if (fenced) return total + 1;
-        if (!line) return total;
-        return total + Math.max(1, Math.ceil(line.length / width));
-    }, 0);
-}
-
-export function resizeCompensation(previous: number, next: number, rowBottom: number, viewportTop: number) {
-    return rowBottom < viewportTop ? next - previous : 0;
-}
-
-export function virtualRange(offsets: number[], viewTop: number, viewHeight: number) {
-    const currentTop = Math.min(viewTop, Math.max(0, (offsets.at(-1) ?? 0) - viewHeight));
-    const top = currentTop - overscan;
-    const bottom = currentTop + viewHeight + overscan;
-    let start = 0;
-    while (start < offsets.length - 1 && offsets[start + 1] < top) start++;
-    let end = start;
-    while (end < offsets.length - 1 && offsets[end] < bottom) end++;
-    return { start, end };
-}
-
-/**
- * Identifies one backfill attempt, so a page that failed is not requested again unchanged.
- *
- * A failed page leaves the cursor where it was, which is exactly the state that asked for the
- * page, so only a new session or a moved cursor is worth another request.
- */
-export function revertBackfillAttempt(sessionId: string, cursor?: string | null) {
-    return `${sessionId}\u0000${cursor ?? ""}`;
-}
-
-/** Whether an empty reverted timeline still has older pages that could reveal pre-revert rows. */
-export function revertBackfillNeeded(input: {
-    revertedAt?: string;
-    visible: number;
-    loaded?: boolean;
-    cursor?: string | null;
-}) {
-    return !!input.revertedAt && input.visible === 0 && !!input.loaded && !!input.cursor;
-}
-
-function snapVirtualViewport(
-    scroller: { scrollTop: number; readonly scrollHeight: number; readonly clientHeight: number },
-    publish: (top: number, height: number) => void,
-) {
-    scroller.scrollTop = scroller.scrollHeight;
-    // Read back the browser-clamped value and publish it synchronously. A no-op assignment does not
-    // have to dispatch a scroll event, which previously left the virtual range at a stale position.
-    publish(scroller.scrollTop, scroller.clientHeight);
-}
-
-export function scrollGestureSticks(previousTop: number, nextTop: number, distanceFromBottom: number) {
-    if (nextTop < previousTop) return false;
-    return distanceFromBottom < stickyThresholdPx;
-}
-
-export function shouldShowScrollToBottom(distanceFromBottom: number) {
-    return distanceFromBottom >= stickyThresholdPx;
-}
-
-export function transcriptRevision(entry?: { parts: Part[] }) {
-    if (!entry) return "0";
-    let revision = `${entry.parts.length}`;
-    for (const part of entry.parts) revision += partRevision(part);
-
-    return revision;
-}
-
-function partRevision(part: Part) {
-    if (part.type === "text" || part.type === "reasoning") return `|${part.type}:${part.text?.length ?? 0}`;
-    if (part.type !== "tool_call") return "";
-
-    return toolRevision(part);
-}
-
-function toolRevision(part: Extract<Part, { type: "tool_call" }>) {
-    let revision = `|tool:${part.status}`;
-    if (typeof part.output === "string") revision += `:o${part.output.length}`;
-
-    const metadata = part.metadata;
-    if (typeof metadata?.output === "string") revision += `:m${metadata.output.length}`;
-    if (typeof metadata?.diff === "string") revision += `:d${metadata.diff.length}`;
-
-    return revision;
-}
-
-/** A spawned thread starts with a copy of its source; copied messages keep their times, so they are older than the thread. */
-export function copiedCount(entries: MessageEntry[], threadCreated: number) {
-    const own = entries.findIndex((entry) => entry.info.createdAt >= threadCreated);
-    return own < 0 ? entries.length : own;
-}
-
-export function timelineEntries(entries: MessageEntry[], activeMessageID?: string | null) {
-    return entries.filter((entry) => entry.info.id === activeMessageID || messageVisible(entry));
-}
-
-export function timelinePitch(entry: MessageEntry, next?: MessageEntry) {
-    if (!next) return "none" as const;
-    return assistantFlowContinues(entry, next) ? ("part" as const) : ("turn" as const);
-}
-
-function timelineParts(entry: MessageEntry, groups?: PartGroup[]) {
-    if (entry.info.role !== "assistant" || !groups) return entry.parts;
-    return groups.flatMap((group) => ("explored" in group ? group.explored : [group.part]));
-}
-
-function timelineRowVisible(
-    entry: MessageEntry,
-    groups: PartGroup[] | undefined,
-    next: MessageEntry | undefined,
-    active?: string,
-) {
-    if (entry.info.role === "user") return true;
-    // A failure the session has moved past (a retry, or a new prompt) is no longer news.
-    if (failedAttempt(entry) && next) return false;
-    const info = entry.info;
-    return (
-        !!groups?.length ||
-        !!info.summary ||
-        !!messageProblem(info) ||
-        entry.info.id === active ||
-        (!!info.finishedAt && next?.info.role !== "assistant")
-    );
-}
-
-/** A reply that failed before showing anything: what the engine retries. */
-export function failedAttempt(entry: MessageEntry) {
-    if (entry.info.role !== "assistant") return false;
-    const problem = messageProblem(entry.info);
-    return !!problem && !problem.interrupted && !entry.parts.some(partVisible);
-}
-
-/** The retry line stays up while the attempt after a run of failures is in flight, until it fails or shows output. */
-export function retryInFlight(
-    entries: MessageEntry[],
-    running?: string,
-): Extract<SessionStatus, { type: "retry" }> | undefined {
-    const index = entries.findIndex((entry) => entry.info.id === running);
-    const current = entries[index];
-    if (!current || current.info.role !== "assistant" || current.parts.some(partVisible)) return undefined;
-    let attempt = 0;
-    while (index - attempt - 1 >= 0 && failedAttempt(entries[index - attempt - 1])) attempt += 1;
-    if (attempt === 0) return undefined;
-    const last = entries[index - 1].info;
-    return { type: "retry", attempt, message: messageProblem(last)?.text ?? "An error occurred", next: 0 };
-}
-
-export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {
-    return thinkingState(entries, status)?.messageID ?? null;
-}
-
-export function thinkingState(entries: MessageEntry[], status?: string) {
-    if (status !== "busy" && status !== "retry") return null;
-    const newestFirst = [...entries].reverse();
-    const unfinished = newestFirst.find((entry) => entry.info.role === "assistant" && !entry.info.finishedAt);
-    // A user turn newer than every assistant message has no response row yet, so the indicator
-    // anchors under that prompt; otherwise it stays on the assistant turn that is actually running.
-    const anchor =
-        unfinished ?? newestFirst.find((entry) => entry.info.role === "user" || entry.info.role === "assistant");
-    if (!anchor) return null;
-    const assistants = anchor.info.role === "assistant" ? [anchor] : [];
-    const error = assistants.find((entry) => {
-        const problem = messageProblem(entry.info);
-        return problem && !problem.interrupted;
-    });
-    // After a failure the turn is over, unless another attempt is already under way.
-    if (status === "busy" && error && !(unfinished && !messageProblem(unfinished.info))) return null;
-    const heading = assistants
-        .flatMap((entry) => entry.parts)
-        .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
-        .find((value): value is string => !!value);
-    const owner = unfinished ?? assistants.at(-1) ?? anchor;
-    // Compaction turns are the assistant summary message or, in the brief window before it arrives,
-    // the user boundary carrying the compaction part. Rows use this to pull the shimmer onto the
-    // compaction divider instead of the generic indicator.
-    const compaction =
-        owner.info.role === "assistant"
-            ? !!(owner.info as { summary?: boolean }).summary
-            : owner.parts.some((part) => part.type === "compaction");
-    return { messageID: owner.info.id, heading, compaction };
-}
-
-// Whether this timeline row renders a compaction divider that can carry the shimmer itself.
-// Summary rows only show the divider when the collapsible presentation is enabled; with it off,
-// the summary streams as a plain assistant flow and the generic indicator stays.
-export function compactionThinkingRow(entry: MessageEntry, collapsible: boolean) {
-    if (entry.info.role === "user") return entry.parts.some((part) => part.type === "compaction");
-    return collapsible && !!entry.info.summary;
-}
-
-export function reasoningHeading(text: string) {
-    const markdown = text.replace(/\r\n?/g, "\n");
-    const html = markdown.match(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/i);
-    if (html?.[1]) {
-        const value = cleanHeading(html[1].replace(/<[^>]+>/g, " "));
-        if (value) return value;
-    }
-    const atx = markdown.match(/^\s{0,3}#{1,6}[ \t]+(.+?)(?:[ \t]+#+[ \t]*)?$/m);
-    if (atx?.[1]) {
-        const value = cleanHeading(atx[1]);
-        if (value) return value;
-    }
-    const setext = markdown.match(/^([^\n]+)\n(?:=+|-+)\s*$/m);
-    if (setext?.[1]) {
-        const value = cleanHeading(setext[1]);
-        if (value) return value;
-    }
-    const strong = markdown.match(/^\s*(?:\*\*|__)(.+?)(?:\*\*|__)\s*$/m);
-    if (strong?.[1]) return cleanHeading(strong[1]) || undefined;
-}
-
-function cleanHeading(value: string) {
-    return value
-        .replace(/`([^`]+)`/g, "$1")
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-        .replace(/[*_~]+/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-}
-
-function Row(props: {
-    entry: MessageEntry;
-    next?: MessageEntry;
-    nextThinking: boolean;
-    groups?: PartGroup[];
-    thinking: boolean;
-    thinkingCompaction?: boolean;
-    thinkingHeading?: string;
-    retry?: Extract<SessionStatus, { type: "retry" }>;
-    terminalError: boolean;
-    found: boolean;
-    measure: (element: HTMLDivElement) => void;
-    copy?: { id: string; source: string; shown: boolean };
-    copied: boolean;
-    instruction: boolean;
-    toggleCopy: (id: string) => void;
-}) {
-    // Assistant rows remount during virtualization and session switches; replaying an entrance
-    // animation on those makes streamed output flicker, so only fresh user rows fade in.
-    const fadeIn = untrack(
-        () => Date.now() - props.entry.info.createdAt < freshMessageMs && props.entry.info.role === "user",
-    );
-    const pitch = () => {
-        if (props.nextThinking) return "none";
-        if (props.next) return timelinePitch(props.entry, props.next);
-
-        return props.terminalError ? "turn" : "none";
-    };
-    // A running compaction animates its own divider label, so the generic indicator would double up.
-    const compactionShimmer = () =>
-        props.thinking && !!props.thinkingCompaction && compactionThinkingRow(props.entry, collapseCompaction());
-    return (
-        <div
-            ref={props.measure}
-            data-mid={props.entry.info.id}
-            class="min-w-0 max-w-full"
-            classList={{
-                "fade-up": fadeIn,
-                "pb-3": pitch() === "part",
-                "pb-6": pitch() === "turn",
-                "search-hit": props.found,
-            }}
-        >
-            <Show when={props.copy}>
-                {(copy) => (
-                    <button
-                        type="button"
-                        class="mb-4 flex w-full items-center gap-3 py-1 text-xs text-ink-faint transition-colors select-none hover:text-ink-muted"
-                        aria-expanded={copy().shown}
-                        onClick={() => props.toggleCopy(copy().id)}
-                    >
-                        <div class="h-px flex-1 bg-edge" />
-                        <span class="flex min-w-0 items-center gap-1.5">
-                            <Chevron open={copy().shown} />
-                            <span class="truncate">{t("drift.chat.spawned.copy", { title: copy().source })}</span>
-                        </span>
-                        <div class="h-px flex-1 bg-edge" />
-                    </button>
-                )}
-            </Show>
-            <div classList={{ "border-l-2 border-edge pl-3": props.copied }}>
-                <MessageView
-                    entry={props.entry}
-                    hideError={!!props.retry || !!props.next}
-                    footer={props.next?.info.role !== "assistant"}
-                    groups={props.groups}
-                    thinking={compactionShimmer()}
-                    spawned={props.instruction}
-                />
-            </div>
-            <Show when={props.thinking && !compactionShimmer()}>
-                <div class="timeline-thinking select-none" role="status" aria-live="polite">
-                    <TextShimmer text={t("drift.chat.thinking")} />
-                    <Show when={props.thinkingHeading}>
-                        {(heading) => <span class="timeline-thinking-heading">{heading()}</span>}
-                    </Show>
-                </div>
-            </Show>
-            <Show when={props.retry}>
-                {(status) => (
-                    <SessionRetry
-                        status={status()}
-                        sessionID={props.entry.info.sessionId}
-                        messageID={props.entry.info.id}
-                        model={props.entry.info.role === "assistant" ? messageModel(props.entry.info) : undefined}
-                    />
-                )}
-            </Show>
-        </div>
-    );
-}
-
-function SessionRetry(props: {
-    status: Extract<SessionStatus, { type: "retry" }>;
-    sessionID: string;
-    messageID: string;
-    model?: ModelRef;
-}) {
-    const engine = useEngine();
-    const [now, setNow] = createSignal(Date.now());
-    // Message updates carrying the pre-switch model would snap a plain mirror of props back to the
-    // old selection; a local accepted choice wins until the engine converges on it.
-    const [chosen, setChosen] = createSignal<ModelRef>();
-    const [submitting, setSubmitting] = createSignal(false);
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    onCleanup(() => clearInterval(timer));
-    const selected = () => chosen() ?? props.model;
-    const display = createMemo(() => retryPresentation(props.status, now()));
-    const items = createMemo(() => retryModelItems(engine.state));
-    const selectedID = () => {
-        const model = selected();
-        return model ? `${model.providerID}/${model.modelID}` : undefined;
-    };
-
-    async function switchModel(id: string) {
-        if (submitting()) return;
-        const [providerID, ...rest] = id.split("/");
-        const model = { providerID, modelID: rest.join("/") };
-        const preferredVariant = prefsFor(props.sessionID, savedChoice(engine.state, props.sessionID)).variant;
-        const variants = variantNames(modelInfo(engine.state, model));
-        const variant = preferredVariant && variants.includes(preferredVariant) ? preferredVariant : undefined;
-        setSubmitting(true);
-        const result = await engine.actions.switchRetryModel(props.sessionID, props.messageID, model, variant);
-        setSubmitting(false);
-        if (!result.ok) {
-            engine.actions.notice({
-                message: result.error,
-                variant: "error",
-            });
-            return;
-        }
-        setChosen(model);
-        updatePrefs(props.sessionID, { model, variant: variant ?? null });
-    }
-
-    return (
-        <div
-            class="mt-3 rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
-            role="status"
-            aria-live="polite"
-        >
-            <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="flex min-w-0 flex-1 items-start gap-2">
-                    <span class="pulse-soft mt-1.5 size-2 shrink-0 rounded-full bg-danger" aria-hidden="true" />
-                    <div class="min-w-0">
-                        <div
-                            class="break-words"
-                            classList={{ "cursor-help": display().truncated }}
-                            title={display().truncated ? props.status.message : undefined}
-                        >
-                            {display().message}
-                        </div>
-                        <div class="mt-0.5 text-xs text-danger/75">{display().info}</div>
-                    </div>
-                </div>
-                <Show when={props.model}>
-                    <Picker
-                        label={submitting() ? t("drift.chat.retry.switchingModel") : t("drift.chat.retry.switchModel")}
-                        items={items()}
-                        selected={selectedID()}
-                        fallbackLabel={selectedID()}
-                        icon={<ProviderIcon id={selected()?.providerID} class="size-3.5 shrink-0" />}
-                        bordered
-                        floating
-                        placement="above"
-                        onPick={(id) => void switchModel(id)}
-                    />
-                </Show>
-            </div>
-        </div>
-    );
-}
-
-export function retryModelItems(state: EngineState): PickerItem[] {
-    const providers = state.providers.filter((provider) => {
-        if (provider.id === "lmstudio") return state.connected.includes(provider.id);
-        // Before the first listing lands there is nothing to filter against, so every provider shows.
-        // Once the engine is online an empty list is the answer, not a gap: retrying on a disconnected
-        // provider only fails again.
-        return state.connected.includes(provider.id) || (state.connection !== "online" && state.connected.length === 0);
-    });
-    return orderedModelProviderIds(providers.map((provider) => provider.id)).flatMap((providerID) => {
-        const provider = providers.find((item) => item.id === providerID);
-        if (!provider) return [];
-        return Object.values(provider.models)
-            .filter((model) => provider.id !== "lmstudio" || lmStudioModelReady(model))
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .map((model) => ({
-                id: `${provider.id}/${model.id}`,
-                label: model.name,
-                group: provider.name,
-                providerID: provider.id,
-                family: model.family,
-                releaseDate: model.release_date,
-            }));
-    });
-}
-
-export function retryPresentation(status: Extract<SessionStatus, { type: "retry" }>, now: number) {
-    const normalized = status.message.trim() || t("drift.chat.retry.providerRejected");
-    const truncated = normalized.length > maxRetryMessageChars;
-    const message = truncated ? normalized.slice(0, maxRetryMessageChars) + "..." : normalized;
-    const seconds = Math.max(0, Math.round((status.next - now) / 1000));
-    const retry = seconds > 0 ? t("drift.chat.retry.inSeconds", { seconds }) : t("drift.chat.retry.now");
-    return {
-        message,
-        truncated,
-        info: t("drift.chat.retry.info", { retry, attempt: status.attempt }),
-    };
-}
-
-function EmptyState() {
-    return (
-        <div class="flex h-full flex-col items-center justify-center gap-3 select-none">
-            <DriftLogo class="fade-up size-16 text-ink" label="Drift" />
-            <Show
-                when={activeWorkspace()}
-                fallback={
-                    <div class="fade-up text-sm text-ink-muted" style={{ "animation-delay": "80ms" }}>
-                        {t("drift.chat.empty.noWorkspace")}
-                    </div>
-                }
-            >
-                <div class="fade-up text-sm text-ink-muted" style={{ "animation-delay": "80ms" }}>
-                    {t("drift.chat.empty.promptHint")}
-                </div>
-            </Show>
-            <div class="fade-up text-xs text-ink-faint" style={{ "animation-delay": "160ms" }}>
-                {t("drift.chat.empty.threadHint")}
-            </div>
         </div>
     );
 }

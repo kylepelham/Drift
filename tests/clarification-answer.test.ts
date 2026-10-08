@@ -225,7 +225,7 @@ test.each([
 });
 
 test("old and new clarification rows estimate 40px regardless of answer length or font size", async () => {
-    const { estimatedTimelineRow } = await import("../src/ui/chat");
+    const { estimatedTimelineRow } = await import("../src/ui/timeline-virtual");
     const long = "A long custom answer\n".repeat(100);
     for (const message of [
         entry(),
@@ -241,7 +241,7 @@ test("old and new clarification rows estimate 40px regardless of answer length o
 });
 
 test("normal estimates and explicit thinking/summary modes are unaffected", async () => {
-    const { estimatedTimelineRow } = await import("../src/ui/chat");
+    const { estimatedTimelineRow } = await import("../src/ui/timeline-virtual");
     expect(estimatedTimelineRow(entry("Short ordinary message"))).toBe(96);
     const long = entry(Array.from({ length: 41 }, () => "line").join("\n"));
     expect(estimatedTimelineRow(long)).toBe(915);

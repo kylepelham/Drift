@@ -532,7 +532,7 @@ test("streamed tool replacements retain mounted group and plugin identities", as
 });
 
 test("a spawned thread's copied messages are the ones older than the thread", async () => {
-    const { copiedCount } = await import("../src/ui/chat");
+    const { copiedCount } = await import("../src/ui/timeline-state");
     const entry = (id: string, createdAt: number) => ({ info: { id, createdAt }, parts: [] });
     const transcript = [
         entry("copied-prompt", 10),
@@ -566,8 +566,8 @@ test("fixed menus convert visual coordinates and viewport bounds through CSS zoo
 });
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {
-    const { accumulatedWheelTarget, normalizedWheelDelta, scrollGestureSticks, shouldShowScrollToBottom } =
-        await import("../src/ui/chat");
+    const { accumulatedWheelTarget, normalizedWheelDelta } = await import("../src/ui/chat-wheel");
+    const { scrollGestureSticks, shouldShowScrollToBottom } = await import("../src/ui/timeline-virtual");
     expect(scrollGestureSticks(1000, 980, 20)).toBeFalse();
     expect(scrollGestureSticks(980, 1000, 20)).toBeTrue();
     expect(scrollGestureSticks(980, 1000, 120)).toBeFalse();
@@ -582,7 +582,7 @@ test("upward transcript gestures unstick immediately near the bottom", async () 
 });
 
 test("transcript follow revision tracks lengths and status without embedding large output", async () => {
-    const { transcriptRevision } = await import("../src/ui/chat");
+    const { transcriptRevision } = await import("../src/ui/timeline-virtual");
     const part = (output: string, status = "running") => ({
         parts: [{ type: "tool_call", status: status === "completed" ? "done" : status, metadata: { output } }],
     });
@@ -596,7 +596,8 @@ test("transcript follow revision tracks lengths and status without embedding lar
 });
 
 test("timeline omits hidden-only messages without dropping the active thinking row", async () => {
-    const { estimatedTimelineRow, timelineEntries } = await import("../src/ui/chat");
+    const { estimatedTimelineRow } = await import("../src/ui/timeline-virtual");
+    const { timelineEntries } = await import("../src/ui/timeline-state");
     const entry = (id: string, parts: unknown[]) => ({
         info: { id, role: "assistant", time: { created: 1 }, tokens: { input: 0, output: 0, reasoning: 0 } },
         parts,
@@ -627,13 +628,13 @@ test("virtualized rows use flow spacers so live activity cannot overlap them", a
 });
 
 test("tall row measurement only compensates rows actually above the viewport", async () => {
-    const { resizeCompensation } = await import("../src/ui/chat");
+    const { resizeCompensation } = await import("../src/ui/timeline-virtual");
     expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0);
     expect(resizeCompensation(96, 2000, 900, 1000)).toBe(1904);
 });
 
 test("virtual range clamps a stale scroll offset after a tall row collapses", async () => {
-    const { virtualRange } = await import("../src/ui/chat");
+    const { virtualRange } = await import("../src/ui/timeline-virtual");
     expect(virtualRange([0, 100, 450, 550], 5000, 800)).toEqual({ start: 0, end: 3 });
     expect(virtualRange([0, 500, 1000, 1096], 5000, 400)).toEqual({ start: 0, end: 3 });
 });
@@ -650,7 +651,7 @@ test("large multiline user content uses a full-height literal row estimate", asy
     expect(css).toMatch(/\.user-paste \{[^}]*overflow-x: auto/s);
     expect(css).toMatch(/\.user-paste \{[^}]*overflow-y: hidden/s);
 
-    const { estimatedTimelineRow } = await import("../src/ui/chat");
+    const { estimatedTimelineRow } = await import("../src/ui/timeline-virtual");
     const entry = (text: string, generated = false) =>
         ({
             info: { id: "u1", role: "user", time: { created: 1 } },
@@ -663,7 +664,7 @@ test("large multiline user content uses a full-height literal row estimate", asy
 });
 
 test("assistant row estimates account for wrapping and fenced code", async () => {
-    const { estimatedTimelineRow, estimateTextLines } = await import("../src/ui/chat");
+    const { estimatedTimelineRow, estimateTextLines } = await import("../src/ui/timeline-virtual");
     expect(estimateTextLines("a".repeat(176), 88)).toBe(2);
     expect(estimateTextLines("```text\n" + "a".repeat(176) + "\n```", 88)).toBe(3);
     const entry = {
@@ -674,7 +675,7 @@ test("assistant row estimates account for wrapping and fenced code", async () =>
 });
 
 test("thinking remains attached to an assistant while the session is active", async () => {
-    const { thinkingAfterMessage } = await import("../src/ui/chat");
+    const { thinkingAfterMessage } = await import("../src/ui/timeline-state");
     const message = (id: string, role: "user" | "assistant") =>
         ({ info: { id, role, createdAt: 1 }, parts: [] }) as never;
     const first = message("u1", "user");
@@ -706,7 +707,7 @@ test("thinking remains attached to an assistant while the session is active", as
 });
 
 test("thinking derives the first provider reasoning heading for the active turn", async () => {
-    const { reasoningHeading, thinkingState } = await import("../src/ui/chat");
+    const { reasoningHeading, thinkingState } = await import("../src/ui/timeline-state");
     expect(reasoningHeading("## Inspecting `events.ts` ##\n\nChecking the reducer.")).toBe("Inspecting events.ts");
     expect(reasoningHeading("<h3>Comparing <em>providers</em></h3>")).toBe("Comparing providers");
     expect(reasoningHeading("**Reading [OpenCode](https://opencode.ai) behavior**\n\nDetails")).toBe(
@@ -727,7 +728,7 @@ test("thinking derives the first provider reasoning heading for the active turn"
 });
 
 test("compaction turns carry the shimmer on the compaction row instead of the generic indicator", async () => {
-    const { compactionThinkingRow, thinkingState } = await import("../src/ui/chat");
+    const { compactionThinkingRow, thinkingState } = await import("../src/ui/timeline-state");
     const boundary = {
         info: { id: "u1", role: "user", sessionID: "s1", time: { created: 1 } },
         parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "compaction", auto: true }],
@@ -754,12 +755,13 @@ test("compaction turns carry the shimmer on the compaction row instead of the ge
 
     // The row must suppress the generic indicator only when the divider itself shimmers.
     const chat = await Bun.file("src/ui/chat.tsx").text();
-    expect(chat).toContain("props.thinking && !compactionShimmer()");
+    const row = await Bun.file("src/ui/timeline-row.tsx").text();
+    expect(row).toContain("props.thinking && !compactionShimmer()");
     expect(chat).toContain("thinkingCompaction={thinking()?.compaction}");
 });
 
 test("retry presentation follows OpenCode countdown and truncation", async () => {
-    const { retryPresentation } = await import("../src/ui/chat");
+    const { retryPresentation } = await import("../src/ui/timeline-row");
     const status = { type: "retry", attempt: 3, message: "x".repeat(90), next: 15_000 } as const;
     expect(retryPresentation(status, 7_400)).toEqual({
         message: "x".repeat(80) + "...",
@@ -770,7 +772,7 @@ test("retry presentation follows OpenCode countdown and truncation", async () =>
 });
 
 test("busy thinking is suppressed by an assistant error while retry remains visible", async () => {
-    const { thinkingState } = await import("../src/ui/chat");
+    const { thinkingState } = await import("../src/ui/timeline-state");
     const entries = [
         { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
         {
@@ -1017,7 +1019,7 @@ test("a new active status clears stale fallback errors", () => {
 });
 
 test("failed attempts the engine retried collapse into one retry line that stays up while the next attempt runs", async () => {
-    const { failedAttempt, retryInFlight, thinkingState } = await import("../src/ui/chat");
+    const { failedAttempt, retryInFlight, thinkingState } = await import("../src/ui/timeline-state");
     const failed = (id: string, created: number) => ({
         info: {
             id,
@@ -1055,7 +1057,7 @@ test("failed attempts the engine retried collapse into one retry line that stays
 });
 
 test("a failure stops showing once the session goes on, by a retry or a new prompt", async () => {
-    const { failedAttempt } = await import("../src/ui/chat");
+    const { failedAttempt } = await import("../src/ui/timeline-state");
     const failed = {
         info: {
             id: "a1",
@@ -1070,7 +1072,8 @@ test("a failure stops showing once the session goes on, by a retry or a new prom
     const stopped = { ...failed, info: { ...failed.info, status: "aborted" } };
     expect(failedAttempt(failed as never)).toBeTrue();
     expect(failedAttempt(stopped as never), "a stop is kept as its divider").toBeFalse();
-    const source = await Bun.file("src/ui/chat.tsx").text();
-    expect(source).toContain("if (failedAttempt(entry) && next) return false");
-    expect(source).toContain("hideError={!!props.retry || !!props.next}");
+    const state = await Bun.file("src/ui/timeline-state.ts").text();
+    const row = await Bun.file("src/ui/timeline-row.tsx").text();
+    expect(state).toContain("if (failedAttempt(entry) && next) return false");
+    expect(row).toContain("hideError={!!props.retry || !!props.next}");
 });

@@ -247,6 +247,13 @@ position so a tall row cannot be mistaken for a short row above the viewport. Ra
 selection clamps stale browser scroll offsets to the current measured transcript height,
 preventing blank space when a tall row collapses.
 
+`src/ui/chat.tsx` owns the transcript scroller: stickiness, gestures, paging and search
+jumps. Row height estimates, the virtual range and stick thresholds are in
+`timeline-virtual.ts`; which messages become rows, retry and thinking state are in
+`timeline-state.ts`; one row with its retry banner is `timeline-row.tsx`. Paging older
+history behind a revert is `revert-backfill.ts`, and wheel forwarding from the composer
+dock is `chat-wheel.ts`.
+
 General settings can opt live assistant text into a smooth burst reveal. Markdown preserves unchanged
 top-level blocks, and engine updates queue behind an active reveal instead of replacing its animated
 DOM. The latest appended rendered text is split into bounded inline segments and receives staggered

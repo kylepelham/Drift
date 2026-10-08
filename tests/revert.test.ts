@@ -128,7 +128,7 @@ test("dock previews collapse whitespace to a single line", async () => {
 });
 
 test("a revert older than the loaded page backfills instead of blanking the transcript", async () => {
-    const { revertBackfillNeeded } = await import("../src/ui/chat");
+    const { revertBackfillNeeded } = await import("../src/ui/revert-backfill");
     // Real shape from a 35k-message session: the marker sat 325 messages back while only the
     // newest 100 were loaded, so every loaded row was inside the reverted range and the timeline
     // rendered empty. Backfill must run until a pre-revert row survives the filter.
@@ -142,7 +142,7 @@ test("a revert older than the loaded page backfills instead of blanking the tran
 });
 
 test("a failed backfill page is not requested again until the cursor moves", async () => {
-    const { revertBackfillAttempt } = await import("../src/ui/chat");
+    const { revertBackfillAttempt } = await import("../src/ui/revert-backfill");
     // A page that never arrived leaves the cursor in place, so the retry gate has to key on it:
     // matching the last failure means asking again would repeat the request that just failed.
     expect(revertBackfillAttempt("ses_one", "older")).toBe(revertBackfillAttempt("ses_one", "older"));
@@ -152,13 +152,13 @@ test("a failed backfill page is not requested again until the cursor moves", asy
     expect(revertBackfillAttempt("ses_one")).not.toBe(revertBackfillAttempt("ses_one", "older"));
     expect(revertBackfillAttempt("ses_one", null)).toBe(revertBackfillAttempt("ses_one"));
 
-    const source = await Bun.file("src/ui/chat.tsx").text();
+    const source = await Bun.file("src/ui/revert-backfill.ts").text();
     expect(source).toContainCode("if (revertBackfillFailure() === attempt) return");
     expect(source).toContainCode("if (!loaded) setRevertBackfillFailure(attempt)");
 });
 
 test("retry models come from connected providers once the engine is online", async () => {
-    const { retryModelItems } = await import("../src/ui/chat");
+    const { retryModelItems } = await import("../src/ui/timeline-row");
     const { createEngineState } = await import("../src/engine/store");
     const model = (id: string) => ({ id, name: id, capabilities: { toolcall: true }, limit: { context: 200_000 } });
     const [state, set] = createEngineState();
@@ -180,8 +180,9 @@ test("retry models come from connected providers once the engine is online", asy
 
 test("the transcript shows a loading row while reverted history backfills", async () => {
     const source = await Bun.file("src/ui/chat.tsx").text();
+    const backfill = await Bun.file("src/ui/revert-backfill.ts").text();
     // The empty-state loading row must also cover backfill, otherwise the view is blank mid-page.
     expect(source).toContainCode("timeline().length === 0 && (revertBackfill() ||");
     // Each finished page re-runs the effect, so paging continues past a fully reverted page.
-    expect(source).toContainCode(".finally(() => setRevertBackfill(false))");
+    expect(backfill).toContainCode(".finally(() => setRevertBackfill(false))");
 });
