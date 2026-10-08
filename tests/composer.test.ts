@@ -288,8 +288,8 @@ test("shell transcript preserves a visible command-output gap and normalizes out
         shellReplaceSegments,
         shellScrollTarget,
         shellTranscript,
-        shellTimeoutStatus,
     } = await import("../src/ui/parts");
+    const { shellTimeoutStatus } = await import("../src/ui/tool-labels");
     expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone");
     const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n");
     const transcript = shellTranscript("generate", output);

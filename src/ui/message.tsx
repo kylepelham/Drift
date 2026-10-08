@@ -1,6 +1,6 @@
 import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js";
-import { contextTools, ExploredGroup, FilePartView, PartView, partVisible, PluginRow } from "./parts";
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store";
+import { ExploredGroup, FilePartView, PartView, partVisible, PluginRow } from "./parts";
 import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
 import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator";
@@ -13,6 +13,7 @@ import { citationFileGroups } from "./citation-files";
 import { emitMessageRendered } from "../plugins";
 import { agentLabel, t } from "../state/i18n";
 import { TextShimmer } from "./text-shimmer";
+import { contextTools } from "./tool-labels";
 import { useEngine } from "../engine";
 import { Markdown } from "./markdown";
 import { Chevron } from "./controls";

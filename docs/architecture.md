@@ -75,6 +75,10 @@ headings roll over at midnight without a restart.
 
 ## Tool rendering
 
+`src/ui/tool-labels.ts` owns tool titles, subtitles, patch-file selection and permission
+wait detection. Tool rows and message grouping share it rather than coupling these
+descriptions to the transcript renderer.
+
 Single-file edit and write tools keep their filename and stats in the clickable summary
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
 status, additions/deletions, and numbered syntax-highlighted diff for every changed

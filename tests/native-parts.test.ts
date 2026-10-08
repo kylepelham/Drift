@@ -1,11 +1,12 @@
 import { promptPartText, toolInput, toolMetadata } from "../src/engine/parts";
 import { clarificationAnswer } from "../src/ui/clarification-answer";
-import { patchFiles, partVisible, toolInfo } from "../src/ui/parts";
+import { patchFiles, toolInfo } from "../src/ui/tool-labels";
 import { toolDisplay } from "../src/ui/tool-presentation";
 import { draftFromMessage } from "../src/state/composer";
 import { builtinFileTargets } from "../src/tool-actions";
 import { toolElapsedMs } from "../src/ui/tool-duration";
 import { messageText } from "../src/engine/store";
+import { partVisible } from "../src/ui/parts";
 import { expect, test } from "bun:test";
 
 import type { Part, ToolPart } from "../src/engine/parts";

@@ -33,7 +33,7 @@ const text = (id: string, messageID: string) => ({
 });
 
 test("question tool names distinguish async input and persisted metadata from blocking questions", async () => {
-    const { toolInfo } = await import("../src/ui/parts");
+    const { toolInfo } = await import("../src/ui/tool-labels");
     for (const status of ["pending", "running", "done", "error"]) {
         for (const [input, metadata, title] of [
             [{ async: true }, {}, "Async Question"],

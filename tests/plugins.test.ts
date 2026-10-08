@@ -21,7 +21,8 @@ test("pluginPaths keeps local JavaScript modules only", async () => {
 });
 
 test("patchFiles reads per-file apply_patch metadata", async () => {
-    const { nextToolOpen, patchFiles, patchInputPaths, patchSubtitle } = await import("../src/ui/parts");
+    const { patchFiles, patchInputPaths, patchSubtitle } = await import("../src/ui/tool-labels");
+    const { nextToolOpen } = await import("../src/ui/parts");
     const files = [
         {
             filePath: "S:/Personal/Drift/src/app.tsx",

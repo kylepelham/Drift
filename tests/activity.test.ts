@@ -338,7 +338,7 @@ test("taskBody extracts prompt and task_result for task cards", async () => {
 });
 
 test("task headings retain the agent and task title", async () => {
-    const { taskHeading } = await import("../src/ui/parts");
+    const { taskHeading } = await import("../src/ui/tool-labels");
     expect(taskHeading("explore", "Map settings translations")).toBe("Explore Map settings translations");
     expect(taskHeading("general")).toBe("General");
 });

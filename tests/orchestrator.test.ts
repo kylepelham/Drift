@@ -97,7 +97,7 @@ test("the engine drives the orchestrator; the app only reports how a turn ended"
 });
 
 test("async questions do not mark tools as awaiting permission", async () => {
-    const parts = await Bun.file("src/ui/parts.tsx").text();
+    const parts = await Bun.file("src/ui/tool-labels.ts").text();
     expect(parts).toContainCode("(question) => !question.async && question.callId === part.callId");
 });
 
