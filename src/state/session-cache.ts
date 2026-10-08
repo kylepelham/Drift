@@ -3,12 +3,7 @@ import { persisted } from "./persist";
 /** The sidebar rows a workspace can render without the engine. */
 export type CachedSession = { id: string; title: string; updated: number };
 
-/**
- * How many threads per workspace survive a restart.
- *
- * The sidebar pages five at a time, so this covers several pages while keeping the serialized
- * cache small enough to write cheaply.
- */
+/** Retains several five-thread pages per workspace without making the persisted cache large. */
 export const cachedSessionLimit = 30;
 
 export function normalizeSessionCache(value: unknown): Record<string, CachedSession[]> {
@@ -30,19 +25,12 @@ export function normalizeSessionCache(value: unknown): Record<string, CachedSess
 
 const [cache, setCache] = persisted<Record<string, CachedSession[]>>("drift.sessions.cache", {}, normalizeSessionCache);
 
-export { cache as sessionCache };
-
-/**
- * The threads last seen in a workspace.
- *
- * Cold engine startup can take many seconds, during which the engine knows nothing. Showing the
- * previous list keeps the sidebar populated instead of claiming the workspace has no threads.
- */
+/** Returns the last known sidebar rows while the engine starts. */
 export function cachedSessions(directory: string) {
     return cache()[directory] ?? [];
 }
 
-export function sessionCacheSignature(sessions: CachedSession[]) {
+function sessionCacheSignature(sessions: CachedSession[]) {
     return sessions.map((session) => `${session.id}\u0000${session.title}\u0000${session.updated}`).join("\u0001");
 }
 

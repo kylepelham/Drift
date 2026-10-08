@@ -27,7 +27,7 @@ export function nudgesSincePrompt(entries: Array<{ info: { role: string }; parts
     return count;
 }
 
-export type OrchestratorState = "working" | "done" | "blocked";
+type OrchestratorState = "working" | "done" | "blocked";
 export type OrchestratorStatus = { state: OrchestratorState; headline?: string };
 
 const statusBlock = /<orchestrator_status>\s*([\s\S]*?)\s*<\/orchestrator_status>/g;

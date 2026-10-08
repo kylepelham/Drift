@@ -16,7 +16,7 @@ registerProcessor(${JSON.stringify(processorName)}, DriftCapture)
 
 export type Capture = { stop: () => Promise<void> };
 
-export function captureUnsupported() {
+function captureUnsupported() {
     return Object.assign(new Error("capture unsupported"), { name: "NotSupportedError" });
 }
 

@@ -2,7 +2,7 @@ import { isRemoteRuntime } from "../runtime";
 import { backendInvoke } from "../backend";
 import { shellEvents } from "../shell";
 
-export type MirrorThemeName =
+type MirrorThemeName =
     | "drift-dark"
     | "drift-graphite"
     | "drift-midnight"

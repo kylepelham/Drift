@@ -8,8 +8,8 @@ import { Toggle } from "../controls";
 
 import type { McpServerConfig, McpServerConfigView } from "../../engine/store";
 
-/** The engine names a server's tools `<server>_<tool>`, so a name is what a tool name may hold. */
-export const mcpServerName = /^[A-Za-z0-9_-]{1,128}$/;
+/** Server names become prefixes in `<server>_<tool>` engine tool names. */
+const mcpServerName = /^[A-Za-z0-9_-]{1,128}$/;
 
 export function McpEditor(props: {
     server?: { name: string; config: McpServerConfigView; readOnlyTrusted: boolean };

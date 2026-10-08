@@ -1,10 +1,4 @@
-/**
- * Finding a previous conversation, by title or by something said inside it.
- *
- * Titles are already in memory, so those are matched here. Message bodies are not: a workspace
- * holds far more transcript than the cache ever loads, so content search is answered by the
- * desktop backend against the engine database instead of pulling every transcript first.
- */
+/** Finds conversations by cached titles or backend queries against transcript content. */
 
 import type { DriftStore, SessionContentMatch } from "./store";
 
@@ -34,7 +28,7 @@ export type SearchableWorkspace = { id: string; name: string; path: string };
 /** Keystrokes settle before a query is issued; content search reaches the database. */
 export const sessionSearchDebounceMs = 180;
 /** Shorter than this matches too much to be worth showing. */
-export const minSessionSearchChars = 2;
+const minSessionSearchChars = 2;
 const maxNameResults = 40;
 
 function normalizeDirectory(path: string) {
@@ -45,11 +39,8 @@ export function sessionSearchReady(query: string) {
     return query.trim().length >= minSessionSearchChars;
 }
 
-/**
- * Ranks title matches so the most literal ones lead: a title that starts with the query, then one
- * that contains it as a whole word, then any substring. Recency breaks ties.
- */
-export function rankTitleMatch(title: string, query: string) {
+/** Ranks title prefixes before whole-word matches and other substrings. */
+function rankTitleMatch(title: string, query: string) {
     const haystack = title.toLowerCase();
     const needle = query.trim().toLowerCase();
     if (!needle || !haystack.includes(needle)) return -1;
@@ -105,10 +96,7 @@ export function contentHits(
     });
 }
 
-/**
- * Splits `text` around every case-insensitive occurrence of `query`, so the view can mark matches
- * without building HTML from user content.
- */
+/** Splits case-insensitive matches into text segments without generating HTML. */
 export function highlightSegments(text: string, query: string) {
     const needle = query.trim().toLowerCase();
     if (!needle) return [{ text, match: false }];
@@ -139,12 +127,7 @@ export type SessionSearchState = {
     error: string;
 };
 
-/**
- * Runs one search at a time and keeps only the newest answer.
- *
- * Content queries are asynchronous and can overtake each other, so every run carries a sequence
- * number and a late reply for a superseded query is dropped rather than shown.
- */
+/** Runs searches with sequence numbers so only the newest asynchronous answer is applied. */
 export function createSessionSearchRunner(dependencies: SessionSearchDependencies) {
     let sequence = 0;
     return async function run(

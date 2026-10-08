@@ -3,7 +3,7 @@ import { createSignal } from "solid-js";
 import type { components } from "../engine/native/types";
 
 export type RegistrySource = components["schemas"]["RegistrySource"];
-export type SourceInput = components["schemas"]["SourceInput"];
+type SourceInput = components["schemas"]["SourceInput"];
 export type RegistryKind = RegistrySource["kind"];
 export type SourceKind = NonNullable<RegistrySource["source"]>;
 

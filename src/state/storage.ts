@@ -1,8 +1,8 @@
 import { backendInvoke } from "../backend";
 import { createSignal } from "solid-js";
 
-export type TableUsage = { table: string; rows: number; bytes: number };
-export type SessionCounts = { total: number; topLevel: number; subagent: number; archived: number };
+type TableUsage = { table: string; rows: number; bytes: number };
+type SessionCounts = { total: number; topLevel: number; subagent: number; archived: number };
 export type StorageStats = {
     path: string;
     totalBytes: number;

@@ -2,9 +2,10 @@ import { createSignal, Show } from "solid-js";
 import { persisted } from "../state/persist";
 
 /** Logos remembered for installed MCP servers, by name, from the registry they were installed from. */
-export const [mcpLogos, setMcpLogos] = persisted<Record<string, string>>("drift.mcp.logos", {}, (value) =>
+const [mcpLogos, setMcpLogos] = persisted<Record<string, string>>("drift.mcp.logos", {}, (value) =>
     value && typeof value === "object" ? (value as Record<string, string>) : {},
 );
+export { mcpLogos };
 
 export function rememberMcpLogo(name: string, image: string | undefined) {
     if (!image) return;

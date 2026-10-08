@@ -8,7 +8,8 @@ export type FilePreviewRequest = {
     hash?: string;
 };
 
-export const [previewFile, setPreviewFile] = createSignal<FilePreviewRequest>();
+const [previewFile, setPreviewFile] = createSignal<FilePreviewRequest>();
+export { previewFile };
 
 export function openFilePreview(request: FilePreviewRequest) {
     setPreviewFile({ ...request });

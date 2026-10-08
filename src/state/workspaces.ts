@@ -86,7 +86,7 @@ export function hydratedWorkspaceSelection(items: Workspace[], selected: string 
     return items[0]?.id ?? null;
 }
 
-export async function refreshWorkspaces(repairSelection = false) {
+async function refreshWorkspaces(repairSelection = false) {
     const [active, removed] = await Promise.all([driftStore.workspaces(), driftStore.removedWorkspaces()]);
     setWorkspaces(active);
     setRemovedWorkspaces(removed);
@@ -222,7 +222,7 @@ export function purgeArchived(removeSession: (sessionId: string) => Promise<Arch
     });
 }
 
-export async function purgeRemovedWorkspaces(
+async function purgeRemovedWorkspaces(
     removeSessions: (workspaceId: string, eligible: () => boolean) => Promise<boolean>,
 ) {
     const expired = await driftStore.expiredRemovedWorkspaces(Date.now() - purgeAge);

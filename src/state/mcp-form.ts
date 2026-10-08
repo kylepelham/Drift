@@ -21,7 +21,7 @@ export type McpFormState = {
     timeout: string;
 };
 
-export type McpFormIssue = "commandRequired" | "urlRequired" | "urlInvalid" | "pairInvalid" | "timeoutInvalid";
+type McpFormIssue = "commandRequired" | "urlRequired" | "urlInvalid" | "pairInvalid" | "timeoutInvalid";
 export type McpFormResult = { config: McpServerConfig; issue?: never } | { config?: never; issue: McpFormIssue };
 
 export function mcpFormState(config?: McpServerConfigView): McpFormState {

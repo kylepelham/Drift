@@ -17,7 +17,7 @@ import type { Connection } from "../engine/store";
 
 const splashExitDurations: Record<SplashExitAnimation, number> = { wave: 650, fade: 340, lift: 560 };
 
-export function startupReady(input: {
+function startupReady(input: {
     workspacesReady: boolean;
     pluginsSettled: boolean;
     workspacePath: string | null;

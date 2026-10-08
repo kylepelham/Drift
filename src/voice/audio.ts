@@ -92,7 +92,7 @@ function reset(state: SegmenterState) {
     state.blocks = [];
 }
 
-export function concatBlocks(blocks: Float32Array[]) {
+function concatBlocks(blocks: Float32Array[]) {
     const total = blocks.reduce((sum, block) => sum + block.length, 0);
     const merged = new Float32Array(total);
     let offset = 0;
@@ -103,7 +103,7 @@ export function concatBlocks(blocks: Float32Array[]) {
     return merged;
 }
 
-/** Converts to the 16-bit mono PCM the sidecar expects, base64 encoded for the command boundary. */
+/** Converts samples to 16-bit mono PCM, base64 encoded for the shell command. */
 export function encodePcm16(samples: Float32Array) {
     const bytes = new Uint8Array(samples.length * 2);
     const view = new DataView(bytes.buffer);

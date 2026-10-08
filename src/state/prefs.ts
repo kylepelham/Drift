@@ -34,12 +34,12 @@ export function soundDefaults() {
     return Object.fromEntries(attentionKinds.map((kind) => [kind, "none"])) as Record<AttentionKind, AlertSound>;
 }
 
-export const [modelPref, setModelPref] = persisted<ModelRef | null>("drift.model", null);
-export const [agentPref, setAgentPref] = persisted<string>("drift.agent", "build");
-export const [variantPref, setVariantPref] = persisted<string | null>("drift.variant", null);
+const [modelPref, setModelPref] = persisted<ModelRef | null>("drift.model", null);
+const [agentPref, setAgentPref] = persisted<string>("drift.agent", "build");
+const [variantPref, setVariantPref] = persisted<string | null>("drift.variant", null);
 export const [hiddenModelIds, setHiddenModelIds] = persisted<string[]>("drift.models.hidden", []);
-export const [shownModelIds, setShownModelIds] = persisted<string[]>("drift.models.shown", []);
-export const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("drift.models.providerOrder", []);
+const [shownModelIds, setShownModelIds] = persisted<string[]>("drift.models.shown", []);
+const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("drift.models.providerOrder", []);
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false);
 export const [toolErrorsExpanded, setToolErrorsExpanded] = persisted<boolean>("drift.toolErrors.expanded", false);
 export const [animateResponses, setAnimateResponses] = persisted<boolean>("drift.responses.animate", false);
@@ -48,21 +48,24 @@ export const [responseAnimationSpeed, setResponseAnimationSpeed] = persisted<num
     responseAnimationSpeedDefault,
     normalizeResponseAnimationSpeed,
 );
-export const [shellTimeoutMs, setShellTimeoutValue] = persisted<number | null>(
+const [shellTimeoutMs, setShellTimeoutValue] = persisted<number | null>(
     "drift.shell.timeout",
     null,
     normalizeShellTimeout,
 );
+export { shellTimeoutMs };
+
 let shellTimeoutErrorValue = "";
 const timeoutErrorListeners = new Set<(error: string) => void>();
 
 export function listenShellTimeoutError(listener: (error: string) => void) {
     timeoutErrorListeners.add(listener);
     listener(shellTimeoutErrorValue);
+
     return () => timeoutErrorListeners.delete(listener);
 }
 
-export function reportShellTimeoutError(error: string) {
+function reportShellTimeoutError(error: string) {
     shellTimeoutErrorValue = error;
     for (const listener of timeoutErrorListeners) listener(error);
 }
@@ -70,13 +73,16 @@ export function reportShellTimeoutError(error: string) {
 export async function setShellTimeoutMs(value: number | null) {
     const timeoutMs = normalizeShellTimeout(value);
     if (value !== null && timeoutMs === null) throw new Error("Invalid shell timeout");
+
     const invoke = backendInvoke();
     if (!invoke) {
         setShellTimeoutValue(timeoutMs);
         return;
     }
+
     const previous = shellTimeoutMs();
     setShellTimeoutValue(timeoutMs);
+
     try {
         const policy = await invoke<{ timeoutMs: number | null }>("shell_timeout_update", { policy: { timeoutMs } });
         setShellTimeoutValue(policy.timeoutMs);
@@ -98,14 +104,16 @@ export function bindShellTimeoutPolicy() {
     });
 }
 const [legacyNotifications] = persisted<boolean>("drift.notifications", false);
-export const [systemNotifications, setSystemNotifications] = persisted<Record<AttentionKind, boolean>>(
+const [systemNotifications, setSystemNotifications] = persisted<Record<AttentionKind, boolean>>(
     "drift.notifications.events",
     notificationDefaults(legacyNotifications()),
 );
-export const [alertSounds, setAlertSounds] = persisted<Record<AttentionKind, AlertSound>>(
+const [alertSounds, setAlertSounds] = persisted<Record<AttentionKind, AlertSound>>(
     "drift.notifications.sounds",
     soundDefaults(),
 );
+export { systemNotifications, alertSounds };
+
 export const [customSound, setCustomSound] = persisted<CustomSound | null>("drift.notifications.customSound", null);
 export const [collapseCompaction, setCollapseCompaction] = persisted<boolean>("drift.compaction.collapsible", true);
 export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>("drift.compaction.collapsed", true);
@@ -127,12 +135,13 @@ function keptAutoAccept(): KeptAutoAccept {
     }
 }
 
-/** Auto-accept this webview kept before the engine owned it. `hand` gives it to the engine and returns
- * what the engine did not take; only what it took is forgotten, and a `hand` that throws forgets nothing. */
+/** Transfers legacy auto-accept preferences to the engine, forgetting only the preferences it accepts. */
 export async function handOverAutoAccept(hand: (kept: KeptAutoAccept) => Promise<KeptAutoAccept>) {
     const kept = keptAutoAccept();
     if (!kept.all && !kept.sessions.length) return;
+
     const left = await hand(kept);
+
     if (!left.all) localStorage.removeItem("drift.autoAccept.global");
     if (left.sessions.length) localStorage.setItem("drift.autoAccept", JSON.stringify(left.sessions));
     else localStorage.removeItem("drift.autoAccept");
@@ -180,8 +189,10 @@ export function sendableVariant(pref: string | null | undefined, offered: readon
 /** The session now runs as what was sent, so the composer goes back to showing the session's own choice. */
 export function clearEdits(sessionId: string) {
     if (!sessionPrefs()[sessionId]) return;
+
     const next = { ...sessionPrefs() };
     delete next[sessionId];
+
     setSessionPrefs(next);
 }
 

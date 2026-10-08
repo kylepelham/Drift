@@ -55,7 +55,7 @@ export type RegistryServer = {
 };
 
 /** One thing the user may have to type: a header, a variable or a template's placeholder. */
-export type InstallField = {
+type InstallField = {
     key: string;
     label: string;
     description?: string;

@@ -16,7 +16,6 @@ const [error, setError] = createSignal("");
 const [supported, setSupported] = createSignal(true);
 const [accelerated, setAccelerated] = createSignal(false);
 
-export const voiceModels = models;
 export const voiceProgress = progress;
 export const voiceModelBusy = busy;
 export const voiceModelError = error;
@@ -84,10 +83,6 @@ export async function removeVoiceModel(id: DictationModel) {
 
 export function cancelVoiceModelDownload() {
     void backendInvoke()?.("voice_model_cancel").catch(() => undefined);
-}
-
-export function dismissVoiceModelError() {
-    setError("");
 }
 
 export function downloadPercent(value: VoiceProgress | null) {

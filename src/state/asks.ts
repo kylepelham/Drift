@@ -3,7 +3,7 @@ import { createSignal } from "solid-js";
 
 import type { QuestionInfo } from "../engine/store";
 
-export type LocalAsk = {
+type LocalAsk = {
     id: string;
     sessionID: string | null;
     questions: QuestionInfo[];

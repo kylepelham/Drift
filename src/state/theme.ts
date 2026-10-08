@@ -16,20 +16,21 @@ export const themes = [
 export type ThemeName = (typeof themes)[number];
 export type CustomTheme = { background: string; surface: string; text: string; accent: string };
 
-export const [theme, setThemeValue] = persisted<ThemeName>("drift.theme", "drift-dark");
-export const [uiFont, setUiFontValue] = persisted("drift.theme.uiFont", "");
-export const [codeFont, setCodeFontValue] = persisted("drift.theme.codeFont", "");
-export const [customTheme, setCustomThemeValue] = persisted<CustomTheme>("drift.theme.custom", {
+const [theme, setThemeValue] = persisted<ThemeName>("drift.theme", "drift-dark");
+const [uiFont, setUiFontValue] = persisted("drift.theme.uiFont", "");
+const [codeFont, setCodeFontValue] = persisted("drift.theme.codeFont", "");
+const [customTheme, setCustomThemeValue] = persisted<CustomTheme>("drift.theme.custom", {
     background: "#111318",
     surface: "#1b1e25",
     text: "#e8eaf0",
     accent: "#a78bfa",
 });
+export { theme, uiFont, codeFont, customTheme };
+
 const customCssKey = "drift.theme.customCss";
 const maxCustomCssChars = 20_000;
 const truncateChars = (value: string, max: number) => [...value].slice(0, max).join("");
-// Custom CSS is edited by typing, so persistence and re-injection are both debounced to avoid
-// writing to localStorage and rebuilding the <style> element on every keystroke.
+// Debouncing avoids storage writes and style replacement on every CSS keystroke.
 const cssPersistDebounceMs = 200;
 const cssApplyDebounceMs = 75;
 
@@ -39,7 +40,8 @@ try {
     const parsed = raw ? JSON.parse(raw) : "";
     if (typeof parsed === "string") savedCustomCss = truncateChars(parsed, maxCustomCssChars);
 } catch {}
-export const [customCss, setCustomCssValue] = createSignal(savedCustomCss);
+const [customCss, setCustomCssValue] = createSignal(savedCustomCss);
+export { customCss };
 let cssPersistTimer: ReturnType<typeof setTimeout> | undefined;
 
 export function setCustomCss(value: string) {
@@ -96,9 +98,7 @@ function publishTheme() {
     });
 }
 
-// A custom theme counts as light when its background is bright enough that dark text reads better.
-// Brightness uses the ITU-R BT.601 luma weights, the same ones behind the classic
-// (r*299 + g*587 + b*114) / 1000 formula, normalized here to 0..1 by also dividing by 255.
+// Custom theme brightness uses ITU-R BT.601 luma weights normalized to the range 0..1.
 const lumaRed = 299;
 const lumaGreen = 587;
 const lumaBlue = 114;

@@ -1,7 +1,7 @@
 import { isRemoteRuntime } from "../runtime";
 import { createSignal } from "solid-js";
 
-export const mobileBreakpoint = 720;
+const mobileBreakpoint = 720;
 export function isNarrowWidth(width: number) {
     return width < mobileBreakpoint;
 }
@@ -13,12 +13,14 @@ export function navigationHash(route: RemoteRoute) {
     if (route.workspace) params.set("workspace", route.workspace);
     if (route.session) params.set("session", route.session);
     if (route.overlay) params.set("overlay", route.overlay);
+
     return `#/${params.toString()}`;
 }
 
 export function parseNavigationHash(hash: string): RemoteRoute {
     const params = new URLSearchParams(hash.replace(/^#\/?/, ""));
     const overlay = params.get("overlay");
+
     return {
         workspace: params.get("workspace") || undefined,
         session: params.get("session") || undefined,
@@ -32,12 +34,14 @@ function currentRoute() {
 
 export function pushRemoteSelection(patch: Pick<RemoteRoute, "workspace" | "session">) {
     if (!isRemoteRuntime()) return;
+
     const next = { ...currentRoute(), ...patch, overlay: undefined };
     history.pushState(null, "", navigationHash(next));
 }
 
 export function replaceRemoteSelection(workspace: string | null, session: string | null) {
     if (!isRemoteRuntime()) return;
+
     history.replaceState(
         null,
         "",
@@ -47,6 +51,7 @@ export function replaceRemoteSelection(workspace: string | null, session: string
 
 export function pushRemoteOverlay(overlay: RemoteRoute["overlay"]) {
     if (!isRemoteRuntime()) return;
+
     history.pushState(null, "", navigationHash({ ...currentRoute(), overlay }));
 }
 

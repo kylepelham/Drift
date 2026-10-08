@@ -53,7 +53,7 @@ export function closeOnBackdropPointerDown(
     onClose();
 }
 
-export function modalIsTopmost(element: HTMLElement) {
+function modalIsTopmost(element: HTMLElement) {
     const top = modalStack.top();
     return !top || top.element === element;
 }
@@ -69,8 +69,7 @@ export function activateModal(element: HTMLElement, onClose: () => void, options
     modalStack.push(entry);
     syncModalInert();
 
-    // Native media controls live in browser shadow DOM. Let the browser tab through
-    // them; only redirect focus at the boundaries. Media hosts need tabindex="0".
+    // Browser tab order reaches shadow-DOM media controls; guards only redirect at the modal boundaries.
     const guards = options.nativeTabOrder ? [document.createElement("span"), document.createElement("span")] : [];
     for (const guard of guards) {
         guard.tabIndex = 0;

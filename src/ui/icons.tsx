@@ -340,53 +340,12 @@ export function IconMic(props: IconProps) {
     );
 }
 
-export function IconLock(props: IconProps) {
-    return frame(
-        props,
-        <>
-            <rect x="4" y="11" width="16" height="10" rx="2" />
-            <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-        </>,
-    );
-}
-
 export function IconSparkles(props: IconProps) {
     return frame(
         props,
         <>
             <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8Z" />
             <path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8Z" />
-        </>,
-    );
-}
-
-export function IconFlask(props: IconProps) {
-    return frame(
-        props,
-        <>
-            <path d="M9 3h6" />
-            <path d="M10 3v6L4.5 18.5A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.8-2.5L14 9V3" />
-            <path d="M7 15h10" />
-        </>,
-    );
-}
-
-export function IconCommit(props: IconProps) {
-    return frame(
-        props,
-        <>
-            <circle cx="12" cy="12" r="3.5" />
-            <path d="M3 12h5.5M15.5 12H21" />
-        </>,
-    );
-}
-
-export function IconList(props: IconProps) {
-    return frame(
-        props,
-        <>
-            <path d="M9 6h12M9 12h12M9 18h12" />
-            <path d="M4 6h.01M4 12h.01M4 18h.01" />
         </>,
     );
 }

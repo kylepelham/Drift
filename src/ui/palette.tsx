@@ -15,10 +15,6 @@ type PaletteItem = { label: string; hint: string; run: () => void };
 
 const [open, setOpen] = createSignal(false);
 
-export function openPalette() {
-    setOpen(true);
-}
-
 export function PaletteHost() {
     onMount(() => {
         onKeybind("palette", () => setOpen(!open()));

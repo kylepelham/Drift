@@ -1,5 +1,3 @@
-import type { components } from "../engine/native/types";
-
 /** The registry as Drift-Plugins publishes it. */
 export type RegistryPlugin = {
     /** The registry it came from; unset for Drift's own. */
@@ -35,23 +33,26 @@ export type ConfigField = {
     description?: string;
 };
 
-export type Registry = { version: number; plugins: RegistryPlugin[] };
+type Registry = { version: number; plugins: RegistryPlugin[] };
 
-export const registryUrl = "https://raw.githubusercontent.com/kylepelham/Drift-Plugins/main/registry.json";
+const registryUrl = "https://raw.githubusercontent.com/kylepelham/Drift-Plugins/main/registry.json";
 export const registryCategories = ["safety", "quality", "workflow", "context", "notify"] as const;
 
 const CACHE_MS = 10 * 60 * 1000;
 const cached = new Map<string, { at: number; registry: Registry }>();
 
 /** One registry document, fetched once per ten minutes; `fresh` fetches again. */
-export async function loadRegistry(url = registryUrl, fresh = false): Promise<Registry> {
+async function loadRegistry(url = registryUrl, fresh = false): Promise<Registry> {
     const hit = cached.get(url);
     if (!fresh && hit && Date.now() - hit.at < CACHE_MS) return hit.registry;
+
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`registry ${response.status}`);
+
     const registry = (await response.json()) as Registry;
     if (!Array.isArray(registry.plugins)) throw new Error("registry has no plugins");
     cached.set(url, { at: Date.now(), registry });
+
     return registry;
 }
 
@@ -66,9 +67,11 @@ async function loadSourceRegistry(
     const key = `source:${source.id}`;
     const hit = cached.get(key);
     if (!fresh && hit && Date.now() - hit.at < CACHE_MS) return hit.registry;
+
     const registry = (await fetchRegistry(source.id)) as Registry;
     if (!Array.isArray(registry?.plugins)) throw new Error("registry has no plugins");
     cached.set(key, { at: Date.now(), registry });
+
     return registry;
 }
 
@@ -81,10 +84,12 @@ export async function loadRegistries(
     const plugins: RegistryPlugin[] = [];
     const failures: RegistryFailure[] = [];
     const viaEngine = fetchRegistry ?? (() => Promise.reject(new Error("no engine")));
+
     const results = await Promise.allSettled([
         ...sources.map((source) => loadSourceRegistry(viaEngine, source, fresh)),
         loadRegistry(registryUrl, fresh),
     ]);
+
     results.forEach((result, index) => {
         const source = sources[index];
         if (result.status === "rejected") {
@@ -97,6 +102,7 @@ export async function loadRegistries(
         for (const plugin of result.value.plugins)
             plugins.push(source ? { ...plugin, sourceName: source.name, sourceId: source.id } : plugin);
     });
+
     const seen = new Set<string>();
     return { plugins: plugins.filter((plugin) => !seen.has(plugin.id) && seen.add(plugin.id)), failures };
 }
@@ -152,5 +158,3 @@ export function buildConfig(fields: ConfigField[], typed: Record<string, string>
     }
     return config;
 }
-
-export type PluginInfo = components["schemas"]["PluginInfo"];

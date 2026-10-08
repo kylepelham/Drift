@@ -2,7 +2,7 @@ import { createStore } from "solid-js/store";
 import { backendInvoke } from "../backend";
 import { t } from "./i18n";
 
-export type UsageWindowKind = "session" | "weekly" | "monthly" | "period";
+type UsageWindowKind = "session" | "weekly" | "monthly" | "period";
 export type UsageWindow = { kind: UsageWindowKind; label: string | null; usedPercent: number; resetsAt: number | null };
 export type ProviderUsage = { status: "ok" | "expired" | "unsubscribed"; plan: string | null; windows: UsageWindow[] };
 export type UsageEntry = { usage: ProviderUsage | null; failed: boolean; fetchedAt: number; loading: boolean };
