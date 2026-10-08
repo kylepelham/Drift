@@ -9,6 +9,48 @@ use crate::hook::PluginEntry;
 const PLUGINS_DIR: &str = "plugins";
 const MAX_COMPONENT_BYTES: usize = 64 * 1024 * 1024;
 
+#[derive(Debug, thiserror::Error)]
+pub enum PluginError {
+    #[error("no home directory")]
+    NoHome,
+    #[error("a plugin id is letters, digits, dashes and underscores")]
+    InvalidId,
+    #[error("a plugin is fetched over https only")]
+    RequiresHttps,
+    #[error("the download does not match the registry's hash; nothing was installed")]
+    HashMismatch,
+    #[error("{0}")]
+    Fetch(String),
+    #[error("could not {operation} {}: {source}", path.display())]
+    Io {
+        operation: &'static str,
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("{} is not a JSON object", .0.display())]
+    NotObject(PathBuf),
+    #[error("{} could not be parsed: {source}", path.display())]
+    Parse { path: PathBuf, source: serde_json::Error },
+    #[error("plugins in {}: {source}", path.display())]
+    Entries { path: PathBuf, source: serde_json::Error },
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+}
+
+impl From<String> for PluginError {
+    fn from(message: String) -> Self {
+        Self::Fetch(message)
+    }
+}
+
+fn file_error(operation: &'static str, path: &Path, source: std::io::Error) -> PluginError {
+    PluginError::Io {
+        operation,
+        path: path.to_path_buf(),
+        source,
+    }
+}
+
 /// What a registry entry needs to be installed.
 #[derive(Clone, Debug, serde::Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -26,10 +68,10 @@ pub struct Install {
 }
 
 /// The user's config directory, where plugins and drift.json live.
-pub fn config_dir() -> Result<PathBuf, String> {
+pub fn config_dir() -> Result<PathBuf, PluginError> {
     super::home()
         .map(|home| home.join(".config/drift"))
-        .ok_or_else(|| "no home directory".to_owned())
+        .ok_or(PluginError::NoHome)
 }
 
 fn valid_id(id: &str) -> bool {
@@ -46,9 +88,9 @@ pub async fn fetch_component(
     fetcher: &super::sources::Fetcher,
     source: Option<&super::sources::RegistrySource>,
     install: &Install,
-) -> Result<String, String> {
+) -> Result<String, PluginError> {
     if !valid_id(&install.id) {
-        return Err("a plugin id is letters, digits, dashes and underscores".into());
+        return Err(PluginError::InvalidId);
     }
     let bytes = match source {
         Some(source) => {
@@ -63,7 +105,7 @@ pub async fn fetch_component(
         }
         None => {
             if !install.url.starts_with("https://") {
-                return Err("a plugin is fetched over https only".into());
+                return Err(PluginError::RequiresHttps);
             }
             let drift = super::sources::RegistrySource {
                 id: String::new(),
@@ -91,12 +133,12 @@ pub async fn fetch_component(
     };
     let digest = hex(&ring::digest::digest(&ring::digest::SHA256, &bytes));
     if !digest.eq_ignore_ascii_case(install.sha256.trim()) {
-        return Err("the download does not match the registry's hash; nothing was installed".into());
+        return Err(PluginError::HashMismatch);
     }
     let dir = config_dir()?.join(PLUGINS_DIR);
-    std::fs::create_dir_all(&dir).map_err(|error| format!("could not create {}: {error}", dir.display()))?;
+    std::fs::create_dir_all(&dir).map_err(|error| file_error("create", &dir, error))?;
     let file = dir.join(format!("{}.wasm", install.id));
-    std::fs::write(&file, &bytes).map_err(|error| format!("could not write {}: {error}", file.display()))?;
+    std::fs::write(&file, &bytes).map_err(|error| file_error("write", &file, error))?;
     Ok(format!("{PLUGINS_DIR}/{}.wasm", install.id))
 }
 
@@ -105,21 +147,24 @@ fn hex(digest: &ring::digest::Digest) -> String {
 }
 
 /// drift.json as a JSON object, an empty one when there is no file yet.
-fn read_file(path: &Path) -> Result<serde_json::Map<String, Value>, String> {
+fn read_file(path: &Path) -> Result<serde_json::Map<String, Value>, PluginError> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
-        Err(error) => return Err(format!("could not read {}: {error}", path.display())),
+        Err(error) => return Err(file_error("read", path, error)),
     };
     match serde_json::from_str::<Value>(&super::jsonc::strip(&text)) {
         Ok(Value::Object(map)) => Ok(map),
-        Ok(_) => Err(format!("{} is not a JSON object", path.display())),
-        Err(error) => Err(format!("{} could not be parsed: {error}", path.display())),
+        Ok(_) => Err(PluginError::NotObject(path.to_path_buf())),
+        Err(source) => Err(PluginError::Parse {
+            path: path.to_path_buf(),
+            source,
+        }),
     }
 }
 
 /// Rewrites the `plugins` list with `change` applied; the rest of the file is kept, comments aside.
-pub fn edit_plugins(dir: &Path, change: impl FnOnce(&mut Vec<PluginEntry>)) -> Result<(), String> {
+pub fn edit_plugins(dir: &Path, change: impl FnOnce(&mut Vec<PluginEntry>)) -> Result<(), PluginError> {
     let path = dir.join(super::FILE);
     let mut file = read_file(&path)?;
     let mut plugins: Vec<PluginEntry> = file
@@ -127,16 +172,17 @@ pub fn edit_plugins(dir: &Path, change: impl FnOnce(&mut Vec<PluginEntry>)) -> R
         .cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|error| format!("plugins in {}: {error}", path.display()))?
+        .map_err(|source| PluginError::Entries {
+            path: path.clone(),
+            source,
+        })?
         .unwrap_or_default();
     change(&mut plugins);
-    file.insert(
-        "plugins".into(),
-        serde_json::to_value(&plugins).map_err(|error| error.to_string())?,
-    );
-    std::fs::create_dir_all(dir).map_err(|error| format!("could not create {}: {error}", dir.display()))?;
-    let text = serde_json::to_string_pretty(&Value::Object(file)).map_err(|error| error.to_string())?;
-    std::fs::write(&path, format!("{text}\n")).map_err(|error| format!("could not write {}: {error}", path.display()))
+    file.insert("plugins".into(), serde_json::to_value(&plugins)?);
+    std::fs::create_dir_all(dir).map_err(|error| file_error("create", dir, error))?;
+    let text = serde_json::to_string_pretty(&Value::Object(file))?;
+
+    std::fs::write(&path, format!("{text}\n")).map_err(|error| file_error("write", &path, error))
 }
 
 /// Adds or replaces the entry for `path`, with `config` when it has anything in it.
@@ -153,7 +199,7 @@ pub fn set_entry(plugins: &mut Vec<PluginEntry>, path: &str, config: Value) {
 }
 
 /// Removes the entry and, for a component under the plugins directory, its file.
-pub fn remove(dir: &Path, path: &str) -> Result<(), String> {
+pub fn remove(dir: &Path, path: &str) -> Result<(), PluginError> {
     edit_plugins(dir, |plugins| plugins.retain(|entry| entry.path() != path))?;
     let relative = Path::new(path);
     let under_plugins = relative.components().count() == 2 && relative.starts_with(PLUGINS_DIR);

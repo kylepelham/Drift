@@ -1,6 +1,7 @@
 //! What a workspace tells the engine: drift.json, agents, commands, skills and instruction files.
 
 mod arguments;
+mod engine;
 mod frontmatter;
 pub mod jsonc;
 mod overrides;
@@ -8,6 +9,7 @@ pub mod plugins;
 pub mod skills;
 pub mod sources;
 
+pub use engine::RegistryError;
 pub use overrides::{AgentOverride, ModelPin};
 
 use std::collections::BTreeMap;

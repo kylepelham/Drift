@@ -78,7 +78,9 @@ fn valid_id(id: &str) -> bool {
 }
 
 pub fn packs_dir() -> Result<PathBuf, String> {
-    Ok(super::plugins::config_dir()?.join(SKILLS_DIR))
+    Ok(super::plugins::config_dir()
+        .map_err(|error| error.to_string())?
+        .join(SKILLS_DIR))
 }
 
 /// Fetches the archive and unpacks the wanted folders under `skills/<id>`, replacing what was there.

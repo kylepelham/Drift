@@ -90,7 +90,7 @@ pub(super) async fn put(
     if let Some(sources) = body.registry_sources {
         engine
             .set_registry_sources(sources)
-            .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "source", error))?;
+            .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "source", error.to_string()))?;
     }
     Ok(Json(current(&engine)))
 }
@@ -195,7 +195,7 @@ pub(super) async fn install_plugin(
         .install_plugin(body)
         .await
         .map(Json)
-        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error))
+        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error.to_string()))
 }
 
 #[derive(Deserialize, utoipa::IntoParams)]
@@ -215,7 +215,7 @@ pub(super) async fn remove_plugin(
         .remove_plugin(&query.path)
         .await
         .map(Json)
-        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error))
+        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error.to_string()))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -235,7 +235,7 @@ pub(super) async fn configure_plugin(
         .configure_plugin(&body.path, body.config)
         .await
         .map(Json)
-        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error))
+        .map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "plugin", error.to_string()))
 }
 
 /// The skill packs installed from a registry.
