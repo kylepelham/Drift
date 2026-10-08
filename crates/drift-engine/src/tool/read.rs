@@ -472,7 +472,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_subdirectorys_instructions_come_with_the_first_read_under_it() {
+    async fn a_subdirectory_s_instructions_come_with_the_first_read_under_it() {
         let sandbox = Sandbox::new("read-nested");
         sandbox.file("AGENTS.md", "root rules, already in the system prompt");
         sandbox.file("pkg/AGENTS.md", "pkg rules");

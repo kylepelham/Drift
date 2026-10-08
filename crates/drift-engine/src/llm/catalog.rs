@@ -991,7 +991,7 @@ mod tests {
     }
 
     #[test]
-    fn each_model_gets_its_familys_prompt_from_the_catalog_never_its_id() {
+    fn each_model_gets_its_family_s_prompt_from_the_catalog_never_its_id() {
         let catalog = Catalog::bundled();
         let family = |provider: &str, model: &str| catalog.model(provider, model).unwrap().prompt;
         assert_eq!(family("openai", "gpt-5.5"), PromptFamily::Codex);
