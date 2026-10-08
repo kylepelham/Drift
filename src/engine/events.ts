@@ -118,8 +118,7 @@ function updateStatus(set: SetEngineState, sessionID: string, status: SessionSta
     if (status.type !== "idle") clearError(set, sessionID);
 }
 
-// The session revision bump outlives the purge so an in-flight snapshot taken before the
-// deletion cannot resurrect the session.
+// The revision bump outlives the purge, so a snapshot taken before deletion cannot resurrect it.
 function purgeSession(draft: EngineState, id: string) {
     delete draft.sessions[id];
     delete draft.transcripts[id];
@@ -138,10 +137,10 @@ function purgeSession(draft: EngineState, id: string) {
     bumpRevision(draft, sessionRevisionKey(id));
 }
 
-// Applies a session-list snapshot. Sessions whose revision advanced while the request was in
-// flight keep their live state. When `scope` is present the snapshot is authoritative and
-// complete for that directory, so sessions absent from it are purged; partial or failed
-// snapshots must never pass a scope.
+/**
+ * Applies a session-list snapshot; sessions whose revision advanced in flight keep their live state.
+ * With `scope` it is complete for that directory and purges absent sessions, so partial ones pass none.
+ */
 export function applySessionSnapshot(
     set: SetEngineState,
     input: { sessions: Session[]; captured: Record<string, number>; scope?: { directory: string } | { all: true } },
@@ -155,8 +154,7 @@ export function applySessionSnapshot(
             for (const info of input.sessions) {
                 if (advanced(info.id)) continue;
                 draft.sessions[info.id] = { revert: undefined, ...info };
-                // Applying a snapshot advances the session so an older overlapping snapshot (a reconnect
-                // flap fires two hydrates) can neither downgrade nor purge what this one established.
+                // Advancing the session stops an older overlapping snapshot (a reconnect flap) undoing this one.
                 bumpRevision(draft, sessionRevisionKey(info.id));
                 const model = info.model;
                 if (model) draft.sessionModels[info.id] = { providerID: model.provider, modelID: model.model };
@@ -165,8 +163,7 @@ export function applySessionSnapshot(
             for (const session of Object.values(draft.sessions)) {
                 if (ids.has(session.id) || advanced(session.id)) continue;
                 if (!all && normalizeDir(session.directory) !== dir) continue;
-                // Scoped listings exclude engine-archived sessions, so their absence is not a deletion.
-                // Purging them here would delete-and-reload archived transcripts on every hydration.
+                // Scoped listings omit archived sessions; purging them would reload archived transcripts each hydrate.
                 if (!all && session.archivedAt) continue;
                 purgeSession(draft, session.id);
             }
@@ -174,8 +171,7 @@ export function applySessionSnapshot(
     );
 }
 
-// Applies a status snapshot for the given sessions, skipping any whose status a live event
-// already moved past the capture point.
+/** Applies a status snapshot, skipping sessions a live event already moved past the capture point. */
 export function applyStatusSnapshot(
     set: SetEngineState,
     input: { sessions: Session[]; statuses: Record<string, SessionStatus>; captured: Record<string, number> },
@@ -264,11 +260,7 @@ function upsertPart(set: SetEngineState, part: Part) {
 function reconcilePart(existing: Part, incoming: Part) {
     if (existing.type !== incoming.type || (incoming.type !== "text" && incoming.type !== "reasoning")) return incoming;
     if (existing.type !== "text" && existing.type !== "reasoning") return incoming;
-    // REST hydration can race an older initial part.updated frame whose text is still empty. Keep
-    // the hydrated prefix so following deltas append to it; completed/non-empty updates remain
-    // authoritative and can still replace the part normally. This relies on the engine allocating a
-    // fresh part ID per streamed attempt (PartID.ascending on every text-start): a same-ID reset to
-    // a shorter prefix is therefore always the stale frame, never a legitimate rewrite.
+    // A shorter same-id prefix is a stale frame racing hydration (each attempt gets a fresh id); keep the text.
     if (existing.text.length > incoming.text.length && existing.text.startsWith(incoming.text)) {
         return { ...incoming, text: existing.text };
     }

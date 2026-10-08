@@ -23,8 +23,7 @@ export type SlashMenuOptions = {
  */
 export function createSlashMenu(options: SlashMenuOptions) {
     const id = `slash-${createUniqueId()}`;
-    // Set when the user dismisses the menu with Escape or navigates history; cleared on the next edit
-    // so the menu does not immediately reopen for text that still starts with "/".
+    // Escape or history browsing dismisses the menu until the next edit.
     const [dismissed, setDismissed] = createSignal(false);
     const [cursor, setCursor] = createSignal(0);
     const [expandedArgument, setExpandedArgument] = createSignal<string>();
@@ -135,8 +134,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
         const item = argumentItem();
         const presets = argumentPresets();
         if (event.key === "Tab") return completeFromKey(event, item, presets);
-        // When a command is fixed the menu shows its presets, but a command with no presets still
-        // occupies one row so the cursor has something to sit on.
+        // A fixed command lists its presets, or one row when it has none, so the cursor has a target.
         const count = item ? Math.max(1, presets.length) : matches().length;
         const atEnd =
             options.area().selectionStart === options.draft().length &&

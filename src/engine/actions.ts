@@ -35,7 +35,10 @@ type PromptFile = {
     url: string;
     source?: { type: "file"; path: string; text: { value: string; start: number; end: number } };
 };
-/** `variant` null asks for the model's default level; left out, the session keeps its own (as for a level the model does not offer). */
+/**
+ * `variant` null asks for the model's default level; left out, the session keeps its own (as for a level the model does
+ * not offer).
+ */
 export type PromptOptions = {
     model: ModelRef | null;
     agent: string;
@@ -63,7 +66,9 @@ export function createActions(
     const transcriptRequests = new Map<string, Promise<boolean>>();
     const reconciliations = new Map<string, Promise<void>>();
     const reconciliationWanted = new Set<string>();
-    /** Submission ids of prompts whose fate is unknown, by session and exact prompt, until the engine answers for sure. */
+    /**
+     * Submission ids of prompts whose fate is unknown, by session and exact prompt, until the engine answers for sure.
+     */
     const unsettled = new Map<string, string>();
     let noticeSequence = 0;
 
@@ -269,7 +274,7 @@ export function createActions(
             })),
         ];
         if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty");
-        // Named only when they change what the session runs as next; an unchanged follow-up steers into the running turn.
+        // Named only when they change what runs next; an unchanged follow-up steers into the running turn.
         const saved = savedChoice(state, id);
         const prompt = {
             parts,

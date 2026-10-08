@@ -69,7 +69,7 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         if (!mode) throw new Error("this method has no sign-in flow");
         const started = await requireClient().startOAuth(id, mode);
         oauthStates.set(id, started.state);
-        // No instructions text: the settings panel words each step in the user's language, and shows a device code itself.
+        // No instructions: settings words each step in the user's language and shows any device code itself.
         return {
             url: started.url,
             method: (started.method === "auto" ? "auto" : "code") as "code" | "auto",

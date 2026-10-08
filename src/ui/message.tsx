@@ -22,7 +22,10 @@ import { Chevron } from "./controls";
 import type { Message, MessageProblem } from "../engine/messages";
 import type { ContextPart } from "../engine/parts";
 
-/** `hideError`: the reply's failure is no longer news (it is being retried, or the session went on), so its error box is left out; a stop's divider stays. */
+/**
+ * `hideError`: the reply's failure is no longer news (it is being retried, or the session went on), so its error box is
+ * left out; a stop's divider stays.
+ */
 export function MessageView(props: {
     entry: MessageEntry;
     footer?: boolean;
@@ -110,7 +113,10 @@ export function compactionParts(entry: MessageEntry) {
     return entry.parts.filter((part) => part.type === "compaction");
 }
 
-/** The collapsible summary row is a compaction's one marker; the prompt's divider stands in only before that row exists, or when summaries are not collapsible. */
+/**
+ * The collapsible summary row is a compaction's one marker; the prompt's divider stands in only before that row exists,
+ * or when summaries are not collapsible.
+ */
 export function boundaryCompactions(entry: MessageEntry, collapsible: boolean, starting: boolean) {
     return collapsible && !starting ? [] : compactionParts(entry);
 }
@@ -291,7 +297,9 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     const [groups, setGroups] = createSignal<PartGroupSlot[]>([]);
     createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)));
     const visible = () => groups().length > 0 || !!problem() || (!!props.footer && !!info().finishedAt);
-    /** A new conversation with this conversation's history through this reply, opened only if the user is still here. */
+    /**
+     * A new conversation with this conversation's history through this reply, opened only if the user is still here.
+     */
     const forkHere = async () => {
         const source = info().sessionId;
         const forked = await engine.actions.fork(source, info().id);
@@ -389,8 +397,7 @@ function formatDuration(ms: number) {
     return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
-// Only the spans the model spent generating text or reasoning count toward the rate; wall time
-// also covers tool runs and subagent waits, which made the shown rate meaningless.
+/** Time spent generating text or reasoning; wall time would count tool runs and subagent waits. */
 export function generationMs(entry: MessageEntry) {
     const info = entry.info;
     let total = 0;

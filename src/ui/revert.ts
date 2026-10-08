@@ -26,8 +26,7 @@ export function revertPreview(entry?: MessageEntry) {
     return messageText(entry).replace(/\s+/g, " ").trim();
 }
 
-// Restores the given undone user message: the revert marker moves to the next user
-// message, or the session unreverts entirely when the message is the newest one.
+/** Restores an undone user message: the marker moves to the next one, or the session unreverts. */
 export async function restoreReverted(engine: RevertHost, sessionID: string, messageID: string) {
     const next = nextUserMessage(engine.state.transcripts[sessionID] ?? [], messageID);
     if (next) {

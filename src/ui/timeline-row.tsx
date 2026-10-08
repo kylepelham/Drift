@@ -43,8 +43,7 @@ export function Row(props: {
     instruction: boolean;
     toggleCopy: (id: string) => void;
 }) {
-    // Assistant rows remount during virtualization and session switches; replaying an entrance
-    // animation on those makes streamed output flicker, so only fresh user rows fade in.
+    // Only fresh user rows fade in; remounted assistant rows would flicker while streaming.
     const fadeIn = untrack(
         () => Date.now() - props.entry.info.createdAt < freshMessageMs && props.entry.info.role === "user",
     );
@@ -126,8 +125,7 @@ function SessionRetry(props: {
 }) {
     const engine = useEngine();
     const [now, setNow] = createSignal(Date.now());
-    // Message updates carrying the pre-switch model would snap a plain mirror of props back to the
-    // old selection; a local accepted choice wins until the engine converges on it.
+    // A local accepted choice wins until the engine reports it; stale updates would snap back.
     const [chosen, setChosen] = createSignal<ModelRef>();
     const [submitting, setSubmitting] = createSignal(false);
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -202,9 +200,7 @@ function SessionRetry(props: {
 export function retryModelItems(state: EngineState): PickerItem[] {
     const providers = state.providers.filter((provider) => {
         if (provider.id === "lmstudio") return state.connected.includes(provider.id);
-        // Before the first listing lands there is nothing to filter against, so every provider shows.
-        // Once the engine is online an empty list is the answer, not a gap: retrying on a disconnected
-        // provider only fails again.
+        // Every provider shows until the first listing; once online, only connected ones can retry.
         return state.connected.includes(provider.id) || (state.connection !== "online" && state.connected.length === 0);
     });
     return orderedModelProviderIds(providers.map((provider) => provider.id)).flatMap((providerID) => {

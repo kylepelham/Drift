@@ -65,7 +65,10 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         }
     }
 
-    /** Copies finished history into a new conversation, through `atMessage` or else everything finished. The copy keeps compaction markers, so it sees the same context. */
+    /**
+     * Copies finished history into a new conversation, through `atMessage` or else everything finished. The copy keeps
+     * compaction markers, so it sees the same context.
+     */
     async function fork(id: string, atMessage?: string) {
         try {
             const session = sessionInWorkspace(await requireClient().forkSession(id, atMessage), workspaces());
@@ -82,7 +85,9 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         }
     }
 
-    /** `/compact`: the engine summarises now with the compaction agent's model, so the composer's model does not apply. */
+    /**
+     * `/compact`: the engine summarises now with the compaction agent's model, so the composer's model does not apply.
+     */
     async function summarize(id: string, _model?: unknown) {
         try {
             await requireClient().compactSession(id);
@@ -154,7 +159,10 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         }
     }
 
-    /** Moves a turn that is waiting to retry onto `model` at `variant` (the model's default when unset); it retries at once. */
+    /**
+     * Moves a turn that is waiting to retry onto `model` at `variant` (the model's default when unset); it retries at
+     * once.
+     */
     async function switchRetryModel(
         id: string,
         _messageID: string,
@@ -184,7 +192,10 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         }
     }
 
-    /** Sessions belong to the workspace, not its path, so re-pointing a folder moves nothing; a running turn must finish first. */
+    /**
+     * Sessions belong to the workspace, not its path, so re-pointing a folder moves nothing; a running turn must finish
+     * first.
+     */
     async function moveWorkspaceSessions(from: string, _to: string): Promise<SessionMoveResult> {
         const workspace = workspaces().id(from);
         if (!workspace) return { ok: true, moved: [] };

@@ -124,7 +124,10 @@ export function mentionFiles(text: string, paths: string[], root: string) {
     });
 }
 
-/** Where `value` appears as a whole mention: `@src/db` is not inside `@src/db.ts`, though a sentence may end right after one. */
+/**
+ * Where `value` appears as a whole mention: `@src/db` is not inside `@src/db.ts`, though a sentence may end right after
+ * one.
+ */
 function mentionAt(text: string, value: string) {
     const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return text.search(new RegExp(`${escaped}(?=$|[\\s,;:!?)\\]}"'\`]|\\.(?:$|\\s))`));

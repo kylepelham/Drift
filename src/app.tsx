@@ -165,8 +165,7 @@ function OrchestratorBinding() {
 
 const dayMs = 24 * 60 * 60 * 1000;
 const purgeIntervalMs = 60 * 60 * 1000;
-// The active workspace is polled on every tick; every other workspace is polled less often because
-// each sweep may have to boot an engine instance for a directory that is not currently loaded.
+// Other workspaces poll less often: a sweep may boot an engine for a directory not loaded.
 const activePermissionPollMs = 10_000;
 const allWorkspacePermissionPollMs = 60_000;
 const ticksPerAllWorkspaceSweep = allWorkspacePermissionPollMs / activePermissionPollMs;
@@ -212,8 +211,7 @@ function WorkspaceBinding() {
         if (engine.state.connection !== "online" || Date.now() - lastPurge < dayMs) return;
         lastPurge = Date.now();
         void purgeAll(engine.actions).then((complete) => {
-            // Failed engine deletions kept their tombstones; clearing the stamp retries on the next
-            // reconnect or hourly tick instead of waiting out the daily interval.
+            // A failed engine deletion retries on the next reconnect or hourly tick, not the next day.
             if (!complete) lastPurge = 0;
         });
     }

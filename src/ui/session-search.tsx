@@ -17,8 +17,7 @@ import {
     type SessionSearchState,
 } from "../state/session-search";
 
-// One sidebar, one search: the query has to be readable by the input and by the list that replaces
-// the workspace tree, so it lives beside them rather than inside either one.
+// Shared by the search input and the result list that replaces the workspace tree.
 const [expanded, setExpanded] = createSignal(false);
 const [query, setQuery] = createSignal("");
 const [mode, setMode] = createSignal<SessionSearchMode>("name");
@@ -77,8 +76,7 @@ export function SessionSearchBar() {
 
     onMount(() => input?.focus());
 
-    // Titles come from what the engine has already hydrated. The sidebar asks for every workspace on
-    // startup, so title search reuses that instead of issuing a listing of its own.
+    // Titles come from already hydrated sessions; the sidebar lists every workspace at startup.
     const searchable = () =>
         workspaces().flatMap((workspace) =>
             sessionsFor(engine.state, workspace.path).map((session) => ({
@@ -106,8 +104,7 @@ export function SessionSearchBar() {
             setResults({ hits: [], loading: false, error: "" });
             return;
         }
-        // Title search is local and instant, but both modes wait out the same pause so results do not
-        // reorder under a fast typist on the way to a content query.
+        // Both modes share one pause so results do not reorder under a fast typist.
         timer = setTimeout(() => void run(value, current, (next) => setResults(next)), sessionSearchDebounceMs);
     });
     onCleanup(() => {

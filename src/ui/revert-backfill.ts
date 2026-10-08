@@ -26,11 +26,7 @@ export function revertBackfillNeeded(input: {
 
 /** Pages older history in while a revert hides every loaded message; true while a page is in flight. */
 export function createRevertBackfill(engine: Engine, entries: Accessor<MessageEntry[]>) {
-    // A revert that spans more than one transcript page can put every loaded message inside the
-    // reverted range, leaving the timeline empty (the marker itself may not even be loaded). Page
-    // older history in until something pre-revert is visible or the history is exhausted. The
-    // in-flight signal re-runs this effect when each page lands, so the loop advances one page at
-    // a time and stops the moment an entry survives the revert filter.
+    // Each landed page re-runs this, so history pages in one at a time until a pre-revert row shows.
     const [revertBackfill, setRevertBackfill] = createSignal(false);
     const [revertBackfillFailure, setRevertBackfillFailure] = createSignal<string>();
     createEffect(() => {
@@ -46,8 +42,7 @@ export function createRevertBackfill(engine: Engine, entries: Accessor<MessageEn
             })
         )
             return;
-        // A page that never arrived leaves the cursor untouched, so the next run would ask for the
-        // same page and keep asking. Remember the attempt and wait for the cursor or session to move.
+        // A failed page leaves the cursor unchanged; wait for it or the session to move.
         const attempt = revertBackfillAttempt(id, cursor);
         if (revertBackfillFailure() === attempt) return;
         setRevertBackfill(true);

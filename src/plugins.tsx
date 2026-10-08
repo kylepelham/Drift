@@ -138,8 +138,7 @@ export function emitMessageRendered(event: HookEvents["message.rendered"]) {
 }
 
 export function hasToolRenderer(tool: string) {
-    // `renderers` is a plain Map, so it is invisible to Solid. Reading the version signal
-    // subscribes the caller to register/unregister so it re-runs when the Map changes.
+    // `renderers` is a plain Map; reading the version signal subscribes to register and unregister.
     rendererVersion();
     return renderers.has(tool);
 }
@@ -147,8 +146,7 @@ export function hasToolRenderer(tool: string) {
 export function PluginToolView(props: { part: ToolPart }) {
     let root!: HTMLDivElement;
     createEffect(() => {
-        // Both reads exist purely to declare dependencies; their values are unused. `rendererVersion`
-        // tracks plugin (un)registration, `status` re-renders the tool as it progresses. Do not remove.
+        // Dependency reads: plugin registration, and `status` so the tool re-renders as it progresses.
         rendererVersion();
         props.part.status;
         const output = renderers.get(props.part.name)?.(props.part);
@@ -184,8 +182,7 @@ export function hasPartRenderer(type: string) {
 export function PluginPartView(props: { part: Part }) {
     let root!: HTMLDivElement;
     createEffect(() => {
-        // Dependency declarations, not computations. A part has no single field that marks it dirty,
-        // so the stringify deep-reads every property to subscribe to all of them. Do not remove.
+        // Dependency read: no single field marks a part dirty, so stringify subscribes to all of them.
         rendererVersion();
         JSON.stringify(props.part);
         const output = partRenderers.get(props.part.type)?.(props.part);

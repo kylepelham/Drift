@@ -13,7 +13,10 @@ export type EventHandlers = {
 export type EventStream = {
     close(): void;
     cursor(): number | undefined;
-    /** The workspace folder this client shows, said again on every reconnect: the engine keeps its MCP servers running while any client has it open. */
+    /**
+     * The workspace folder this client shows, said again on every reconnect: the engine keeps its MCP servers running
+     * while any client has it open.
+     */
     setOpenWorkspace(directory: string | null): void;
 };
 

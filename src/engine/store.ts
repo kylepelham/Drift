@@ -247,9 +247,7 @@ export function putSession(set: SetStoreFunction<EngineState>, info: Session) {
     );
 }
 
-// Monotonic counters bumped by every live reduction that touches the keyed slice. Snapshot writes
-// compare them against a capture taken before the HTTP request started, so state that raced ahead
-// of the snapshot is never overwritten by it.
+// Live reductions bump revision counters; snapshots captured before a request never overwrite newer state.
 export function sessionRevisionKey(sessionID: string) {
     return `session\0${sessionID}`;
 }
@@ -281,8 +279,7 @@ export function pruneSessionRevisions(draft: EngineState, sessionID: string) {
     for (const key of Object.keys(draft.revisions)) if (key.startsWith(prefix)) delete draft.revisions[key];
 }
 
-// Merges a transcript snapshot with what the event stream did while the request was in flight:
-// the snapshot is authoritative for untouched messages, live state wins for touched ones.
+/** Merges a transcript snapshot: it wins for untouched messages, live state for ones touched in flight. */
 export function mergeTranscriptSnapshot(
     live: MessageEntry[] | undefined,
     snapshot: MessageEntry[],
@@ -298,9 +295,7 @@ export function mergeTranscriptSnapshot(
         const entry = snapshotEntry;
         const current = liveById.get(entry.info.id);
         if (!advanced(entry.info.id)) {
-            // Reuse the live object when the content is unchanged: transcript rows are referentially
-            // keyed, so handing the UI a fresh-but-identical object would remount every visible row
-            // (a full-transcript flash on each reconnect hydration).
+            // Reusing an unchanged live object keeps keyed rows mounted; a fresh copy flashed every hydration.
             return [current && JSON.stringify(current) === JSON.stringify(entry) ? current : entry];
         }
         return current ? [withSnapshotParts(current, entry)] : [];
@@ -344,14 +339,15 @@ function tokenCount(usage: components["schemas"]["Usage"]) {
     return usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
 }
 
-// Ceiling on how much of the context window is set aside for the model's own reply, and the slice
-// of that reserved for compaction headroom. The reply cap mirrors MAX_REPLY_TOKENS in
-// crates/drift-engine/src/llm/catalog.rs; change both or the meter drifts from real compaction.
+// Reply reserve and compaction headroom; maxOutputTokens mirrors MAX_REPLY_TOKENS in llm/catalog.rs.
 const maxOutputTokens = 32000;
 const compactionReserveTokens = 20000;
 const percentScale = 100;
 
-/** Mirrors the engine's `Model::reply_room`: the output limit, else a quarter of a known window; never over half a known window or the cap. */
+/**
+ * Mirrors the engine's `Model::reply_room`: the output limit, else a quarter of a known window; never over half a known
+ * window or the cap.
+ */
 export function replyRoom(output: number, context: number) {
     const room = output || (context ? Math.floor(context / 4) : maxOutputTokens);
     return Math.min(room, context ? Math.floor(context / 2) : room, maxOutputTokens);
@@ -360,8 +356,7 @@ export function replyRoom(output: number, context: number) {
 /** Below this window the system prompt and tool schemas leave little room for work; mirrors `SMALL_CONTEXT`. */
 export const smallContextTokens = 16_384;
 
-// Mirrors the engine's `overflowing` (session/compaction.rs) so the meter predicts the same compaction point.
-// Limits come from the model the next prompt would use; token counts from the last reply.
+/** The engine's `overflowing` check, from the next prompt's model limits and the last reply's tokens. */
 export function contextStats(state: EngineState, sessionId: string, modelRef?: ModelRef | null) {
     const entries = state.transcripts[sessionId] ?? [];
     // Usage from before the latest compaction no longer describes what the model sees.

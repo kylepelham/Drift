@@ -46,8 +46,7 @@ import {
 import type { Part } from "../engine/parts";
 
 const loadOlderAt = 1200;
-// A wheel gesture is treated as still in progress for this long after the last event, so momentum
-// scrolling does not get mistaken for the user settling on a position.
+// How long after the last wheel event a gesture counts as ongoing, so momentum is not a stop.
 const gestureWindowMs = 250;
 // The transcript column is padded by pt-14; row offsets are measured from below that padding.
 const headerOffset = 56;
@@ -62,9 +61,7 @@ export function Chat() {
         if (!id) return [];
         const revertedAt = engine.state.sessions[id]?.revert?.messageId;
         const transcript = engine.state.transcripts[id] ?? [];
-        // Nested part replacement does not invalidate every memo that iterates the transcript proxy.
-        // Event reducers already bump this key for every message/part update, so consume it at the
-        // transcript derivation boundary before persistent assistant slots reconcile their source.
+        // Nested part replacement skips transcript memos; reading each revision key subscribes to it.
         for (const entry of transcript) engine.state.revisions[messageRevisionKey(id, entry.info.id)];
         const boundary = revertedAt ? transcript.find((entry) => entry.info.id === revertedAt) : undefined;
         const sorted = [...transcript]
@@ -158,8 +155,7 @@ export function Chat() {
     const [viewTop, setViewTop] = createSignal(0);
     const [viewHeight, setViewHeight] = createSignal(800);
     const heights = new Map<string, number>();
-    // Every part delta rebuilds offsets; re-estimating the text of hundreds of unmounted rows per
-    // delta would burn a visible slice of a core, so estimates are cached per message revision.
+    // Estimates are cached per message revision; offsets rebuild on every part delta.
     const estimates = new Map<
         string,
         { rev?: number; fontSize: number; thinking: boolean; collapsed: boolean; value: number }
@@ -242,9 +238,7 @@ export function Chat() {
     onCleanup(() => observer.disconnect());
 
     const viewportObserver = new ResizeObserver(() => {
-        // Preserve the sticky bottom before publishing a resized viewport. Browser clamping can move
-        // scrollTop when the composer/attention dock grows; recording that transient position makes
-        // the virtual range jump before the queued follow correction runs.
+        // Snap before publishing: browser clamping as the dock grows would otherwise make the range jump.
         if (untrack(stick)) snapViewportToBottom();
         else publishViewport();
         const top = scroller.scrollTop;
@@ -275,14 +269,12 @@ export function Chat() {
         });
     }
 
-    // Search reads the whole transcript, not the mounted slice, so results follow streaming output
-    // and any older page that lands.
+    // Search reads the whole transcript, so results follow streaming output and older pages.
     createEffect(() => syncTranscriptMatches(entries()));
 
     const findHighlight = createMemo(() => activeFindMessage() ?? revealTarget(selectedSession() ?? ""));
 
-    // Repaints the in-text match highlights whenever the settled query, the cursor, or the mounted
-    // rows change. Painting is deferred a frame so the walked DOM reflects what this update rendered.
+    // Highlights repaint a frame after the query, cursor or mounted rows change.
     let findRaf = 0;
     let scrolledFindOccurrence = "";
     createEffect(() => {
@@ -300,8 +292,7 @@ export function Chat() {
         }
         findRaf = requestAnimationFrame(() => {
             const active = paintFindHighlights(scroller, value, occurrence);
-            // Nudge the active occurrence into view once per step; repaints from the user's own
-            // scrolling must not drag the viewport back.
+            // Scroll to each occurrence once; repaints from the user's own scrolling must not pull back.
             if (active && target !== scrolledFindOccurrence) {
                 scrolledFindOccurrence = target;
                 scrollFindOccurrence(active);
@@ -341,8 +332,7 @@ export function Chat() {
     createEffect(() => {
         const target = findHighlight();
         if (!target) return;
-        // Depend on measurement so a target inside a not-yet-measured region is re-tried once the
-        // heights that determine its offset are known.
+        // Retried as heights are measured, since an unmeasured region moves the target's offset.
         measured();
         untrack(() => scrollToMessage(target));
     });
@@ -360,14 +350,12 @@ export function Chat() {
                 setViewTop(0);
                 setViewHeight(scroller.clientHeight);
             });
-            // Wait for keyed transcript content and browser layout before snapping the DOM and virtual
-            // viewport together. The immediate top reset keeps the interim frame valid rather than blank.
+            // Snap once keyed content has laid out; the top reset keeps the interim frame from going blank.
             requestAnimationFrame(snapViewportToBottom);
         }),
     );
 
-    // Untracked stick: content growth follows the bottom, but flipping stick on its own
-    // never scrolls, so easing into the stick zone by hand cannot yank the view.
+    // Untracked stick: growth follows the bottom, but entering the stick zone by hand never scrolls.
     createEffect(() => {
         const last = entries().at(-1);
         transcriptRevision(last);
@@ -384,8 +372,7 @@ export function Chat() {
         });
     });
 
-    // Only user gestures may change stickiness; programmatic snaps, browser clamps, and
-    // measurement churn fire scroll events too and used to unstick mid-settle.
+    // Only user gestures change stickiness; snaps, clamps and measurement also fire scroll events.
     let gestureAt = 0;
     let dragging = false;
     let scrollLatchReset: ReturnType<typeof setTimeout> | undefined;
@@ -434,10 +421,7 @@ export function Chat() {
 
     function maybeLoadOlder(top: number) {
         const id = selectedSession();
-        // A stuck view is auto-following the bottom, so any top position it reports is synthetic:
-        // the session-switch reset assigns scrollTop = 0 and measurement churn can pass through the
-        // top zone before the bottom snap lands. Paging in history for those would fight the snap
-        // with competing scroll corrections. Only a user scroll can unstick, so real reads still page.
+        // A stuck view's top positions are synthetic (resets, measurement), so only a user scroll pages history.
         if (!id || loadingOlder || untrack(stick) || top > loadOlderAt || !engine.state.cursors[id]) return;
         loadingOlder = true;
         const before = scroller.scrollHeight - scroller.scrollTop;

@@ -1,6 +1,5 @@
 import { shellInvoke, type ShellInvoke } from "../../shell";
-// Where the native engine lives: the shell reports it once bound; the companion reaches it through the
-// gateway, which signs the device in and adds the engine's token itself; browser dev reads env from drift-engined.
+// The shell reports the engine once bound; the companion goes through the gateway; browser dev reads env.
 import { remoteEngineBase } from "../../runtime";
 
 import type { Target } from "./client";

@@ -8,7 +8,9 @@ import type { AgentInfo, CommandInfo, McpServerConfig, McpServerStatus } from ".
 import type { PermissionGrant, PermissionRule, Client } from "./native/client";
 import type { ActionContext } from "./actions-context";
 
-/** Engine and workspace configuration: settings, agents and commands, MCP servers, grants, plugins, skills and prompts. */
+/**
+ * Engine and workspace configuration: settings, agents and commands, MCP servers, grants, plugins, skills and prompts.
+ */
 export function createConfigActions({ requireClient, state, set, workspaces, notice }: ActionContext) {
     async function engineSettings() {
         return requireClient().settings();
@@ -23,7 +25,9 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         return requireClient().putSettings({ backgroundTaskLimit });
     }
 
-    /** The engine answers this session's asks, and its subagents', except secrets and anything outside the workspace. */
+    /**
+     * The engine answers this session's asks, and its subagents', except secrets and anything outside the workspace.
+     */
     async function setAutoAccept(id: string, autoAccept: boolean) {
         const updated = await requireClient().updateSession(id, { autoAccept });
         putSession(set, sessionInWorkspace(updated, workspaces()));
@@ -72,7 +76,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
             ...(agent.steps ? { steps: agent.steps } : {}),
             ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),
         }));
-        // A skill's documented usage and choices fill the slash menu; an MCP prompt's arguments become its usage, filled word by word.
+        // Skill usage and choices fill the slash menu; an MCP prompt's arguments become its usage, word by word.
         const commands: CommandInfo[] = config.commands.map((command) => {
             const usage =
                 command.usage ??
@@ -150,7 +154,10 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         await (grant ? requireClient().revokePermissionGrant(id, grant) : requireClient().revokePermissionGrants(id));
     }
 
-    /** `create`: adding a server, which the engine refuses rather than replace one of the same name; left out, `readOnlyTrusted` is the engine's default. */
+    /**
+     * `create`: adding a server, which the engine refuses rather than replace one of the same name; left out,
+     * `readOnlyTrusted` is the engine's default.
+     */
     function mcpSave(
         name: string,
         config: McpServerConfig,

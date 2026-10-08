@@ -71,8 +71,7 @@ export function EngineProvider(props: ParentProps) {
     let events: EventStream | undefined;
     let directory: string | null = null;
     let disposed = false;
-    // Workspaces whose conversation list this connection already holds; events keep each current, so
-    // switching back needs no reload. A hydrate starts over.
+    // Workspaces whose list this connection holds; events keep them current, and a hydrate starts over.
     const listed = new Set<string>();
 
     const requireClient = () => {

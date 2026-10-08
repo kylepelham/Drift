@@ -4,11 +4,9 @@ import { IconCheck, IconCopy } from "./icons";
 import { openFile } from "../tool-actions";
 import { t } from "../state/i18n";
 
-// How long the shell copy button shows its "copied" state.
-// NOTE: markdown.tsx uses 1600ms for its visually identical code-block copy button.
+// How long the copy button shows "copied"; markdown.tsx code blocks use 1600ms.
 const copiedFeedbackMs = 2000;
-// When re-syncing streamed shell output, compare this many trailing characters of the previous
-// chunk against the new one to confirm the stream is an append rather than a fresh transcript.
+// Trailing characters compared to confirm streamed output was appended rather than replaced.
 const overlapProbeChars = 64;
 // Scroll positions within this many pixels of the bottom count as "at the bottom".
 const bottomSlopPx = 2;
@@ -17,7 +15,9 @@ export function stripAnsi(value: string) {
     return value.replace(/\u001b(?:\[[0-?]*[ -/]*[@-~]|[@-_])/g, "");
 }
 
-/** A call's output without the notes Drift appended (`metadata.notes`), and those notes, shown under the call instead. */
+/**
+ * A call's output without the notes Drift appended (`metadata.notes`), and those notes, shown under the call instead.
+ */
 export function splitNotes(output: string, notes: unknown): { output: string; notes: string[] } {
     const listed = Array.isArray(notes) ? notes.filter((note): note is string => typeof note === "string") : [];
     let rest = output;
@@ -136,8 +136,7 @@ export function createShellTranscriptStream() {
 
     return {
         update(nextCommand: string, output: string, done: boolean) {
-            // Nothing to append against: first update, a different command, output that shrank, or a
-            // final frame whose trailing CR still has to be flushed.
+            // Nothing to append to: first update, new command, shrunk output, or a final frame to flush.
             if (!initialized || command !== nextCommand || output.length < outputLength || finished || done) {
                 return reset(nextCommand, output, done);
             }
@@ -149,8 +148,7 @@ export function createShellTranscriptStream() {
             // The engine truncated the head and prefixed an ellipsis, so earlier offsets no longer line up.
             if (output.startsWith("...\n\n") && !previousOutput.startsWith("...\n\n"))
                 return reset(nextCommand, output, done);
-            // Confirm this really is an append: the tail of what we last saw must still sit at the same
-            // offset. If it does not, the output was rewritten rather than extended.
+            // An append keeps the previous tail at the same offset; anything else was a rewrite.
             const overlap = previousOutput.slice(-overlapProbeChars);
             if (output.slice(outputLength - overlap.length, outputLength) !== overlap)
                 return reset(nextCommand, output, done);
@@ -159,8 +157,7 @@ export function createShellTranscriptStream() {
             outputLength = output.length;
             previousOutput = output;
             if (visible) return { replace: false, text: normalized };
-            // Still nothing but whitespace so far. Hold it back rather than opening the transcript with
-            // blank lines, and emit the whole block at once as soon as real output arrives.
+            // Leading whitespace waits for real output, then emits as one block.
             pending.push(normalized);
             const combined = pending.join("");
             if (!combined.trim()) return { replace: false, text: "" };

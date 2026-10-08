@@ -8,7 +8,9 @@ import type { PickerItem } from "./picker";
 
 const localProviders = ["ollama", "lmstudio"];
 
-/** The picker's line under a model: a small or unknown window is warned about, and LM Studio shows its loaded window. */
+/**
+ * The picker's line under a model: a small or unknown window is warned about, and LM Studio shows its loaded window.
+ */
 export function modelDetail(providerID: string, model: { id: string; limit?: { context: number } }) {
     const context = model.limit?.context ?? 0;
     if (context > 0 && context < smallContextTokens)

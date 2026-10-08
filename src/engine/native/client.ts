@@ -5,7 +5,10 @@ type ErrorBody = components["schemas"]["ErrorBody"];
 
 export type Target = { url: string; token: string };
 
-/** The engine's `MAX_REQUEST_BYTES`: a larger request is cut off mid-upload, which a browser reports only as a failed fetch. */
+/**
+ * The engine's `MAX_REQUEST_BYTES`: a larger request is cut off mid-upload, which a browser reports only as a failed
+ * fetch.
+ */
 export const maxRequestBytes = 64 * 1024 * 1024;
 export type PluginInfo = components["schemas"]["PluginInfo"];
 export type SkillPack = components["schemas"]["Pack"];

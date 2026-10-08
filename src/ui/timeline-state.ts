@@ -6,7 +6,10 @@ import { partVisible } from "./parts";
 import type { MessageEntry, SessionStatus } from "../engine/store";
 import type { PartGroup } from "./message-groups";
 
-/** A spawned thread starts with a copy of its source; copied messages keep their times, so they are older than the thread. */
+/**
+ * A spawned thread starts with a copy of its source; copied messages keep their times, so they are older than the
+ * thread.
+ */
 export function copiedCount(entries: MessageEntry[], threadCreated: number) {
     const own = entries.findIndex((entry) => entry.info.createdAt >= threadCreated);
     return own < 0 ? entries.length : own;
@@ -75,8 +78,7 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
     if (status !== "busy" && status !== "retry") return null;
     const newestFirst = [...entries].reverse();
     const unfinished = newestFirst.find((entry) => entry.info.role === "assistant" && !entry.info.finishedAt);
-    // A user turn newer than every assistant message has no response row yet, so the indicator
-    // anchors under that prompt; otherwise it stays on the assistant turn that is actually running.
+    // A user turn newer than every reply anchors the indicator; otherwise the running reply does.
     const anchor =
         unfinished ?? newestFirst.find((entry) => entry.info.role === "user" || entry.info.role === "assistant");
     if (!anchor) return null;
@@ -92,9 +94,7 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
         .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
         .find((value): value is string => !!value);
     const owner = unfinished ?? assistants.at(-1) ?? anchor;
-    // Compaction turns are the assistant summary message or, in the brief window before it arrives,
-    // the user boundary carrying the compaction part. Rows use this to pull the shimmer onto the
-    // compaction divider instead of the generic indicator.
+    // The summary reply, or before it arrives the user boundary, carries the shimmer onto its divider.
     const compaction =
         owner.info.role === "assistant"
             ? !!(owner.info as { summary?: boolean }).summary
@@ -102,9 +102,7 @@ export function thinkingState(entries: MessageEntry[], status?: string) {
     return { messageID: owner.info.id, heading, compaction };
 }
 
-// Whether this timeline row renders a compaction divider that can carry the shimmer itself.
-// Summary rows only show the divider when the collapsible presentation is enabled; with it off,
-// the summary streams as a plain assistant flow and the generic indicator stays.
+/** Whether a row draws a compaction divider that can carry the shimmer; summaries only when collapsible. */
 export function compactionThinkingRow(entry: MessageEntry, collapsible: boolean) {
     if (entry.info.role === "user") return entry.parts.some((part) => part.type === "compaction");
     return collapsible && !!entry.info.summary;

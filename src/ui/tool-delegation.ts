@@ -73,8 +73,7 @@ function delegatedTerminalState(
 }
 
 function followingTaskResult(entries: EngineState["transcripts"][string], partID: string, pattern: RegExp) {
-    // Background calls finish their tool part before the work. Find their first later result,
-    // never an earlier invocation's result or a later foreground call's output.
+    // A background call ends before its work; take the first result after it.
     let after = false;
     for (const entry of entries) {
         for (const item of entry.parts) {

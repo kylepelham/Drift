@@ -82,14 +82,11 @@ export function ToolView(props: { part: ToolPart }) {
     const state = () => toolDisplay(props.part);
     const info = () => toolInfo(props.part);
     const delegated = () => props.part.name === "task" || props.part.name === "spawn_thread";
-    // A hoisted declaration: delegatedStatus below is an eager memo, and a `const` accessor here
-    // would still be in its temporal dead zone during the first evaluation, crashing every
-    // transcript that contains a delegated task row.
+    // Hoisted: the eager memo below runs before a const accessor would leave its dead zone.
     function spawnedId() {
         return delegatedChildId(engine.state, props.part);
     }
-    // Memoized: this scans the parent transcript for terminal markers and is read from half a dozen
-    // reactive positions per tool row; unmemoized it re-ran the scan for each of them per delta.
+    // Memoized: it scans the parent transcript and is read from several places per delta.
     const delegatedStatus = createMemo(() => {
         if (!delegated()) return null;
         const childId = spawnedId();

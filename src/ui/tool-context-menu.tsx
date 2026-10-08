@@ -28,8 +28,7 @@ export function ToolContextMenuHost() {
     };
 
     createDismissOnOutside({
-        // The menu is positioned at fixed viewport coordinates, so anything that moves the anchor
-        // (scroll, resize) or takes focus away closes it rather than leaving it stranded.
+        // Fixed-position menu: scrolling, resizing or losing focus closes it.
         enabled: () => !!menu(),
         inside: () => [root],
         onDismiss: () => setMenu(null),

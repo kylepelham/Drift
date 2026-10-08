@@ -46,8 +46,7 @@ import {
     type StagedFile,
 } from "../state/composer";
 
-// Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
-// (Tailwind spacing 50 = 12.5rem = 200px); otherwise the element and its inline height disagree.
+// Autosize ceiling; matches the textarea's `max-h-50` (12.5rem).
 const maxComposerHeightPx = 200;
 // The OS clipboard is written after the browser finishes its own copy, so ours lands last and wins.
 const clipboardRepublishDelayMs = 100;
@@ -336,9 +335,7 @@ export function Composer() {
     }
 
     function resize() {
-        // Keep the composer's outer height stable while the live textarea is temporarily `auto` for
-        // measurement. Otherwise every key collapses a capped draft to one row, lets the transcript
-        // viewport grow and clamp its scroll position, then snaps it back after the height is restored.
+        // Hold the frame's height while measuring at `auto`, or each key would jolt the transcript's scroll.
         const current = area.offsetHeight;
         areaFrame.style.height = `${current}px`;
         area.style.height = "auto";

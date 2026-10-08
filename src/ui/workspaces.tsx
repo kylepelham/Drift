@@ -63,8 +63,7 @@ export function WorkspaceGroup(props: {
         online() &&
         (engine.state.sessionSnapshotAll ||
             normalizeDir(engine.state.sessionSnapshotDirectory) === normalizeDir(props.workspace.path));
-    // Non-empty live results are always safe to remember. Only a complete scoped snapshot may clear
-    // the cache, because the event stream reports online before initial hydration has finished.
+    // Only a complete scoped snapshot may clear the cache; online is reported before hydration ends.
     createEffect(() => {
         const current = live();
         if (current.length || authoritative()) rememberSessions(props.workspace.path, current);

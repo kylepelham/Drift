@@ -13,9 +13,7 @@ export function createWindowFileDrop(options: FileDropOptions) {
     const { ready, addFiles, setFileError } = options;
     const [dropActive, setDropActive] = createSignal(false);
 
-    // Window-level so a drop anywhere over the chat/composer area attaches instead of navigating.
-    // The desktop shell sets `dragDropEnabled: false` (tauri.conf.json) so WebView2 delivers these
-    // HTML5 events with real File objects; the remote-browser runtime gets them natively.
+    // Window-level so a drop anywhere attaches; tauri.conf.json disables native drop so WebView2 sends files.
     onMount(() => {
         let depth = 0;
         const update = (transition: Parameters<typeof nextDragDepth>[1]) => {

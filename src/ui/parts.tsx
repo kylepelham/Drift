@@ -18,7 +18,10 @@ import type { FilePart, Part, ContextPart, ReasoningPart, ToolPart } from "../en
 
 const hiddenTools = new Set(["todowrite", "todoread"]);
 
-/** `orchestrated`: the orchestrator wrote the reply, so its status block shows as a row; from any other agent it is only hidden. */
+/**
+ * `orchestrated`: the orchestrator wrote the reply, so its status block shows as a row; from any other agent it is only
+ * hidden.
+ */
 export function PartView(props: {
     part: Part;
     responseID?: string;

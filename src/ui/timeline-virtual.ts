@@ -7,9 +7,7 @@ import type { Part } from "../engine/parts";
 
 export const estimatedRow = 96;
 const overscan = 800;
-// Within this distance of the bottom the view is considered "at the bottom": it keeps auto-scrolling
-// with new output and hides the jump-to-latest button. scrollGestureSticks and
-// shouldShowScrollToBottom are complementary halves of that decision and must share the threshold.
+// The "at the bottom" distance; scrollGestureSticks and shouldShowScrollToBottom must share it.
 const stickyThresholdPx = 80;
 
 export function estimatedTimelineRow(
@@ -65,8 +63,7 @@ export function snapVirtualViewport(
     publish: (top: number, height: number) => void,
 ) {
     scroller.scrollTop = scroller.scrollHeight;
-    // Read back the browser-clamped value and publish it synchronously. A no-op assignment does not
-    // have to dispatch a scroll event, which previously left the virtual range at a stale position.
+    // Publish the clamped value now; a no-op assignment need not fire a scroll event.
     publish(scroller.scrollTop, scroller.clientHeight);
 }
 
