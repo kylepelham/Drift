@@ -1,5 +1,5 @@
-import "./source"
 import { expect, test } from "bun:test"
+import "./source"
 
 const settingsStorage = new Map<string, string>()
 if (!("localStorage" in globalThis))

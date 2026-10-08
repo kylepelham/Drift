@@ -72,7 +72,9 @@ function image(raw: string) {
     naturalWidth: 1,
     linked: false,
     closest(selector: string): unknown {
-      return selector === "img" ? this : this.linked ? {} : null
+      if (selector === "img") return this
+
+      return this.linked ? {} : null
     },
     focus: mock((_options: unknown) => {}),
     get src() {
@@ -134,12 +136,12 @@ function setup(
   const dom = {
     images,
     ownerDocument,
-    querySelectorAll: (selector: string) =>
-      selector === "[id]"
-        ? [heading]
-        : selector === "img"
-          ? dom.images
-          : dom.images.filter((item) => item.getAttribute("data-document-image") !== null),
+    querySelectorAll: (selector: string) => {
+      if (selector === "[id]") return [heading]
+      if (selector === "img") return dom.images
+
+      return dom.images.filter((item) => item.getAttribute("data-document-image") !== null)
+    },
     contains: (item: unknown) => dom.images.includes(item as (typeof images)[number]),
     addEventListener: (type: string, callback: (event: unknown) => void) => events.set(type, callback),
     removeEventListener: (type: string) => events.delete(type),

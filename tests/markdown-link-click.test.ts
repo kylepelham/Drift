@@ -3,17 +3,19 @@ import { closeFilePreview, previewFile } from "../src/state/file-preview"
 import { afterEach, beforeEach, expect, mock, test } from "bun:test"
 
 import type { FilePreviewPrefs } from "../src/state/file-preview-prefs"
+import type * as PreviewPrefs from "../src/state/file-preview-prefs"
+import type * as Markdown from "../src/ui/markdown"
 
 const directory = "C:\\Users\\Kyle\\Desktop\\C++\\Drift"
 const rawContract = "EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md"
 const contractPath = "C:/Users/Kyle/Desktop/C++/Drift/EAC/docs/BENIGN_PLATFORM_EXPERIMENT_CONTRACT.md"
 const globalNames = ["__TAURI__", "window", "location", "document", "fetch", "localStorage"] as const
 let originalGlobals: (PropertyDescriptor | undefined)[]
-let openMarkdownLink: typeof import("../src/ui/markdown").openMarkdownLink
-let markdownClick: typeof import("../src/ui/markdown").markdownClick
+let openMarkdownLink: typeof Markdown.openMarkdownLink
+let markdownClick: typeof Markdown.markdownClick
 let invoke: ReturnType<typeof mock>
 let fetchMock: ReturnType<typeof mock>
-let prefs: typeof import("../src/state/file-preview-prefs")
+let prefs: typeof PreviewPrefs
 let originalPrefs: FilePreviewPrefs
 
 function setGlobal(name: (typeof globalNames)[number], value: unknown) {
@@ -521,9 +523,11 @@ test.each([false, true])(
     native()
     prefs.setFilePreviewMode("all")
     const link = click("../notes.md")
-    link.target.closest.mockImplementation((selector) =>
-      selector === "[data-copy-code]" ? (forged ? { closest: () => ({}) } : null) : link.anchor,
-    )
+    link.target.closest.mockImplementation((selector) => {
+      if (selector !== "[data-copy-code]") return link.anchor
+
+      return forged ? { closest: () => ({}) } : null
+    })
 
     await markdownClick(link.event, "C:/workspace/docs/nested", "C:/workspace")
 

@@ -1,9 +1,9 @@
 import { previewParentDirectory, previewTable, readFilePreview } from "../src/file-preview"
 import { closeFilePreview, openFilePreview, previewFile } from "../src/state/file-preview"
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test"
-import { code } from "./source"
 import { filePreviewLimits } from "../src/file-preview-types"
 import { t } from "../src/state/i18n"
+import { code } from "./source"
 
 const globalNames = ["__TAURI__", "window", "location", "fetch"] as const
 let originalGlobals: (PropertyDescriptor | undefined)[]

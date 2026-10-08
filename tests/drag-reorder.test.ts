@@ -134,12 +134,10 @@ function setup({ scale = 1, scrollTop = 32, sticky = false, position = "" } = {}
   header.rect = () => {
     const naturalTop = root.getBoundingClientRect().top
     const offset = Number.parseFloat(header.style.top) || 0
-    const top =
-      header.style.position === "relative"
-        ? naturalTop + offset * scale
-        : sticky
-          ? Math.max(naturalTop, 100 + offset * scale)
-          : naturalTop
+    let top = naturalTop
+    if (header.style.position === "relative") top = naturalTop + offset * scale
+    else if (sticky) top = Math.max(naturalTop, 100 + offset * scale)
+
     return { top, bottom: top + 16 * scale, height: 16 * scale }
   }
   Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: win })

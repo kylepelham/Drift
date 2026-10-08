@@ -1,6 +1,6 @@
-import "./source"
 import { mcpConfigFromForm, mcpFormState, mcpRemoteUrlAllowed, updatePair } from "../src/state/mcp-form"
 import { expect, test } from "bun:test"
+import "./source"
 import {
   createRegistrySearch,
   forgetRegistryCatalog,
@@ -451,13 +451,15 @@ test("a search shows GitHub's popular servers, then official ones it lacks", asy
     },
   }
   const asked: string[] = []
+  const registryPage = (url: string) => {
+    if (url.includes("registry.modelcontextprotocol.io")) return pages.official
+    if (url.includes("cursor=c2")) return pages.second
+
+    return pages.first
+  }
   const fetchRegistry = async (url: string) => {
     asked.push(url)
-    const body = url.includes("registry.modelcontextprotocol.io")
-      ? pages.official
-      : url.includes("cursor=c2")
-        ? pages.second
-        : pages.first
+    const body = registryPage(url)
     return { ok: true, json: async () => body }
   }
   forgetRegistryCatalog()

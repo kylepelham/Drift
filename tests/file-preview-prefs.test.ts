@@ -441,9 +441,7 @@ test("all 18 locales own preview keys with matching interpolation placeholders",
     for (const key of keys) {
       expect(drift[key].trim().length, `${locale}: ${key}`).toBeGreaterThan(0)
       const placeholders = drift[key].match(/{{\w+}}/g)?.sort() ?? []
-      expect(placeholders, `${locale}: ${key}`).toEqual(
-        key.endsWith(".page") ? ["{{page}}", "{{pages}}"].sort() : key.endsWith(".tableTruncated") ? ["{{rows}}"] : [],
-      )
+      expect(placeholders, `${locale}: ${key}`).toEqual(previewPlaceholders(key))
     }
     expect(dict["common.close"]).toBeTruthy()
   }
@@ -452,3 +450,10 @@ test("all 18 locales own preview keys with matching interpolation placeholders",
   expect(drift["drift.preview.tableTruncated"]).toBe("Showing the first {{rows}} rows")
   expect(drift["drift.preview.pdfPassword"]).toBe("Password-protected PDFs cannot be previewed.")
 })
+
+function previewPlaceholders(key: string) {
+  if (key.endsWith(".page")) return ["{{page}}", "{{pages}}"].sort()
+  if (key.endsWith(".tableTruncated")) return ["{{rows}}"]
+
+  return []
+}
