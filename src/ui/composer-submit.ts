@@ -1,6 +1,6 @@
 import type { ComposerDraft } from "../state/composer";
 
-export type PromptAdmission = { ok: true } | { ok: false; error: string };
+type PromptAdmission = { ok: true } | { ok: false; error: string };
 export type ComposerSubmitResult = "submitted" | "ignored" | "failed";
 
 type SubmissionLease = {

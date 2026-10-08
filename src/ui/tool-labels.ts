@@ -159,7 +159,7 @@ export function awaitingPermission(state: EngineState, part: ToolPart) {
     );
 }
 
-export function formatShellTimeout(ms: number) {
+function formatShellTimeout(ms: number) {
     if (ms % 60_000 === 0) return `${ms / 60_000}m`;
     if (ms % 1_000 === 0) return `${ms / 1_000}s`;
 

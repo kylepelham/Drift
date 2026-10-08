@@ -45,10 +45,10 @@ type HookEvents = {
 type HookName = keyof HookEvents;
 type Hook<K extends HookName> = (event: HookEvents[K]) => unknown | Promise<unknown>;
 type AnyHook = (event: never) => unknown | Promise<unknown>;
-export type ToolRenderer = (part: ToolPart) => Node | string | null;
-export type PartRenderer = (part: Part) => Node | string | null;
+type ToolRenderer = (part: ToolPart) => Node | string | null;
+type PartRenderer = (part: Part) => Node | string | null;
 
-export type DriftPluginApi = {
+type DriftPluginApi = {
     version: 1;
     context: () => Context;
     on: <K extends HookName>(name: K, hook: Hook<K>) => () => void;
