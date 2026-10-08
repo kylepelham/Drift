@@ -222,7 +222,12 @@ export const drift = {
   "drift.remote.clipboardError": "복사할 수 없음",
   "drift.settings.shellTimeout.scope":
     "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
-  "drift.settings.toolExecution": "도구 실행",
+  "drift.settings.execution": "실행",
+  "drift.settings.execution.shell": "셸",
+  "drift.settings.execution.subagents": "하위 에이전트",
+  "drift.settings.backgroundLimit.title": "동시에 실행할 백그라운드 하위 에이전트",
+  "drift.settings.backgroundLimit.description":
+    "동시에 실행되는 백그라운드 하위 에이전트 수입니다. 나머지는 대기열에서 기다리다가 자리가 나면 시작합니다. 값을 낮춰도 실행 중인 에이전트는 멈추지 않습니다.",
   "drift.settings.shellTimeout.title": "셸 시간 제한",
   "drift.settings.shellTimeout.description":
     "이 시간이 지나면 셸 명령과 하위 프로세스를 중지합니다. 변경 사항은 새 호출에 적용됩니다.",

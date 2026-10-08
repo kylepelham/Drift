@@ -251,7 +251,12 @@ export const drift = {
   "drift.remote.statusError": "错误",
   "drift.remote.clipboardError": "无法复制",
   "drift.settings.shellTimeout.scope": "Shell 超时会终止进程树，但不会影响模型、MCP 服务器或网络调用。",
-  "drift.settings.toolExecution": "工具执行",
+  "drift.settings.execution": "执行",
+  "drift.settings.execution.shell": "Shell",
+  "drift.settings.execution.subagents": "子代理",
+  "drift.settings.backgroundLimit.title": "同时运行的后台子代理",
+  "drift.settings.backgroundLimit.description":
+    "同时运行的后台子代理数量。其余的在队列中等待，有空位时启动；调低此值不会停止正在运行的子代理。",
   "drift.settings.shellTimeout.title": "Shell 超时",
   "drift.settings.shellTimeout.description": "超过此时长后停止 Shell 命令及其子进程。更改仅应用于新调用。",
   "drift.settings.shellTimeout.noTimeout": "不超时",

@@ -180,7 +180,7 @@ const sectionLabels: Record<Section, string> = {
   Notifications: "drift.settings.notifications",
   Voice: "drift.voice",
   Shortcuts: "settings.tab.shortcuts",
-  Tools: "drift.settings.toolExecution",
+  Tools: "drift.settings.execution",
   Providers: "settings.providers.title",
   Usage: "drift.usage.title",
   Skills: "drift.settings.skills",
@@ -288,6 +288,7 @@ const settingsSearchDefinitions = {
   Shortcuts: Object.values(keybindLabels).map((title) => ({ title })),
   Tools: [
     { title: "drift.settings.shellTimeout.title", description: "drift.settings.shellTimeout.description" },
+    { title: "drift.settings.backgroundLimit.title", description: "drift.settings.backgroundLimit.description" },
     {
       title: "drift.settings.shellTimeout.customMinutes",
       description: "drift.settings.shellTimeout.customDescription",
@@ -916,7 +917,7 @@ function ToolExecutionSection() {
 
   return (
     <div class="space-y-5">
-      <SettingsGroup title={t("drift.settings.toolExecution")}>
+      <SettingsGroup title={t("drift.settings.execution.shell")}>
         <SettingsRow
           title={t("drift.settings.shellTimeout.title")}
           description={t("drift.settings.shellTimeout.description")}
@@ -981,7 +982,68 @@ function ToolExecutionSection() {
       <Show when={error()}>
         <div class="text-xs text-danger">{error()}</div>
       </Show>
+      <BackgroundLimitGroup />
     </div>
+  )
+}
+
+const backgroundLimits = Array.from({ length: 16 }, (_, index) => index + 1)
+
+/** How many background subagents the engine runs at once; the engine owns the value. */
+function BackgroundLimitGroup() {
+  const engine = useEngine()
+  const [limit, setLimit] = createSignal<number | null>(null)
+  const [error, setError] = createSignal("")
+
+  // Null until the engine answers, so the picker never shows a guess.
+  onMount(
+    () =>
+      void engine.actions
+        .engineSettings()
+        .then((settings) => setLimit(settings.backgroundTaskLimit ?? null))
+        .catch(() => undefined),
+  )
+
+  async function pick(next: number) {
+    const previous = limit()
+    setLimit(next)
+    setError("")
+
+    try {
+      const settings = await engine.actions.setBackgroundTaskLimit(next)
+      setLimit(settings.backgroundTaskLimit ?? next)
+    } catch (cause) {
+      setLimit(previous)
+      setError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  return (
+    <SettingsGroup title={t("drift.settings.execution.subagents")}>
+      <SettingsRow
+        title={t("drift.settings.backgroundLimit.title")}
+        description={t("drift.settings.backgroundLimit.description")}
+      >
+        <Show when={limit()}>
+          {(current) => (
+            <Picker
+              label={t("drift.settings.backgroundLimit.title")}
+              items={backgroundLimits.map((value) => ({ id: String(value), label: String(value) }))}
+              selected={String(current())}
+              floating
+              bordered
+              chevronAtEnd
+              placement="below"
+              width="6rem"
+              onPick={(id) => void pick(Number(id))}
+            />
+          )}
+        </Show>
+      </SettingsRow>
+      <Show when={error()}>
+        <div class="text-xs text-danger">{error()}</div>
+      </Show>
+    </SettingsGroup>
   )
 }
 

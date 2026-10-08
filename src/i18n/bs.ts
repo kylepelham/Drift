@@ -255,7 +255,12 @@ export const drift = {
   "drift.remote.clipboardError": "Kopiranje nije uspjelo",
   "drift.settings.shellTimeout.scope":
     "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
-  "drift.settings.toolExecution": "Izvršavanje alata",
+  "drift.settings.execution": "Izvršavanje",
+  "drift.settings.execution.shell": "Shell",
+  "drift.settings.execution.subagents": "Podagenti",
+  "drift.settings.backgroundLimit.title": "Pozadinski podagenti istovremeno",
+  "drift.settings.backgroundLimit.description":
+    "Koliko pozadinskih podagenata radi u isto vrijeme. Ostali čekaju u redu i pokreću se kad se mjesto oslobodi; smanjivanje nikad ne zaustavlja podagenta koji već radi.",
   "drift.settings.shellTimeout.title": "Vremensko ograničenje ljuske",
   "drift.settings.shellTimeout.description":
     "Zaustavlja naredbe ljuske i njihove podređene procese nakon ovog vremena. Promjene važe za nove pozive.",

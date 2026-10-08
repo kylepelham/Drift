@@ -224,7 +224,12 @@ export const drift = {
   "drift.remote.clipboardError": "Copie impossible",
   "drift.settings.shellTimeout.scope":
     "Les délais du shell arrêtent les arborescences de processus. Ils n’affectent pas les modèles, MCP ou appels réseau.",
-  "drift.settings.toolExecution": "Exécution des outils",
+  "drift.settings.execution": "Exécution",
+  "drift.settings.execution.shell": "Shell",
+  "drift.settings.execution.subagents": "Sous-agents",
+  "drift.settings.backgroundLimit.title": "Sous-agents en arrière-plan simultanés",
+  "drift.settings.backgroundLimit.description":
+    "Nombre de sous-agents en arrière-plan qui s'exécutent en même temps. Les autres attendent dans une file et démarrent dès qu'une place se libère ; baisser cette valeur n'arrête jamais un sous-agent en cours.",
   "drift.settings.shellTimeout.title": "Délai du shell",
   "drift.settings.shellTimeout.description":
     "Arrête les commandes shell et leurs processus enfants après cette durée. Les modifications s'appliquent aux nouveaux appels.",

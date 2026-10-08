@@ -256,7 +256,12 @@ export const drift = {
   "drift.remote.clipboardError": "Не удалось скопировать",
   "drift.settings.shellTimeout.scope":
     "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",
-  "drift.settings.toolExecution": "Выполнение инструментов",
+  "drift.settings.execution": "Выполнение",
+  "drift.settings.execution.shell": "Оболочка",
+  "drift.settings.execution.subagents": "Субагенты",
+  "drift.settings.backgroundLimit.title": "Фоновых субагентов одновременно",
+  "drift.settings.backgroundLimit.description":
+    "Сколько фоновых субагентов работает одновременно. Остальные ждут в очереди и запускаются, когда освобождается место; уменьшение значения не останавливает уже работающих.",
   "drift.settings.shellTimeout.title": "Тайм-аут оболочки",
   "drift.settings.shellTimeout.description":
     "Останавливает команды оболочки и их дочерние процессы по истечении этого времени. Изменения применяются к новым вызовам.",

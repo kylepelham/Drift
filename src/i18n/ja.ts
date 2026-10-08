@@ -222,7 +222,12 @@ export const drift = {
   "drift.remote.clipboardError": "コピーできませんでした",
   "drift.settings.shellTimeout.scope":
     "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
-  "drift.settings.toolExecution": "ツール実行",
+  "drift.settings.execution": "実行",
+  "drift.settings.execution.shell": "シェル",
+  "drift.settings.execution.subagents": "サブエージェント",
+  "drift.settings.backgroundLimit.title": "同時に実行するバックグラウンドサブエージェント",
+  "drift.settings.backgroundLimit.description":
+    "同時に実行するバックグラウンドサブエージェントの数です。それ以外はキューで待機し、空きができると開始します。値を下げても実行中のものは停止しません。",
   "drift.settings.shellTimeout.title": "シェルのタイムアウト",
   "drift.settings.shellTimeout.description":
     "この時間を過ぎるとシェルコマンドと子プロセスを停止します。変更は新しい呼び出しに適用されます。",

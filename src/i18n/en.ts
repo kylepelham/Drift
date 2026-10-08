@@ -428,7 +428,12 @@ export const drift = {
   "drift.slash.fork.invalid": "Use /fork active or /fork all.",
   "drift.slash.spawn": "Start a separate thread that knows this conversation and works on your instruction",
   "drift.slash.spawn.required": "Say what the new thread should do after /spawn.",
-  "drift.settings.toolExecution": "Tool execution",
+  "drift.settings.execution": "Execution",
+  "drift.settings.execution.shell": "Shell",
+  "drift.settings.execution.subagents": "Subagents",
+  "drift.settings.backgroundLimit.title": "Background subagents at once",
+  "drift.settings.backgroundLimit.description":
+    "How many background subagents run at the same time. Others wait in a queue and start as slots free up; lowering this never stops one that is running.",
   "drift.settings.shellTimeout.title": "Shell timeout",
   "drift.settings.shellTimeout.description":
     "Stop shell commands and their child processes after this duration. Changes apply to new calls.",

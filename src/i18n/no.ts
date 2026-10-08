@@ -255,7 +255,12 @@ export const drift = {
   "drift.remote.clipboardError": "Kunne ikke kopiere",
   "drift.settings.shellTimeout.scope":
     "Shell-tidsavbrudd avslutter prosesstrær. De påvirker ikke modeller, MCP-servere eller nettverkskall.",
-  "drift.settings.toolExecution": "Verktøykjøring",
+  "drift.settings.execution": "Kjøring",
+  "drift.settings.execution.shell": "Skall",
+  "drift.settings.execution.subagents": "Underagenter",
+  "drift.settings.backgroundLimit.title": "Bakgrunnsunderagenter samtidig",
+  "drift.settings.backgroundLimit.description":
+    "Hvor mange bakgrunnsunderagenter som kjører samtidig. Andre venter i kø og starter når det blir ledig plass; en lavere verdi stopper aldri en som kjører.",
   "drift.settings.shellTimeout.title": "Tidsavbrudd for shell",
   "drift.settings.shellTimeout.description":
     "Stopp shellkommandoer og underprosesser etter denne tiden. Endringer gjelder nye kall.",

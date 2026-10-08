@@ -255,7 +255,12 @@ export const drift = {
   "drift.remote.clipboardError": "Не вдалося скопіювати",
   "drift.settings.shellTimeout.scope":
     "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
-  "drift.settings.toolExecution": "Виконання інструментів",
+  "drift.settings.execution": "Виконання",
+  "drift.settings.execution.shell": "Оболонка",
+  "drift.settings.execution.subagents": "Субагенти",
+  "drift.settings.backgroundLimit.title": "Фонових субагентів одночасно",
+  "drift.settings.backgroundLimit.description":
+    "Скільки фонових субагентів працює одночасно. Решта чекає в черзі й запускається, коли звільняється місце; зменшення значення не зупиняє тих, що вже працюють.",
   "drift.settings.shellTimeout.title": "Тайм-аут оболонки",
   "drift.settings.shellTimeout.description":
     "Зупиняє команди оболонки та їхні дочірні процеси після цього часу. Зміни діють для нових викликів.",

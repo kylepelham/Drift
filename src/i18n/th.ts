@@ -254,7 +254,12 @@ export const drift = {
   "drift.remote.clipboardError": "คัดลอกไม่ได้",
   "drift.settings.shellTimeout.scope":
     "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
-  "drift.settings.toolExecution": "การเรียกใช้เครื่องมือ",
+  "drift.settings.execution": "การทำงาน",
+  "drift.settings.execution.shell": "เชลล์",
+  "drift.settings.execution.subagents": "เอเจนต์ย่อย",
+  "drift.settings.backgroundLimit.title": "เอเจนต์ย่อยเบื้องหลังพร้อมกัน",
+  "drift.settings.backgroundLimit.description":
+    "จำนวนเอเจนต์ย่อยเบื้องหลังที่ทำงานพร้อมกัน ตัวอื่นจะรอในคิวและเริ่มเมื่อมีช่องว่าง การลดค่านี้จะไม่หยุดตัวที่กำลังทำงานอยู่",
   "drift.settings.shellTimeout.title": "หมดเวลาของเชลล์",
   "drift.settings.shellTimeout.description":
     "หยุดคำสั่งเชลล์และโปรเซสลูกหลังจากระยะเวลานี้ การเปลี่ยนแปลงมีผลกับการเรียกใหม่",

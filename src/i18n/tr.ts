@@ -256,7 +256,12 @@ export const drift = {
   "drift.remote.clipboardError": "Kopyalanamadı",
   "drift.settings.shellTimeout.scope":
     "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
-  "drift.settings.toolExecution": "Araç yürütme",
+  "drift.settings.execution": "Çalıştırma",
+  "drift.settings.execution.shell": "Kabuk",
+  "drift.settings.execution.subagents": "Alt ajanlar",
+  "drift.settings.backgroundLimit.title": "Aynı anda arka plan alt ajanları",
+  "drift.settings.backgroundLimit.description":
+    "Aynı anda kaç arka plan alt ajanının çalışacağı. Diğerleri kuyrukta bekler ve yer açıldıkça başlar; bu değeri düşürmek çalışan bir alt ajanı asla durdurmaz.",
   "drift.settings.shellTimeout.title": "Kabuk zaman aşımı",
   "drift.settings.shellTimeout.description":
     "Kabuk komutlarını ve alt işlemlerini bu süreden sonra durdurur. Değişiklikler yeni çağrılara uygulanır.",

@@ -622,6 +622,11 @@ export function createActions(
     return requireClient().putSettings({ autoCompact })
   }
 
+  /** How many background subagents run at once; the engine starts or holds queued ones to match. */
+  async function setBackgroundTaskLimit(backgroundTaskLimit: number) {
+    return requireClient().putSettings({ backgroundTaskLimit })
+  }
+
   /** The engine answers this session's asks, and its subagents', except secrets and anything outside the workspace. */
   async function setAutoAccept(id: string, autoAccept: boolean) {
     const updated = await requireClient().updateSession(id, { autoAccept })
@@ -878,6 +883,7 @@ export function createActions(
     switchRetryModel,
     summarize,
     engineSettings,
+    setBackgroundTaskLimit,
     putEngineSettings: (body: Parameters<Client["putSettings"]>[0]) => requireClient().putSettings(body),
     fetchRegistry: (source: string) => requireClient().fetchRegistry(source),
     setAutoCompact,

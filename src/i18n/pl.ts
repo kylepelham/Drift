@@ -223,7 +223,12 @@ export const drift = {
   "drift.remote.clipboardError": "Nie udało się skopiować",
   "drift.settings.shellTimeout.scope":
     "Limity powłoki kończą drzewa procesów. Nie wpływają na modele, serwery MCP ani wywołania sieciowe.",
-  "drift.settings.toolExecution": "Wykonywanie narzędzi",
+  "drift.settings.execution": "Wykonywanie",
+  "drift.settings.execution.shell": "Powłoka",
+  "drift.settings.execution.subagents": "Podagenci",
+  "drift.settings.backgroundLimit.title": "Podagenci w tle jednocześnie",
+  "drift.settings.backgroundLimit.description":
+    "Ilu podagentów w tle działa jednocześnie. Pozostali czekają w kolejce i startują, gdy zwolni się miejsce; zmniejszenie tej wartości nigdy nie zatrzymuje działającego podagenta.",
   "drift.settings.shellTimeout.title": "Limit czasu powłoki",
   "drift.settings.shellTimeout.description":
     "Zatrzymuje polecenia powłoki i ich procesy potomne po tym czasie. Zmiany dotyczą nowych wywołań.",

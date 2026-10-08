@@ -224,7 +224,12 @@ export const drift = {
   "drift.remote.clipboardError": "Kopieren fehlgeschlagen",
   "drift.settings.shellTimeout.scope":
     "Shell-Zeitlimits beenden Prozessbäume. Modelle, MCP-Server und Netzwerkaufrufe sind nicht betroffen.",
-  "drift.settings.toolExecution": "Werkzeugausführung",
+  "drift.settings.execution": "Ausführung",
+  "drift.settings.execution.shell": "Shell",
+  "drift.settings.execution.subagents": "Subagenten",
+  "drift.settings.backgroundLimit.title": "Gleichzeitige Hintergrund-Subagenten",
+  "drift.settings.backgroundLimit.description":
+    "Wie viele Hintergrund-Subagenten gleichzeitig laufen. Weitere warten in einer Warteschlange und starten, sobald ein Platz frei wird; ein niedrigerer Wert beendet keinen laufenden.",
   "drift.settings.shellTimeout.title": "Shell-Zeitlimit",
   "drift.settings.shellTimeout.description":
     "Beendet Shell-Befehle und deren Unterprozesse nach dieser Dauer. Änderungen gelten für neue Aufrufe.",

@@ -223,7 +223,12 @@ export const drift = {
   "drift.remote.clipboardError": "Não foi possível copiar",
   "drift.settings.shellTimeout.scope":
     "Os limites do shell encerram árvores de processos. Não afetam modelos, servidores MCP ou chamadas de rede.",
-  "drift.settings.toolExecution": "Execução de ferramentas",
+  "drift.settings.execution": "Execução",
+  "drift.settings.execution.shell": "Shell",
+  "drift.settings.execution.subagents": "Subagentes",
+  "drift.settings.backgroundLimit.title": "Subagentes em segundo plano ao mesmo tempo",
+  "drift.settings.backgroundLimit.description":
+    "Quantos subagentes em segundo plano rodam ao mesmo tempo. Os outros esperam numa fila e começam quando uma vaga fica livre; diminuir este valor nunca interrompe um que já está rodando.",
   "drift.settings.shellTimeout.title": "Tempo limite do shell",
   "drift.settings.shellTimeout.description":
     "Interrompe comandos do shell e seus processos filhos após esta duração. As alterações valem para novas chamadas.",

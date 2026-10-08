@@ -220,7 +220,12 @@ export const drift = {
   "drift.remote.clipboardError": "تعذر النسخ",
   "drift.settings.shellTimeout.scope":
     "تنهي مهل الصدفة أشجار العمليات. ولا تؤثر على النماذج أو خوادم MCP أو اتصالات الشبكة.",
-  "drift.settings.toolExecution": "تنفيذ الأدوات",
+  "drift.settings.execution": "التنفيذ",
+  "drift.settings.execution.shell": "الصدفة",
+  "drift.settings.execution.subagents": "الوكلاء الفرعيون",
+  "drift.settings.backgroundLimit.title": "الوكلاء الفرعيون في الخلفية في وقت واحد",
+  "drift.settings.backgroundLimit.description":
+    "عدد الوكلاء الفرعيين في الخلفية الذين يعملون في الوقت نفسه. ينتظر الباقون في طابور ويبدؤون عند تفرغ مكان؛ تخفيض هذا الرقم لا يوقف أي وكيل قيد التشغيل.",
   "drift.settings.shellTimeout.title": "مهلة الصدفة",
   "drift.settings.shellTimeout.description":
     "يوقف أوامر الصدفة والعمليات التابعة لها بعد هذه المدة. تنطبق التغييرات على الاستدعاءات الجديدة.",

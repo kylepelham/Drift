@@ -255,7 +255,12 @@ export const drift = {
   "drift.remote.clipboardError": "Kunne ikke kopiere",
   "drift.settings.shellTimeout.scope":
     "Shell-timeouts afslutter procestræer. De påvirker ikke modeller, MCP-servere eller netværkskald.",
-  "drift.settings.toolExecution": "Værktøjskørsel",
+  "drift.settings.execution": "Kørsel",
+  "drift.settings.execution.shell": "Shell",
+  "drift.settings.execution.subagents": "Underagenter",
+  "drift.settings.backgroundLimit.title": "Baggrundsunderagenter ad gangen",
+  "drift.settings.backgroundLimit.description":
+    "Hvor mange baggrundsunderagenter der kører på samme tid. Andre venter i kø og starter, når der bliver plads; en lavere værdi stopper aldrig en, der kører.",
   "drift.settings.shellTimeout.title": "Shell-timeout",
   "drift.settings.shellTimeout.description":
     "Stop shellkommandoer og deres underprocesser efter denne varighed. Ændringer gælder nye kald.",
