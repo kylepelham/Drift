@@ -34,16 +34,19 @@ pub(crate) struct NativeStatus {
 
 pub(crate) fn start(app: &AppHandle, data_dir: &Path) -> Result<Arc<Engine>, drift_engine::Error> {
     let engine = Engine::open(data_dir)?;
+
     app.manage(Native {
         engine: engine.clone(),
         state: Mutex::new(Listening::Pending),
     });
     let started = engine.clone();
     let app = app.clone();
+
     tauri::async_runtime::spawn(async move {
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
         let bound = drift_engine::listen(engine, addr).await;
         let native = app.state::<Native>();
+
         let mut state = native.state.lock().unwrap();
         *state = match (bound, &*state) {
             (Ok(server), Listening::Stopped) => {
@@ -54,6 +57,7 @@ pub(crate) fn start(app: &AppHandle, data_dir: &Path) -> Result<Arc<Engine>, dri
             (Err(error), _) => Listening::Failed(error.to_string()),
         };
     });
+
     Ok(started)
 }
 
@@ -73,7 +77,7 @@ pub(crate) fn push_agent_overrides(app: &AppHandle, store: &Store) -> rusqlite::
     Ok(())
 }
 
-/// Hands the engine the shell time limit from Settings; `None` means commands run until done.
+/// Hands the engine the shell time limit from Settings; None means commands run until done.
 pub(crate) fn push_shell_timeout(app: &AppHandle, timeout_ms: Option<u64>) {
     app.state::<Native>()
         .engine
@@ -92,6 +96,7 @@ pub(crate) fn stop(app: &AppHandle) {
     if let Listening::Bound(server) = &*state {
         server.stop();
     }
+
     *state = Listening::Stopped;
 }
 

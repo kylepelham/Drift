@@ -110,6 +110,7 @@ impl UiStateAuthority {
     pub(crate) fn load(store: &Store) -> Result<Self, UiStateError> {
         let snapshot = load_valid_setting(store, UI_STATE_KEY, validate_snapshot)?;
         let (events, _) = broadcast::channel(32);
+
         Ok(Self {
             inner: Mutex::new(UiStateInner {
                 snapshot,
@@ -137,11 +138,14 @@ impl UiStateAuthority {
         snapshot.schema = 1;
         snapshot.revision = 0;
         validate_snapshot(&snapshot)?;
+
         let encoded = serde_json::to_string(&snapshot)?;
         let stored = store.initialize_app_setting(UI_STATE_KEY, &encoded)?;
         let current: UiMirrorSnapshot = serde_json::from_str(&stored)?;
         validate_snapshot(&current)?;
+
         self.inner.lock().unwrap().snapshot = Some(current.clone());
+
         Ok(current)
     }
 
@@ -151,11 +155,13 @@ impl UiStateAuthority {
         if mutation.theme.is_none() && mutation.selection.is_none() && mutation.workspace_order.is_none() {
             return Err(UiStateError::EmptyMutation);
         }
+
         let key = (mutation.client_id, mutation.mutation_id);
         let mut inner = self.inner.lock().unwrap();
         if let Some(snapshot) = inner.deduplicated.get(&key) {
             return Ok((snapshot.clone(), false));
         }
+
         let mut next = inner.snapshot.clone().ok_or(UiStateError::NotInitialized)?;
         if let Some(theme) = mutation.theme {
             next.theme = theme;
@@ -168,6 +174,7 @@ impl UiStateAuthority {
         }
         next.revision = next.revision.checked_add(1).ok_or(UiStateError::RevisionOverflow)?;
         validate_snapshot(&next)?;
+
         let encoded = serde_json::to_string(&next)?;
         store.save_app_setting(UI_STATE_KEY, &encoded)?;
 
@@ -179,6 +186,7 @@ impl UiStateAuthority {
                 inner.deduplicated.remove(&oldest);
             }
         }
+
         Ok((next, true))
     }
 
@@ -215,6 +223,7 @@ pub(crate) fn ui_state_update(
     if changed {
         authority.publish(&app, &snapshot);
     }
+
     Ok(snapshot)
 }
 
@@ -226,9 +235,11 @@ fn load_valid_setting<T: DeserializeOwned>(
     let Some(value) = store.app_setting(key)? else {
         return Ok(None);
     };
+
     let parsed = serde_json::from_str(&value)
         .map_err(UiStateError::from)
         .and_then(|value| validate(&value).map(|()| value));
+
     match parsed {
         Ok(value) => Ok(Some(value)),
         Err(_) => {
@@ -242,6 +253,7 @@ fn validate_snapshot(snapshot: &UiMirrorSnapshot) -> Result<(), UiStateError> {
     if snapshot.schema != 1 {
         return Err(UiStateError::UnsupportedSchema);
     }
+
     if !matches!(
         snapshot.theme.name.as_str(),
         "drift-dark"
@@ -256,6 +268,7 @@ fn validate_snapshot(snapshot: &UiMirrorSnapshot) -> Result<(), UiStateError> {
     ) {
         return Err(UiStateError::InvalidTheme);
     }
+
     for (name, color) in [
         ("background", &snapshot.theme.custom.background),
         ("surface", &snapshot.theme.custom.surface),
@@ -266,9 +279,11 @@ fn validate_snapshot(snapshot: &UiMirrorSnapshot) -> Result<(), UiStateError> {
             return Err(UiStateError::InvalidColor(name));
         }
     }
+
     validate_text("UI font", &snapshot.theme.ui_font, 256)?;
     validate_text("code font", &snapshot.theme.code_font, 256)?;
     validate_text("custom CSS", &snapshot.theme.custom_css, 20_000)?;
+
     if let Some(id) = snapshot.selection.workspace_id.as_deref() {
         validate_identifier("workspaceId", id)?;
     }
@@ -278,12 +293,14 @@ fn validate_snapshot(snapshot: &UiMirrorSnapshot) -> Result<(), UiStateError> {
     if snapshot.selection.workspace_id.is_none() && snapshot.selection.session_id.is_some() {
         return Err(UiStateError::SessionWithoutWorkspace);
     }
+
     if snapshot.workspace_order.len() > 500 {
         return Err(UiStateError::OrderTooLong);
     }
     for id in &snapshot.workspace_order {
         validate_identifier("workspaceId", id)?;
     }
+
     Ok(())
 }
 

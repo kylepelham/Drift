@@ -1,5 +1,5 @@
-//! Local speech to text. Models are fetched only when asked for, and transcription runs in the
-//! bundled whisper.cpp sidecar, so recorded audio never leaves the machine.
+//! Local speech to text fetches models only on request and transcribes with the bundled whisper.cpp sidecar.
+//! Recorded audio never leaves the machine.
 
 use base64::Engine as _;
 use serde::Serialize;
@@ -14,7 +14,7 @@ const HOST: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 const PROGRESS_EVENT: &str = "voice-model-progress";
 /// Whisper only accepts 16 kHz mono, so the webview resamples before sending.
 const SAMPLE_RATE: u32 = 16_000;
-/// A dictated phrase is seconds long; more than this means the caller sent the wrong buffer.
+/// Maximum audio length for a dictated phrase; a longer buffer is treated as incorrect caller input.
 const MAX_AUDIO_BYTES: usize = SAMPLE_RATE as usize * 2 * 180;
 const PROGRESS_STEP: u64 = 2 * 1024 * 1024;
 
@@ -53,7 +53,7 @@ struct ModelSpec {
     bytes: u64,
 }
 
-/// Sizes and hashes are published by the whisper.cpp model repository and verified after download.
+/// Sizes and hashes published by the whisper.cpp model repository and verified after download.
 const MODELS: &[ModelSpec] = &[
     ModelSpec {
         id: "large-v3-turbo-q5_0",
@@ -122,9 +122,11 @@ fn sidecar(name: &str) -> Option<PathBuf> {
     {
         return Some(bundled);
     }
+
     let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("binaries")
         .join(&file);
+
     dev.exists().then_some(dev)
 }
 
@@ -141,6 +143,7 @@ pub(crate) fn whisper_binary() -> Option<PathBuf> {
     {
         return Some(accelerated);
     }
+
     sidecar("whisper-cli")
 }
 
@@ -157,6 +160,7 @@ pub(crate) fn voice_acceleration() -> bool {
 #[tauri::command]
 pub(crate) fn voice_models(app: tauri::AppHandle) -> Result<Vec<VoiceModel>, String> {
     let dir = model_dir(&app).map_err(|error| error.to_string())?;
+
     Ok(MODELS
         .iter()
         .map(|model| VoiceModel {
@@ -174,6 +178,7 @@ pub(crate) fn voice_model_remove(app: tauri::AppHandle, id: String) -> Result<()
     if !path.exists() {
         return Ok(());
     }
+
     std::fs::remove_file(path).map_err(|error| error.to_string())
 }
 
@@ -199,6 +204,7 @@ async fn download_model(app: &tauri::AppHandle, download: &VoiceDownload, id: &s
     if destination.is_file() {
         return Ok(());
     }
+
     download.0.store(false, Ordering::Relaxed);
     let partial = destination.with_extension("part");
     let result = fetch_model(app, download, model, &partial).await;
@@ -206,6 +212,7 @@ async fn download_model(app: &tauri::AppHandle, download: &VoiceDownload, id: &s
         let _ = std::fs::remove_file(&partial);
         return result;
     }
+
     Ok(std::fs::rename(&partial, &destination)?)
 }
 
@@ -219,12 +226,14 @@ async fn fetch_model(
     if !response.status().is_success() {
         return Err(VoiceError::DownloadStatus(response.status()));
     }
+
     let total = response.content_length().unwrap_or(model.bytes);
     let mut file = std::fs::File::create(partial)?;
     let mut hasher = Sha1::new();
     let mut received = 0u64;
     let mut announced = 0u64;
     let mut response = response;
+
     while let Some(chunk) = response.chunk().await? {
         if download.0.load(Ordering::Relaxed) {
             return Err(VoiceError::Cancelled);
@@ -245,7 +254,9 @@ async fn fetch_model(
             },
         );
     }
+
     file.flush()?;
+
     let digest = hasher.finalize();
     let mut actual = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -254,6 +265,7 @@ async fn fetch_model(
     if actual != model.sha1 {
         return Err(VoiceError::Checksum);
     }
+
     Ok(())
 }
 
@@ -282,12 +294,14 @@ async fn transcribe(
     if !model_file.is_file() {
         return Err(VoiceError::ModelMissing);
     }
+
     let binary = whisper_binary().ok_or(VoiceError::RecognizerMissing)?;
     let fallback = sidecar("whisper-cli").filter(|path| *path != binary);
     let samples = base64::engine::general_purpose::STANDARD.decode(audio)?;
     if samples.is_empty() || samples.len() > MAX_AUDIO_BYTES {
         return Err(VoiceError::InvalidAudio);
     }
+
     tauri::async_runtime::spawn_blocking(move || {
         let attempt = run_whisper(&binary, &model_file, &samples, &language, &prompt);
         // A driver that reports Vulkan but cannot run it still leaves the CPU sidecar usable.
@@ -315,6 +329,7 @@ fn run_whisper(
         std::thread::current().id()
     ));
     write_wav(&wav, samples)?;
+
     let mut command = std::process::Command::new(binary);
     command
         .arg("-m")
@@ -331,6 +346,7 @@ fn run_whisper(
         use std::os::windows::process::CommandExt;
         command.creation_flags(crate::CREATE_NO_WINDOW);
     }
+
     let output = command.output();
     let _ = std::fs::remove_file(&wav);
     let output = output?;
@@ -339,6 +355,7 @@ fn run_whisper(
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ));
     }
+
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -347,6 +364,7 @@ fn write_wav(path: &PathBuf, samples: &[u8]) -> std::io::Result<()> {
     let mut file = std::fs::File::create(path)?;
     let data = samples.len() as u32;
     let byte_rate = SAMPLE_RATE * 2;
+
     let mut header = Vec::with_capacity(44);
     header.extend_from_slice(b"RIFF");
     header.extend_from_slice(&(36 + data).to_le_bytes());
@@ -360,6 +378,7 @@ fn write_wav(path: &PathBuf, samples: &[u8]) -> std::io::Result<()> {
     header.extend_from_slice(&16u16.to_le_bytes());
     header.extend_from_slice(b"data");
     header.extend_from_slice(&data.to_le_bytes());
+
     file.write_all(&header)?;
     file.write_all(samples)?;
     file.flush()

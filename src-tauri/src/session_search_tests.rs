@@ -18,6 +18,7 @@ impl Fixture {
     fn new() -> Self {
         let dir = std::env::temp_dir().join(format!("drift-search-{}", drift_engine::id::new("t")));
         let store = drift_engine::store::open(&dir).unwrap();
+
         Self { dir, store }
     }
 
@@ -46,6 +47,7 @@ impl Fixture {
                 model: None,
             })
             .unwrap();
+
         self.store
             .lock()
             .execute(
@@ -53,6 +55,7 @@ impl Fixture {
                 rusqlite::params![session.id, updated],
             )
             .unwrap();
+
         session.id
     }
 
@@ -60,6 +63,7 @@ impl Fixture {
     fn said(&self, session: &str, part: Part) -> String {
         let message = self.store.create_message(session, Role::User, None).unwrap();
         self.store.add_part(&message.id, session, part).unwrap();
+
         message.id
     }
 
@@ -80,24 +84,26 @@ fn excerpts_map_lowercase_offsets_back_to_original_unicode_characters() {
             format!("\u{2026}{} needle", character.to_string().repeat(69))
         );
     }
-    let f = Fixture::new();
-    let ws = f.workspace("C:/work");
-    let session = f.session(&ws, "Unicode", 1, None);
-    f.text(&session, "\u{212a} needle");
-    assert_eq!(f.search("needle", "C:/work")[0].excerpt, "\u{212a} needle");
+    let fixture = Fixture::new();
+    let workspace = fixture.workspace("C:/work");
+    let session = fixture.session(&workspace, "Unicode", 1, None);
+    fixture.text(&session, "\u{212a} needle");
+
+    assert_eq!(fixture.search("needle", "C:/work")[0].excerpt, "\u{212a} needle");
 }
 
 #[test]
 fn finds_the_newest_session_per_match_and_reports_the_matching_message() {
-    let f = Fixture::new();
-    let ws = f.workspace("C:\\work\\app");
-    let old = f.session(&ws, "Older thread", 100, None);
-    let new = f.session(&ws, "Newer thread", 200, None);
-    let first = f.text(&old, "the vulkan swapchain resize path");
-    f.text(&new, "unrelated");
-    let match_new = f.text(&new, "checking the Vulkan swapchain again");
+    let fixture = Fixture::new();
+    let workspace = fixture.workspace("C:\\work\\app");
+    let old = fixture.session(&workspace, "Older thread", 100, None);
+    let new = fixture.session(&workspace, "Newer thread", 200, None);
 
-    let found = f.search("vulkan swapchain", "C:/work/app");
+    let first = fixture.text(&old, "the vulkan swapchain resize path");
+    fixture.text(&new, "unrelated");
+    let match_new = fixture.text(&new, "checking the Vulkan swapchain again");
+
+    let found = fixture.search("vulkan swapchain", "C:/work/app");
     assert_eq!(found.len(), 2);
     assert_eq!(
         (found[0].session_id.as_str(), found[0].message_id.as_str()),
@@ -120,22 +126,27 @@ fn finds_the_newest_session_per_match_and_reports_the_matching_message() {
 
 #[test]
 fn scopes_to_one_workspace_regardless_of_slash_direction_or_case_and_skips_removed_ones() {
-    let f = Fixture::new();
-    let here = f.workspace("C:\\Work\\App\\");
-    let elsewhere = f.workspace("D:\\other");
-    let gone = f.workspace("E:\\gone");
+    let fixture = Fixture::new();
+    let here = fixture.workspace("C:\\Work\\App\\");
+    let elsewhere = fixture.workspace("D:\\other");
+    let gone = fixture.workspace("E:\\gone");
+
     for (workspace, title) in [(&here, "Here"), (&elsewhere, "Elsewhere"), (&gone, "Gone")] {
-        let session = f.session(workspace, title, 100, None);
-        f.text(&session, "shared keyword");
+        let session = fixture.session(workspace, title, 100, None);
+        fixture.text(&session, "shared keyword");
     }
-    f.store
+
+    fixture
+        .store
         .lock()
         .execute("UPDATE workspace SET removed_at = 1 WHERE id = ?1", [&gone])
         .unwrap();
 
-    let scoped = f.search("shared keyword", "c:/work/app");
-    assert_eq!(scoped.iter().map(|m| m.title.as_str()).collect::<Vec<_>>(), ["Here"]);
-    let everywhere = f.search("shared keyword", "");
+    let scoped = fixture.search("shared keyword", "c:/work/app");
+    let titles: Vec<_> = scoped.iter().map(|session| session.title.as_str()).collect();
+    assert_eq!(titles, ["Here"]);
+
+    let everywhere = fixture.search("shared keyword", "");
     assert_eq!(
         everywhere.len(),
         2,
@@ -145,11 +156,12 @@ fn scopes_to_one_workspace_regardless_of_slash_direction_or_case_and_skips_remov
 
 #[test]
 fn ignores_subagent_sessions_and_parts_without_readable_text() {
-    let f = Fixture::new();
-    let ws = f.workspace("C:\\work");
-    let parent = f.session(&ws, "Parent", 100, None);
-    let child = f.session(&ws, "Child", 150, Some(&parent));
-    f.text(&child, "delegated finding");
+    let fixture = Fixture::new();
+    let workspace = fixture.workspace("C:\\work");
+    let parent = fixture.session(&workspace, "Parent", 100, None);
+    let child = fixture.session(&workspace, "Child", 150, Some(&parent));
+    fixture.text(&child, "delegated finding");
+
     let call = Part::ToolCall {
         call_id: "c".into(),
         name: "grep".into(),
@@ -161,13 +173,13 @@ fn ignores_subagent_sessions_and_parts_without_readable_text() {
         started_at: None,
         finished_at: None,
     };
-    f.said(&parent, call);
+    fixture.said(&parent, call);
     assert!(
-        f.search("delegated finding", "C:/work").is_empty(),
+        fixture.search("delegated finding", "C:/work").is_empty(),
         "a tool's arguments are not the conversation"
     );
 
-    let reasoned = f.said(
+    let reasoned = fixture.said(
         &parent,
         Part::Reasoning {
             text: "the delegated finding held up".into(),
@@ -175,20 +187,20 @@ fn ignores_subagent_sessions_and_parts_without_readable_text() {
             redacted: None,
         },
     );
-    let found = f.search("delegated finding", "C:/work");
+    let found = fixture.search("delegated finding", "C:/work");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].message_id, reasoned);
 }
 
 #[test]
 fn spawned_threads_are_searched_like_any_conversation() {
-    let f = Fixture::new();
-    let ws = f.workspace("C:/work");
-    let source = f.session(&ws, "Source", 100, None);
-    let thread = f
+    let fixture = Fixture::new();
+    let workspace = fixture.workspace("C:/work");
+    let source = fixture.session(&workspace, "Source", 100, None);
+    let thread = fixture
         .store
         .create_session(NewSession {
-            workspace_id: &ws,
+            workspace_id: &workspace,
             parent_id: Some(&source),
             visibility: Visibility::Sibling,
             title: "Thread",
@@ -196,32 +208,33 @@ fn spawned_threads_are_searched_like_any_conversation() {
             model: None,
         })
         .unwrap();
-    f.text(&thread.id, "branch topic");
-    assert_eq!(f.search("branch topic", "C:/work")[0].session_id, thread.id);
+    fixture.text(&thread.id, "branch topic");
+
+    assert_eq!(fixture.search("branch topic", "C:/work")[0].session_id, thread.id);
 }
 
 #[test]
 fn treats_wildcards_as_literal_text() {
-    let f = Fixture::new();
-    let ws = f.workspace("C:\\work");
-    let session = f.session(&ws, "Literal", 100, None);
-    f.text(&session, "progress was 50% done");
-    f.text(&session, "nothing relevant");
+    let fixture = Fixture::new();
+    let workspace = fixture.workspace("C:\\work");
+    let session = fixture.session(&workspace, "Literal", 100, None);
+    fixture.text(&session, "progress was 50% done");
+    fixture.text(&session, "nothing relevant");
 
-    assert_eq!(f.search("50%", "C:/work").len(), 1);
-    assert!(f.search("%%", "C:/work").is_empty());
-    assert!(f.search("_o", "C:/work").is_empty());
+    assert_eq!(fixture.search("50%", "C:/work").len(), 1);
+    assert!(fixture.search("%%", "C:/work").is_empty());
+    assert!(fixture.search("_o", "C:/work").is_empty());
 }
 
 #[test]
 fn requires_a_meaningful_query() {
-    let f = Fixture::new();
-    let ws = f.workspace("C:\\work");
-    let session = f.session(&ws, "Short", 100, None);
-    f.text(&session, "a b c");
+    let fixture = Fixture::new();
+    let workspace = fixture.workspace("C:\\work");
+    let session = fixture.session(&workspace, "Short", 100, None);
+    fixture.text(&session, "a b c");
 
-    assert!(f.search("", "C:/work").is_empty());
-    assert!(f.search(" a ", "C:/work").is_empty());
+    assert!(fixture.search("", "C:/work").is_empty());
+    assert!(fixture.search(" a ", "C:/work").is_empty());
 }
 
 #[test]

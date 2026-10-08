@@ -1,11 +1,6 @@
-//! What Drift keeps on disk, and room to give some back.
-//!
-//! The engine stores transcripts in `drift.db` beside two folders: its undo history (a shadow git
-//! repository per workspace) and spooled shell output. It already cleans all three every few hours
-//! (`Engine::clean_up`), so this screen reports sizes, runs that cleanup on request, and compacts.
-//!
-//! Row counts and file sizes are instant, but summing payload lengths over a large `part` table is
-//! not, so table sizes are estimated from a stratified sample.
+//! Reports space used by drift.db, per-workspace shadow-git undo history, and spooled shell output.
+//! Runs cleanup and compaction; the engine also cleans these stores every few hours through Engine::clean_up.
+//! Uses row counts and file sizes directly; payload sizes are estimated from stratified samples to avoid full scans.
 
 use crate::store::Store;
 use rusqlite::{Connection, OpenFlags};
@@ -66,7 +61,7 @@ pub(crate) struct StorageStats {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PruneResult {
-    /// Images nothing referred to any more.
+    /// Count of removed images that were no longer referenced.
     pub removed_rows: i64,
     /// How much smaller the database and the engine's folders are now.
     pub freed_bytes: i64,
@@ -118,30 +113,35 @@ fn open(database: &Path, read_only: bool) -> Result<Connection, StorageError> {
     } else {
         OpenFlags::SQLITE_OPEN_READ_WRITE
     };
-    let conn = Connection::open_with_flags(database, flags)?;
-    conn.busy_timeout(BUSY_TIMEOUT)?;
+    let connection = Connection::open_with_flags(database, flags)?;
+    connection.busy_timeout(BUSY_TIMEOUT)?;
 
-    Ok(conn)
+    Ok(connection)
 }
 
-fn scalar(conn: &Connection, sql: &str) -> Result<i64, StorageError> {
-    let value = conn.query_row(sql, [], |row| row.get::<_, Option<i64>>(0))?;
+fn scalar(connection: &Connection, sql: &str) -> Result<i64, StorageError> {
+    let value = connection.query_row(sql, [], |row| row.get::<_, Option<i64>>(0))?;
     Ok(value.unwrap_or(0))
 }
 
-fn free_bytes(conn: &Connection) -> Result<i64, StorageError> {
-    Ok(scalar(conn, "PRAGMA freelist_count")? * scalar(conn, "PRAGMA page_size")?)
+fn free_bytes(connection: &Connection) -> Result<i64, StorageError> {
+    let pages = scalar(connection, "PRAGMA freelist_count")?;
+    let page_size = scalar(connection, "PRAGMA page_size")?;
+
+    Ok(pages * page_size)
 }
 
 /// Mean payload size for a column, sampled from evenly spaced windows of the table.
-fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f64, StorageError> {
-    let max_rowid = scalar(conn, &format!("SELECT MAX(rowid) FROM \"{table}\""))?;
+fn sampled_mean_bytes(connection: &Connection, table: &str, column: &str) -> Result<f64, StorageError> {
+    let max_rowid = scalar(connection, &format!("SELECT MAX(rowid) FROM \"{table}\""))?;
     if max_rowid == 0 {
         return Ok(0.0);
     }
+
     let stride = (max_rowid / SAMPLE_STRATA).max(1);
     let mut total = 0i64;
     let mut rows = 0i64;
+
     for stratum in 0..SAMPLE_STRATA {
         let sql = format!(
             "SELECT COALESCE(SUM(LENGTH(CAST(\"{column}\" AS BLOB))), 0), COUNT(*) FROM (
@@ -149,17 +149,18 @@ fn sampled_mean_bytes(conn: &Connection, table: &str, column: &str) -> Result<f6
              )"
         );
         let (bytes, counted): (i64, i64) =
-            conn.query_row(&sql, (stratum * stride, SAMPLE_ROWS_PER_STRATUM), |row| {
+            connection.query_row(&sql, (stratum * stride, SAMPLE_ROWS_PER_STRATUM), |row| {
                 Ok((row.get(0)?, row.get(1)?))
             })?;
         total += bytes;
         rows += counted;
     }
+
     Ok(if rows == 0 { 0.0 } else { total as f64 / rows as f64 })
 }
 
 /// A conversation counts as archived when the engine marks it or Drift's archive list names it.
-fn session_counts(conn: &Connection, archived: &[String]) -> Result<SessionCounts, StorageError> {
+fn session_counts(connection: &Connection, archived: &[String]) -> Result<SessionCounts, StorageError> {
     let listed = quote_list(archived);
     let extra = if listed.is_empty() {
         String::new()
@@ -167,11 +168,11 @@ fn session_counts(conn: &Connection, archived: &[String]) -> Result<SessionCount
         format!(" OR id IN ({listed})")
     };
     Ok(SessionCounts {
-        total: scalar(conn, "SELECT COUNT(*) FROM session")?,
-        top_level: scalar(conn, "SELECT COUNT(*) FROM session WHERE visibility = 'sibling'")?,
-        subagent: scalar(conn, "SELECT COUNT(*) FROM session WHERE visibility = 'hidden'")?,
+        total: scalar(connection, "SELECT COUNT(*) FROM session")?,
+        top_level: scalar(connection, "SELECT COUNT(*) FROM session WHERE visibility = 'sibling'")?,
+        subagent: scalar(connection, "SELECT COUNT(*) FROM session WHERE visibility = 'hidden'")?,
         archived: scalar(
-            conn,
+            connection,
             &format!("SELECT COUNT(*) FROM session WHERE archived_at IS NOT NULL{extra}"),
         )?,
     })
@@ -180,24 +181,29 @@ fn session_counts(conn: &Connection, archived: &[String]) -> Result<SessionCount
 /// Renders ids as a SQL list; anything that is not a plain identifier is dropped, so nothing can be injected.
 fn quote_list(ids: &[String]) -> String {
     ids.iter()
-        .filter(|id| id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        .filter(|id| {
+            id.chars()
+                .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+        })
         .map(|id| format!("'{id}'"))
         .collect::<Vec<_>>()
         .join(",")
 }
 
 pub(crate) fn stats(location: &Location, archived: &[String]) -> Result<StorageStats, StorageError> {
-    let conn = open(&location.database(), true)?;
+    let connection = open(&location.database(), true)?;
     let mut tables = Vec::new();
+
     for (table, column) in PAYLOAD_TABLES {
-        let rows = scalar(&conn, &format!("SELECT COUNT(*) FROM \"{table}\""))?;
-        let mean = sampled_mean_bytes(&conn, table, column)?;
+        let rows = scalar(&connection, &format!("SELECT COUNT(*) FROM \"{table}\""))?;
+        let mean = sampled_mean_bytes(&connection, table, column)?;
         tables.push(TableUsage {
             table: table.into(),
             rows,
             bytes: (rows as f64 * mean) as i64,
         });
     }
+
     for (name, folder) in FOLDERS {
         tables.push(TableUsage {
             table: name.into(),
@@ -205,23 +211,25 @@ pub(crate) fn stats(location: &Location, archived: &[String]) -> Result<StorageS
             bytes: folder_bytes(&location.data_dir.join(folder)),
         });
     }
+
     Ok(StorageStats {
         path: location.database().to_string_lossy().into_owned(),
         total_bytes: location.total_bytes(),
-        free_bytes: free_bytes(&conn)?,
+        free_bytes: free_bytes(&connection)?,
         tables,
-        sessions: session_counts(&conn, archived)?,
+        sessions: session_counts(&connection, archived)?,
         estimated: true,
     })
 }
 
-/// What a cleanup took away, measured around it.
+/// Cleanup counts and byte changes measured before and after engine housekeeping.
 pub(crate) fn cleaned(location: &Location, before: i64, images: usize) -> Result<PruneResult, StorageError> {
-    let conn = open(&location.database(), true)?;
+    let connection = open(&location.database(), true)?;
+
     Ok(PruneResult {
         removed_rows: images as i64,
         freed_bytes: (before - location.total_bytes()).max(0),
-        free_bytes: free_bytes(&conn)?,
+        free_bytes: free_bytes(&connection)?,
     })
 }
 
@@ -229,18 +237,20 @@ pub(crate) fn total_bytes(location: &Location) -> i64 {
     location.total_bytes()
 }
 
-/// Rewrites the database to give its free pages back to the disk. The caller refuses while a
-/// conversation runs: the rewrite holds the database for its whole length.
+/// Rewrites the database to return free pages to disk.
+/// The caller refuses during a conversation because the rewrite holds the database for its whole duration.
 pub(crate) fn compact(location: &Location) -> Result<PruneResult, StorageError> {
     let before = location.total_bytes();
-    let conn = open(&location.database(), false)?;
-    conn.execute_batch("VACUUM").map_err(StorageError::Compact)?;
-    // The rewrite went through the log; folding it back is what makes the file smaller on disk.
-    let _ = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+    let connection = open(&location.database(), false)?;
+    connection.execute_batch("VACUUM").map_err(StorageError::Compact)?;
+
+    // Checkpoint the VACUUM writes so the database file releases its unused pages on disk.
+    let _ = connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()));
+
     Ok(PruneResult {
         removed_rows: 0,
         freed_bytes: (before - location.total_bytes()).max(0),
-        free_bytes: free_bytes(&conn)?,
+        free_bytes: free_bytes(&connection)?,
     })
 }
 

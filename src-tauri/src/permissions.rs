@@ -39,9 +39,11 @@ pub(crate) fn permission_decision(
     let Ok(request) = url::Url::parse(uri) else {
         return PermissionDecision::Default;
     };
+
     let own_origin = app_origins
         .iter()
         .any(|origin| url::Url::parse(origin).is_ok_and(|app| request.origin() == app.origin()));
+
     if own_origin && kind == WebPermissionKind::Microphone && consent {
         PermissionDecision::Allow
     } else {
@@ -62,12 +64,14 @@ pub(crate) fn voice_dictation_set_enabled(
         consent.set(false);
         store.save_dictation_enabled(false).map_err(|error| error.to_string())?;
     }
+
     Ok(())
 }
 
 #[cfg(windows)]
 pub(crate) fn install(app: &tauri::App) -> tauri::Result<()> {
     let consent = app.state::<DictationConsent>().inner().clone();
+
     for window in app.webview_windows().values() {
         let consent = consent.clone();
         window.with_webview(move |platform| {
@@ -77,6 +81,7 @@ pub(crate) fn install(app: &tauri::App) -> tauri::Result<()> {
             }
         })?;
     }
+
     Ok(())
 }
 
@@ -98,11 +103,13 @@ fn attach_webview2_handler(
         let webview = platform.controller().CoreWebView2()?;
         let handler = PermissionRequestedEventHandler::create(Box::new(move |_, args| {
             let Some(args) = args else { return Ok(()) };
+
             let mut kind = COREWEBVIEW2_PERMISSION_KIND::default();
             args.PermissionKind(&mut kind)?;
             let mut uri = PWSTR::null();
             args.Uri(&mut uri)?;
             let uri = take_pwstr(uri);
+
             let kind = if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE {
                 WebPermissionKind::Microphone
             } else {
@@ -111,6 +118,7 @@ fn attach_webview2_handler(
             if permission_decision(&uri, kind, consent.enabled(), app_origins()) == PermissionDecision::Allow {
                 args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
             }
+
             Ok(())
         }));
         let mut token = 0;
@@ -146,6 +154,7 @@ mod tests {
             ),
             PermissionDecision::Allow
         );
+
         for (uri, kind, consent) in [
             ("http://tauri.localhost", WebPermissionKind::Microphone, false),
             ("https://example.com", WebPermissionKind::Microphone, true),

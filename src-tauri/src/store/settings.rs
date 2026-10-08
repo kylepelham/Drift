@@ -136,6 +136,7 @@ impl Store {
         let rows = statement.query_map([], |row| {
             let value: String = row.get(1)?;
             let original: Option<String> = row.get(2)?;
+            let key = row.get(0)?;
             let value = serde_json::from_str(&value)
                 .map_err(|error| rusqlite::Error::FromSqlConversionFailure(1, Type::Text, Box::new(error)))?;
             let original = original
@@ -146,7 +147,7 @@ impl Store {
                 .transpose()?;
 
             Ok(PromptOverride {
-                key: row.get(0)?,
+                key,
                 value,
                 original,
                 updated_at: row.get(3)?,

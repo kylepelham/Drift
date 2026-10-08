@@ -52,3 +52,21 @@ fn read_config(root: &Path, path: &str) -> Result<Option<String>, ConfigError> {
 
     Ok(Some(std::fs::read_to_string(requested)?))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigError;
+
+    #[test]
+    fn config_errors_keep_the_command_boundary_text() {
+        let cases = [
+            (ConfigError::NotRelative, "config path must be relative"),
+            (ConfigError::OutsideRoot, "config path escapes Drift's config directory"),
+            (ConfigError::TooLarge, "config file exceeds 1 MiB"),
+        ];
+
+        for (error, message) in cases {
+            assert_eq!(error.to_string(), message);
+        }
+    }
+}

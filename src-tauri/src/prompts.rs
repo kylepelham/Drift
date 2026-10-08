@@ -1,5 +1,5 @@
-//! Agent overrides from Settings > Agents (`agent:<name>`): kept in Drift's store and handed to the
-//! engine, which applies them from each agent's next turn. Base prompts are the engine's (`/prompts`).
+//! Settings agent:<name> overrides are stored in Drift and applied by the engine from each agent's next turn.
+//! Base prompts remain owned by the engine's /prompts route.
 
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -10,7 +10,7 @@ use crate::store::{PromptOverride, Store};
 const MAX_OVERRIDES: usize = 128;
 const MAX_OVERRIDE_BYTES: usize = 256 * 1024;
 const MAX_AGENT_NAME_CHARS: usize = 128;
-/// What the engine applies from an agent override (`AgentOverride`); a field it would ignore is refused, not stored.
+/// Fields applied by AgentOverride; fields the engine would ignore are rejected instead of stored.
 const AGENT_FIELDS: [&str; 6] = ["prompt", "model", "steps", "tools", "permissions", "variant"];
 
 #[derive(Debug, thiserror::Error)]
@@ -64,9 +64,11 @@ pub(crate) fn prompt_save(
     if overrides.len() >= MAX_OVERRIDES && !overrides.iter().any(|item| item.key == key) {
         return Err(format!("Drift keeps at most {MAX_OVERRIDES} agent overrides"));
     }
+
     store
         .save_prompt_override(&key, &value, original.as_ref())
         .map_err(|error| error.to_string())?;
+
     crate::native::push_agent_overrides(&app, &store).map_err(|error| error.to_string())
 }
 
@@ -84,7 +86,7 @@ fn agent_name(key: &str) -> Result<&str, PromptError> {
                 && name.chars().count() <= MAX_AGENT_NAME_CHARS
                 && name
                     .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                    .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.'))
         })
         .ok_or(PromptError::InvalidKey)
 }
@@ -111,12 +113,14 @@ fn fields(agent: &Map<String, Value>) -> Result<(), PromptError> {
     {
         return Err(PromptError::NotText(field));
     }
+
     if agent
         .get("steps")
         .is_some_and(|value| !matches!(value.as_u64(), Some(steps) if steps > 0 && steps <= u64::from(u32::MAX)))
     {
         return Err(PromptError::InvalidSteps);
     }
+
     if agent.get("tools").is_some_and(|tools| {
         tools
             .as_array()
@@ -124,6 +128,7 @@ fn fields(agent: &Map<String, Value>) -> Result<(), PromptError> {
     }) {
         return Err(PromptError::InvalidTools);
     }
+
     if let Some(permissions) = agent.get("permissions") {
         serde_json::from_value::<Vec<drift_engine::permission::Rule>>(permissions.clone())
             .map_err(|_| PromptError::InvalidPermissions)?;

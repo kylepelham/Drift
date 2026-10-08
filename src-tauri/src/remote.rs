@@ -317,7 +317,8 @@ async fn invoke_rpc(
     let result = tokio::select! {
         changed = auth.changed() => {
             let _ = changed;
-            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "remote access credentials changed" }))).into_response();
+            let error = Json(json!({ "error": "remote access credentials changed" }));
+            return (StatusCode::UNAUTHORIZED, error).into_response();
         }
         result = dispatch_rpc(&app, &request.command, &request.args) => result,
     };

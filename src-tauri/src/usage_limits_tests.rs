@@ -7,7 +7,7 @@ fn windows(source: Source, body: Value) -> Vec<(WindowKind, Option<String>, f64,
     parse(source, &body, NOW)
         .windows
         .into_iter()
-        .map(|w| (w.kind, w.label, w.used_percent, w.resets_at))
+        .map(|window| (window.kind, window.label, window.used_percent, window.resets_at))
         .collect()
 }
 
@@ -33,22 +33,27 @@ fn subscription_endpoints_require_the_matching_credential_kind() {
         enterprise: false,
     };
     let api = Credential::Api { key: "key".into() };
+
     assert!(
         request(Source::Anthropic, &api).is_none(),
         "an Anthropic API key has no plan windows"
     );
     assert!(request(Source::Zai("u"), &oauth).is_none());
+
     let codex = request(Source::Codex, &oauth).unwrap();
     assert!(codex.headers.contains(&("ChatGPT-Account-Id", "acct".into())));
     assert!(codex.headers.contains(&("Authorization", "Bearer tok".into())));
+
     let anthropic = request(Source::Anthropic, &oauth).unwrap();
     assert!(
         anthropic
             .headers
             .contains(&("anthropic-beta", "oauth-2025-04-20".into()))
     );
+
     let copilot = request(Source::Copilot, &oauth).unwrap();
     assert!(copilot.headers.contains(&("Authorization", "token tok".into())));
+
     let enterprise = Credential::OAuth {
         access: "tok".into(),
         expires: 0,
@@ -98,8 +103,14 @@ fn anthropic_prefers_the_limits_list_and_keeps_only_active_model_caps() {
         "five_hour": { "utilization": 4.0, "resets_at": "2026-09-28T21:10:00.009134+00:00" },
         "seven_day": { "utilization": 15.0, "resets_at": "2026-10-03T19:00:00.009160+00:00" },
         "limits": [
-            { "kind": "session", "group": "session", "percent": 4, "resets_at": "2026-09-28T21:10:00.009134+00:00", "scope": null },
-            { "kind": "weekly_all", "group": "weekly", "percent": 15, "resets_at": "2026-10-03T19:00:00.009160+00:00", "scope": null },
+            {
+                "kind": "session", "group": "session", "percent": 4,
+                "resets_at": "2026-09-28T21:10:00.009134+00:00", "scope": null
+            },
+            {
+                "kind": "weekly_all", "group": "weekly", "percent": 15,
+                "resets_at": "2026-10-03T19:00:00.009160+00:00", "scope": null
+            },
             { "kind": "weekly_scoped", "group": "weekly", "percent": 0, "resets_at": "2026-10-03T19:00:00+00:00",
               "scope": { "model": { "id": null, "display_name": "Fable" } } },
             { "kind": "weekly_scoped", "group": "weekly", "percent": 40, "resets_at": "2026-10-03T19:00:00+00:00",
@@ -136,7 +147,10 @@ fn codex_classifies_windows_by_duration_not_position() {
     let body = json!({
         "plan_type": "prolite",
         "rate_limit": {
-            "primary_window": { "used_percent": 1, "limit_window_seconds": 604800, "reset_after_seconds": 602897, "reset_at": 1791217619 },
+            "primary_window": {
+                "used_percent": 1, "limit_window_seconds": 604800,
+                "reset_after_seconds": 602897, "reset_at": 1791217619
+            },
             "secondary_window": null
         }
     });
@@ -150,14 +164,20 @@ fn codex_classifies_windows_by_duration_not_position() {
         "primary_window": { "used_percent": 91, "limit_window_seconds": 18000, "reset_at": 1790617740 },
         "secondary_window": { "used_percent": 100, "limit_window_seconds": 604800, "reset_at": 1791000000 }
     } });
-    let kinds: Vec<_> = windows(Source::Codex, both).into_iter().map(|w| w.0).collect();
+    let kinds: Vec<_> = windows(Source::Codex, both)
+        .into_iter()
+        .map(|window| window.0)
+        .collect();
     assert_eq!(kinds, vec![WindowKind::Session, WindowKind::Weekly]);
 }
 
 #[test]
 fn zai_reads_token_windows_and_skips_the_tool_quota() {
     let body = json!({ "code": 200, "data": { "level": "max", "limits": [
-        { "type": "TIME_LIMIT", "unit": 5, "number": 1, "usage": 4000, "percentage": 0, "nextResetTime": 1791122979999u64 },
+        {
+            "type": "TIME_LIMIT", "unit": 5, "number": 1,
+            "usage": 4000, "percentage": 0, "nextResetTime": 1791122979999u64
+        },
         { "type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 12 },
         { "type": "TOKENS_LIMIT", "unit": 6, "number": 1, "percentage": 30, "nextResetTime": 1791036579998u64 }
     ] }, "success": true });
@@ -193,7 +213,9 @@ fn grok_prefers_the_reported_percent_and_the_current_period() {
     let body = json!({ "config": {
         "creditUsagePercent": 12.5,
         "subscriptionTier": "SuperGrok",
-        "currentPeriod": { "type": "USAGE_PERIOD_TYPE_WEEKLY", "start": "2026-08-06T00:00:00Z", "end": "2026-08-13T00:00:00Z" },
+        "currentPeriod": {
+            "type": "USAGE_PERIOD_TYPE_WEEKLY", "start": "2026-08-06T00:00:00Z", "end": "2026-08-13T00:00:00Z"
+        },
         "billingPeriodEnd": "2026-09-01T00:00:00Z",
         "onDemandCap": { "val": 1000 },
         "onDemandUsed": { "val": 250 }

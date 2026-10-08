@@ -15,6 +15,7 @@ fn password_hashes_verify_only_the_original_password() {
     assert!(hash.starts_with("pbkdf2-sha256$1000$"));
     assert!(verify_password("correct horse", &hash));
     assert!(!verify_password("correct horsf", &hash));
+
     for malformed in [
         "",
         "pbkdf2-sha256$0$AA$AA",
@@ -24,12 +25,14 @@ fn password_hashes_verify_only_the_original_password() {
     ] {
         assert!(!verify_password("correct horse", malformed), "{malformed}");
     }
+
     let vector = hash_password("passwd", b"salt", 1);
     let key = STANDARD_NO_PAD.decode(vector.rsplit('$').next().unwrap()).unwrap();
     let mut hex = String::with_capacity(key.len() * 2);
     for byte in key {
         write!(hex, "{byte:02x}").unwrap();
     }
+
     assert_eq!(hex, "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc");
     assert_ne!(new_password_hash("same"), new_password_hash("same"));
 }
@@ -40,6 +43,26 @@ fn credentials_have_sane_bounds() {
     assert!(validate_credentials("  ", "longenough").is_err());
     assert!(validate_credentials(&"u".repeat(65), "longenough").is_err());
     assert!(validate_credentials("kyle", "short").is_err());
+}
+
+#[test]
+fn auth_errors_keep_the_command_boundary_text() {
+    let cases = [
+        (AuthError::InvalidUsername, "Username must be 1 to 64 characters."),
+        (AuthError::InvalidPassword, "Password must be 8 to 256 characters."),
+        (
+            AuthError::UnknownCode,
+            "No device is waiting with that code. Codes expire after 10 minutes.",
+        ),
+        (
+            AuthError::TooManyLinks,
+            "Too many devices are waiting to link. Try again in a few minutes.",
+        ),
+    ];
+
+    for (error, message) in cases {
+        assert_eq!(error.to_string(), message);
+    }
 }
 
 #[test]
@@ -58,16 +81,19 @@ fn a_device_links_only_after_its_code_is_entered_on_the_desktop() {
     let (store, directory) = store();
     let mut auth = Auth::load(&store).unwrap();
     let (handle, code) = auth.request_link(address(20), "Android Chrome".into()).unwrap();
+
     let pending = auth.pending();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].name, "Android Chrome");
     assert!(!serde_json::to_string(&pending).unwrap().contains(&code));
     assert!(matches!(auth.poll(&handle, &store).unwrap(), Poll::Pending));
     assert!(auth.approve("WRONG123").is_err());
+
     let typed = format!("{}-{}", code[..4].to_lowercase(), &code[4..]);
     assert_eq!(auth.approve(&typed).unwrap(), "Android Chrome");
     assert!(auth.approve(&code).is_err(), "a code approves once");
     assert!(auth.pending().is_empty());
+
     let Poll::Approved(token) = auth.poll(&handle, &store).unwrap() else {
         panic!("expected approval")
     };
@@ -75,6 +101,7 @@ fn a_device_links_only_after_its_code_is_entered_on_the_desktop() {
         matches!(auth.poll(&handle, &store).unwrap(), Poll::Expired),
         "the token is delivered once"
     );
+
     let device = auth.device(&token, &store).unwrap();
     assert_eq!(
         (device.name.as_str(), device.method.as_str()),
@@ -97,6 +124,7 @@ fn assert_device_persisted_without_token(store: &Store, device: &RemoteDevice) {
 fn link_requests_expire_and_are_capped_per_address() {
     let (store, directory) = store();
     let mut auth = Auth::load(&store).unwrap();
+
     for _ in 0..MAX_LINKS_PER_ADDRESS {
         auth.request_link(address(30), "Phone".into()).unwrap();
     }
@@ -106,6 +134,7 @@ fn link_requests_expire_and_are_capped_per_address() {
     assert!(auth.links.is_empty());
     assert!(auth.approve(&code).is_err());
     assert!(matches!(auth.poll(&handle, &store).unwrap(), Poll::Expired));
+
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -117,12 +146,15 @@ fn revoking_signs_out_one_device_or_all() {
     let first = auth.create_device("One".into(), "link", &store).unwrap();
     let second = auth.create_device("Two".into(), "link", &store).unwrap();
     let id = auth.device(&first, &store).unwrap().id;
+
     auth.revoke(Some(&id), &store).unwrap();
     assert!(auth.device(&first, &store).is_none());
     assert!(auth.device(&second, &store).is_some());
+
     auth.revoke(None, &store).unwrap();
     assert!(auth.devices().is_empty());
     assert!(Auth::load(&store).unwrap().devices().is_empty());
+
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -136,10 +168,12 @@ fn changing_the_password_signs_out_only_password_sessions() {
     let linked = auth.create_device("Linked".into(), "link", &store).unwrap();
     let signed_in = auth.create_device("Signed in".into(), "password", &store).unwrap();
     assert_eq!(Auth::load(&store).unwrap().password_username().as_deref(), Some("kyle"));
+
     auth.set_password(None, &store).unwrap();
     assert!(auth.device(&linked, &store).is_some());
     assert!(auth.device(&signed_in, &store).is_none());
     assert!(Auth::load(&store).unwrap().password_username().is_none());
+
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -152,17 +186,20 @@ fn a_password_verified_before_a_change_is_no_longer_current() {
         .unwrap();
     let verified = auth.password.clone().unwrap();
     assert!(auth.password_is_current(&verified));
+
     auth.set_password(Some(("kyle".into(), hash_password("second-pass", b"salt", 1))), &store)
         .unwrap();
     assert!(
         !auth.password_is_current(&verified),
         "a rotated password rejects the in-flight check"
     );
+
     auth.set_password(None, &store).unwrap();
     assert!(
         !auth.password_is_current(&verified),
         "turning sign-in off rejects it too"
     );
+
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -172,10 +209,12 @@ fn repeated_failures_lock_an_address_with_growing_delays() {
     let (store, directory) = store();
     let mut auth = Auth::load(&store).unwrap();
     let now = Instant::now();
+
     for _ in 0..FREE_FAILURES - 1 {
         auth.fail(address(40), now);
     }
     assert!(auth.locked_for(address(40), now).is_none());
+
     auth.fail(address(40), now);
     let first = auth.locked_for(address(40), now).unwrap();
     auth.fail(address(40), now);
@@ -184,6 +223,7 @@ fn repeated_failures_lock_an_address_with_growing_delays() {
         auth.locked_for(address(41), now).is_none(),
         "other addresses are unaffected"
     );
+
     for _ in 0..20 {
         auth.fail(address(40), now);
     }
@@ -192,6 +232,7 @@ fn repeated_failures_lock_an_address_with_growing_delays() {
         auth.locked_for(address(40), now + MAX_LOCK + Duration::from_secs(1))
             .is_none()
     );
+
     drop(store);
     let _ = std::fs::remove_dir_all(directory);
 }
@@ -205,6 +246,7 @@ fn session_tokens_come_from_bearer_or_cookie_only() {
     assert_eq!(supplied_token(&headers), None);
     headers.insert(header::COOKIE, HeaderValue::from_static("theme=dark; drift_remote=xyz"));
     assert_eq!(supplied_token(&headers), Some("xyz"));
+
     let cookie = session_cookie("abc");
     let cookie = cookie.to_str().unwrap();
     for attribute in ["HttpOnly", "Secure", "SameSite=Strict", "Path=/", "Max-Age="] {
@@ -223,6 +265,7 @@ fn only_sign_in_routes_are_public() {
     ] {
         assert!(public_path(path), "{path}");
     }
+
     for path in [
         "/auth/logout",
         "/auth/me",

@@ -1,6 +1,6 @@
-//! Brings opencode's sign-ins, MCP servers, config, workspaces and conversations in on a background
-//! thread: at startup, and again whenever a workspace is added, since its directory may hold
-//! conversations an earlier run skipped. Each item comes in once (see `drift-migrate`).
+//! Imports opencode sign-ins, MCP servers, config, workspaces, and conversations on a background thread.
+//! Runs at startup and when a workspace is added so earlier skipped conversations can be retried.
+//! Each item is imported once through drift-migrate.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -17,18 +17,18 @@ use crate::store::Store;
 
 pub(crate) struct Importer {
     requests: mpsc::Sender<()>,
-    /// What the last run that brought anything in did, until the window takes it to show once.
+    /// The last import that brought anything in, retained until the window takes it to show once.
     summary: Arc<Mutex<Option<Summary>>>,
 }
 
 impl Importer {
-    /// Asks for another run; requests made while one runs fold into one more.
+    /// Requests another import; requests made during a run are combined into one later run.
     pub(crate) fn request(&self) {
         let _ = self.requests.send(());
     }
 }
 
-/// What a run brought in and left behind, shown to the user once.
+/// What an import brought in and left behind, shown to the user once.
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Summary {
@@ -68,14 +68,17 @@ pub(crate) fn start(app: &AppHandle) -> Importer {
     let (requests, received) = mpsc::channel();
     let summary = Arc::new(Mutex::new(None));
     let (app, kept) = (app.clone(), summary.clone());
+
     std::thread::spawn(move || {
         while received.recv().is_ok() {
             while received.try_recv().is_ok() {}
             run(&app, &kept);
         }
     });
+
     let importer = Importer { requests, summary };
     importer.request();
+
     importer
 }
 
@@ -87,9 +90,11 @@ pub(crate) fn opencode_import_summary(importer: State<Importer>) -> Option<Summa
 
 fn run(app: &AppHandle, kept: &Mutex<Option<Summary>>) {
     let Some(dir) = opencode_data_dir() else { return };
+
     let store = app.state::<Store>();
     let engine = app.state::<Native>().engine().clone();
     let mut summary = Summary::default();
+
     if let Some(report) = import_settings(&engine, &store, &dir) {
         summary.sign_ins = report.credentials;
         summary.servers = report.servers;
@@ -97,16 +102,18 @@ fn run(app: &AppHandle, kept: &Mutex<Option<Summary>>) {
         summary.files = report.files.len();
         summary.left_out = report.left_out;
     }
+
     for source in sources(&dir) {
         import_source(app, &engine, &store, &source, &mut summary);
     }
+
     if summary.worth_showing() {
         *kept.lock().unwrap() = Some(summary);
         let _ = app.emit("opencode-import-done", ());
     }
 }
 
-/// A folder opencode's own tests or tools made, never one a person works in.
+/// Whether a folder was made by opencode tests or tools rather than used as a workspace.
 fn scratch(directory: &str) -> bool {
     let path = directory.replace('\\', "/").to_lowercase();
     path.contains("/appdata/local/temp/") || path.starts_with("/tmp/")
@@ -120,12 +127,14 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
         }
         Err(error) => eprintln!("opencode import: workspaces from {}: {error}", source.display()),
     }
+
     let archived: HashSet<String> = store
         .archived()
         .map(|rows| rows.into_iter().map(|row| row.session_id).collect())
         .unwrap_or_default();
     let (mut done, mut total) = (0usize, 0usize);
-    // Each conversation is announced as it lands; the window shows how far the import has got.
+
+    // Report each imported conversation so the window can show progress before the run finishes.
     let mut announce = |step: drift_migrate::Progress| {
         match step {
             drift_migrate::Progress::Planned(count) => total = count,
@@ -140,10 +149,12 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
         }
         let _ = app.emit("opencode-import", serde_json::json!({ "done": done, "total": total }));
     };
+
     let mut history = match drift_migrate::History::new(&engine.snapshots) {
         Ok(history) => history,
         Err(error) => return eprintln!("opencode import: {error}"),
     };
+
     match drift_migrate::import_sessions(drift_migrate::SessionImport {
         store: &engine.store,
         source,
@@ -180,11 +191,12 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
     }
 }
 
-/// opencode's sign-ins, MCP servers (its own and those Drift's old manager kept) and global config.
+/// Imports opencode sign-ins, global config, and MCP servers from both opencode and Drift's old manager.
 fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Option<drift_migrate::SettingsReport> {
     let read = |path: PathBuf| read_text(&path).and_then(|text| serde_json::from_str::<Value>(&text).ok());
     let config_dir = opencode_config_dir();
     let config = config_dir.as_deref().and_then(read_config);
+
     let state = store.mcp_state().ok();
     let approved: HashSet<String> = state
         .iter()
@@ -192,11 +204,13 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
         .filter(|decision| decision.decision == "approved")
         .map(|decision| decision.fingerprint.clone())
         .collect();
+
     let server = |name: &str, definition: &Value| drift_migrate::OcServer {
         name: name.into(),
         definition: definition.clone(),
         approved: fingerprint(name, definition).is_some_and(|fingerprint| approved.contains(&fingerprint)),
     };
+
     let mut servers: Vec<drift_migrate::OcServer> = state
         .iter()
         .flat_map(|state| &state.servers)
@@ -210,6 +224,7 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
             .flatten()
             .map(|(name, definition)| server(name, definition)),
     );
+
     let settings = drift_migrate::Settings {
         auth: read(data_dir.join("auth.json")),
         config,
@@ -218,6 +233,7 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
     };
     let providers: Vec<String> = engine.catalog.read().unwrap().providers.keys().cloned().collect();
     let home = drift_engine::config::home()?;
+
     match drift_migrate::import_settings(&engine.store, &engine.credentials, &providers, &home, &settings) {
         Ok(report) => {
             if !report.credentials.is_empty() {
@@ -255,31 +271,34 @@ fn read_text(path: &Path) -> Option<String> {
         .map(|text| drift_engine::config::jsonc::strip(&text))
 }
 
-/// opencode's global config: `opencode.json`, else `opencode.jsonc`; a file that does not parse is passed over as a missing one is.
+/// Reads opencode.json, falling back to opencode.jsonc when the first file is missing or invalid.
 fn read_config(dir: &Path) -> Option<drift_migrate::OcConfig> {
     ["opencode.json", "opencode.jsonc"]
         .into_iter()
         .find_map(|name| read_text(&dir.join(name)).and_then(|text| drift_migrate::OcConfig::parse(&text)))
 }
 
-/// The fingerprint Drift's old MCP approval step recorded for a named definition (`enabled` aside):
-/// a server is imported switched on only when this matches an approval.
+/// Reproduces the old MCP manager's approval fingerprint for a named definition, excluding enabled.
+/// Only a matching approval lets the imported server start enabled.
 fn fingerprint(name: &str, definition: &Value) -> Option<String> {
     use sha2::Digest;
+
     let effective: serde_json::Map<String, Value> = definition
         .as_object()?
         .iter()
         .filter(|(key, _)| key.as_str() != "enabled")
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
+
     let serialized = canonical(&Value::Array(vec![
         Value::String(name.to_string()),
         Value::Object(effective),
     ]))?;
+
     Some(format!("sha256:{:x}", sha2::Sha256::digest(serialized.as_bytes())))
 }
 
-/// As the approval step serialized it: keys sorted by UTF-16 code unit, numbers as `JSON.stringify` writes them.
+/// Serializes values like the old approval step: UTF-16 key order and JSON.stringify number formatting.
 fn canonical(value: &Value) -> Option<String> {
     match value {
         Value::Null | Value::Bool(_) | Value::String(_) => serde_json::to_string(value).ok(),
@@ -297,10 +316,12 @@ fn canonical(value: &Value) -> Option<String> {
         Value::Object(entries) => {
             let mut sorted: Vec<(&String, &Value)> = entries.iter().collect();
             sorted.sort_by_key(|(key, _)| key.encode_utf16().collect::<Vec<_>>());
+
             let parts = sorted
                 .into_iter()
                 .map(|(key, item)| Some(format!("{}:{}", serde_json::to_string(key).ok()?, canonical(item)?)))
                 .collect::<Option<Vec<_>>>()?;
+
             Some(format!("{{{}}}", parts.join(",")))
         }
     }
@@ -345,13 +366,25 @@ mod tests {
 
     #[test]
     fn approvals_match_the_fingerprint_drifts_old_approval_step_recorded() {
-        let definition = serde_json::json!({ "type": "remote", "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer x" }, "enabled": true, "timeout": 30000 });
+        let definition = serde_json::json!({
+            "type": "remote",
+            "url": "https://example.com/mcp",
+            "headers": { "Authorization": "Bearer x" },
+            "enabled": true,
+            "timeout": 30000
+        });
         assert_eq!(
             fingerprint("docs", &definition).as_deref(),
             Some("sha256:933d9f99f6458ef8004d9f0e9b5fe8768211fe67a62e7baa87b08d8e9a5220dd"),
             "the vector the old plugin and locator shared"
         );
-        let disabled = serde_json::json!({ "type": "remote", "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer x" }, "enabled": false, "timeout": 30000.0 });
+        let disabled = serde_json::json!({
+            "type": "remote",
+            "url": "https://example.com/mcp",
+            "headers": { "Authorization": "Bearer x" },
+            "enabled": false,
+            "timeout": 30000.0
+        });
         assert_eq!(
             fingerprint("docs", &disabled),
             fingerprint("docs", &definition),

@@ -109,6 +109,7 @@ fn from_engine(credential: drift_engine::llm::Credential) -> Option<Credential> 
 /// Subscription windows exist only for subscription sign-ins; plain API keys have none to report.
 fn request(source: Source, credential: &Credential) -> Option<Request> {
     let json = ("Accept", "application/json".to_owned());
+
     match (source, credential) {
         (Source::Anthropic, Credential::OAuth { access, .. }) => Some(Request {
             url: "https://api.anthropic.com/api/oauth/usage",
@@ -171,6 +172,7 @@ fn parse(source: Source, body: &Value, now: i64) -> ProviderUsage {
         Source::Kimi => (None, kimi(body)),
         Source::Copilot => (text(body, "copilot_plan"), copilot(body)),
     };
+
     ProviderUsage {
         status: UsageStatus::Ok,
         plan,
@@ -198,7 +200,7 @@ fn window(kind: WindowKind, label: Option<String>, used: f64, resets_at: Option<
 fn kind_for_minutes(minutes: u64) -> WindowKind {
     match minutes {
         0..=DAY_MINUTES => WindowKind::Session,
-        m if m <= WEEK_MINUTES + DAY_MINUTES => WindowKind::Weekly,
+        minutes if minutes <= WEEK_MINUTES + DAY_MINUTES => WindowKind::Weekly,
         _ => WindowKind::Monthly,
     }
 }
@@ -212,12 +214,14 @@ fn timestamp(value: &Value) -> Option<i64> {
             (number * 1000.0) as i64
         });
     }
+
     let text = value.as_str()?;
     let full = if text.len() == 10 {
         format!("{text}T00:00:00Z")
     } else {
         text.to_owned()
     };
+
     let parsed = OffsetDateTime::parse(&full, &Rfc3339).ok()?;
     Some((parsed.unix_timestamp_nanos() / 1_000_000) as i64)
 }
@@ -232,6 +236,7 @@ fn anthropic(body: &Value) -> Vec<UsageWindow> {
     if !limits.is_empty() {
         return limits;
     }
+
     [("five_hour", WindowKind::Session), ("seven_day", WindowKind::Weekly)]
         .into_iter()
         .filter_map(|(key, kind)| {
@@ -250,6 +255,7 @@ fn anthropic(body: &Value) -> Vec<UsageWindow> {
 fn anthropic_limit(limit: &Value) -> Option<UsageWindow> {
     let percent = limit["percent"].as_f64()?;
     let resets_at = timestamp(&limit["resets_at"]);
+
     match limit["kind"].as_str()? {
         "session" => Some(window(WindowKind::Session, None, percent, resets_at)),
         "weekly_all" => Some(window(WindowKind::Weekly, None, percent, resets_at)),
@@ -342,12 +348,14 @@ fn grok(config: &Value) -> Vec<UsageWindow> {
     let Some(used) = direct.or(derived) else {
         return Vec::new();
     };
+
     let resets_at = timestamp(&config["currentPeriod"]["end"]).or_else(|| timestamp(&config["billingPeriodEnd"]));
     let kind = match config["currentPeriod"]["type"].as_str().unwrap_or_default() {
         period if period.contains("WEEKLY") => WindowKind::Weekly,
         period if period.contains("MONTHLY") => WindowKind::Monthly,
         _ => WindowKind::Period,
     };
+
     vec![window(kind, None, used, resets_at)]
 }
 
@@ -366,6 +374,7 @@ fn kimi(body: &Value) -> Vec<UsageWindow> {
         counted(&body["limits"][0]["detail"], WindowKind::Session).or_else(|| pool("limit_5h", WindowKind::Session));
     let weekly = counted(&body["usage"], WindowKind::Weekly).or_else(|| pool("limit_7d", WindowKind::Weekly));
     let monthly = pool("limit_month_total", WindowKind::Monthly);
+
     [session, weekly, monthly].into_iter().flatten().collect()
 }
 
@@ -378,6 +387,7 @@ fn counted(detail: &Value, kind: WindowKind) -> Option<UsageWindow> {
     let limit = number("limit").filter(|limit| *limit > 0.0)?;
     let used = number("used").or_else(|| Some(limit - number("remaining")?))?;
     let resets_at = first(detail, &["resetTime", "resetAt", "reset_time", "reset_at"]).and_then(timestamp);
+
     Some(window(kind, None, used / limit * 100.0, resets_at))
 }
 
@@ -414,6 +424,8 @@ fn client() -> Result<&'static reqwest::Client, reqwest::Error> {
     if let Some(client) = CLIENT.get() {
         return Ok(client);
     }
+
+    // Cache successful builds only so a failed initialization can be retried.
     let built = reqwest::Client::builder().timeout(REQUEST_TIMEOUT).build()?;
     Ok(CLIENT.get_or_init(|| built))
 }
@@ -445,6 +457,7 @@ pub(crate) async fn provider_usage(
     let Some(source) = source(&provider) else {
         return Ok(None);
     };
+
     let engine = native.engine().clone();
     if engine.credentials.get(&provider).is_none() {
         return Ok(None);
@@ -455,6 +468,7 @@ pub(crate) async fn provider_usage(
     let Some(request) = request(source, &credential) else {
         return Ok(None);
     };
+
     let mut builder = client()
         .map_err(|error| error.to_string())?
         .get(request.url)
@@ -462,15 +476,18 @@ pub(crate) async fn provider_usage(
     for (name, value) in request.headers {
         builder = builder.header(name, value);
     }
+
     let response = builder.send().await.map_err(|error| error.to_string())?;
     let code = response.status().as_u16();
     let body = response.bytes().await.map_err(|error| error.to_string())?;
+
     if !(200..300).contains(&code) {
         let text = String::from_utf8_lossy(&body);
         return failure_status(code, &text)
             .map(|status| Some(signed_out(status)))
             .ok_or(format!("usage request failed ({code})"));
     }
+
     let parsed: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
     Ok(Some(parse(source, &parsed, now_ms())))
 }
