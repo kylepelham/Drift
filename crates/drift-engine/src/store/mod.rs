@@ -1,9 +1,12 @@
 //! One SQLite database, one connection, one writer. Schema changes are numbered migrations.
 
+mod admission;
 mod blobs;
 mod import;
 mod mcp;
+mod messages;
 mod migrations;
+mod parts;
 mod reads;
 mod sessions;
 mod settings;
@@ -12,9 +15,10 @@ pub(crate) mod tasks;
 mod todos;
 mod tree;
 
+pub use admission::{Admission, Admit, Admitted, Handover, Pick};
 pub use import::ImportCheckpoints;
 pub use mcp::Renamed;
-pub use sessions::{Admission, Admit, Admitted, Handover, NewSession, Pick, Purge, SessionFilter};
+pub use sessions::{NewSession, Purge, SessionFilter};
 pub use staged::StagedReplacement;
 pub use tasks::{Launch, NewTask};
 
