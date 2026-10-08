@@ -166,18 +166,19 @@ test("a drop into an open dialog never stages into the composer behind it", asyn
 
     // Staging is gated on the drop target, while preventDefault stays unconditional so a stray
     // drop can never navigate the window to the file.
-    const source = await Bun.file("src/ui/composer.tsx").text();
+    const source = await Bun.file("src/ui/composer-drop.ts").text();
     expect(source).toContainCode("!dropStagesAttachment(event.target)");
     expect(source).toContainCode("event.preventDefault(); if (!ready()");
 });
 
 test("dropped OS files reach the same staging pipeline as the picker", async () => {
     const composer = await Bun.file("src/ui/composer.tsx").text();
-    expect(composer).toContainCode('window.addEventListener("dragenter", onDragEnter)');
-    expect(composer).toContainCode('window.addEventListener("drop", onDrop)');
-    expect(composer).toContainCode("void addFiles(dropped.files)");
+    const drop = await Bun.file("src/ui/composer-drop.ts").text();
+    expect(drop).toContainCode('window.addEventListener("dragenter", onDragEnter)');
+    expect(drop).toContainCode('window.addEventListener("drop", onDrop)');
+    expect(drop).toContainCode("void addFiles(dropped.files)");
     expect(composer).toContainCode("drift.composer.dropFiles");
-    expect(composer).toContainCode("drift.composer.folderUnsupported");
+    expect(drop).toContainCode("drift.composer.folderUnsupported");
     // Tauri must not intercept native drops, or WebView2 never fires HTML5 drop with DataTransfer files.
     const conf = JSON.parse(await Bun.file("src-tauri/tauri.conf.json").text());
     expect(conf.app.windows[0].dragDropEnabled).toBeFalse();
@@ -431,7 +432,7 @@ test("question drafts preserve single, multiple, and custom answers", async () =
 });
 
 test("queued questions retain focus while other requests arrive or reorder", async () => {
-    const { focusedQuestion } = await import("../src/ui/composer");
+    const { focusedQuestion } = await import("../src/ui/composer-attention");
     const question = (id: string) => ({ id }) as never;
     const first = question("q1");
     const second = question("q2");
@@ -442,7 +443,7 @@ test("queued questions retain focus while other requests arrive or reorder", asy
 
 test("composer attention cards share one stack without suppressing concurrent requests", async () => {
     const app = await Bun.file("src/app.tsx").text();
-    const composer = await Bun.file("src/ui/composer.tsx").text();
+    const composer = await Bun.file("src/ui/composer-attention.tsx").text();
     const attention = await Bun.file("src/ui/attention.tsx").text();
     const revert = await Bun.file("src/ui/revert-dock.tsx").text();
     const css = await Bun.file("src/styles/app.css").text();
@@ -582,7 +583,7 @@ test("question retry copy falls back to English in other languages", async () =>
 });
 
 test("queued async selection preserves request drafts and the ordinary composer draft", async () => {
-    const { focusedQuestion } = await import("../src/ui/composer");
+    const { focusedQuestion } = await import("../src/ui/composer-attention");
     const { clearQuestionDraft, questionDraftState, setQuestionDraftStep, updateQuestionDraft } =
         await import("../src/state/question-drafts");
     const { clearComposerDraft, composerDraft, composerScope, patchComposerDraft } =
@@ -623,14 +624,15 @@ test("queued async selection preserves request drafts and the ordinary composer 
 
 test("queued question UI routes answers by owner without conditionally mounting the composer", async () => {
     const source = await Bun.file("src/ui/composer.tsx").text();
-    expect(source).toContainCode("const questions = () => Object.values(engine.state.questions).flat()");
-    expect(source).toContainCode("const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID())");
-    expect(source).toMatch(
+    const attention = await Bun.file("src/ui/composer-attention.tsx").text();
+    expect(attention).toContainCode("const questions = () => Object.values(engine.state.questions).flat()");
+    expect(attention).toContainCode("const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID())");
+    expect(attention).toMatch(
         /<Show when=\{questions\(\)\.length > 1\}>\s*<label[^>]*>[\s\S]*?<select[\s\S]*?value=\{pendingQuestion\(\)\?\.id \?\? ""\}[\s\S]*?onChange=\{\(event\) => setFocusedQuestionID\(event\.currentTarget\.value\)\}[\s\S]*?<\/select>\s*<\/label>/,
     );
-    expect(source).toContainCode('request.async ? "" : `${t("drift.question.blocking")}: `');
-    expect(source).toContainCode("async={request().async}");
-    expect(source).toContainCode(
+    expect(attention).toContainCode('request.async ? "" : `${t("drift.question.blocking")}: `');
+    expect(attention).toContainCode("async={request().async}");
+    expect(attention).toContainCode(
         "onAnswer={(answers) => engine.actions.answerQuestion(request().sessionId, questionID, answers)}",
     );
     expect(source).toContainCode("const ready = () => online() && !!activeWorkspace()");

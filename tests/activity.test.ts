@@ -893,7 +893,7 @@ test("GPT-6 context meter retains catalog input headroom past the old OAuth thre
 
 test("the meter keeps a quarter of a small window for the reply when the output limit is unknown", async () => {
     const { replyRoom } = await import("../src/engine/store");
-    const { modelDetail } = await import("../src/ui/composer");
+    const { modelDetail } = await import("../src/ui/composer-models");
     expect(replyRoom(0, 4_096)).toBe(1_024);
     expect(replyRoom(0, 0)).toBe(32_000);
     expect(replyRoom(64_000, 200_000)).toBe(32_000);

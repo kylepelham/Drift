@@ -437,7 +437,7 @@ test("composer submission guard releases after thrown failures", async () => {
 });
 
 test("question navigation selects the normalized owning workspace before its session", async () => {
-    const { selectOwningSession } = await import("../src/ui/composer");
+    const { selectOwningSession } = await import("../src/ui/composer-attention");
     const workspaces = [
         { id: "workspace-a", path: "C:\\work\\alpha" },
         { id: "workspace-b", path: "D:\\work\\beta\\" },

@@ -44,7 +44,9 @@ test("extensionless uploads are admitted after signature detection", async () =>
             bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
         }),
     ).toMatchObject({ kind: "image", mime: "image/png" });
-    expect(await Bun.file("src/ui/composer.tsx").text()).not.toContain('if (resolved.kind === "unsupported")');
+    expect(await Bun.file("src/ui/composer-attachments.ts").text()).not.toContain(
+        'if (resolved.kind === "unsupported")',
+    );
 });
 
 test("text attachments are strict UTF-8 and become bounded readable prompt text", async () => {

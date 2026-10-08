@@ -1,29 +1,34 @@
-import { modelInfo, normalizeDir, resolveModel, savedChoice, sessionBusy, smallContextTokens } from "../engine/store";
-import { dragHasFiles, dropStagesAttachment, dropTargetActive, nextDragDepth, splitDroppedFiles } from "./drag-drop";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
+import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
-import { activeWorkspace, selectWorkspace, workspaces } from "../state/workspaces";
-import { appendDictation, formatDictationElapsed } from "../voice/transcript";
+import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
+import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
+import { modelInfo, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions";
-import { formatModelContext, lmStudioModelReady } from "../state/lm-studio";
-import { AttentionStrip, PermissionCard, QuestionCard } from "./attention";
-import { IconMic, IconPaperclip, IconShieldCheck, IconX } from "./icons";
 import { emitThreadCreated, transformComposerSubmit } from "../plugins";
 import { defaultVisibleModelIds, ModelManager } from "./model-manager";
 import { modelInstalled, refreshVoiceModels } from "../voice/models";
 import { selectedSession, selectSession } from "../state/selection";
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n";
 import { interruptResponseAnimations } from "./response-animation";
+import { IconMic, IconPaperclip, IconShieldCheck } from "./icons";
 import { dictationEnabled, dictationModel } from "../state/voice";
+import { createAttachmentStager } from "./composer-attachments";
+import { ComposerMentionMenu } from "./composer-mention-menu";
+import { AttachmentChip } from "./composer-attachment-chip";
 import { ComposerSlashMenu } from "./composer-slash-menu";
-import { localAsks, resolveAsk } from "../state/asks";
+import { ComposerAttention } from "./composer-attention";
+import { connectedModelItems } from "./composer-models";
+import { createWindowFileDrop } from "./composer-drop";
+import { appendDictation } from "../voice/transcript";
+import { activeWorkspace } from "../state/workspaces";
 import { createSlashMenu } from "./composer-slash";
 import { Picker, type PickerItem } from "./picker";
+import { DictationStatus } from "./composer-voice";
 import { variantNames } from "../engine/catalog";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
 import { openSettings } from "./settings";
-import { openLightbox } from "./lightbox";
 import { shellInvoke } from "../shell";
 import { useEngine } from "../engine";
 import {
@@ -40,36 +45,6 @@ import {
     type ComposerDraft,
     type StagedFile,
 } from "../state/composer";
-import {
-    formatAttachmentBytes,
-    prepareAttachment,
-    prepareAttachmentsForSend,
-    resolveAttachmentKind,
-    unsupportedModelAttachment,
-    type AttachmentFailure,
-    type AttachmentKind,
-} from "../attachments";
-import {
-    dictationActive,
-    dictationElapsed,
-    dictationError,
-    dictationPending,
-    dictationStatus,
-    dismissDictationError,
-    stopDictation,
-    toggleDictation,
-} from "../voice/dictation";
-import {
-    clearEdits,
-    modelVisible,
-    orderedModelProviderIds,
-    prefsFor,
-    seedPrefs,
-    sendableVariant,
-    updatePrefs,
-} from "../state/prefs";
-
-import type { Permission, QuestionRequest } from "../engine/store";
 
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
 // (Tailwind spacing 50 = 12.5rem = 200px); otherwise the element and its inline height disagree.
@@ -77,47 +52,14 @@ const maxComposerHeightPx = 200;
 // The OS clipboard is written after the browser finishes its own copy, so ours lands last and wins.
 const clipboardRepublishDelayMs = 100;
 
-const localProviders = ["ollama", "lmstudio"];
-
-/** The picker's line under a model: a small or unknown window is warned about, and LM Studio shows its loaded window. */
-export function modelDetail(providerID: string, model: { id: string; limit?: { context: number } }) {
-    const context = model.limit?.context ?? 0;
-    if (context > 0 && context < smallContextTokens)
-        return t("drift.model.smallContext", { size: formatModelContext(context) });
-    // A local model not yet loaded runs at whatever window its server picks, and compaction cannot plan for it.
-    if (context === 0 && localProviders.includes(providerID)) return t("drift.model.unknownContext");
-    return providerID === "lmstudio" ? `${model.id} | ${formatModelContext(context)} context` : undefined;
-}
-
-export function focusedQuestion(questions: QuestionRequest[], requestID?: string) {
-    return questions.find((question) => question.id === requestID) ?? questions[0];
-}
-
 export function composerSelection(value: string, start: number, end: number) {
     return value.slice(Math.min(start, end), Math.max(start, end));
-}
-
-export function selectOwningSession(
-    sessionID: string,
-    directory: string | undefined,
-    availableWorkspaces: { id: string; path: string }[],
-    activeWorkspaceID: string | undefined,
-    chooseWorkspace: (id: string) => void,
-    chooseSession: (id: string) => void,
-) {
-    const workspace = directory
-        ? availableWorkspaces.find((item) => normalizeDir(item.path) === normalizeDir(directory))
-        : undefined;
-    if (workspace && workspace.id !== activeWorkspaceID) chooseWorkspace(workspace.id);
-    chooseSession(sessionID);
 }
 
 export function Composer() {
     const engine = useEngine();
     const [manageModels, setManageModels] = createSignal(false);
     const [fileError, setFileError] = createSignal("");
-    const [dropActive, setDropActive] = createSignal(false);
-    const [focusedQuestionID, setFocusedQuestionID] = createSignal<string>();
     const [submissionVersion, setSubmissionVersion] = createSignal(0);
     const [historyNavigation, setHistoryNavigation] = createSignal<{
         scope: string;
@@ -159,130 +101,14 @@ export function Composer() {
         void toggleDictation(appendVoice);
     }
 
-    const voiceBusy = () => dictationActive() || dictationPending() > 0;
-
-    const voiceHint = () => {
-        if (dictationStatus() === "starting") return t("drift.voice.starting");
-        return dictationPending() > 0 ? t("drift.voice.transcribing") : t("drift.voice.listening");
-    };
-
-    async function addFiles(files: Iterable<File>) {
-        const key = scope();
-        setHistoryNavigation(null);
-        setFileError("");
-        await Promise.all([...files].map((file) => addFile(file, key)));
-    }
-
-    async function addFile(file: File, key: string) {
-        const resolved = resolveAttachmentKind({ filename: file.name, mime: file.type });
-        const id = crypto.randomUUID();
-        patchComposerDraft(key, {
-            staged: [
-                ...composerDraft(key).staged,
-                { id, filename: file.name, mime: resolved.mime, size: file.size, status: "processing", meta: {} },
-            ],
-        });
-        const prepared = await prepareAttachment(file, id);
-        if (!prepared.ok) {
-            patchComposerDraft(key, { staged: composerDraft(key).staged.filter((item) => item.id !== id) });
-            showFileFailure(key, file.name, prepared.reason, prepared.kind, prepared.limit);
-            return;
-        }
-        const unsupported = unsupportedModelAttachment(
-            [{ filename: prepared.attachment.filename, mime: prepared.attachment.mime }],
-            modelInfo(engine.state, resolveModel(engine.state, prefs().model)),
-        );
-        if (unsupported) {
-            patchComposerDraft(key, { staged: composerDraft(key).staged.filter((item) => item.id !== id) });
-            const selected = modelInfo(engine.state, resolveModel(engine.state, prefs().model));
-            setFileError(
-                t("drift.composer.modelUnsupported", {
-                    filename: file.name,
-                    kind: t(`drift.attachment.kind.${unsupported.kind}`),
-                    model: selected?.name ?? t("command.category.model"),
-                }),
-            );
-            return;
-        }
-        patchComposerDraft(key, {
-            staged: composerDraft(key).staged.map((item) => (item.id === id ? prepared.attachment : item)),
-        });
-    }
-
-    function showFileFailure(
-        key: string,
-        filename: string,
-        reason: AttachmentFailure,
-        kind?: AttachmentKind,
-        limit?: number,
-    ) {
-        if (scope() !== key) return;
-        if (reason === "archive" || reason === "binary")
-            return setFileError(t("drift.composer.fileUnsupported", { filename }));
-        if (reason === "invalid-utf8") return setFileError(t("drift.composer.fileInvalidUtf8", { filename }));
-        if (reason === "too-large")
-            return setFileError(
-                t("drift.composer.fileTooLarge", {
-                    filename,
-                    kind: t(`drift.attachment.kind.${kind}`),
-                    limit: formatAttachmentBytes(limit ?? 0),
-                }),
-            );
-        setFileError(t("drift.composer.fileReadFailed", { filename }));
-    }
-
-    // Window-level so a drop anywhere over the chat/composer area attaches instead of navigating.
-    // The desktop shell sets `dragDropEnabled: false` (tauri.conf.json) so WebView2 delivers these
-    // HTML5 events with real File objects; the remote-browser runtime gets them natively.
-    onMount(() => {
-        let depth = 0;
-        const update = (transition: Parameters<typeof nextDragDepth>[1]) => {
-            depth = nextDragDepth(depth, transition);
-            setDropActive(dropTargetActive(depth));
-        };
-        const onDragEnter = (event: DragEvent) => {
-            if (!dragHasFiles(event.dataTransfer?.types)) return;
-            event.preventDefault();
-            update("enter");
-        };
-        const onDragOver = (event: DragEvent) => {
-            if (!dragHasFiles(event.dataTransfer?.types)) return;
-            // preventDefault is required for the drop event to fire at all in WebView2.
-            event.preventDefault();
-            if (event.dataTransfer) event.dataTransfer.dropEffect = ready() ? "copy" : "none";
-        };
-        const onDragLeave = (event: DragEvent) => {
-            if (!dragHasFiles(event.dataTransfer?.types)) return;
-            update("leave");
-        };
-        const onDragEnd = () => update("end");
-        const onDrop = (event: DragEvent) => {
-            update("drop");
-            if (!dragHasFiles(event.dataTransfer?.types)) return;
-            // A missed drop must never make the browser navigate to the dropped file, wherever it landed.
-            event.preventDefault();
-            if (!ready() || !event.dataTransfer || !dropStagesAttachment(event.target)) return;
-            const dropped = splitDroppedFiles(
-                Array.from(event.dataTransfer.items ?? []),
-                Array.from(event.dataTransfer.files ?? []),
-            );
-            if (dropped.files.length) void addFiles(dropped.files);
-            // After addFiles' synchronous error reset, so the notice survives staging kicking off.
-            if (dropped.directories) setFileError(t("drift.composer.folderUnsupported"));
-        };
-        window.addEventListener("dragenter", onDragEnter);
-        window.addEventListener("dragover", onDragOver);
-        window.addEventListener("dragleave", onDragLeave);
-        window.addEventListener("dragend", onDragEnd);
-        window.addEventListener("drop", onDrop);
-        onCleanup(() => {
-            window.removeEventListener("dragenter", onDragEnter);
-            window.removeEventListener("dragover", onDragOver);
-            window.removeEventListener("dragleave", onDragLeave);
-            window.removeEventListener("dragend", onDragEnd);
-            window.removeEventListener("drop", onDrop);
-        });
+    const addFiles = createAttachmentStager({
+        scope,
+        selectedModel: () => modelInfo(engine.state, resolveModel(engine.state, prefs().model)),
+        setFileError,
+        staging: () => setHistoryNavigation(null),
     });
+
+    const dropActive = createWindowFileDrop({ ready: () => ready(), addFiles, setFileError });
 
     let previousScope = scope();
     createEffect(() => {
@@ -340,35 +166,7 @@ export function Composer() {
         return busy() ? `${t("drift.prompt.steer")}...` : t("prompt.placeholder.simple");
     };
 
-    const availableModelItems = createMemo<PickerItem[]>(() => {
-        const providers = engine.state.providers.filter((provider) => {
-            if (provider.id === "lmstudio") return engine.state.connected.includes(provider.id);
-            return (
-                engine.state.connected.includes(provider.id) ||
-                (engine.state.connection !== "online" && engine.state.connected.length === 0)
-            );
-        });
-        const order = orderedModelProviderIds(providers.map((provider) => provider.id));
-        return order.flatMap((providerID) => {
-            const provider = providers.find((item) => item.id === providerID);
-            if (!provider) return [];
-            return Object.values(provider.models)
-                .filter((model) => provider.id !== "lmstudio" || lmStudioModelReady(model))
-                .sort(
-                    (a, b) =>
-                        (b.release_date ?? "").localeCompare(a.release_date ?? "") || a.name.localeCompare(b.name),
-                )
-                .map((model) => ({
-                    id: `${provider.id}/${model.id}`,
-                    label: model.name,
-                    group: provider.name,
-                    detail: modelDetail(provider.id, model),
-                    providerID: provider.id,
-                    family: model.family,
-                    releaseDate: model.release_date,
-                }));
-        });
-    });
+    const availableModelItems = createMemo<PickerItem[]>(() => connectedModelItems(engine.state));
     const defaultModelIds = createMemo(() => defaultVisibleModelIds(availableModelItems()));
     const modelItems = createMemo(() =>
         availableModelItems().filter((item) => modelVisible(item.id, defaultModelIds().has(item.id))),
@@ -577,28 +375,6 @@ export function Composer() {
         return onKeybind("autoAccept", toggleAutoAccept);
     });
 
-    const permissions = () => Object.values(engine.state.permissions).flat();
-    const questions = () => Object.values(engine.state.questions).flat();
-    const pendingPermission = (): Permission | undefined => permissions()[0];
-    const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID());
-    const pendingAsk = () => localAsks()[0];
-
-    createEffect(() => {
-        const next = pendingQuestion()?.id;
-        if (next !== focusedQuestionID()) setFocusedQuestionID(next);
-    });
-
-    function openAttentionSession(sessionID: string, directory?: string) {
-        selectOwningSession(
-            sessionID,
-            directory ?? engine.state.sessions[sessionID]?.directory,
-            workspaces(),
-            activeWorkspace()?.id,
-            selectWorkspace,
-            selectSession,
-        );
-    }
-
     const sendDisabled = () =>
         (!draft().trim() && staged().length === 0) ||
         staged().some((file) => file.status === "processing") ||
@@ -607,104 +383,7 @@ export function Composer() {
 
     return (
         <div class="composer-shell relative z-10">
-            <div class="composer-attention-stack mx-auto flex w-full max-w-3xl flex-col gap-2">
-                <AttentionStrip />
-                <Show when={pendingPermission()}>
-                    {(permission) => (
-                        <div class="flow-root">
-                            <PermissionCard
-                                permission={permission()}
-                                thread={
-                                    permission().sessionId !== selectedSession()
-                                        ? {
-                                              label: t("drift.composer.pendingInThread", {
-                                                  thread:
-                                                      engine.state.sessions[permission().sessionId]?.title ||
-                                                      t("drift.composer.anotherThread"),
-                                              }),
-                                              onOpen: () =>
-                                                  openAttentionSession(permission().sessionId, permission().directory),
-                                          }
-                                        : undefined
-                                }
-                            />
-                        </div>
-                    )}
-                </Show>
-                <Show when={questions().length > 1}>
-                    <label class="flex min-w-0 items-center gap-2 px-1 text-xs text-ink-muted">
-                        <span class="shrink-0">{t("drift.question.pending", { count: questions().length })}</span>
-                        <select
-                            class="min-w-0 flex-1 rounded-md border border-edge bg-surface px-2 py-1.5 text-ink"
-                            value={pendingQuestion()?.id ?? ""}
-                            onChange={(event) => setFocusedQuestionID(event.currentTarget.value)}
-                        >
-                            <For each={questions()}>
-                                {(request) => (
-                                    <option value={request.id}>
-                                        {request.async ? "" : `${t("drift.question.blocking")}: `}
-                                        {request.questions[0]?.header || t("drift.question.number", { number: 1 })}
-                                        {" - "}
-                                        {engine.state.sessions[request.sessionId]?.title ||
-                                            t("drift.composer.anotherThread")}
-                                    </option>
-                                )}
-                            </For>
-                        </select>
-                    </label>
-                </Show>
-                <Show keyed when={pendingQuestion()?.id}>
-                    {(questionID) => {
-                        const question = () => questions().find((item) => item.id === questionID);
-                        return (
-                            <Show when={question()}>
-                                {(request) => (
-                                    <div class="flow-root">
-                                        <QuestionCard
-                                            requestID={questionID}
-                                            async={request().async}
-                                            questions={[...request().questions]}
-                                            thread={
-                                                request().sessionId !== selectedSession()
-                                                    ? {
-                                                          label: t("drift.composer.pendingInThread", {
-                                                              thread:
-                                                                  engine.state.sessions[request().sessionId]?.title ||
-                                                                  t("drift.composer.anotherThread"),
-                                                          }),
-                                                          onOpen: () =>
-                                                              openAttentionSession(
-                                                                  request().sessionId,
-                                                                  request().directory,
-                                                              ),
-                                                      }
-                                                    : undefined
-                                            }
-                                            onAnswer={(answers) =>
-                                                engine.actions.answerQuestion(request().sessionId, questionID, answers)
-                                            }
-                                        />
-                                    </div>
-                                )}
-                            </Show>
-                        );
-                    }}
-                </Show>
-                <Show when={pendingAsk()}>
-                    {(ask) => (
-                        <div class="flow-root">
-                            <QuestionCard
-                                requestID={ask().id}
-                                questions={ask().questions}
-                                onAnswer={(answers) => {
-                                    resolveAsk(ask().id, answers);
-                                    return true;
-                                }}
-                            />
-                        </div>
-                    )}
-                </Show>
-            </div>
+            <ComposerAttention />
             <div class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
                 <Show when={dropActive() && ready()}>
                     <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-surface/85">
@@ -712,23 +391,7 @@ export function Composer() {
                     </div>
                 </Show>
                 <Show when={mention.open()}>
-                    <div class="pop-in absolute bottom-full left-3 z-20 mb-2 w-96 overflow-hidden rounded-lg border border-edge bg-overlay py-1 shadow-xl shadow-black/30">
-                        <For each={mention.hits()}>
-                            {(path, index) => (
-                                <button
-                                    class="flex w-full items-center px-3 py-1.5 text-left font-mono text-xs transition-colors"
-                                    classList={{
-                                        "bg-raised text-ink": index() === mention.activeIndex(),
-                                        "text-ink-muted": index() !== mention.activeIndex(),
-                                    }}
-                                    onMouseEnter={() => mention.setCursor(index())}
-                                    onClick={() => mention.pick(path)}
-                                >
-                                    <span class="truncate">{path}</span>
-                                </button>
-                            )}
-                        </For>
-                    </div>
+                    <ComposerMentionMenu mention={mention} />
                 </Show>
                 <Show when={slash.open()}>
                     <ComposerSlashMenu menu={slash} />
@@ -746,30 +409,7 @@ export function Composer() {
                         </Show>
                     </div>
                 </Show>
-                <Show when={voiceBusy() || dictationError()}>
-                    <div class="flex items-center gap-2 px-4 pt-2.5 text-xs">
-                        <Show
-                            when={voiceBusy()}
-                            fallback={
-                                <button
-                                    class="min-w-0 truncate text-left text-danger hover:underline"
-                                    title={t("common.dismiss")}
-                                    onClick={dismissDictationError}
-                                >
-                                    {dictationError()}
-                                </button>
-                            }
-                        >
-                            <span class="size-1.5 shrink-0 animate-pulse rounded-full bg-danger" />
-                            <Show when={dictationActive()}>
-                                <span class="shrink-0 font-mono text-ink-faint">
-                                    {formatDictationElapsed(dictationElapsed())}
-                                </span>
-                            </Show>
-                            <span class="min-w-0 truncate text-ink-faint italic">{voiceHint()}</span>
-                        </Show>
-                    </div>
-                </Show>
+                <DictationStatus />
                 <div ref={areaFrame} class="w-full">
                     <textarea
                         ref={area}
@@ -905,80 +545,5 @@ export function Composer() {
                 <ModelManager items={availableModelItems()} onClose={() => setManageModels(false)} />
             </Show>
         </div>
-    );
-}
-
-function AttachmentChip(props: { file: StagedFile; remove: () => void }) {
-    const kind = () => resolveAttachmentKind(props.file).kind;
-    const label = () => t(`drift.attachment.kind.${kind()}`);
-    const detail = () => {
-        if (props.file.status === "processing") return t("drift.attachment.processing");
-        if (kind() === "text" && props.file.meta.lines !== undefined)
-            return t("drift.attachment.lines", { count: props.file.meta.lines });
-        if (kind() === "csv" && props.file.meta.rows !== undefined)
-            return t("drift.attachment.table", { rows: props.file.meta.rows, columns: props.file.meta.columns ?? 0 });
-        if (kind() === "pdf" && props.file.meta.pages !== undefined)
-            return t("drift.attachment.pages", { count: props.file.meta.pages });
-        return formatAttachmentBytes(props.file.size);
-    };
-    const title = () => [props.file.filename, props.file.meta.preview].filter(Boolean).join("\n\n");
-    const remove = (
-        <button
-            title={t("prompt.attachment.remove")}
-            class="flex size-4 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
-            onClick={() => props.remove()}
-        >
-            <IconX class="size-3" />
-        </button>
-    );
-
-    return (
-        <Show
-            when={kind() === "image" && props.file.dataUrl}
-            fallback={
-                <span
-                    class="group/chip flex max-w-64 items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted"
-                    title={title()}
-                >
-                    <Show when={kind() === "pdf" && props.file.meta.thumbnail}>
-                        {(thumbnail) => (
-                            <img src={thumbnail()} alt="" class="h-10 w-8 rounded-sm border border-edge object-cover" />
-                        )}
-                    </Show>
-                    <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
-                        {label()}
-                    </span>
-                    <span class="min-w-0">
-                        <span class="block truncate">{props.file.filename}</span>
-                        <span class="block truncate text-[0.65rem] text-ink-faint">{detail()}</span>
-                    </span>
-                    {remove}
-                </span>
-            }
-        >
-            {(url) => (
-                <div class="group/chip relative">
-                    <img
-                        src={url()}
-                        alt={props.file.filename}
-                        title={props.file.filename}
-                        class="size-16 cursor-pointer rounded-md border border-edge object-cover transition-colors hover:border-edge-strong"
-                        onClick={() =>
-                            openLightbox({ url: url(), filename: props.file.filename, mime: props.file.mime })
-                        }
-                    />
-                    <div class="pointer-events-none absolute right-0 bottom-0 left-0 rounded-b-md bg-black/50 px-1 py-0.5">
-                        <span class="block truncate text-[0.6rem] text-white">{props.file.filename}</span>
-                    </div>
-                    <button
-                        title={t("prompt.attachment.remove")}
-                        class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
-                        onClick={() => props.remove()}
-                    >
-                        <IconX class="size-3" />
-                    </button>
-                </div>
-            )}
-        </Show>
     );
 }

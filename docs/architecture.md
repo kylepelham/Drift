@@ -254,6 +254,13 @@ jumps. Row height estimates, the virtual range and stick thresholds are in
 history behind a revert is `revert-backfill.ts`, and wheel forwarding from the composer
 dock is `chat-wheel.ts`.
 
+`src/ui/composer.tsx` owns the draft, keys, history browsing, pickers and send. Around it:
+`composer-attention.tsx` stacks permission, question and ask cards from every thread;
+`composer-attachments.ts` stages uploads and rejects ones the selected model cannot read;
+`composer-drop.ts` takes files dropped anywhere in the window; `composer-models.ts` lists
+connected providers' models for the picker; the attachment chip, `@` mention menu and
+dictation status each have their own small component file.
+
 General settings can opt live assistant text into a smooth burst reveal. Markdown preserves unchanged
 top-level blocks, and engine updates queue behind an active reveal instead of replacing its animated
 DOM. The latest appended rendered text is split into bounded inline segments and receives staggered
