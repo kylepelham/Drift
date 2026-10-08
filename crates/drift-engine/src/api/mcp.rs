@@ -356,8 +356,16 @@ mod tests {
             .count()
     }
 
-    #[tokio::test]
-    async fn a_server_turned_on_in_one_workspace_is_offered_there_only_and_remembered() {
+    struct WorkspaceServer {
+        engine: Arc<Engine>,
+        dir: std::path::PathBuf,
+        re: crate::store::Workspace,
+        web: crate::store::Workspace,
+        re_path: std::path::PathBuf,
+        web_path: std::path::PathBuf,
+    }
+
+    fn workspace_server() -> WorkspaceServer {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let dir = std::env::temp_dir().join(format!("drift-api-mcp-{}", crate::random_hex(4)));
         let (re_dir, web_dir) = (dir.join("re"), dir.join("web"));
@@ -387,6 +395,28 @@ mod tests {
         };
         engine.store.save_mcp_server("ida", &config).unwrap();
         engine.store.set_mcp_enabled("ida", false).unwrap();
+
+        WorkspaceServer {
+            engine,
+            dir,
+            re,
+            web,
+            re_path,
+            web_path,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_server_turned_on_in_one_workspace_is_offered_there_only_and_remembered() {
+        let WorkspaceServer {
+            engine,
+            dir,
+            re,
+            web,
+            re_path,
+            web_path,
+        } = workspace_server();
+
         let path = || Path("ida".to_string());
         let query = |id: &str| {
             Query(ConnectQuery {
@@ -412,20 +442,7 @@ mod tests {
             "nothing started for the workspace that did not choose it"
         );
 
-        let reopened = Engine::open_with(
-            &dir.join("data"),
-            crate::Options {
-                file_credentials: true,
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        let row = reopened.store.mcp_server("ida").unwrap().unwrap();
-        assert!(
-            row.on_in(&re_path) && !row.on_in(&web_path),
-            "the choice outlives a restart"
-        );
-        drop(reopened);
+        assert_workspace_choice_saved(&dir, &re_path, &web_path);
 
         let status = disconnect(State(engine.clone()), path(), query(&re.id))
             .await
@@ -465,6 +482,23 @@ mod tests {
         );
         drop(engine);
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    fn assert_workspace_choice_saved(dir: &std::path::Path, re_path: &std::path::Path, web_path: &std::path::Path) {
+        let reopened = Engine::open_with(
+            &dir.join("data"),
+            crate::Options {
+                file_credentials: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let row = reopened.store.mcp_server("ida").unwrap().unwrap();
+
+        assert!(
+            row.on_in(re_path) && !row.on_in(web_path),
+            "the choice outlives a restart"
+        );
     }
 
     #[tokio::test]

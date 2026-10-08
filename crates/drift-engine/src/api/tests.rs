@@ -1,6 +1,7 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+use base64::Engine as _;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
@@ -322,7 +323,6 @@ async fn a_prompt_carrying_a_screenshot_past_axums_default_limit_is_admitted() {
     );
     let (_, session_id) = session_with_model(&h).await;
     // A 2.5 MB screenshot is 3.4 MB once encoded; axum's own 2 MB default refused it mid-upload.
-    use base64::Engine as _;
     let data = format!(
         "data:text/plain;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(vec![b'x'; 2_525_283])
@@ -352,27 +352,9 @@ async fn a_prompt_carrying_a_screenshot_past_axums_default_limit_is_admitted() {
 
 #[tokio::test]
 async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
-    use crate::llm::scripted::Scripted;
-    use crate::llm::{Chunk, Provider, StopReason};
     let h = harness().await;
-    let provider = Scripted::default();
-    provider
-        .push(vec![
-            Chunk::ToolUseStart {
-                id: "t1".into(),
-                name: "write".into(),
-            },
-            Chunk::ToolInputDelta(r#"{"path":"out.txt","content":"done\n"}"#.into()),
-            Chunk::BlockStop,
-            Chunk::Stop(StopReason::ToolUse),
-        ])
-        .push(vec![
-            Chunk::TextStart,
-            Chunk::TextDelta("Wrote it".into()),
-            Chunk::BlockStop,
-            Chunk::Stop(StopReason::EndTurn),
-        ]);
-    *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider));
+    script_write_and_reply(&h);
+
     // Workspace writes run by default; this test is about the ask, so a rule asks for it.
     h.engine.permissions.set_policy(crate::permission::Policy {
         rules: vec![crate::permission::Rule {
@@ -433,7 +415,33 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
     let idle = until(&mut socket, "session.status").await;
     assert_eq!(idle["status"], "idle");
     assert_eq!(std::fs::read_to_string(h._dir.0.join("ws/out.txt")).unwrap(), "done\n");
+    assert_turn_messages(&h, &session_id).await;
+}
 
+fn script_write_and_reply(h: &Harness) {
+    use crate::llm::scripted::Scripted;
+    use crate::llm::{Chunk, Provider, StopReason};
+    let provider = Scripted::default();
+    provider
+        .push(vec![
+            Chunk::ToolUseStart {
+                id: "t1".into(),
+                name: "write".into(),
+            },
+            Chunk::ToolInputDelta(r#"{"path":"out.txt","content":"done\n"}"#.into()),
+            Chunk::BlockStop,
+            Chunk::Stop(StopReason::ToolUse),
+        ])
+        .push(vec![
+            Chunk::TextStart,
+            Chunk::TextDelta("Wrote it".into()),
+            Chunk::BlockStop,
+            Chunk::Stop(StopReason::EndTurn),
+        ]);
+    *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider));
+}
+
+async fn assert_turn_messages(h: &Harness, session_id: &str) {
     let messages: Value = h
         .get(&format!("/sessions/{session_id}/messages"))
         .send()
@@ -453,7 +461,7 @@ async fn a_full_turn_over_http_and_ws_with_a_permission_reply_on_the_socket() {
     assert_eq!(call["parts"][0]["status"], "done");
     assert_eq!(messages[3]["parts"][0]["text"], "Wrote it");
     let listed: Value = h.get("/sessions").send().await.unwrap().json().await.unwrap();
-    assert_eq!(listed[0]["id"], session_id.as_str());
+    assert_eq!(listed[0]["id"], session_id);
 }
 
 #[tokio::test]
@@ -932,6 +940,11 @@ async fn a_workspaces_kept_grants_are_listed_and_revoked() {
             .status(),
         204
     );
+    assert_unknown_grant_routes(&h, &listed[0]).await;
+    assert_grant_storage_cleanup(&h, &ws_id);
+}
+
+async fn assert_unknown_grant_routes(h: &Harness, grant: &Value) {
     assert_eq!(
         h.get("/workspaces/nope/permission-grants")
             .send()
@@ -951,14 +964,16 @@ async fn a_workspaces_kept_grants_are_listed_and_revoked() {
     );
     assert_eq!(
         h.post("/workspaces/nope/permission-grants/revoke")
-            .json(&listed[0])
+            .json(grant)
             .send()
             .await
             .unwrap()
             .status(),
         404
     );
+}
 
+fn assert_grant_storage_cleanup(h: &Harness, ws_id: &str) {
     let grant = crate::permission::Grant::Subcommand {
         prefix: "cargo test".into(),
     };
@@ -974,16 +989,16 @@ async fn a_workspaces_kept_grants_are_listed_and_revoked() {
         )
         .unwrap();
     assert!(
-        h.engine.permission_grants(&ws_id).is_empty(),
+        h.engine.permission_grants(ws_id).is_empty(),
         "the cache still holds the emptied list"
     );
-    h.engine.permissions.forget_workspace(&ws_id);
+    h.engine.permissions.forget_workspace(ws_id);
     assert_eq!(
-        h.engine.permission_grants(&ws_id),
+        h.engine.permission_grants(ws_id),
         [grant],
         "dropped from the cache, the stored list is read again"
     );
-    h.engine.forget_workspace(&ws_id).unwrap();
+    h.engine.forget_workspace(ws_id).unwrap();
     assert!(
         h.engine
             .store
@@ -999,24 +1014,15 @@ async fn a_workspaces_kept_grants_are_listed_and_revoked() {
             .is_none()
     );
     assert!(
-        h.engine.permission_grants(&ws_id).is_empty(),
+        h.engine.permission_grants(ws_id).is_empty(),
         "nothing is left in the cache either"
     );
 }
 
 #[tokio::test]
 async fn workspace_config_and_commands_are_served() {
-    use crate::llm::scripted::Scripted;
-    use crate::llm::{Chunk, Provider, StopReason};
     let h = harness().await;
-    let provider = Scripted::default();
-    provider.push(vec![
-        Chunk::TextStart,
-        Chunk::TextDelta("ran".into()),
-        Chunk::BlockStop,
-        Chunk::Stop(StopReason::EndTurn),
-    ]);
-    *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider.clone()));
+    let provider = script_replies(&h, "ran", 1);
     h.put("/providers/anthropic/key")
         .json(&json!({ "key": "k" }))
         .send()
@@ -1193,20 +1199,8 @@ async fn tasks_are_listed_read_and_stopped_and_background_can_be_turned_off() {
 
 #[tokio::test]
 async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_rules_stay() {
-    use crate::llm::scripted::Scripted;
-    use crate::llm::{Chunk, Provider, StopReason};
     let h = harness().await;
-    let provider = Scripted::default();
-    let reply = || {
-        vec![
-            Chunk::TextStart,
-            Chunk::TextDelta("ok".into()),
-            Chunk::BlockStop,
-            Chunk::Stop(StopReason::EndTurn),
-        ]
-    };
-    provider.push(reply()).push(reply()).push(reply());
-    *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider.clone()));
+    let provider = script_replies(&h, "ok", 3);
     h.put("/providers/anthropic/key")
         .json(&json!({ "key": "k" }))
         .send()
@@ -1228,23 +1222,6 @@ async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_
             .starts_with("You are Drift")
             && listed["shared"].as_str().unwrap().contains("<system-reminder>")
     );
-    let turn = |text: &'static str| {
-        let h = &h;
-        let session_id = session_id.clone();
-        async move {
-            h.post(&format!("/sessions/{session_id}/turns"))
-                .json(&json!({ "parts": [{ "type": "text", "text": text }] }))
-                .send()
-                .await
-                .unwrap();
-            for _ in 0..200 {
-                if !h.engine.turns.is_running(&session_id) {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        }
-    };
     let system = |n: usize| provider.requests.lock().unwrap()[n].system.clone();
     assert_eq!(
         h.put("/prompts/all")
@@ -1255,7 +1232,7 @@ async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_
             .status(),
         200
     );
-    turn("one").await;
+    submit_and_wait(&h, &session_id, "one").await;
     assert!(
         system(0).starts_with("Every model works my way.\n\n# Tools") && system(0).contains("<system-reminder>"),
         "{}",
@@ -1266,7 +1243,7 @@ async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_
         .send()
         .await
         .unwrap();
-    turn("two").await;
+    submit_and_wait(&h, &session_id, "two").await;
     assert!(
         system(1).starts_with("Claude works this way."),
         "a family's own wins over the one for every model"
@@ -1274,7 +1251,7 @@ async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_
     let reset: Value = h.delete("/prompts/claude").send().await.unwrap().json().await.unwrap();
     assert!(reset["prompts"][2].get("custom").is_none());
     h.delete("/prompts/all").send().await.unwrap();
-    turn("three").await;
+    submit_and_wait(&h, &session_id, "three").await;
     assert!(system(2).starts_with("You are Drift"), "reset, Drift's own is back");
     assert_eq!(
         h.put("/prompts/claude")
@@ -1295,6 +1272,39 @@ async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_
         404
     );
 }
+fn script_replies(h: &Harness, text: &str, count: usize) -> crate::llm::scripted::Scripted {
+    use crate::llm::scripted::Scripted;
+    use crate::llm::{Chunk, Provider, StopReason};
+
+    let provider = Scripted::default();
+    for _ in 0..count {
+        provider.push(vec![
+            Chunk::TextStart,
+            Chunk::TextDelta(text.into()),
+            Chunk::BlockStop,
+            Chunk::Stop(StopReason::EndTurn),
+        ]);
+    }
+    *h.engine.turns.provider_override.lock().unwrap() = Some(Provider::Scripted(provider.clone()));
+
+    provider
+}
+
+async fn submit_and_wait(h: &Harness, session_id: &str, text: &str) {
+    h.post(&format!("/sessions/{session_id}/turns"))
+        .json(&json!({ "parts": [{ "type": "text", "text": text }] }))
+        .send()
+        .await
+        .unwrap();
+
+    for _ in 0..200 {
+        if !h.engine.turns.is_running(session_id) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
 #[tokio::test]
 async fn settings_rules_apply_at_once_survive_a_restart_and_refuse_what_could_never_match() {
     let h = harness().await;
@@ -1390,7 +1400,7 @@ async fn a_socket_a_host_leases_closes_when_the_lease_is_cancelled() {
     let ended = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
             match socket.next().await {
-                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return,
+                None | Some(Err(_) | Ok(Message::Close(_))) => return,
                 Some(Ok(_)) => {}
             }
         }

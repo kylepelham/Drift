@@ -1325,55 +1325,10 @@ mod tests {
     fn agent_modes_hidden_disable_and_the_default_agent_read_as_opencode_reads_them() {
         let root = std::env::temp_dir().join(format!("drift-modes-{}", crate::random_hex(4)));
         let ws = root.join("ws");
-        write(&ws, ".drift/agents/helper.md", "---\ndescription: No mode\n---\nHelp.");
-        write(
-            &ws,
-            ".drift/agents/both.md",
-            "---\ndescription: Both\nmode: all\n---\nBoth.",
-        );
-        write(
-            &ws,
-            ".drift/agents/lead.md",
-            "---\ndescription: Lead\nmode: primary\n---\nLead.",
-        );
-        write(
-            &ws,
-            ".drift/agents/quiet.md",
-            "---\ndescription: Internal\nmode: subagent\nhidden: true\n---\nQuiet.",
-        );
-        write(&ws, ".drift/agents/explore.md", "---\ndisable: true\n---\n");
-        write(
-            &ws,
-            ".drift/agents/gone.md",
-            "---\ndescription: Off\ndisable: true\n---\nNever.",
-        );
-        write(&ws, "drift.json", r#"{ "defaultAgent": "lead" }"#);
+        write_agent_modes(&ws);
+
         let config = Config::load_with_home(&ws, None);
-        let kind = |name: &str| config.agent(name).map(|agent| agent.kind);
-        assert_eq!(
-            kind("helper"),
-            Some(AgentKind::All),
-            "no mode means both, as in opencode"
-        );
-        assert_eq!(
-            (kind("both"), kind("lead"), kind("quiet")),
-            (
-                Some(AgentKind::All),
-                Some(AgentKind::Primary),
-                Some(AgentKind::Subagent)
-            )
-        );
-        assert!(
-            AgentKind::All.runs_conversations()
-                && AgentKind::All.delegated_to()
-                && !AgentKind::Primary.delegated_to()
-                && !AgentKind::Subagent.runs_conversations()
-        );
-        assert!(config.agent("quiet").unwrap().hidden && !config.agent("helper").unwrap().hidden);
-        assert!(
-            config.agent("explore").is_none() && config.agent("gone").is_none(),
-            "disable takes an agent away, a built-in included"
-        );
+        assert_agent_modes(&config);
         assert_eq!(config.default_agent(), "lead");
         write(&ws, "drift.json", r#"{ "defaultAgent": "quiet" }"#);
         assert_eq!(
@@ -1403,7 +1358,62 @@ mod tests {
             "{:?}",
             without_build.warnings
         );
+
         std::fs::remove_dir_all(root).ok();
+    }
+
+    fn write_agent_modes(ws: &Path) {
+        write(ws, ".drift/agents/helper.md", "---\ndescription: No mode\n---\nHelp.");
+        write(
+            ws,
+            ".drift/agents/both.md",
+            "---\ndescription: Both\nmode: all\n---\nBoth.",
+        );
+        write(
+            ws,
+            ".drift/agents/lead.md",
+            "---\ndescription: Lead\nmode: primary\n---\nLead.",
+        );
+        write(
+            ws,
+            ".drift/agents/quiet.md",
+            "---\ndescription: Internal\nmode: subagent\nhidden: true\n---\nQuiet.",
+        );
+        write(ws, ".drift/agents/explore.md", "---\ndisable: true\n---\n");
+        write(
+            ws,
+            ".drift/agents/gone.md",
+            "---\ndescription: Off\ndisable: true\n---\nNever.",
+        );
+        write(ws, "drift.json", r#"{ "defaultAgent": "lead" }"#);
+    }
+
+    fn assert_agent_modes(config: &Config) {
+        let kind = |name: &str| config.agent(name).map(|agent| agent.kind);
+        assert_eq!(
+            kind("helper"),
+            Some(AgentKind::All),
+            "no mode means both, as in opencode"
+        );
+        assert_eq!(
+            (kind("both"), kind("lead"), kind("quiet")),
+            (
+                Some(AgentKind::All),
+                Some(AgentKind::Primary),
+                Some(AgentKind::Subagent)
+            )
+        );
+        assert!(
+            AgentKind::All.runs_conversations()
+                && AgentKind::All.delegated_to()
+                && !AgentKind::Primary.delegated_to()
+                && !AgentKind::Subagent.runs_conversations()
+        );
+        assert!(config.agent("quiet").unwrap().hidden && !config.agent("helper").unwrap().hidden);
+        assert!(
+            config.agent("explore").is_none() && config.agent("gone").is_none(),
+            "disable takes an agent away, a built-in included"
+        );
     }
 
     #[test]
@@ -1411,76 +1421,92 @@ mod tests {
         let root = std::env::temp_dir().join(format!("drift-config-{}", crate::random_hex(4)));
         let home = root.join("home");
         let ws = root.join("ws");
+        write_layered_home(&home);
+        write_layered_workspace(&ws);
+
+        let config = Config::load_with_home(&ws, Some(&home));
+        assert_layered_policy(&config);
+        assert_layered_agents(&config);
+        assert_layered_commands_and_skills(&config);
+
+        std::fs::remove_dir_all(root).ok();
+    }
+
+    fn write_layered_home(home: &Path) {
         write(
-            &home,
+            home,
             ".config/drift/drift.json",
             r#"{ "model": { "provider": "anthropic", "model": "haiku" }, "permissions": [{ "kind": "bash", "pattern": "git *", "decision": "allow" }] }"#,
         );
         write(
-            &home,
+            home,
             ".agents/skills/review/SKILL.md",
             "---\nname: review\ndescription: Reviews code\n---\nHow to review.",
         );
         write(
-            &home,
+            home,
             ".claude/skills/team/lint/SKILL.md",
             "---\nname: lint\ndescription: Lints\n---\nLint it.",
         );
         write(
-            &home,
+            home,
             ".agents/skills/notes/SKILL.md",
             "---\ndescription: Takes notes\n---\nWrite it down.",
         );
         write(
-            &home,
+            home,
             "shared/skills/release/SKILL.md",
             "---\ndescription: Releases\n---\nTag it.",
         );
+    }
+
+    fn write_layered_workspace(ws: &Path) {
         write(
-            &ws,
+            ws,
             "drift.json",
             r#"{ "permissions": [{ "kind": "bash", "pattern": "git push*", "decision": "deny" }], "instructions": ["docs/rules.md"], "skillPaths": ["~/shared/skills"] }"#,
         );
-        write(&ws, "docs/rules.md", "Be careful.");
-        write(&ws, "AGENTS.md", "Repo rules.");
-        write(&ws, "CLAUDE.md", "ignored when AGENTS.md exists");
+        write(ws, "docs/rules.md", "Be careful.");
+        write(ws, "AGENTS.md", "Repo rules.");
+        write(ws, "CLAUDE.md", "ignored when AGENTS.md exists");
         write(
-            &ws,
+            ws,
             ".drift/agents/reviewer.md",
             "---\ndescription: Reviews PRs\nmode: subagent\nmodel: openai/gpt-5.5\ntools: read, grep\n---\nYou review.",
         );
         write(
-            &ws,
+            ws,
             ".drift/agents/explore.md",
             "---\ndescription: Our explorer\n---\nSearch our monorepo.",
         );
         write(
-            &ws,
+            ws,
             ".drift/agents/plan.md",
             "---\ndescription: My plan\n---\nCustom plan.",
         );
         write(
-            &ws,
+            ws,
             ".drift/agents/title.md",
             "---\nmodel: openai/gpt-5-nano\n---\nShort titles.",
         );
         write(
-            &ws,
+            ws,
             ".drift/commands/test.md",
             "---\ndescription: Run tests\n---\nRun the tests for $ARGUMENTS and report.",
         );
         write(
-            &ws,
+            ws,
             ".drift/skills/review/SKILL.md",
             "---\nname: review\ndescription: Project review\n---\nProject way.",
         );
         write(
-            &ws,
+            ws,
             ".claude/skills/deploy/SKILL.md",
             "---\ndescription: Deploys\n---\nShip it.",
         );
+    }
 
-        let config = Config::load_with_home(&ws, Some(&home));
+    fn assert_layered_policy(config: &Config) {
         assert_eq!(
             config.model,
             Some(ModelRef {
@@ -1502,8 +1528,10 @@ mod tests {
                 .decide(&crate::tool::Ask::new("bash", "git push origin", "")),
             Decision::Deny
         );
+    }
 
-        let names: Vec<&str> = config.agents.iter().map(|a| a.name.as_str()).collect();
+    fn assert_layered_agents(config: &Config) {
+        let names: Vec<&str> = config.agents.iter().map(|agent| agent.name.as_str()).collect();
         assert_eq!(
             names,
             [
@@ -1555,7 +1583,9 @@ mod tests {
             !config.agent("plan").unwrap().builtin,
             "a project agent replaces the built-in of the same name"
         );
+    }
 
+    fn assert_layered_commands_and_skills(config: &Config) {
         assert_eq!(config.commands[0].name, "test");
         assert!(config.commands[0].template.contains("$ARGUMENTS"));
 
@@ -1580,7 +1610,6 @@ mod tests {
             config.instructions.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(),
             ["AGENTS.md", "docs/rules.md"]
         );
-        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

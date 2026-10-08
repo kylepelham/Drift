@@ -394,7 +394,11 @@ mod tests {
             store.save_mcp_server("notes", &changed).unwrap().config == changed,
             "a config that no longer parses is overwritten"
         );
-        store.save_mcp_server("good", &config).unwrap();
+        assert_unreadable_server_isolation(&store, &config, &changed);
+    }
+
+    fn assert_unreadable_server_isolation(store: &Store, config: &ServerConfig, changed: &ServerConfig) {
+        store.save_mcp_server("good", config).unwrap();
         store
             .lock()
             .execute(
@@ -418,7 +422,7 @@ mod tests {
             store.rename_mcp_server("notes", "other").unwrap().is_none(),
             "only a readable server is renamed"
         );
-        store.save_mcp_server("notes", &changed).unwrap();
+        store.save_mcp_server("notes", changed).unwrap();
         store.remove_mcp_server("good").unwrap();
         assert!(store.set_mcp_enabled("notes", false).unwrap());
         assert!(!store.mcp_servers().unwrap()[0].enabled);

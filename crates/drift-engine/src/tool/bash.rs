@@ -881,13 +881,7 @@ mod tests {
         let sandbox = Sandbox::new("bash-reads");
         std::fs::create_dir_all(sandbox.ctx.workspace.join("src")).unwrap();
         let bash = Bash::with(Shell::Bash("bash".into()));
-        let decide = |line: &str| {
-            sandbox.ctx.engine.permissions.decide_now(
-                "ses_test",
-                &crate::permission::Policy::default(),
-                &bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap(),
-            )
-        };
+        let decide = |line: &str| shell_decision(&sandbox, &bash, line);
         let reads = [
             "git status",
             "git log --oneline -10",
@@ -930,6 +924,22 @@ mod tests {
         ] {
             assert_eq!(decide(line), crate::permission::Decision::Ask, "{line}");
         }
+        assert_shell_redirections(&sandbox, &bash);
+        assert_shell_approval_reasons(&sandbox, &bash);
+        assert_shell_links_and_policy(&sandbox, &bash);
+    }
+
+    fn shell_decision(sandbox: &Sandbox, bash: &Bash, line: &str) -> crate::permission::Decision {
+        sandbox.ctx.engine.permissions.decide_now(
+            "ses_test",
+            &crate::permission::Policy::default(),
+            &bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap(),
+        )
+    }
+
+    fn assert_shell_redirections(sandbox: &Sandbox, bash: &Bash) {
+        let decide = |line: &str| shell_decision(sandbox, bash, line);
+
         // A redirection is judged by where it writes or reads, glued to its operator or not.
         let drives: &[&str] = if cfg!(windows) {
             &[r"C:\x", "C:/x", "C:x"]
@@ -959,8 +969,13 @@ mod tests {
                 "{drive}"
             );
         }
-        let reason = |line: &str| bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap().reason;
+    }
+
+    fn assert_shell_approval_reasons(sandbox: &Sandbox, bash: &Bash) {
         use super::Reason::*;
+
+        let decide = |line: &str| shell_decision(sandbox, bash, line);
+        let reason = |line: &str| bash.ask(&sandbox.ctx, &json!({ "command": line })).unwrap().reason;
         for (line, why) in [
             ("ls ..", Outside),
             ("echo $PATH", Unresolved),
@@ -1009,6 +1024,11 @@ mod tests {
         for line in ["git reset HEAD a.rs", "git commit -m push", "git log --grep=clean"] {
             assert_eq!(decide(line), crate::permission::Decision::Allow, "{line}");
         }
+    }
+
+    fn assert_shell_links_and_policy(sandbox: &Sandbox, bash: &Bash) {
+        let decide = |line: &str| shell_decision(sandbox, bash, line);
+
         let outside = sandbox.ctx.workspace.parent().unwrap().join("outside-dir");
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("private.txt"), "private").unwrap();

@@ -838,7 +838,6 @@ mod tests {
 
     #[test]
     fn a_redirection_that_writes_a_file_needs_the_line_itself_approved() {
-        let none = Policy::default();
         let git = Policy {
             rules: vec![Rule {
                 kind: "bash".into(),
@@ -877,7 +876,12 @@ mod tests {
             Decision::Allow,
             "a quoted operator is text"
         );
+    }
 
+    #[test]
+    fn redirection_grants_are_exact_and_explicit_rules_still_decide() {
+        let none = Policy::default();
+        let permissions = Permissions::new(Policy::default());
         approve_always(&permissions, shell("git status"));
         assert_eq!(
             permissions.decide("ses_1", &none, &shell("git status --short")),
@@ -980,6 +984,13 @@ mod tests {
             matches!(&always_grants(&inside)[..], [Grant::Exact { .. }]),
             "a guarded file inside the workspace stays exact"
         );
+        assert_home_folder_grants(&sibling);
+        assert_fetch_grants();
+
+        std::fs::remove_dir_all(sibling).ok();
+    }
+
+    fn assert_home_folder_grants(sibling: &std::path::Path) {
         std::fs::create_dir_all(sibling.join("Users").join("me")).unwrap();
         let home = crate::tool::canonical(&sibling.join("Users").join("me"));
         for wide in [
@@ -1007,6 +1018,9 @@ mod tests {
             outside_folder(&plain, Some(&home)).is_some(),
             "a plain folder in home is fine"
         );
+    }
+
+    fn assert_fetch_grants() {
         let fetch = always_grants(&Ask::new(
             "webfetch",
             "https://docs.rs:443/serde/latest/serde/",
@@ -1020,7 +1034,6 @@ mod tests {
             fetch[0].allows("webfetch", "https://docs.rs/tokio/latest/tokio/")
                 && !fetch[0].allows("webfetch", "https://evil.example/docs.rs/")
         );
-        std::fs::remove_dir_all(sibling).ok();
     }
 
     #[test]

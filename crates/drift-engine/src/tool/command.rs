@@ -883,6 +883,10 @@ mod tests {
             files_read(Dialect::PowerShell, "Get-Content -Path a.rs; gc b.rs"),
             ["a.rs", "b.rs"]
         );
+    }
+
+    #[test]
+    fn moves_writes_and_pipes_do_not_claim_a_file_was_read_whole() {
         assert!(
             files_read(Dialect::Bash, "cd src && cat a.rs").is_empty(),
             "paths after a move do not resolve from the workspace"

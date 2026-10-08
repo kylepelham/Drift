@@ -186,14 +186,8 @@ impl First {
 /// one directly, which has already asked. A Stop ends the walk and every file search in it.
 fn search(search: Search<'_>) -> Result<Found, ToolError> {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    let Search {
-        root,
-        pattern,
-        include,
-        workspace,
-        stop,
-        allowed,
-    } = search;
+    let (root, pattern, include) = (search.root, search.pattern, search.include);
+    let (workspace, stop, allowed) = (search.workspace, search.stop, search.allowed);
 
     let matcher = RegexMatcherBuilder::new()
         .line_terminator(Some(b'\n'))
