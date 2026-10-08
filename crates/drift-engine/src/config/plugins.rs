@@ -20,6 +20,9 @@ pub struct Install {
     pub sha256: String,
     #[serde(default)]
     pub config: Value,
+    /// The registry source it was listed by, whose token and trust apply to the download; none for Drift's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
 }
 
 /// The user's config directory, where plugins and drift.json live.
@@ -31,22 +34,25 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
 }
 
-/// Fetches, checks and writes the component; returns its drift.json entry path.
-pub async fn fetch_component(http: &reqwest::Client, install: &Install) -> Result<String, String> {
+/// Fetches, checks and writes the component; returns its drift.json entry path. With a source, the
+/// download goes through it: a path inside its repository or folder, or a URL with its token on its host.
+pub async fn fetch_component(fetcher: &super::sources::Fetcher, source: Option<&super::sources::RegistrySource>, install: &Install) -> Result<String, String> {
     if !valid_id(&install.id) {
         return Err("a plugin id is letters, digits, dashes and underscores".into());
     }
-    if !install.url.starts_with("https://") {
-        return Err("a plugin is fetched over https only".into());
-    }
-    let response = http.get(&install.url).send().await.map_err(|error| format!("could not fetch the plugin: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("could not fetch the plugin: {}", response.status()));
-    }
-    let bytes = response.bytes().await.map_err(|error| format!("could not fetch the plugin: {error}"))?;
-    if bytes.len() > MAX_COMPONENT_BYTES {
-        return Err("the plugin is larger than 64 MiB".into());
-    }
+    let bytes = match source {
+        Some(source) => {
+            let token = fetcher.token(source);
+            fetcher.read(source, source.file(&install.url, token.as_deref())?, MAX_COMPONENT_BYTES).await?
+        }
+        None => {
+            if !install.url.starts_with("https://") {
+                return Err("a plugin is fetched over https only".into());
+            }
+            let drift = super::sources::RegistrySource { id: String::new(), name: "Drift".into(), kind: super::sources::RegistryKind::Plugins, source: Default::default(), url: install.url.clone(), r#ref: String::new(), path: String::new(), has_token: false, allow_http: false, ca_pem: None };
+            fetcher.read(&drift, super::sources::Location::Http { url: install.url.clone(), headers: Vec::new() }, MAX_COMPONENT_BYTES).await?
+        }
+    };
     let digest = hex(&ring::digest::digest(&ring::digest::SHA256, &bytes));
     if !digest.eq_ignore_ascii_case(install.sha256.trim()) {
         return Err("the download does not match the registry's hash; nothing was installed".into());

@@ -30,6 +30,10 @@ pub struct InstallPack {
     /// Skill folder names to keep; empty keeps every skill the archive holds.
     #[serde(default)]
     pub skills: Vec<String>,
+    /// The registry source it was listed by; its token and trust apply to the archive. An empty
+    /// `archive` with a repository source means the source's own repository.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry: Option<String>,
 }
 
 /// One skill the user has, from a pack or their own folders.
@@ -74,30 +78,83 @@ pub fn packs_dir() -> Result<PathBuf, String> {
 }
 
 /// Fetches the archive and unpacks the wanted folders under `skills/<id>`, replacing what was there.
-pub async fn install(http: &reqwest::Client, pack: InstallPack) -> Result<Pack, String> {
+pub async fn install(fetcher: &super::sources::Fetcher, source: Option<&super::sources::RegistrySource>, pack: InstallPack) -> Result<Pack, String> {
     if !valid_id(&pack.id) {
         return Err("a pack id is letters, digits, dashes and underscores".into());
     }
-    if !pack.archive.starts_with("https://") {
-        return Err("a pack is fetched over https only".into());
-    }
-    let response = http.get(&pack.archive).send().await.map_err(|error| format!("could not fetch the pack: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!("could not fetch the pack: {}", response.status()));
-    }
-    let bytes = response.bytes().await.map_err(|error| format!("could not fetch the pack: {error}"))?;
-    if bytes.len() > MAX_ARCHIVE_BYTES {
-        return Err("the pack is larger than 32 MiB".into());
-    }
+    let bytes = match source {
+        Some(source) => {
+            let token = fetcher.token(source);
+            let location = if pack.archive.trim().is_empty() { source.archive(token.as_deref())? } else { source.file(&pack.archive, token.as_deref())? };
+            fetcher.read(source, location, MAX_ARCHIVE_BYTES).await?
+        }
+        None => {
+            if !pack.archive.starts_with("https://") {
+                return Err("a pack is fetched over https only".into());
+            }
+            let drift = super::sources::RegistrySource { id: String::new(), name: "Drift".into(), kind: super::sources::RegistryKind::Plugins, source: Default::default(), url: pack.archive.clone(), r#ref: String::new(), path: String::new(), has_token: false, allow_http: false, ca_pem: None };
+            fetcher.read(&drift, super::sources::Location::Http { url: pack.archive.clone(), headers: Vec::new() }, MAX_ARCHIVE_BYTES).await?
+        }
+    };
     let dir = packs_dir()?.join(&pack.id);
     let into = dir.clone();
     let subdirs = pack.subdirs.clone();
     let wanted = pack.skills.clone();
-    let skills = tokio::task::spawn_blocking(move || unpack(&bytes, &into, &subdirs, &wanted)).await.map_err(|error| error.to_string())??;
+    let skills = tokio::task::spawn_blocking(move || unpack_any(&bytes, &into, &subdirs, &wanted)).await.map_err(|error| error.to_string())??;
     let installed = Pack { id: pack.id, name: pack.name, source: pack.source, image: pack.image, archive: pack.archive, skills, installed_at: crate::id::now_ms() };
     let marker = serde_json::to_string_pretty(&installed).map_err(|error| error.to_string())?;
     std::fs::write(dir.join(MARKER), marker).map_err(|error| format!("could not write {}: {error}", dir.display()))?;
     Ok(installed)
+}
+
+/// GitHub serves tar.gz; Azure DevOps serves zip. Either is told apart by its first bytes.
+fn unpack_any(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, String> {
+    if bytes.starts_with(b"PK") {
+        return unpack_zip(bytes, into, subdirs, wanted);
+    }
+    unpack(bytes, into, subdirs, wanted)
+}
+
+/// A zip archive the same way: Azure's has no top-level folder, so paths are taken as they are.
+fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, String> {
+    if into.exists() {
+        std::fs::remove_dir_all(into).map_err(|error| format!("could not replace {}: {error}", into.display()))?;
+    }
+    std::fs::create_dir_all(into).map_err(|error| format!("could not create {}: {error}", into.display()))?;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|error| format!("not a zip archive: {error}"))?;
+    let mut skills = Vec::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
+        if entry.is_dir() || entry.size() > MAX_FILE_BYTES {
+            continue;
+        }
+        let Some(name) = entry.enclosed_name() else { continue };
+        let relative = name.to_path_buf();
+        if !subdirs.is_empty() && !subdirs.iter().any(|sub| relative.starts_with(sub.trim_matches('/'))) {
+            continue;
+        }
+        if !wanted.is_empty() && !relative.components().any(|part| wanted.iter().any(|skill| part.as_os_str() == skill.as_str())) {
+            continue;
+        }
+        let target = into.join(&relative);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| format!("could not create {}: {error}", parent.display()))?;
+        }
+        let mut content = Vec::with_capacity(entry.size() as usize);
+        entry.read_to_end(&mut content).map_err(|error| error.to_string())?;
+        std::fs::write(&target, content).map_err(|error| format!("could not write {}: {error}", target.display()))?;
+        if relative.file_name().is_some_and(|name| name == "SKILL.md") {
+            if let Some(skill) = relative.parent().and_then(Path::file_name) {
+                skills.push(skill.to_string_lossy().into_owned());
+            }
+        }
+    }
+    if skills.is_empty() {
+        let _ = std::fs::remove_dir_all(into);
+        return Err("the archive holds no SKILL.md in the folders asked for".into());
+    }
+    skills.sort();
+    Ok(skills)
 }
 
 /// Writes the archive's files under `into` without its top folder, keeping only `subdirs` and `wanted` skills when given.

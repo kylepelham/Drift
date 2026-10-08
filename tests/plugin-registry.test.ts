@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { buildConfig, fieldText, fieldValue, installedPath, loadRegistries, matchesRegistryQuery, type ConfigField, type RegistryPlugin } from "../src/state/plugin-registry"
-import { validSourceUrl } from "../src/state/registry-sources"
+import { sourceProblem, validSourceUrl } from "../src/state/registry-sources"
 
 const list: ConfigField = { key: "test", label: "Test", type: "list", default: ["cargo", "test"] }
 const flag: ConfigField = { key: "on", label: "On", type: "boolean", default: true }
@@ -49,22 +49,23 @@ describe("plugin registry sources", () => {
 
   test("a user's source comes first, its plugins are named for it, duplicates by id are dropped, and a failing source is reported", async () => {
     const original = globalThis.fetch
-    globalThis.fetch = (async (input: string | URL | Request) => {
-      const url = String(input)
-      if (url.includes("acme")) return new Response(JSON.stringify({ version: 1, plugins: [plugin("guard", { name: "Acme guard" }), plugin("acme-policy")] }))
-      if (url.includes("broken")) return new Response("nope", { status: 500 })
-      return new Response(JSON.stringify({ version: 1, plugins: [plugin("guard"), plugin("notify")] }))
-    }) as typeof fetch
+    globalThis.fetch = (async () => new Response(JSON.stringify({ version: 1, plugins: [plugin("guard"), plugin("notify")] }))) as typeof fetch
+    // The user's sources are read by the engine, so they come through the fetch given rather than the browser's.
+    const engineFetch = async (id: string) => {
+      if (id === "acme") return { version: 1, plugins: [plugin("guard", { name: "Acme guard" }), plugin("acme-policy")] }
+      throw new Error("could not fetch: 401 (a token may be needed)")
+    }
     try {
       const loaded = await loadRegistries([
-        { name: "Acme", url: "https://acme.example/registry.json" },
-        { name: "Broken", url: "https://broken.example/registry.json" },
-      ], true)
+        { id: "acme", name: "Acme" },
+        { id: "broken", name: "Broken" },
+      ], true, engineFetch)
       expect(loaded.plugins.map((item) => item.id)).toEqual(["guard", "acme-policy", "notify"])
       expect(loaded.plugins[0]!.name).toBe("Acme guard")
       expect(loaded.plugins[0]!.sourceName).toBe("Acme")
+      expect(loaded.plugins[0]!.sourceId).toBe("acme")
       expect(loaded.plugins[2]!.sourceName).toBeUndefined()
-      expect(loaded.failures.map((failure) => failure.name)).toEqual(["Broken"])
+      expect(loaded.failures).toEqual([{ name: "Broken", error: "could not fetch: 401 (a token may be needed)" }])
     } finally {
       globalThis.fetch = original
     }
@@ -77,5 +78,12 @@ describe("plugin registry sources", () => {
     expect(validSourceUrl("https://registry.example.com/plugins.json")).toBeTrue()
     expect(validSourceUrl("http://registry.example.com/plugins.json")).toBeFalse()
     expect(validSourceUrl("not a url")).toBeFalse()
+    expect(sourceProblem("url", "http://intranet/registry.json", false)).toBe("http")
+    expect(sourceProblem("url", "http://intranet/registry.json", true)).toBeUndefined()
+    expect(sourceProblem("github", "https://github.com/acme/tools", false)).toBeUndefined()
+    expect(sourceProblem("github", "https://gitlab.com/acme/tools", false)).toBe("github")
+    expect(sourceProblem("azure_devops", "https://dev.azure.com/acme/Tools/_git/plugins", false)).toBeUndefined()
+    expect(sourceProblem("azure_devops", "https://dev.azure.com/acme/Tools", false)).toBe("azure")
+    expect(sourceProblem("folder", "\\fileserver\drift", false)).toBeUndefined()
   })
 })

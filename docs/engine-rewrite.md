@@ -1067,8 +1067,15 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   engine's client, refuses it unless its SHA-256 matches the registry's, writes it under the config
   directory's `plugins/` and rewrites drift.json's `plugins` list (the file is parsed as JSONC and
   written back as JSON); `DELETE /plugins` and `PUT /plugins/config` edit the same list. Registry
-  sources the user adds are the `registrySources` setting on `/settings`, https only; the UI reads
-  the registries itself.
+  sources the user adds are the `registrySources` setting on `/settings` (`config::sources`): a
+  kind (`url`, `github`, `azure_devops`, `folder`), the location, a ref and document path for a
+  repository, `allow_http`, and an extra root certificate; a token is a secret in the credential
+  store under `registry:<id>` and only `has_token` is reported. `Fetcher` reads a source's document
+  and files: a GitHub source through the contents API with the raw media type and the tarball API,
+  Azure DevOps through the items API (zip for an archive, told apart from tar.gz by its first bytes),
+  a folder straight from disk with no climbing out, a URL with the token only on its own host.
+  `GET /registries/fetch?source=` returns the document, and the install endpoints take `registry` so
+  a download goes through the same source.
 - Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`): refuses history
   rewrites, notes failed commands, runs the configured test command on `@guard test` and continues
   the turn with the failures; `hook::wasm::tests` builds it into `target/plugins` and runs it.

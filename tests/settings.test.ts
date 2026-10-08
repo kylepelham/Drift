@@ -290,6 +290,8 @@ const invariantTranslation = new Set([
   "drift.about.version",
   "drift.attachment.kind.pdf",
   "drift.plugins.fieldType.json",
+  "drift.registry.sources.kind.url",
+  "drift.registry.sources.location.url",
   "drift.notification.threadError",
   "drift.settings.section",
   "drift.settings.prompts.family.claude",

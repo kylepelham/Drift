@@ -23,35 +23,35 @@ pub struct EngineSettings {
     /// Every session answers its own asks; only a deny rule still refuses. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_accept_all: Option<bool>,
-    /// Registries besides the built-in ones, for a team's own plugins and MCP servers. Left out of a PUT, they stay as they are.
+    /// Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_sources: Option<Vec<RegistrySource>>,
 }
 
-/// A registry the user added: a JSON document over https, in the plugin or the MCP registry's format.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub use crate::config::sources::{RegistrySource, SourceInput};
+
+/// The same settings, with each source's token to store or clear, for a PUT.
+#[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct RegistrySource {
-    pub name: String,
-    pub url: String,
-    pub kind: RegistryKind,
+pub struct EngineSettingsInput {
+    #[serde(default)]
+    pub auto_compact: Option<bool>,
+    #[serde(default)]
+    pub background_tasks: Option<bool>,
+    #[serde(default)]
+    pub auto_accept_all: Option<bool>,
+    #[serde(default)]
+    pub registry_sources: Option<Vec<SourceInput>>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum RegistryKind {
-    Plugins,
-    Mcp,
-}
 
-const REGISTRY_SOURCES_KEY: &str = "registrySources";
 
 fn current(engine: &Engine) -> EngineSettings {
     EngineSettings {
         auto_compact: Some(engine.auto_compact()),
         background_tasks: Some(engine.background_enabled()),
         auto_accept_all: Some(engine.auto_accept_all()),
-        registry_sources: Some(engine.store.setting(REGISTRY_SOURCES_KEY).ok().flatten().unwrap_or_default()),
+        registry_sources: Some(engine.registry_sources()),
     }
 }
 
@@ -60,8 +60,8 @@ pub async fn get(State(engine): State<Arc<Engine>>) -> Json<EngineSettings> {
     Json(current(&engine))
 }
 
-#[utoipa::path(put, path = "/settings", operation_id = "putSettings", request_body = EngineSettings, responses((status = 200, body = EngineSettings)))]
-pub async fn put(State(engine): State<Arc<Engine>>, Json(body): Json<EngineSettings>) -> Result<Json<EngineSettings>, ApiError> {
+#[utoipa::path(put, path = "/settings", operation_id = "putSettings", request_body = EngineSettingsInput, responses((status = 200, body = EngineSettings)))]
+pub async fn put(State(engine): State<Arc<Engine>>, Json(body): Json<EngineSettingsInput>) -> Result<Json<EngineSettings>, ApiError> {
     if let Some(enabled) = body.auto_compact {
         engine.store.set_setting(AUTO_COMPACT_KEY, &enabled)?;
     }
@@ -72,10 +72,7 @@ pub async fn put(State(engine): State<Arc<Engine>>, Json(body): Json<EngineSetti
         engine.set_auto_accept_all(on)?;
     }
     if let Some(sources) = body.registry_sources {
-        if let Some(bad) = sources.iter().find(|source| !source.url.starts_with("https://") || source.name.trim().is_empty()) {
-            return Err(ApiError::new(axum::http::StatusCode::BAD_REQUEST, "source", format!("a registry source needs a name and an https URL: {}", bad.url)));
-        }
-        engine.store.set_setting(REGISTRY_SOURCES_KEY, &sources)?;
+        engine.set_registry_sources(sources).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "source", error))?;
     }
     Ok(Json(current(&engine)))
 }
@@ -110,6 +107,20 @@ pub async fn tools(State(engine): State<Arc<Engine>>, axum::extract::Query(query
         }
     }
     Json(names)
+}
+
+#[derive(Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceQuery {
+    /// The source's id.
+    pub source: String,
+}
+
+/// A source's registry document, read by the engine with the source's token and trust settings.
+#[utoipa::path(get, path = "/registries/fetch", operation_id = "fetchRegistry", params(SourceQuery), responses((status = 200, body = serde_json::Value)))]
+pub async fn fetch_registry(State(engine): State<Arc<Engine>>, axum::extract::Query(query): axum::extract::Query<SourceQuery>) -> Result<Json<serde_json::Value>, ApiError> {
+    let source = engine.registry_source(&query.source).ok_or_else(|| ApiError::not_found("source"))?;
+    engine.fetcher().document(&source).await.map(Json).map_err(|error| ApiError::new(axum::http::StatusCode::BAD_GATEWAY, "source", error))
 }
 
 /// The plugins the user's drift.json lists, loaded or with why they are not.
@@ -173,7 +184,8 @@ pub async fn skill_packs() -> Json<Vec<crate::config::skills::Pack>> {
 /// Installs a skill pack: its archive is fetched over https and the asked folders are unpacked under the user's skills.
 #[utoipa::path(post, path = "/skills/packs", operation_id = "installSkillPack", request_body = crate::config::skills::InstallPack, responses((status = 200, body = Vec<crate::config::skills::Pack>)))]
 pub async fn install_skill_pack(State(engine): State<Arc<Engine>>, Json(body): Json<crate::config::skills::InstallPack>) -> Result<Json<Vec<crate::config::skills::Pack>>, ApiError> {
-    crate::config::skills::install(&engine.http, body).await.map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "pack", error))?;
+    let source = body.registry.as_deref().and_then(|id| engine.registry_source(id));
+    crate::config::skills::install(&engine.fetcher(), source.as_ref(), body).await.map_err(|error| ApiError::new(axum::http::StatusCode::BAD_REQUEST, "pack", error))?;
     Ok(Json(crate::config::skills::list()))
 }
 

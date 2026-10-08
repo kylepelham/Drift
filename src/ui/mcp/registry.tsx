@@ -48,7 +48,7 @@ export function McpRegistry(props: {
   const loadOwn = async () => {
     await loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) }).catch(() => undefined)
     const sources = sourcesOf("mcp")
-    const results = await Promise.allSettled(sources.map((source) => loadCustomRegistry(source)))
+    const results = await Promise.allSettled(sources.map((source) => loadCustomRegistry(source, (id) => engine.actions.fetchRegistry(id))))
     if (disposed) return
     setOwn(entries(results.flatMap((result) => (result.status === "fulfilled" ? result.value : []))))
     setOwnFailures(results.flatMap((result, index) => (result.status === "rejected" ? [sources[index]!.name] : [])))

@@ -5,6 +5,7 @@ mod frontmatter;
 pub mod jsonc;
 pub mod plugins;
 pub mod skills;
+pub mod sources;
 mod overrides;
 
 pub use overrides::{AgentOverride, ModelPin};

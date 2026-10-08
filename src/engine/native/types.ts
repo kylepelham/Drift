@@ -453,6 +453,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/registries/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A source's registry document, read by the engine with the source's token and trust settings. */
+        get: operations["fetchRegistry"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions": {
         parameters: {
             query?: never;
@@ -1149,8 +1166,15 @@ export interface components {
             autoCompact?: boolean | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
-            /** @description Registries besides the built-in ones, for a team's own plugins and MCP servers. Left out of a PUT, they stay as they are. */
+            /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
             registrySources?: components["schemas"]["RegistrySource"][] | null;
+        };
+        /** @description The same settings, with each source's token to store or clear, for a PUT. */
+        EngineSettingsInput: {
+            autoAcceptAll?: boolean | null;
+            autoCompact?: boolean | null;
+            backgroundTasks?: boolean | null;
+            registrySources?: components["schemas"]["SourceInput"][] | null;
         };
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
@@ -1329,6 +1353,8 @@ export interface components {
             config?: unknown;
             /** @description Becomes the file name: letters, digits, `-` and `_` only. */
             id: string;
+            /** @description The registry source it was listed by, whose token and trust apply to the download; none for Drift's own. */
+            registry?: string | null;
             /** @description Hex SHA-256 of the component; the download must match it. */
             sha256: string;
             url: string;
@@ -1341,6 +1367,11 @@ export interface components {
             id: string;
             image?: string | null;
             name: string;
+            /**
+             * @description The registry source it was listed by; its token and trust apply to the archive. An empty
+             *     `archive` with a repository source means the source's own repository.
+             */
+            registry?: string | null;
             /** @description Skill folder names to keep; empty keeps every skill the archive holds. */
             skills?: string[];
             source?: string | null;
@@ -1708,10 +1739,24 @@ export interface components {
         };
         /** @enum {string} */
         RegistryKind: "plugins" | "mcp";
-        /** @description A registry the user added: a JSON document over https, in the plugin or the MCP registry's format. */
+        /** @description A registry the user added. Secrets are not here: a token lives in the credential store under the source's id. */
         RegistrySource: {
+            /** @description Plain http is refused unless the user says so for this source. */
+            allowHttp?: boolean;
+            /** @description An extra root certificate (PEM) trusted for this source's hosts, for an internal CA. */
+            caPem?: string | null;
+            /** @description Whether a token is stored for it; the token itself is never returned. */
+            hasToken?: boolean;
+            /** @description Stable, so the token outlives a rename; the engine makes one when a new source has none. */
+            id: string;
             kind: components["schemas"]["RegistryKind"];
             name: string;
+            /** @description For a repository: the document's path inside it; `registry.json` when empty. */
+            path?: string;
+            /** @description For a repository: the branch, tag or commit; the default branch when empty. */
+            ref?: string;
+            source?: components["schemas"]["SourceKind"];
+            /** @description For `url`: the document. For `github` and `azure_devops`: the repository's web URL. For `folder`: the folder. */
             url: string;
         };
         RenameBody: {
@@ -1898,6 +1943,16 @@ export interface components {
             /** @description The workspace the skill belongs to, for one of its own. */
             workspace?: string | null;
         };
+        /** @description The `/settings` body's view of a source: the same, plus a token to store or clear. */
+        SourceInput: components["schemas"]["RegistrySource"] & {
+            /** @description A new token to keep; empty clears it; absent leaves it. */
+            token?: string | null;
+        };
+        /**
+         * @description How a source is reached.
+         * @enum {string}
+         */
+        SourceKind: "url" | "github" | "azure_devops" | "folder";
         SpawnBody: {
             /** @description What the new thread should do; it starts with a copy of this conversation and works out what it needs. */
             instruction: string;
@@ -2895,6 +2950,28 @@ export interface operations {
             };
         };
     };
+    fetchRegistry: {
+        parameters: {
+            query: {
+                /** @description The source's id. */
+                source: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     listSessions: {
         parameters: {
             query?: {
@@ -3504,7 +3581,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EngineSettings"];
+                "application/json": components["schemas"]["EngineSettingsInput"];
             };
         };
         responses: {

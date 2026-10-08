@@ -4,6 +4,7 @@ import type { components } from "../engine/native/types"
 export type RegistryPlugin = {
   /** The registry it came from; unset for Drift's own. */
   sourceName?: string
+  sourceId?: string
   /** A WebAssembly component (the default), one Markdown skill, or a pack of them, unpacked from an archive. */
   kind?: "wasm" | "skill" | "skills"
   /** For a skill or pack: the tar.gz to fetch, the folders inside it to keep, and the skills it holds. */
@@ -56,18 +57,30 @@ export async function loadRegistry(url = registryUrl, fresh = false): Promise<Re
 
 export type RegistryFailure = { name: string; error: string }
 
+/** A user's source is read by the engine, which holds its token and trust settings; the result is checked like Drift's own. */
+async function loadSourceRegistry(fetchRegistry: (id: string) => Promise<unknown>, source: { id: string }, fresh: boolean): Promise<Registry> {
+  const key = `source:${source.id}`
+  const hit = cached.get(key)
+  if (!fresh && hit && Date.now() - hit.at < CACHE_MS) return hit.registry
+  const registry = (await fetchRegistry(source.id)) as Registry
+  if (!Array.isArray(registry?.plugins)) throw new Error("registry has no plugins")
+  cached.set(key, { at: Date.now(), registry })
+  return registry
+}
+
 /** Drift's registry and the user's own, the user's first; a source that fails is named, the rest still show. */
-export async function loadRegistries(sources: { name: string; url: string }[], fresh = false): Promise<{ plugins: RegistryPlugin[]; failures: RegistryFailure[] }> {
+export async function loadRegistries(sources: { id: string; name: string }[], fresh = false, fetchRegistry?: (id: string) => Promise<unknown>): Promise<{ plugins: RegistryPlugin[]; failures: RegistryFailure[] }> {
   const plugins: RegistryPlugin[] = []
   const failures: RegistryFailure[] = []
-  const results = await Promise.allSettled([...sources.map((source) => loadRegistry(source.url, fresh)), loadRegistry(registryUrl, fresh)])
+  const viaEngine = fetchRegistry ?? (() => Promise.reject(new Error("no engine")))
+  const results = await Promise.allSettled([...sources.map((source) => loadSourceRegistry(viaEngine, source, fresh)), loadRegistry(registryUrl, fresh)])
   results.forEach((result, index) => {
     const source = sources[index]
     if (result.status === "rejected") {
       failures.push({ name: source?.name ?? "Drift", error: result.reason instanceof Error ? result.reason.message : String(result.reason) })
       return
     }
-    for (const plugin of result.value.plugins) plugins.push(source ? { ...plugin, sourceName: source.name } : plugin)
+    for (const plugin of result.value.plugins) plugins.push(source ? { ...plugin, sourceName: source.name, sourceId: source.id } : plugin)
   })
   const seen = new Set<string>()
   return { plugins: plugins.filter((plugin) => !seen.has(plugin.id) && seen.add(plugin.id)), failures }

@@ -123,6 +123,7 @@ const AUTO_ACCEPT_ALL_KEY: &str = "autoAcceptAll";
 const DISABLED_PLUGINS_KEY: &str = "disabledPlugins";
 /// Skill folders the user switched off in Settings; the files themselves are never touched.
 const DISABLED_SKILLS_KEY: &str = "disabledSkills";
+const REGISTRY_SOURCES_KEY: &str = "registrySources";
 
 impl Engine {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>, Error> {
@@ -179,9 +180,56 @@ impl Engine {
         self.hooks.load(&self.data_dir.join("plugin-cache"), config::user_plugins(), &disabled, self.me.clone()).await
     }
 
+    pub fn registry_sources(&self) -> Vec<config::sources::RegistrySource> {
+        let mut sources: Vec<config::sources::RegistrySource> = self.store.setting(REGISTRY_SOURCES_KEY).ok().flatten().unwrap_or_default();
+        for source in &mut sources {
+            source.has_token = self.credentials.secret(&config::sources::token_key(&source.id)).is_some();
+        }
+        sources
+    }
+
+    pub fn registry_source(&self, id: &str) -> Option<config::sources::RegistrySource> {
+        self.registry_sources().into_iter().find(|source| source.id == id)
+    }
+
+    /// Stores the sources and each one's token; a source dropped from the list loses its token too.
+    pub fn set_registry_sources(&self, inputs: Vec<config::sources::SourceInput>) -> Result<(), String> {
+        let before = self.registry_sources();
+        let mut sources = Vec::new();
+        for input in inputs {
+            let mut source = input.source;
+            if source.name.trim().is_empty() || source.url.trim().is_empty() {
+                return Err("a registry source needs a name and a location".into());
+            }
+            if source.id.trim().is_empty() {
+                source.id = random_hex(8);
+            }
+            let is_url = matches!(source.source, config::sources::SourceKind::Url);
+            if is_url && !source.url.starts_with("https://") && !(source.allow_http && source.url.starts_with("http://")) {
+                return Err(format!("a URL source needs https (or http allowed for it): {}", source.url));
+            }
+            match input.token.as_deref().map(str::trim) {
+                Some("") => self.credentials.remove_secret(&config::sources::token_key(&source.id))?,
+                Some(token) => self.credentials.set_secret(&config::sources::token_key(&source.id), token)?,
+                None => {}
+            }
+            source.has_token = false;
+            sources.push(source);
+        }
+        for gone in before.iter().filter(|old| !sources.iter().any(|new| new.id == old.id)) {
+            let _ = self.credentials.remove_secret(&config::sources::token_key(&gone.id));
+        }
+        self.store.set_setting(REGISTRY_SOURCES_KEY, &sources).map_err(|error| error.to_string())
+    }
+
+    pub fn fetcher(&self) -> config::sources::Fetcher {
+        config::sources::Fetcher::new(self.http.clone(), self.credentials.clone())
+    }
+
     /// Fetches a registry plugin, checks its hash, lists it in drift.json with its config, and reloads.
     pub async fn install_plugin(&self, install: config::plugins::Install) -> Result<Vec<hook::PluginInfo>, String> {
-        let path = config::plugins::fetch_component(&self.http, &install).await?;
+        let source = install.registry.as_deref().and_then(|id| self.registry_source(id));
+        let path = config::plugins::fetch_component(&self.fetcher(), source.as_ref(), &install).await?;
         let dir = config::plugins::config_dir()?;
         config::plugins::edit_plugins(&dir, |plugins| config::plugins::set_entry(plugins, &path, install.config))?;
         Ok(self.reload_plugins().await)

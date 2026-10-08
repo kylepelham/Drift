@@ -56,7 +56,7 @@ export function PluginsSection() {
 
   const install = async (plugin: RegistryPlugin, config: Record<string, unknown>) => {
     setBusy(plugin.id)
-    const done = await run(() => engine.actions.installPlugin({ id: plugin.id, url: plugin.download, sha256: plugin.sha256, config }), t("drift.plugins.installed.one", { name: plugin.name }))
+    const done = await run(() => engine.actions.installPlugin({ id: plugin.id, url: plugin.download, sha256: plugin.sha256, config, registry: plugin.sourceId }), t("drift.plugins.installed.one", { name: plugin.name }))
     setBusy("")
     if (done) setView("installed")
     return done
@@ -74,7 +74,7 @@ export function PluginsSection() {
   onMount(() => {
     void loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) })
       .catch(() => undefined)
-      .then(() => loadRegistries(sourcesOf("plugins")))
+      .then(() => loadRegistries(sourcesOf("plugins"), false, (id) => engine.actions.fetchRegistry(id)))
       .then((loaded) => setKnown(Object.fromEntries(loaded.plugins.map((plugin) => [installedPath(plugin.id), plugin]))))
       .catch(() => undefined)
   })
@@ -200,7 +200,7 @@ function PluginRegistry(props: { installed: Set<string>; disabled: boolean; busy
     setError("")
     try {
       await loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) }).catch(() => undefined)
-      const loaded = await loadRegistries(sourcesOf("plugins"), fresh)
+      const loaded = await loadRegistries(sourcesOf("plugins"), fresh, (id) => engine.actions.fetchRegistry(id))
       setPlugins(loaded.plugins.filter((plugin) => !isSkillEntry(plugin)))
       setFailures(loaded.failures)
       if (!loaded.plugins.length && loaded.failures.length) setError(t("drift.plugins.registryLoadFailed"))

@@ -54,7 +54,7 @@ export function SkillsSection() {
   const install = async (pack: RegistryPlugin, chosen: string[]) => {
     setBusy(pack.id)
     const done = await run(async () => {
-      await engine.actions.installSkillPack({ id: pack.id, name: pack.name, archive: pack.archive ?? "", subdirs: pack.subdirs ?? [], source: pack.source, image: pack.image, skills: chosen })
+      await engine.actions.installSkillPack({ id: pack.id, name: pack.name, archive: pack.archive ?? "", subdirs: pack.subdirs ?? [], source: pack.source, image: pack.image, skills: chosen, registry: pack.sourceId })
       await refresh()
     }, t("drift.skills.installed", { name: pack.name, count: chosen.length || pack.skills?.length || 0 }))
     setBusy("")
@@ -235,7 +235,7 @@ function SkillRegistry(props: { installed: Set<string>; disabled: boolean; busy:
     setError("")
     try {
       await loadRegistrySources({ settings: () => engine.actions.engineSettings(), putSettings: (body) => engine.actions.putEngineSettings(body) }).catch(() => undefined)
-      const loaded = await loadRegistries(sourcesOf("plugins"), fresh)
+      const loaded = await loadRegistries(sourcesOf("plugins"), fresh, (id) => engine.actions.fetchRegistry(id))
       setPacks(loaded.plugins.filter((plugin) => plugin.kind === "skill" || plugin.kind === "skills"))
       setFailures(loaded.failures)
       if (!loaded.plugins.length && loaded.failures.length) setError(t("drift.plugins.registryLoadFailed"))

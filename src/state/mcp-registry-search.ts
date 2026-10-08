@@ -216,11 +216,9 @@ export function createRegistrySearch(fetchRegistry: FetchRegistry = fetch) {
 }
 
 /** Forgets the shared list, so the next search reads it again. */
-/** A user's own registry: the official format (a `servers` list, each wrapped or bare), read whole and searched here. */
-export async function loadCustomRegistry(source: { name: string; url: string }, fetchRegistry: FetchRegistry = fetch): Promise<RegistryServer[]> {
-  const response = await fetchRegistry(source.url, { signal: AbortSignal.timeout(15_000) })
-  if (!response.ok) throw new Error("registry unavailable")
-  return parseRegistryPayload(await response.json(), "custom").map((server) => ({ ...server, listing: { ...(server.listing ?? { source: "custom" }), source: "custom", sourceName: source.name } }))
+/** A user's own registry, read by the engine: the official format (a `servers` list, each wrapped or bare), searched here. */
+export async function loadCustomRegistry(source: { id: string; name: string }, fetchRegistry: (id: string) => Promise<unknown>): Promise<RegistryServer[]> {
+  return parseRegistryPayload(await fetchRegistry(source.id), "custom").map((server) => ({ ...server, listing: { ...(server.listing ?? { source: "custom" }), source: "custom", sourceName: source.name } }))
 }
 
 export function forgetRegistryCatalog() {
