@@ -168,8 +168,8 @@ impl Engine {
         self.renew(provider, credential).await
     }
 
-    /// The provider's stored credential, renewed first when it is a sign-in past its expiry, for
-    /// callers outside a turn (the shell's usage limits); `None` when there is none or it cannot be renewed.
+    /// The provider's stored credential for callers outside a turn, such as the shell's usage limits.
+    /// An expired sign-in is renewed first; `None` when there is no credential or renewal fails.
     pub async fn current_credential(&self, provider: &str) -> Option<Credential> {
         let stored = self.credentials.get(provider)?;
         if !stored.is_expired() {
@@ -300,8 +300,8 @@ impl Engine {
         Ok(())
     }
 
-    /// The tools and system prompt for the plan's model and agent. What was offered is what may run:
-    /// a call to any other tool is refused before permission or snapshot.
+    /// The tools and system prompt for the plan's model and agent.
+    /// Only offered tools may run; calls to any other tool are refused before permission or snapshot.
     pub(super) fn offer(&self, plan: &Plan) -> Offer {
         let agent = plan.config.agent(&plan.session.agent).cloned();
         let subagent = plan.session.visibility == Visibility::Hidden;

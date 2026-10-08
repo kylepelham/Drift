@@ -1,8 +1,8 @@
 use super::*;
 
 impl Engine {
-    /// Scales the images a call returned within provider limits and moves them to the blob table,
-    /// leaving `{mime, hash}` in its metadata; a scaled or dropped image is said in the result.
+    /// Scales a call's returned images within provider limits and moves them to the blob table.
+    /// Metadata keeps `{mime, hash}`, and the result mentions any image that was scaled or dropped.
     pub(super) async fn keep_images(
         &self,
         message_id: &str,

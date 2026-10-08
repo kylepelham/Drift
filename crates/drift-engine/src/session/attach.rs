@@ -142,7 +142,7 @@ impl Attach<'_> {
                 read_whole.push(path.to_path_buf());
                 format!("<file path=\"{shown}\">\n{text}\n</file>")
             }
-            // Cut short, it does not count as read: the model has not seen the whole file.
+            // A partial mention is not marked read because the model has not seen the whole file.
             Ok(Read::Partial(text) | Read::Listing(text)) => format!("<file path=\"{shown}\">\n{text}\n</file>"),
             Err(reason) => format!("[@{shown} was mentioned but {reason}.]"),
         }

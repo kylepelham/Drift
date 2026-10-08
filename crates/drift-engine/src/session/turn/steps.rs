@@ -1,8 +1,8 @@
 use super::*;
 
 impl Engine {
-    /// The calls a command makes before the model answers (a skill, a delegated task, its shell lines),
-    /// in one message, each through the permission check as the model's own calls are.
+    /// Runs a command's calls (a skill, a delegated task or its shell lines) before the model answers.
+    /// They share one message, and each passes the same permission check as the model's own calls.
     pub(super) async fn run_bootstrap(self: &Arc<Self>, plan: &mut Plan, abort: &CancellationToken) -> bool {
         let bootstraps = std::mem::take(&mut plan.bootstrap);
         if bootstraps.is_empty() {

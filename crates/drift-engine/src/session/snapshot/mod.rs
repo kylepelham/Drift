@@ -1,5 +1,5 @@
-//! File history in a shadow git dir, kept out of the workspace: what each writing call changed, as
-//! blobs, so an undo can put back exactly those files and nothing else.
+//! File history in a shadow git directory outside the workspace, stored as blobs per writing call.
+//! Undo uses those blobs to restore exactly the files a call changed and nothing else.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -49,14 +49,14 @@ pub struct FileChange {
     pub path: String,
     pub before: Option<String>,
     pub after: Option<String>,
-    /// Seen changing while the call ran rather than written by it: anyone could have made it, so undo
-    /// and redo leave it alone.
+    /// Seen changing while the call ran rather than written by it.
+    /// Another writer may have made the change, so undo and redo leave it alone.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub observed: bool,
 }
 
-/// A whole-tree capture and the files it could not hold because they were over the size limit, each
-/// with its size and modification time so a later capture can tell whether it changed.
+/// A whole-tree capture and the files left out because they were over the size limit.
+/// Each oversized file keeps its size and modification time so a later capture can tell whether it changed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Tree {
     pub id: String,
@@ -65,19 +65,19 @@ pub struct Tree {
 
 pub type Stamp = (u64, Option<std::time::SystemTime>);
 
-/// What differs between two trees. A path over the size limit on either side is `unrecorded`, never
-/// a creation or deletion: its absence from a tree says nothing about the file.
+/// What differs between two trees.
+/// A path over the size limit on either side is `unrecorded`, because its absence from a tree says nothing.
 #[derive(Debug, Default, PartialEq)]
 pub struct TreeChanges {
     pub changes: Vec<FileChange>,
     pub unrecorded: Vec<String>,
 }
 
-/// Files past this size are never copied into the store: a write to one is refused, since it could not
-/// be undone, and whole-tree captures leave them out.
+/// Files past this size are never copied into the store, and whole-tree captures leave them out.
+/// A write to such a file is refused because it could not be undone.
 pub const MAX_RECORDED_BYTES: u64 = 10 * 1024 * 1024;
-/// A whole-tree capture of more files than this (a drive, a home folder) is not taken: the first would run for minutes.
-/// A git repository's own top folder has no limit, since its capture starts from the repository's index.
+/// Whole-tree captures are skipped above this many files, such as a drive or home folder, as they take minutes.
+/// A git repository's top folder has no limit because its capture starts from the repository's index.
 pub const MAX_TREE_FILES: usize = 50_000;
 
 #[derive(Debug, PartialEq)]

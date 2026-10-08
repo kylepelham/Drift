@@ -138,8 +138,8 @@ pub(crate) enum WorkerAdmissionError {
     Plan(TurnError),
 }
 
-/// How a worker runs, and why. An explicit choice wins; otherwise the agent's default; otherwise the
-/// foreground. Nothing in the prompt's wording decides it.
+/// Chooses how a worker runs and why: an explicit choice, then the agent's default, then foreground.
+/// The prompt's wording never decides the mode.
 pub fn resolve_mode(
     explicit: Option<bool>,
     agent_default: Option<bool>,
@@ -484,9 +484,9 @@ impl Engine {
         outcome
     }
 
-    /// How a worker's turn ended, what it said, and the outcome to report. A stop wins however late it
-    /// came; otherwise the last attempt decides, and an earlier reply never stands in for a later
-    /// failure. A reply cut off at the output limit is kept but is not an answer.
+    /// Classifies how a worker's turn ended, returning its state, result text and reported outcome.
+    /// A stop wins however late it arrives; otherwise the last attempt decides.
+    /// An earlier reply never stands in for a later failure, and a reply cut off at its limit is not an answer.
     pub fn worker_result(&self, session_id: &str) -> (TaskState, String, &'static str) {
         let attempt = match (self.turns.take_end(session_id), last_attempt(&self.store, session_id)) {
             (Some(TurnEnd::Stopped), _) => Attempt::Stopped,
@@ -606,7 +606,7 @@ impl Engine {
         match self.admit(owner, prompt, how).await {
             Ok(_) | Err(TurnError::SubmissionReused) => self.publish_task(&task.id),
             Err(TurnError::Stopped) => self.hold(&task.id),
-            // Left owed with its reason; the parent's job ending or a repair tries it again.
+            // The result stays owed with its reason; the parent's next job end or a repair retries it.
             Err(error) => {
                 let reason = if error == TurnError::Busy {
                     "the conversation is busy with another job; it goes in when that ends".to_string()
@@ -770,8 +770,8 @@ pub(crate) enum Attempt {
     None,
 }
 
-/// Judged by the last attempt alone. A finished summary is bookkeeping and skipped; a stopped or failed
-/// one is how the session last ended.
+/// Judges by the last attempt alone, skipping finished summaries as bookkeeping.
+/// A stopped or failed attempt is how the session last ended.
 pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Attempt {
     let transcript = store.transcript(session_id).unwrap_or_default();
     let Some(last) = transcript.iter().rev().find(|message| {
@@ -794,7 +794,7 @@ pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Att
     match last.info.status {
         MessageStatus::Done if last.info.ending == Some(Ending::Refused) => Attempt::Refused(text()),
         MessageStatus::Done if last.info.ending == Some(Ending::Limit) => Attempt::Limited(text()),
-        // Typed for new replies; one from before the field is known by its error alone.
+        // New replies carry a typed ending; older replies are recognised by their error text.
         MessageStatus::Done if last.info.ending == Some(Ending::Length) || last.info.error.is_some() => {
             Attempt::Incomplete(text())
         }

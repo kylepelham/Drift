@@ -83,7 +83,7 @@ pub(super) struct View<'a> {
 }
 
 pub(super) fn view(transcript: &[MessageWithParts]) -> View<'_> {
-    // A summary without text replaces nothing; the view before it stands.
+    // An empty summary replaces nothing, so the previous view stays in effect.
     let latest = transcript.iter().rposition(|message| {
         message.info.summary && message.info.status == MessageStatus::Done && !text_of(message).trim().is_empty()
     });

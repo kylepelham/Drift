@@ -12,7 +12,7 @@ use crate::llm::{Block, ChatMessage};
 const PLACEHOLDER_CHARS: usize = 80;
 const TITLE_CHARS: usize = 60;
 const INPUT_CHARS: usize = 4_000;
-// The title itself; a reasoning model gets thinking room on top (`Engine::complete`).
+// Tokens for the title itself; `Engine::complete` adds thinking room for reasoning models.
 const TITLE_MAX_TOKENS: u32 = 1_024;
 const TITLE_TIMEOUT: Duration = Duration::from_secs(30);
 

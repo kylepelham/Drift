@@ -51,8 +51,8 @@ impl Retry {
 }
 
 impl Engine {
-    /// Waits out a retry backoff, which the UI shows, unless the user switches the turn to another
-    /// model first; then it retries at once on that model.
+    /// Waits out a retry backoff shown in the UI, unless the user switches the turn to another model.
+    /// After a switch, the request is retried immediately on the new model.
     pub(super) async fn wait_to_retry(
         &self,
         session_id: &str,
@@ -117,8 +117,8 @@ impl Engine {
         }
     }
 
-    /// Switches a turn that is waiting to retry onto `model`. The model and its credential are checked
-    /// here, so a bad choice fails for the caller instead of inside the turn.
+    /// Switches a turn waiting to retry onto `model`.
+    /// The model and credential are checked here, so a bad choice fails for the caller rather than in the turn.
     pub async fn switch_retry_model(
         &self,
         session_id: &str,

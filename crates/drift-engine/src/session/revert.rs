@@ -310,7 +310,7 @@ impl Engine {
             match self.shift_one(net, &direction, &mut shifted).await {
                 Ok(Some(done)) => shifted.applied.push(done),
                 Ok(None) => {}
-                // All or nothing: what this shift already put back is returned to how it was.
+                // On failure, files this shift already changed are restored, so a shift is all or nothing.
                 Err(error) => return Err(self.put_back(shifted.applied, error).await),
             }
         }
@@ -476,7 +476,7 @@ impl Engine {
 
     fn mark(&self, session_id: &str, revert: Option<&Revert>) -> Result<Session, MarkError> {
         let session = self.store.set_revert(session_id, revert)?.ok_or(MarkError::Gone)?;
-        // Undone messages may hold a check's full output; the next report must not lean on it.
+        // Undone messages may hold a check's full output, so the next report must not rely on it.
         self.turns.forget_checked(session_id);
         self.hub.publish(Event::SessionUpdated {
             session: session.clone(),

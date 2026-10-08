@@ -268,8 +268,8 @@ enum WrapUp {
     Repeats(u32),
 }
 
-/// Steps in a row whose calls and results were all the same. Different results are progress, so a
-/// poll whose answer changes never counts; one that waits on purpose gets the larger `polls` allowance.
+/// Consecutive steps whose calls and results were all the same.
+/// Changing results are progress, and a deliberate wait gets the larger `polls` allowance.
 #[derive(Default)]
 struct Repeats {
     last: Vec<CallTrace>,

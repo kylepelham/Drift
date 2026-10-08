@@ -1,8 +1,8 @@
 use super::*;
 
 impl Engine {
-    /// Checks one of a call's asks. `None` lets the call go on; otherwise the call is settled as
-    /// refused and the outcome says whether the turn goes on.
+    /// Checks one of a call's asks; `None` lets the call continue.
+    /// Otherwise the call is settled as refused, and the outcome says whether the turn continues.
     pub(super) async fn permit(&self, scope: &CallScope<'_>, row: &mut PartRow, call: CallAsk<'_>) -> Option<Outcome> {
         let CallAsk { call_id, name, ask } = call;
 
