@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde_json::json;
 
 use super::*;
-use crate::event::Hub;
+use crate::event::{Event, Hub};
 use crate::tool::{Context, SessionFiles};
 
 fn echo_config() -> ServerConfig {
