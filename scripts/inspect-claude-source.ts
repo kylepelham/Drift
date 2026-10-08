@@ -21,6 +21,7 @@ const maxRange = 16 * chunkSize;
 function nameOf(ts: TS, node: TypeScript.FunctionLikeDeclaration) {
     const named = "name" in node ? node.name : undefined;
     if (named && ts.isIdentifier(named)) return named.text;
+
     const parent = node.parent;
     if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text;
     if (ts.isPropertyAssignment(parent) && ts.isIdentifier(parent.name)) return parent.name.text;
@@ -30,8 +31,10 @@ function nameOf(ts: TS, node: TypeScript.FunctionLikeDeclaration) {
 function calleeOf(ts: TS, expression: TypeScript.LeftHandSideExpression): string | undefined {
     if (ts.isIdentifier(expression)) return expression.text;
     if (!ts.isPropertyAccessExpression(expression)) return undefined;
+
     const base = calleeOf(ts, expression.expression as TypeScript.LeftHandSideExpression);
     if (!base || base.length + expression.name.text.length > 96) return undefined;
+
     return `${base}.${expression.name.text}`;
 }
 
@@ -46,6 +49,7 @@ function isProcessEnv(ts: TS, node: TypeScript.Node) {
 
 function bareProcessEnv(ts: TS, node: TypeScript.Node) {
     if (!isProcessEnv(ts, node) || !node.parent) return false;
+
     const parent = node.parent;
     if (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent))
         return parent.expression !== node;
@@ -109,9 +113,11 @@ function recordCall(
 ) {
     const callee = calleeOf(ts, node.expression);
     if (!callee) return;
+
     const offset = base + node.getStart(root);
     if (owner) owner.calls.push({ callee, offset });
     else topLevelCalls.push({ callee, offset });
+
     const first = node.arguments[0];
     if (first && ts.isStringLiteral(first) && /^tengu_[A-Za-z0-9_]+$/.test(first.text)) {
         calls.push({ name: first.text, callee, offset, owner: owner?.offset });
@@ -169,6 +175,7 @@ export function indexSource(ts: TS, data: Buffer, base: number) {
     const environmentAccesses: EnvAccess[] = [];
     let nodes = 0;
     let stringLiterals = 0;
+
     function visit(node: TypeScript.Node, owner?: Owner) {
         nodes++;
         if (ts.isStringLiteral(node)) stringLiterals++;
@@ -188,7 +195,9 @@ export function indexSource(ts: TS, data: Buffer, base: number) {
         if (access) environmentAccesses.push(access);
         ts.forEachChild(node, (child) => visit(child, owner));
     }
+
     visit(root);
+
     const diagnostics = syntacticDiagnostics(ts, root, base);
     const directEnv = environmentAccesses.filter((item) => item.kind === "property");
     const summary = {
@@ -205,12 +214,14 @@ export function indexSource(ts: TS, data: Buffer, base: number) {
         distinctDirectEnvNames: new Set(directEnv.map((item) => item.name)).size,
         otherEnvAccesses: environmentAccesses.length - directEnv.length,
     };
+
     return { summary, diagnostics, functions, topLevelCalls, tenguCalls, environmentAccesses };
 }
 
 function parseRange(value: string, size: number) {
     const match = /^(\d+):(\d+)$/.exec(value);
     if (!match) throw new Error("--range must be START:END in decimal bytes");
+
     const start = Number(match[1]);
     const end = Number(match[2]);
     if (
@@ -222,16 +233,19 @@ function parseRange(value: string, size: number) {
     ) {
         throw new Error("Range must be inside the file and no larger than 16 MiB");
     }
+
     return { start, end };
 }
 
 function readRange(fd: number, start: number, end: number) {
     const data = Buffer.alloc(end - start);
+
     for (let read = 0; read < data.length;) {
         const count = readSync(fd, data, read, data.length - read, start + read);
         if (!count) throw new Error("Unexpected end of file");
         read += count;
     }
+
     return data;
 }
 

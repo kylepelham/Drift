@@ -35,8 +35,10 @@ export function modelInfo(id: DictationModel) {
 export async function refreshVoiceModels() {
     const invoke = backendInvoke();
     if (!invoke) return setSupported(false);
+
     watchProgress();
     setBusy("loading");
+
     try {
         setSupported(await invoke<boolean>("voice_supported"));
         setAccelerated(await invoke<boolean>("voice_acceleration"));
@@ -51,10 +53,12 @@ export async function refreshVoiceModels() {
 export async function downloadVoiceModel(id: DictationModel) {
     const invoke = backendInvoke();
     if (!invoke || busy()) return;
+
     watchProgress();
     setError("");
     setBusy("downloading");
     setProgress({ id, received: 0, total: modelInfo(id)?.bytes ?? 0 });
+
     try {
         await invoke("voice_model_download", { id });
     } catch (cause) {
@@ -69,8 +73,10 @@ export async function downloadVoiceModel(id: DictationModel) {
 export async function removeVoiceModel(id: DictationModel) {
     const invoke = backendInvoke();
     if (!invoke || busy()) return;
+
     setError("");
     setBusy("removing");
+
     try {
         await invoke("voice_model_remove", { id });
     } catch (cause) {
@@ -105,6 +111,7 @@ async function reload(invoke: ShellInvoke) {
 function watchProgress() {
     const events = shellEvents();
     if (listening || !events) return;
+
     listening = true;
     void events
         .listen<VoiceProgress>("voice-model-progress", (event) => setProgress(event.payload))

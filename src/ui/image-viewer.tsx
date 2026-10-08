@@ -50,18 +50,21 @@ function ImageCanvas(props: ImageViewerProps) {
 
     function reset() {
         if (!natural()) return;
+
         fitted = true;
         setView(fitImage(natural()!, size));
     }
 
     function zoom(scale: number, anchor = center()) {
         if (!natural() || !Number.isFinite(scale)) return;
+
         fitted = false;
         setView((previous) => containImage(zoomImageAt(previous, bounded(scale), anchor), natural()!, size));
     }
 
     function pan(x: number, y: number) {
         if (!natural()) return;
+
         fitted = false;
         setView((previous) => containImage({ ...previous, x: previous.x + x, y: previous.y + y }, natural()!, size));
     }
@@ -80,6 +83,7 @@ function ImageCanvas(props: ImageViewerProps) {
         const style = getComputedStyle(viewport);
         size = { width: Number.parseFloat(style.width), height: Number.parseFloat(style.height) };
         if (!natural() || !size.width || !size.height) return;
+
         if (fitted) reset();
         else
             setView((current) =>
@@ -93,18 +97,21 @@ function ImageCanvas(props: ImageViewerProps) {
                     size,
                 ),
             );
+
         pointers.clear();
         setDragging(false);
     }
 
     function loaded() {
         if (!img.naturalWidth || !img.naturalHeight) return;
+
         setNatural({ width: img.naturalWidth, height: img.naturalHeight });
         measure();
     }
 
     function endPointer(event: PointerEvent) {
         if (!pointers.has(event.pointerId)) return;
+
         const dismiss = event.type === "pointerup" && pointers.size === 1 && background && !moved;
         pointers.delete(event.pointerId);
         if (viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
@@ -159,12 +166,14 @@ function ImageCanvas(props: ImageViewerProps) {
         if (img.complete) loaded();
         const observer = new ResizeObserver(measure);
         observer.observe(viewport);
+
         const wheel = (event: WheelEvent) => {
             event.preventDefault();
             event.stopPropagation();
             zoom(view().scale * imageWheelScale(event.deltaY, event.deltaMode, size.height), point(event));
         };
         viewport.addEventListener("wheel", wheel, { passive: false });
+
         const blur = () => {
             for (const id of pointers.keys()) if (viewport.hasPointerCapture(id)) viewport.releasePointerCapture(id);
             pointers.clear();
@@ -186,6 +195,7 @@ function ImageCanvas(props: ImageViewerProps) {
             onKeyDown={(event) => {
                 if (event.ctrlKey || event.metaKey || event.altKey || !natural()) return;
                 if (!handleImageKey(event.key, event.shiftKey ? 160 : 40)) return;
+
                 event.preventDefault();
                 event.stopPropagation();
             }}
@@ -266,6 +276,7 @@ function ImageCanvas(props: ImageViewerProps) {
                 style={{ cursor: cursor() }}
                 onPointerDown={(event) => {
                     if (!natural() || (event.button !== 0 && event.button !== 1)) return;
+
                     event.preventDefault();
                     viewport.focus({ preventScroll: true });
                     const location = point(event);
@@ -281,11 +292,13 @@ function ImageCanvas(props: ImageViewerProps) {
                 onPointerMove={(event) => {
                     const previous = pointers.get(event.pointerId);
                     if (!previous || !natural()) return;
+
                     if (event.pointerType === "mouse" && !(event.buttons & 5)) {
                         moved = true;
                         endPointer(event);
                         return;
                     }
+
                     const location = point(event);
                     if (start && Math.hypot(location.x - start.x, location.y - start.y) > 3) moved = true;
                     const before = [...pointers.values()];
@@ -298,6 +311,7 @@ function ImageCanvas(props: ImageViewerProps) {
                         const oldDistance = Math.hypot(before[0].x - before[1].x, before[0].y - before[1].y);
                         const newDistance = Math.hypot(after[0].x - after[1].x, after[0].y - after[1].y);
                         if (oldDistance < 1) return;
+
                         fitted = false;
                         setView((current) => {
                             const next = zoomImageAt(

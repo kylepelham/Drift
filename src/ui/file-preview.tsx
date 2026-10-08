@@ -52,6 +52,7 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
         attempt();
         let disposed = false;
         let objectUrl: string | undefined;
+
         setLoaded(undefined);
         setUrl(undefined);
         setError("");
@@ -59,9 +60,11 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
             disposed = true;
             if (objectUrl) URL.revokeObjectURL(objectUrl);
         });
+
         void readFilePreview(props.file)
             .then((result) => {
                 if (disposed) return;
+
                 if (result.kind === "image" || result.kind === "audio" || result.kind === "video") {
                     objectUrl = URL.createObjectURL(
                         new Blob([result.bytes], { type: filePreviewMime(props.file.path) }),
@@ -77,6 +80,7 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
 
     async function editor() {
         setEditorError("");
+
         try {
             await openFile(props.file.path, { line: props.file.line, column: props.file.column, editorOnly: true });
         } catch (cause) {
@@ -243,6 +247,7 @@ function FilePreviewDialog(props: { file: FilePreviewRequest }) {
 
 function TablePreview(props: { text: string; path: string }) {
     const table = createMemo(() => previewTable(props.text, /\.tsv$/i.test(props.path) ? "\t" : ","));
+
     return (
         <div class="min-h-0 flex-1 overflow-auto p-4">
             <Show when={table().truncated}>

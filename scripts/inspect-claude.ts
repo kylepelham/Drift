@@ -31,9 +31,11 @@ function within(size: number, offset: number, length: number) {
 
 function peLayout(header: Buffer) {
     if (header.length < 64 || header.toString("ascii", 0, 2) !== "MZ") throw new Error("Missing DOS header");
+
     const pe = header.readUInt32LE(0x3c);
     if (!within(header.length, pe, 24) || header.toString("ascii", pe, pe + 4) !== "PE\0\0")
         throw new Error("Invalid PE signature or offset");
+
     const count = header.readUInt16LE(pe + 6);
     const optional = pe + 24;
     const optionalSize = header.readUInt16LE(pe + 20);
@@ -44,17 +46,21 @@ function peLayout(header: Buffer) {
         !within(header.length, sectionsOffset, count * 40)
     )
         throw new Error("Truncated PE headers");
+
     const magic = header.readUInt16LE(optional);
     if (magic !== 0x10b && magic !== 0x20b) throw new Error("Unsupported optional header");
+
     const dataDirectory = optional + (magic === 0x20b ? 112 : 96);
     const directoryCount = optional + (magic === 0x20b ? 108 : 92);
     if (!within(optional + optionalSize, directoryCount, 4)) throw new Error("Truncated data directories");
+
     return { pe, count, optional, optionalSize, sectionsOffset, magic, dataDirectory, directoryCount };
 }
 
 function peCertificate(header: Buffer, fileSize: number, layout: ReturnType<typeof peLayout>): Range | null {
     const { optional, optionalSize, dataDirectory, directoryCount } = layout;
     let certificate: Range | null = null;
+
     if (header.readUInt32LE(directoryCount) > 4) {
         if (!within(optional + optionalSize, dataDirectory + 32, 8)) throw new Error("Truncated security directory");
         const start = header.readUInt32LE(dataDirectory + 32);
@@ -62,6 +68,7 @@ function peCertificate(header: Buffer, fileSize: number, layout: ReturnType<type
         if (length && !within(fileSize, start, length)) throw new Error("Certificate outside file");
         if (length) certificate = { start, end: start + length };
     }
+
     return certificate;
 }
 
@@ -91,6 +98,7 @@ export function parsePe(header: Buffer, fileSize: number) {
         ...sections.filter((section) => section.raw.end > section.raw.start).map((section) => section.raw.end),
     );
     const overlay = imageEnd < fileSize ? { start: imageEnd, end: fileSize } : null;
+
     return {
         machine: header.readUInt16LE(pe + 4),
         format: magic === 0x20b ? "PE32+" : "PE32",
@@ -103,6 +111,7 @@ export function parsePe(header: Buffer, fileSize: number) {
 export function readableRuns(data: Buffer, minimum = 4096, base = 0): Range[] {
     const result: Range[] = [];
     let start = -1;
+
     for (let i = 0; i <= data.length; i++) {
         const byte = data[i];
         const printable = isPrintable(byte);
@@ -112,6 +121,7 @@ export function readableRuns(data: Buffer, minimum = 4096, base = 0): Range[] {
             start = -1;
         }
     }
+
     return result;
 }
 
@@ -134,11 +144,13 @@ export function findOffsets(data: Buffer, expression: RegExp, base = 0, ownedLen
 
 export function readAt(fd: number, start: number, length: number) {
     const buffer = Buffer.alloc(length);
+
     for (let read = 0; read < length;) {
         const count = readSync(fd, buffer, read, length - read, start + read);
         if (!count) throw new Error("Unexpected end of file");
         read += count;
     }
+
     return buffer;
 }
 
@@ -187,6 +199,7 @@ function regexRepetition(pattern: string, index: number) {
 function boundedRegexWidth(pattern: string) {
     if (!pattern || pattern.length > 256 || /[^\x00-\x7f]/.test(pattern))
         throw new Error("Regex must be bounded ASCII");
+
     let width = 0;
     for (let i = 0; i < pattern.length; i++) {
         const repetition = regexRepetition(pattern, regexAtomEnd(pattern, i));
@@ -194,6 +207,7 @@ function boundedRegexWidth(pattern: string) {
         i = repetition.end;
         if (width > 256) throw new Error("Regex maximum match must be <= 256 bytes");
     }
+
     return width;
 }
 
@@ -208,6 +222,7 @@ function addMarker(
     const previous = seen.get(marker.label);
     if (previous && previous !== kind) throw new Error(`Marker label collision: ${marker.label}`);
     if (previous) return;
+
     seen.set(marker.label, kind);
     markers.push(marker);
 }
@@ -215,6 +230,7 @@ function addMarker(
 function compileMarkers(literals: string[], regexes: string[]) {
     const markers: Marker[] = [];
     const seen = new Map<string, "literal" | "regex">();
+
     for (const label of literals) {
         if (!label || label.length > 256 || /[^\x00-\x7f]/.test(label))
             throw new Error("Literal must be 1..256 ASCII bytes");
@@ -229,12 +245,14 @@ function compileMarkers(literals: string[], regexes: string[]) {
             "literal",
         );
     }
+
     for (const pattern of regexes) {
         const width = boundedRegexWidth(pattern);
         const regex = new RegExp(pattern, "g");
         if (regex.test("")) throw new Error("Regex must not match empty string");
         addMarker(markers, seen, { label: `regex:${pattern}`, regex, width }, "regex");
     }
+
     return markers;
 }
 
@@ -339,6 +357,7 @@ export function inspect(file: string, literals = defaultMarkers, regexes: string
         const identifiers = new Map<string, number>();
         const runs: Range[] = [];
         const digest = createHash("sha256");
+
         let openRun = -1;
         let previous: number | undefined;
         for (let position = 0; position < size; position += chunkSize) {
@@ -351,6 +370,7 @@ export function inspect(file: string, literals = defaultMarkers, regexes: string
             previous = bytes[owned - 1];
         }
         if (openRun >= 0 && size - openRun >= 4096) mergeRun(runs, { start: openRun, end: size });
+
         return {
             file: path.basename(file),
             size,
@@ -433,12 +453,15 @@ export function extractDestination(destination: string, root = tempRoot) {
 function extract(input: string, destination: string, range: string) {
     const match = /^(\d+):(\d+)$/.exec(range);
     if (!match) throw new Error("Extraction range must be START:END in decimal");
+
     const start = Number(match[1]);
     const end = Number(match[2]);
     if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start || end - start > 16 * chunkSize)
         throw new Error("Extraction requires a valid range <= 16 MiB");
+
     const output = extractDestination(destination);
     const fd = openSync(input, "r");
+
     try {
         if (end > fstatSync(fd).size) throw new Error("Extraction range outside file");
         const bytes = readAt(fd, start, end - start);
@@ -453,6 +476,7 @@ function probe(input: string, value: string) {
     const offset = Number(value);
     if (!/^\d+$/.test(value) || !Number.isSafeInteger(offset))
         throw new Error("Probe offset must be a decimal integer");
+
     const fd = openSync(input, "r");
     try {
         const size = fstatSync(fd).size;

@@ -13,6 +13,7 @@ export function backendInvoke(): ShellInvoke | undefined {
     const route = backendRoute(!!desktop, isRemoteRuntime());
     if (route === "tauri") return desktop;
     if (route === "browser") return undefined;
+
     return async <T>(command: string, args: Record<string, unknown> = {}) => {
         const response = await fetch("/api/invoke", {
             method: "POST",
@@ -20,6 +21,7 @@ export function backendInvoke(): ShellInvoke | undefined {
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ command, args }),
         });
+
         // A revoked or expired device session returns to the sign-in page.
         if (response.status === 401 && (await remoteSessionExpired())) window.location.replace("/companion");
         const value = (await response.json().catch(() => null)) as T | { error?: string } | null;
@@ -27,6 +29,7 @@ export function backendInvoke(): ShellInvoke | undefined {
             const message = value && typeof value === "object" && "error" in value ? value.error : undefined;
             throw new Error(message || `Backend request failed (${response.status})`);
         }
+
         return value as T;
     };
 }

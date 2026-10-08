@@ -1,10 +1,4 @@
-/**
- * Access to the Tauri bridge the desktop shell injects on `globalThis`.
- *
- * Drift also runs as a plain web app, where none of this exists, so every accessor returns
- * `undefined` rather than throwing and callers are expected to fall back. Declaring the bridge once
- * here replaces six separately-written inline casts that each described a different subset of it.
- */
+/** Accesses the injected desktop bridge; missing browser-runtime capabilities return undefined. */
 
 export type ShellInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
@@ -52,6 +46,7 @@ export function openExternal(url: string) {
         void invoke("plugin:opener|open_url", { url }).catch(() => {});
         return;
     }
+
     window.open(url, "_blank");
 }
 

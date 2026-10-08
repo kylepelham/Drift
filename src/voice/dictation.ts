@@ -56,6 +56,7 @@ export async function toggleDictation(emit: (text: string) => void) {
 
 export async function startDictation(emit: (text: string) => void) {
     if (dictationActive() || !dictationEnabled()) return;
+
     onSegment = emit;
     segmenter = createSegmenter();
     blocks = 0;
@@ -63,14 +64,16 @@ export async function startDictation(emit: (text: string) => void) {
     setElapsed(0);
     setLevel(0);
     setStatus("starting");
+
     try {
         capture = await startCapture(handleBlock, selectedCaptureDeviceId());
     } catch (cause) {
         setStatus("idle");
         return setError(captureError(cause));
     }
-    // Stopped while the permission prompt was open.
+    // Dictation may have stopped while the microphone permission prompt was open.
     if (status() === "idle" || !dictationEnabled()) return void capture.stop().catch(() => undefined);
+
     startedAt = Date.now();
     ticker = setInterval(() => setElapsed(Date.now() - startedAt), 1000);
     setStatus("listening");
@@ -78,6 +81,7 @@ export async function startDictation(emit: (text: string) => void) {
 
 export function stopDictation() {
     if (!dictationActive()) return;
+
     const active = capture;
     capture = undefined;
     clearInterval(ticker);
@@ -85,8 +89,10 @@ export function stopDictation() {
     setStatus("idle");
     setLevel(0);
     setElapsed(0);
+
     const tail = drainSegmenter(segmenter);
     if (tail) enqueue(tail);
+
     void active?.stop().catch(() => undefined);
 }
 
@@ -95,6 +101,7 @@ export async function setDictationEnabled(enabled: boolean) {
         persistDictationEnabled(false);
         stopDictation();
     }
+
     const invoke = shellInvoke();
     try {
         await invoke?.("voice_dictation_set_enabled", { enabled });
@@ -118,6 +125,7 @@ function handleBlock(block: Float32Array) {
 // Phrases are transcribed one at a time so they reach the draft in the order they were spoken.
 function enqueue(phrase: Float32Array) {
     if (phraseSeconds(phrase) < minPhraseSeconds) return;
+
     setPending((count) => count + 1);
     queue = queue.then(() => transcribe(phrase)).finally(() => setPending((count) => Math.max(0, count - 1)));
 }
@@ -125,6 +133,7 @@ function enqueue(phrase: Float32Array) {
 async function transcribe(phrase: Float32Array) {
     const invoke = backendInvoke();
     if (!invoke) return;
+
     try {
         const text = await invoke<string>("voice_transcribe", {
             id: dictationModel(),

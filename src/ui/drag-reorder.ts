@@ -1,4 +1,4 @@
-type DragBox = { id: string; el: HTMLElement; mid: number };
+type DragBox = { id: string; element: HTMLElement; midpointY: number };
 
 export function dragPointerPressed(pointerId: number, move: Pick<PointerEvent, "pointerId" | "buttons">) {
     return move.pointerId === pointerId && (move.buttons & 1) !== 0;
@@ -6,6 +6,7 @@ export function dragPointerPressed(pointerId: number, move: Pick<PointerEvent, "
 
 export function dragLayoutScale(renderedSize: number, layoutSize: number) {
     const scale = layoutSize > 0 ? renderedSize / layoutSize : 1;
+
     return Number.isFinite(scale) && scale > 0 ? scale : 1;
 }
 
@@ -26,6 +27,7 @@ export function dragReorder(
     },
 ) {
     if (!dragReorderAllowed(event)) return () => {};
+
     const header = event.currentTarget as HTMLElement;
     const container = root.parentElement;
     const startY = event.clientY;
@@ -33,12 +35,12 @@ export function dragReorder(
     let scrollTop = 0;
     let headerStyle: { position: string; top: string } | undefined;
     let boxes: DragBox[] = [];
-    let origIndex = 0;
+    let originalIndex = 0;
     let slot = 0;
     let target = 0;
     let active = false;
-    let minDy = 0;
-    let maxDy = 0;
+    let minimumDisplacement = 0;
+    let maximumDisplacement = 0;
     let rectTop = 0;
     let rectBottom = 0;
     let scale = 1;
@@ -47,10 +49,11 @@ export function dragReorder(
         const elements = Array.from(container?.querySelectorAll<HTMLElement>(options.selector) ?? []);
         boxes = elements.map((element) => {
             const rect = element.getBoundingClientRect();
-            return { id: options.itemID(element), el: element, mid: rect.top + rect.height / 2 };
+            return { id: options.itemID(element), element, midpointY: rect.top + rect.height / 2 };
         });
-        origIndex = boxes.findIndex((box) => box.el === root);
-        if (origIndex < 0 || elements.length === 0) return false;
+        originalIndex = boxes.findIndex((box) => box.element === root);
+        if (originalIndex < 0 || elements.length === 0) return false;
+
         active = true;
         header.setPointerCapture(event.pointerId);
         const rect = root.getBoundingClientRect();
@@ -59,8 +62,9 @@ export function dragReorder(
         slot = rect.height + (options.gap ?? 8) * scale;
         rectTop = rect.top;
         rectBottom = rect.bottom;
-        minDy = elements[0].getBoundingClientRect().top - rect.top;
-        maxDy = elements[elements.length - 1].getBoundingClientRect().bottom - rect.bottom;
+        minimumDisplacement = elements[0].getBoundingClientRect().top - rect.top;
+        maximumDisplacement = elements[elements.length - 1].getBoundingClientRect().bottom - rect.bottom;
+
         root.style.position = "relative";
         root.style.zIndex = "10";
         if (header !== root && getComputedStyle(header).position === "sticky") {
@@ -71,30 +75,39 @@ export function dragReorder(
             // Freeze any existing sticky offset; scrolling must move the group only once.
             header.style.top = `${(top - header.getBoundingClientRect().top) / scale}px`;
         }
-        for (const box of boxes) if (box.el !== root) box.el.style.transition = "transform 150ms ease";
+        for (const box of boxes) if (box.element !== root) box.element.style.transition = "transform 150ms ease";
+
         return true;
     };
 
     const update = () => {
         if (!active) return;
+
         // Cached boxes are viewport pixels; scrollTop and CSS translations are layout pixels.
         const displacement = pointerY - startY + ((container?.scrollTop ?? 0) - scrollTop) * scale;
-        const dy = Math.min(maxDy, Math.max(minDy, displacement));
-        root.style.transform = `translateY(${dy / scale}px)`;
-        const others = boxes.filter((box) => box.el !== root);
-        target = others.filter((box, index) => box.mid < (index < origIndex ? rectTop : rectBottom) + dy).length;
+        const clampedDisplacement = Math.min(maximumDisplacement, Math.max(minimumDisplacement, displacement));
+        root.style.transform = `translateY(${clampedDisplacement / scale}px)`;
+
+        const others = boxes.filter((box) => box.element !== root);
+        target = others.filter((box, index) => {
+            const boundary = index < originalIndex ? rectTop : rectBottom;
+
+            return box.midpointY < boundary + clampedDisplacement;
+        }).length;
         others.forEach((box, index) => {
-            const shift = displacedSlot(index, target, origIndex, slot);
-            box.el.style.transform = shift ? `translateY(${shift / scale}px)` : "";
+            const shift = displacedSlot(index, target, originalIndex, slot);
+            box.element.style.transform = shift ? `translateY(${shift / scale}px)` : "";
         });
     };
 
     const onMove = (moveEvent: PointerEvent) => {
         if (moveEvent.pointerId !== event.pointerId) return;
         if (!dragPointerPressed(event.pointerId, moveEvent)) return finish(false);
+
         pointerY = moveEvent.clientY;
         if (!active && Math.abs(pointerY - startY) < 5) return;
         if (!active && !begin()) return finish(false);
+
         update();
     };
 
@@ -106,12 +119,14 @@ export function dragReorder(
         container?.removeEventListener("scroll", update);
         header.removeEventListener("lostpointercapture", onLostCapture);
         if (header.hasPointerCapture(event.pointerId)) header.releasePointerCapture(event.pointerId);
+
         const wasActive = active;
         active = false;
         if (!wasActive) return;
+
         for (const box of boxes) {
-            box.el.style.transform = "";
-            box.el.style.transition = "";
+            box.element.style.transform = "";
+            box.element.style.transition = "";
         }
         root.style.position = "";
         root.style.zIndex = "";
@@ -120,12 +135,14 @@ export function dragReorder(
             header.style.top = headerStyle.top;
         }
         if (!commit) return;
-        const others = boxes.filter((box) => box.el !== root).map((box) => box.id);
+
+        const others = boxes.filter((box) => box.element !== root).map((box) => box.id);
         options.move(options.id, others[target] ?? null);
         options.dragged();
     };
     const onUp = (upEvent: PointerEvent) => {
         if (upEvent.pointerId !== event.pointerId) return;
+
         pointerY = upEvent.clientY;
         update();
         finish(true);
@@ -140,6 +157,7 @@ export function dragReorder(
     window.addEventListener("blur", onBlur);
     container?.addEventListener("scroll", update, { passive: true });
     header.addEventListener("lostpointercapture", onLostCapture);
+
     return () => finish(false);
 }
 

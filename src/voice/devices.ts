@@ -11,19 +11,23 @@ export function filterAudioInputDevices(items: Pick<MediaDeviceInfo, "deviceId" 
     for (const item of items) {
         if (item.kind !== "audioinput" || !item.deviceId || item.deviceId === "default" || found.has(item.deviceId))
             continue;
+
         found.set(item.deviceId, { deviceId: item.deviceId, label: item.label });
     }
+
     return [...found.values()];
 }
 
 export async function enumerateAudioInputs(media = globalThis.navigator?.mediaDevices) {
     if (!media?.enumerateDevices) return [];
+
     return filterAudioInputDevices(await media.enumerateDevices());
 }
 
 export async function refreshAudioInputDevices(media = globalThis.navigator?.mediaDevices) {
     const next = await enumerateAudioInputs(media).catch(() => []);
     setDevices(next);
+
     return next;
 }
 
@@ -33,6 +37,7 @@ export function watchAudioInputDevices(
 ) {
     refresh();
     media?.addEventListener?.("devicechange", refresh);
+
     return () => media?.removeEventListener?.("devicechange", refresh);
 }
 

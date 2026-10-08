@@ -79,8 +79,8 @@ test("base prompts and agents are one Server setting, with inherited values styl
     );
     expect(source).toContainCode("<PromptsSection />");
     expect(await Bun.file("src/ui/settings-base-prompts.tsx").exists()).toBeFalse();
-    expect(editor).toContain('"text-ink-faint": !props.customized && !changed()');
-    expect(editor).toContain("disabled={props.saving || !props.dirty}");
+    expect(editor).toContainCode('"text-ink-faint": !props.customized && !changed()');
+    expect(editor).toContainCode("disabled={props.saving || !props.dirty}");
 });
 
 test("model-family base prompts are edited and reset in the engine, never through the shell's family overrides", async () => {
@@ -89,9 +89,9 @@ test("model-family base prompts are edited and reset in the engine, never throug
     expect(editor).toContainCode("const content = baseDraft(id)");
     expect(editor).toContainCode("engine.actions.saveBasePrompt(id, content)");
     expect(editor).toContainCode("engine.actions.resetBasePrompt(id)");
-    expect(editor).not.toContain("readOnly");
-    expect(settings).not.toContain("`family:");
-    expect(settings).not.toContain("familyUnavailable");
+    expect(editor).not.toContainCode("readOnly");
+    expect(settings).not.toContainCode("`family:");
+    expect(settings).not.toContainCode("familyUnavailable");
 });
 
 test("settings search covers every category and finds feature descriptions", async () => {
@@ -130,9 +130,9 @@ test("settings search covers every category and finds feature descriptions", asy
 
 test("Settings offers no Jev tool routing: the native engine has none, so a toggle would configure nothing", async () => {
     const source = await Bun.file("src/ui/settings.tsx").text();
-    expect(source).not.toContain("ToolRoutingSetting");
-    expect(source).not.toContain("drift.settings.toolRouting");
-    expect(source).not.toContain('t("drift.settings.shellTimeout.scope")');
+    expect(source).not.toContainCode("ToolRoutingSetting");
+    expect(source).not.toContainCode("drift.settings.toolRouting");
+    expect(source).not.toContainCode('t("drift.settings.shellTimeout.scope")');
     expect(await Bun.file("src/ui/settings-tool-routing.tsx").exists()).toBeFalse();
     expect(await Bun.file("src/state/tool-routing.ts").exists()).toBeFalse();
 });
@@ -388,13 +388,13 @@ test("settings elevation and toggle contrast follow their visual state", async (
         Bun.file("src/ui/controls.tsx").text(),
         Bun.file("src/styles/app.css").text(),
     ]);
-    expect(settings).toContain('"settings-header-scrolled": contentScrolled()');
-    expect(settings).toContain("setContentScrolled(event.currentTarget.scrollTop > 1)");
-    expect(settings).toContain('class="flex min-w-0 flex-1 flex-col overflow-hidden"');
+    expect(settings).toContainCode('"settings-header-scrolled": contentScrolled()');
+    expect(settings).toContainCode("setContentScrolled(event.currentTarget.scrollTop > 1)");
+    expect(settings).toContainCode('class="flex min-w-0 flex-1 flex-col overflow-hidden"');
     expect(styles).toContain(".settings-header-scrolled::after");
     expect(styles).not.toContain(".settings-header::after");
-    expect(toggles).toContain('"bg-ink-muted": !props.checked');
-    expect(toggles).toContain('"translate-x-3 bg-accent-ink": props.checked');
+    expect(toggles).toContainCode('"bg-ink-muted": !props.checked');
+    expect(toggles).toContainCode('"translate-x-3 bg-accent-ink": props.checked');
 });
 
 test("appearance exposes persisted startup splash controls", async () => {
@@ -575,8 +575,7 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
     expect(tinted).not.toContain("8fd9fb");
     expect(tinted).not.toContain("d4f2ff");
     expect(tinted).not.toContain("4f93cc");
-    // Every bell tint stays on the accent hue rather than reverting to blue. The face colours are
-    // deliberately fixed - the blush and eyes read as features, not as themed surfaces.
+    // Bell tints follow the accent hue, while fixed face colors keep the eyes and blush recognizable.
     const face = new Set(["ffa9b8", "ffffff", "0f1626"]);
     const bellTints = tinted.filter((hex) => !face.has(hex));
     expect(bellTints.length).toBeGreaterThan(0);
@@ -589,14 +588,14 @@ test("the mascot takes the theme accent and the logo mark never flashes as a blo
 
     // The logo mask is inlined, so `background: currentColor` is never painted unmasked.
     const logo = await Bun.file("src/ui/logo.tsx").text();
-    expect(logo).toContain("logo.svg?raw");
-    expect(logo).toContain("data:image/svg+xml,${encodeURIComponent(logoSource)}");
+    expect(logo).toContainCode("logo.svg?raw");
+    expect(logo).toContainCode("data:image/svg+xml,${encodeURIComponent(logoSource)}");
     const jelly = await Bun.file("src/ui/jellyfish.tsx").text();
     // Tinted before the first frame and retinted on theme changes, with the observer torn down.
-    expect(jelly).toMatch(/applyAccent\(accentColor\(host\)\)[\s\S]*?jelly = createJellyfish\(\)/);
-    expect(jelly).toContain("themeObserver.observe(document.documentElement");
-    expect(jelly).toContain("themeObserver.disconnect()");
-    expect(jelly).toContain("renderer.setClearColor(0x000000, 0)");
+    expect(code(jelly)).toMatch(/applyAccent\(accentColor\(host\)\).*?jelly=createJellyfish\(\)/);
+    expect(jelly).toContainCode("themeObserver.observe(document.documentElement");
+    expect(jelly).toContainCode("themeObserver.disconnect()");
+    expect(jelly).toContainCode("renderer.setClearColor(0x000000, 0)");
 
     // The canvas mounts hidden and is revealed only from inside render(), after a frame it drew.
     // Revealing at append time let WebView2 composite one opaque white frame first.
@@ -623,8 +622,8 @@ test("provider sign-in hides raw URLs, surfaces device codes, and keeps disconne
     });
     expect(authorizationPrompt("")).toEqual({});
     const source = await Bun.file("src/ui/settings-provider-connect.tsx").text();
-    expect(source).not.toContain("{auth().url}");
-    expect(source).not.toContain("disconnectDescription");
+    expect(source).not.toContainCode("{auth().url}");
+    expect(source).not.toContainCode("disconnectDescription");
     const connect = source.slice(
         source.indexOf("function ProviderConnect("),
         source.indexOf("function AuthorizationHint("),
@@ -637,10 +636,10 @@ test("provider sign-in hides raw URLs, surfaces device codes, and keeps disconne
 
 test("the About mascot stays light: preloaded from the nav, compiled off-thread, paced, and low-poly", async () => {
     const jelly = await Bun.file("src/ui/jellyfish.tsx").text();
-    expect(jelly).toContain("await renderer.compileAsync(scene, camera)");
-    expect(jelly).toContain('powerPreference: "low-power"');
-    expect(jelly).toMatch(/if \(last && now - last < interval - 1\) return/);
-    expect(jelly).toContain("renderer.setPixelRatio(1)");
+    expect(jelly).toContainCode("await renderer.compileAsync(scene, camera)");
+    expect(jelly).toContainCode('powerPreference: "low-power"');
+    expect(jelly).toContainCode("if (last && now - last < interval - 1) return");
+    expect(jelly).toContainCode("renderer.setPixelRatio(1)");
     const settings = await Bun.file("src/ui/settings.tsx").text();
     expect(settings).toContainCode('onPointerEnter={() => name === "About" && void preloadJellyfish()');
     const { createJellyfish } = await import("../src/ui/jelly/jellyfish");

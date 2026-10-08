@@ -50,6 +50,7 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
         let destroyed = false;
         const destroy = () => {
             if (destroyed) return;
+
             destroyed = true;
             cancelRender?.();
             // Destruction can reject while worker initialization is still in flight.
@@ -60,11 +61,13 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
             active = false;
             destroy();
         });
+
         setPdf(undefined);
         setError(undefined);
         setBusy(true);
         setZoom(1);
         setPageNumber(1);
+
         void (async () => {
             try {
                 loading = getDocument({
@@ -80,6 +83,7 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
                 const document = await loading.promise;
                 if (!active) return;
                 if (document.numPages < 1) throw new Error("PDF has no pages");
+
                 setPageNumber(
                     Number.isFinite(initialPage)
                         ? Math.max(1, Math.min(document.numPages, Math.trunc(initialPage!)))
@@ -106,15 +110,20 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
         const availableWidth = width();
         const magnification = zoom();
         if (!document || availableWidth <= 0) return;
+
         let active = true;
         let settled = false;
         let task: RenderTask | undefined;
         let canvas: HTMLCanvasElement | undefined;
         const releaseCanvas = () => {
-            if (canvas) canvas.width = canvas.height = 0;
+            if (!canvas) return;
+
+            canvas.height = 0;
+            canvas.width = 0;
         };
         const cancel = () => {
             if (!active) return;
+
             active = false;
             task?.cancel();
             canvas?.remove();
@@ -122,13 +131,17 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
         };
         cancelRender = cancel;
         onCleanup(cancel);
+
         setBusy(true);
         setError(undefined);
-        container.scrollTop = container.scrollLeft = 0;
+        container.scrollLeft = 0;
+        container.scrollTop = 0;
+
         void (async () => {
             try {
                 const page = await document.getPage(number);
                 if (!active) return;
+
                 const base = page.getViewport({ scale: 1 });
                 validateDimensions(base, "Invalid PDF page dimensions");
                 const viewport = page.getViewport({ scale: (availableWidth / base.width) * magnification });
@@ -139,6 +152,7 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
                     maxCanvasSide / viewport.width,
                     maxCanvasSide / viewport.height,
                 );
+
                 // Never reuse a canvas whose cancelled render promise may still be settling.
                 canvas = window.document.createElement("canvas");
                 canvas.width = Math.max(1, Math.floor(viewport.width * outputScale));
@@ -149,6 +163,7 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
                 canvas.style.background = "white";
                 const context = canvas.getContext("2d");
                 if (!context) throw new Error("Canvas is unavailable");
+
                 task = page.render({
                     canvas,
                     canvasContext: context,
@@ -158,10 +173,12 @@ export function PdfPreview(props: { data: Uint8Array; initialPage?: number }) {
                 });
                 await task.promise;
                 if (!active) return;
+
                 pageHost.replaceChildren(canvas);
                 setBusy(false);
             } catch {
                 if (!active) return;
+
                 setError("drift.preview.error");
                 setBusy(false);
                 destroyLoading?.();

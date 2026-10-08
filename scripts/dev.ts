@@ -5,7 +5,9 @@ import os from "node:os";
 
 const root = path.resolve(import.meta.dirname, "..");
 const runtime = mkdtempSync(path.join(os.tmpdir(), "drift-dev-"));
+
 Bun.spawnSync(["cargo", "build", "-q", "-p", "drift-engined"], { cwd: root, stdout: "inherit", stderr: "inherit" });
+
 // Run a copy so cargo can rebuild the real binary while dev is up.
 const binary = path.join(runtime, "drift-engined.exe");
 await Bun.write(binary, Bun.file(path.join(root, "target", "debug", "drift-engined.exe")));
@@ -26,6 +28,7 @@ const vite = Bun.spawn([process.execPath, "x", "vite"], {
 async function readTarget(stdout: ReadableStream<Uint8Array>) {
     const found: Record<string, string> = {};
     let buffered = "";
+
     for await (const chunk of stdout) {
         buffered += new TextDecoder().decode(chunk);
         for (const line of buffered.split("\n")) {
@@ -34,6 +37,7 @@ async function readTarget(stdout: ReadableStream<Uint8Array>) {
         }
         if (found.url && found.token) return { url: found.url, token: found.token };
     }
+
     throw new Error("drift-engined exited before reporting its address");
 }
 
@@ -41,6 +45,7 @@ async function shutdown() {
     engine.kill();
     vite.kill();
     await Promise.all([engine.exited, vite.exited]);
+
     rmSync(runtime, { recursive: true, force: true });
     process.exit(0);
 }

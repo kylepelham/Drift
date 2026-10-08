@@ -34,6 +34,7 @@ export function captureConstraints(deviceId?: string): MediaStreamConstraints {
 export async function startCapture(onBlock: (block: Float32Array) => void, deviceId?: string): Promise<Capture> {
     const media = globalThis.navigator?.mediaDevices;
     if (!media?.getUserMedia || typeof AudioContext === "undefined") throw captureUnsupported();
+
     let stream: MediaStream;
     try {
         stream = await media.getUserMedia(captureConstraints(deviceId));
@@ -42,6 +43,7 @@ export async function startCapture(onBlock: (block: Float32Array) => void, devic
         void refreshAudioInputDevices(media);
         stream = await media.getUserMedia(captureConstraints());
     }
+
     let context: AudioContext;
     try {
         // Whisper wants 16 kHz, so the graph runs at that rate instead of resampling afterwards.
@@ -50,6 +52,7 @@ export async function startCapture(onBlock: (block: Float32Array) => void, devic
         stopStreamTracks(stream);
         throw cause;
     }
+
     let url = "";
     try {
         url = URL.createObjectURL(new Blob([processorSource], { type: "application/javascript" }));
@@ -96,6 +99,7 @@ export async function startCapture(onBlock: (block: Float32Array) => void, devic
 function accumulate(onBlock: (block: Float32Array) => void) {
     let buffer = new Float32Array(blockSamples);
     let filled = 0;
+
     return (event: MessageEvent) => {
         const chunk = event.data as Float32Array;
         let offset = 0;
@@ -105,6 +109,7 @@ function accumulate(onBlock: (block: Float32Array) => void) {
             filled += take;
             offset += take;
             if (filled < blockSamples) continue;
+
             onBlock(buffer);
             buffer = new Float32Array(blockSamples);
             filled = 0;

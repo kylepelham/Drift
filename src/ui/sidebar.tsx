@@ -58,19 +58,23 @@ export function Sidebar() {
     async function moveSessionTo(state: SessionMenuState, destination: Workspace) {
         const selected = selectedSession();
         setMoveStatus({ error: false, text: t("drift.sidebar.movingSession", { workspace: destination.name }) });
+
         const result = await engine.actions.moveSession(state.sessionId, destination.path);
         if (!result.ok)
             return setMoveStatus({ error: true, text: result.error ?? t("drift.sidebar.moveSessionFailed") });
+
         if (selected && result.moved.includes(selected)) {
             selectWorkspace(destination.id);
             selectSession(selected);
         }
+
         setMoveStatus(null);
     }
 
     async function retargetWorkspace(workspace: Workspace) {
         const path = await pickFolder();
         if (!path || normalizeDir(path) === normalizeDir(workspace.path)) return;
+
         const collision = [...workspaces(), ...removedWorkspaces()].find(
             (entry) => entry.id !== workspace.id && normalizeDir(entry.path) === normalizeDir(path),
         );
@@ -107,6 +111,7 @@ export function Sidebar() {
     function moveResize(event: PointerEvent) {
         const handle = event.currentTarget as HTMLElement;
         if (!handle.hasPointerCapture(event.pointerId)) return;
+
         setWidth(sidebarWidthFromDrag(resizeStartWidth, event.clientX - resizeStartX, resizeScale));
     }
 
@@ -119,6 +124,7 @@ export function Sidebar() {
     function resizeWithKeyboard(event: KeyboardEvent) {
         const direction = resizeDirection(event.key);
         if (!direction) return;
+
         event.preventDefault();
         const next = clampSidebarWidth(width() + direction * 16);
         setWidth(next);
@@ -257,12 +263,14 @@ export function Sidebar() {
     function menuWorkspace() {
         const state = menu();
         if (!state) return null;
-        const workspace = workspaces().find((w) => w.id === state.workspaceId);
+
+        const workspace = workspaces().find((workspace) => workspace.id === state.workspaceId);
+
         return workspace ? { state, workspace } : null;
     }
 
     function editingWorkspace() {
-        return workspaces().find((w) => w.id === editing()) ?? null;
+        return workspaces().find((workspace) => workspace.id === editing()) ?? null;
     }
 }
 
@@ -281,6 +289,7 @@ function SidebarFooter(props: { onSettings: () => void }) {
         return engine.state.connection === "connecting" ? t("common.loading") : t("drift.sidebar.offline");
     };
     listenOpencodeImport();
+
     return (
         <div class="shrink-0 px-2 py-2">
             <Show when={opencodeImport()}>

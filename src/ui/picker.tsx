@@ -40,6 +40,7 @@ export function Picker(props: {
 
     const filtered = createMemo(() => {
         const needle = query().toLowerCase();
+
         return props.items.filter(
             (item) =>
                 item.label.toLowerCase().includes(needle) ||
@@ -51,6 +52,7 @@ export function Picker(props: {
 
     createEffect(() => {
         if (!open()) return;
+
         setQuery("");
         setCursor(0);
         if (props.floating) {
@@ -65,14 +67,18 @@ export function Picker(props: {
     });
 
     createDismissOnOutside({
-        // A floating picker renders its panel in a portal, so the panel is outside `root` in the DOM
-        // but still counts as inside for dismissal. Only a floating panel is position-dependent, so
-        // only it closes on resize.
+        // Portal panels count as inside for dismissal; only floating panels need to close on resize.
         enabled: open,
         inside: () => [root, panel],
         onDismiss: () => setOpen(false),
         resize: untrack(() => props.floating),
     });
+
+    const selectedLabel = () => {
+        const selected = props.items.find((item) => item.id === props.selected);
+
+        return selected?.label ?? props.fallbackLabel ?? t("common.default");
+    };
 
     const pick = (id: string) => {
         props.onPick(id);
@@ -168,9 +174,7 @@ export function Picker(props: {
             >
                 {props.icon}
                 <span class="picker-label min-w-0 max-w-40 truncate" classList={{ "flex-1": !!props.chevronAtEnd }}>
-                    {props.items.find((item) => item.id === props.selected)?.label ??
-                        props.fallbackLabel ??
-                        t("common.default")}
+                    {selectedLabel()}
                 </span>
                 <svg
                     class="size-2.5 shrink-0 text-ink-faint"

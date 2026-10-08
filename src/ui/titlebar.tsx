@@ -8,6 +8,7 @@ export function Titlebar() {
     const shell = shellWindow();
     // eslint-disable-next-line solid/components-return-once -- Shell availability is fixed at webview startup.
     if (!shell) return null;
+
     const [maximized, setMaximized] = createSignal(false);
     const [update, setUpdate] = createSignal<string | null>(null);
     const [installing, setInstalling] = createSignal(false);
@@ -23,8 +24,10 @@ export function Titlebar() {
             .onResized(refresh)
             .then((dispose) => onCleanup(dispose))
             .catch(() => {});
+
         const check = () => {
             if (!autoUpdate() || update()) return;
+
             void shellInvoke()?.("check_update")
                 .then((version) => typeof version === "string" && setUpdate(version))
                 .catch(() => {});

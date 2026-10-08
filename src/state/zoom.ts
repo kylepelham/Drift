@@ -15,8 +15,7 @@ const zoomPrecision = 10;
 const clamp = (value: number) =>
     Math.min(maxZoom, Math.max(minZoom, Math.round(value * zoomPrecision) / zoomPrecision));
 
-// Viewport units ignore CSS zoom, so the dvh-sized remote shell divides by this factor to keep the
-// zoomed layout exactly one viewport large. Percentage sizing needs no correction.
+// The remote shell divides viewport units by the zoom factor because those units ignore CSS zoom.
 function cssZoom(value: number) {
     const root = document.documentElement;
     (root.style as CSSStyleDeclaration & { zoom: string }).zoom = value === 1 ? "" : String(value);
@@ -29,8 +28,7 @@ function apply(value: number) {
     const webview = shellWebview();
     // In a browser there is no native zoom, so CSS is the only mechanism.
     if (!webview) return cssZoom(value);
-    // Native zoom is preferred because it scales the whole webview, so the CSS zoom is reset first
-    // and only reinstated as a fallback if the native call fails and no newer zoom has started.
+    // Reset CSS zoom before native zoom; restore it only if the latest native request fails.
     cssZoom(1);
     void webview.setZoom(value).catch(() => zoomApply.isCurrent(token) && cssZoom(value));
 }
@@ -62,6 +60,7 @@ export function fixedMenuPosition(
     const viewportWidth = (metrics?.viewportWidth ?? window.innerWidth) / scale;
     const viewportHeight = (metrics?.viewportHeight ?? window.innerHeight) / scale;
     const margin = 8;
+
     return {
         left: Math.max(margin, Math.min(clientX / scale, viewportWidth - menuWidth - margin)),
         top: Math.max(margin, Math.min(clientY / scale, viewportHeight - menuHeight - margin)),

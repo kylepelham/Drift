@@ -23,11 +23,13 @@ export { archivedIds, archivedSessions, removedWorkspaces, activeWorkspaceId, wo
 
 export function workspaces() {
     const order = workspaceOrder();
-    const rank = (w: Workspace) => {
-        const index = order.indexOf(w.id);
+    const rank = (workspace: Workspace) => {
+        const index = order.indexOf(workspace.id);
+
         return index < 0 ? order.length : index;
     };
-    return [...rawWorkspaces()].sort((a, b) => rank(a) - rank(b));
+
+    return [...rawWorkspaces()].sort((left, right) => rank(left) - rank(right));
 }
 
 function setWorkspaceOrder(ids: string[]) {
@@ -41,15 +43,16 @@ export function applyMirroredWorkspaceOrder(ids: string[]) {
 
 export function moveWorkspace(id: string, beforeId: string | null) {
     const ids = workspaces()
-        .map((w) => w.id)
-        .filter((x) => x !== id);
+        .map((workspace) => workspace.id)
+        .filter((workspaceId) => workspaceId !== id);
     const index = beforeId ? ids.indexOf(beforeId) : -1;
     ids.splice(index < 0 ? ids.length : index, 0, id);
+
     setWorkspaceOrder(ids);
 }
 
 export function activeWorkspace() {
-    return rawWorkspaces().find((w) => w.id === activeWorkspaceId()) ?? null;
+    return rawWorkspaces().find((workspace) => workspace.id === activeWorkspaceId()) ?? null;
 }
 
 export function workspaceCollapsed(id: string) {
@@ -73,11 +76,13 @@ export function initWorkspaces() {
 async function loadWorkspaces() {
     // The opencode import can add workspaces after this first load.
     void shellEvents()?.listen("workspaces-changed", () => void refreshWorkspaces());
+
     try {
         await refreshWorkspaces(true);
     } finally {
         setWorkspacesReady(true);
     }
+
     await refreshArchives();
 }
 
@@ -90,7 +95,8 @@ async function refreshWorkspaces(repairSelection = false) {
     const [active, removed] = await Promise.all([driftStore.workspaces(), driftStore.removedWorkspaces()]);
     setWorkspaces(active);
     setRemovedWorkspaces(removed);
-    const ids = active.map((w) => w.id);
+
+    const ids = active.map((workspace) => workspace.id);
     const selected = activeWorkspaceId();
     const hydrated = repairSelection ? hydratedWorkspaceSelection(active, selected) : selected;
     if (hydrated !== selected) {
@@ -98,6 +104,7 @@ async function refreshWorkspaces(repairSelection = false) {
         applyMirroredSession(null);
         publishMirrorSelection({ workspaceId: hydrated, sessionId: null });
     }
+
     const kept = workspaceOrder().filter((id) => ids.includes(id));
     const merged = [...kept, ...ids.filter((id) => !kept.includes(id))];
     if (merged.join(",") !== workspaceOrder().join(",")) setWorkspaceOrder(merged);
@@ -114,6 +121,7 @@ export function selectWorkspace(id: string) {
         void driftStore.touchWorkspace(id);
         return;
     }
+
     applyMirroredSession(null);
     setActiveWorkspaceId(id);
     publishMirrorSelection({ workspaceId: id, sessionId: null });
@@ -140,8 +148,9 @@ if (typeof window !== "undefined" && isRemoteRuntime()) {
 }
 
 export async function updateWorkspace(id: string, patch: { path?: string; name?: string; icon?: string }) {
-    const workspace = workspaces().find((w) => w.id === id);
+    const workspace = workspaces().find((workspace) => workspace.id === id);
     if (!workspace) return;
+
     await driftStore.saveWorkspace({
         id,
         path: patch.path ?? workspace.path,
@@ -204,20 +213,20 @@ export function unarchiveSession(sessionId: string, inEngine: ArchiveInEngine) {
 
 const purgeAge = 7 * 24 * 60 * 60 * 1000;
 
-// Both purges are two-phase: the Drift record is the deletion tombstone and is only dropped once
-// the engine confirms every session is gone. A failed engine deletion keeps the tombstone, so the
-// purge resumes on the next startup, reconnect, or timer tick. `true` means nothing is pending.
+// Archive records remain until the engine confirms deletion, allowing failed purges to resume.
 export function purgeArchived(removeSession: (sessionId: string) => Promise<ArchivePurge>) {
     return inArchiveQueue(async () => {
         const expired = await driftStore.expiredArchived(Date.now() - purgeAge);
         let complete = true;
         for (const sessionId of expired) {
             const purged = await removeSession(sessionId);
-            // Kept: restored in the engine though this record outlived it, so the record goes and the thread stays.
+            // A restored engine session keeps its thread but no longer needs the stale archive record.
             if (purged === "deleted" || purged === "kept") await driftStore.unarchiveSession(sessionId);
             else complete = false;
         }
+
         await refreshArchives();
+
         return complete;
     });
 }
@@ -235,14 +244,18 @@ async function purgeRemovedWorkspaces(
             !removedWorkspaces().some(
                 (current) => current.id === workspace.id && (current.removedAt ?? 0) > (workspace.removedAt ?? 0),
             );
+
         if (!(await removeSessions(workspace.id, eligible))) {
             complete = false;
             continue;
         }
+
         forgetCachedSessions(workspace.path);
         await driftStore.forgetWorkspace(workspace.id);
     }
+
     await refreshWorkspaces();
+
     return complete;
 }
 

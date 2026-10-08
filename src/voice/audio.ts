@@ -36,19 +36,19 @@ export function createSegmenter(): SegmenterState {
 
 export function blockEnergy(block: Float32Array) {
     if (!block.length) return 0;
+
     let total = 0;
     for (const sample of block) total += sample * sample;
+
     return Math.sqrt(total / block.length);
 }
 
-/**
- * Feeds one block in and returns a finished phrase when speech has stopped. Silence never produces
- * a phrase, which is what keeps whisper from inventing text during a pause.
- */
+/** Returns a completed speech phrase after silence; silent audio alone never produces a phrase. */
 export function pushBlock(state: SegmenterState, block: Float32Array, config = defaultSegmenterConfig) {
     const voiced = blockEnergy(block) >= config.threshold;
     state.blocks.push(block);
     if (!state.speaking) return openPhrase(state, voiced, config);
+
     state.silent = voiced ? 0 : state.silent + 1;
     if (state.silent < config.hangoverBlocks && state.blocks.length < config.maxBlocks) return undefined;
     return closePhrase(state, config);
@@ -60,6 +60,7 @@ export function drainSegmenter(state: SegmenterState, config = defaultSegmenterC
         reset(state);
         return undefined;
     }
+
     return closePhrase(state, config);
 }
 
@@ -69,6 +70,7 @@ function openPhrase(state: SegmenterState, voiced: boolean, config: SegmenterCon
         if (state.blocks.length > config.prerollBlocks) state.blocks.shift();
         return undefined;
     }
+
     state.voiced += 1;
     if (state.voiced >= config.minVoicedBlocks) {
         state.speaking = true;
@@ -82,6 +84,7 @@ function closePhrase(state: SegmenterState, config: SegmenterConfig) {
         state.blocks.length > config.hangoverBlocks ? state.blocks.slice(0, -config.hangoverBlocks) : state.blocks;
     const phrase = concatBlocks(spoken);
     reset(state);
+
     return phrase.length ? phrase : undefined;
 }
 
@@ -96,10 +99,12 @@ function concatBlocks(blocks: Float32Array[]) {
     const total = blocks.reduce((sum, block) => sum + block.length, 0);
     const merged = new Float32Array(total);
     let offset = 0;
+
     for (const block of blocks) {
         merged.set(block, offset);
         offset += block.length;
     }
+
     return merged;
 }
 
@@ -107,10 +112,12 @@ function concatBlocks(blocks: Float32Array[]) {
 export function encodePcm16(samples: Float32Array) {
     const bytes = new Uint8Array(samples.length * 2);
     const view = new DataView(bytes.buffer);
+
     for (let index = 0; index < samples.length; index += 1) {
         const clamped = Math.max(-1, Math.min(1, samples[index]!));
         view.setInt16(index * 2, Math.round(clamped * 32767), true);
     }
+
     return base64(bytes);
 }
 

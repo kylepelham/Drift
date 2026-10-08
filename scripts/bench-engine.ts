@@ -1,6 +1,4 @@
-// Engine benchmark: Drift 2's native engine against the opencode engine Drift 1.3 shipped, on the same
-// stub provider (it answers at once, so only engine time is measured) and the same workloads.
-// `bun run bench:engine [runs] [--legacy <1.3 install dir>]`. Results feed docs/engine-rewrite.md.
+// Both engines use an immediate stub provider so the benchmark measures engine time, not provider latency.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -38,6 +36,7 @@ function stubProvider(file: string) {
             const system = messages
                 .filter((m) => m.role === "system")
                 .reduce((n, m) => n + JSON.stringify(m.content).length, 0);
+
             requests.push({ at, marker, lastRole: last, tools, system });
             const read = tools.find((tool) => tool.function?.name === "read");
             if (marker?.startsWith("read") && last === "user" && read) {
@@ -54,20 +53,24 @@ function stubProvider(file: string) {
                 const text =
                     chunk({ role: "assistant", tool_calls: [call] }) + chunk({}, "tool_calls") + "data: [DONE]\n\n";
                 sent.push({ marker, at: performance.now() });
+
                 return new Response(text, { headers: { "content-type": "text/event-stream" } });
             }
+
             const reply = marker ? `done ${marker.split(" ")[1]}` : "ok";
             const text =
                 chunk({ role: "assistant", content: "" }) +
                 chunk({ content: reply }) +
                 chunk({}, "stop") +
                 "data: [DONE]\n\n";
+
             return new Response(text, { headers: { "content-type": "text/event-stream" } });
         },
     });
-    // Title requests carry no tools; only a turn's do.
+    // Title requests have no tools and must not be counted as benchmark turns.
     const turn = (marker: string, after = (r: Request) => r.lastRole === "user") =>
         requests.find((r) => r.tools.length > 0 && r.marker === marker && after(r));
+
     return { url: `http://127.0.0.1:${server.port}/v1`, requests, sent, turn, stop: () => server.stop(true) };
 }
 
@@ -94,16 +97,19 @@ type Engine = {
 
 async function readUntil<T>(stdout: ReadableStream<Uint8Array>, matches: (text: string) => T | undefined) {
     let buffered = "";
+
     for await (const chunk of stdout) {
         buffered += new TextDecoder().decode(chunk);
         const found = matches(buffered);
         if (found !== undefined) return found;
     }
+
     throw new Error("process exited before reporting");
 }
 
 async function json(response: Response) {
     if (!response.ok) throw new Error(`${response.url} ${response.status}: ${await response.text()}`);
+
     const text = await response.text();
     return text ? JSON.parse(text) : undefined;
 }
@@ -119,6 +125,7 @@ async function startNative(stub: Stub, dirs: Dirs): Promise<Engine> {
         },
     };
     writeFileSync(path.join(dirs.home, ".config", "drift", "drift.json"), JSON.stringify({ providers }));
+
     const proc = Bun.spawn([path.join(root, "target", "release", "drift-engined.exe"), "--data-dir", dirs.data], {
         stdout: "pipe",
         stderr: "ignore",
@@ -129,6 +136,7 @@ async function startNative(stub: Stub, dirs: Dirs): Promise<Engine> {
         const token = text.match(/token (\S+)/)?.[1];
         return url && token ? { url, token } : undefined;
     });
+
     const frames: Engine["frames"] = [];
     const socket = new WebSocket(`${url.replace(/^http/, "ws")}/events?token=${token}`);
     await new Promise<void>((resolve, reject) => {
@@ -138,6 +146,7 @@ async function startNative(stub: Stub, dirs: Dirs): Promise<Engine> {
         };
         socket.onerror = () => reject(new Error("event socket failed"));
     });
+
     const call = (method: string, route: string, body?: unknown) =>
         fetch(`${url}${route}`, {
             method,
@@ -145,6 +154,7 @@ async function startNative(stub: Stub, dirs: Dirs): Promise<Engine> {
             body: body === undefined ? undefined : JSON.stringify(body),
         }).then(json);
     const workspace = await call("POST", "/workspaces", { path: dirs.workspace, name: "bench" });
+
     return {
         pid: proc.pid,
         frames,
@@ -173,6 +183,7 @@ async function startLegacy(stub: Stub, dirs: Dirs, install: string): Promise<Eng
     const extensions = path.join(install, "drift-extensions");
     const config = path.join(dirs.home, "runtime");
     mkdirSync(path.join(config, "pending"), { recursive: true });
+
     const base = await Bun.file(path.join(extensions, "opencode.json")).json();
     const plugin = (name: string) => path.join(extensions, "plugin", `${name}.js`);
     writeFileSync(
@@ -215,6 +226,7 @@ async function startLegacy(stub: Stub, dirs: Dirs, install: string): Promise<Eng
             ],
         }),
     );
+
     const xdg = (name: string) => path.join(dirs.data, name);
     const password = "bench";
     const proc = Bun.spawn(
@@ -242,6 +254,7 @@ async function startLegacy(stub: Stub, dirs: Dirs, install: string): Promise<Eng
         "x-opencode-directory": encodeURIComponent(dirs.workspace),
         "content-type": "application/json",
     };
+
     const frames: Engine["frames"] = [];
     const events = await fetch(`${url}/global/event`, { headers });
     const reader = events.body!.getReader();
@@ -263,6 +276,7 @@ async function startLegacy(stub: Stub, dirs: Dirs, install: string): Promise<Eng
         }
     })();
     await ready;
+
     const call = (method: string, route: string, body?: unknown) =>
         fetch(`${url}${route}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) }).then(
             json,
@@ -303,21 +317,24 @@ async function until<T>(what: string, find: () => T | undefined, limit = 60_000)
 /** Working set now and at peak, and processor time used so far, as Windows counts them. */
 function processStats(pid: number) {
     const script = `$p = Get-Process -Id ${pid}; "$($p.WorkingSet64) $($p.PeakWorkingSet64) $($p.TotalProcessorTime.TotalMilliseconds)"`;
-    const [ws, peak, cpu] = Bun.spawnSync(["powershell", "-NoProfile", "-Command", script])
+    const [workingSet, peakWorkingSet, cpuTime] = Bun.spawnSync(["powershell", "-NoProfile", "-Command", script])
         .stdout.toString()
         .trim()
         .split(" ")
         .map(Number);
-    return { ws, peak, cpu };
+
+    return { ws: workingSet, peak: peakWorkingSet, cpu: cpuTime };
 }
 
 async function timeEach(times: number, act: () => Promise<void>) {
     const taken: number[] = [];
+
     for (let i = 0; i < times; i += 1) {
         const started = performance.now();
         await act();
         taken.push(performance.now() - started);
     }
+
     return median(taken);
 }
 
@@ -334,6 +351,7 @@ async function run(start: (stub: Stub, dirs: Dirs) => Promise<Engine>) {
     const started = performance.now();
     const engine = await start(stub, dirs);
     const out: Record<string, number> = { coldStartMs: performance.now() - started };
+
     try {
         const session = await engine.createSession();
         const idleAfter = (since: number) =>
@@ -363,15 +381,18 @@ async function run(start: (stub: Stub, dirs: Dirs) => Promise<Engine>) {
                 request,
             };
         };
+
         const first = await turn(0);
         out.firstPromptToProviderMs = first.toProvider;
         out.systemChars = first.request.system;
         out.toolsChars = JSON.stringify(first.request.tools).length;
+
         const warm = [];
         for (let n = 1; n <= WARM_TURNS; n += 1) warm.push(await turn(n));
         out.warmPromptToProviderMs = median(warm.map((t) => t.toProvider));
         out.providerToEventMs = median(warm.map((t) => t.toEvent));
         out.turnMs = median(warm.map((t) => t.total));
+
         const reads = [];
         for (let n = 0; n < 5; n += 1) {
             await engine.prompt(session, `read ${n}`);
@@ -381,12 +402,14 @@ async function run(start: (stub: Stub, dirs: Dirs) => Promise<Engine>) {
             await idleAfter(after.at);
         }
         out.toolRoundTripMs = median(reads);
+
         const busy = processStats(engine.pid);
         await Bun.sleep(10_000);
         const idle = processStats(engine.pid);
         out.idleCpuMsPer10s = idle.cpu - busy.cpu;
         out.workingSetMB = idle.ws / 2 ** 20;
         out.peakWorkingSetMB = idle.peak / 2 ** 20;
+
         out.sessionCreateMs = await timeEach(SESSIONS - 1, async () => void (await engine.createSession()));
         out.listSessionsMs = await timeEach(READS, () => engine.listSessions());
         out.loadHistoryMs = await timeEach(READS, () => engine.messages(session));
@@ -395,6 +418,7 @@ async function run(start: (stub: Stub, dirs: Dirs) => Promise<Engine>) {
         stub.stop();
         for (const dir of Object.values(dirs)) rmSync(dir, { recursive: true, force: true });
     }
+
     return out;
 }
 
@@ -408,10 +432,12 @@ function sizeMB(dir: string): number {
 
 async function measure(name: string, start: (stub: Stub, dirs: Dirs) => Promise<Engine>) {
     const results: Record<string, number>[] = [];
+
     for (let i = 0; i < runs; i += 1) {
         results.push(await run(start));
         console.error(`${name}: run ${i + 1} of ${runs} done`);
     }
+
     const keys = Object.keys(results[0]);
     return Object.fromEntries(keys.map((key) => [key, median(results.map((r) => r[key]))]));
 }

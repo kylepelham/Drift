@@ -1,4 +1,4 @@
-// Every gate a change must pass: the engine binary first, then the Rust and bun gates side by side. Prints only failures.
+// Conformance tests need the engine binary before the Rust and frontend checks run in parallel.
 import { resolve } from "node:path";
 
 type Step = { name: string; cmd: string[] };
@@ -22,7 +22,7 @@ const chains: Step[][] = [
     ],
 ];
 
-// Windows antivirus briefly holds a freshly linked binary or its .pdb; the link fails with one of these, never because of the code.
+// Antivirus can briefly lock newly linked binaries or debug symbols, so these errors permit one retry.
 const fileLocked = /LNK1104|LNK1201|os error 32/;
 
 const running = new Set<Proc>();
@@ -31,17 +31,20 @@ let failed = false;
 async function attempt(step: Step) {
     const proc = Bun.spawn(step.cmd, { cwd: root, stdout: "pipe", stderr: "pipe" });
     running.add(proc);
+
     const [out, err, code] = await Promise.all([
         new Response(proc.stdout).text(),
         new Response(proc.stderr).text(),
         proc.exited,
     ]);
     running.delete(proc);
+
     return { code, output: (out + err).trimEnd() };
 }
 
 async function run(step: Step) {
     if (failed) return false;
+
     const started = performance.now();
     let result = await attempt(step);
     if (result.code !== 0 && !failed && fileLocked.test(result.output)) {
@@ -49,14 +52,18 @@ async function run(step: Step) {
         result = await attempt(step);
     }
     if (failed) return false;
+
     const took = `${((performance.now() - started) / 1000).toFixed(1)}s`;
     if (result.code === 0) {
         console.log(`ok    ${step.name} (${took})`);
         return true;
     }
+
     failed = true;
     for (const other of running) stop(other);
-    console.log(`FAIL  ${step.name} (${took})\n${result.output.split("\n").slice(-shownLines).join("\n")}`);
+    const failureTail = result.output.split("\n").slice(-shownLines).join("\n");
+    console.log(`FAIL  ${step.name} (${took})\n${failureTail}`);
+
     return false;
 }
 
@@ -65,7 +72,7 @@ async function chain(steps: Step[]) {
     return true;
 }
 
-/** The whole process tree: cargo leaves rustc and test binaries running if only it is killed. */
+/** Stops the whole process tree because cargo can leave compiler and test processes running. */
 function stop(proc: Proc) {
     if (process.platform === "win32")
         Bun.spawnSync(["taskkill", "/T", "/F", "/PID", String(proc.pid)], { stdout: "ignore", stderr: "ignore" });

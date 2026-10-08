@@ -17,10 +17,7 @@ export function appendDictation(existing: string, segment: string) {
 /** Markers whisper emits for audio it decided was not speech. */
 const nonSpeech = /\[(blank_audio|inaudible|silence|music|applause|laughter|noise)\]/gi;
 
-/**
- * Collapses the sidecar's line-per-segment output into one phrase. A result that is nothing but a
- * bracketed marker is dropped, which is how a pause stops becoming invented text.
- */
+/** Joins recognizer segments into one phrase, discarding results made only of non-speech markers. */
 export function cleanTranscript(raw: string) {
     const collapsed = raw
         .split("\n")
@@ -28,11 +25,13 @@ export function cleanTranscript(raw: string) {
         .filter(Boolean)
         .join(" ");
     const stripped = collapsed.replace(nonSpeech, " ").replace(/\s+/g, " ").trim();
+
     return /^[[(][^\])]*[\])]$/.test(stripped) ? "" : stripped;
 }
 
 export function formatDictationElapsed(ms: number) {
     const total = Math.max(0, Math.floor(ms / 1000));
     const minutes = Math.floor(total / 60);
+
     return `${minutes}:${String(total % 60).padStart(2, "0")}`;
 }

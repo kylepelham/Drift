@@ -18,6 +18,7 @@ function vulkanSdk() {
 function versionedSdks() {
     const base = "C:\\VulkanSDK";
     if (!existsSync(base)) return [];
+
     return readdirSync(base)
         .sort()
         .reverse()
@@ -30,8 +31,10 @@ async function build(name: string, dir: string, sdk?: string) {
         console.log(`${name} already built; pass --force to rebuild`);
         return;
     }
+
     if (force) rmSync(path.join(workspace, dir), { recursive: true, force: true });
     const backend = sdk ? ["-DGGML_VULKAN=ON"] : [];
+
     // Static linking keeps each sidecar a single file, and NATIVE off keeps it runnable on any x64 machine.
     await $`cmake -B ${dir} -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_BUILD_EXAMPLES=ON ${backend}`
         .cwd(workspace)
@@ -43,6 +46,7 @@ async function build(name: string, dir: string, sdk?: string) {
         path.join(workspace, dir, "bin", "whisper-cli.exe"),
     ].find(existsSync);
     if (!built) throw new Error(`whisper-cli.exe was not produced by the ${name} build`);
+
     mkdirSync(out, { recursive: true });
     cpSync(built, target);
     cpSync(built, path.join(out, `${name}.exe`));

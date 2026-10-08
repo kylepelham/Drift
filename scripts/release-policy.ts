@@ -31,21 +31,25 @@ function versionParts(tag: string) {
 export function compareStableTags(left: string, right: string) {
     const leftParts = versionParts(left);
     const rightParts = versionParts(right);
+
     for (let index = 0; index < leftParts.length; index++) {
         if (leftParts[index] < rightParts[index]) return -1;
         if (leftParts[index] > rightParts[index]) return 1;
     }
+
     return 0;
 }
 
 export function developmentTag(tags: string[], exactTag?: string, dirty = true, declaredTag?: string) {
     if (!dirty && exactTag && stableTagPattern.test(exactTag)) return exactTag;
+
     const latest = tags
         .filter((tag) => stableTagPattern.test(tag))
         .reduce<string | undefined>((current, tag) => {
             return !current || compareStableTags(tag, current) > 0 ? tag : current;
         }, undefined);
     if (!latest) throw new Error("Cannot derive development version without a stable tag");
+
     const [major, minor, patch] = versionParts(latest);
     const next = `v${major}.${minor}.${patch + 1n}`;
     return declaredTag && stableTagPattern.test(declaredTag) && compareStableTags(declaredTag, next) > 0
@@ -93,9 +97,7 @@ export function releaseAssetsMarker(assets: ReleaseAssetDigest[]) {
     return `<!-- drift-release-assets: ${Buffer.from(JSON.stringify(sorted)).toString("base64url")} -->`;
 }
 
-// A stable release publishes exactly three files: the installer, its detached signature, and the
-// updater manifest. isReleaseAsset, expectedReleaseAssetNames and releaseAssetCount all describe
-// that same set, so they must be changed together.
+// Asset suffixes, expected names, and the count must agree on the installer, signature, and updater manifest.
 const installerSuffix = "-setup.exe";
 const signatureSuffix = ".sig";
 const updateManifestName = "latest.json";
@@ -108,6 +110,7 @@ function isReleaseAsset(name: string) {
 function expectedReleaseAssetNames(assets: { name: string }[]) {
     const installers = assets.filter((asset) => asset.name.endsWith(installerSuffix));
     if (installers.length !== 1) throw new Error("Published release must contain exactly one setup executable");
+
     return [installers[0].name, `${installers[0].name}${signatureSuffix}`, updateManifestName].sort();
 }
 
@@ -192,6 +195,7 @@ export function validateReleasePolicy(input: {
 
     const latest = latestStableTag(input.tags, input.releases, input.tag);
     assertVersionIsNewer(input.tag, latest);
+
     return { version, latest, published: false };
 }
 
@@ -229,6 +233,7 @@ const workspaceCrates = ["drift", "drift-engine", "drift-engined", "drift-migrat
 
 export function stampReleaseVersion(tag: string, root = path.resolve(import.meta.dirname, "..")) {
     const version = versionFromTag(tag);
+
     for (const relative of ["package.json", "src-tauri/tauri.conf.json"]) {
         const file = path.join(root, relative);
         const contents = JSON.parse(readFileSync(file, "utf8")) as { version: string };
@@ -259,11 +264,13 @@ export function stampReleaseVersion(tag: string, root = path.resolve(import.meta
         );
     }
     writeFileSync(cargoLock, lock);
+
     return version;
 }
 
 export function stampDevelopmentVersion(root = path.resolve(import.meta.dirname, "..")) {
     if (process.env.GITHUB_ACTIONS === "true") return undefined;
+
     const tags = git(["tag", "--list"]).output.split("\n").filter(Boolean);
     const exactTag = git(["describe", "--tags", "--exact-match", "HEAD"], true).output || undefined;
     const dirty = git(["status", "--porcelain"]).output.length > 0;
