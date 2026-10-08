@@ -97,7 +97,7 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     const app = await Bun.file("src/app.tsx").text();
     const css = await Bun.file("src/styles/app.css").text();
     const parts = await Bun.file("src/ui/parts.tsx").text();
-    const markdown = await Bun.file("src/ui/markdown.tsx").text();
+    const markdown = await Bun.file("src/ui/progressive-code.tsx").text();
     const composer = await Bun.file("src/ui/composer.tsx").text();
     const sidebar = await Bun.file("src/ui/sidebar.tsx").text();
     const workspaces = await Bun.file("src/ui/workspaces.tsx").text();

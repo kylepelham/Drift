@@ -211,12 +211,12 @@ test("tokens per second uses generation time, not tool and subagent wall time", 
 
 test("the code view paints its background on the scroller, not on the inner block", async () => {
     const [markup, css] = await Promise.all([
-        Bun.file("src/ui/markdown.tsx").text(),
+        Bun.file("src/ui/progressive-code.tsx").text(),
         Bun.file("src/styles/app.css").text(),
     ]);
     // The wrapper is what scrolls sideways, so only the wrapper's background covers the full width.
-    expect(markup).toContain("code-view code-stream overflow-auto");
-    expect(markup).toContain('classList={{ "max-h-80": !props.fill, "min-h-0 flex-1": props.fill }}');
+    expect(markup).toContainCode("code-view code-stream overflow-auto");
+    expect(markup).toContainCode('classList={{ "max-h-80": !props.fill, "min-h-0 flex-1": props.fill }}');
     expect(css).toMatch(/\.code-view \{\s*background: var\(--raised\);/);
     expect(css).toMatch(/\.code-view :where\(pre\) \{\s*background: transparent !important;/);
     // A themed background has to move with it, otherwise the same seam reappears under that theme.

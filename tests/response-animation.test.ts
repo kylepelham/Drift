@@ -119,16 +119,12 @@ test("markdown reveal never drives rendering from animation frames", async () =>
     ]);
     expect(animation).not.toContain("requestAnimationFrame");
     expect(animation).not.toContain("createRevealPacer");
-    // The standalone code viewer uses one frame to scroll to a linked line, not to reveal text.
-    const revealSource = markdown.replace(
-        /export function ProgressiveCodeView[\s\S]*?(?=\nfunction markdownNodeSignature)/,
-        "",
-    );
-    expect(revealSource).not.toContain("requestAnimationFrame");
+    const render = await Bun.file("src/ui/markdown-render.ts").text();
+    expect(markdown).not.toContainCode("requestAnimationFrame");
+    expect(render).not.toContainCode("requestAnimationFrame");
     expect(markdown).not.toContain("setRevealed");
-    // Formatting newlines under tr/thead/tbody must remain text nodes. Animated spans there become
-    // anonymous table cells and split a valid three-column table into seven columns in Chromium.
-    expect(markdown).toContain("if (node.textContent?.trim()) additions.push(node as Text)");
+    // Animated spans around table whitespace create anonymous table cells in Chromium.
+    expect(render).toContainCode("if (node.textContent?.trim()) additions.push(node as Text)");
     expect(css).toContain("@keyframes response-character-reveal");
     expect(css).toContain(".md-response-reveal");
     expect(css).toContain("display: none");

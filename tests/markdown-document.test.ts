@@ -8,6 +8,7 @@ import * as ts from "typescript";
 const source = await Bun.file(new URL("../src/ui/markdown-document.tsx", import.meta.url)).text();
 const helperSource = await Bun.file(new URL("../src/ui/markdown-images.ts", import.meta.url)).text();
 const markdown = await Bun.file(new URL("../src/ui/markdown.tsx", import.meta.url)).text();
+const sanitization = await Bun.file(new URL("../src/ui/markdown-sanitize.ts", import.meta.url)).text();
 const helper = ts.createSourceFile("markdown-images.ts", helperSource, ts.ScriptTarget.Latest, true);
 const parsed = ts.createSourceFile("document.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
 const component = parsed.statements.find(
@@ -252,7 +253,7 @@ test("wrapper passes the document parent and original workspace root to Markdown
     expect(markup).toContainCode("directory={previewParentDirectory(props.path)}");
     expect(markup).toContainCode("workspaceDirectory={props.directory} documentPreview done");
     expect(markdown).toContainCode("props.documentPreview ? props.text : prepareMarkdown");
-    expect(markdown).toContainCode("if (documentPreview) return sanitizeMarkdownDocumentHtml(html)");
+    expect(sanitization).toContainCode("if (documentPreview) return sanitizeMarkdownDocumentHtml(html)");
 });
 
 test("only local images reach the bounded reader, always retaining the workspace root", async () => {
@@ -706,7 +707,7 @@ test("detached image callbacks cannot align and mutation cleanup removes their h
 });
 
 test("preview sanitizer hooks strip forged markers and generate collision-safe heading IDs", () => {
-    const ast = ts.createSourceFile("markdown.tsx", markdown, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const ast = ts.createSourceFile("markdown-sanitize.ts", sanitization, ts.ScriptTarget.Latest, true);
     const sanitizer = ast.statements.find(
         (node): node is ts.FunctionDeclaration =>
             ts.isFunctionDeclaration(node) && node.name?.text === "sanitizeMarkdownDocumentHtml",
@@ -798,7 +799,7 @@ test("preview sanitizer hooks strip forged markers and generate collision-safe h
 });
 
 test("chat sanitizer replaces only local image sources with trusted reader markers", () => {
-    const ast = ts.createSourceFile("markdown.tsx", markdown, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const ast = ts.createSourceFile("markdown-sanitize.ts", sanitization, ts.ScriptTarget.Latest, true);
     const sanitizer = ast.statements.find(
         (node): node is ts.FunctionDeclaration =>
             ts.isFunctionDeclaration(node) && node.name?.text === "sanitizeMarkdownHtml",
