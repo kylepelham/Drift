@@ -1,5 +1,6 @@
 //! MCP servers: configured in the store, connected with rmcp, tools offered to the model.
 
+mod connect;
 mod error;
 mod oauth;
 mod resources;
@@ -8,7 +9,6 @@ mod tool;
 mod view;
 
 use std::collections::{BTreeMap, HashMap};
-use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -18,9 +18,7 @@ use rmcp::RoleClient;
 use rmcp::model::{
     CallToolRequestParams, ClientCapabilities, ClientConfig, ContentBlock, Implementation, ProtocolVersion,
 };
-use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RunningService, ServiceError};
-use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
-use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
+use rmcp::service::{ClientLifecycleMode, RunningService, ServiceError};
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 use utoipa::ToSchema;
@@ -29,6 +27,9 @@ use crate::event::{Event, Hub};
 use crate::platform::process::Tree;
 use crate::store::Store;
 use crate::tool::image::Image;
+#[cfg(test)]
+use connect::attempts;
+use connect::{SignIn, list_tools, open, within};
 pub(crate) use tool::{Given, wire_names};
 
 pub use error::Error;
@@ -1454,272 +1455,6 @@ impl Drop for Settle<'_> {
         }
         self.servers.settled.notify_waiters();
     }
-}
-
-/// The signed-in server a connect is for, when it has a sign-in to use.
-#[derive(Clone, Copy)]
-struct SignIn<'a> {
-    server: &'a str,
-    credentials: Option<&'a Arc<crate::llm::credentials::Credentials>>,
-}
-
-async fn open(
-    config: &ServerConfig,
-    hash: String,
-    sign_in: SignIn<'_>,
-    known: Option<Era>,
-    workspace: Option<&Path>,
-) -> Result<Live, Failure> {
-    let (service, tree) = begin(config, sign_in, known, workspace).await?;
-    let (tools, ttl) = within("list its tools", list_tools(&service)).await?;
-    let info = service.peer_info();
-    let era = info
-        .as_ref()
-        .map_or(Era::Legacy, |info| Era::of(&info.protocol_version));
-    let instructions = info
-        .as_ref()
-        .and_then(|info| info.instructions.clone())
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty());
-    let resources = info.as_ref().is_some_and(|info| info.capabilities.resources.is_some());
-    // A server whose prompts cannot be listed still serves its tools; it simply offers no commands.
-    let prompts = match info.as_ref().is_some_and(|info| info.capabilities.prompts.is_some()) {
-        true => within("list its prompts", async {
-            service.list_all_prompts().await.map_err(Error::Service)
-        })
-        .await
-        .unwrap_or_default(),
-        false => Vec::new(),
-    };
-    Ok(Live {
-        service,
-        era,
-        transport: Transport::of(config),
-        listing: Mutex::new(Listing::new(tools, ttl)),
-        instructions,
-        prompts,
-        resources,
-        timeout: config.timeout(),
-        hash,
-        since: Instant::now(),
-        tree,
-    })
-}
-
-/// Every page of the server's tools, and the shortest freshness any page gave.
-async fn list_tools(service: &Client) -> Result<(Vec<rmcp::model::Tool>, Option<Duration>), Error> {
-    let (mut tools, mut ttl, mut cursor) = (Vec::new(), None::<u64>, None);
-    loop {
-        let page = service
-            .list_tools(Some(rmcp::model::PaginatedRequestParams::default().with_cursor(cursor)))
-            .await
-            .map_err(Error::Tools)?;
-        ttl = match (ttl, page.ttl_ms) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
-        tools.extend(page.tools);
-        cursor = page.next_cursor;
-        if cursor.is_none() {
-            return Ok((tools, ttl.map(Duration::from_millis)));
-        }
-    }
-}
-
-/// The eras a connect tries in turn (`None` is rmcp's probe-then-handshake), and whether a try that timed out moves on.
-fn attempts(config: &ServerConfig, known: Option<Era>) -> (Vec<Option<Era>>, bool) {
-    match (config, known) {
-        (ServerConfig::Sse { .. }, _) => (vec![Some(Era::Legacy)], false),
-        // rmcp's own fallback gives up on the probe after 10 s and then talks over a slow starter's late answer, so stdio probes alone and starts afresh for the handshake.
-        (ServerConfig::Stdio { .. }, None) => (vec![Some(Era::Stateless), Some(Era::Legacy)], true),
-        (ServerConfig::Stdio { .. }, Some(era)) => (vec![Some(era), Some(era.other())], false),
-        (ServerConfig::Http { .. }, None) => (vec![None], false),
-        (ServerConfig::Http { .. }, Some(era)) => (vec![Some(era), None], false),
-    }
-}
-
-/// Starts in each era `attempts` gives until one answers; the last failure is the one reported.
-async fn begin(
-    config: &ServerConfig,
-    sign_in: SignIn<'_>,
-    known: Option<Era>,
-    workspace: Option<&Path>,
-) -> Result<(Client, Option<Tree>), Failure> {
-    let (tries, past_timeouts) = attempts(config, known);
-    let mut failed = Failure::from(String::new());
-    for era in tries {
-        let limit = if era.is_none() {
-            STEP_LIMIT + PROBE_WAIT
-        } else {
-            STEP_LIMIT
-        };
-        match tokio::time::timeout(limit, start(config, sign_in, era, workspace)).await {
-            Ok(Ok(started)) => return Ok(started),
-            Ok(Err(error)) => failed = error,
-            Err(_) => {
-                failed = Failure::from(format!("the server did not start within {limit:?}"));
-                if !past_timeouts {
-                    break;
-                }
-            }
-        }
-    }
-    Err(failed)
-}
-
-async fn within<T>(what: &str, step: impl Future<Output = Result<T, Error>>) -> Result<T, Error> {
-    within_for(STEP_LIMIT, what, step).await
-}
-
-async fn within_for<T>(limit: Duration, what: &str, step: impl Future<Output = Result<T, Error>>) -> Result<T, Error> {
-    tokio::time::timeout(limit, step).await.unwrap_or_else(|_| {
-        Err(Error::Timeout {
-            what: what.to_owned(),
-            limit,
-        })
-    })
-}
-
-/// Opens the transport and begins the session in the server's era, probing for it when `known` is `None`; HTTP+SSE predates the probe.
-/// A stdio server for a workspace runs there (its own `cwd` wins) and is told it as its root.
-async fn start(
-    config: &ServerConfig,
-    sign_in: SignIn<'_>,
-    known: Option<Era>,
-    workspace: Option<&Path>,
-) -> Result<(Client, Option<Tree>), Failure> {
-    match config {
-        ServerConfig::Stdio {
-            command,
-            args,
-            env,
-            cwd,
-            ..
-        } => {
-            let cmd = stdio_command(command, args, env, cwd.as_deref(), workspace)?;
-            let transport = TokioChildProcess::new(cmd).map_err(|e| format!("could not start {command}: {e}"))?;
-            // Adopted before it answers, so a start cut short takes the server's children with it.
-            let tree = transport.id().and_then(|pid| Tree::adopt(pid).ok());
-            let service = DriftClient::rooted(workspace)
-                .serve_with_lifecycle(transport, lifecycle(known))
-                .await?;
-            Ok((service, tree))
-        }
-        ServerConfig::Http {
-            url,
-            headers,
-            oauth: app,
-            ..
-        } => {
-            let config = http_config(url, headers);
-            // A server signed in to goes through rmcp's authorized client, which refreshes the token itself.
-            let signed_in = match sign_in.credentials {
-                Some(credentials) => oauth::signed_in_client(credentials, sign_in.server, url, app.as_ref()).await,
-                None => None,
-            };
-            let service = match signed_in {
-                Some(client) => {
-                    DriftClient::rooted(None)
-                        .serve_with_lifecycle(
-                            StreamableHttpClientTransport::with_client(client, config),
-                            lifecycle(known),
-                        )
-                        .await
-                }
-                None => {
-                    DriftClient::rooted(None)
-                        .serve_with_lifecycle(
-                            StreamableHttpClientTransport::with_client(crate::llm::http::client(), config),
-                            lifecycle(known),
-                        )
-                        .await
-                }
-            };
-            Ok((service?, None))
-        }
-        ServerConfig::Sse {
-            url,
-            headers,
-            oauth: app,
-            ..
-        } => {
-            let mut headers = header_map(headers);
-            // rmcp's authorized client speaks only streamable HTTP, so a signed-in SSE server gets its token, refreshed when due, as a header.
-            if let Some(token) = match sign_in.credentials {
-                Some(credentials) => oauth::signed_in_token(credentials, sign_in.server, url, app.as_ref()).await,
-                None => None,
-            } && let Ok(value) = format!("Bearer {token}").parse()
-            {
-                headers.insert(http::header::AUTHORIZATION, value);
-            }
-            let transport = sse::SseTransport::connect(crate::llm::http::client(), url, headers).await?;
-            Ok((
-                DriftClient::rooted(None)
-                    .serve_with_lifecycle(transport, ClientLifecycleMode::Initialize)
-                    .await?,
-                None,
-            ))
-        }
-    }
-}
-
-/// A stdio server's command with its current environment and workspace directory.
-fn stdio_command(
-    command: &str,
-    args: &[String],
-    env: &BTreeMap<String, String>,
-    cwd: Option<&str>,
-    workspace: Option<&Path>,
-) -> Result<tokio::process::Command, Failure> {
-    // Resolve the current PATH so programs installed while Drift runs are found without a restart.
-    let program = crate::platform::process::which(command)
-        .ok_or_else(|| format!("{command} was not found on PATH; install it, or give its full path"))?;
-    let mut process = tokio::process::Command::new(program);
-    crate::platform::process::use_current_path(&mut process, env);
-    process.args(args).envs(env);
-
-    let directory = cwd
-        .filter(|cwd| !cwd.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(|| workspace.map(Path::to_path_buf));
-    if let Some(directory) = directory {
-        process.current_dir(directory);
-    }
-
-    crate::platform::process::prepare(&mut process);
-    #[cfg(windows)]
-    process.creation_flags(0x0800_0000);
-
-    Ok(process)
-}
-
-/// Headers as given, any that are not valid HTTP left out.
-fn header_map(headers: &BTreeMap<String, String>) -> http::HeaderMap {
-    headers
-        .iter()
-        .filter_map(|(name, value)| {
-            Some((
-                name.parse::<http::HeaderName>().ok()?,
-                value.parse::<http::HeaderValue>().ok()?,
-            ))
-        })
-        .collect()
-}
-
-fn http_config(url: &str, headers: &BTreeMap<String, String>) -> StreamableHttpClientTransportConfig {
-    let mut config = StreamableHttpClientTransportConfig::with_uri(url);
-    let mut custom = HashMap::new();
-    for (name, value) in headers {
-        if name.eq_ignore_ascii_case("authorization") {
-            config = config.auth_header(value.trim_start_matches("Bearer ").to_string());
-            continue;
-        }
-        let (Ok(name), Ok(value)) = (name.parse::<http::HeaderName>(), value.parse::<http::HeaderValue>()) else {
-            continue;
-        };
-        custom.insert(name, value);
-    }
-    config.custom_headers(custom)
 }
 
 /// The wait before reconnecting: the first again after a connection that held, else the one carried over.
