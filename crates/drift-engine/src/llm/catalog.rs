@@ -16,6 +16,16 @@ const CACHE_FILE: &str = "models-2.json";
 const OLDER_CACHES: [&str; 1] = ["models.json"];
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const SMALL_MODEL_MIN_CONTEXT: u64 = 16_000;
+#[derive(Debug, thiserror::Error)]
+pub enum CatalogError {
+    #[error(transparent)]
+    Download(#[from] reqwest::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Cache(#[from] std::io::Error),
+}
+
 pub const PROVIDERS: [&str; 11] = [
     "anthropic",
     "openai",
@@ -365,26 +375,20 @@ impl Catalog {
         Self::bundled()
     }
 
-    pub async fn refresh(client: &reqwest::Client, data_dir: &Path) -> Result<Self, String> {
-        let text = client
-            .get(SOURCE_URL)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?
-            .text()
-            .await
-            .map_err(|e| e.to_string())?;
+    pub async fn refresh(client: &reqwest::Client, data_dir: &Path) -> Result<Self, CatalogError> {
+        let text = client.get(SOURCE_URL).send().await?.text().await?;
         let catalog = Self::parse(&text)?;
-        let json = serde_json::to_string(&catalog.providers).map_err(|e| e.to_string())?;
-        std::fs::write(cache_path(data_dir), json).map_err(|e| e.to_string())?;
+        let json = serde_json::to_string(&catalog.providers)?;
+
+        std::fs::write(cache_path(data_dir), json)?;
         for older in OLDER_CACHES {
             let _ = std::fs::remove_file(data_dir.join(older));
         }
         Ok(catalog)
     }
 
-    fn parse(text: &str) -> Result<Self, String> {
-        let raw: BTreeMap<String, RawProvider> = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    fn parse(text: &str) -> Result<Self, CatalogError> {
+        let raw: BTreeMap<String, RawProvider> = serde_json::from_str(text)?;
         let providers = raw
             .into_iter()
             .filter(|(id, _)| PROVIDERS.contains(&id.as_str()))
