@@ -28,7 +28,10 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
 - `src/engine/store.ts` holds the state shape plus pure helpers (`visibleSessions`,
   `resolveModel`, `sessionBusy`). No IO.
 - `src/engine/events.ts` is the reducer: one function per event type, applied with
-  `produce` for fine-grained solid updates.
+  `produce` for fine-grained solid updates. It consumes the generated native event union
+  directly, including `part.delta`, `session.retry`, `permission.asked` and `plugin.notice`.
+  There is no event-name translation; record conversions remain in the adapter while
+  the views migrate to native records.
 - `src/engine/actions.ts` is the only place engine calls happen.
 - `src/engine/index.tsx` glues it together: provider, hydration, event pump.
 

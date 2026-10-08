@@ -1,6 +1,6 @@
+import { adaptMessage, adaptPart, adaptPermission, adaptQuestion, adaptSession, adaptTodos } from "./native/adapt"
 import { clearQuestionDraft } from "../state/question-drafts"
 import { produce } from "solid-js/store"
-import { errorText } from "./error"
 import {
   bumpAskRevision,
   bumpRevision,
@@ -9,7 +9,6 @@ import {
   pruneSessionRevisions,
   putSession,
   recordLink,
-  removedPartKey,
   revisionAdvanced,
   sessionRevisionKey,
   spawnLink,
@@ -20,143 +19,100 @@ import {
   type QuestionRequest,
 } from "./store"
 
-import type { Event, Message, Part, Permission, Session, SessionStatus } from "./shapes"
+import type { Message, Part, Permission, Session, SessionStatus } from "./shapes"
 import type { SetStoreFunction } from "solid-js/store"
+import type { WorkspaceIndex } from "./native/adapt"
+import type { components } from "./native/types"
 
 type SetEngineState = SetStoreFunction<EngineState>
+type Event = components["schemas"]["Event"]
 
-const extendedEventTypes = new Set([
-  "question.v2.asked",
-  "question.asked",
-  "question.v2.replied",
-  "question.v2.rejected",
-  "question.replied",
-  "question.rejected",
-  "permission.v2.replied",
-  "permission.replied",
-  "tui.toast.show",
-  "message.part.delta",
-  "session.compacted",
-  "session.next.moved",
-])
+export function reduce(
+  set: SetEngineState,
+  event: Event,
+  directory?: string,
+  reconcile?: (sessionID: string) => void,
+  workspaces: WorkspaceIndex = { path: () => undefined, id: () => undefined },
+) {
+  if (reduceSessionEvent(set, event, workspaces)) return
 
-export function reduce(set: SetEngineState, event: Event, directory?: string, reconcile?: (sessionID: string) => void) {
-  if (reduceExtended(set, event, directory, reconcile)) return
-
-  reduceTyped(set, event, directory)
+  reduceContentEvent(set, event, directory, reconcile)
 }
 
-function reduceExtended(
+function reduceSessionEvent(set: SetEngineState, event: Event, workspaces: WorkspaceIndex) {
+  switch (event.type) {
+    case "session.created":
+    case "session.updated":
+      putSession(set, adaptSession(event.session, workspaces))
+      return true
+    case "session.deleted":
+      set(produce((draft) => purgeSession(draft, event.sessionId)))
+      return true
+    case "session.status":
+      updateStatus(set, event.sessionId, event.status === "running" ? { type: "busy" } : { type: "idle" })
+      return true
+    case "session.retry":
+      updateStatus(set, event.sessionId, {
+        type: "retry",
+        attempt: event.attempt,
+        message: event.message,
+        next: event.nextAt,
+      })
+      return true
+    default:
+      return false
+  }
+}
+
+function reduceContentEvent(
   set: SetEngineState,
   event: Event,
   directory?: string,
   reconcile?: (sessionID: string) => void,
 ) {
-  if (!extendedEventTypes.has(event.type)) return false
-
-  reduceRaw(set, event, directory, reconcile)
-  return true
-}
-
-function reduceRaw(set: SetEngineState, event: Event, directory?: string, reconcile?: (sessionID: string) => void) {
-  // These events are newer than the generated v1 SDK's Event union.
-  const raw = event as { id?: string; type: string; properties: Record<string, unknown> }
-  if (raw.type === "question.v2.asked" || raw.type === "question.asked")
-    return addQuestion(set, { ...(raw.properties as unknown as QuestionRequest), directory })
-  if (["question.v2.replied", "question.v2.rejected", "question.replied", "question.rejected"].includes(raw.type))
-    return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string, directory)
-  if (raw.type === "permission.v2.replied" || raw.type === "permission.replied")
-    return dropPermission(
-      set,
-      raw.properties.sessionID as string,
-      (raw.properties.requestID ?? raw.properties.permissionID) as string,
-      directory,
-    )
-  if (raw.type === "tui.toast.show")
-    return pushNotice(set, {
-      id: raw.id ?? `notice-${Date.now()}-${noticeSequence++}`,
-      title: typeof raw.properties.title === "string" ? raw.properties.title : undefined,
-      message: String(raw.properties.message ?? ""),
-      variant: noticeVariant(raw.properties.variant),
-      created: Date.now(),
-      duration: typeof raw.properties.duration === "number" ? raw.properties.duration : 5000,
-    })
-  if (raw.type === "message.part.delta") return appendPartDelta(set, raw.properties as PartDeltaRef, reconcile)
-  if (raw.type === "session.compacted") {
-    const sessionID = raw.properties.sessionID as string
-    clearError(set, sessionID)
-    return
-  }
-  if (raw.type === "session.next.moved")
-    return moveSession(
-      set,
-      raw.properties as {
-        sessionID: string
-        projectID?: string
-        location: { directory: string; workspaceID?: string }
-        subdirectory?: string
-        timestamp: number
-      },
-    )
-}
-
-function reduceTyped(set: SetEngineState, event: Event, directory?: string) {
   switch (event.type) {
-    case "session.created":
-    case "session.updated":
-      return upsertSession(set, event.properties.info)
-    case "session.deleted":
-      return dropSession(set, event.properties.info)
-    case "session.status": {
-      const sessionID = event.properties.sessionID
-      set(
-        produce((draft) => {
-          draft.status[sessionID] = event.properties.status
-          bumpRevision(draft, statusRevisionKey(sessionID))
-          if (event.properties.status.type === "idle") clearLiveTools(draft, sessionID)
-        }),
-      )
-      clearActiveError(set, sessionID, event.properties.status)
-      return
-    }
-    case "session.idle":
-      return set(
-        produce((draft) => {
-          draft.status[event.properties.sessionID] = { type: "idle" }
-          bumpRevision(draft, statusRevisionKey(event.properties.sessionID))
-          clearLiveTools(draft, event.properties.sessionID)
-        }),
-      )
-    case "session.error":
-      return recordError(set, event.properties.sessionID, event.properties.error)
+    case "message.created":
     case "message.updated":
-      return upsertMessage(set, event.properties.info)
+      return upsertMessage(set, adaptMessage(event.message, ""))
     case "message.removed":
-      return dropMessage(set, event.properties.sessionID, event.properties.messageID)
-    case "message.part.updated":
-      return upsertPart(set, event.properties.part)
-    case "message.part.removed":
-      return dropPart(set, event.properties)
-    case "permission.updated":
-      return addPermission(set, event.properties, directory)
+      return dropMessage(set, event.sessionId, event.messageId)
+    case "part.created":
+    case "part.updated":
+      return upsertPart(set, adaptPart(event.part))
+    case "part.delta":
+      return appendPartDelta(set, event, reconcile)
+    case "permission.asked":
+      return addPermission(set, adaptPermission(event.request, ""), directory)
     case "permission.replied":
-      return dropPermission(set, event.properties.sessionID, event.properties.permissionID, directory)
+      return dropPermission(set, event.sessionId, event.requestId, directory)
+    case "question.asked":
+      return addQuestion(set, { ...adaptQuestion(event.request), directory })
+    case "question.replied":
+      return dropQuestion(set, event.sessionId, event.requestId, directory)
     case "todo.updated":
-      return set("todos", event.properties.sessionID, event.properties.todos)
+      return set("todos", event.sessionId, adaptTodos(event.todos))
+    case "plugin.notice":
+      return pushNotice(set, {
+        id: `notice-${Date.now()}-${noticeSequence++}`,
+        title: `${event.plugin}: ${event.title}`,
+        message: event.body,
+        variant: noticeVariant(event.tone),
+        created: Date.now(),
+        duration: 8000,
+      })
   }
 }
 
-function clearActiveError(set: SetEngineState, sessionID: string, status: SessionStatus) {
+function updateStatus(set: SetEngineState, sessionID: string, status: SessionStatus) {
+  set(
+    produce((draft) => {
+      draft.status[sessionID] = status
+      bumpRevision(draft, statusRevisionKey(sessionID))
+      if (status.type === "idle") clearLiveTools(draft, sessionID)
+    }),
+  )
+
   if (status.type !== "idle") clearError(set, sessionID)
-}
-
-function upsertSession(set: SetEngineState, info: Session) {
-  putSession(set, info)
-}
-
-// Full purge of every per-session slice, in response to the engine reporting a deleted session.
-function dropSession(set: SetEngineState, info: Session) {
-  set(produce((draft) => purgeSession(draft, info.id)))
 }
 
 // The session revision bump outlives the purge so an in-flight snapshot taken before the
@@ -238,53 +194,6 @@ function clearLiveTools(draft: EngineState, sessionID: string) {
   for (const [partID, owner] of Object.entries(draft.liveTools)) if (owner === sessionID) delete draft.liveTools[partID]
 }
 
-function moveSession(
-  set: SetEngineState,
-  moved: {
-    sessionID: string
-    projectID?: string
-    location: { directory: string; workspaceID?: string }
-    subdirectory?: string
-    timestamp: number
-  },
-) {
-  set(
-    produce((draft) => {
-      const session = draft.sessions[moved.sessionID]
-      if (!session) return
-      session.directory = moved.location.directory
-      if (moved.projectID) session.projectID = moved.projectID
-      session.time.updated = moved.timestamp
-      bumpRevision(draft, sessionRevisionKey(moved.sessionID))
-    }),
-  )
-}
-
-function recordError(set: SetEngineState, sessionID?: string, error?: { name: string; data?: unknown }) {
-  const message = errorText(error)
-  if (!sessionID) {
-    pushNotice(set, {
-      id: `session-error-${Date.now()}-${noticeSequence++}`,
-      title: "Drift error",
-      message,
-      variant: "error",
-      created: Date.now(),
-      duration: 8000,
-    })
-    return
-  }
-  set(
-    produce((draft) => {
-      draft.status[sessionID] = { type: "idle" }
-      bumpRevision(draft, statusRevisionKey(sessionID))
-      if (draft.activity[sessionID]) draft.activity[sessionID].current = undefined
-      clearLiveTools(draft, sessionID)
-      if (error?.name === "MessageAbortedError") return
-      draft.errors[sessionID] = message
-    }),
-  )
-}
-
 function clearError(set: SetEngineState, sessionID: string) {
   set(
     produce((draft) => {
@@ -328,7 +237,6 @@ function upsertPart(set: SetEngineState, part: Part) {
   if (link) recordLink(link)
   set(
     produce((draft) => {
-      delete draft.revisions[removedPartKey(part.sessionID, part.messageID, part.id)]
       if (link) draft.links[link.child] = link.parent
       if (link && part.type === "tool") {
         const metadata = (("metadata" in part.state ? part.state.metadata : undefined) ?? part.metadata) as
@@ -369,15 +277,7 @@ function reconcilePart(existing: Part, incoming: Part) {
   return incoming
 }
 
-/** `offset`, when the engine sends it, is where in the field the delta starts (UTF-16 units). */
-type PartDeltaRef = {
-  sessionID: string
-  messageID: string
-  partID: string
-  field: string
-  delta: string
-  offset?: number
-}
+type PartDeltaRef = Extract<Event, { type: "part.delta" }>
 
 /** The field after a delta: a snapshot that already holds it is left alone, one cut short is completed. */
 export function withDelta(current: string, delta: string, offset?: number) {
@@ -391,31 +291,29 @@ function appendPartDelta(set: SetEngineState, ref: PartDeltaRef, reconcile?: (se
   let gap = false
   set(
     produce((draft) => {
-      if (draft.revisions[removedPartKey(ref.sessionID, ref.messageID, ref.partID)]) return
-      const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
-      const index = entry?.parts.findIndex((item) => item.id === ref.partID) ?? -1
+      const entry = draft.transcripts[ref.sessionId]?.find((item) => item.info.id === ref.messageId)
+      const index = entry?.parts.findIndex((item) => item.id === ref.partId) ?? -1
       if (!entry) return
       if (index < 0) {
         gap = ref.offset !== undefined
         return
       }
       const part = entry.parts[index]!
-      const record = part as unknown as Record<string, unknown>
-      const current = record[ref.field]
-      if (typeof current === "string") {
-        if (ref.offset !== undefined && ref.offset > current.length) {
-          gap = true
-          return
-        }
-        const next = withDelta(current, ref.delta, ref.offset)
-        if (next !== current) {
-          bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
-          entry.parts[index] = { ...part, [ref.field]: next } as Part
-        }
+      if (part.type !== "text" && part.type !== "reasoning") return
+
+      if (ref.offset > part.text.length) {
+        gap = true
+        return
+      }
+
+      const next = withDelta(part.text, ref.delta, ref.offset)
+      if (next !== part.text) {
+        bumpRevision(draft, messageRevisionKey(ref.sessionId, ref.messageId))
+        entry.parts[index] = { ...part, text: next }
       }
     }),
   )
-  if (gap) reconcile?.(ref.sessionID)
+  if (gap) reconcile?.(ref.sessionId)
 }
 
 function trackActivity(draft: EngineState, part: Part & { type: "tool" }) {
@@ -426,20 +324,6 @@ function trackActivity(draft: EngineState, part: Part & { type: "tool" }) {
   }
   entry.current = part.state.status === "completed" || part.state.status === "error" ? undefined : part.tool
   draft.activity[part.sessionID] = entry
-}
-
-function dropPart(set: SetEngineState, ref: { sessionID: string; messageID: string; partID: string }) {
-  set(
-    produce((draft) => {
-      bumpRevision(draft, removedPartKey(ref.sessionID, ref.messageID, ref.partID))
-      const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
-      if (entry) {
-        bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
-        entry.parts = entry.parts.filter((part) => part.id !== ref.partID)
-      }
-      delete draft.liveTools[ref.partID]
-    }),
-  )
 }
 
 function addQuestion(set: SetEngineState, question: QuestionRequest) {

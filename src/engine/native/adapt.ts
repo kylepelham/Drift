@@ -1,12 +1,11 @@
 // Native engine shapes to the shapes the UI was built on. Dies at M4 when the UI adopts native types.
-import type { AssistantMessage, Event, Message, Part, Permission, Session, ToolPart } from "../shapes"
+import type { AssistantMessage, Message, Part, Permission, Session, ToolPart } from "../shapes"
 import type { ModelInfo, ProviderInfo, QuestionRequest } from "../store"
 import type { components } from "./types"
 
 type NativeSession = components["schemas"]["Session"]
 type NativeMessage = components["schemas"]["Message"]
 type NativePartRow = components["schemas"]["PartRow"]
-type NativeEvent = components["schemas"]["Event"]
 type NativeRequest = components["schemas"]["PermissionRequest"]
 type NativeQuestion = components["schemas"]["QuestionRequest"]
 type NativeProvider = components["schemas"]["ProviderStatus"]
@@ -272,88 +271,6 @@ function adaptModel(providerID: string, model: NativeModel): ModelInfo {
     headers: {},
     variants: Object.fromEntries((model.variants ?? []).map((variant) => [variant.name, variant])),
   } as ModelInfo
-}
-
-/** One native event becomes the legacy event the existing reducer already understands. */
-export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Event | undefined {
-  switch (event.type) {
-    case "session.created":
-    case "session.updated":
-      return { type: "session.updated", properties: { info: adaptSession(event.session, workspaces) } }
-    case "session.status":
-      return {
-        type: "session.status",
-        properties: {
-          sessionID: event.sessionId,
-          status: event.status === "running" ? { type: "busy" } : { type: "idle" },
-        },
-      }
-    case "session.retry":
-      return {
-        type: "session.status",
-        properties: {
-          sessionID: event.sessionId,
-          status: { type: "retry", attempt: event.attempt, message: event.message, next: event.nextAt },
-        },
-      }
-    default:
-      return adaptContentEvent(event)
-  }
-}
-
-function adaptContentEvent(event: NativeEvent): Event | undefined {
-  switch (event.type) {
-    case "message.removed":
-      return { type: "message.removed", properties: { sessionID: event.sessionId, messageID: event.messageId } }
-    case "message.created":
-    case "message.updated":
-      return { type: "message.updated", properties: { info: adaptMessage(event.message, "") } }
-    case "part.created":
-    case "part.updated":
-      return { type: "message.part.updated", properties: { part: adaptPart(event.part) } }
-    case "part.delta":
-      return {
-        type: "message.part.delta",
-        properties: {
-          sessionID: event.sessionId,
-          messageID: event.messageId,
-          partID: event.partId,
-          field: "text",
-          delta: event.delta,
-          offset: event.offset,
-        },
-      } as unknown as Event
-    case "permission.asked":
-      return { type: "permission.updated", properties: adaptPermission(event.request, "") }
-    case "permission.replied":
-      return {
-        type: "permission.replied",
-        properties: { sessionID: event.sessionId, permissionID: event.requestId, response: event.decision },
-      }
-    case "session.deleted":
-      return { type: "session.deleted", properties: { info: { id: event.sessionId } as Session } }
-    case "todo.updated":
-      return { type: "todo.updated", properties: { sessionID: event.sessionId, todos: adaptTodos(event.todos) } }
-    case "question.asked":
-      return { type: "question.asked", properties: adaptQuestion(event.request) } as unknown as Event
-    case "question.replied":
-      return {
-        type: "question.replied",
-        properties: { sessionID: event.sessionId, requestID: event.requestId },
-      } as unknown as Event
-    case "plugin.notice":
-      return {
-        type: "tui.toast.show",
-        properties: {
-          title: `${event.plugin}: ${event.title}`,
-          message: event.body,
-          variant: event.tone,
-          duration: 8000,
-        },
-      } as unknown as Event
-    default:
-      return undefined
-  }
 }
 
 export function adaptTodos(todos: components["schemas"]["Todo"][]) {

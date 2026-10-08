@@ -468,38 +468,36 @@ test("question steps and answers persist independently by request id", async () 
   clearQuestionDraft("q2")
 })
 
-test.each(["question.replied", "question.rejected"])(
-  "%s clears the matching draft and submission before a late failure",
-  async (type) => {
-    const { reduce } = await import("../src/engine/events")
-    const { createEngineState } = await import("../src/engine/store")
-    const { questionDraftState, questionSubmissionState, submitQuestionAnswer, updateQuestionDraft } =
-      await import("../src/state/question-drafts")
-    const [state, set] = createEngineState()
-    const asked = {
-      type: "question.asked",
-      properties: { id: "q-event", sessionID: "s1", questions: [] },
-    } as never
-    reduce(set, asked)
-    updateQuestionDraft("q-event", 1, 0, { selected: ["Keep me"], custom: "", customSelected: false })
-    let finish!: (completed: boolean) => void
-    const pending = new Promise<boolean>((resolve) => {
-      finish = resolve
-    })
-    const submission = submitQuestionAnswer("q-event", true, [["Keep me"]], () => pending)
-    expect(questionSubmissionState("q-event")?.sending).toBe(true)
-    reduce(set, {
-      type,
-      properties: { requestID: "q-event", sessionID: "s1" },
-    } as never)
-    expect(state.questions.s1).toEqual([])
-    expect(questionDraftState("q-event", 1).drafts[0].selected).toEqual([])
-    expect(questionSubmissionState("q-event")).toBeUndefined()
-    finish(false)
-    await submission
-    expect(questionSubmissionState("q-event")).toBeUndefined()
-  },
-)
+test("question.replied clears the matching draft and submission before a late failure", async () => {
+  const { reduce } = await import("../src/engine/events")
+  const { createEngineState } = await import("../src/engine/store")
+  const { questionDraftState, questionSubmissionState, submitQuestionAnswer, updateQuestionDraft } =
+    await import("../src/state/question-drafts")
+  const [state, set] = createEngineState()
+  const asked = {
+    type: "question.asked" as const,
+    request: { id: "q-event", sessionId: "s1", messageId: "m1", callId: "c1", createdAt: 1, questions: [] },
+  }
+  reduce(set, asked)
+  updateQuestionDraft("q-event", 1, 0, { selected: ["Keep me"], custom: "", customSelected: false })
+  let finish!: (completed: boolean) => void
+  const pending = new Promise<boolean>((resolve) => {
+    finish = resolve
+  })
+  const submission = submitQuestionAnswer("q-event", true, [["Keep me"]], () => pending)
+  expect(questionSubmissionState("q-event")?.sending).toBe(true)
+  reduce(set, {
+    type: "question.replied",
+    requestId: "q-event",
+    sessionId: "s1",
+  })
+  expect(state.questions.s1).toEqual([])
+  expect(questionDraftState("q-event", 1).drafts[0].selected).toEqual([])
+  expect(questionSubmissionState("q-event")).toBeUndefined()
+  finish(false)
+  await submission
+  expect(questionSubmissionState("q-event")).toBeUndefined()
+})
 
 test("only async question cards collapse and their controls expose the controlled body", async () => {
   const source = await Bun.file("src/ui/attention.tsx").text()

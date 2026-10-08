@@ -1,13 +1,8 @@
+import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptSession } from "../src/engine/native/adapt"
 import { toolElapsedMs } from "../src/ui/tool-duration"
+import { createEngineState } from "../src/engine/store"
+import { reduce } from "../src/engine/events"
 import { expect, test } from "bun:test"
-import {
-  adaptEvent,
-  adaptMessage,
-  adaptPart,
-  adaptPermission,
-  adaptProvider,
-  adaptSession,
-} from "../src/engine/native/adapt"
 
 import type { components } from "../src/engine/native/types"
 
@@ -311,44 +306,41 @@ test("tool call statuses become legacy tool states", () => {
   expect(pending.state).toEqual({ status: "pending", input: { path: "a", filePath: "a" }, raw: "" })
 })
 
-test("an undo marker and a removed message reach the reducer in its vocabulary", () => {
+test("an undo marker and a native removed message reach the store", () => {
   const undone = adaptSession({ ...session, revert: { messageId: "msg_5", kept: ["a.txt"] } }, workspaces)
   expect((undone as { revert?: unknown }).revert).toEqual({ messageID: "msg_5" })
   expect((adaptSession(session, workspaces) as { revert?: unknown }).revert).toBeUndefined()
-  expect(adaptEvent({ type: "message.removed", sessionId: "ses_1", messageId: "msg_5" }, workspaces)).toEqual({
-    type: "message.removed",
-    properties: { sessionID: "ses_1", messageID: "msg_5" },
-  })
+  const [state, set] = createEngineState()
+  set("transcripts", "ses_1", [{ info: { id: "msg_5", role: "user" }, parts: [] }] as never)
+
+  reduce(set, { type: "message.removed", sessionId: "ses_1", messageId: "msg_5" })
+  expect(state.transcripts.ses_1).toEqual([])
 })
 
 test("a retry wait becomes the retry status the notice draws", () => {
-  expect(
-    adaptEvent(
-      { type: "session.retry", sessionId: "ses_1", attempt: 2, message: "overloaded (529): busy", nextAt: 5000 },
-      workspaces,
-    ),
-  ).toEqual({
-    type: "session.status",
-    properties: {
-      sessionID: "ses_1",
-      status: { type: "retry", attempt: 2, message: "overloaded (529): busy", next: 5000 },
-    },
+  const [state, set] = createEngineState()
+
+  reduce(set, {
+    type: "session.retry",
+    sessionId: "ses_1",
+    attempt: 2,
+    message: "overloaded (529): busy",
+    nextAt: 5000,
   })
+  expect(state.status.ses_1).toEqual({ type: "retry", attempt: 2, message: "overloaded (529): busy", next: 5000 })
 })
 
-test("events translate to the legacy reducer's vocabulary", () => {
-  expect(adaptEvent({ type: "session.status", sessionId: "ses_1", status: "running" }, workspaces)).toEqual({
-    type: "session.status",
-    properties: { sessionID: "ses_1", status: { type: "busy" } },
-  })
-  const delta = adaptEvent(
-    { type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "hi", offset: 3 },
-    workspaces,
-  )
-  expect(delta).toEqual({
-    type: "message.part.delta",
-    properties: { sessionID: "s", messageID: "m", partID: "p", field: "text", delta: "hi", offset: 3 },
-  })
+test("native events update busy status, text and pending permissions", () => {
+  const [state, set] = createEngineState()
+  reduce(set, { type: "session.status", sessionId: "ses_1", status: "running" })
+  expect(state.status.ses_1).toEqual({ type: "busy" })
+
+  set("loaded", "s", true)
+  set("transcripts", "s", [{ info: { id: "m", role: "assistant" }, parts: [] }] as never)
+  reduce(set, { type: "part.created", part: { type: "text", id: "p", sessionId: "s", messageId: "m", text: "say" } })
+  reduce(set, { type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "hi", offset: 3 })
+  expect(state.transcripts.s[0].parts[0]).toMatchObject({ type: "text", text: "sayhi" })
+
   const request: components["schemas"]["PermissionRequest"] = {
     id: "perm_1",
     sessionId: "ses_1",
@@ -360,8 +352,8 @@ test("events translate to the legacy reducer's vocabulary", () => {
     title: "Run tests",
     createdAt: 5,
   }
-  const asked = adaptEvent({ type: "permission.asked", request }, workspaces)
-  expect(asked?.type).toBe("permission.updated")
+  reduce(set, { type: "permission.asked", request })
+  expect(state.permissions.ses_1[0].id).toBe("perm_1")
   expect(adaptPermission(request, "C:/repo")).toMatchObject({
     id: "perm_1",
     type: "bash",
@@ -373,12 +365,8 @@ test("events translate to the legacy reducer's vocabulary", () => {
     adaptPermission({ ...request, diff: "@@ -1 +1 @@\n-a\n+b" }, "C:/repo").metadata,
     "the change to review travels with the request",
   ).toMatchObject({ diff: "@@ -1 +1 @@\n-a\n+b" })
-  expect(
-    adaptEvent(
-      { type: "workspace.created", workspace: { id: "w", path: "p", name: "n", icon: "", lastUsed: 0 } },
-      workspaces,
-    ),
-  ).toBeUndefined()
+  reduce(set, { type: "workspace.created", workspace: { id: "w", path: "p", name: "n", icon: "", lastUsed: 0 } })
+  expect(state.permissions.ses_1).toHaveLength(1)
 })
 
 test("a call that never started has no duration", () => {

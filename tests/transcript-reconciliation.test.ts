@@ -1,15 +1,8 @@
-import { adaptEvent, adaptMessage, adaptPart, adaptSession } from "../src/engine/native/adapt"
+import { captureRevisions, createEngineState, mergeTranscriptSnapshot, messageRevisionKey } from "../src/engine/store"
+import { adaptMessage, adaptPart, adaptSession } from "../src/engine/native/adapt"
 import { reduce, withDelta } from "../src/engine/events"
 import { createActions } from "../src/engine/actions"
 import { expect, test } from "bun:test"
-import {
-  captureRevisions,
-  createEngineState,
-  mergeTranscriptSnapshot,
-  messageRevisionKey,
-  pruneSessionRevisions,
-  removedPartKey,
-} from "../src/engine/store"
 
 import type { Client, MessageWithParts } from "../src/engine/native/client"
 
@@ -37,10 +30,7 @@ test("a delta gap leaves the cached prefix and revision unchanged and requests r
   const [state, set] = createEngineState()
   set("transcripts", "s", [entry("hel")])
   const requested: string[] = []
-  const event = adaptEvent(
-    { type: "part.delta", sessionId: "s", messageId: "m", partId: "p", offset: 6, delta: "world" },
-    workspaces,
-  )!
+  const event = { type: "part.delta" as const, sessionId: "s", messageId: "m", partId: "p", offset: 6, delta: "world" }
   reduce(set, event, undefined, (id) => requested.push(id))
   expect(state.transcripts.s![0]!.parts[0]).toMatchObject({ text: "hel" })
   expect(state.revisions[messageRevisionKey("s", "m")]).toBeUndefined()
@@ -53,7 +43,7 @@ test("a snapshot repairs a shorter prefix even when a live message revision adva
   set("loaded", "s", true)
   set("transcripts", "s", [entry("hel")])
   const captured = captureRevisions(state)
-  const update = adaptEvent({ type: "message.updated", message: { ...message(""), status: "done" } }, workspaces)!
+  const update = { type: "message.updated" as const, message: { ...message(""), status: "done" as const } }
   reduce(set, update)
   const merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions)
   expect(merged[0]!.parts[0]).toMatchObject({ text: "hello world" })
@@ -113,14 +103,11 @@ test("a snapshot restores an entire missed part after a live message revision ad
   set("loaded", "s", true)
   set("transcripts", "s", [cached])
   const captured = captureRevisions(state)
-  reduce(set, adaptEvent({ type: "message.updated", message: { ...message(""), status: "done" } }, workspaces)!)
+  reduce(set, { type: "message.updated", message: { ...message(""), status: "done" } })
   let reconciled = 0
   reduce(
     set,
-    adaptEvent(
-      { type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "world", offset: 6 },
-      workspaces,
-    )!,
+    { type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "world", offset: 6 },
     undefined,
     () => reconciled++,
   )
@@ -131,46 +118,13 @@ test("a snapshot restores an entire missed part after a live message revision ad
   expect(merged[0]!.info).toMatchObject({ finish: "stop" })
 })
 
-test("explicit part removal survives both racing and later stale snapshots", () => {
+test("a removed message survives a racing transcript snapshot", () => {
   const [state, set] = createEngineState()
   set("loaded", "s", true)
   set("transcripts", "s", [entry("hello world")])
   const captured = captureRevisions(state)
-  reduce(set, { type: "message.part.removed", properties: { sessionID: "s", messageID: "m", partID: "p" } })
-  expect(state.revisions[removedPartKey("s", "m", "p")]).toBe(1)
-  let reconciled = 0
-  reduce(
-    set,
-    adaptEvent(
-      { type: "part.delta", sessionId: "s", messageId: "m", partId: "p", delta: "late", offset: 20 },
-      workspaces,
-    )!,
-    undefined,
-    () => reconciled++,
-  )
-  expect(reconciled).toBe(0)
-  let merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions)
-  expect(merged[0]!.parts).toEqual([])
-  merged = mergeTranscriptSnapshot(merged, [entry("hello world")], "s", captureRevisions(state), state.revisions)
-  expect(merged[0]!.parts).toEqual([])
-  reduce(set, adaptEvent({ type: "part.updated", part: message("restored").parts[0]! }, workspaces)!)
-  expect(state.revisions[removedPartKey("s", "m", "p")]).toBeUndefined()
-  expect(state.transcripts.s![0]!.parts[0]).toMatchObject({ text: "restored" })
-  set("revisions", { [removedPartKey("s", "m", "p")]: 1 })
-  const draft = { ...state, revisions: { ...state.revisions } }
-  pruneSessionRevisions(draft, "s")
-  expect(draft.revisions).toEqual({})
-})
+  reduce(set, { type: "message.removed", sessionId: "s", messageId: "m" })
 
-test("a removal remembered without a cached part still prevents snapshot resurrection", () => {
-  const [state, set] = createEngineState()
-  reduce(set, { type: "message.part.removed", properties: { sessionID: "s", messageID: "m", partID: "p" } })
-  const merged = mergeTranscriptSnapshot(
-    undefined,
-    [entry("hello world")],
-    "s",
-    captureRevisions(state),
-    state.revisions,
-  )
-  expect(merged[0]!.parts).toEqual([])
+  const merged = mergeTranscriptSnapshot(state.transcripts.s, [entry("hello world")], "s", captured, state.revisions)
+  expect(merged).toEqual([])
 })

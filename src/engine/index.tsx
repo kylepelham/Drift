@@ -3,12 +3,13 @@ import { createContext, onCleanup, untrack, useContext, type ParentProps } from 
 import { createActions, errorMessage, type EngineActions } from "./actions"
 import { createClient, type Client, type Target } from "./native/client"
 import { connectEvents, type EventStream } from "./native/events"
-import { adaptEvent, type WorkspaceIndex } from "./native/adapt"
 import { seedProviderCatalog } from "../state/provider-cache"
 import { produce, reconcile } from "solid-js/store"
 import { workspaces } from "../state/workspaces"
 import { resolveTarget } from "./native/target"
 import { reduce } from "./events"
+
+import type { WorkspaceIndex } from "./native/adapt"
 
 export type Engine = {
   state: EngineState
@@ -112,8 +113,7 @@ export function EngineProvider(props: ParentProps) {
             "mcpServers",
             produce((servers) => void delete servers[envelope.name]),
           )
-        const legacy = adaptEvent(envelope, workspaceIndex())
-        if (legacy) reduce(set, legacy, directory ?? undefined, (id) => void actions.reconcileSession(id))
+        reduce(set, envelope, directory ?? undefined, (id) => void actions.reconcileSession(id), workspaceIndex())
       },
       online: (online) => {
         set("nativeOnline", online)

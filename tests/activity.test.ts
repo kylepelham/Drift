@@ -2,8 +2,8 @@ import { createEngineState } from "../src/engine/store"
 import { reduce } from "../src/engine/events"
 import { expect, test } from "bun:test"
 
+import type { components } from "../src/engine/native/types"
 import type * as SolidStore from "solid-js/store"
-import type { Event } from "../src/engine/shapes"
 import type * as Solid from "solid-js"
 
 if (!("localStorage" in globalThis))
@@ -11,23 +11,37 @@ if (!("localStorage" in globalThis))
     value: { getItem: () => null, setItem: () => undefined },
   })
 
-const toolEvent = (partId: string, tool: string, status: string): Event =>
-  ({
-    type: "message.part.updated",
-    properties: {
-      part: { id: partId, sessionID: "child", messageID: "m1", type: "tool", tool, state: { status } },
-    },
-  }) as unknown as Event
+type Event = components["schemas"]["Event"]
 
-test("session.updated clears revert and share keys the engine dropped", () => {
+const toolEvent = (partId: string, tool: string, status: "pending" | "running" | "completed"): Event => ({
+  type: "part.updated",
+  part: {
+    id: partId,
+    sessionId: "child",
+    messageId: "m1",
+    type: "tool_call",
+    name: tool,
+    callId: partId,
+    input: {},
+    status: status === "completed" ? "done" : status,
+  },
+})
+
+test("session.updated clears the revert marker the engine dropped", () => {
   const [state, set] = createEngineState()
-  const updated = (info: Record<string, unknown>): Event =>
-    ({ type: "session.updated", properties: { info } }) as unknown as Event
-  reduce(set, updated({ id: "s1", title: "t", revert: { messageID: "m5" }, share: { url: "u" } }))
+  const session: components["schemas"]["Session"] = {
+    id: "s1",
+    title: "t",
+    workspaceId: "w1",
+    visibility: "sibling",
+    agent: "build",
+    createdAt: 1,
+    updatedAt: 1,
+  }
+  reduce(set, { type: "session.updated", session: { ...session, revert: { messageId: "m5" } } })
   expect(state.sessions["s1"].revert?.messageID).toBe("m5")
-  reduce(set, updated({ id: "s1", title: "t" }))
+  reduce(set, { type: "session.updated", session })
   expect(state.sessions["s1"].revert).toBeUndefined()
-  expect(state.sessions["s1"].share).toBeUndefined()
 })
 
 test("fixEscapedEmphasis lets path-ending emphasis close without touching escapes or code", async () => {
@@ -539,10 +553,10 @@ test("a spawned thread's copied messages are the ones older than the thread", as
   expect(copiedCount(transcript.slice(0, 2) as never, 100)).toBe(2)
 })
 
-test("successful compaction clears a transient session error", () => {
+test("a running status clears a transient session error", () => {
   const [state, set] = createEngineState()
   set("errors", "s1", "Your input exceeds the context window")
-  reduce(set, { type: "session.compacted", properties: { sessionID: "s1" } } as unknown as Event)
+  reduce(set, { type: "session.status", sessionId: "s1", status: "running" })
   expect(state.errors["s1"]).toBeUndefined()
 })
 
@@ -798,10 +812,7 @@ test("message part deltas accumulate streamed reasoning summaries", () => {
       parts: [{ id: "p1", sessionID: "s1", messageID: "a1", type: "reasoning", text: "**Tracing" }],
     },
   ] as never)
-  reduce(set, {
-    type: "message.part.delta",
-    properties: { sessionID: "s1", messageID: "a1", partID: "p1", field: "text", delta: " events**" },
-  } as never)
+  reduce(set, { type: "part.delta", sessionId: "s1", messageId: "a1", partId: "p1", delta: " events**", offset: 9 })
   expect((state.transcripts.s1[0].parts[0] as { text: string }).text).toBe("**Tracing events**")
 })
 
@@ -909,55 +920,43 @@ test("activity counts distinct tool parts and tracks the running tool", () => {
   expect(state.activity["child"].current).toBeUndefined()
 
   reduce(set, toolEvent("p3", "bash", "running"))
-  reduce(set, { type: "session.idle", properties: { sessionID: "child" } } as never)
+  reduce(set, { type: "session.status", sessionId: "child", status: "idle" })
   expect(state.liveTools.p3).toBeUndefined()
 })
 
-test("session errors terminate busy activity and remain visible", () => {
-  const [state, set] = createEngineState()
-  set("status", "s1", { type: "busy" })
-  set("activity", "s1", { tools: 1, lastPartId: "p1", current: "bash" })
-  set("liveTools", "p1", "s1")
-  reduce(set, {
-    type: "session.error",
-    properties: { sessionID: "s1", error: { name: "ProviderError", data: { message: "credit balance is too low" } } },
-  } as never)
-  expect(state.status["s1"].type).toBe("idle")
-  expect(state.activity["s1"].current).toBeUndefined()
-  expect(state.liveTools.p1).toBeUndefined()
-  expect(state.errors["s1"]).toBe("credit balance is too low")
-})
-
-test("current ask events update immediately and retain their workspace directory", () => {
+test("native ask events update immediately and retain the current question directory", () => {
   const [state, set] = createEngineState()
   reduce(
     set,
     {
-      type: "permission.updated",
-      properties: {
+      type: "permission.asked",
+      request: {
         id: "perm-1",
-        sessionID: "s1",
-        type: "bash",
-        pattern: ["git status"],
+        sessionId: "s1",
+        kind: "bash",
+        tool: "bash",
+        pattern: "git status",
         title: "Run command",
-        messageID: "m1",
-        callID: "c1",
-        metadata: {},
-        time: { created: 1 },
+        messageId: "m1",
+        callId: "c1",
+        createdAt: 1,
       },
-    } as never,
+    },
     "C:/repo",
   )
   reduce(
     set,
     {
       type: "question.asked",
-      properties: {
+      request: {
         id: "q1",
-        sessionID: "s1",
+        sessionId: "s1",
+        messageId: "m1",
+        callId: "c1",
+        createdAt: 1,
         questions: [{ question: "Continue?", header: "Continue", options: [] }],
       },
-    } as never,
+    },
     "C:/repo",
   )
   expect(state.permissions.s1[0]).toMatchObject({
@@ -965,53 +964,55 @@ test("current ask events update immediately and retain their workspace directory
     type: "bash",
     pattern: ["git status"],
     title: "Run command",
-    metadata: { directory: "C:/repo" },
+    metadata: { directory: "" },
   })
   expect(state.questions.s1[0].directory).toBe("C:/repo")
 
-  reduce(set, { type: "permission.replied", properties: { sessionID: "s1", requestID: "perm-1" } } as never)
-  reduce(set, { type: "question.rejected", properties: { sessionID: "s1", requestID: "q1" } } as never)
+  reduce(set, { type: "permission.replied", sessionId: "s1", requestId: "perm-1", decision: "deny" })
+  reduce(set, { type: "question.replied", sessionId: "s1", requestId: "q1" })
   expect(state.permissions.s1).toEqual([])
   expect(state.questions.s1).toEqual([])
 })
 
-test("toast and sessionless error events become visible notices", () => {
+test("plugin notices keep their title, body, tone and display duration", () => {
   const [state, set] = createEngineState()
   reduce(set, {
-    id: "toast-1",
-    type: "tui.toast.show",
-    properties: { title: "Connected", message: "Provider ready", variant: "success", duration: 2500 },
-  } as never)
-  reduce(set, { type: "session.error", properties: {} } as never)
-  expect(state.notices[0]).toMatchObject({
-    id: "toast-1",
+    type: "plugin.notice",
+    plugin: "Review",
     title: "Connected",
+    body: "Provider ready",
+    tone: "success",
+  })
+  expect(state.notices[0]).toMatchObject({
+    title: "Review: Connected",
     message: "Provider ready",
     variant: "success",
-    duration: 2500,
+    duration: 8000,
   })
-  expect(state.notices[1]).toMatchObject({ title: "Drift error", message: "An error occurred", variant: "error" })
 })
 
 test("identical runtime errors collapse into one visible notice", () => {
   const [state, set] = createEngineState()
-  const toast = (id: string) =>
+  const toast = () =>
     reduce(set, {
-      id,
-      type: "tui.toast.show",
-      properties: { title: "Drift error", message: "Failed to load plugin", variant: "error" },
-    } as never)
-  toast("error-1")
-  toast("error-2")
-  toast("error-3")
+      type: "plugin.notice",
+      plugin: "Review",
+      title: "Drift error",
+      body: "Failed to load plugin",
+      tone: "error",
+    })
+  toast()
+  const first = state.notices[0].id
+  toast()
+  toast()
   expect(state.notices).toHaveLength(1)
-  expect(state.notices[0].id).toBe("error-3")
+  expect(state.notices[0].id).not.toBe(first)
 })
 
 test("a new active status clears stale fallback errors", () => {
   const [state, set] = createEngineState()
   set("errors", "s1", "old failure")
-  reduce(set, { type: "session.status", properties: { sessionID: "s1", status: { type: "busy" } } } as never)
+  reduce(set, { type: "session.status", sessionId: "s1", status: "running" })
   expect(state.errors.s1).toBeUndefined()
 })
 
