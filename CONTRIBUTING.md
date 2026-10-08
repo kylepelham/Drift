@@ -14,8 +14,8 @@ improvements are the easiest contributions to review and ship.
 
 ## Development setup
 
-Drift's native target is Windows x64. You need [Bun](https://bun.sh), a
-[stable Rust toolchain](https://rustup.rs/) with the MSVC target,
+Drift's native target is Windows x64. You need [Bun](https://bun.sh), [rustup](https://rustup.rs/)
+(`rust-toolchain.toml` pins the Rust version, components and the plugin target) with the MSVC target,
 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
 with the **Desktop development with C++** workload, and the
 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
@@ -62,12 +62,30 @@ is:
 bun run gates
 ```
 
-It runs typecheck, the bun tests, the generated-client check, clippy and every Rust test,
-and prints only what failed.
+It runs the format check, typecheck, the bun tests, the generated-client check, clippy and
+every Rust test, and prints only what failed.
+
+## Formatting and lint
+
+- `bun run format` formats TypeScript and CSS with Prettier and Rust with rustfmt, both at 120
+  columns. `bun run format:check` is the gate.
+- `bun run lint` runs ESLint: import order (longest line first, multi-line imports after,
+  `import type` in its own block), complexity at most 15, no nested ternaries, and Solid's
+  reactivity rules. Clippy enforces the same complexity limit in Rust, plus 80 lines per function
+  and five parameters (`clippy.toml`, `[workspace.lints]` in `Cargo.toml`).
+- Group a function's statements into blocks by what they do, separated by blank lines; a block
+  may carry a one-line comment saying what it does.
+- `drift.json` asks Drift to run ESLint on each TypeScript file an agent writes, and Drift's
+  built-in formatters run Prettier and rustfmt after every edit.
+- CI also runs `typos` (spelling, `_typos.toml`), `cargo deny check` (advisories, licences and
+  sources, `deny.toml`), `cargo machete` (unused dependencies) and the Rust tests under
+  `cargo nextest`, whose slow timeout names a hung test. `bun run knip` lists unused files and
+  exports.
+- `.git-blame-ignore-revs` lists formatting-only commits; `git config blame.ignoreRevsFile
+  .git-blame-ignore-revs` makes `git blame` skip them.
 
 Also run:
 
-- `cargo fmt --check` for Rust changes.
 - `bun run bench:engine` when changing how the engine starts, builds prompts, or streams.
 - `bun run build:native` when changing packaging, native integration, or release behavior.
 
