@@ -276,12 +276,11 @@ pub fn walker(root: &Path) -> ignore::WalkBuilder {
 pub struct FileGlob(ignore::overrides::Override);
 
 impl FileGlob {
-    pub fn new(root: &Path, pattern: &str) -> Result<Self, String> {
+    pub fn new(root: &Path, pattern: &str) -> Result<Self, ignore::Error> {
         let mut builder = ignore::overrides::OverrideBuilder::new(root);
-        builder
-            .add(pattern.trim_start_matches("./"))
-            .map_err(|e| e.to_string())?;
-        builder.build().map(Self).map_err(|e| e.to_string())
+        builder.add(pattern.trim_start_matches("./"))?;
+
+        builder.build().map(Self)
     }
 
     /// Whether a file under the root matches.
@@ -308,13 +307,17 @@ pub fn canonical(path: &Path) -> PathBuf {
         let Some(parent) = existing.parent() else {
             return lexical;
         };
-        rest.push(existing.file_name().map(|n| n.to_os_string()).unwrap_or_default());
+        rest.push(
+            existing
+                .file_name()
+                .map(std::ffi::OsStr::to_os_string)
+                .unwrap_or_default(),
+        );
         existing = parent;
     }
     let mut out = existing
         .canonicalize()
-        .map(strip_verbatim)
-        .unwrap_or_else(|_| existing.to_path_buf());
+        .map_or_else(|_| existing.to_path_buf(), strip_verbatim);
     for part in rest.into_iter().rev() {
         out.push(part);
     }

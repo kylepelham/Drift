@@ -154,42 +154,8 @@ impl Plan {
             return Err(ToolError("appears twice in the patch".into()));
         }
         match op {
-            Op::Add { content, .. } => {
-                let existing = existing(ctx, path).await?;
-                let before_text = existing
-                    .as_ref()
-                    .map(|b| String::from_utf8_lossy(b).into_owned())
-                    .unwrap_or_default();
-                let format = TextFormat::detect(&before_text);
-                let kind = if existing.is_some() { "update" } else { "add" };
-                self.changes.push(Change::new(
-                    path,
-                    &display(path, &ctx.workspace),
-                    kind,
-                    &format.normalise(&before_text),
-                    &format.normalise(content),
-                ));
-                self.steps.push(Step {
-                    path: path.to_path_buf(),
-                    before: existing,
-                    after: Some(format.apply(content).into_bytes()),
-                });
-            }
-            Op::Delete { .. } => {
-                let before = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
-                self.changes.push(Change::new(
-                    path,
-                    &display(path, &ctx.workspace),
-                    "delete",
-                    &String::from_utf8_lossy(&before),
-                    "",
-                ));
-                self.steps.push(Step {
-                    path: path.to_path_buf(),
-                    before: Some(before),
-                    after: None,
-                });
-            }
+            Op::Add { content, .. } => self.prepare_add(ctx, path, content).await?,
+            Op::Delete { .. } => self.prepare_delete(ctx, path).await?,
             Op::Update { move_to, chunks, .. } => {
                 let raw = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
                 // Decoding loosely and writing back would turn every byte that is not UTF-8 into U+FFFD, the whole file over.
@@ -234,6 +200,50 @@ impl Plan {
                 });
             }
         }
+        Ok(())
+    }
+
+    async fn prepare_add(&mut self, ctx: &Context, path: &Path, content: &str) -> Result<(), ToolError> {
+        let existing = existing(ctx, path).await?;
+        let before_text = existing
+            .as_ref()
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            .unwrap_or_default();
+        let format = TextFormat::detect(&before_text);
+        let kind = if existing.is_some() { "update" } else { "add" };
+
+        self.changes.push(Change::new(
+            path,
+            &display(path, &ctx.workspace),
+            kind,
+            &format.normalise(&before_text),
+            &format.normalise(content),
+        ));
+        self.steps.push(Step {
+            path: path.to_path_buf(),
+            before: existing,
+            after: Some(format.apply(content).into_bytes()),
+        });
+
+        Ok(())
+    }
+
+    async fn prepare_delete(&mut self, ctx: &Context, path: &Path) -> Result<(), ToolError> {
+        let before = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
+
+        self.changes.push(Change::new(
+            path,
+            &display(path, &ctx.workspace),
+            "delete",
+            &String::from_utf8_lossy(&before),
+            "",
+        ));
+        self.steps.push(Step {
+            path: path.to_path_buf(),
+            before: Some(before),
+            after: None,
+        });
+
         Ok(())
     }
 

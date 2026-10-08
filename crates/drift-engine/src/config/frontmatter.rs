@@ -3,6 +3,28 @@
 
 use std::collections::BTreeMap;
 
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub(super) enum PermissionError {
+    #[error("permissions must be an array of kind/pattern/decision rules")]
+    InvalidArray,
+    #[error("permission entries must name a rule")]
+    UnnamedRule,
+    #[error("permission pattern has no tool namespace")]
+    MissingNamespace,
+    #[error("unexpected `{0}` after the permission map")]
+    TrailingCharacter(char),
+    #[error("permission entry {0} needs a `:`")]
+    MissingColon(String),
+    #[error("a permission map must close with `}}`")]
+    UnclosedMap,
+    #[error("a permission map has an empty entry")]
+    EmptyEntry,
+    #[error("permission decisions must be allow, ask or deny")]
+    InvalidDecision,
+    #[error("permission must be a tool map")]
+    NotToolMap,
+}
+
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Document {
     pub fields: BTreeMap<String, String>,
@@ -39,7 +61,7 @@ impl Document {
     }
 
     /// Rules in the order written; `Config::agent_policy` makes the last match win.
-    pub(super) fn permissions(&self) -> Result<Vec<crate::permission::Rule>, String> {
+    pub(super) fn permissions(&self) -> Result<Vec<crate::permission::Rule>, PermissionError> {
         let key = if self.fields.contains_key("permissions") {
             "permissions"
         } else {
@@ -52,8 +74,7 @@ impl Document {
             .filter(|value| !value.is_empty())
         {
             if value.starts_with('[') {
-                return serde_json::from_str(value)
-                    .map_err(|_| "permissions must be an array of kind/pattern/decision rules".into());
+                return serde_json::from_str(value).map_err(|_| PermissionError::InvalidArray);
             }
             if value.starts_with('{') {
                 return map_permissions(&Flow::parse(value)?);
@@ -72,10 +93,7 @@ impl Document {
         let mut rules = Vec::new();
         for line in lines {
             let depth = line.len() - line.trim_start().len();
-            let (name, value) = line
-                .trim()
-                .rsplit_once(':')
-                .ok_or("permission entries must name a rule")?;
+            let (name, value) = line.trim().rsplit_once(':').ok_or(PermissionError::UnnamedRule)?;
             let (name, value) = (unquote(name.trim()), unquote(value.trim()));
             if depth == base {
                 parent = Some(name);
@@ -83,11 +101,7 @@ impl Document {
                     rules.push(rule(name, "*", value)?);
                 }
             } else {
-                rules.push(rule(
-                    parent.ok_or("permission pattern has no tool namespace")?,
-                    name,
-                    value,
-                )?);
+                rules.push(rule(parent.ok_or(PermissionError::MissingNamespace)?, name, value)?);
             }
         }
         Ok(rules)
@@ -102,17 +116,17 @@ enum Flow {
 }
 
 impl Flow {
-    fn parse(text: &str) -> Result<Self, String> {
+    fn parse(text: &str) -> Result<Self, PermissionError> {
         let mut chars = text.chars().peekable();
         let value = Self::value(&mut chars)?;
         skip_space(&mut chars);
         match chars.next() {
             None => Ok(value),
-            Some(c) => Err(format!("unexpected `{c}` after the permission map")),
+            Some(c) => Err(PermissionError::TrailingCharacter(c)),
         }
     }
 
-    fn value(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<Self, String> {
+    fn value(chars: &mut std::iter::Peekable<std::str::Chars>) -> Result<Self, PermissionError> {
         skip_space(chars);
         if chars.peek() != Some(&'{') {
             return scalar(chars, &[',', '}']).map(Flow::Text);
@@ -127,14 +141,14 @@ impl Flow {
             }
             let key = scalar(chars, &[':'])?;
             if chars.next() != Some(':') {
-                return Err(format!("permission entry {key} needs a `:`"));
+                return Err(PermissionError::MissingColon(key));
             }
             entries.push((key, Self::value(chars)?));
             skip_space(chars);
             match chars.next() {
                 Some(',') => {}
                 Some('}') => return Ok(Flow::Map(entries)),
-                _ => return Err("a permission map must close with `}`".into()),
+                _ => return Err(PermissionError::UnclosedMap),
             }
         }
     }
@@ -145,7 +159,7 @@ fn skip_space(chars: &mut std::iter::Peekable<std::str::Chars>) {
 }
 
 /// A quoted string, or bare text up to one of `ends`.
-fn scalar(chars: &mut std::iter::Peekable<std::str::Chars>, ends: &[char]) -> Result<String, String> {
+fn scalar(chars: &mut std::iter::Peekable<std::str::Chars>, ends: &[char]) -> Result<String, PermissionError> {
     skip_space(chars);
     if let Some(quote) = chars.next_if(|c| *c == '"' || *c == '\'') {
         let text: String = chars.by_ref().take_while(|c| *c != quote).collect();
@@ -158,18 +172,18 @@ fn scalar(chars: &mut std::iter::Peekable<std::str::Chars>, ends: &[char]) -> Re
     }
     let text = text.trim().to_string();
     if text.is_empty() {
-        Err("a permission map has an empty entry".into())
+        Err(PermissionError::EmptyEntry)
     } else {
         Ok(text)
     }
 }
 
-fn rule(kind: &str, pattern: &str, value: &str) -> Result<crate::permission::Rule, String> {
+fn rule(kind: &str, pattern: &str, value: &str) -> Result<crate::permission::Rule, PermissionError> {
     let decision = match value {
         "allow" => crate::permission::Decision::Allow,
         "ask" => crate::permission::Decision::Ask,
         "deny" => crate::permission::Decision::Deny,
-        _ => return Err("permission decisions must be allow, ask or deny".into()),
+        _ => return Err(PermissionError::InvalidDecision),
     };
     Ok(crate::permission::Rule {
         kind: kind.into(),
@@ -178,9 +192,9 @@ fn rule(kind: &str, pattern: &str, value: &str) -> Result<crate::permission::Rul
     })
 }
 
-fn map_permissions(value: &Flow) -> Result<Vec<crate::permission::Rule>, String> {
+fn map_permissions(value: &Flow) -> Result<Vec<crate::permission::Rule>, PermissionError> {
     let Flow::Map(kinds) = value else {
-        return Err("permission must be a tool map".into());
+        return Err(PermissionError::NotToolMap);
     };
     let mut rules = Vec::new();
     for (kind, value) in kinds {
@@ -189,7 +203,7 @@ fn map_permissions(value: &Flow) -> Result<Vec<crate::permission::Rule>, String>
             Flow::Map(patterns) => {
                 for (pattern, decision) in patterns {
                     let Flow::Text(decision) = decision else {
-                        return Err("permission decisions must be allow, ask or deny".into());
+                        return Err(PermissionError::InvalidDecision);
                     };
                     rules.push(rule(kind, pattern, decision)?);
                 }

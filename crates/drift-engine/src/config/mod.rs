@@ -847,7 +847,7 @@ impl Config {
             }
             let (permissions, problem) = match doc.permissions() {
                 Ok(rules) => (rules, None),
-                Err(error) => (Vec::new(), Some(error)),
+                Err(error) => (Vec::new(), Some(error.to_string())),
             };
             let agent = Agent {
                 description: doc.field("description").unwrap_or_default(),

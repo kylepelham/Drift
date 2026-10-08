@@ -1,5 +1,29 @@
 //! The apply_patch format GPT models are trained on: a small envelope around per-file hunks.
 
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub enum ParseError {
+    #[error("missing *** Begin Patch")]
+    MissingBegin,
+    #[error("missing *** End Patch")]
+    MissingEnd,
+    #[error("*** End Patch comes before *** Begin Patch")]
+    ReversedEnvelope,
+    #[error("unexpected line in patch: {0}")]
+    UnexpectedLine(String),
+    #[error("patch contains no operations")]
+    NoOperations,
+}
+
+#[derive(Debug, PartialEq, thiserror::Error)]
+pub enum HunkError {
+    #[error("hunk {hunk} did not match the file. {region}")]
+    Nearby { hunk: usize, region: String },
+    #[error(
+        "hunk {hunk} did not match the file; read the file and copy the context lines exactly. Looking for:\n{wanted}"
+    )]
+    Missing { hunk: usize, wanted: String },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
     Add {
@@ -33,19 +57,19 @@ impl Op {
     }
 }
 
-pub fn parse(text: &str) -> Result<Vec<Op>, String> {
+pub fn parse(text: &str) -> Result<Vec<Op>, ParseError> {
     let normalised = text.replace("\r\n", "\n");
     let lines: Vec<&str> = normalised.lines().collect();
     let begin = lines
         .iter()
         .position(|l| l.trim() == "*** Begin Patch")
-        .ok_or("missing *** Begin Patch")?;
+        .ok_or(ParseError::MissingBegin)?;
     let end = lines
         .iter()
         .rposition(|l| l.trim() == "*** End Patch")
-        .ok_or("missing *** End Patch")?;
+        .ok_or(ParseError::MissingEnd)?;
     if end < begin {
-        return Err("*** End Patch comes before *** Begin Patch".into());
+        return Err(ParseError::ReversedEnvelope);
     }
     let mut ops = Vec::new();
     let mut i = begin + 1;
@@ -82,11 +106,11 @@ pub fn parse(text: &str) -> Result<Vec<Op>, String> {
         } else if line.trim().is_empty() {
             i += 1;
         } else {
-            return Err(format!("unexpected line in patch: {line}"));
+            return Err(ParseError::UnexpectedLine(line.into()));
         }
     }
     if ops.is_empty() {
-        return Err("patch contains no operations".into());
+        return Err(ParseError::NoOperations);
     }
     Ok(ops)
 }
@@ -146,7 +170,7 @@ fn chunks(lines: &[&str], mut i: usize, end: usize) -> (Vec<Chunk>, usize) {
 }
 
 /// Applies every chunk in order; each search starts where the last one ended.
-pub fn apply_chunks(content: &str, chunks: &[Chunk]) -> Result<String, String> {
+pub fn apply_chunks(content: &str, chunks: &[Chunk]) -> Result<String, HunkError> {
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
     let trailing_newline = content.ends_with('\n') || content.is_empty();
     let mut cursor = 0;
@@ -224,15 +248,16 @@ fn ascii_punctuation(text: &str) -> String {
 }
 
 /// What a missed hunk says: the part of the file it most likely meant, as `edit` does, else what it looked for.
-fn miss(content: &str, index: usize, chunk: &Chunk) -> String {
+fn miss(content: &str, index: usize, chunk: &Chunk) -> HunkError {
     let wanted: Vec<&str> = chunk.old.iter().map(String::as_str).collect();
+    let hunk = index + 1;
+
     match super::edit::closest_region(content, &wanted) {
-        Some(region) => format!("hunk {} did not match the file. {region}", index + 1),
-        None => format!(
-            "hunk {} did not match the file; read the file and copy the context lines exactly. Looking for:\n{}",
-            index + 1,
-            wanted.iter().take(4).copied().collect::<Vec<_>>().join("\n")
-        ),
+        Some(region) => HunkError::Nearby { hunk, region },
+        None => HunkError::Missing {
+            hunk,
+            wanted: wanted.iter().take(4).copied().collect::<Vec<_>>().join("\n"),
+        },
     }
 }
 
@@ -334,14 +359,16 @@ mod tests {
     fn a_miss_names_the_hunk() {
         let ops = parse("*** Begin Patch\n*** Update File: f\n-nope\n+x\n*** End Patch\n").unwrap();
         let Op::Update { chunks, .. } = &ops[0] else { panic!() };
-        let err = apply_chunks("a\n", chunks).unwrap_err();
+        let err = apply_chunks("a\n", chunks).unwrap_err().to_string();
         assert!(err.starts_with("hunk 1 did not match"));
         let near = parse(
             "*** Begin Patch\n*** Update File: f\n fn two() {\n-    let x = 1;\n+    let x = 2;\n*** End Patch\n",
         )
         .unwrap();
         let Op::Update { chunks, .. } = &near[0] else { panic!() };
-        let err = apply_chunks("a\nb\nfn two() {\n    let x = 3;\n}\n", chunks).unwrap_err();
+        let err = apply_chunks("a\nb\nfn two() {\n    let x = 3;\n}\n", chunks)
+            .unwrap_err()
+            .to_string();
         assert!(
             err.contains("closest region is lines") && err.contains("3: fn two() {"),
             "{err}"

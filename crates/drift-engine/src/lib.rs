@@ -53,34 +53,13 @@ impl Default for Options {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
-    Store(rusqlite::Error),
-    Io(std::io::Error),
+    #[error("store: {0}")]
+    Store(#[from] rusqlite::Error),
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
 }
-
-impl From<rusqlite::Error> for Error {
-    fn from(error: rusqlite::Error) -> Self {
-        Self::Store(error)
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
-    }
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Store(error) => write!(f, "store: {error}"),
-            Self::Io(error) => write!(f, "io: {error}"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 pub struct Engine {
     pub data_dir: PathBuf,
