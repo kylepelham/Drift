@@ -1504,6 +1504,7 @@ version = "2.1.0"
 dependencies = [
  "drift-engine",
  "rustls",
+ "thiserror 2.0.19",
  "tokio",
 ]
 
