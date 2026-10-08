@@ -63,7 +63,13 @@ async fn a_finished_subagent_can_be_continued_with_what_it_already_saw() {
         first["taskId"].as_str().unwrap().to_string(),
         first["sessionId"].as_str().unwrap().to_string(),
     );
-    let follow_up = json!({ "description": "Follow up", "prompt": "And who calls it?", "task_id": task_id, "subagent_type": "explore" }).to_string();
+    let follow_up = json!({
+        "description": "Follow up",
+        "prompt": "And who calls it?",
+        "task_id": task_id,
+        "subagent_type": "explore",
+    })
+    .to_string();
     let mut again = tool_call("task", &follow_up);
     again[0] = Chunk::ToolUseStart {
         id: "toolu_task_2".into(),

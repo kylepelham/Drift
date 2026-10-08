@@ -8,7 +8,14 @@ use crate::session::turn::tests::{Harness, harness, prompt, text, tool_call, unt
 use crate::session::types::MessageWithParts;
 
 fn ask(header: &str) -> Vec<crate::llm::Chunk> {
-    tool_call("question", &json!({ "questions": [{ "question": format!("{header}?"), "header": header, "options": [{ "label": "yes" }, { "label": "no" }] }] }).to_string())
+    let question = json!({
+        "questions": [{
+            "question": format!("{header}?"),
+            "header": header,
+            "options": [{ "label": "yes" }, { "label": "no" }],
+        }],
+    });
+    tool_call("question", &question.to_string())
 }
 
 fn answers(transcript: &[MessageWithParts]) -> Vec<Vec<String>> {

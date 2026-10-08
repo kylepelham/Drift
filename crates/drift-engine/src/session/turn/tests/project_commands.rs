@@ -84,7 +84,11 @@ async fn assert_workspace_project_grants(
         "always holds for the workspace, in a new session too"
     );
 
-    let changed = json!({ "checks": { "mark": { "command": [shell, flag, format!("{run} & echo changed")], "extensions": [".txt"] } } });
+    let changed = json!({
+        "checks": {
+            "mark": { "command": [shell, flag, format!("{run} & echo changed")], "extensions": [".txt"] },
+        },
+    });
     std::fs::write(h._dir.join("ws/drift.json"), changed.to_string()).unwrap();
     let fourth = sibling_session(h, "Fourth");
     h.provider

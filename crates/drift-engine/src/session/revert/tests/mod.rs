@@ -70,7 +70,9 @@ async fn two_writing_turns(h: &Harness) -> (String, String) {
 
 /// Makes every save of the session's undo point fail until `allow_marker` is called.
 fn refuse_marker(h: &Harness) {
-    h.engine.store.lock().execute_batch("CREATE TRIGGER refuse_marker BEFORE UPDATE OF revert_json ON session BEGIN SELECT RAISE(FAIL, 'injected'); END;").unwrap();
+    let trigger = "CREATE TRIGGER refuse_marker BEFORE UPDATE OF revert_json ON session \
+                   BEGIN SELECT RAISE(FAIL, 'injected'); END;";
+    h.engine.store.lock().execute_batch(trigger).unwrap();
 }
 
 fn allow_marker(h: &Harness) {

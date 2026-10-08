@@ -24,11 +24,19 @@ async fn undo_follows_the_order_writes_finished_not_the_order_their_messages_beg
     );
     let (b_at, a_at) = (crate::id::new("chg"), crate::id::new("chg"));
     let call = |at: &str, before: &Option<String>, after: &Option<String>| {
+        let changes = json!([{ "path": "shared.txt", "before": before, "after": after }]);
+        let metadata = json!({ "changes": changes, "owner": h.session.workspace_id, "at": at });
         Part::ToolCall {
-        call_id: crate::id::new("call"), name: "write".into(), input: json!({}), status: crate::session::types::ToolStatus::Done,
-        title: None, output: None, metadata: Some(Box::new(json!({ "changes": [{ "path": "shared.txt", "before": before, "after": after }], "owner": h.session.workspace_id, "at": at }).into())),
-        started_at: None, finished_at: None,
-    }
+            call_id: crate::id::new("call"),
+            name: "write".into(),
+            input: json!({}),
+            status: crate::session::types::ToolStatus::Done,
+            title: None,
+            output: None,
+            metadata: Some(Box::new(metadata.into())),
+            started_at: None,
+            finished_at: None,
+        }
     };
     h.engine
         .store

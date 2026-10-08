@@ -93,7 +93,13 @@ fn a_settled_call_with_broken_arguments_goes_back_with_its_parse_error() {
             input: json!({})
         }]
     );
-    assert!(
-        matches!(&output[1].blocks[0], Block::ToolResult { call_id, content, is_error: true } if call_id == "c_bad" && content.contains("not valid JSON"))
-    );
+    let Block::ToolResult {
+        call_id,
+        content,
+        is_error,
+    } = &output[1].blocks[0]
+    else {
+        panic!("the malformed call keeps its result");
+    };
+    assert!(*is_error && call_id == "c_bad" && content.contains("not valid JSON"));
 }

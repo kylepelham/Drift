@@ -9,9 +9,10 @@ fn an_empty_signed_text_part_goes_only_to_the_model_that_signed_it() {
     reply.parts[1].provider_signature = Some("sig".into());
     let transcript = [message(Role::User, vec![Part::Text { text: "q".into() }]), reply];
     let same = messages(&transcript, &target());
-    assert!(
-        matches!(&same[1].blocks[..], [Block::Text(_), Block::Signed { part, .. }] if matches!(part.as_ref(), Block::Text(text) if text.is_empty()))
-    );
+    let [Block::Text(_), Block::Signed { part, .. }] = &same[1].blocks[..] else {
+        panic!("the signed empty text is replayed to the model that wrote it");
+    };
+    assert!(matches!(part.as_ref(), Block::Text(text) if text.is_empty()));
     let other = messages(
         &transcript,
         &ModelRef {

@@ -203,8 +203,11 @@ async fn a_broken_primary_agent_cannot_be_picked_mid_turn() {
     let mut switch = prompt("as hot");
     switch.agent = Some("hot".into());
     let refused = h.engine.submit(&h.session.id, switch).await.unwrap_err();
+    let TurnError::Config(reason) = &refused else {
+        panic!("{refused:?}");
+    };
     assert!(
-        matches!(&refused, TurnError::Config(reason) if reason.contains("agent hot") && reason.contains("allow, ask or deny")),
+        reason.contains("agent hot") && reason.contains("allow, ask or deny"),
         "{refused:?}"
     );
     until_idle(&h).await;
@@ -241,8 +244,11 @@ async fn a_command_naming_a_subagent_always_delegates_and_broken_agents_are_refu
         .execute_command(&h.session.id, "heat", "src", None)
         .await
         .unwrap_err();
+    let CommandError::Turn(TurnError::Config(reason)) = &refused else {
+        panic!("{refused:?}");
+    };
     assert!(
-        matches!(&refused, CommandError::Turn(TurnError::Config(reason)) if reason.contains("agent hot") && reason.contains("allow, ask or deny")),
+        reason.contains("agent hot") && reason.contains("allow, ask or deny"),
         "{refused:?}"
     );
 }

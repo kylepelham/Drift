@@ -3,7 +3,10 @@ use super::*;
 const METADATA_SAMPLES: &[(&str, &str)] = &[
     (
         "bash",
-        r#"{"shellTimeoutMs": 120000, "outputBytes": 42, "outputFile": "C:/work/command.log", "exit": 3, "notes": ["exit code 3"]}"#,
+        concat!(
+            r#"{"shellTimeoutMs": 120000, "outputBytes": 42, "outputFile": "C:/work/command.log", "#,
+            r#""exit": 3, "notes": ["exit code 3"]}"#,
+        ),
     ),
     (
         "unlimited bash",
@@ -194,7 +197,14 @@ fn imported_metadata_and_non_objects_stay_loadable() {
     for json in samples {
         let metadata: ToolMetadata = serde_json::from_value(json.clone()).unwrap();
         assert_eq!(serde_json::to_value(metadata).unwrap(), json);
-        let stored = serde_json::json!({ "type": "tool_call", "callId": "call_imported", "name": "read", "input": {}, "status": "done", "metadata": json });
+        let stored = serde_json::json!({
+            "type": "tool_call",
+            "callId": "call_imported",
+            "name": "read",
+            "input": {},
+            "status": "done",
+            "metadata": json,
+        });
         let part = Part::from_stored(&stored.to_string());
         assert!(matches!(part, Part::ToolCall { .. }));
         assert_eq!(serde_json::from_str::<Value>(&part.stored()).unwrap(), stored);

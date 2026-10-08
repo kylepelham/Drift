@@ -161,8 +161,11 @@ async fn a_subscription_sign_in_is_never_sent_to_a_route_the_user_re_pointed() {
         .unwrap()
         .api = Some("https://gateway.example".into());
     let refused = h.engine.submit(&h.session.id, prompt("hi")).await.err();
+    let Some(TurnError::Config(why)) = &refused else {
+        panic!("{refused:?}");
+    };
     assert!(
-        matches!(&refused, Some(TurnError::Config(why)) if why.contains("subscription sign-in is only sent to anthropic")),
+        why.contains("subscription sign-in is only sent to anthropic"),
         "{refused:?}"
     );
 

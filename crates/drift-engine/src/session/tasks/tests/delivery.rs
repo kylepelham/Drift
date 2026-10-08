@@ -117,7 +117,9 @@ async fn a_result_whose_call_was_not_saved_is_still_owed_and_arrives_as_a_messag
         .unwrap();
     assert_eq!(out.metadata.delivers.as_deref(), Some(task.id.as_str()));
     let mut row = call_row(&h, "reading");
-    h.engine.store.lock().execute_batch("CREATE TEMP TRIGGER no_room BEFORE UPDATE ON part WHEN NEW.json LIKE '%the answer%' BEGIN SELECT RAISE(ABORT, 'disk is full'); END;").unwrap();
+    let trigger = "CREATE TEMP TRIGGER no_room BEFORE UPDATE ON part WHEN NEW.json LIKE '%the answer%' \
+                   BEGIN SELECT RAISE(ABORT, 'disk is full'); END;";
+    h.engine.store.lock().execute_batch(trigger).unwrap();
     h.engine.settle_delivering(&mut row, settlement(&out), Some(&task.id));
     h.engine.store.lock().execute_batch("DROP TRIGGER no_room;").unwrap();
 
@@ -170,7 +172,9 @@ async fn a_foreground_result_stays_its_launching_calls_even_when_saving_it_fails
     );
 
     let mut row = call_row(&h, "fg_call");
-    h.engine.store.lock().execute_batch("CREATE TEMP TRIGGER no_room BEFORE UPDATE ON part WHEN NEW.json LIKE '%front answer%' BEGIN SELECT RAISE(ABORT, 'disk is full'); END;").unwrap();
+    let trigger = "CREATE TEMP TRIGGER no_room BEFORE UPDATE ON part WHEN NEW.json LIKE '%front answer%' \
+                   BEGIN SELECT RAISE(ABORT, 'disk is full'); END;";
+    h.engine.store.lock().execute_batch(trigger).unwrap();
     h.engine.settle_delivering(&mut row, settlement(&out), Some(&task_id));
     h.engine.store.lock().execute_batch("DROP TRIGGER no_room;").unwrap();
     h.engine.release_claims(&Claimant::call(&h.session.id, "fg_call"));

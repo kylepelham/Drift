@@ -158,8 +158,11 @@ async fn files_a_model_cannot_take_are_refused_not_dropped() {
         .submit(&h.session.id, with_files("look", vec![image]))
         .await
         .unwrap_err();
+    let TurnError::Attachment(message) = &refused else {
+        panic!("{refused:?}");
+    };
     assert!(
-        matches!(&refused, TurnError::Attachment(message) if message.contains("cannot read images") && message.contains("shot.png")),
+        message.contains("cannot read images") && message.contains("shot.png"),
         "{refused:?}"
     );
     assert!(
@@ -201,15 +204,17 @@ async fn a_pdf_goes_whole_to_a_model_that_reads_pdfs_and_is_refused_by_one_that_
         .submit(&h.session.id, with_files("read", vec![pdf.clone()]))
         .await
         .unwrap_err();
+    let TurnError::Attachment(message) = &refused else {
+        panic!("{refused:?}");
+    };
     assert!(
-        matches!(&refused, TurnError::Attachment(message) if message.contains("cannot read PDFs") && message.contains("spec.pdf")),
+        message.contains("cannot read PDFs") && message.contains("spec.pdf"),
         "{refused:?}"
     );
     let fake = file("application/pdf", "spec.pdf", "data:application/pdf;base64,aGVsbG8=");
     mutate_model(&h, |model| model.pdf = true);
-    assert!(
-        matches!(h.engine.submit(&h.session.id, with_files("read", vec![fake])).await, Err(TurnError::Attachment(message)) if message.contains("not one"))
-    );
+    let refused = h.engine.submit(&h.session.id, with_files("read", vec![fake])).await;
+    assert!(matches!(refused, Err(TurnError::Attachment(message)) if message.contains("not one")));
 
     h.provider.push(text("read it"));
     h.engine
