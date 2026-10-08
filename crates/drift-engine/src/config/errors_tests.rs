@@ -1,6 +1,7 @@
+use super::AgentError;
 use super::skills::SkillError;
 use super::sources::SourceError;
-use super::{AgentError, PluginPathError};
+use super::user::PluginPathError;
 
 #[test]
 fn config_validation_errors_keep_their_messages() {
