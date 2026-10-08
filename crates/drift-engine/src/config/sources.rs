@@ -318,14 +318,15 @@ impl RegistrySource {
 
     /// GitHub takes a bearer token; Azure DevOps takes a PAT as basic auth with an empty user.
     fn repo_headers(&self, token: Option<&str>) -> Vec<(String, String)> {
+        use base64::Engine;
+
         match (self.source, token) {
-            (SourceKind::AzureDevops, Some(token)) => vec![(
-                "authorization".into(),
-                format!("Basic {}", {
-                    use base64::Engine;
-                    base64::engine::general_purpose::STANDARD.encode(format!(":{token}"))
-                }),
-            )],
+            (SourceKind::AzureDevops, Some(token)) => {
+                let credentials = format!(":{token}");
+                let encoded = base64::engine::general_purpose::STANDARD.encode(credentials);
+
+                vec![("authorization".into(), format!("Basic {encoded}"))]
+            }
             (_, Some(token)) => vec![("authorization".into(), format!("Bearer {token}"))],
             (_, None) => Vec::new(),
         }
@@ -339,7 +340,9 @@ fn bearer(token: Option<&str>) -> Vec<(String, String)> {
 }
 
 fn host_of(url: &str) -> Option<String> {
-    url.split("://").nth(1)?.split('/').next().map(str::to_ascii_lowercase)
+    let authority = url.split("://").nth(1)?;
+
+    authority.split('/').next().map(str::to_ascii_lowercase)
 }
 
 /// A token is sent only to the host the source names, never to a download that points elsewhere.
@@ -381,6 +384,7 @@ impl Fetcher {
                         mib: limit / 1024 / 1024,
                     });
                 }
+
                 Ok(bytes)
             }
             Location::Http { url, headers } => {
@@ -390,11 +394,13 @@ impl Fetcher {
                 if !url.starts_with("http://") && !url.starts_with("https://") {
                     return Err(SourceError::InvalidUrl(url));
                 }
+
                 let client = self.client_for(source)?;
                 let mut request = client.get(&url);
                 for (name, value) in headers {
                     request = request.header(name, value);
                 }
+
                 let response = request.send().await.map_err(|source| SourceError::Fetch {
                     url: url.clone(),
                     source,
@@ -403,6 +409,7 @@ impl Fetcher {
                 if !status.is_success() {
                     return Err(SourceError::HttpStatus { url, status });
                 }
+
                 let bytes = response.bytes().await.map_err(|source| SourceError::Fetch {
                     url: url.clone(),
                     source,
@@ -413,6 +420,7 @@ impl Fetcher {
                         mib: limit / 1024 / 1024,
                     });
                 }
+
                 Ok(bytes.to_vec())
             }
         }
@@ -424,6 +432,7 @@ impl Fetcher {
         let bytes = self
             .read(source, source.document(token.as_deref())?, MAX_DOCUMENT_BYTES)
             .await?;
+
         serde_json::from_slice(&bytes).map_err(SourceError::Document)
     }
 
@@ -432,7 +441,9 @@ impl Fetcher {
         let Some(pem) = source.ca_pem.as_deref().filter(|pem| !pem.trim().is_empty()) else {
             return Ok(self.http.clone());
         };
+
         let cert = reqwest::Certificate::from_pem(pem.as_bytes()).map_err(SourceError::Certificate)?;
+
         reqwest::Client::builder()
             .add_root_certificate(cert)
             .connect_timeout(std::time::Duration::from_secs(15))

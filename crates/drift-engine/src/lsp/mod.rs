@@ -77,6 +77,7 @@ pub fn resolve(config: &BTreeMap<String, LspConfig>) -> Vec<Spec> {
         }),
         _ => None,
     });
+
     builtin.chain(custom).collect()
 }
 
@@ -85,6 +86,7 @@ fn handles(spec: &Spec, file: &Path) -> bool {
         .file_name()
         .map(|name| name.to_string_lossy().to_lowercase())
         .unwrap_or_default();
+
     spec.extensions.iter().any(|ext| name.ends_with(&ext.to_lowercase()))
 }
 
@@ -93,6 +95,7 @@ fn language(spec: &Spec, file: &Path) -> String {
     if let Some(language) = &spec.language {
         return language.clone();
     }
+
     let ext = file
         .extension()
         .map(|ext| ext.to_string_lossy().to_lowercase())
@@ -129,6 +132,7 @@ fn language(spec: &Spec, file: &Path) -> String {
         }
         other => other,
     };
+
     id.to_string()
 }
 
@@ -167,6 +171,7 @@ impl Servers {
         let deadline = tokio::time::Instant::now() + WAIT;
         let specs = resolve(config);
         let mut checks = Vec::new();
+
         for spec in &specs {
             let mut by_root: BTreeMap<PathBuf, Vec<(PathBuf, String)>> = BTreeMap::new();
             for file in files.iter().filter(|file| handles(spec, file)) {
@@ -183,6 +188,7 @@ impl Servers {
                 }
             }
         }
+
         let reported = futures_util::future::join_all(checks).await;
         reported
             .into_iter()
@@ -223,9 +229,10 @@ impl Servers {
         if let Some(client) = running() {
             return Some(client);
         }
+
         let gate = self.starting.lock().unwrap().entry(slot.clone()).or_default().clone();
         let _starting = gate.lock().await;
-        // Another caller may have started it, or failed to, while this one waited.
+        // Recheck after taking the start lock because another caller may have started the server.
         if let Some(client) = running() {
             return Some(client);
         }
@@ -238,10 +245,12 @@ impl Servers {
         {
             return None;
         }
+
         let started = match table::installed(&spec.commands, root, workspace) {
             Some((program, args)) => Client::start(&program, &args, root).await,
             None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "not installed")),
         };
+
         match started {
             Ok(client) => {
                 self.running.lock().unwrap().insert(slot, client.clone());
@@ -260,6 +269,7 @@ impl Servers {
         if self.reaping.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+
         let running = Arc::downgrade(&self.running);
         tokio::spawn(async move {
             loop {

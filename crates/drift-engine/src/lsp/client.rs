@@ -65,6 +65,7 @@ impl Client {
         let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
             return Err(std::io::Error::other("no pipes"));
         };
+
         let client = Arc::new(Self {
             stdin: tokio::sync::Mutex::new(stdin),
             next_id: AtomicI64::new(1),
@@ -78,10 +79,12 @@ impl Client {
             used: Mutex::new(Instant::now()),
             process: Mutex::new(Some((child, tree))),
         });
+
         tokio::spawn(read_loop(Arc::downgrade(&client), stdout));
         let starting = client.clone();
         let root = root.to_path_buf();
         tokio::spawn(async move { starting.initialize(&root).await });
+
         Ok(client)
     }
 
@@ -104,6 +107,7 @@ impl Client {
         if !self.wait_ready(deadline).await {
             return Vec::new();
         }
+
         let mut sent = Vec::new();
         for (file, language) in files {
             let small = tokio::fs::metadata(file).await.is_ok_and(|meta| meta.len() <= MAX_FILE);
@@ -115,10 +119,12 @@ impl Client {
             self.sync(file, &key, language, &text).await;
             sent.push((file.clone(), key, before));
         }
+
         if self.pulls.load(Ordering::SeqCst) {
             futures_util::future::join_all(sent.iter().map(|(file, _, _)| self.pull(file, deadline))).await;
         }
         self.settle(&sent, deadline).await;
+
         sent.into_iter()
             .filter_map(|(file, key, before)| self.fresh(&key, before).map(|errors| (file, errors)))
             .collect()
@@ -162,9 +168,11 @@ impl Client {
         let Some(reply) = self.request("initialize", params, INITIALIZE).await else {
             return self.kill();
         };
+
         if !reply["result"]["capabilities"]["diagnosticProvider"].is_null() {
             self.pulls.store(true, Ordering::SeqCst);
         }
+
         let _ = self.notify("initialized", json!({})).await;
         self.ready.send_replace(true);
     }
@@ -172,6 +180,7 @@ impl Client {
     async fn wait_ready(&self, deadline: tokio::time::Instant) -> bool {
         let mut ready = self.ready.subscribe();
         let became = tokio::time::timeout_at(deadline, ready.wait_for(|ready| *ready)).await;
+
         matches!(became, Ok(Ok(_))) && self.alive()
     }
 
@@ -183,6 +192,7 @@ impl Client {
             versions.insert(key.to_string(), next);
             next
         };
+
         let _ = match version {
             1 => {
                 self.notify(
@@ -262,6 +272,7 @@ impl Client {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (answer, answered) = oneshot::channel();
         self.pending.lock().unwrap().insert(id, answer);
+
         if self
             .send(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
             .await
@@ -270,8 +281,10 @@ impl Client {
             self.pending.lock().unwrap().remove(&id);
             return None;
         }
+
         let reply = tokio::time::timeout(wait, answered).await.ok().and_then(Result::ok);
         self.pending.lock().unwrap().remove(&id);
+
         reply.filter(|reply| reply.get("error").is_none())
     }
 
@@ -283,6 +296,7 @@ impl Client {
     async fn send(&self, message: &Value) -> std::io::Result<()> {
         let body = serde_json::to_vec(message)?;
         let mut stdin = self.stdin.lock().await;
+
         stdin
             .write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
             .await?;
@@ -319,6 +333,7 @@ impl Client {
         let Some(file) = params["uri"].as_str().and_then(super::path_of) else {
             return;
         };
+
         let errors = params["diagnostics"]
             .as_array()
             .into_iter()
@@ -350,7 +365,7 @@ fn answer(method: &str, params: &Value) -> Value {
 
 fn diagnostic(found: &Value) -> Diagnostic {
     let start = &found["range"]["start"];
-    let at = |field: &str| {
+    let position = |field: &str| {
         u32::try_from(start[field].as_u64().unwrap_or(0))
             .unwrap_or(u32::MAX)
             .saturating_add(1)
@@ -362,8 +377,8 @@ fn diagnostic(found: &Value) -> Diagnostic {
         .collect::<Vec<_>>()
         .join(" ");
     Diagnostic {
-        line: at("line"),
-        column: at("character"),
+        line: position("line"),
+        column: position("character"),
         message,
     }
 }
@@ -402,7 +417,9 @@ async fn read_message(reader: &mut BufReader<ChildStdout>) -> std::io::Result<Op
     let Some(length) = length.filter(|length| *length <= MAX_MESSAGE) else {
         return Ok(None);
     };
+
     let mut body = vec![0; length];
     reader.read_exact(&mut body).await?;
+
     Ok(serde_json::from_slice(&body).ok())
 }

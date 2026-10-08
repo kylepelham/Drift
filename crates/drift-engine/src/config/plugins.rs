@@ -86,6 +86,7 @@ pub async fn fetch_component(
     if !valid_id(&install.id) {
         return Err(PluginError::InvalidId);
     }
+
     let bytes = match source {
         Some(source) => {
             let token = fetcher.token(source);
@@ -125,14 +126,17 @@ pub async fn fetch_component(
                 .await?
         }
     };
+
     let digest = hex(&ring::digest::digest(&ring::digest::SHA256, &bytes));
     if !digest.eq_ignore_ascii_case(install.sha256.trim()) {
         return Err(PluginError::HashMismatch);
     }
+
     let dir = config_dir()?.join(PLUGINS_DIR);
     std::fs::create_dir_all(&dir).map_err(|error| file_error("create", &dir, error))?;
     let file = dir.join(format!("{}.wasm", install.id));
     std::fs::write(&file, &bytes).map_err(|error| file_error("write", &file, error))?;
+
     Ok(format!("{PLUGINS_DIR}/{}.wasm", install.id))
 }
 
@@ -147,6 +151,7 @@ fn read_file(path: &Path) -> Result<serde_json::Map<String, Value>, PluginError>
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Default::default()),
         Err(error) => return Err(file_error("read", path, error)),
     };
+
     match serde_json::from_str::<Value>(&super::jsonc::strip(&text)) {
         Ok(Value::Object(map)) => Ok(map),
         Ok(_) => Err(PluginError::NotObject(path.to_path_buf())),
@@ -171,6 +176,7 @@ pub fn edit_plugins(dir: &Path, change: impl FnOnce(&mut Vec<PluginEntry>)) -> R
             source,
         })?
         .unwrap_or_default();
+
     change(&mut plugins);
     file.insert("plugins".into(), serde_json::to_value(&plugins)?);
     std::fs::create_dir_all(dir).map_err(|error| file_error("create", dir, error))?;
@@ -189,6 +195,7 @@ pub fn set_entry(plugins: &mut Vec<PluginEntry>, path: &str, config: Value) {
         },
         _ => PluginEntry::Path(path.to_owned()),
     };
+
     plugins.push(entry);
 }
 
@@ -200,6 +207,7 @@ pub fn remove(dir: &Path, path: &str) -> Result<(), PluginError> {
     if under_plugins {
         let _ = std::fs::remove_file(dir.join(relative));
     }
+
     Ok(())
 }
 

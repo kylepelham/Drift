@@ -39,6 +39,7 @@ impl AgentOverride {
                 })
             })
             .map(|key| format!("unsupported agent control {key}"));
+
         let model = value
             .get("model")
             .and_then(Value::as_str)
@@ -76,6 +77,7 @@ impl AgentOverride {
         if value.get("variant").is_some() && variant.is_none() {
             problem = Some("variant must be text".into());
         }
+
         Self {
             model,
             prompt,
@@ -100,6 +102,7 @@ impl Config {
                 agent.problem = Some(format!("its Settings override is invalid ({problem}); fix or reset it"));
                 continue;
             }
+
             match &chosen.model {
                 Some(ModelPin::Use(model)) => agent.model = Some(model.clone()),
                 Some(ModelPin::Inherit) => agent.model = None,

@@ -136,6 +136,7 @@ pub async fn install(
     if !valid_id(&pack.id) {
         return Err(SkillError::InvalidId);
     }
+
     let bytes = match source {
         Some(source) => {
             let token = fetcher.token(source);
@@ -174,11 +175,13 @@ pub async fn install(
                 .await?
         }
     };
+
     let dir = packs_dir()?.join(&pack.id);
     let into = dir.clone();
     let subdirs = pack.subdirs.clone();
     let wanted = pack.skills.clone();
     let skills = tokio::task::spawn_blocking(move || unpack_any(&bytes, &into, &subdirs, &wanted)).await??;
+
     let installed = Pack {
         id: pack.id,
         name: pack.name,
@@ -190,6 +193,7 @@ pub async fn install(
     };
     let marker = serde_json::to_string_pretty(&installed)?;
     std::fs::write(dir.join(MARKER), marker).map_err(|error| file_error("write", &dir, error))?;
+
     Ok(installed)
 }
 
@@ -198,6 +202,7 @@ fn unpack_any(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
     if bytes.starts_with(b"PK") {
         return unpack_zip(bytes, into, subdirs, wanted);
     }
+
     unpack(bytes, into, subdirs, wanted)
 }
 
@@ -209,6 +214,7 @@ fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
     std::fs::create_dir_all(into).map_err(|error| file_error("create", into, error))?;
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(SkillError::InvalidZip)?;
     let mut skills = Vec::new();
+
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
         if entry.is_dir() || entry.size() > MAX_FILE_BYTES {
@@ -227,22 +233,15 @@ fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
             continue;
         }
         let target = into.join(&relative);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| file_error("create", parent, error))?;
-        }
-        let mut content = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut content)?;
-        std::fs::write(&target, content).map_err(|error| file_error("write", &target, error))?;
-        if relative.file_name().is_some_and(|name| name == "SKILL.md")
-            && let Some(skill) = relative.parent().and_then(Path::file_name)
-        {
-            skills.push(skill.to_string_lossy().into_owned());
-        }
+        let capacity = entry.size();
+        write_archive_file(&target, &mut entry, capacity)?;
+        note_skill(&relative, &mut skills);
     }
     if skills.is_empty() {
         let _ = std::fs::remove_dir_all(into);
         return Err(SkillError::NoSkills);
     }
+
     skills.sort();
     Ok(skills)
 }
@@ -256,6 +255,7 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
     let entries = archive.entries().map_err(SkillError::InvalidTar)?;
     let mut skills = Vec::new();
+
     for entry in entries {
         let mut entry = entry.map_err(SkillError::ArchiveEntry)?;
         if !entry.header().entry_type().is_file() || entry.size() > MAX_FILE_BYTES {
@@ -273,24 +273,35 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
             continue;
         }
         let target = into.join(&relative);
-        if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent).map_err(|error| file_error("create", parent, error))?;
-        }
-        let mut content = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut content)?;
-        std::fs::write(&target, content).map_err(|error| file_error("write", &target, error))?;
-        if relative.file_name().is_some_and(|name| name == "SKILL.md")
-            && let Some(skill) = relative.parent().and_then(Path::file_name)
-        {
-            skills.push(skill.to_string_lossy().into_owned());
-        }
+        let capacity = entry.size();
+        write_archive_file(&target, &mut entry, capacity)?;
+        note_skill(&relative, &mut skills);
     }
     if skills.is_empty() {
         let _ = std::fs::remove_dir_all(into);
         return Err(SkillError::NoSkills);
     }
+
     skills.sort();
     Ok(skills)
+}
+
+fn write_archive_file(target: &Path, entry: &mut impl Read, capacity: u64) -> Result<(), SkillError> {
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| file_error("create", parent, error))?;
+    }
+
+    let mut content = Vec::with_capacity(capacity as usize);
+    entry.read_to_end(&mut content)?;
+    std::fs::write(target, content).map_err(|error| file_error("write", target, error))
+}
+
+fn note_skill(relative: &Path, skills: &mut Vec<String>) {
+    if relative.file_name().is_some_and(|name| name == "SKILL.md")
+        && let Some(skill) = relative.parent().and_then(Path::file_name)
+    {
+        skills.push(skill.to_string_lossy().into_owned());
+    }
 }
 
 /// Where an archive entry lands: its path without the top folder, inside `subdirs` when given, never climbing out.
@@ -304,6 +315,7 @@ fn inner_path(path: &Path, subdirs: &[String]) -> Option<PathBuf> {
     if !subdirs.is_empty() && !subdirs.iter().any(|sub| relative.starts_with(sub.trim_matches('/'))) {
         return None;
     }
+
     Some(relative)
 }
 
@@ -313,12 +325,14 @@ pub fn list() -> Vec<Pack> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
+
     let mut packs: Vec<Pack> = entries
         .flatten()
         .filter_map(|entry| std::fs::read_to_string(entry.path().join(MARKER)).ok())
         .filter_map(|text| serde_json::from_str(&text).ok())
         .collect();
-    packs.sort_by(|a, b| a.name.cmp(&b.name));
+    packs.sort_by(|left, right| left.name.cmp(&right.name));
+
     packs
 }
 

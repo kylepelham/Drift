@@ -28,6 +28,7 @@ pub(super) fn referenced_skill(template: &str) -> Option<String> {
             found.push(name);
         }
     }
+
     (found.len() == 1).then(|| found.remove(0))
 }
 
@@ -57,6 +58,7 @@ fn call_name(text: &str) -> Option<String> {
         .trim_start()
         .strip_prefix('}')
         .is_some_and(|tail| tail.trim_start().starts_with(')'));
+
     (named && closed).then(|| name.to_string())
 }
 
@@ -66,6 +68,7 @@ pub(super) fn skill_arguments(name: &str, content: &str, hint: Option<&str>) -> 
     for choice in hint.and_then(hint_choices).unwrap_or_default() {
         add(&mut found, choice, "");
     }
+
     let prefix = format!("/{name} ");
     let mut fence: Option<(char, usize)> = None;
     let mut columns: Option<(usize, usize)> = None;
@@ -89,10 +92,11 @@ pub(super) fn skill_arguments(name: &str, content: &str, hint: Option<&str>) -> 
         columns = None;
         invocations(&mut found, line, &prefix);
     }
+
     (hint.map(str::to_string), found)
 }
 
-/// `[shape · audit|critique]` lists choices; `[target]` names one free-form argument, which is none.
+/// Hints with alternatives supply choices; a single free-form argument supplies no choice.
 fn hint_choices(hint: &str) -> Option<Vec<&str>> {
     let rest = hint.strip_prefix(['[', '<'])?;
     let inner = &rest[..rest.find([']', '>'])?];
@@ -100,7 +104,7 @@ fn hint_choices(hint: &str) -> Option<Vec<&str>> {
         .then(|| inner.split(['|', '·', ',']).map(str::trim).collect())
 }
 
-/// A header row names the columns; a row under it adds its command. The columns, while the table lasts.
+/// Header rows select command and description columns; following rows add choices using those columns.
 fn table_row(
     found: &mut Vec<Subcommand>,
     row: &[String],
@@ -114,6 +118,7 @@ fn table_row(
     if let (Some(command), Some(description)) = (named(&["command", "subcommand"]), named(&["description"])) {
         return Some((command, description));
     }
+
     let (command, description) = columns?;
     if let Some(spec) = row.get(command).filter(|spec| !spec.is_empty()) {
         add(
@@ -122,6 +127,7 @@ fn table_row(
             row.get(description).map_or("", String::as_str),
         );
     }
+
     columns
 }
 
@@ -135,6 +141,7 @@ fn invocations(found: &mut Vec<Subcommand>, line: &str, prefix: &str) {
         let Some(spec) = part.strip_prefix(prefix).filter(|_| closed) else {
             continue;
         };
+
         let after = plain(line.get(offset.min(line.len())..).unwrap_or_default());
         let description = after
             .strip_prefix([':', '.', ',', ';', '-'])
@@ -156,6 +163,7 @@ fn add(found: &mut Vec<Subcommand>, spec: &str, description: &str) {
     {
         return;
     }
+
     match found.iter_mut().find(|known| known.name.eq_ignore_ascii_case(name)) {
         Some(known) => {
             known.name = name.into();
@@ -201,6 +209,7 @@ fn cells(line: &str) -> Vec<String> {
             _ => protected.push(c),
         }
     }
+
     let trimmed = protected.trim();
     let trimmed = trimmed.strip_prefix('|').unwrap_or(trimmed);
     let trimmed = trimmed.strip_suffix('|').unwrap_or(trimmed);
@@ -230,6 +239,7 @@ fn plain(value: &str) -> String {
         }
     }
     out.push_str(rest);
+
     out.replace(['`', '*'], "").trim().to_string()
 }
 

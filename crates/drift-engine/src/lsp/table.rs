@@ -243,6 +243,7 @@ pub(super) fn root_for(root: &Root, unless: &[&str], file: &Path, workspace: &Pa
     if !unless.is_empty() && nearest(start, workspace, unless).is_some() {
         return None;
     }
+
     match root {
         Root::Nearest(groups) => Some(
             groups
@@ -252,14 +253,14 @@ pub(super) fn root_for(root: &Root, unless: &[&str], file: &Path, workspace: &Pa
         ),
         Root::Strict(markers) => nearest(start, workspace, markers),
         Root::Cargo => {
-            let krate = nearest(start, workspace, &["Cargo.toml"]).unwrap_or_else(|| workspace.to_path_buf());
-            let above = krate
+            let crate_root = nearest(start, workspace, &["Cargo.toml"]).unwrap_or_else(|| workspace.to_path_buf());
+            let above = crate_root
                 .ancestors()
                 .take_while(|dir| dir.starts_with(workspace))
                 .find(|dir| {
                     std::fs::read_to_string(dir.join("Cargo.toml")).is_ok_and(|text| text.contains("[workspace]"))
                 });
-            Some(above.map_or(krate.clone(), Path::to_path_buf))
+            Some(above.map_or(crate_root.clone(), Path::to_path_buf))
         }
     }
 }
@@ -291,6 +292,7 @@ pub(super) fn installed(commands: &[Vec<String>], root: &Path, workspace: &Path)
         .take_while(|dir| dir.starts_with(workspace))
         .map(|dir| dir.join("node_modules").join(".bin"))
         .collect();
+
     commands.iter().find_map(|command| {
         let (program, args) = command.split_first()?;
         let found = crate::platform::process::which(program)

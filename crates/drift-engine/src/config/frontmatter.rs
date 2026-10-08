@@ -37,8 +37,8 @@ impl Document {
     pub(super) fn field(&self, key: &str) -> Option<String> {
         self.fields
             .get(key)
-            .map(|v| unquote(v).to_string())
-            .filter(|v| !v.is_empty())
+            .map(|value| unquote(value).to_string())
+            .filter(|value| !value.is_empty())
     }
 
     /// A list given inline (`a, b` or `[a, b]`), as `- item` lines, or as a `name: true|false` map,
@@ -52,11 +52,13 @@ impl Document {
                     .collect(),
             );
         }
+
         let inline = self.field(key)?;
         let inner = inline
             .trim()
             .trim_start_matches(['[', '{'])
             .trim_end_matches([']', '}']);
+
         Some(inner.split(',').filter_map(entry).collect())
     }
 
@@ -84,6 +86,7 @@ impl Document {
         let Some(lines) = self.nested.get(key) else {
             return Ok(Vec::new());
         };
+
         let base = lines
             .iter()
             .map(|line| line.len() - line.trim_start().len())
@@ -91,6 +94,7 @@ impl Document {
             .unwrap_or(0);
         let mut parent = None;
         let mut rules = Vec::new();
+
         for line in lines {
             let depth = line.len() - line.trim_start().len();
             let (name, value) = line.trim().rsplit_once(':').ok_or(PermissionError::UnnamedRule)?;
@@ -104,6 +108,7 @@ impl Document {
                 rules.push(rule(parent.ok_or(PermissionError::MissingNamespace)?, name, value)?);
             }
         }
+
         Ok(rules)
     }
 }
@@ -120,6 +125,7 @@ impl Flow {
         let mut chars = text.chars().peekable();
         let value = Self::value(&mut chars)?;
         skip_space(&mut chars);
+
         match chars.next() {
             None => Ok(value),
             Some(c) => Err(PermissionError::TrailingCharacter(c)),
@@ -166,10 +172,12 @@ fn scalar(chars: &mut std::iter::Peekable<std::str::Chars>, ends: &[char]) -> Re
         skip_space(chars);
         return Ok(text);
     }
+
     let mut text = String::new();
     while let Some(c) = chars.next_if(|c| !ends.contains(c) && *c != '}') {
         text.push(c);
     }
+
     let text = text.trim().to_string();
     if text.is_empty() {
         Err(PermissionError::EmptyEntry)
@@ -185,6 +193,7 @@ fn rule(kind: &str, pattern: &str, value: &str) -> Result<crate::permission::Rul
         "deny" => crate::permission::Decision::Deny,
         _ => return Err(PermissionError::InvalidDecision),
     };
+
     Ok(crate::permission::Rule {
         kind: kind.into(),
         pattern: pattern.into(),
@@ -196,6 +205,7 @@ fn map_permissions(value: &Flow) -> Result<Vec<crate::permission::Rule>, Permiss
     let Flow::Map(kinds) = value else {
         return Err(PermissionError::NotToolMap);
     };
+
     let mut rules = Vec::new();
     for (kind, value) in kinds {
         match value {
@@ -210,6 +220,7 @@ fn map_permissions(value: &Flow) -> Result<Vec<crate::permission::Rule>, Permiss
             }
         }
     }
+
     Ok(rules)
 }
 
@@ -221,6 +232,7 @@ pub(super) fn parse(text: &str) -> Document {
             ..Document::default()
         };
     };
+
     let Some((head, body)) = rest.split_once("\n---") else {
         return Document {
             body: text,
@@ -248,6 +260,7 @@ pub(super) fn parse(text: &str) -> Document {
             }
         }
     }
+
     doc
 }
 
