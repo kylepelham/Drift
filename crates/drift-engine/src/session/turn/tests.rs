@@ -123,6 +123,35 @@ pub(crate) fn prompt(text: &str) -> Prompt {
     }
 }
 
+fn sibling_session(h: &Harness, title: &str) -> Session {
+    h.engine
+        .store
+        .create_session(NewSession {
+            workspace_id: &h.session.workspace_id,
+            parent_id: None,
+            visibility: Visibility::Sibling,
+            title,
+            agent: "build",
+            model: None,
+        })
+        .unwrap()
+}
+
+fn reply_permission(h: &Harness, request_id: &str, reply: Reply) {
+    h.engine
+        .permissions
+        .reply(
+            &h.engine.hub,
+            request_id,
+            ReplyBody {
+                reply,
+                pattern: None,
+                message: None,
+            },
+        )
+        .unwrap();
+}
+
 #[tokio::test]
 async fn a_plain_reply_is_stored_and_costed() {
     let h = harness().await;
@@ -435,6 +464,10 @@ async fn a_plugin_may_refuse_rewrite_or_add_context_to_a_prompt_and_keep_a_turn_
         "a note sits under the reply"
     );
     assert_eq!(transcript.len(), 4);
+    assert_steward_replay(&h).await;
+}
+
+async fn assert_steward_replay(h: &Harness) {
     {
         let requests = h.provider.requests.lock().unwrap();
         assert!(
@@ -445,7 +478,7 @@ async fn a_plugin_may_refuse_rewrite_or_add_context_to_a_prompt_and_keep_a_turn_
     }
     h.provider.push(text("done"));
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
-    until_idle(&h).await;
+    until_idle(h).await;
     {
         let requests = h.provider.requests.lock().unwrap();
         let replayed = requests[2]
@@ -461,7 +494,7 @@ async fn a_plugin_may_refuse_rewrite_or_add_context_to_a_prompt_and_keep_a_turn_
         .submit(&h.session.id, prompt("about the ticket"))
         .await
         .await_ok();
-    until_idle(&h).await;
+    until_idle(h).await;
     let transcript = h.engine.store.transcript(&h.session.id).unwrap();
     let user = &transcript[4];
     assert_eq!(user.parts.len(), 2);
@@ -1191,6 +1224,10 @@ async fn always_holds_for_the_workspace_across_sessions_and_restarts_and_settles
         "the other session's waiting ask was answered by the same grant"
     );
     assert_eq!(h.provider.responses_left(), 0);
+    assert_workspace_grants_survive_restart(&h);
+}
+
+fn assert_workspace_grants_survive_restart(h: &Harness) {
     let reopened = Engine::open_with(
         &h._dir.join("data"),
         crate::Options {
@@ -2961,7 +2998,7 @@ async fn a_pdf_goes_whole_to_a_model_that_reads_pdfs_and_is_refused_by_one_that_
             .models
             .get_mut("claude-sonnet-4-5")
             .unwrap()
-            .pdf = reads
+            .pdf = reads;
     };
     set_pdf(false);
     let refused = h
@@ -3935,6 +3972,11 @@ fn output_and_thinking_budgets_are_valid_together() {
         (32_000, effort),
         "an effort passes through at the usual cap"
     );
+    assert_thinking_budgets_fit();
+}
+
+fn assert_thinking_budgets_fit() {
+    let budget = |tokens| Some(Reasoning::Budget { tokens });
     for (limit, wanted) in [(4_096, 4_096), (8_192, 8_000), (128_000, 127_000), (2_048, 1_024)] {
         let (max, thinking) = budgets(&model_with(limit, true), budget(wanted));
         assert!(max as u64 <= limit, "{limit}/{wanted}");
@@ -4830,18 +4872,7 @@ async fn a_projects_own_commands_run_only_once_the_user_says_so_and_always_holds
         (ask.ask.kind.as_str(), ask.ask.pattern.as_str()),
         ("project-commands", format!("check mark: {shell} {flag} {run}").as_str())
     );
-    h.engine
-        .permissions
-        .reply(
-            &h.engine.hub,
-            &ask.id,
-            ReplyBody {
-                reply: Reply::Deny,
-                pattern: None,
-                message: None,
-            },
-        )
-        .unwrap();
+    reply_permission(&h, &ask.id, Reply::Deny);
     until_idle(&h).await;
     assert!(!marker.exists(), "refused, the project's command does not run");
     h.provider
@@ -4854,60 +4885,53 @@ async fn a_projects_own_commands_run_only_once_the_user_says_so_and_always_holds
         "a refusal holds for the session without asking again"
     );
 
-    let session = |title| {
-        h.engine
-            .store
-            .create_session(NewSession {
-                workspace_id: &h.session.workspace_id,
-                parent_id: None,
-                visibility: Visibility::Sibling,
-                title,
-                agent: "build",
-                model: None,
-            })
-            .unwrap()
-    };
-    let runs = || std::fs::read_to_string(&marker).unwrap_or_default().lines().count();
+    assert_workspace_project_grants(&h, &mut rx, &marker, (shell, flag, &run)).await;
+}
+
+async fn assert_workspace_project_grants(
+    h: &Harness,
+    rx: &mut tokio::sync::broadcast::Receiver<crate::event::Envelope>,
+    marker: &Path,
+    command: (&str, &str, &str),
+) {
+    let (shell, flag, run) = command;
+    let session = |title| sibling_session(h, title);
+    let runs = || std::fs::read_to_string(marker).unwrap_or_default().lines().count();
     let other = session("Other");
     h.provider
         .push(tool_call("write", r#"{"path": "c.txt", "content": "c\n"}"#))
         .push(text("three"));
     h.engine.submit(&other.id, prompt("write c")).await.await_ok();
-    let ask = next_ask(&mut rx).await;
-    h.engine
-        .permissions
-        .reply(
-            &h.engine.hub,
-            &ask.id,
-            ReplyBody {
-                reply: Reply::Always,
-                pattern: None,
-                message: None,
-            },
-        )
-        .unwrap();
-    until_session_idle(&h, &other.id).await;
+    let ask = next_ask(rx).await;
+    reply_permission(h, &ask.id, Reply::Always);
+    until_session_idle(h, &other.id).await;
     assert_eq!(runs(), 1, "allowed, it runs");
     let third = session("Third");
     h.provider
         .push(tool_call("write", r#"{"path": "d.txt", "content": "d\n"}"#))
         .push(text("four"));
     h.engine.submit(&third.id, prompt("write d")).await.await_ok();
-    until_session_idle(&h, &third.id).await;
+    until_session_idle(h, &third.id).await;
     assert_eq!(runs(), 2);
     assert!(
         h.engine.permissions.pending().is_empty(),
         "always holds for the workspace, in a new session too"
     );
 
-    std::fs::write(h._dir.join("ws/drift.json"), json!({ "checks": { "mark": { "command": [shell, flag, format!("{run} & echo changed")], "extensions": [".txt"] } } }).to_string()).unwrap();
+    let changed = json!({
+        "checks": { "mark": {
+            "command": [shell, flag, format!("{run} & echo changed")],
+            "extensions": [".txt"],
+        } },
+    });
+    std::fs::write(h._dir.join("ws/drift.json"), changed.to_string()).unwrap();
     let fourth = session("Fourth");
     h.provider
         .push(tool_call("write", r#"{"path": "e.txt", "content": "e\n"}"#))
         .push(text("five"));
     h.engine.submit(&fourth.id, prompt("write e")).await.await_ok();
     assert_eq!(
-        next_ask(&mut rx).await.ask.kind,
+        next_ask(rx).await.ask.kind,
         "project-commands",
         "changed commands are asked about again"
     );
@@ -5029,36 +5053,14 @@ async fn refusing_the_projects_formatter_leaves_its_checks_to_their_own_answer()
         "{}",
         formatter.ask.pattern
     );
-    h.engine
-        .permissions
-        .reply(
-            &h.engine.hub,
-            &formatter.id,
-            ReplyBody {
-                reply: Reply::Deny,
-                pattern: None,
-                message: None,
-            },
-        )
-        .unwrap();
+    reply_permission(&h, &formatter.id, Reply::Deny);
     let check = next_ask(&mut rx).await;
     assert!(
         check.ask.pattern.starts_with("check mark: "),
         "asked about apart from the formatter: {}",
         check.ask.pattern
     );
-    h.engine
-        .permissions
-        .reply(
-            &h.engine.hub,
-            &check.id,
-            ReplyBody {
-                reply: Reply::Always,
-                pattern: None,
-                message: None,
-            },
-        )
-        .unwrap();
+    reply_permission(&h, &check.id, Reply::Always);
     until_idle(&h).await;
     h.provider
         .push(tool_call("write", r#"{"path": "b.ts", "content": "let b = 1\n"}"#))
@@ -5286,27 +5288,17 @@ async fn a_read_only_agent_is_refused_every_call_that_would_change_something() {
         .store
         .update_session(&h.session.id, None, None, Some("plan"))
         .unwrap();
-    let call = |id: &str, name: &str, input: &str| {
-        vec![
-            Chunk::ToolUseStart {
-                id: id.into(),
-                name: name.into(),
-            },
-            Chunk::ToolInputDelta(input.into()),
-            Chunk::BlockStop,
-        ]
-    };
     h.provider
         .push(
             [
-                call("t1", "write", r#"{"path": "plan-mutated.txt", "content": "x\n"}"#),
-                call("t2", "bash", r#"{"command": "echo x > made.txt"}"#),
-                call(
+                call_block("t1", "write", r#"{"path": "plan-mutated.txt", "content": "x\n"}"#),
+                call_block("t2", "bash", r#"{"command": "echo x > made.txt"}"#),
+                call_block(
                     "t3",
                     "task",
                     r#"{"description": "Change it", "prompt": "edit a file", "subagent_type": "general"}"#,
                 ),
-                call("t4", "bash", r#"{"command": "git status"}"#),
+                call_block("t4", "bash", r#"{"command": "git status"}"#),
                 vec![Chunk::Stop(StopReason::ToolUse)],
             ]
             .concat(),
@@ -6050,6 +6042,10 @@ async fn auto_accept_answers_every_ask_and_only_a_deny_rule_still_refuses() {
         panic!()
     };
     assert_eq!(*status, ToolStatus::Done);
+    assert_auto_accept_policy(&h);
+}
+
+fn assert_auto_accept_policy(h: &Harness) {
     let ask = |ask: crate::tool::Ask| h.engine.permissions.decide_now(&h.session.id, &Policy::default(), &ask);
     let ws = h._dir.join("ws");
     let bash = |line: &str| crate::tool::Ask::shell(crate::tool::command::Dialect::Bash, line, line);
@@ -6103,7 +6099,7 @@ async fn auto_accept_answers_every_ask_and_only_a_deny_rule_still_refuses() {
         Decision::Deny,
         "a deny rule never asks, so auto-accept never answers it"
     );
-    asks_for(&h, "bash");
+    asks_for(h, "bash");
     h.engine.set_session_auto_accept(&h.session.id, false).unwrap();
     assert_eq!(
         ask(crate::tool::Ask {

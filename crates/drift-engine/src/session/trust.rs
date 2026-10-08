@@ -13,7 +13,7 @@ use crate::tool::Ask;
 
 /// What each session was told about each project command (one line naming it): allowed or not.
 #[derive(Default)]
-pub struct Answers(Mutex<HashMap<String, HashMap<String, bool>>>);
+pub(crate) struct Answers(Mutex<HashMap<String, HashMap<String, bool>>>);
 
 impl Answers {
     /// The nearest answer about `line` along `lineage` (the session, then the parents a subagent inherits approvals from).

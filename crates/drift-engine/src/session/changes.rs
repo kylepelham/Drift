@@ -5,6 +5,14 @@ use std::path::{Path, PathBuf};
 use super::snapshot::{FileChange, Tree};
 use crate::Engine;
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum CaptureError {
+    #[error("{0}")]
+    Snapshot(#[from] super::snapshot::Error),
+    #[error("{0}")]
+    Unrecorded(String),
+}
+
 /// The state taken before a writing call runs.
 pub(super) enum Capture {
     /// The files the call names, each with its content before it ran.
@@ -45,7 +53,7 @@ impl Engine {
         &self,
         workspace: &Path,
         touched: Option<Vec<PathBuf>>,
-    ) -> Result<Capture, String> {
+    ) -> Result<Capture, CaptureError> {
         let Some(paths) = touched else {
             return Ok(match self.snapshots.take(workspace).await {
                 Ok(tree) => Capture::Tree(tree),
@@ -56,11 +64,7 @@ impl Engine {
         let mut before = Vec::new();
         for path in paths {
             let path = relative(workspace, &path);
-            let blob = self
-                .snapshots
-                .record(workspace, &path)
-                .await
-                .map_err(|e| e.to_string())?;
+            let blob = self.snapshots.record(workspace, &path).await?;
             before.push((path, blob));
         }
         Ok(Capture::Paths(before))
@@ -118,17 +122,13 @@ impl Engine {
     }
 
     /// Only paths whose content actually changed; an untouched file is never part of an undo.
-    async fn capture_after(&self, workspace: &Path, capture: Capture) -> Result<Recorded, String> {
+    async fn capture_after(&self, workspace: &Path, capture: Capture) -> Result<Recorded, CaptureError> {
         match capture {
-            Capture::Unrecorded(reason) => Err(reason),
+            Capture::Unrecorded(reason) => Err(CaptureError::Unrecorded(reason)),
             Capture::Skipped => Ok(Recorded::default()),
             Capture::Tree(before) => {
-                let after = self.snapshots.take(workspace).await.map_err(|e| e.to_string())?;
-                let diff = self
-                    .snapshots
-                    .changes_between(workspace, &before, &after)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let after = self.snapshots.take(workspace).await?;
+                let diff = self.snapshots.changes_between(workspace, &before, &after).await?;
                 let changes = diff
                     .changes
                     .into_iter()
@@ -147,11 +147,7 @@ impl Engine {
             Capture::Paths(paths) => {
                 let mut changes = Vec::new();
                 for (path, before) in paths {
-                    let after = self
-                        .snapshots
-                        .record(workspace, &path)
-                        .await
-                        .map_err(|e| e.to_string())?;
+                    let after = self.snapshots.record(workspace, &path).await?;
                     if after != before && !changes.iter().any(|c: &FileChange| c.path == path) {
                         changes.push(FileChange {
                             path,

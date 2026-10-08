@@ -17,7 +17,7 @@ const MAX_MENTION_BYTES: usize = crate::tool::spool::MAX_RESULT_BYTES;
 const MAX_LISTED: usize = 1000;
 
 /// What deciding about a prompt's files needs.
-pub struct Attach<'a> {
+pub(crate) struct Attach<'a> {
     pub engine: &'a crate::Engine,
     pub session_id: &'a str,
     pub workspace: &'a Path,
@@ -29,13 +29,13 @@ pub struct Attach<'a> {
 
 /// A prompt's parts ready to admit, and the mentions read in full: once admitted, those count as
 /// read, so the model can edit them.
-pub struct Prepared {
+pub(crate) struct Prepared {
     pub parts: Vec<Part>,
     pub read: Vec<PathBuf>,
 }
 
 impl Attach<'_> {
-    pub fn prepare(&self, parts: Vec<Part>) -> Result<Prepared, TurnError> {
+    pub(crate) fn prepare(&self, parts: Vec<Part>) -> Result<Prepared, TurnError> {
         let mut read = Vec::new();
         let parts = parts
             .into_iter()
@@ -262,7 +262,7 @@ fn file_path(url: &str) -> Option<PathBuf> {
 }
 
 /// A text data URL's content, for the request builder. Admission already refused any that fail here.
-pub fn data_text(url: &str) -> Option<String> {
+pub(crate) fn data_text(url: &str) -> Option<String> {
     DataUrl::parse(url)?.text()
 }
 

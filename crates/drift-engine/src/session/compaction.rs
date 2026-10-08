@@ -44,6 +44,36 @@ pub(super) enum Trigger {
     Overflow,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum CompactionError {
+    #[error("{0}")]
+    Turn(#[from] TurnError),
+    #[error("{0}")]
+    Store(#[from] rusqlite::Error),
+    #[error("the conversation could not be read")]
+    Unreadable,
+    #[error("there is nothing to compact yet")]
+    Empty,
+    #[error("aborted")]
+    Aborted,
+    #[error("the summary was not saved ({0})")]
+    Unsaved(rusqlite::Error),
+    #[error("{0}")]
+    Request(String),
+    #[error("the conversation is too long to summarise")]
+    TooLong,
+}
+
+struct SummaryInput<'a> {
+    session_id: &'a str,
+    action: &'a Action,
+    instructions: &'a str,
+    window: &'a [MessageWithParts],
+    trigger: Trigger,
+    previous: Option<&'a str>,
+    head: &'a [&'a MessageWithParts],
+}
+
 /// What the model sees: the latest finished summary, then the messages it kept and everything after.
 pub(super) struct View<'a> {
     pub summary: Option<String>,
@@ -190,7 +220,7 @@ impl Engine {
         session_id: &str,
         trigger: Trigger,
         abort: &CancellationToken,
-    ) -> Result<(), String> {
+    ) -> Result<(), CompactionError> {
         let result = self.compact_once(session_id, trigger, abort).await;
         if result.is_ok() {
             self.turns.files_for(&self.store, session_id).forget_shown();
@@ -208,11 +238,15 @@ impl Engine {
         result
     }
 
-    async fn compact_once(&self, session_id: &str, trigger: Trigger, abort: &CancellationToken) -> Result<(), String> {
+    async fn compact_once(
+        &self,
+        session_id: &str,
+        trigger: Trigger,
+        abort: &CancellationToken,
+    ) -> Result<(), CompactionError> {
         let action = self
             .action_model(session_id, "compaction", Fallback::Conversation)
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
         let mut instructions = action
             .config
             .agent("compaction")
@@ -231,19 +265,15 @@ impl Engine {
             }
         }
         // Only what the view shows is summarised again, so history the last summary covered is not loaded.
-        let transcript = self
-            .request_window(session_id)
-            .ok_or("the conversation could not be read")?;
+        let transcript = self.request_window(session_id).ok_or(CompactionError::Unreadable)?;
         let view = view(&transcript);
         let tail = tail_start(&view.messages, tail_budget(&action.conversation));
         let head = &view.messages[..tail.unwrap_or(view.messages.len())];
         if head.is_empty() && view.summary.is_none() {
-            return Err("there is nothing to compact yet".into());
+            return Err(CompactionError::Empty);
         }
         let tail_from = tail.map(|i| view.messages[i].info.id.clone());
-        let mut summary = self
-            .open_compaction(session_id, &action.resolved.model_ref, trigger, tail_from)
-            .map_err(|e| e.to_string())?;
+        let mut summary = self.open_compaction(session_id, &action.resolved.model_ref, trigger, tail_from)?;
         // The prompt a split turn kept verbatim rides with the previous summary, so a second compaction does not lose it.
         let previous = view.summary.as_ref().map(|summary| match &view.request {
             Some(request) => {
@@ -252,9 +282,18 @@ impl Engine {
             None => summary.clone(),
         });
         let mut spent = Spent::default();
+        let input = SummaryInput {
+            session_id,
+            action: &action,
+            instructions: &instructions,
+            window: &transcript,
+            trigger,
+            previous: previous.as_deref(),
+            head,
+        };
         let outcome = tokio::select! {
-            outcome = self.summarise(session_id, &action, &instructions, &transcript, trigger, previous.as_deref(), head, &mut spent) => outcome,
-            () = abort.cancelled() => Err("aborted".to_string()),
+            outcome = self.summarise(&input, &mut spent) => outcome,
+            () = abort.cancelled() => Err(CompactionError::Aborted),
         };
         // Charged like any reply, the attempts that came back unusable included.
         summary.usage = spent.usage;
@@ -305,15 +344,15 @@ impl Engine {
     fn close_compaction(
         &self,
         summary: &mut Message,
-        outcome: Result<String, String>,
+        outcome: Result<String, CompactionError>,
         aborted: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), CompactionError> {
         summary.finished_at = Some(id::now_ms());
         let stored = outcome.and_then(|text| {
             summary.status = MessageStatus::Done;
             self.store
                 .complete_summary(summary, text.trim())
-                .map_err(|e| format!("the summary was not saved ({e})"))
+                .map_err(CompactionError::Unsaved)
         });
         let error = match stored {
             Ok(part) => {
@@ -330,7 +369,7 @@ impl Engine {
         } else {
             MessageStatus::Error
         };
-        summary.error = Some(error.clone());
+        summary.error = Some(error.to_string());
         let _ = self.store.save_message(summary);
         self.hub.publish(Event::MessageUpdated {
             message: summary.clone(),
@@ -342,38 +381,27 @@ impl Engine {
     /// conversation's next one with the instructions after it, so its whole history is read at the
     /// cached price. Otherwise, or when that reply is unusable or too long, a lean request on the
     /// history before the tail.
-    #[allow(clippy::too_many_arguments)]
-    async fn summarise(
-        &self,
-        session_id: &str,
-        action: &Action,
-        instructions: &str,
-        window: &[MessageWithParts],
-        trigger: Trigger,
-        previous: Option<&str>,
-        head: &[&MessageWithParts],
-        spent: &mut Spent,
-    ) -> Result<String, String> {
-        if let Some(plan) = action
+    async fn summarise(&self, input: &SummaryInput<'_>, spent: &mut Spent) -> Result<String, CompactionError> {
+        if let Some(plan) = input
+            .action
             .own
             .as_ref()
-            .filter(|_| trigger != Trigger::Overflow && warm(window))
+            .filter(|_| input.trigger != Trigger::Overflow && warm(input.window))
         {
             match self
-                .summarise_cached(session_id, plan, instructions, window.to_vec())
+                .summarise_cached(input.session_id, plan, input.instructions, input.window.to_vec())
                 .await
             {
                 Ok(answer) => return Ok(spent.take(&plan.model, answer)),
                 Err(failure) => {
                     spent.add(&plan.model, failure.usage());
                     if !failure.retry_another_way() {
-                        return Err(failure.message());
+                        return Err(CompactionError::Request(failure.message()));
                     }
                 }
             }
         }
-        self.summarise_lean(session_id, action, instructions, previous, head, spent)
-            .await
+        self.summarise_lean(input, spent).await
     }
 
     /// Exactly the request the turn's next step would send (same frame, reasoning and tool choice,
@@ -407,22 +435,14 @@ impl Engine {
 
     /// The history before the tail with files by mention and tool results cut, no system prompt;
     /// when it is itself too long, the oldest turns are dropped and it is asked again.
-    async fn summarise_lean(
-        &self,
-        session_id: &str,
-        action: &Action,
-        instructions: &str,
-        previous: Option<&str>,
-        head: &[&MessageWithParts],
-        spent: &mut Spent,
-    ) -> Result<String, String> {
-        let resolved = &action.resolved;
-        let starts = turn_starts(head);
+    async fn summarise_lean(&self, input: &SummaryInput<'_>, spent: &mut Spent) -> Result<String, CompactionError> {
+        let resolved = &input.action.resolved;
+        let starts = turn_starts(input.head);
         let mut dropped = 0;
         for attempt in 0..=TRIM_ATTEMPTS {
-            let from = starts.get(dropped).copied().unwrap_or(head.len());
+            let from = starts.get(dropped).copied().unwrap_or(input.head.len());
             let mut messages = Vec::new();
-            if let Some(previous) = previous {
+            if let Some(previous) = input.previous {
                 convert::push(&mut messages, llm::Role::User, vec![Block::Text(wrap(previous))]);
             }
             if dropped > 0 {
@@ -438,7 +458,7 @@ impl Engine {
                 let catalog = self.catalog.read().unwrap();
                 convert::append(
                     &mut messages,
-                    head[from..].iter().copied(),
+                    input.head[from..].iter().copied(),
                     &convert::OnCatalog {
                         model: &resolved.model_ref,
                         catalog: &catalog,
@@ -446,14 +466,18 @@ impl Engine {
                 );
             }
             lean(&mut messages);
-            convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
+            convert::push(
+                &mut messages,
+                llm::Role::User,
+                vec![Block::Text(input.instructions.into())],
+            );
             let shot = OneShot {
                 system: String::new(),
                 messages,
-                tools: self.tool_specs(resolved.model.profile, Some(&action.workspace)),
+                tools: self.tool_specs(resolved.model.profile, Some(&input.action.workspace)),
                 max_tokens: SUMMARY_MAX_TOKENS,
                 timeout: SUMMARY_TIMEOUT,
-                shown_in: Some(session_id.into()),
+                shown_in: Some(input.session_id.into()),
             };
             let failure = match self.complete(resolved, shot).await {
                 Ok(answer) => return Ok(spent.take(&resolved.model, answer)),
@@ -462,11 +486,11 @@ impl Engine {
             spent.add(&resolved.model, failure.usage());
             let error = failure.message();
             if attempt == TRIM_ATTEMPTS || !llm::mentions_context_overflow(&error) || dropped >= starts.len() {
-                return Err(error);
+                return Err(CompactionError::Request(error));
             }
             dropped += (starts.len() / 5).max(1);
         }
-        Err("the conversation is too long to summarise".into())
+        Err(CompactionError::TooLong)
     }
 }
 
@@ -498,7 +522,7 @@ fn lean(messages: &mut [ChatMessage]) {
     for block in messages.iter_mut().flat_map(|message| message.blocks.iter_mut()) {
         match block {
             Block::Image { mime, .. } | Block::Stored { mime, .. } => {
-                *block = Block::Text(format!("[a {mime} file was attached here]"))
+                *block = Block::Text(format!("[a {mime} file was attached here]"));
             }
             Block::Pdf { .. } => *block = Block::Text("[a PDF was attached here]".into()),
             Block::ToolResult { content, .. } if content.chars().count() > SUMMARY_TOOL_CHARS => {

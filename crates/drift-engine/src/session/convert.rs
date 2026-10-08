@@ -10,7 +10,7 @@ fn replayable(message: &MessageWithParts) -> bool {
 }
 
 /// The model a request's history is for: reasoning signatures validate only with the model that made them.
-pub trait Target {
+pub(crate) trait Target {
     fn wrote(&self, model: &ModelRef) -> bool;
 }
 
@@ -22,7 +22,7 @@ impl Target for ModelRef {
 }
 
 /// This entry or any that runs the same model, a mode and its base (`Catalog::same_model`).
-pub struct OnCatalog<'a> {
+pub(crate) struct OnCatalog<'a> {
     pub model: &'a ModelRef,
     pub catalog: &'a Catalog,
 }
@@ -34,7 +34,7 @@ impl Target for OnCatalog<'_> {
 }
 
 /// Converts `transcript` onto `out`, merging with what is already there, for `target`.
-pub fn append<'a>(
+pub(crate) fn append<'a>(
     out: &mut Vec<ChatMessage>,
     transcript: impl IntoIterator<Item = &'a MessageWithParts>,
     target: &impl Target,
@@ -93,7 +93,7 @@ fn unsigned_mut(block: &mut Block) -> &mut Block {
 }
 
 /// Adjacent messages of one role merge, since providers reject two in a row.
-pub fn push(out: &mut Vec<ChatMessage>, role: LlmRole, blocks: Vec<Block>) {
+pub(crate) fn push(out: &mut Vec<ChatMessage>, role: LlmRole, blocks: Vec<Block>) {
     if blocks.is_empty() {
         return;
     }

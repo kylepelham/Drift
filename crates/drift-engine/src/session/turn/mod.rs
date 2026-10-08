@@ -1,6 +1,7 @@
 //! One prompt, one turn: stream the model, run what it calls, repeat until it stops.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -29,6 +30,8 @@ use crate::session::types::{
 };
 use crate::store::{Admit, Admitted, Handover, Pick};
 use crate::tool::{Context, SessionFiles};
+
+mod calls;
 
 /// Retries after a provider fault before the turn gives up and shows the error.
 const MAX_RETRIES: u32 = 8;
@@ -151,6 +154,8 @@ impl From<rusqlite::Error> for TurnError {
         Self::Store(error.to_string())
     }
 }
+
+impl std::error::Error for TurnError {}
 
 #[derive(Default)]
 pub struct Turns {
@@ -1332,7 +1337,7 @@ impl Engine {
             let Some(transcript) = self.transcript_for_step(plan, abort).await else {
                 break;
             };
-            let wrap_up = wrapping.map(|wrap_up| wrap_up.instruction());
+            let wrap_up = wrapping.map(WrapUp::instruction);
             let request;
             (request, answered) = self.step_request(plan, transcript, started, wrap_up);
             let Ok(message) = self
@@ -1659,25 +1664,7 @@ impl Engine {
     ) -> Step {
         let streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
-            Err(StreamError::Aborted) => {
-                message.status = MessageStatus::Aborted;
-                let _ = self.finish(&mut message);
-                self.settle_unrun(&message, "the reply was stopped before this call ran.");
-                return Step::Done;
-            }
-            Err(StreamError::Provider(error)) => {
-                message.status = MessageStatus::Error;
-                message.error = Some(error.to_string());
-                let _ = self.finish(&mut message);
-                self.settle_unrun(
-                    &message,
-                    "the reply failed before it finished, so its calls were not trusted to run.",
-                );
-                if error.is_context_overflow() {
-                    return Step::Overflow;
-                }
-                return Retry::from(&error).map_or(Step::Done, Step::Retry);
-            }
+            Err(error) => return self.failed_step(&mut message, error),
         };
         message.usage = streamed.usage;
         // Priced at the API's rates whatever the sign-in, so a subscription shows what it saves.
@@ -1742,6 +1729,32 @@ impl Engine {
                 Step::Done
             }
             _ => Step::Continue,
+        }
+    }
+
+    fn failed_step(&self, message: &mut Message, error: StreamError) -> Step {
+        match error {
+            StreamError::Aborted => {
+                message.status = MessageStatus::Aborted;
+                let _ = self.finish(message);
+                self.settle_unrun(message, "the reply was stopped before this call ran.");
+                Step::Done
+            }
+            StreamError::Provider(error) => {
+                message.status = MessageStatus::Error;
+                message.error = Some(error.to_string());
+                let _ = self.finish(message);
+                self.settle_unrun(
+                    message,
+                    "the reply failed before it finished, so its calls were not trusted to run.",
+                );
+
+                if error.is_context_overflow() {
+                    return Step::Overflow;
+                }
+
+                Retry::from(&error).map_or(Step::Done, Step::Retry)
+            }
         }
     }
 
@@ -1933,7 +1946,7 @@ impl Engine {
         scope: &CallScope<'_>,
         files: &[PathBuf],
         before: Vec<Option<Vec<u8>>>,
-        error: &str,
+        error: &super::changes::CaptureError,
     ) -> super::changes::Lost {
         let mut unrecorded = Vec::new();
         for (file, was) in files.iter().zip(before) {
@@ -2021,192 +2034,6 @@ impl Engine {
     async fn run_reads(self: &Arc<Self>, scope: &CallScope<'_>, reads: Vec<PartRow>) -> Outcome {
         let outcomes = futures_util::future::join_all(reads.into_iter().map(|row| self.run_call(scope, row))).await;
         if outcomes.contains(&Outcome::Aborted) {
-            Outcome::Aborted
-        } else {
-            Outcome::Allowed
-        }
-    }
-
-    async fn run_call(self: &Arc<Self>, scope: &CallScope<'_>, mut row: PartRow) -> Outcome {
-        let Part::ToolCall {
-            call_id,
-            name,
-            input,
-            metadata,
-            ..
-        } = row.part.clone()
-        else {
-            return Outcome::Allowed;
-        };
-        let command_model = metadata
-            .as_ref()
-            .filter(|metadata| metadata.engine_command.is_some())
-            .and_then(|metadata| metadata.command_model.as_deref())
-            .and_then(crate::config::parse_model);
-        let mut ctx = Context {
-            workspace: scope.plan.workspace.clone(),
-            session_id: scope.plan.session.id.clone(),
-            agent: scope.plan.session.agent.clone(),
-            message_id: scope.message.id.clone(),
-            call_id: call_id.clone(),
-            files: scope.files.clone(),
-            abort: scope.abort.clone(),
-            engine: self.clone(),
-            config: scope.plan.config.clone(),
-            progress: Default::default(),
-            command_model,
-        };
-        // Only what this turn was offered runs, as it was when offered; `Read` for `read` is the same tool.
-        let Some((name, tool)) = scope.plan.offer.tool_named(&name) else {
-            self.settle(
-                &mut row,
-                ToolStatus::Error,
-                None,
-                format!("`{name}` is not available in this session; use only the tools you were given"),
-                None,
-            );
-            return Outcome::Allowed;
-        };
-        if let Part::ToolCall { name: stored, .. } = &mut row.part {
-            stored.clone_from(&name);
-        }
-        if !input.is_object() {
-            self.settle(&mut row, ToolStatus::Error, None, unparsed(&input), None);
-            return Outcome::Allowed;
-        }
-        let problems = crate::tool::schema::problems(&tool.spec().input_schema, &input);
-        if !problems.is_empty() {
-            self.settle(
-                &mut row,
-                ToolStatus::Error,
-                None,
-                format!(
-                    "The call did not run: {}. Send it again with arguments that fit the tool's schema.",
-                    problems.join("; ")
-                ),
-                None,
-            );
-            return Outcome::Allowed;
-        }
-        // A read-only agent is offered the usual tools; whatever would change something is refused here, before any ask.
-        let agent = &scope.plan.session.agent;
-        if scope.plan.config.agent(agent).is_some_and(|found| found.read_only) && !tool.stays_read_only(&ctx, &input) {
-            let refusal = format!(
-                "The {agent} agent only reads, so this call was not run: it would change something. Use read-only commands and tools, or hand the work to a read-only subagent such as explore."
-            );
-            self.settle(&mut row, ToolStatus::Error, None, refusal, None);
-            return Outcome::Allowed;
-        }
-        let (input, rewritten) = match self
-            .hook_before(scope, &mut row, &name, &tool.spec().input_schema, input)
-            .await
-        {
-            Ok(input) => input,
-            Err(outcome) => return outcome,
-        };
-        let hooked = (!self.hooks.is_empty()).then(|| input.clone());
-        let writes = tool.call_mutates(&input);
-        let touches = writes.then(|| tool.touches(&ctx, &input));
-        let _turn = match self
-            .lock_call(scope, &mut row, touches.as_ref().and_then(|paths| paths.as_deref()))
-            .await
-        {
-            Ok(turn) => turn,
-            Err(outcome) => return outcome,
-        };
-        for ask in tool.asks(&ctx, &input) {
-            if let Some(refused) = self.permit(scope, &mut row, &call_id, &name, ask).await {
-                return refused;
-            }
-        }
-        let capture = match self.before_write(scope, &mut row, touches).await {
-            Ok(ready) => ready,
-            Err(outcome) => return outcome,
-        };
-        if let (Some(running), Part::ToolCall { metadata, .. }) = (tool.running_metadata(&ctx, &input), &mut row.part) {
-            *metadata = running.merged(metadata.take().map(|metadata| *metadata)).map(Box::new);
-        }
-        if let Err(error) = self.start_call(&mut row) {
-            self.settle(
-                &mut row,
-                ToolStatus::Error,
-                None,
-                format!("refused to run: could not record the call ({error})"),
-                None,
-            );
-            return Outcome::Allowed;
-        }
-        ctx.progress = self.progress_for(&row);
-        // A read that started while the reply streamed ran on the input as the model sent it.
-        let started = scope.early.lock().unwrap().take(&call_id).filter(|_| !rewritten);
-        let result = match started {
-            Some(started) => tokio::select! {
-                result = started.finish(scope.files) => result,
-                () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
-            },
-            None if tool.stops_itself() => tool.run(&ctx, input).await,
-            None => tokio::select! {
-                result = tool.run(&ctx, input) => result,
-                () = scope.abort.cancelled() => Err(crate::tool::ToolError("Aborted.".into())),
-            },
-        };
-        let (status, title, text, meta) = match result {
-            Ok(output) => {
-                let status = if tool.failed(&output) {
-                    ToolStatus::Error
-                } else {
-                    ToolStatus::Done
-                };
-                let title = output.title;
-                let (text, meta) = if writes {
-                    self.after_write(scope, &call_id, output.output, output.metadata).await
-                } else {
-                    (output.output, output.metadata)
-                };
-                (status, Some(title), text, meta)
-            }
-            Err(error) => (ToolStatus::Error, None, error.0, ToolMetadata::null()),
-        };
-        // A command that exited non-zero failed as far as a plugin is concerned, though the model reads it as a result.
-        let failed = status == ToolStatus::Error || meta.exit.is_some_and(|code| code != 0);
-        let (text, meta) = self.hook_after(scope, &name, hooked, failed, text, meta).await;
-        let (mut meta, text) = self.keep_images(&scope.message.id, meta, text).await;
-        // Every result, MCP and tools yet to come included, reaches the model within one bound.
-        let spill = self
-            .data_dir
-            .join("tool-output")
-            .join(&scope.plan.session.id)
-            .join(format!("{call_id}.result.log"));
-        let (text, spilled) = crate::tool::spool::bound(text, spill);
-        if let Some(file) = spilled {
-            meta = meta
-                .merged(Some(ToolMetadata {
-                    result_file: Some(file.to_string_lossy().into_owned()),
-                    ..Default::default()
-                }))
-                .unwrap_or_default();
-        }
-        // After formatting, and on failure too: a failed or stopped command may still have written.
-        let (status, mut text, changes) = match capture {
-            Some(capture) => self.history_of(scope, capture, status, text).await,
-            None => (status, text, None),
-        };
-        if let Some(note) = changes.as_ref().and_then(|history| history.history_error.as_deref()) {
-            crate::tool::add_note(&mut text, &mut meta, note);
-        }
-        // A result this call hands over is acknowledged in the write that saves it, if the call holds its claim.
-        let claimant = Claimant::call(&scope.plan.session.id, &call_id);
-        let delivers = meta
-            .delivers
-            .as_deref()
-            .filter(|task| self.workers.holds(task, &claimant))
-            .map(str::to_owned);
-        self.settle_delivering(&mut row, status, title, text, meta.merged(changes), delivers.as_deref());
-        self.release_claims(&claimant);
-        if writes {
-            scope.wrote.lock().unwrap().note(&row);
-        }
-        if scope.abort.is_cancelled() {
             Outcome::Aborted
         } else {
             Outcome::Allowed
@@ -2619,11 +2446,13 @@ impl Engine {
             match result.and_then(|(image, note)| self.keep_image(message_id, image).map(|kept| (kept, note))) {
                 Ok((kept, note)) => {
                     if let Some(note) = note {
-                        text.push_str(&format!("\n\n[an image ({mime}) was {note} to fit the model's limits]"));
+                        let _ = write!(text, "\n\n[an image ({mime}) was {note} to fit the model's limits]");
                     }
                     stored.push(kept);
                 }
-                Err(reason) => text.push_str(&format!("\n\n[an image ({mime}) is not shown: {reason}]")),
+                Err(reason) => {
+                    let _ = write!(text, "\n\n[an image ({mime}) is not shown: {reason}]");
+                }
             }
         }
         meta.images = Some(crate::tool::image::stored_metadata(&stored));
@@ -3059,10 +2888,13 @@ pub(super) fn payload_hash(prompt: &Prompt) -> String {
         .map(|chosen| serde_json::json!({ "chosen": chosen }));
     let body =
         serde_json::json!({ "parts": prompt.parts, "model": prompt.model, "variant": variant, "agent": prompt.agent });
-    sha2::Sha256::digest(body.to_string().as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect()
+    let digest = sha2::Sha256::digest(body.to_string().as_bytes());
+    let mut hash = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        let _ = write!(hash, "{byte:02x}");
+    }
+
+    hash
 }
 
 /// The output limit and thinking budget for one request, valid together: the output never exceeds the
@@ -3206,7 +3038,7 @@ fn checks_note(
         let label = check_label(report, workspace);
         match &report.verdict {
             Verdict::Problems(said) if repeated(&label, Some(said)) => {
-                problems.push(format!("[{label}] the same problems as reported before"))
+                problems.push(format!("[{label}] the same problems as reported before"));
             }
             Verdict::Problems(said) => problems.push(format!("[{label}]\n{said}")),
             Verdict::Passed => {

@@ -473,7 +473,7 @@ fn recorded_changes(part: &Part) -> Option<Record> {
         .changes
         .as_ref()?
         .iter()
-        .map(|change| change.snapshot())
+        .map(super::types::HistoryChange::snapshot)
         .collect();
     Some(Record {
         owner: metadata.owner.clone(),

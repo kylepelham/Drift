@@ -1,6 +1,7 @@
 //! User commands retain execution settings and use the existing permission and worker machinery.
 
 use serde_json::{Value, json};
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use super::turn::{Admission, Prompt, Receipt, TurnError};
@@ -15,6 +16,55 @@ pub(crate) struct Bootstrap {
     pub command: String,
     /// The command's model for a delegated task; carried in the call's metadata, never in its input.
     pub model: Option<ModelRef>,
+}
+
+struct CommandCalls<'a> {
+    command: &'a crate::config::Command,
+    arguments: &'a str,
+    agent: &'a str,
+    delegated: bool,
+    model: &'a Option<ModelRef>,
+    text: &'a str,
+    lines: Vec<String>,
+}
+
+fn command_calls(input: CommandCalls<'_>) -> Vec<Bootstrap> {
+    let name = &input.command.name;
+    if let Some(skill) = &input.command.skill {
+        return vec![Bootstrap {
+            tool: "skill".into(),
+            input: json!({ "name": skill, "arguments": input.arguments }),
+            command: name.clone(),
+            model: None,
+        }];
+    }
+
+    if input.delegated {
+        let arguments = json!({
+            "description": name,
+            "prompt": input.text,
+            "subagent_type": input.agent,
+            "run_in_background": false,
+        });
+
+        return vec![Bootstrap {
+            tool: "task".into(),
+            input: arguments,
+            command: name.clone(),
+            model: input.model.clone(),
+        }];
+    }
+
+    input
+        .lines
+        .into_iter()
+        .map(|line| Bootstrap {
+            tool: "bash".into(),
+            input: json!({ "command": line, "description": format!("/{name}") }),
+            command: name.clone(),
+            model: None,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -409,6 +459,26 @@ impl From<TurnError> for CommandError {
 }
 
 impl Engine {
+    async fn command_text(
+        &self,
+        command: &crate::config::Command,
+        workspace: &std::path::Path,
+        arguments: &str,
+    ) -> Result<String, CommandError> {
+        let Some(server) = &command.server else {
+            return Ok(command.expand(arguments));
+        };
+        let name = command
+            .name
+            .split_once(':')
+            .map_or(command.name.as_str(), |(_, name)| name);
+
+        self.mcp
+            .get_prompt(server, Some(workspace), name, command.named_arguments(arguments))
+            .await
+            .map_err(|error| CommandError::Mcp(error.to_string()))
+    }
+
     pub(crate) async fn execute_command(
         self: &Arc<Self>,
         id: &str,
@@ -444,19 +514,7 @@ impl Engine {
         let model = model.or_else(|| command.model.clone());
         // A subagent never holds the conversation, so a command naming one always delegates.
         let delegated = command.subtask == Some(true) || definition.kind == AgentKind::Subagent;
-        let text = match &command.server {
-            Some(server) => {
-                let prompt = command
-                    .name
-                    .split_once(':')
-                    .map_or(command.name.as_str(), |(_, name)| name);
-                self.mcp
-                    .get_prompt(server, Some(&workspace), prompt, command.named_arguments(arguments))
-                    .await
-                    .map_err(|error| CommandError::Mcp(error.to_string()))?
-            }
-            None => command.expand(arguments),
-        };
+        let text = self.command_text(command, &workspace, arguments).await?;
         let (text, lines) = if command.server.is_none() && command.skill.is_none() {
             shell_lines(&text)
         } else {
@@ -468,33 +526,15 @@ impl Engine {
             ));
         }
         let routed = command.skill.is_some() || delegated;
-        let bootstraps: Vec<Bootstrap> = if let Some(skill) = &command.skill {
-            vec![Bootstrap {
-                tool: "skill".into(),
-                input: json!({ "name": skill, "arguments": arguments }),
-                command: name.into(),
-                model: None,
-            }]
-        } else if delegated {
-            let input =
-                json!({ "description": name, "prompt": text, "subagent_type": agent, "run_in_background": false });
-            vec![Bootstrap {
-                tool: "task".into(),
-                input,
-                command: name.into(),
-                model: model.clone(),
-            }]
-        } else {
-            lines
-                .into_iter()
-                .map(|line| Bootstrap {
-                    tool: "bash".into(),
-                    input: json!({ "command": line, "description": format!("/{name}") }),
-                    command: name.into(),
-                    model: None,
-                })
-                .collect()
-        };
+        let bootstraps = command_calls(CommandCalls {
+            command,
+            arguments,
+            agent,
+            delegated,
+            model: &model,
+            text: &text,
+            lines,
+        });
         // Its own agent and model run this turn only; a delegated or skill command runs on the session's.
         let chosen = !routed && (command.agent.is_some() || model.is_some());
         let shown = if routed {
@@ -541,7 +581,7 @@ fn shell_lines(text: &str) -> (String, Vec<String>) {
         if line.is_empty() {
             out.push_str("!``");
         } else {
-            out.push_str(&format!("`{line}` (its output follows)"));
+            let _ = write!(out, "`{line}` (its output follows)");
             lines.push(line.to_string());
         }
         rest = &rest[start + 3 + len..];

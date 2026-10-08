@@ -188,11 +188,12 @@ async fn a_step_loads_from_the_kept_tail_and_sends_what_the_whole_transcript_wou
 async fn a_single_long_turn_keeps_its_newest_steps_and_its_prompt_verbatim() {
     let h = harness().await;
     for i in 0..6 {
-        std::fs::write(
-            h._dir.join(format!("ws/big{i}.txt")),
-            (0..1_500).map(|n| format!("BODY{i} line {n}\n")).collect::<String>(),
-        )
-        .unwrap();
+        use std::fmt::Write as _;
+        let mut contents = String::new();
+        for line in 0..1_500 {
+            let _ = writeln!(contents, "BODY{i} line {line}");
+        }
+        std::fs::write(h._dir.join(format!("ws/big{i}.txt")), contents).unwrap();
         h.provider.push(crate::session::turn::tests::tool_call(
             "read",
             &format!(r#"{{"path": "big{i}.txt"}}"#),
@@ -670,28 +671,7 @@ async fn a_warm_summary_on_the_conversations_model_is_its_next_request_with_the_
     let all = requests(&h);
     let (last_turn, summary) = (&all[all.len() - 3], all.last().unwrap());
     assert_eq!(all.len(), 6, "the overloaded summary request was sent again");
-    let stored = h
-        .engine
-        .store
-        .transcript(&h.session.id)
-        .unwrap()
-        .last()
-        .unwrap()
-        .clone();
-    assert_eq!(texts(&stored), "SUMMARY");
-    assert!(
-        stored.info.usage
-            == Usage {
-                input: 10,
-                output: 3,
-                cache_read: 0,
-                cache_write: 0
-            }
-            && stored.info.cost > 0.0,
-        "the summary is charged like a reply: {:?} {}",
-        stored.info.usage,
-        stored.info.cost
-    );
+    assert_warm_summary_stored(&h);
     assert_eq!(
         summary.messages[..last_turn.messages.len()],
         last_turn.messages[..],
@@ -732,6 +712,25 @@ async fn a_warm_summary_on_the_conversations_model_is_its_next_request_with_the_
         retried |= matches!(envelope.event, crate::event::Event::SessionRetry { ref session_id, attempt: 1, .. } if *session_id == h.session.id);
     }
     assert!(retried, "the user waiting on the compaction sees it retry, as a turn's");
+}
+
+fn assert_warm_summary_stored(h: &Harness) {
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let stored = transcript.last().unwrap();
+    assert_eq!(texts(stored), "SUMMARY");
+    assert!(
+        stored.info.usage
+            == Usage {
+                input: 10,
+                output: 3,
+                cache_read: 0,
+                cache_write: 0
+            }
+            && stored.info.cost > 0.0,
+        "the summary is charged like a reply: {:?} {}",
+        stored.info.usage,
+        stored.info.cost
+    );
 }
 
 #[tokio::test]
@@ -832,9 +831,11 @@ async fn a_warm_summary_that_calls_a_tool_is_asked_again_the_lean_way() {
 
 /// A one-pixel image prompt part and a file whose read is far over the summary's cut.
 fn files(h: &Harness) -> (Part, String) {
-    let lines: String = (0..400)
-        .map(|n| format!("line {n} of a long file that the summary does not need whole\n"))
-        .collect();
+    use std::fmt::Write as _;
+    let mut lines = String::new();
+    for line in 0..400 {
+        let _ = writeln!(lines, "line {line} of a long file that the summary does not need whole");
+    }
     std::fs::write(h._dir.join("ws/big.txt"), &lines).unwrap();
     let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
     (

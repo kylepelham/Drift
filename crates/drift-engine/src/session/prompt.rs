@@ -1,5 +1,6 @@
 //! The system prompt: who the model is, how to work here, and what the workspace says about itself.
 
+use std::fmt::Write as _;
 use std::path::Path;
 
 use super::types::{MessageWithParts, Part, PartRow, Role};
@@ -79,24 +80,29 @@ pub fn system(setting: &Setting) -> String {
     let mut prompt = format!("{}\n\n{}", base.trim(), SHARED.trim());
     // A primary agent's prompt rides on its turns' prompts instead (`remind_agents`), so the system prompt stays the same across a switch.
     if let Some(agent) = agent.filter(|a| !a.prompt.is_empty() && !a.kind.runs_conversations()) {
-        prompt.push_str(&format!("\n\n{}", agent.prompt));
+        let _ = write!(prompt, "\n\n{}", agent.prompt);
     }
     prompt.push_str("\n\n# Environment\n\n");
-    prompt.push_str(&format!("Working directory: {}\n", workspace.display()));
-    prompt.push_str(&format!(
-        "Git repository: {}\n",
+    let _ = writeln!(prompt, "Working directory: {}", workspace.display());
+    let _ = writeln!(
+        prompt,
+        "Git repository: {}",
         if crate::config::in_repository(workspace) {
             "yes"
         } else {
             "no"
         }
-    ));
-    prompt.push_str(&format!("Platform: {}\n", std::env::consts::OS));
-    prompt.push_str(&format!("Date: {}\n", crate::platform::clock::local_date()));
-    prompt.push_str(&format!("Model: {model}\n"));
-    prompt.push_str(&format!("Scratch directory: {} (read and write there without asking; put temporary files there, not in the workspace)\n", crate::tool::scratch_dir().display()));
+    );
+    let _ = writeln!(prompt, "Platform: {}", std::env::consts::OS);
+    let _ = writeln!(prompt, "Date: {}", crate::platform::clock::local_date());
+    let _ = writeln!(prompt, "Model: {model}");
+    let _ = writeln!(
+        prompt,
+        "Scratch directory: {} (read and write there without asking; put temporary files there, not in the workspace)",
+        crate::tool::scratch_dir().display()
+    );
     for (server, text) in servers {
-        prompt.push_str(&format!("\n# Instructions from the {server} MCP server\n\n{text}\n"));
+        let _ = writeln!(prompt, "\n# Instructions from the {server} MCP server\n\n{text}");
     }
     // Only what this agent can use is listed: a skill it may load, a subagent it may delegate to.
     let skills: Vec<&crate::config::Skill> = config
@@ -107,7 +113,7 @@ pub fn system(setting: &Setting) -> String {
     if !skills.is_empty() {
         prompt.push_str("\n# Skills\n\nLoad one with the `skill` tool when its description matches the task.\n\n");
         for skill in skills {
-            prompt.push_str(&format!("- {}: {}\n", skill.name, skill.description));
+            let _ = writeln!(prompt, "- {}: {}", skill.name, skill.description);
         }
     }
     // A broken subagent would only fail when picked, so it is not offered.
@@ -119,14 +125,15 @@ pub fn system(setting: &Setting) -> String {
     if delegates && !subagents.is_empty() {
         prompt.push_str("\n# Subagents\n\nPass one as `subagent_type` to the `task` tool.\n\n");
         for subagent in subagents {
-            prompt.push_str(&format!("- {}: {}\n", subagent.name, subagent.description));
+            let _ = writeln!(prompt, "- {}: {}", subagent.name, subagent.description);
         }
     }
     for instruction in &config.instructions {
-        prompt.push_str(&format!(
-            "\n# Instructions from {}\n\n{}\n",
+        let _ = writeln!(
+            prompt,
+            "\n# Instructions from {}\n\n{}",
             instruction.name, instruction.text
-        ));
+        );
     }
     prompt
 }
@@ -421,43 +428,7 @@ mod tests {
 
     #[test]
     fn each_prompt_keeps_the_reminder_of_the_agent_its_turn_ran_as() {
-        use crate::session::types::{Message, MessageStatus, Usage};
         let config = Config::load_with_home(&std::env::temp_dir().join("drift-prompt-none"), None);
-        let message = |role: Role, agent: Option<&str>| MessageWithParts {
-            info: Message {
-                id: String::new(),
-                session_id: String::new(),
-                role,
-                status: MessageStatus::Done,
-                model: None,
-                agent: agent.map(str::to_string),
-                usage: Usage::default(),
-                cost: 0.0,
-                error: None,
-                created_at: 0,
-                finished_at: None,
-                summary: false,
-                ending: None,
-            },
-            parts: Vec::new(),
-        };
-        let texts = |message: &MessageWithParts| {
-            message
-                .parts
-                .iter()
-                .filter_map(|p| match &p.part {
-                    Part::Text { text } => Some(text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-                .join("|")
-        };
-        let numbered = |mut list: Vec<MessageWithParts>| {
-            for (i, m) in list.iter_mut().enumerate() {
-                m.info.id = format!("msg_{i:02}");
-            }
-            list
-        };
         let mut transcript = numbered(vec![
             message(Role::User, None),
             message(Role::Assistant, Some("plan")),
@@ -507,7 +478,11 @@ mod tests {
             texts(&run[0]).contains("# Plan mode") && texts(&run[2]).is_empty(),
             "a run of plan turns carries plan's prompt once"
         );
+    }
 
+    #[test]
+    fn a_compacted_prompt_keeps_its_agent_reminder() {
+        let config = Config::load_with_home(&std::env::temp_dir().join("drift-prompt-none"), None);
         let mut boundary = message(Role::User, None);
         boundary.parts.push(PartRow {
             id: String::new(),
@@ -551,5 +526,46 @@ mod tests {
             super::super::compaction::request_messages(&compacted, &target, &lead)[0]
         );
         assert!(sent.contains("what happened") && sent.contains("# Plan mode"), "{sent}");
+    }
+
+    fn message(role: Role, agent: Option<&str>) -> MessageWithParts {
+        MessageWithParts {
+            info: crate::session::types::Message {
+                id: String::new(),
+                session_id: String::new(),
+                role,
+                status: crate::session::types::MessageStatus::Done,
+                model: None,
+                agent: agent.map(str::to_string),
+                usage: Default::default(),
+                cost: 0.0,
+                error: None,
+                created_at: 0,
+                finished_at: None,
+                summary: false,
+                ending: None,
+            },
+            parts: Vec::new(),
+        }
+    }
+
+    fn texts(message: &MessageWithParts) -> String {
+        message
+            .parts
+            .iter()
+            .filter_map(|row| match &row.part {
+                Part::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+
+    fn numbered(mut messages: Vec<MessageWithParts>) -> Vec<MessageWithParts> {
+        for (index, message) in messages.iter_mut().enumerate() {
+            message.info.id = format!("msg_{index:02}");
+        }
+
+        messages
     }
 }

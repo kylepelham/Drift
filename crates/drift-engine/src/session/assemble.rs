@@ -7,7 +7,7 @@ use crate::llm::{Chunk, StopReason};
 use crate::session::types::{Message, Part, PartRow, ToolStatus, Usage};
 use crate::store::Store;
 
-pub struct Assembler<'a> {
+pub(crate) struct Assembler<'a> {
     store: &'a Store,
     hub: &'a Hub,
     message: &'a Message,
@@ -30,7 +30,7 @@ struct Open {
 }
 
 impl<'a> Assembler<'a> {
-    pub fn new(store: &'a Store, hub: &'a Hub, message: &'a Message) -> Self {
+    pub(crate) fn new(store: &'a Store, hub: &'a Hub, message: &'a Message) -> Self {
         Self {
             store,
             hub,
@@ -42,7 +42,7 @@ impl<'a> Assembler<'a> {
         }
     }
 
-    pub fn apply(&mut self, chunk: Chunk) -> rusqlite::Result<()> {
+    pub(crate) fn apply(&mut self, chunk: Chunk) -> rusqlite::Result<()> {
         match chunk {
             Chunk::TextStart => self.start(Part::Text { text: String::new() }),
             Chunk::ReasoningStart => self.start(Part::Reasoning {
@@ -144,7 +144,7 @@ impl<'a> Assembler<'a> {
     }
 
     /// Persists the open block; tool calls are queued for execution once the message ends.
-    pub fn stop_block(&mut self) -> rusqlite::Result<()> {
+    pub(crate) fn stop_block(&mut self) -> rusqlite::Result<()> {
         let Some(mut open) = self.open.take() else {
             return Ok(());
         };
@@ -173,20 +173,24 @@ mod tests {
     use crate::session::types::{Role, Visibility};
     use crate::store::{NewSession, tests::store};
 
-    #[test]
-    fn assembles_text_reasoning_and_tool_calls() {
-        let store = store();
-        let hub = Hub::new(64);
-        let session = store
+    fn session(store: &Store, workspace_id: &str) -> crate::session::types::Session {
+        store
             .create_session(NewSession {
-                workspace_id: "w",
+                workspace_id,
                 parent_id: None,
                 visibility: Visibility::Sibling,
                 title: "",
                 agent: "build",
                 model: None,
             })
-            .unwrap();
+            .unwrap()
+    }
+
+    #[test]
+    fn assembles_text_reasoning_and_tool_calls() {
+        let store = store();
+        let hub = Hub::new(64);
+        let session = session(&store, "w");
         let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
         let mut rx = hub.attach(None).rx;
         let mut assembler = Assembler::new(&store, &hub, &message);
@@ -266,16 +270,7 @@ mod tests {
     fn a_snapshot_mid_stream_holds_the_text_so_far_and_deltas_say_where_they_start() {
         let store = store();
         let hub = Hub::new(64);
-        let session = store
-            .create_session(NewSession {
-                workspace_id: "w",
-                parent_id: None,
-                visibility: Visibility::Sibling,
-                title: "",
-                agent: "build",
-                model: None,
-            })
-            .unwrap();
+        let session = session(&store, "w");
         let message = store.create_message(&session.id, Role::Assistant, None).unwrap();
         let mut rx = hub.attach(None).rx;
         let mut assembler = Assembler::new(&store, &hub, &message);
@@ -319,16 +314,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("drift-signature-{}", crate::random_hex(4)));
         let store = crate::store::open(&dir).unwrap();
         let workspace = store.add_workspace("ws", "ws", "").unwrap();
-        let session = store
-            .create_session(NewSession {
-                workspace_id: &workspace.id,
-                parent_id: None,
-                visibility: Visibility::Sibling,
-                title: "",
-                agent: "build",
-                model: None,
-            })
-            .unwrap();
+        let session = session(&store, &workspace.id);
         let model = crate::session::types::ModelRef {
             provider: "google".into(),
             model: "gemini-3-pro".into(),

@@ -2,6 +2,7 @@
 //! blobs, so an undo can put back exactly those files and nothing else.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -101,6 +102,8 @@ impl std::fmt::Display for Error {
         }
     }
 }
+
+impl std::error::Error for Error {}
 
 impl Snapshots {
     pub fn new(data_dir: &Path) -> Self {
@@ -429,15 +432,20 @@ impl Snapshots {
         tokio::fs::create_dir_all(&info)
             .await
             .map_err(|e| Error::Failed(e.to_string()))?;
-        let lines: String = large
-            .iter()
-            .map(|(path, _)| format!("/{}\n", escape_pattern(path)))
-            .collect();
+        let mut lines = String::new();
+        for (path, _) in large {
+            let _ = writeln!(lines, "/{}", escape_pattern(path));
+        }
         tokio::fs::write(info.join("exclude"), lines)
             .await
             .map_err(|e| Error::Failed(e.to_string()))?;
         if !large.is_empty() {
-            let paths: String = large.iter().map(|(path, _)| format!("{path}\0")).collect();
+            let mut paths = String::new();
+            for (path, _) in large {
+                paths.push_str(path);
+                paths.push('\0');
+            }
+
             self.run(
                 workspace,
                 &["update-index", "--force-remove", "-z", "--stdin"],
@@ -463,11 +471,11 @@ impl Snapshots {
         if keep.is_empty() {
             let _ = self.git(workspace, &["update-ref", "-d", KEEP_REF]).await;
         } else {
-            let listing: String = keep
-                .iter()
-                .enumerate()
-                .map(|(i, blob)| format!("100644 blob {blob}\t{i}\n"))
-                .collect();
+            let mut listing = String::new();
+            for (index, blob) in keep.iter().enumerate() {
+                let _ = writeln!(listing, "100644 blob {blob}\t{index}");
+            }
+
             let tree = self
                 .run(workspace, &["mktree", "--missing"], Some(listing.as_bytes()))
                 .await?;
@@ -703,7 +711,11 @@ async fn unconverted_changes(workspace: &Path, changes: Vec<FileChange>) -> Vec<
     if modified.is_empty() {
         return changes;
     }
-    let paths: String = modified.iter().map(|change| format!("{}\n", change.path)).collect();
+    let mut paths = String::new();
+    for change in &modified {
+        let _ = writeln!(paths, "{}", change.path);
+    }
+
     let Some(hashed) = plain_git(workspace, &["hash-object", "--stdin-paths"], Some(paths.as_bytes())).await else {
         return changes;
     };
