@@ -789,6 +789,64 @@ mod tests {
     }
 
     #[test]
+    fn tool_metadata_samples_round_trip_in_stored_parts() {
+        for (producer, sample) in METADATA_SAMPLES {
+            let metadata: Value = serde_json::from_str(sample).unwrap();
+            let stored = serde_json::json!({
+                "type": "tool_call", "callId": "call_saved", "name": producer, "input": {},
+                "status": "done", "title": "Saved result", "output": "Complete", "metadata": metadata,
+                "startedAt": 1000, "finishedAt": 2000
+            });
+
+            let part = Part::from_stored(&stored.to_string());
+            assert!(matches!(part, Part::ToolCall { metadata: Some(_), .. }), "{producer}");
+            assert_eq!(
+                serde_json::from_str::<Value>(&part.stored()).unwrap(),
+                stored,
+                "{producer}"
+            );
+        }
+    }
+
+    #[test]
+    fn tool_metadata_schema_declares_the_producers_wire_keys() {
+        use utoipa::PartialSchema;
+
+        let schema = serde_json::to_value(ToolMetadata::schema()).unwrap();
+        let properties = schema["properties"].as_object().unwrap();
+
+        for (producer, sample) in METADATA_SAMPLES {
+            let metadata: Value = serde_json::from_str(sample).unwrap();
+            for key in metadata.as_object().unwrap().keys() {
+                assert!(properties.contains_key(key), "{producer}: schema lacks {key}");
+            }
+        }
+
+        assert!(!properties.contains_key("legacy"));
+        assert!(!properties.contains_key("extra"));
+        assert!(!properties.contains_key("engine_command"));
+        assert!(schema.get("additionalProperties").is_some());
+    }
+
+    #[test]
+    fn typed_metadata_overwrites_legacy_keys_without_duplicate_json_fields() {
+        let mut metadata = ToolMetadata::from(serde_json::json!({"exit": "unavailable", "notes": null}));
+        metadata.exit = Some(0);
+        metadata.notes = Some(Vec::new());
+
+        let json = serde_json::to_string(&metadata).unwrap();
+        assert_eq!(json.matches("\"exit\"").count(), 1);
+        assert_eq!(json.matches("\"notes\"").count(), 1);
+        assert_eq!(
+            serde_json::from_str::<Value>(&json).unwrap(),
+            serde_json::json!({"exit": 0, "notes": []})
+        );
+
+        let output = crate::tool::Output::new("Read directory", "No files");
+        assert!(serde_json::to_value(output).unwrap().get("metadata").is_none());
+    }
+
+    #[test]
     fn imported_metadata_and_non_objects_stay_loadable() {
         let samples = [
             serde_json::json!({
