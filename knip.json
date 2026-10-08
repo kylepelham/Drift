@@ -1,6 +1,6 @@
 {
     "$schema": "https://unpkg.com/knip@6/schema.json",
-    "entry": ["src/main.tsx", "scripts/*.ts", "tests/**/*.test.ts", "tests/source.ts"],
+    "entry": ["scripts/*.ts", "tests/**/*.test.ts"],
     "project": ["src/**/*.{ts,tsx}", "scripts/**/*.ts", "tests/**/*.ts"],
     "ignore": ["src/engine/native/types.ts"],
     "ignoreBinaries": ["cmake"]

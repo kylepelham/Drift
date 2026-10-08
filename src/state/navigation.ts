@@ -39,6 +39,10 @@ export function pushRemoteSelection(patch: Pick<RemoteRoute, "workspace" | "sess
     history.pushState(null, "", navigationHash(next));
 }
 
+/**
+ * Puts a mirrored remote selection in the address bar without adding a history entry.
+ * @public loaded by main.tsx through a dynamic import, which knip cannot follow
+ */
 export function replaceRemoteSelection(workspace: string | null, session: string | null) {
     if (!isRemoteRuntime()) return;
 

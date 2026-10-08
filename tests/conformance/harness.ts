@@ -10,7 +10,7 @@ export const model = { provider: "anthropic", model: "claude-sonnet-4-5" };
 
 /** `match` sends the reply only to the conversation whose first message contains it, so sessions running at once get their own. */
 export type Scripted = { status?: number; body: string; delayMs?: number; match?: string };
-export type Seen = { headers: Record<string, string>; body: Record<string, unknown> };
+type Seen = { headers: Record<string, string>; body: Record<string, unknown> };
 
 export function fixture(name: string) {
     return readFileSync(path.join(import.meta.dir, "fixtures", `${name}.sse`), "utf8");

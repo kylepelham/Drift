@@ -80,6 +80,10 @@ export function setCustomTheme(value: CustomTheme) {
     publishTheme();
 }
 
+/**
+ * Applies a theme another window or device chose.
+ * @public loaded by main.tsx through a dynamic import, which knip cannot follow
+ */
 export function applyMirroredTheme(value: MirrorTheme) {
     setThemeValue(value.name);
     setCustomThemeValue(value.custom);

@@ -37,6 +37,10 @@ function setWorkspaceOrder(ids: string[]) {
     publishMirrorWorkspaceOrder(ids);
 }
 
+/**
+ * Applies a workspace order another window or device chose.
+ * @public loaded by main.tsx through a dynamic import, which knip cannot follow
+ */
 export function applyMirroredWorkspaceOrder(ids: string[]) {
     setWorkspaceOrderValue(ids);
 }
