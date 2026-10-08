@@ -11,7 +11,7 @@ use crate::event::Event;
 use crate::store::Workspace;
 
 #[derive(Serialize, Deserialize, ToSchema)]
-pub struct NewWorkspace {
+pub(super) struct NewWorkspace {
     pub path: String,
     pub name: String,
     #[serde(default)]
@@ -19,7 +19,7 @@ pub struct NewWorkspace {
 }
 
 #[utoipa::path(get, path = "/workspaces", operation_id = "listWorkspaces", responses((status = 200, body = Vec<Workspace>)))]
-pub async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<Vec<Workspace>>, StatusCode> {
+pub(super) async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<Vec<Workspace>>, StatusCode> {
     engine
         .store
         .workspaces()
@@ -34,7 +34,7 @@ pub async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<Vec<Workspac
     request_body = NewWorkspace,
     responses((status = 201, body = Workspace))
 )]
-pub async fn create(
+pub(super) async fn create(
     State(engine): State<Arc<Engine>>,
     Json(body): Json<NewWorkspace>,
 ) -> Result<(StatusCode, Json<Workspace>), StatusCode> {
@@ -49,7 +49,7 @@ pub async fn create(
 }
 
 #[derive(Deserialize, utoipa::IntoParams)]
-pub struct FileQuery {
+pub(super) struct FileQuery {
     /// What the user typed after `@`.
     #[serde(default)]
     pub query: String,
@@ -60,7 +60,7 @@ pub struct FileQuery {
 /// Workspace paths for an @ mention, best match first (directories end in `/`). Names only: reading a
 /// mentioned file is decided when the prompt is sent.
 #[utoipa::path(get, path = "/workspaces/{id}/files", operation_id = "findFiles", params(FileQuery), responses((status = 200, body = Vec<String>), (status = 404)))]
-pub async fn files(
+pub(super) async fn files(
     State(engine): State<Arc<Engine>>,
     axum::extract::Path(id): axum::extract::Path<String>,
     axum::extract::Query(query): axum::extract::Query<FileQuery>,
@@ -79,7 +79,7 @@ pub async fn files(
 }
 
 #[derive(Serialize, ToSchema)]
-pub struct Purged {
+pub(super) struct Purged {
     /// Conversations deleted, subagents and archived ones included.
     pub deleted: usize,
 }
@@ -87,7 +87,7 @@ pub struct Purged {
 /// Deletes every conversation of a workspace the user removed: the seven-day purge's last step,
 /// after which the shell forgets the workspace. 409 while it is in use again or one of them runs.
 #[utoipa::path(post, path = "/workspaces/{id}/purge", operation_id = "purgeWorkspace", responses((status = 200, body = Purged), (status = 404), (status = 409)))]
-pub async fn purge(
+pub(super) async fn purge(
     State(engine): State<Arc<Engine>>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<Purged>, crate::api::error::ApiError> {
@@ -109,7 +109,7 @@ pub async fn purge(
 }
 
 #[utoipa::path(get, path = "/workspaces/{id}/config", operation_id = "workspaceConfig", responses((status = 200, body = crate::config::Config), (status = 404)))]
-pub async fn config(
+pub(super) async fn config(
     State(engine): State<Arc<Engine>>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<crate::config::Config>, StatusCode> {

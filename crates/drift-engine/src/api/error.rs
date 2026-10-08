@@ -10,19 +10,19 @@ use crate::session::tree::TreeError;
 use crate::session::turn::TurnError;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ErrorBody {
+pub(super) struct ErrorBody {
     pub code: String,
     pub message: String,
 }
 
 #[derive(Debug)]
-pub struct ApiError {
+pub(super) struct ApiError {
     pub status: StatusCode,
     pub body: ErrorBody,
 }
 
 impl ApiError {
-    pub fn new(status: StatusCode, code: &str, message: impl Into<String>) -> Self {
+    pub(super) fn new(status: StatusCode, code: &str, message: impl Into<String>) -> Self {
         Self {
             status,
             body: ErrorBody {
@@ -32,7 +32,7 @@ impl ApiError {
         }
     }
 
-    pub fn not_found(what: &str) -> Self {
+    pub(super) fn not_found(what: &str) -> Self {
         Self::new(StatusCode::NOT_FOUND, "not_found", format!("{what} not found"))
     }
 }

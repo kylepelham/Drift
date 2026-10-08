@@ -35,16 +35,40 @@ struct Api;
 fn documented() -> OpenApiRouter<Arc<Engine>> {
     OpenApiRouter::with_openapi(Api::openapi())
         .routes(routes!(health::get))
+        .merge(workspace_routes())
+        .merge(session_routes())
+        .merge(session_action_routes())
+        .merge(settings_routes())
+        .merge(plugin_routes())
+        .merge(skill_routes())
+        .merge(provider_routes())
+        .merge(permission_routes())
+        .merge(question_routes())
+        .merge(task_routes())
+        .merge(mcp_routes())
+        .routes(routes!(events::get))
+}
+
+fn workspace_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(workspaces::list, workspaces::create))
         .routes(routes!(workspaces::config))
         .routes(routes!(workspaces::files))
         .routes(routes!(workspaces::purge))
+}
+
+fn session_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(sessions::list, sessions::create))
         .routes(routes!(sessions::get, sessions::update, sessions::delete))
         .routes(routes!(sessions::messages))
         .routes(routes!(sessions::submit))
         .routes(routes!(sessions::abort))
         .routes(routes!(sessions::command))
+}
+
+fn session_action_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(sessions::spawn))
         .routes(routes!(sessions::fork))
         .routes(routes!(sessions::move_session))
@@ -52,15 +76,27 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::switch_retry_model))
         .routes(routes!(sessions::revert))
         .routes(routes!(sessions::unrevert))
+}
+
+fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(settings::get, settings::put))
         .routes(routes!(settings::tools))
         .routes(routes!(settings::fetch_registry))
+}
+
+fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(settings::plugins))
         .routes(routes!(settings::reload_plugins))
         .routes(routes!(settings::set_plugin_enabled))
         .routes(routes!(settings::install_plugin))
         .routes(routes!(settings::remove_plugin))
         .routes(routes!(settings::configure_plugin))
+}
+
+fn skill_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(
             settings::skill_packs,
             settings::install_skill_pack,
@@ -68,6 +104,10 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         ))
         .routes(routes!(settings::skills))
         .routes(routes!(settings::set_skill_enabled))
+}
+
+fn provider_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(prompts::list))
         .routes(routes!(prompts::save, prompts::reset))
         .routes(routes!(providers::list))
@@ -75,18 +115,34 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::remove))
         .routes(routes!(providers::oauth_start))
         .routes(routes!(providers::oauth_finish))
+}
+
+fn permission_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(permissions::list))
         .routes(routes!(permissions::reply))
         .routes(routes!(permissions::grants, permissions::revoke_all))
         .routes(routes!(permissions::revoke))
         .routes(routes!(permissions::rules, permissions::save_rules))
+}
+
+fn question_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(questions::list))
         .routes(routes!(questions::reply))
         .routes(routes!(questions::reject))
+}
+
+fn task_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(sessions::todos))
         .routes(routes!(sessions::tasks))
         .routes(routes!(sessions::task))
         .routes(routes!(sessions::abort_task))
+}
+
+fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(mcp::list))
         .routes(routes!(mcp::save, mcp::remove))
         .routes(routes!(mcp::rename))
@@ -94,7 +150,6 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(mcp::disconnect))
         .routes(routes!(mcp::set_enabled))
         .routes(routes!(mcp::sign_in, mcp::sign_out))
-        .routes(routes!(events::get))
 }
 
 /// The largest request the engine reads: prompts carry attachments as base64 (a 40 MB video is 53 MB); axum's default is 2 MB.

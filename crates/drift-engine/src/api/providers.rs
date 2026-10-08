@@ -17,7 +17,7 @@ use crate::llm::openai::oauth as codex;
 /// A catalog provider plus whether the engine can currently talk to it.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ProviderStatus {
+pub(super) struct ProviderStatus {
     pub id: String,
     pub name: String,
     pub connected: bool,
@@ -29,12 +29,12 @@ pub struct ProviderStatus {
 
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiKeyBody {
+pub(super) struct ApiKeyBody {
     pub key: String,
 }
 
 #[utoipa::path(get, path = "/providers", operation_id = "listProviders", responses((status = 200, body = Vec<ProviderStatus>)))]
-pub async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<ProviderStatus>> {
+pub(super) async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<ProviderStatus>> {
     let catalog = engine.catalog_view();
     let stored = engine.credentials.providers();
     let statuses = catalog
@@ -63,7 +63,7 @@ fn status(engine: &Engine, info: &ProviderInfo, stored: &[String]) -> ProviderSt
 }
 
 #[utoipa::path(put, path = "/providers/{id}/key", operation_id = "setProviderKey", request_body = ApiKeyBody, responses((status = 204), (status = 404)))]
-pub async fn set_key(
+pub(super) async fn set_key(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
     Json(body): Json<ApiKeyBody>,
@@ -84,7 +84,7 @@ pub async fn set_key(
 }
 
 #[utoipa::path(delete, path = "/providers/{id}/credentials", operation_id = "removeProviderCredentials", responses((status = 204)))]
-pub async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+pub(super) async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
     engine
         .credentials
         .remove(&id)
@@ -95,7 +95,7 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -
 
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum OAuthMode {
+pub(super) enum OAuthMode {
     /// Claude Pro or Max.
     Max,
     /// Anthropic Console.
@@ -107,13 +107,13 @@ pub enum OAuthMode {
 }
 
 #[derive(Deserialize, ToSchema)]
-pub struct OAuthStartBody {
+pub(super) struct OAuthStartBody {
     pub mode: OAuthMode,
 }
 
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct OAuthStarted {
+pub(super) struct OAuthStarted {
     /// Open this in a browser.
     pub url: String,
     pub state: String,
@@ -125,7 +125,7 @@ pub struct OAuthStarted {
 }
 
 #[derive(Deserialize, ToSchema)]
-pub struct OAuthFinishBody {
+pub(super) struct OAuthFinishBody {
     /// For `code` flows: `code#state`, the callback URL, or its query string. Empty for `auto` flows.
     #[serde(default)]
     pub input: String,
@@ -135,7 +135,7 @@ pub struct OAuthFinishBody {
 }
 
 #[utoipa::path(post, path = "/providers/{id}/oauth", operation_id = "startOAuth", request_body = OAuthStartBody, responses((status = 200, body = OAuthStarted), (status = 404)))]
-pub async fn oauth_start(
+pub(super) async fn oauth_start(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
     Json(body): Json<OAuthStartBody>,
@@ -190,7 +190,7 @@ async fn supergrok_start(engine: &Arc<Engine>) -> Result<Json<OAuthStarted>, Api
 }
 
 #[utoipa::path(post, path = "/providers/{id}/oauth/callback", operation_id = "finishOAuth", request_body = OAuthFinishBody, responses((status = 204), (status = 400), (status = 404)))]
-pub async fn oauth_finish(
+pub(super) async fn oauth_finish(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
     Json(body): Json<OAuthFinishBody>,

@@ -15,14 +15,14 @@ use crate::event::{Envelope, Replay};
 /// Everything the server writes to the socket.
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(untagged)]
-pub enum Frame {
+pub(super) enum Frame {
     Control(Control),
     Event(Box<Envelope>),
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type")]
-pub enum Control {
+pub(super) enum Control {
     /// First frame. A client without a cursor, or one that knew another `instance`, hydrates and then trusts events after `seq`.
     #[serde(rename = "hello")]
     Hello {
@@ -44,7 +44,7 @@ pub enum Control {
 }
 
 #[derive(Deserialize, IntoParams)]
-pub struct EventsQuery {
+pub(super) struct EventsQuery {
     /// Last `seq` the client has applied; omit on first connect.
     pub cursor: Option<u64>,
 }
@@ -67,7 +67,7 @@ impl Lease {
     params(EventsQuery),
     responses((status = 101, description = "WebSocket; every message is a Frame"))
 )]
-pub async fn get(
+pub(super) async fn get(
     State(engine): State<Arc<Engine>>,
     Query(query): Query<EventsQuery>,
     lease: Option<axum::Extension<Lease>>,
@@ -163,7 +163,7 @@ async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>, lease:
                 Err(RecvError::Closed) => return,
             },
             incoming = client.socket.recv() => match incoming {
-                Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return,
+                Some(Ok(Message::Close(_)) | Err(_)) | None => return,
                 Some(Ok(Message::Text(text))) => handle(&engine, opened.socket, &text, &results),
                 Some(Ok(_)) => {}
             },
@@ -174,7 +174,7 @@ async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>, lease:
 /// Replies can ride the socket so a permission prompt never waits on a new HTTP connection.
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type")]
-pub enum Incoming {
+pub(super) enum Incoming {
     #[serde(rename = "permission.reply", rename_all = "camelCase")]
     PermissionReply {
         request_id: String,

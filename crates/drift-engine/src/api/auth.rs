@@ -9,12 +9,12 @@ use serde::Deserialize;
 use crate::Engine;
 
 #[derive(Deserialize)]
-pub struct TokenQuery {
+pub(super) struct TokenQuery {
     token: Option<String>,
 }
 
 /// Bearer header normally; `?token=` for browsers opening a WebSocket, which cannot set headers.
-pub async fn require_token(
+pub(super) async fn require_token(
     State(engine): State<Arc<Engine>>,
     Query(query): Query<TokenQuery>,
     request: Request,

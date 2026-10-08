@@ -13,14 +13,14 @@ use crate::mcp::{ServerConfigInput, ServerRow, ServerStatus};
 use crate::store::Renamed;
 
 #[derive(Deserialize, ToSchema)]
-pub struct EnabledBody {
+pub(super) struct EnabledBody {
     pub enabled: bool,
 }
 
 #[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
 #[into_params(rename_all = "camelCase")]
-pub struct SaveQuery {
+pub(super) struct SaveQuery {
     /// Adding a server: refused with 409 if one has the name, rather than replacing it.
     #[serde(default)]
     pub create: bool,
@@ -36,7 +36,7 @@ pub struct SaveQuery {
 #[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
 #[into_params(rename_all = "camelCase")]
-pub struct ConnectQuery {
+pub(super) struct ConnectQuery {
     /// The active workspace, where a stdio server connects (besides every workspace it already ran in).
     /// On connect and disconnect, the server is turned on or off there, and remembered for it.
     #[serde(default)]
@@ -50,18 +50,18 @@ fn workspace_path(engine: &Engine, id: Option<&str>) -> Option<std::path::PathBu
 }
 
 #[derive(Deserialize, ToSchema)]
-pub struct RenameBody {
+pub(super) struct RenameBody {
     pub to: String,
 }
 
 #[utoipa::path(get, path = "/mcp", operation_id = "listMcpServers", responses((status = 200, body = Vec<ServerStatus>)))]
-pub async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<Vec<ServerStatus>>, ApiError> {
+pub(super) async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<Vec<ServerStatus>>, ApiError> {
     Ok(Json(engine.mcp.statuses(&engine.store)?))
 }
 
 /// Saving a changed config reconnects the server on it; env and header values sent as null keep the saved ones.
 #[utoipa::path(put, path = "/mcp/{name}", operation_id = "saveMcpServer", params(SaveQuery), request_body = ServerConfigInput, responses((status = 200, body = ServerStatus), (status = 400), (status = 409)))]
-pub async fn save(
+pub(super) async fn save(
     State(engine): State<Arc<Engine>>,
     Path(name): Path<String>,
     Query(query): Query<SaveQuery>,
@@ -96,7 +96,7 @@ pub async fn save(
 
 /// Renames a server, saved secrets included. 409 if the new name is taken: nothing is replaced.
 #[utoipa::path(post, path = "/mcp/{name}/rename", operation_id = "renameMcpServer", params(ConnectQuery), request_body = RenameBody, responses((status = 200, body = ServerStatus), (status = 404), (status = 409)))]
-pub async fn rename(
+pub(super) async fn rename(
     State(engine): State<Arc<Engine>>,
     Path(name): Path<String>,
     Query(query): Query<ConnectQuery>,
@@ -121,14 +121,14 @@ pub async fn rename(
 }
 
 #[derive(serde::Serialize, ToSchema)]
-pub struct SignInPage {
+pub(super) struct SignInPage {
     /// Open this in the browser; when the browser comes back, the server connects signed in.
     pub url: String,
 }
 
 /// Starts signing in to a remote server that requires OAuth.
 #[utoipa::path(post, path = "/mcp/{name}/signin", operation_id = "signInMcpServer", responses((status = 200, body = SignInPage), (status = 400), (status = 404)))]
-pub async fn sign_in(
+pub(super) async fn sign_in(
     State(engine): State<Arc<Engine>>,
     Path(name): Path<String>,
 ) -> Result<Json<SignInPage>, ApiError> {
@@ -145,7 +145,7 @@ pub async fn sign_in(
 
 /// Forgets a server's sign-in and reconnects it without one.
 #[utoipa::path(delete, path = "/mcp/{name}/signin", operation_id = "signOutMcpServer", responses((status = 200, body = ServerStatus), (status = 404)))]
-pub async fn sign_out(
+pub(super) async fn sign_out(
     State(engine): State<Arc<Engine>>,
     Path(name): Path<String>,
 ) -> Result<Json<ServerStatus>, ApiError> {
@@ -198,7 +198,10 @@ fn taken(name: &str) -> ApiError {
 }
 
 #[utoipa::path(delete, path = "/mcp/{name}", operation_id = "removeMcpServer", responses((status = 204), (status = 404)))]
-pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>) -> Result<StatusCode, ApiError> {
+pub(super) async fn remove(
+    State(engine): State<Arc<Engine>>,
+    Path(name): Path<String>,
+) -> Result<StatusCode, ApiError> {
     if !engine
         .mcp
         .close(&name, &engine.store, &engine.hub, |store| {
@@ -214,7 +217,7 @@ pub async fn remove(State(engine): State<Arc<Engine>>, Path(name): Path<String>)
 }
 
 #[utoipa::path(post, path = "/mcp/{name}/connect", operation_id = "connectMcpServer", params(ConnectQuery), responses((status = 200, body = ServerStatus), (status = 404), (status = 409)))]
-pub async fn connect_route(
+pub(super) async fn connect_route(
     State(engine): State<Arc<Engine>>,
     Path(name): Path<String>,
     Query(query): Query<ConnectQuery>,
@@ -263,7 +266,7 @@ fn status(engine: &Engine, name: &str) -> Result<Json<ServerStatus>, ApiError> {
 
 /// With a workspace, the server goes off there only; without one, every connection ends until the user connects it again.
 #[utoipa::path(post, path = "/mcp/{name}/disconnect", operation_id = "disconnectMcpServer", params(ConnectQuery), responses((status = 200, body = ServerStatus), (status = 404)))]
-pub async fn disconnect(
+pub(super) async fn disconnect(
     State(engine): State<Arc<Engine>>,
     Path(name): Path<String>,
     Query(query): Query<ConnectQuery>,
@@ -310,7 +313,7 @@ fn readable(engine: &Engine, name: &str) -> Result<(), ApiError> {
 }
 
 #[utoipa::path(put, path = "/mcp/{name}/enabled", operation_id = "setMcpServerEnabled", params(ConnectQuery), request_body = EnabledBody, responses((status = 200, body = ServerStatus), (status = 404)))]
-pub async fn set_enabled(
+pub(super) async fn set_enabled(
     State(engine): State<Arc<Engine>>,
     Path(name): Path<String>,
     Query(query): Query<ConnectQuery>,

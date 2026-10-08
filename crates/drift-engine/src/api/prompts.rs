@@ -19,7 +19,7 @@ const MAX_PROMPT_BYTES: usize = 64 * 1024;
 
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct BasePrompt {
+pub(super) struct BasePrompt {
     /// `all` (every model, unless its family has its own) or a family: `codex`, `claude`, `gemini`, `default`.
     pub id: String,
     /// Drift's text; empty for `all`, which has none of its own.
@@ -30,14 +30,14 @@ pub struct BasePrompt {
 }
 
 #[derive(Serialize, ToSchema)]
-pub struct BasePrompts {
+pub(super) struct BasePrompts {
     pub prompts: Vec<BasePrompt>,
     /// Follows every base prompt, Drift's or the user's, and cannot be replaced: tools, `<system-reminder>`, the worktree, the answer's shape.
     pub shared: String,
 }
 
 #[derive(Deserialize, ToSchema)]
-pub struct PromptBody {
+pub(super) struct PromptBody {
     pub text: String,
 }
 
@@ -73,13 +73,13 @@ fn listed(engine: &Engine) -> Result<BasePrompts, ApiError> {
 }
 
 #[utoipa::path(get, path = "/prompts", operation_id = "listBasePrompts", responses((status = 200, body = BasePrompts)))]
-pub async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<BasePrompts>, ApiError> {
+pub(super) async fn list(State(engine): State<Arc<Engine>>) -> Result<Json<BasePrompts>, ApiError> {
     Ok(Json(listed(&engine)?))
 }
 
 /// Replaces base prompt `id` from the next turn on; the shared rules still follow it.
 #[utoipa::path(put, path = "/prompts/{id}", operation_id = "saveBasePrompt", request_body = PromptBody, responses((status = 200, body = BasePrompts), (status = 400), (status = 404)))]
-pub async fn save(
+pub(super) async fn save(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
     Json(body): Json<PromptBody>,
@@ -105,7 +105,10 @@ pub async fn save(
 
 /// Goes back to Drift's text for `id` (or, for a family, to the `all` replacement when there is one).
 #[utoipa::path(delete, path = "/prompts/{id}", operation_id = "resetBasePrompt", responses((status = 200, body = BasePrompts), (status = 404)))]
-pub async fn reset(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<BasePrompts>, ApiError> {
+pub(super) async fn reset(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+) -> Result<Json<BasePrompts>, ApiError> {
     known(&id)?;
     engine.store.remove_setting(&prompt::custom_key(&id))?;
     Ok(Json(listed(&engine)?))
