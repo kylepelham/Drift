@@ -194,4 +194,16 @@ mod tests {
             Some("-- old dashes\nkeep\n")
         );
     }
+
+    #[test]
+    fn malformed_ranges_and_incomplete_hunks_refuse_to_rebuild_a_version() {
+        for diff in [
+            "@@ -a +1 @@\n-x\n+y\n",
+            "@@ -1,1 +1,1 @@\n+unexpected\n",
+            "@@ -1 +0 @@\n-x\n+y\n",
+            "@@ -0,0 +1,1 @@\n-x\n+y\n",
+        ] {
+            assert_eq!(reverse(diff, "y\n"), None, "{diff}");
+        }
+    }
 }

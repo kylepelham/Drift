@@ -9,8 +9,10 @@ use std::path::{Path, PathBuf};
 use super::*;
 
 mod conversations;
+mod failures;
 mod history;
 mod lifecycle;
+mod paging;
 mod parts;
 
 // Content hashes let assertions resolve the versions named by undo records.

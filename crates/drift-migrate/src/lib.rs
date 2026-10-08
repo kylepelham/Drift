@@ -31,10 +31,9 @@ pub struct History<'a> {
 
 impl<'a> History<'a> {
     pub fn new(snapshots: &'a drift_engine::session::snapshot::Snapshots) -> std::io::Result<Self> {
-        Ok(Self {
-            snapshots,
-            runtime: tokio::runtime::Builder::new_current_thread().enable_all().build()?,
-        })
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+
+        Ok(Self { snapshots, runtime })
     }
 }
 
@@ -136,6 +135,7 @@ fn plan_sessions<'a>(
             report.known += 1;
             continue;
         }
+
         let Some((owner, root)) = workspace_for(store, session, workspaces, &placed, &planned) else {
             *report.unmatched.entry(session.directory.clone()).or_default() += 1;
             continue;
@@ -196,7 +196,7 @@ fn import_planned(
     }
 }
 
-/// A subagent goes with its parent; anything else to the workspace it ran in, else the one holding its repository.
+// Subagents inherit their parent's workspace, including when their own directory is elsewhere.
 fn workspace_for(
     store: &Store,
     session: &source::OcSession,
@@ -229,7 +229,6 @@ fn workspace_for(
     })
 }
 
-/// The conversation, listed, with how many of its calls can be undone; `None` when it was already here.
 fn import_one(
     run: &ImportRun<'_>,
     plan: &undo::Planned,
@@ -240,7 +239,10 @@ fn import_one(
         return Ok(None);
     }
 
-    let written = write_pages(run, &session.id).and_then(|undoable| Ok((undoable, run.source.todos(&session.id)?)));
+    let written = write_pages(run, &session.id).and_then(|undoable| {
+        let todos = run.source.todos(&session.id)?;
+        Ok((undoable, todos))
+    });
     let (undoable, todos) = match written {
         Ok(written) => written,
         Err(error) => {
@@ -256,11 +258,13 @@ fn import_one(
         .map(|session| (session, undoable)))
 }
 
-/// Reads and writes the conversation a page at a time; the number of its calls given undo records.
 fn write_pages(run: &ImportRun<'_>, session_id: &str) -> rusqlite::Result<usize> {
     let mut ids = map::Ids::default();
-    let (mut batch, mut bytes, mut undoable) = (Vec::new(), 0, 0);
+    let mut undoable = 0;
     let mut after = None;
+
+    let mut batch = Vec::new();
+    let mut bytes = 0;
 
     loop {
         let page = run.source.messages_after(session_id, after.as_ref(), READ_PAGE)?;
@@ -271,7 +275,9 @@ fn write_pages(run: &ImportRun<'_>, session_id: &str) -> rusqlite::Result<usize>
         for message in &page {
             let parts = run.source.parts(&message.id)?;
             undoable += parts.iter().filter(|part| run.records.contains_key(&part.id)).count();
-            bytes += message.data.len() + parts.iter().map(|part| part.data.len()).sum::<usize>();
+
+            let part_bytes: usize = parts.iter().map(|part| part.data.len()).sum();
+            bytes += message.data.len() + part_bytes;
             batch.push(map::message(message, &parts, session_id, &mut ids, &run.records));
 
             if bytes >= WRITE_BYTES || batch.len() >= WRITE_MESSAGES {
@@ -291,7 +297,7 @@ fn write_pages(run: &ImportRun<'_>, session_id: &str) -> rusqlite::Result<usize>
     Ok(undoable)
 }
 
-/// One spelling per directory: case and slash style differ between opencode and the workspace list.
+// opencode and Drift can spell the same directory with different case, slashes and trailing separators.
 fn directory_key(path: &str) -> String {
     let path = path.replace('\\', "/").to_lowercase();
     let trimmed = path.trim_end_matches('/');

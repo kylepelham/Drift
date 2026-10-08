@@ -37,6 +37,12 @@ pub(crate) struct OcPart {
     pub data: String,
 }
 
+pub(crate) struct OcTodo {
+    pub content: String,
+    pub status: String,
+    pub priority: String,
+}
+
 // Deserialize only the fields we keep so large display copies are skipped by the streaming reader.
 #[derive(serde::Deserialize)]
 struct BigCall {
@@ -93,18 +99,13 @@ fn message_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcMessage> {
     })
 }
 
-pub(crate) struct OcTodo {
-    pub content: String,
-    pub status: String,
-    pub priority: String,
-}
-
 impl Source {
-    /// Opens read-only and holds one read transaction, so every row comes from the same moment even while opencode writes.
+    // A single read transaction keeps every row consistent even while opencode is writing.
     pub(crate) fn open(path: &Path) -> rusqlite::Result<Self> {
         let conn =
             Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
+
         conn.execute_batch("BEGIN")?;
         conn.query_row("SELECT count(*) FROM session", [], |_| Ok(()))?;
 
@@ -207,7 +208,6 @@ impl Source {
             .optional()
     }
 
-    /// The ids of a message's parts, without reading their text.
     pub(crate) fn part_ids(&self, message_id: &str) -> rusqlite::Result<Vec<String>> {
         self.conn
             .prepare_cached("SELECT id FROM part WHERE message_id = ?1 ORDER BY id")?
@@ -215,7 +215,7 @@ impl Source {
             .collect()
     }
 
-    /// Conversations holding prompts opencode admitted but never ran; none when its database predates the queue.
+    // Older opencode databases have no queue table and are treated as having no pending prompts.
     pub(crate) fn pending_inputs(&self) -> std::collections::HashSet<String> {
         let ids = self
             .conn
@@ -236,5 +236,20 @@ impl Source {
                 })
             })?
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_text_is_cut_at_a_utf8_boundary_and_missing_text_stays_missing() {
+        let prefix = "x".repeat(KEPT_BYTES as usize - 1);
+        let text = format!("{prefix}é");
+
+        assert_eq!(truncate(Some(text)), Some(prefix));
+        assert_eq!(truncate(None), None);
+        assert_eq!(truncate(Some("short".into())), Some("short".into()));
     }
 }

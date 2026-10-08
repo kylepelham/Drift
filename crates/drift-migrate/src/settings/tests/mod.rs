@@ -8,6 +8,7 @@ use super::*;
 mod config;
 mod credentials;
 mod files;
+mod report;
 mod servers;
 
 struct Dir(PathBuf);

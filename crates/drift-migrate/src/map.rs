@@ -8,15 +8,16 @@ use drift_engine::session::types::{
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+
 // Token counts are on messages; opencode snapshots belong to a repository Drift does not use.
 const DROPPED: [&str; 3] = ["step-start", "step-finish", "snapshot"];
 // Large diffs are generated-file display copies, not useful panel content.
 const MAX_DIFF_BYTES: usize = 1_000_000;
 
-/// Undo records built for imported calls (`crate::undo`), by opencode part id.
+// Records use opencode part IDs until mapping attaches them to the native calls.
 pub(crate) type Records = HashMap<String, Value>;
 
-/// The conversation as listed; it stays hidden until its last page is written.
+// The store keeps this session hidden until its final page is written.
 pub(crate) fn session(session: &OcSession, workspace_id: &str) -> Session {
     let model: Value = session
         .model
@@ -84,6 +85,7 @@ pub(crate) fn message(
     let (id, stamp) = ids.mint(&message.id, message.created);
     let data: Value = serde_json::from_str(&message.data).unwrap_or(Value::Null);
     let anthropic = data["providerID"] == "anthropic";
+
     let parts = parts
         .iter()
         .filter_map(|part| part_of(part, &ids.minted, anthropic))
@@ -103,42 +105,21 @@ pub(crate) fn message(
     }
 }
 
-/// A call's undo record goes in its metadata as a native call's does, stamped with its message.
-fn with_record(part: Part, record: Option<&Value>, message_id: &str) -> Part {
-    let (
-        Part::ToolCall {
-            call_id,
-            name,
-            input,
-            status,
-            title,
-            output,
-            metadata,
-            started_at,
-            finished_at,
-        },
-        Some(record),
-    ) = (part.clone(), record)
-    else {
+fn with_record(mut part: Part, record: Option<&Value>, message_id: &str) -> Part {
+    let Some(record) = record else {
+        return part;
+    };
+    let Part::ToolCall { metadata, .. } = &mut part else {
         return part;
     };
 
     // The undo record's keys go over the imported ones, stamped with the message they belong to.
-    let mut metadata = metadata.map(|metadata| *metadata).unwrap_or_default();
-    metadata = metadata.merged(Some(record.clone().into())).unwrap_or_default();
-    metadata.at = Some(message_id.into());
+    let imported = metadata.take().map(|metadata| *metadata).unwrap_or_default();
+    let mut merged = imported.merged(Some(record.clone().into())).unwrap_or_default();
+    merged.at = Some(message_id.into());
+    *metadata = Some(Box::new(merged));
 
-    Part::ToolCall {
-        call_id,
-        name,
-        input,
-        status,
-        title,
-        output,
-        metadata: Some(Box::new(metadata)),
-        started_at,
-        finished_at,
-    }
+    part
 }
 
 fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
@@ -184,7 +165,7 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
     }
 }
 
-/// How an assistant reply ended: opencode marks a stop with an error, a cut-off one with `finish`.
+// opencode reports aborted replies as errors and token limits through either error or finish.
 fn outcome(data: &Value) -> (MessageStatus, Option<String>, Option<Ending>) {
     let error = &data["error"];
     let message = error["data"]["message"]
@@ -209,7 +190,6 @@ pub(crate) fn kept(data: &str) -> Part {
     }
 }
 
-/// The part as this engine stores it, `None` for bookkeeping.
 fn part_of<'a>(part: &'a OcPart, minted: &HashMap<String, String>, anthropic: bool) -> Option<(&'a str, Part)> {
     let unknown = || Some((part.id.as_str(), kept(&part.data)));
     let Ok(data) = serde_json::from_str::<Value>(&part.data) else {
@@ -332,9 +312,11 @@ fn drop_oversized(fields: &mut serde_json::Map<String, Value>, key: &str) {
 }
 
 fn file(data: &Value) -> Option<Part> {
-    let path = (data["source"]["type"] == "file")
-        .then(|| data["source"]["path"].as_str().map(String::from))
-        .flatten();
+    let path = if data["source"]["type"] == "file" {
+        data["source"]["path"].as_str().map(String::from)
+    } else {
+        None
+    };
 
     Some(Part::File {
         mime: data["mime"].as_str()?.into(),
