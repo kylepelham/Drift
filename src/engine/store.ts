@@ -307,7 +307,8 @@ export function mergeTranscriptSnapshot(
 
         return current ? [withSnapshotParts(current, entry)] : [];
     });
-    for (const entry of live ?? []) if (advanced(entry.info.id) && !snapshotIds.has(entry.info.id)) merged.push(entry);
+    const raced = (live ?? []).filter((entry) => advanced(entry.info.id) && !snapshotIds.has(entry.info.id));
+    merged.push(...raced);
 
     return merged.sort(compareMessages);
 }
@@ -465,7 +466,11 @@ export function taskForCall(state: EngineState, sessionId: string, callId: strin
 /** The newest task that ran in a worker's session; tasks are kept oldest first. */
 export function taskForWorker(state: EngineState, sessionId: string) {
     const parentId = hiddenParent(state.sessions[sessionId]);
-    return parentId ? (state.tasks[parentId] ?? []).filter((task) => task.sessionId === sessionId).at(-1) : undefined;
+    if (!parentId) return undefined;
+
+    const ran = (state.tasks[parentId] ?? []).filter((task) => task.sessionId === sessionId);
+
+    return ran.at(-1);
 }
 
 /** A task's own run as tool timing: from launch until it ended, not the launching call's instant. */

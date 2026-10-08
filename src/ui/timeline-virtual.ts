@@ -19,9 +19,10 @@ export function estimatedTimelineRow(
 ) {
     if (thinkingOnly) return 32;
     if (collapsedSummary) return 44;
-    if (clarificationAnswer(parts === entry.parts ? entry : { ...entry, parts })) return 40;
+    const shown = parts === entry.parts ? entry : { ...entry, parts };
+    if (clarificationAnswer(shown)) return 40;
 
-    const text = messageText(parts === entry.parts ? entry : { ...entry, parts });
+    const text = messageText(shown);
     const generated = parts.some((part) => part.type === "nudge");
     if (entry.info.role === "user" && !generated && largeUserText(text))
         return Math.max(estimatedRow, Math.ceil(text.split("\n").length * fontSize * 1.6 + 62));
@@ -30,7 +31,9 @@ export function estimatedTimelineRow(
     const textHeight = estimateTextLines(text, width) * 14 * 1.6;
     const toolHeight = parts.filter((part) => part.type === "tool_call").length * 56;
 
-    return Math.max(estimatedRow, Math.ceil(textHeight + toolHeight + (text ? 48 : 0)));
+    const chrome = text ? 48 : 0;
+
+    return Math.max(estimatedRow, Math.ceil(textHeight + toolHeight + chrome));
 }
 
 export function estimateTextLines(text: string, width: number) {

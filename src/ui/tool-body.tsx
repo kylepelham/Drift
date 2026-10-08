@@ -51,16 +51,11 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
 
     const citationFiles = () => {
         const child = delegatedChildId(engine.state, props.part);
+        const endedAt = props.part.finishedAt ?? props.part.startedAt ?? undefined;
+        const until = props.part.status === "done" ? endedAt : undefined;
+
         return child
-            ? citationFileGroups(
-                  engine.state,
-                  child,
-                  undefined,
-                  undefined,
-                  props.part.status === "done"
-                      ? (props.part.finishedAt ?? props.part.startedAt ?? undefined)
-                      : undefined,
-              )
+            ? citationFileGroups(engine.state, child, undefined, undefined, until)
             : citationFileGroups(engine.state, props.part.sessionId, props.part.messageId, props.part.id);
     };
 
@@ -132,8 +127,11 @@ export function taskBody(part: ToolPart) {
     const output = part.status === "done" ? (part.output ?? "") : "";
     const result = output.match(/<task_result>\n?([\s\S]*?)\n?<\/task_result>/)?.[1] ?? output;
 
+    const prompt = input.prompt ?? input.task ?? "";
     // The engine tells the model how to continue the subagent; the card shows the subagent's own words.
-    return { prompt: input.prompt ?? input.task ?? "", result: result.replace(/\n\n\(task_id: [^)]*\)$/, "") };
+    const words = result.replace(/\n\n\(task_id: [^)]*\)$/, "");
+
+    return { prompt, result: words };
 }
 
 function GenericBody(props: { part: ToolPart }) {

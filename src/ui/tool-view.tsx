@@ -126,7 +126,9 @@ export function ToolView(props: { part: ToolPart }) {
             count: activity.tools,
         });
 
-        return `${count}${activity.current ? " · " + activity.current : ""}`;
+        const current = activity.current ? " · " + activity.current : "";
+
+        return `${count}${current}`;
     };
 
     const diff = () => {

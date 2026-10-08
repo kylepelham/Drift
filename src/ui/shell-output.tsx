@@ -45,7 +45,9 @@ export function splitOmitted(text: string): { head: string; omitted: number; tai
 
 export function shellTranscript(command: string, output: string) {
     const normalized = stripAnsi(output).replace(/\r\n?/g, "\n");
-    return `$ ${command}${normalized.trim() ? `\n\n${normalized}` : ""}`;
+    const body = normalized.trim() ? `\n\n${normalized}` : "";
+
+    return `$ ${command}${body}`;
 }
 
 /**
@@ -134,8 +136,9 @@ export function createShellTranscriptStream() {
         const normalized = consume(output, done);
         visible = !!normalized.trim();
         if (!visible) pending = [normalized];
+        const body = visible ? `\n\n${normalized}` : "";
 
-        return { replace: true, text: `$ ${command}${visible ? `\n\n${normalized}` : ""}` };
+        return { replace: true, text: `$ ${command}${body}` };
     };
 
     return {
