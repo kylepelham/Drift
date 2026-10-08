@@ -231,6 +231,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Gleichzeitige Hintergrund-Subagenten",
     "drift.settings.backgroundLimit.description":
         "Wie viele Hintergrund-Subagenten gleichzeitig laufen. Weitere warten in einer Warteschlange und starten, sobald ein Platz frei wird; ein niedrigerer Wert beendet keinen laufenden.",
+    "drift.task.queued": "In der Warteschlange",
+    "drift.task.queued.description":
+        "Wartet auf einen freien Hintergrundplatz. Einstellungen > Ausführung legt fest, wie viele Subagenten gleichzeitig laufen.",
     "drift.settings.shellTimeout.title": "Shell-Zeitlimit",
     "drift.settings.shellTimeout.description":
         "Beendet Shell-Befehle und deren Unterprozesse nach dieser Dauer. Änderungen gelten für neue Aufrufe.",

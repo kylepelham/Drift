@@ -613,6 +613,11 @@ export function ToolView(props: { part: ToolPart }) {
                 <Show when={awaitingPermission(engine.state, props.part)}>
                     <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
                 </Show>
+                <Show when={delegatedStatus() === "queued"}>
+                    <span class="shrink-0 text-xs text-ink-faint" title={t("drift.task.queued.description")}>
+                        {t("drift.task.queued")}
+                    </span>
+                </Show>
                 <ToolDuration state={timing()} maxMs={timeout()?.timedOut ? timeout()?.timeoutMs : undefined} />
                 <Show when={spawnedId()}>
                     {(childId) => (
@@ -646,7 +651,7 @@ export function ToolView(props: { part: ToolPart }) {
     );
 }
 
-export type DelegatedTaskStatus = "running" | "completed" | "error";
+export type DelegatedTaskStatus = "queued" | "running" | "completed" | "error";
 
 /** A `task` call whose worker runs in the background: the engine's record, or before it arrives, what the call says. */
 export function backgroundRun(state: EngineState, part: ToolPart) {
@@ -671,6 +676,7 @@ export function delegatedTaskStatus(state: EngineState, part: ToolPart, childId:
 }
 
 function delegatedRecordStatus(task: Pick<TaskRecord, "state">): DelegatedTaskStatus {
+    if (task.state === "queued") return "queued";
     if (taskActive(task)) return "running";
 
     return task.state === "replied" ? "completed" : "error";

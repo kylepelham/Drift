@@ -47,3 +47,20 @@ test("the sidebar shows a subagent while it runs, waits on the user, or is open"
     expect(sidebarWorkers(state, "parent")).toEqual([]);
     expect(sidebarWorkers(state, "parent", "done").map((s) => s.id)).toEqual(["done"]);
 });
+
+test("the sidebar shows a subagent resumed in the background while it waits for a slot", () => {
+    const [state, set] = createEngineState();
+    set("sessions", "worker", {
+        id: "worker",
+        parentId: "parent",
+        visibility: "hidden",
+        createdAt: 1,
+        updatedAt: 1,
+    } as never);
+    set("status", "worker", { type: "idle" });
+    set("tasks", "parent", [{ id: "t1", sessionId: "worker", state: "queued", mode: "background" }] as never);
+    expect(sidebarWorkers(state, "parent").map((s) => s.id)).toEqual(["worker"]);
+
+    set("tasks", "parent", [{ id: "t1", sessionId: "worker", state: "replied", mode: "background" }] as never);
+    expect(sidebarWorkers(state, "parent")).toEqual([]);
+});

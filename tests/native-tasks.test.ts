@@ -69,7 +69,7 @@ test("a background task row follows its worker, not the call that launched it", 
     // The launch receipt is a finished call, but it is not the worker finishing.
     expect(delegatedTaskStatus(state, part, "worker_a")).toBe("running");
     putTasks(set, state, "parent", [task("a", { state: "queued" })]);
-    expect(delegatedTaskStatus(state, part, "worker_a")).toBe("running");
+    expect(delegatedTaskStatus(state, part, "worker_a")).toBe("queued");
     putTasks(set, state, "parent", [task("a", { state: "running" })]);
     expect(delegatedTaskStatus(state, part, "worker_a")).toBe("running");
     putTasks(set, state, "parent", [task("a", { state: "replied", finishedAt: 3 })]);
@@ -128,6 +128,22 @@ test("a background row times its worker, not the instant its launch returned", (
         status: "completed",
         time: { start: 1_000, end: 61_000 },
     });
+});
+
+test("a queued worker shows no running time and its row says it is queued, not running", async () => {
+    const { delegatedTaskStatus } = await import("../src/ui/parts");
+    expect(taskTiming(task("a", { createdAt: 1_000, state: "queued" }))).toEqual({ status: "queued", time: {} });
+
+    const [state, set] = createEngineState();
+    putTasks(set, state, "parent", [task("a", { state: "queued" })]);
+    expect(delegatedTaskStatus(state, receipt("a"), "worker_a")).toBe("queued");
+
+    // The child session's earlier run is busy-looking history; the queued record still decides the row.
+    set("status", "worker_a", { type: "busy" });
+    expect(delegatedTaskStatus(state, receipt("a"), "worker_a")).toBe("queued");
+
+    putTasks(set, state, "parent", [task("a", { state: "running" })]);
+    expect(delegatedTaskStatus(state, receipt("a"), "worker_a")).toBe("running");
 });
 
 test("a worker's sidebar row finds its newest task through its parent", () => {

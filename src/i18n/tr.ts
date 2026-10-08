@@ -262,6 +262,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Aynı anda arka plan alt ajanları",
     "drift.settings.backgroundLimit.description":
         "Aynı anda kaç arka plan alt ajanının çalışacağı. Diğerleri kuyrukta bekler ve yer açıldıkça başlar; bu değeri düşürmek çalışan bir alt ajanı asla durdurmaz.",
+    "drift.task.queued": "Sırada",
+    "drift.task.queued.description":
+        "Boş bir arka plan yeri bekliyor. Ayarlar > Çalıştırma aynı anda kaç alt ajanın çalışacağını belirler.",
     "drift.settings.shellTimeout.title": "Kabuk zaman aşımı",
     "drift.settings.shellTimeout.description":
         "Kabuk komutlarını ve alt işlemlerini bu süreden sonra durdurur. Değişiklikler yeni çağrılara uygulanır.",

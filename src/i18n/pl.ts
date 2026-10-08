@@ -229,6 +229,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Podagenci w tle jednocześnie",
     "drift.settings.backgroundLimit.description":
         "Ilu podagentów w tle działa jednocześnie. Pozostali czekają w kolejce i startują, gdy zwolni się miejsce; zmniejszenie tej wartości nigdy nie zatrzymuje działającego podagenta.",
+    "drift.task.queued": "W kolejce",
+    "drift.task.queued.description":
+        "Czeka na wolne miejsce w tle. Ustawienia > Wykonywanie określają, ilu podagentów działa jednocześnie.",
     "drift.settings.shellTimeout.title": "Limit czasu powłoki",
     "drift.settings.shellTimeout.description":
         "Zatrzymuje polecenia powłoki i ich procesy potomne po tym czasie. Zmiany dotyczą nowych wywołań.",

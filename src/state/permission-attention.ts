@@ -1,4 +1,4 @@
-import { childrenOf, sessionBusy, type EngineState } from "../engine/store";
+import { childrenOf, sessionBusy, workerQueued, type EngineState } from "../engine/store";
 
 /** Published asks need user attention because the engine already handles auto-accepted requests. */
 
@@ -10,6 +10,10 @@ export function sessionNeedsAttention(state: EngineState, id: string) {
 /** Subagents appear under their parent while they run, wait on the user, or are open; finished work lives in the task card. */
 export function sidebarWorkers(state: EngineState, parentId: string, selected?: string | null) {
     return childrenOf(state, parentId).filter(
-        (child) => child.id === selected || sessionBusy(state, child.id) || sessionNeedsAttention(state, child.id),
+        (child) =>
+            child.id === selected ||
+            sessionBusy(state, child.id) ||
+            workerQueued(state, child.id) ||
+            sessionNeedsAttention(state, child.id),
     );
 }

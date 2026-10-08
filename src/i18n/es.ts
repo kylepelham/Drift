@@ -263,6 +263,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Subagentes en segundo plano a la vez",
     "drift.settings.backgroundLimit.description":
         "Cuántos subagentes en segundo plano se ejecutan al mismo tiempo. Los demás esperan en una cola y empiezan cuando queda un hueco libre; reducir este valor nunca detiene uno que ya está en marcha.",
+    "drift.task.queued": "En cola",
+    "drift.task.queued.description":
+        "Esperando un hueco libre en segundo plano. Ajustes > Ejecución define cuántos subagentes se ejecutan a la vez.",
     "drift.settings.shellTimeout.title": "Tiempo límite del shell",
     "drift.settings.shellTimeout.description":
         "Detén los comandos del shell y sus procesos secundarios después de este tiempo. Los cambios se aplican a llamadas nuevas.",

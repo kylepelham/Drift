@@ -257,6 +257,8 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "同時執行的背景子代理",
     "drift.settings.backgroundLimit.description":
         "同時執行的背景子代理數量。其餘的會在佇列中等待，有空位時啟動；調低此值不會停止正在執行的子代理。",
+    "drift.task.queued": "排隊中",
+    "drift.task.queued.description": "正在等待空閒的背景位置。設定 > 執行 決定同時執行的子代理數量。",
     "drift.settings.shellTimeout.title": "Shell 逾時",
     "drift.settings.shellTimeout.description": "超過此時長後停止 Shell 指令及其子程序。變更僅套用至新呼叫。",
     "drift.settings.shellTimeout.noTimeout": "不逾時",

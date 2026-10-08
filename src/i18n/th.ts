@@ -261,6 +261,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "เอเจนต์ย่อยเบื้องหลังพร้อมกัน",
     "drift.settings.backgroundLimit.description":
         "จำนวนเอเจนต์ย่อยเบื้องหลังที่ทำงานพร้อมกัน ตัวอื่นจะรอในคิวและเริ่มเมื่อมีช่องว่าง การลดค่านี้จะไม่หยุดตัวที่กำลังทำงานอยู่",
+    "drift.task.queued": "อยู่ในคิว",
+    "drift.task.queued.description":
+        "กำลังรอช่องว่างเบื้องหลัง การตั้งค่า > การทำงาน กำหนดจำนวนเอเจนต์ย่อยที่ทำงานพร้อมกัน",
     "drift.settings.shellTimeout.title": "หมดเวลาของเชลล์",
     "drift.settings.shellTimeout.description":
         "หยุดคำสั่งเชลล์และโปรเซสลูกหลังจากระยะเวลานี้ การเปลี่ยนแปลงมีผลกับการเรียกใหม่",

@@ -226,6 +226,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "الوكلاء الفرعيون في الخلفية في وقت واحد",
     "drift.settings.backgroundLimit.description":
         "عدد الوكلاء الفرعيين في الخلفية الذين يعملون في الوقت نفسه. ينتظر الباقون في طابور ويبدؤون عند تفرغ مكان؛ تخفيض هذا الرقم لا يوقف أي وكيل قيد التشغيل.",
+    "drift.task.queued": "في الانتظار",
+    "drift.task.queued.description":
+        "ينتظر مكانًا فارغًا في الخلفية. يحدد الإعداد > التنفيذ عدد الوكلاء الفرعيين الذين يعملون في وقت واحد.",
     "drift.settings.shellTimeout.title": "مهلة الصدفة",
     "drift.settings.shellTimeout.description":
         "يوقف أوامر الصدفة والعمليات التابعة لها بعد هذه المدة. تنطبق التغييرات على الاستدعاءات الجديدة.",

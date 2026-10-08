@@ -261,6 +261,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Pozadinski podagenti istovremeno",
     "drift.settings.backgroundLimit.description":
         "Koliko pozadinskih podagenata radi u isto vrijeme. Ostali čekaju u redu i pokreću se kad se mjesto oslobodi; smanjivanje nikad ne zaustavlja podagenta koji već radi.",
+    "drift.task.queued": "U redu",
+    "drift.task.queued.description":
+        "Čeka slobodno pozadinsko mjesto. Postavke > Izvršavanje određuju koliko podagenata radi istovremeno.",
     "drift.settings.shellTimeout.title": "Vremensko ograničenje ljuske",
     "drift.settings.shellTimeout.description":
         "Zaustavlja naredbe ljuske i njihove podređene procese nakon ovog vremena. Promjene važe za nove pozive.",

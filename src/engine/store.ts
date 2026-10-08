@@ -458,10 +458,18 @@ export function taskForWorker(state: EngineState, sessionId: string) {
 
 /** A task's own run as tool timing: from launch until it ended, not the launching call's instant. */
 export function taskTiming(task: Pick<TaskRecord, "state" | "createdAt" | "finishedAt">) {
+    // A queued worker has not started, so it has no running time to show yet.
+    if (task.state === "queued") return { status: "queued", time: {} };
+
     return {
         status: taskActive(task) ? "running" : "completed",
         time: { start: task.createdAt, end: task.finishedAt ?? undefined },
     };
+}
+
+/** The worker session's newest task is waiting for a free background slot. */
+export function workerQueued(state: EngineState, sessionId: string) {
+    return taskForWorker(state, sessionId)?.state === "queued";
 }
 
 /** The model, agent and reasoning level the engine saved on a session: what its newest prompt chose. */

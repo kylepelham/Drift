@@ -231,6 +231,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Sous-agents en arrière-plan simultanés",
     "drift.settings.backgroundLimit.description":
         "Nombre de sous-agents en arrière-plan qui s'exécutent en même temps. Les autres attendent dans une file et démarrent dès qu'une place se libère ; baisser cette valeur n'arrête jamais un sous-agent en cours.",
+    "drift.task.queued": "En file d'attente",
+    "drift.task.queued.description":
+        "En attente d'une place libre en arrière-plan. Réglages > Exécution fixe le nombre de sous-agents simultanés.",
     "drift.settings.shellTimeout.title": "Délai du shell",
     "drift.settings.shellTimeout.description":
         "Arrête les commandes shell et leurs processus enfants après cette durée. Les modifications s'appliquent aux nouveaux appels.",

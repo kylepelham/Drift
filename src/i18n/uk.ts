@@ -261,6 +261,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Фонових субагентів одночасно",
     "drift.settings.backgroundLimit.description":
         "Скільки фонових субагентів працює одночасно. Решта чекає в черзі й запускається, коли звільняється місце; зменшення значення не зупиняє тих, що вже працюють.",
+    "drift.task.queued": "У черзі",
+    "drift.task.queued.description":
+        "Чекає на вільне місце для фонової роботи. Налаштування > Виконання задають, скільки субагентів працює одночасно.",
     "drift.settings.shellTimeout.title": "Тайм-аут оболонки",
     "drift.settings.shellTimeout.description":
         "Зупиняє команди оболонки та їхні дочірні процеси після цього часу. Зміни діють для нових викликів.",

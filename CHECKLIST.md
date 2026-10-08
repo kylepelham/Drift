@@ -263,7 +263,7 @@ change the plan there when a decision changes.
 - [x] Plugin registry: nine plugins at github.com/kylepelham/Drift-Plugins (guard, protect-files, auto-format, lint-check, test-gate, notify, git-autocommit, git-context, tool-log), Settings > Plugins > Registry with cards and an install sheet in the MCP registry's style, install with a hash check, remove, config; custom registry sources for plugins and MCP servers (`registrySources` setting) so a team publishes its own at one URL; a source is a URL, a GitHub or Azure DevOps repository (private with a token in the credential store) or a folder on a share, may allow http or trust an internal CA, and is read by the engine so the webview never holds a token
 - [x] Settings > Skills: every skill the engine offers (workspace, user, packs) with a switch each (the engine's `disabledSkills` list; the files are never renamed); a registry of single skills and packs (Superpowers, Matt Pocock, Addy Osmani, Karpathy, Erik Darling) with the skills to take chosen before install, unpacked from a pinned archive under `~/.config/drift/skills`
 - [ ] Background task controls: move a running foreground task to the background; add a follow-up to a running background task
-- [ ] A background task waiting for a slot says so: the transcript row shows "queued" rather than running with a ticking timer (`delegatedRecordStatus` and `taskTiming` treat queued as active), a resumed task does not show the earlier run's tool count and time, and the sidebar and child view show the queued invocation instead of the finished earlier run
+- [x] A background task waiting for a slot says so: the transcript row shows "queued" rather than running with a ticking timer (`delegatedRecordStatus` and `taskTiming` treat queued as active), a resumed task does not show the earlier run's tool count and time, and the sidebar and child view show the queued invocation instead of the finished earlier run
 - [ ] Measure `edit` miss rates per model family before considering any fuzzy fallback
 - [ ] Charge titles somewhere visible (they have no message of their own)
 - [ ] MCP resource templates as a tool (`mcp/resources.rs` lists and reads resources only)
@@ -323,6 +323,7 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [x] Shell, importer and headless crates: workspace lints, typed errors, split files, grouped blocks
 - [x] ESLint clean, then in the gates and CI
 - [ ] Engine: workspace lints (parameter structs, split functions, `SAFETY` notes), `session/turn.rs` split, typed errors
-- [ ] UI speaks the native engine: `shapes.ts` and `native/adapt.ts` removed, knip clean and in CI
+- [x] UI speaks the native engine: `shapes.ts` and `native/adapt.ts` removed
+- [ ] knip clean and in CI
 - [ ] Large UI files split (`settings.tsx`, `parts.tsx`, `chat.tsx`, `markdown.tsx`, `composer.tsx`)
 - [ ] Statements grouped into labelled blocks across the engine, UI and tests

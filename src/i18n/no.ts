@@ -262,6 +262,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Bakgrunnsunderagenter samtidig",
     "drift.settings.backgroundLimit.description":
         "Hvor mange bakgrunnsunderagenter som kjører samtidig. Andre venter i kø og starter når det blir ledig plass; en lavere verdi stopper aldri en som kjører.",
+    "drift.task.queued": "I kø",
+    "drift.task.queued.description":
+        "Venter på en ledig bakgrunnsplass. Innstillinger > Kjøring bestemmer hvor mange underagenter som kjører samtidig.",
     "drift.settings.shellTimeout.title": "Tidsavbrudd for shell",
     "drift.settings.shellTimeout.description":
         "Stopp shellkommandoer og underprosesser etter denne tiden. Endringer gjelder nye kall.",

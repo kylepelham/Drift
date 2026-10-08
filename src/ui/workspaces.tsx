@@ -1,5 +1,5 @@
+import { normalizeDir, sessionBusy, sessionsFor, taskForWorker, workerQueued } from "../engine/store";
 import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache";
-import { normalizeDir, sessionBusy, sessionsFor, taskForWorker } from "../engine/store";
 import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
@@ -373,6 +373,12 @@ function StatusDot(props: { sessionId: string }) {
             </Match>
             <Match when={sessionBusy(engine.state, props.sessionId)}>
                 <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.thread.working")} />
+            </Match>
+            <Match when={workerQueued(engine.state, props.sessionId)}>
+                <span
+                    class="size-1.5 shrink-0 rounded-full border border-accent/70"
+                    title={t("drift.task.queued.description")}
+                />
             </Match>
             <Match when={engine.state.errors[props.sessionId]}>
                 <span class="size-1.5 shrink-0 rounded-full bg-danger" title={t("notification.session.error.title")} />

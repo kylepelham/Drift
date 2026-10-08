@@ -436,6 +436,9 @@ export const drift = {
     "drift.settings.backgroundLimit.title": "Background subagents at once",
     "drift.settings.backgroundLimit.description":
         "How many background subagents run at the same time. Others wait in a queue and start as slots free up; lowering this never stops one that is running.",
+    "drift.task.queued": "Queued",
+    "drift.task.queued.description":
+        "Waiting for a free background slot. Settings > Execution sets how many subagents run at once.",
     "drift.settings.shellTimeout.title": "Shell timeout",
     "drift.settings.shellTimeout.description":
         "Stop shell commands and their child processes after this duration. Changes apply to new calls.",
