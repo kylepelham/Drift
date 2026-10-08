@@ -384,7 +384,7 @@ fn reasoning_in(variants: &[Variant], name: Option<&str>) -> Option<Reasoning> {
         .map(|variant| variant.reasoning.clone())
 }
 
-/// Whether a prompt may switch its session to `agent`: only a usable primary agent of the workspace runs a conversation.
+/// Checks that the requested agent is a usable workspace primary agent that can run a conversation.
 pub(super) fn pickable(config: &Config, agent: &str) -> Result<(), TurnError> {
     match config.agent(agent) {
         Some(found) if found.kind.runs_conversations() => found

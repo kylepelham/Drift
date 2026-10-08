@@ -85,7 +85,7 @@ impl Engine {
         wait
     }
 
-    /// Moves the turn onto a model the user switched to, and makes it, and any variant chosen with it, the session's from now on.
+    /// Adopts the switched model and variant for the turn and saves the choices on the session.
     pub(super) fn adopt(&self, plan: &mut Plan, switch: Switch) {
         let Switch { resolved, variant } = switch;
         if let Some(variant) = variant {

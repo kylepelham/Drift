@@ -475,7 +475,7 @@ impl Engine {
         false
     }
 
-    /// Sends the orchestrator's next prompt when its last reply says it is still working; false when the turn should end.
+    /// Sends an orchestrator nudge when its reply still requires work; false ends the turn.
     fn nudge(&self, plan: &Plan, abort: &CancellationToken) -> bool {
         let session_id = plan.session.id.as_str();
         if plan.turn_only || plan.session.agent != drive::AGENT {

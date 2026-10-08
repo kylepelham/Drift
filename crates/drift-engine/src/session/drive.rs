@@ -1,7 +1,6 @@
-//! The orchestrator's driver. The agent ends every reply with an `<orchestrator_status>` block;
-//! while it says `working`, the engine sends the next prompt itself, in the same turn, so the goal
-//! moves on with no client watching. `done` and `blocked` end the turn, as does a reply that failed
-//! or [`MAX_ROUNDS`] nudges since the user's own prompt. No model ever judges another model.
+//! Drives orchestrator turns from their final `<orchestrator_status>` block, without a client watching.
+//! Working sends another prompt; done, blocked, failure or [`MAX_ROUNDS`] nudges ends the turn.
+//! The engine reads the status directly, rather than asking another model to judge the reply.
 
 use serde::Deserialize;
 
@@ -11,8 +10,10 @@ pub const AGENT: &str = "orchestrator";
 /// Nudges allowed per user prompt; each covers a whole dispatch and verify round.
 pub const MAX_ROUNDS: usize = 30;
 
-const PROCEED: &str = "Proceed toward the goal. Dispatch the next tasks now and verify results as they land. Do not re-summarize completed work.";
-const REMINDER: &str = "Your last reply did not end with a valid <orchestrator_status> block, so your state is unknown. Proceed toward the goal, and end every reply with the mandatory status block.";
+const PROCEED: &str = "Proceed toward the goal. Dispatch the next tasks now and verify results as they land. \
+    Do not re-summarize completed work.";
+const REMINDER: &str = "Your last reply did not end with a valid <orchestrator_status> block, so your state is unknown. \
+    Proceed toward the goal, and end every reply with the mandatory status block.";
 
 #[derive(Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -35,6 +36,7 @@ fn state(text: &str) -> Option<State> {
     if !body[end + "</orchestrator_status>".len()..].trim().is_empty() {
         return None;
     }
+
     serde_json::from_str::<Status>(body[..end].trim())
         .ok()
         .map(|status| status.state)
@@ -48,6 +50,7 @@ pub(super) fn next(session: &Session, reply: &MessageWithParts, rounds: usize) -
     if session.agent != AGENT || session.parent_id.is_some() || !answered || rounds >= MAX_ROUNDS {
         return None;
     }
+
     let text: String = reply
         .parts
         .iter()
@@ -56,6 +59,7 @@ pub(super) fn next(session: &Session, reply: &MessageWithParts, rounds: usize) -
             _ => None,
         })
         .collect();
+
     match state(&text) {
         Some(State::Working) => Some(PROCEED),
         None => Some(REMINDER),
@@ -75,7 +79,8 @@ mod tests {
         );
         assert_eq!(
             state(
-                "<orchestrator_status>{\"state\":\"done\"}</orchestrator_status>\n<orchestrator_status>{\"state\":\"blocked\"}</orchestrator_status>"
+                "<orchestrator_status>{\"state\":\"done\"}</orchestrator_status>\n\
+                 <orchestrator_status>{\"state\":\"blocked\"}</orchestrator_status>"
             ),
             Some(State::Blocked),
             "the last block wins"

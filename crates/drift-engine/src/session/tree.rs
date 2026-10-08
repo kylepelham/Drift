@@ -39,6 +39,7 @@ impl Engine {
                 .ok_or(TreeError::BadMessage)?,
             None => self.finished(&source)?.pop().ok_or(TreeError::Empty)?,
         };
+
         let title = if source.title.is_empty() {
             "Fork".to_string()
         } else {
@@ -63,30 +64,37 @@ impl Engine {
         self.hub.publish(Event::SessionCreated {
             session: session.clone(),
         });
+
         Ok(session)
     }
 
     /// Finished visible message IDs before the running turn, read without loading their parts.
     pub(super) fn finished(&self, source: &Session) -> rusqlite::Result<Vec<String>> {
         let messages = self.store.message_infos(&source.id)?;
-        // A running turn is unstable from the prompt it began at, however many are steered in after it.
+        // A running turn can change history from its original prompt, not just its latest steered prompt.
         let stable = match self.turns.began(&source.id) {
-            Some(began) => messages.iter().position(|m| m.id >= began).unwrap_or(messages.len()),
+            Some(began) => messages
+                .iter()
+                .position(|message| message.id >= began)
+                .unwrap_or(messages.len()),
             // Another job, such as a compaction, is unstable from the last prompt.
-            None if self.turns.is_running(&source.id) => {
-                messages.iter().rposition(|m| m.role == Role::User).unwrap_or(0)
-            }
+            None if self.turns.is_running(&source.id) => messages
+                .iter()
+                .rposition(|message| message.role == Role::User)
+                .unwrap_or(0),
             None => messages.len(),
         };
+
         let visible = source
             .revert
             .as_ref()
-            .and_then(|r| messages.iter().position(|m| m.id >= r.message_id))
+            .and_then(|revert| messages.iter().position(|message| message.id >= revert.message_id))
             .unwrap_or(messages.len());
+
         Ok(messages[..stable.min(visible)]
             .iter()
-            .filter(|m| m.status != MessageStatus::Streaming)
-            .map(|m| m.id.clone())
+            .filter(|message| message.status != MessageStatus::Streaming)
+            .map(|message| message.id.clone())
             .collect())
     }
 
@@ -96,15 +104,18 @@ impl Engine {
     pub fn move_session(&self, id: &str, workspace_id: &str) -> Result<Vec<String>, TreeError> {
         self.store.session(id)?.ok_or(TreeError::NoSession)?;
         self.store.workspace(workspace_id)?.ok_or(TreeError::NoWorkspace)?;
+
         let tree = self.store.session_tree(id)?;
         self.turns
             .while_idle(&tree, || self.store.move_sessions(&tree, workspace_id))
             .ok_or(TreeError::Busy)??;
+
         for member in &tree {
             if let Some(session) = self.store.session(member)? {
                 self.hub.publish(Event::SessionUpdated { session });
             }
         }
+
         Ok(tree)
     }
 }

@@ -145,7 +145,7 @@ impl Engine {
         answered
     }
 
-    /// Compacts after a too-long request, then removes the refused reply if it holds nothing, so no error is left behind.
+    /// Compacts an overflowing request and discards an empty refused reply once recovery succeeds.
     async fn recover_from_overflow(
         self: &Arc<Self>,
         session_id: &str,

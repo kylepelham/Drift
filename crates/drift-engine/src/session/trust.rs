@@ -16,15 +16,17 @@ use crate::tool::Ask;
 pub(crate) struct Answers(Mutex<HashMap<String, HashMap<String, bool>>>);
 
 impl Answers {
-    /// The nearest answer about `line` along `lineage` (the session, then the parents a subagent inherits approvals from).
+    /// Finds the nearest answer in session lineage, checking the session before its parents.
     fn get(&self, lineage: &[String], line: &str) -> Option<bool> {
         let answers = self.0.lock().unwrap();
+
         lineage.iter().find_map(|id| answers.get(id)?.get(line).copied())
     }
 
     fn set(&self, session_id: &str, lines: &[String], allowed: bool) {
         let mut answers = self.0.lock().unwrap();
         let session = answers.entry(session_id.into()).or_default();
+
         for line in lines {
             session.insert(line.clone(), allowed);
         }
@@ -73,10 +75,9 @@ pub(super) struct Asker<'a> {
 }
 
 impl Engine {
-    /// Which of `lines` (the project's own commands that would run now) may run: asked about only
-    /// those not answered yet. "Always" holds for the workspace, "once" and "deny" for the session
-    /// and its subagents, each per command, so a changed or newly installed one is asked about again
-    /// and refusing one never stops another.
+    /// Returns allowed project commands, asking only about commands not yet answered.
+    /// Always applies to the workspace; once and deny apply to the session and its subagents.
+    /// Changed commands are asked about again, independently of earlier refusals.
     pub(super) async fn project_commands_allowed(
         &self,
         plan: &Plan,
@@ -90,6 +91,7 @@ impl Engine {
             .ok()
             .flatten()
             .unwrap_or_default();
+
         let lineage = self.permissions.lineage(&session.id);
         let answer = |line: &String| {
             if kept.contains(line) {
@@ -107,6 +109,7 @@ impl Engine {
         if unanswered.is_empty() {
             return allowed;
         }
+
         let ask = Ask::new(
             "project-commands",
             unanswered.join("; "),
@@ -126,7 +129,8 @@ impl Engine {
             Outcome::Aborted => return allowed,
             Outcome::Refused | Outcome::Denied { .. } => false,
         };
-        // "Always" leaves a session grant behind; that, unlike "once", is kept for the workspace.
+
+        // Only Always leaves a permission grant that can be remembered for this workspace.
         if granted && self.permissions.decide_now(&session.id, &Policy::default(), &ask) == Decision::Allow {
             kept.extend(unanswered.iter().cloned());
             let _ = self.store.set_setting(&key(&session.workspace_id), &kept);
@@ -135,6 +139,7 @@ impl Engine {
         if granted {
             allowed.extend(unanswered);
         }
+
         allowed
     }
 }

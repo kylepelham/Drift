@@ -22,7 +22,7 @@ impl From<TurnError> for AnswerError {
 }
 
 impl Engine {
-    /// Answers or declines a question; an async answer is saved before its card closes, so a failed save leaves it answerable.
+    /// Saves an async answer before closing its question card, so failed saves leave the card answerable.
     pub async fn answer_question(self: &Arc<Self>, request_id: &str, answers: Answers) -> Result<(), AnswerError> {
         // One decision per request at a time: an answer and a dismissal never both go through.
         let decision = self.questions.decision(request_id);
@@ -36,11 +36,12 @@ impl Engine {
                 .reply(&self.hub, request_id, answers)
                 .map_err(|_| AnswerError::NotPending);
         }
-        // Dismissed: the card closes and nothing is said or started.
+
         let Some(answers) = answers else {
             self.questions.settle_async(&self.hub, &request);
             return Ok(());
         };
+
         let prompt = Prompt {
             parts: vec![answer_part(&request, &answers)],
             model: None,
@@ -50,6 +51,7 @@ impl Engine {
         };
         self.deliver_answer(&request, prompt).await?;
         self.questions.settle_async(&self.hub, &request);
+
         Ok(())
     }
 
@@ -62,6 +64,7 @@ impl Engine {
         else {
             return Err(AnswerError::NotPending);
         };
+
         let transcript = self.store.transcript(&saved.session_id).map_err(TurnError::from)?;
         let parts = transcript
             .into_iter()
@@ -72,13 +75,14 @@ impl Engine {
             Part::Clarification { items, .. } => Some(items.into_iter().map(|item| item.answers).collect::<Vec<_>>()),
             _ => None,
         });
+
         match (given, answers) {
             (Some(given), Some(again)) if given == again => Ok(()),
             _ => Err(AnswerError::Conflict),
         }
     }
 
-    /// Joins the running turn, or starts one; after a Stop since the question, or with the session busy, it is only saved.
+    /// Joins or starts a turn unless Stop or another job prevents admission; then the answer is only saved.
     async fn deliver_answer(self: &Arc<Self>, request: &Request, prompt: Prompt) -> Result<(), AnswerError> {
         if let Some(scope) = self.scope_at(&request.session_id, request.generation) {
             match self
@@ -98,6 +102,7 @@ impl Engine {
                 Err(error) => return Err(error.into()),
             }
         }
+
         self.save_without_turn(&request.session_id, prompt)
     }
 
@@ -110,12 +115,14 @@ impl Engine {
         {
             return Ok(());
         }
+
         let session = self
             .store
             .session(session_id)
             .map_err(TurnError::from)?
             .ok_or(TurnError::NoSession)?;
         let model = session.model.ok_or(TurnError::NoModel)?;
+
         match self.admit_fenced(
             session_id,
             super::turn::FencedPrompt {
@@ -148,6 +155,7 @@ fn answer_part(request: &Request, answers: &[Vec<String>]) -> Part {
             answers: chosen.clone(),
         })
         .collect();
+
     Part::Clarification {
         request_id: request.id.clone(),
         items,

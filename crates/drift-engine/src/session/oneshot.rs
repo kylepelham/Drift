@@ -28,7 +28,7 @@ pub(crate) struct OneShot {
     pub max_tokens: u32,
     /// For each attempt; a provider fault is retried as a turn's is.
     pub timeout: Duration,
-    /// The session whose user is waiting on this request and sees its retries, as a turn's; none for a background title.
+    /// The session in which retries are announced; none for a background title.
     pub shown_in: Option<String>,
 }
 
@@ -125,6 +125,7 @@ impl Engine {
         if let Some(agent) = plan.config.agent(action) {
             agent.usable().map_err(|error| TurnError::Config(error.to_string()))?;
         }
+
         let chosen = match (plan.config.agent_model(action), fallback) {
             (Some(pinned), _) => pinned,
             (None, Fallback::Conversation) => plan.model_ref.clone(),
@@ -146,6 +147,7 @@ impl Engine {
         } else {
             self.resolve(&chosen).await?
         };
+
         Ok(Action {
             resolved,
             config: (*plan.config).clone(),
@@ -154,6 +156,7 @@ impl Engine {
             own: own.then_some(plan),
         })
     }
+
     /// Everything needed to call `model_ref`, with an expired subscription token refreshed.
     pub(crate) async fn resolve(&self, model_ref: &ModelRef) -> Result<Resolved, TurnError> {
         self.resolve_from(model_ref, &self.catalog_view()).await
@@ -178,6 +181,7 @@ impl Engine {
                 info.api.clone(),
             )
         };
+
         let credential = self
             .credentials
             .resolve(&model_ref.provider, &env)
@@ -187,6 +191,7 @@ impl Engine {
         let provider = self
             .provider_for(&model_ref.provider, api.as_deref())
             .ok_or(TurnError::UnknownModel)?;
+
         Ok(Resolved {
             model_ref: model_ref.clone(),
             model,
@@ -210,11 +215,12 @@ impl Engine {
             .filter(|limit| *limit > 0)
             .unwrap_or(u32::MAX);
         let mut max_tokens = shot.max_tokens.saturating_add(thinking).min(limit);
-        // A budget the model's output limit cannot hold beside the answer is dropped rather than refused by the provider.
+        // Drop thinking that cannot fit beside the answer, rather than sending an invalid budget.
         if matches!(reasoning, Some(crate::llm::catalog::Reasoning::Budget { tokens }) if tokens >= max_tokens) {
             reasoning = None;
             max_tokens = shot.max_tokens.min(limit);
         }
+
         let request = Request {
             model: resolved.model.wire(&resolved.model_ref.model).to_string(),
             system: shot.system,
@@ -233,6 +239,7 @@ impl Engine {
             top_k: None,
             mode: resolved.model.mode.clone(),
         };
+
         self.send(
             &resolved.provider,
             &resolved.credential,
@@ -268,6 +275,7 @@ impl Engine {
             let Some(retry) = super::turn::Retry::from(&error).filter(|retry| retry.allowed(retries)) else {
                 return Err(Failure::Provider(error));
             };
+
             retries += 1;
             let delay = retry.delay(retries);
             if let Some(session_id) = shown_in {
@@ -279,6 +287,7 @@ impl Engine {
                     next_at,
                 });
             }
+
             tokio::time::sleep(delay).await;
             if let Some(session_id) = shown_in {
                 self.hub.publish(Event::SessionStatusChanged {
@@ -299,7 +308,9 @@ pub(super) fn refuse_signin_elsewhere(
 ) -> Result<(), TurnError> {
     match (credential, api) {
         (Credential::OAuth { .. }, Some(base)) => Err(TurnError::Config(format!(
-            "{provider} is pointed at {base} in your drift.json, and a subscription sign-in is only sent to {provider} itself; use an API key for that route, or remove its baseUrl"
+            "{provider} is pointed at {base} in your drift.json, \
+             and a subscription sign-in is only sent to {provider} itself; \
+             use an API key for that route, or remove its baseUrl"
         ))),
         _ => Ok(()),
     }
@@ -311,6 +322,7 @@ async fn collect_text(provider: &Provider, request: &Request, credential: &Crede
     let mut usage = Usage::default();
     let mut stopped = None;
     let mut called_tool = false;
+
     while let Some(chunk) = chunks.next().await {
         match chunk.map_err(Failure::Provider)? {
             Chunk::TextDelta(delta) => text.push_str(&delta),
@@ -320,6 +332,7 @@ async fn collect_text(provider: &Provider, request: &Request, credential: &Crede
             _ => {}
         }
     }
+
     let failed = |why: &str| Err(Failure::Reply(why.into(), usage));
     match stopped {
         Some(StopReason::EndTurn) if !called_tool => {}
@@ -336,5 +349,6 @@ async fn collect_text(provider: &Provider, request: &Request, credential: &Crede
     if text.trim().is_empty() {
         return failed("the model returned no text");
     }
+
     Ok(Answer { text, usage })
 }

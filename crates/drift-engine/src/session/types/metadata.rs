@@ -64,7 +64,15 @@ macro_rules! metadata_fields {
                 }
 
                 if let Some(mut extra) = extra.filter(|extra| extra.legacy.is_none()) {
-                    $(replace_metadata_field(&mut self.$field, &mut self.extra, &mut extra.$field, &extra.extra, $key);)*
+                    $(
+                        replace_metadata_field(
+                            &mut self.$field,
+                            &mut self.extra,
+                            &mut extra.$field,
+                            &extra.extra,
+                            $key,
+                        );
+                    )*
                     self.extra.extend(extra.extra);
                 }
 

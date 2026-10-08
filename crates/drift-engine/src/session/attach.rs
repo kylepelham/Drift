@@ -1,7 +1,6 @@
-//! A prompt's files, made usable before the prompt is admitted. An @ mention of a file is read in
-//! only where the read tool would read it without asking; otherwise the model is told to use that
-//! tool, which asks. Text travels as text, an image only to a model that reads images, and anything
-//! else is refused with the reason: nothing is silently dropped.
+//! Prepares prompt files before admission, reading mentions only when the read tool needs no approval.
+//! Text travels as text; images and PDFs require model support.
+//! Unsupported files are refused with a reason rather than silently dropped.
 
 use std::path::{Path, PathBuf};
 
@@ -34,6 +33,17 @@ pub(crate) struct Prepared {
     pub read: Vec<PathBuf>,
 }
 
+/// Why a mentioned file could not be read; displayed unchanged beside the mention.
+#[derive(Debug, thiserror::Error)]
+enum MentionError {
+    #[error("it does not exist")]
+    Missing,
+    #[error("it could not be read ({0})")]
+    Read(std::io::Error),
+    #[error("it is binary")]
+    Binary,
+}
+
 impl Attach<'_> {
     pub(crate) fn prepare(&self, parts: Vec<Part>) -> Result<Prepared, TurnError> {
         let mut read = Vec::new();
@@ -41,6 +51,7 @@ impl Attach<'_> {
             .into_iter()
             .map(|part| self.part(part, &mut read))
             .collect::<Result<_, _>>()?;
+
         Ok(Prepared { parts, read })
     }
 
@@ -48,6 +59,7 @@ impl Attach<'_> {
         let Part::File { mime, name, url, .. } = part else {
             return Ok(part);
         };
+
         if let Some(path) = file_path(&url) {
             let shown = display_name(self.workspace, &path);
             return Ok(mention_part(&shown, &self.mention(&path, read)));
@@ -59,6 +71,7 @@ impl Attach<'_> {
         if !data.mime.is_empty() && !data.mime.eq_ignore_ascii_case(&mime) {
             return refuse(format!("it says it is {mime} but its data is {}", data.mime));
         }
+
         match mime.split('/').next().unwrap_or_default() {
             "text" if data.text().is_some() => Ok(Part::File {
                 mime,
@@ -85,7 +98,7 @@ impl Attach<'_> {
         }
     }
 
-    /// A PDF goes whole to a model that reads PDFs; one that does not, or bytes that are no PDF, are refused with the reason.
+    /// Validates PDF data and model support before admitting the complete PDF.
     fn pdf(&self, mime: String, name: String, url: &str, data: &DataUrl) -> Result<Part, TurnError> {
         let refuse = |why: String| Err(TurnError::Attachment(format!("{name}: {why}")));
         match data.bytes().filter(|_| data.base64) {
@@ -123,6 +136,7 @@ impl Attach<'_> {
                 }
             }
         }
+
         match read(path) {
             Ok(Read::Whole(text)) => {
                 read_whole.push(path.to_path_buf());
@@ -153,7 +167,8 @@ impl<'a> DataUrl<'a> {
         let (header, payload) = url.strip_prefix("data:")?.split_once(',')?;
         let mut params = header.split(';');
         let mime = params.next().unwrap_or_default().trim();
-        let base64 = params.any(|p| p.trim().eq_ignore_ascii_case("base64"));
+        let base64 = params.any(|parameter| parameter.trim().eq_ignore_ascii_case("base64"));
+
         Some(Self { mime, base64, payload })
     }
 
@@ -163,6 +178,7 @@ impl<'a> DataUrl<'a> {
                 .decode(self.payload.trim())
                 .ok();
         }
+
         Some(percent_encoding::percent_decode_str(self.payload).collect())
     }
 
@@ -183,26 +199,29 @@ fn why(workspace: &Path, path: &Path) -> &'static str {
 
 /// A file's text within the mention bound, or a directory's entries; `Err` says why neither. Only
 /// one byte past the bound is ever read, however large the file.
-fn read(path: &Path) -> Result<Read, String> {
+fn read(path: &Path) -> Result<Read, MentionError> {
     use std::io::Read as _;
-    let meta = std::fs::metadata(path).map_err(|_| "it does not exist".to_string())?;
-    if meta.is_dir() {
+    let metadata = std::fs::metadata(path).map_err(|_| MentionError::Missing)?;
+    if metadata.is_dir() {
         return Ok(Read::Listing(list(path)));
     }
-    let file = std::fs::File::open(path).map_err(|e| format!("it could not be read ({e})"))?;
+
+    let file = std::fs::File::open(path).map_err(MentionError::Read)?;
     let mut bytes = Vec::new();
     file.take(MAX_MENTION_BYTES as u64 + 1)
         .read_to_end(&mut bytes)
-        .map_err(|e| format!("it could not be read ({e})"))?;
-    if bytes.iter().take(8000).any(|b| *b == 0) {
-        return Err("it is binary".into());
+        .map_err(MentionError::Read)?;
+    if bytes.iter().take(8000).any(|byte| *byte == 0) {
+        return Err(MentionError::Binary);
     }
     if bytes.len() <= MAX_MENTION_BYTES {
         return Ok(Read::Whole(String::from_utf8_lossy(&bytes).into_owned()));
     }
+
     let text = String::from_utf8_lossy(&bytes[..MAX_MENTION_BYTES]);
     let cut = text.rfind('\n').unwrap_or(0);
     let shown_lines = text[..cut].lines().count();
+
     Ok(Read::Partial(format!(
         "{}\n\n(cut after {shown_lines} lines; read with offset {} for the rest)",
         &text[..cut],
@@ -216,13 +235,13 @@ fn list(path: &Path) -> String {
         .flatten()
         .flatten()
         .map(|entry| {
-            format!(
-                "{}{}",
-                entry.file_name().to_string_lossy(),
-                if entry.path().is_dir() { "/" } else { "" }
-            )
+            let name = entry.file_name();
+            let suffix = if entry.path().is_dir() { "/" } else { "" };
+
+            format!("{}{suffix}", name.to_string_lossy())
         })
         .collect();
+
     names.sort();
     let total = names.len();
     names.truncate(MAX_LISTED);
@@ -231,6 +250,7 @@ fn list(path: &Path) -> String {
     } else {
         String::new()
     };
+
     format!("{}{more}", names.join("\n"))
 }
 
@@ -240,6 +260,7 @@ fn mention_part(shown: &str, text: &str) -> Part {
         "data:text/plain;base64,{}",
         base64::engine::general_purpose::STANDARD.encode(text)
     );
+
     Part::File {
         mime: "text/plain".into(),
         name: shown.into(),
@@ -258,6 +279,7 @@ fn file_path(url: &str) -> Option<PathBuf> {
     let decoded = percent_encoding::percent_decode_str(rest).decode_utf8().ok()?;
     let windows_drive = decoded.len() > 2 && decoded.starts_with('/') && decoded.as_bytes()[2] == b':';
     let raw = if windows_drive { &decoded[1..] } else { &decoded[..] };
+
     Some(crate::tool::canonical(Path::new(raw)))
 }
 
@@ -297,10 +319,12 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let big = dir.join("big.txt");
         std::fs::write(&big, "line\n".repeat(MAX_MENTION_BYTES)).unwrap();
+
         let Ok(Read::Partial(text)) = read(&big) else {
             panic!("a file past the bound is partial")
         };
         assert!(text.len() < MAX_MENTION_BYTES + 200 && text.ends_with("for the rest)"));
+
         std::fs::write(&big, "small\n").unwrap();
         assert!(matches!(read(&big), Ok(Read::Whole(text)) if text == "small\n"));
         std::fs::remove_dir_all(dir).ok();

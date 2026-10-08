@@ -26,14 +26,11 @@ impl Engine {
         let Some(text) = self.first_prompt(&session.id) else {
             return;
         };
-        let placeholder: String = text
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .chars()
-            .take(PLACEHOLDER_CHARS)
-            .collect();
+
+        let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        let placeholder: String = joined.chars().take(PLACEHOLDER_CHARS).collect();
         self.rename_if(&session.id, "", &placeholder);
+
         let engine = self.clone();
         let id = session.id.clone();
         tokio::spawn(async move {
@@ -50,6 +47,7 @@ impl Engine {
             .agent("title")
             .map(|agent| agent.prompt.clone())
             .unwrap_or_default();
+
         let message = ChatMessage {
             role: crate::llm::Role::User,
             blocks: vec![Block::Text(text.chars().take(INPUT_CHARS).collect())],
@@ -62,12 +60,15 @@ impl Engine {
             timeout: TITLE_TIMEOUT,
             shown_in: None,
         };
-        clean(&self.complete(&action.resolved, shot).await.ok()?.text)
+
+        let answer = self.complete(&action.resolved, shot).await.ok()?;
+        clean(&answer.text)
     }
 
     fn first_prompt(&self, session_id: &str) -> Option<String> {
         let transcript = self.store.transcript(session_id).ok()?;
-        let first = transcript.iter().find(|m| m.info.role == Role::User)?;
+        let first = transcript.iter().find(|message| message.info.role == Role::User)?;
+
         first.parts.iter().find_map(|row| match &row.part {
             Part::Text { text } if !text.trim().is_empty() => Some(text.clone()),
             _ => None,
@@ -89,6 +90,7 @@ fn clean(reply: &str) -> Option<String> {
         .trim_matches(|c: char| matches!(c, '"' | '\'' | '`' | '*' | '#'))
         .trim_end_matches(['.', '!', '?', ':'])
         .trim();
+
     (!line.is_empty()).then(|| line.chars().take(TITLE_CHARS).collect())
 }
 

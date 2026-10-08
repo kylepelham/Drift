@@ -192,7 +192,8 @@ impl Engine {
         let read_only = scope.plan.config.agent(agent).is_some_and(|agent| agent.read_only);
         if read_only && !tool.stays_read_only(&context, &input) {
             let reason = format!(
-                "The {agent} agent only reads, so this call was not run: it would change something. Use read-only commands and tools, or hand the work to a read-only subagent such as explore."
+                "The {agent} agent only reads, so this call was not run: it would change something. \
+                 Use read-only commands and tools, or hand the work to a read-only subagent such as explore."
             );
             self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);

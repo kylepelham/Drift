@@ -1,7 +1,6 @@
-//! Workers the model launches with `task`. A foreground worker is waited for; a background one runs on
-//! under the engine while the conversation goes on, and its result is handed back once, at a point
-//! where the parent can take it. Parent link and permissions are the worker's; stopping follows the
-//! owner, never the launching turn.
+//! Model-launched workers: foreground tasks wait; background tasks continue while the parent works.
+//! Results are delivered once, when the parent can accept them.
+//! Permissions follow the parent link; cancellation follows the owner rather than the launching turn.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -261,6 +260,7 @@ impl Workers {
         if tokens.get(task_id).is_some_and(CancellationToken::is_cancelled) {
             token.cancel();
         }
+
         tokens.insert(task_id.into(), token.clone());
     }
 
@@ -269,6 +269,7 @@ impl Workers {
         let mut tokens = self.tokens.lock().unwrap();
         let token = tokens.entry(task_id.into()).or_default();
         let live = !token.is_cancelled();
+
         token.cancel();
         live
     }
@@ -280,6 +281,7 @@ impl Workers {
     /// Takes the right to hand `task_id`'s result over; `false` if someone else has it, who is then asked to try again.
     pub(crate) fn claim(&self, task_id: &str, claimant: Claimant) -> bool {
         let mut claims = self.claims.lock().unwrap();
+
         match claims.get_mut(task_id) {
             // A call may claim what it already holds; two automatic attempts never run at once.
             Some(claim) if claim.holder == claimant && claimant != Claimant::Automatic => true,
@@ -328,6 +330,7 @@ impl Workers {
         for task in &released {
             claims.remove(task);
         }
+
         released
     }
 }
@@ -379,6 +382,7 @@ impl Engine {
     pub(crate) fn worker_scope(&self, owner: &str) -> (CancellationToken, i64) {
         let mut owners = self.workers.fence();
         let entry = owner_entry(&mut owners, &self.store, owner);
+
         (entry.token.clone(), entry.generation)
     }
 
@@ -386,6 +390,7 @@ impl Engine {
     pub(super) fn scope_at(&self, owner: &str, generation: i64) -> Option<CancellationToken> {
         let mut owners = self.workers.fence();
         let entry = owner_entry(&mut owners, &self.store, owner);
+
         (entry.generation == generation).then(|| entry.token.clone())
     }
 
@@ -415,11 +420,14 @@ impl Engine {
                 return Err(failure);
             }
         };
+
         if task.mode == Mode::Foreground {
             return Ok(Some(self.run_worker(task, prompt, plan, &token).await));
         }
+
         let (engine, task) = (self.clone(), task.clone());
         tokio::spawn(async move { engine.work(task, prompt, plan, token).await });
+
         Ok(None)
     }
 
@@ -443,6 +451,7 @@ impl Engine {
             self.end_task(&task.id, TaskState::Stopped, STOPPED);
             self.workers.forget(&task.id);
         }
+
         if let Some(permit) = permit {
             self.workers.release(permit);
         }
@@ -471,6 +480,7 @@ impl Engine {
         };
         self.end_task(&task.id, state, &text);
         self.workers.forget(&task.id);
+
         outcome
     }
 
@@ -483,18 +493,21 @@ impl Engine {
             (Some(TurnEnd::Failed), Attempt::Replied(_)) => Attempt::Failed("its turn ended without finishing".into()),
             (_, attempt) => attempt,
         };
+
         match attempt {
             Attempt::Replied(reply) => (TaskState::Replied, clip(&reply, RESULT_CHARS), "replied"),
             Attempt::Incomplete(partial) => {
                 let text = format!(
-                    "The subagent stopped at its output limit before finishing; this is not a complete answer. What it had written:\n\n{}",
+                    "The subagent stopped at its output limit before finishing; this is not a complete answer. \
+                     What it had written:\n\n{}",
                     clip(&partial, RESULT_CHARS)
                 );
                 (TaskState::Failed, text, "incomplete")
             }
             Attempt::Limited(write_up) => {
                 let text = format!(
-                    "The subagent reached its step or repeat limit before finishing; this is its account of where it got to, not a complete answer:\n\n{}",
+                    "The subagent reached its step or repeat limit before finishing; \
+                     this is its account of where it got to, not a complete answer:\n\n{}",
                     clip(&write_up, RESULT_CHARS)
                 );
                 (TaskState::Failed, text, "incomplete")
@@ -537,7 +550,7 @@ impl Engine {
     /// Hands a finished background result to its parent as a prompt, once, unless a call of the parent's is taking it.
     pub async fn deliver(self: &Arc<Self>, task_id: &str) {
         while self.workers.claim(task_id, Claimant::Automatic) {
-            // Read after claiming: a call may have taken it just before.
+            // Read after claiming because another call may just have delivered the result.
             if let Ok(Some(task)) = self.store.task(task_id)
                 && !task.delivered
                 && !task.held
@@ -546,7 +559,7 @@ impl Engine {
             {
                 self.deliver_claimed(&task).await;
             }
-            // A trigger that found it claimed while this attempt failed is not lost: it is tried once more here.
+            // Retry readiness notifications that arrived while a failed delivery still held its claim.
             if !self.workers.release_where_task(task_id, &Claimant::Automatic) {
                 return;
             }
@@ -569,10 +582,11 @@ impl Engine {
 
     async fn deliver_claimed(self: &Arc<Self>, task: &TaskRecord) {
         let owner = &task.parent_session_id;
-        // Every wait before admission, and admission itself, ends when a Stop cancels this.
+        // This token cancels both admission and any preceding wait when the owner stops.
         let Some(scope) = self.scope_at(owner, task.generation) else {
             return self.hold(&task.id);
         };
+
         let prompt = Prompt {
             parts: vec![result_part(task)],
             model: None,
@@ -629,12 +643,10 @@ impl Engine {
     }
 
     fn redeliver(self: &Arc<Self>, task_id: &str) {
-        let owed = self
-            .store
-            .task(task_id)
-            .ok()
-            .flatten()
-            .is_some_and(|t| t.mode == Mode::Background && t.state.is_terminal() && !t.delivered && !t.held);
+        let owed = self.store.task(task_id).ok().flatten().is_some_and(|task| {
+            task.mode == Mode::Background && task.state.is_terminal() && !task.delivered && !task.held
+        });
+
         if owed {
             let (engine, task_id) = (self.clone(), task_id.to_string());
             tokio::spawn(async move { engine.deliver(&task_id).await });
@@ -650,6 +662,7 @@ impl Engine {
                 self.end_task(task_id, TaskState::Stopped, STOPPED);
             }
         }
+
         Ok(self.store.task(task_id)?.unwrap_or(task))
     }
 
@@ -660,15 +673,16 @@ impl Engine {
             .tasks_of(owner)
             .unwrap_or_default()
             .iter()
-            .any(|t| t.mode == Mode::Background && !t.state.is_terminal());
+            .any(|task| task.mode == Mode::Background && !task.state.is_terminal());
         let entry = owner_entry(owners, &self.store, owner);
         entry.generation = self.store.bump_stop_generation(owner).unwrap_or(entry.generation + 1);
         entry.token.cancel();
         entry.token = CancellationToken::new();
+
         running
     }
 
-    /// After a restart, owed results go where they belong: background ones as prompts, foreground ones into their own call.
+    /// Recovers owed results after restart: background results become prompts, foreground results update their call.
     pub async fn recover_tasks(self: &Arc<Self>) {
         for task in self.store.undelivered_tasks().unwrap_or_default() {
             match task.mode {
@@ -683,7 +697,7 @@ impl Engine {
         let transcript = self.store.transcript(&task.parent_session_id).unwrap_or_default();
         let call = transcript
             .into_iter()
-            .flat_map(|m| m.parts)
+            .flat_map(|message| message.parts)
             .find(|row| matches!(&row.part, Part::ToolCall { call_id, .. } if *call_id == task.call_id));
         let unsettled = |row: &PartRow| {
             matches!(
@@ -695,7 +709,7 @@ impl Engine {
             )
         };
         let Some(mut row) = call.filter(unsettled) else {
-            // The call already shows its result (saved before that write also acknowledged it).
+            // A saved call result needs only its missing delivery acknowledgement repaired.
             let _ = self.store.mark_task_delivered(&task.id);
             return self.publish_task(&task.id);
         };
@@ -756,13 +770,12 @@ pub(crate) enum Attempt {
 /// one is how the session last ended.
 pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Attempt {
     let transcript = store.transcript(session_id).unwrap_or_default();
-    let Some(last) = transcript
-        .iter()
-        .rev()
-        .find(|m| m.info.role == Role::Assistant && !(m.info.summary && m.info.status == MessageStatus::Done))
-    else {
+    let Some(last) = transcript.iter().rev().find(|message| {
+        message.info.role == Role::Assistant && !(message.info.summary && message.info.status == MessageStatus::Done)
+    }) else {
         return Attempt::None;
     };
+
     let text = || {
         last.parts
             .iter()
@@ -773,6 +786,7 @@ pub(crate) fn last_attempt(store: &crate::store::Store, session_id: &str) -> Att
             .collect::<Vec<_>>()
             .join("\n")
     };
+
     match last.info.status {
         MessageStatus::Done if last.info.ending == Some(Ending::Refused) => Attempt::Refused(text()),
         MessageStatus::Done if last.info.ending == Some(Ending::Limit) => Attempt::Limited(text()),
@@ -793,7 +807,9 @@ pub(crate) fn clip(text: &str, max: usize) -> String {
     if text.chars().count() <= max {
         return text.into();
     }
-    format!("{}\n\n(truncated)", text.chars().take(max).collect::<String>())
+
+    let kept: String = text.chars().take(max).collect();
+    format!("{kept}\n\n(truncated)")
 }
 
 #[cfg(test)]

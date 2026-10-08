@@ -48,7 +48,12 @@ fn command_calls(input: CommandCalls<'_>) -> Vec<Bootstrap> {
         }];
     }
     if input.delegated {
-        let arguments = json!({ "description": name, "prompt": input.text, "subagent_type": input.agent, "run_in_background": false });
+        let arguments = json!({
+            "description": name,
+            "prompt": input.text,
+            "subagent_type": input.agent,
+            "run_in_background": false,
+        });
         return vec![Bootstrap {
             tool: "task".into(),
             input: arguments,

@@ -1,7 +1,6 @@
-//! Undo and redo: hide a conversation back to one of its prompts and put back what its calls changed,
-//! its subagents' calls included. Only those files: one edited since the session last wrote it is
-//! kept and reported, and nothing else in the workspace is touched. Nothing is deleted until the next
-//! prompt commits the undo (see `Store::admit_prompt`).
+//! Undo and redo hide history back to a prompt and restore files changed by the session and its subagents.
+//! Files changed by another writer are kept and reported; unrelated workspace files are untouched.
+//! Hidden history is deleted only when a new prompt commits the undo (see `Store::admit_prompt`).
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -88,6 +87,14 @@ struct Endpoint {
     blob: Option<String>,
 }
 
+/// A recorded call sorted by its completed writes, with its stable part id as the tie-breaker.
+struct RecordedCall {
+    stamp: String,
+    part_id: String,
+    owner: String,
+    changes: Vec<FileChange>,
+}
+
 impl Net {
     fn new(owner: String, change: FileChange, file: Option<PathBuf>) -> Self {
         Self {
@@ -116,6 +123,7 @@ impl Net {
 
     fn extend(&mut self, owner: String, change: FileChange) {
         self.broken |= self.after.blob != change.before;
+
         self.after = Endpoint {
             owner,
             blob: change.after,
@@ -186,6 +194,7 @@ impl Engine {
                 return Err(RevertError::Busy);
             }
         }
+
         let result = work.await;
         self.turns.release(session_id);
         result
@@ -198,6 +207,7 @@ impl Engine {
         keep_files: bool,
     ) -> Result<Undone, RevertError> {
         let session = self.store.session(session_id)?.ok_or(RevertError::NoSession)?;
+
         if !self
             .store
             .transcript(session_id)?
@@ -206,7 +216,7 @@ impl Engine {
         {
             return Err(RevertError::NotAPrompt);
         }
-        // The files move from where they stand, which an earlier undo that kept them may have left elsewhere.
+        // A previous keep-files undo can leave files at a different point from the conversation.
         let files = session.revert.as_ref().and_then(Revert::files_from);
         if keep_files {
             return self
@@ -217,6 +227,7 @@ impl Engine {
                 )
                 .await;
         }
+
         let shifted = match files {
             None => self.shift(&session, message_id, None, Direction::Back).await?,
             Some(current) if message_id < current => {
@@ -228,6 +239,7 @@ impl Engine {
             }
             Some(_) => Shifted::default(),
         };
+
         let revert = Revert::new(message_id, shifted.kept.clone(), Some(message_id));
         self.mark_or_put_back(session_id, Some(&revert), shifted).await
     }
@@ -249,7 +261,7 @@ impl Engine {
         self.mark_or_put_back(session_id, None, shifted).await
     }
 
-    /// Saves the marker that matches the files just shifted; if it cannot be saved, the files go back too, so both sides still agree.
+    /// Saves the undo marker after shifting files, rolling back the files if saving the marker fails.
     async fn mark_or_put_back(
         &self,
         session_id: &str,
@@ -267,10 +279,9 @@ impl Engine {
         }
     }
 
-    /// Applies the net change of the turns in `[from, to)` in one direction. A file whose content is
-    /// not what that change expects was edited by someone else since; it is kept, not overwritten. A
-    /// change only observed while a command ran is never applied: it may not be the session's. Each
-    /// change is applied where its owning workspace is now, whichever workspace the session is in.
+    /// Applies recorded changes in `[from, to)`, leaving externally edited or merely observed files alone.
+    /// Each endpoint's original snapshot owner supplies its bytes, even after workspace moves.
+    /// File reservations are held until the marker is saved or rollback completes.
     async fn shift(
         &self,
         session: &Session,
@@ -288,6 +299,7 @@ impl Engine {
         if abort.is_cancelled() {
             return Err(RevertError::Stopped);
         }
+
         let mut shifted = Shifted {
             unrecorded,
             _turns: Some(turns),
@@ -301,6 +313,7 @@ impl Engine {
                 Err(error) => return Err(self.put_back(shifted.applied, error).await),
             }
         }
+
         Ok(shifted)
     }
 
@@ -311,6 +324,7 @@ impl Engine {
             .filter(|net| !net.observed && !net.broken)
             .filter_map(|net| net.file.clone())
             .collect();
+
         crate::tool::lock::files(&paths).await
     }
 
@@ -325,10 +339,12 @@ impl Engine {
             shifted.unattributed.push(net.path);
             return Ok(None);
         }
+
         let Some(file) = net.file.as_ref().filter(|_| !net.broken) else {
             shifted.kept.push(net.path);
             return Ok(None);
         };
+
         let (expected, target) = match direction {
             Direction::Back => (&net.after, &net.before),
             Direction::Forward => (&net.before, &net.after),
@@ -352,6 +368,7 @@ impl Engine {
                 path: net.path.clone(),
                 error,
             })?;
+
         Ok(Some(Applied {
             workspace: previous_workspace,
             path,
@@ -359,7 +376,7 @@ impl Engine {
         }))
     }
 
-    /// Returns the paths a failed shift already changed to their content before it, newest first; the shift still holds their turns.
+    /// Restores already shifted paths newest first, while the failed shift still holds their reservations.
     async fn put_back(&self, applied: Vec<Applied>, error: ShiftError) -> RevertError {
         let mut stuck = Vec::new();
         for Applied {
@@ -376,11 +393,13 @@ impl Engine {
                 stuck.push(format!("{path} ({failure})"));
             }
         }
+
         let state = if stuck.is_empty() {
             "no file was changed".to_string()
         } else {
             format!("these could not be put back: {}", stuck.join("; "))
         };
+
         RevertError::Files(format!("{error}; {state}"))
     }
 
@@ -392,21 +411,25 @@ impl Engine {
         from: &str,
         to: Option<&str>,
     ) -> Result<(Vec<Net>, Vec<String>), RevertError> {
-        let mut calls: Vec<(String, String, String, Vec<FileChange>)> = Vec::new();
+        let mut calls = Vec::new();
         let mut unrecorded: Vec<String> = Vec::new();
         for member in self.store.session_tree(&session.id)? {
-            for message in self
-                .store
-                .transcript(&member)?
-                .iter()
-                .filter(|m| m.info.id.as_str() >= from && to.is_none_or(|to| m.info.id.as_str() < to))
+            for message in
+                self.store.transcript(&member)?.iter().filter(|message| {
+                    message.info.id.as_str() >= from && to.is_none_or(|to| message.info.id.as_str() < to)
+                })
             {
                 for row in &message.parts {
                     if let Some(record) = recorded_changes(&row.part) {
-                        // Recorded before changes named their owner: the session's workspace then and now.
+                        // Legacy changes predate snapshot-owner fields and belong to the session's workspace.
                         let owner = record.owner.unwrap_or_else(|| session.workspace_id.clone());
                         let at = record.at.unwrap_or_else(|| message.info.id.clone());
-                        calls.push((stamp(&at).to_string(), row.id.clone(), owner, record.changes));
+                        calls.push(RecordedCall {
+                            stamp: stamp(&at).to_string(),
+                            part_id: row.id.clone(),
+                            owner,
+                            changes: record.changes,
+                        });
                     } else {
                         unrecorded.extend(
                             written_without_record(&row.part)
@@ -418,24 +441,34 @@ impl Engine {
                 }
             }
         }
-        calls.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        calls.sort_by(|left, right| (&left.stamp, &left.part_id).cmp(&(&right.stamp, &right.part_id)));
+        let net = self.fold_recorded_calls(calls);
+        unrecorded.dedup();
+
+        Ok((net, unrecorded))
+    }
+
+    fn fold_recorded_calls(&self, calls: Vec<RecordedCall>) -> Vec<Net> {
         let mut net: Vec<Net> = Vec::new();
         for (owner, change) in calls
             .into_iter()
-            .flat_map(|(_, _, owner, changes)| changes.into_iter().map(move |c| (owner.clone(), c)))
+            .flat_map(|call| call.changes.into_iter().map(move |change| (call.owner.clone(), change)))
         {
             let file = self
                 .root_of(&owner)
                 .map(|root| crate::tool::canonical(&root.join(&change.path)));
             let key = file.as_deref().map(crate::tool::lock::path_key);
-            match net.iter_mut().find(|n| n.names(key.as_deref(), &owner, &change.path)) {
+            match net
+                .iter_mut()
+                .find(|existing| existing.names(key.as_deref(), &owner, &change.path))
+            {
                 Some(existing) => existing.extend(owner, change),
                 None => net.push(Net::new(owner, change, file)),
             }
         }
-        net.retain(|n| n.broken || n.before.blob != n.after.blob);
-        unrecorded.dedup();
-        Ok((net, unrecorded))
+        net.retain(|change| change.broken || change.before.blob != change.after.blob);
+
+        net
     }
 
     fn mark(&self, session_id: &str, revert: Option<&Revert>) -> Result<Session, MarkError> {
@@ -445,6 +478,7 @@ impl Engine {
         self.hub.publish(Event::SessionUpdated {
             session: session.clone(),
         });
+
         Ok(session)
     }
 
@@ -453,6 +487,7 @@ impl Engine {
         let workspace = self.store.workspace(owner).ok()??;
         let root = crate::tool::canonical(Path::new(&workspace.path));
         self.snapshots.bind(owner, &root);
+
         Some(root)
     }
 }
@@ -465,7 +500,7 @@ fn is_prompt(message: &MessageWithParts) -> bool {
             .any(|row| matches!(row.part, Part::Compaction { .. }))
 }
 
-/// A call's recorded changes, with the workspace that owns their history and when its writes finished, when the record says.
+/// A call's recorded changes, with their snapshot owner and write-completion stamp when available.
 struct Record {
     owner: Option<String>,
     at: Option<String>,
@@ -486,6 +521,7 @@ fn recorded_changes(part: &Part) -> Option<Record> {
         .iter()
         .map(super::types::HistoryChange::snapshot)
         .collect();
+
     Some(Record {
         owner: metadata.owner.clone(),
         at: metadata.at.clone(),
@@ -513,7 +549,12 @@ fn written_without_record(part: &Part) -> Vec<String> {
         .iter()
         .filter_map(|key| input[*key].as_str().map(str::to_string))
         .collect();
-    for file in metadata.as_ref().and_then(|m| m.files.as_ref()).into_iter().flatten() {
+    for file in metadata
+        .as_ref()
+        .and_then(|metadata| metadata.files.as_ref())
+        .into_iter()
+        .flatten()
+    {
         if let super::types::MetadataFile::Imported(file) = file {
             paths.extend(
                 ["filePath", "movePath"]
@@ -523,6 +564,7 @@ fn written_without_record(part: &Part) -> Vec<String> {
         }
     }
     paths.dedup();
+
     paths
 }
 

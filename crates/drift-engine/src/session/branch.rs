@@ -10,7 +10,8 @@ use crate::event::Event;
 use crate::store::NewSession;
 
 const TITLE_WORDS: usize = 6;
-const FRAMING: &str = "This is a new thread spawned from the conversation above. Work only on what follows, using whatever of that conversation it needs.";
+const FRAMING: &str = "This is a new thread spawned from the conversation above. \
+    Work only on what follows, using whatever of that conversation it needs.";
 
 #[derive(Debug)]
 pub enum BranchError {
@@ -37,10 +38,12 @@ impl Engine {
         if instruction.is_empty() {
             return Err(BranchError::EmptyInstruction);
         }
+
         let source = self.store.session(source_id)?.ok_or(BranchError::NoSession)?;
         if source.visibility == Visibility::Hidden {
             return Err(BranchError::FromSubagent);
         }
+
         let title = instruction
             .split_whitespace()
             .take(TITLE_WORDS)
@@ -64,6 +67,7 @@ impl Engine {
         self.hub.publish(Event::SessionCreated {
             session: session.clone(),
         });
+
         let prompt = Prompt {
             parts: vec![Part::Text {
                 text: instruction.into(),
@@ -74,6 +78,7 @@ impl Engine {
             submission_id: None,
         };
         self.submit(&session.id, prompt).await.map_err(BranchError::Turn)?;
+
         Ok(session)
     }
 }
@@ -88,12 +93,14 @@ pub(super) fn frame_spawned(session: &Session, transcript: &mut [MessageWithPart
     if session.branch_cutoff.is_none() {
         return;
     }
+
     let Some(first) = transcript
         .iter_mut()
-        .find(|m| m.info.role == Role::User && !is_copied(session, &m.info))
+        .find(|message| message.info.role == Role::User && !is_copied(session, &message.info))
     else {
         return;
     };
+
     let framing = PartRow {
         id: String::new(),
         message_id: first.info.id.clone(),

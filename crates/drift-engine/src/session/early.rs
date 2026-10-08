@@ -44,6 +44,7 @@ impl Started {
         if result.is_ok() {
             files.absorb(&self.files);
         }
+
         result
     }
 }
@@ -85,6 +86,7 @@ impl Early {
         if !input.is_object() || !crate::tool::schema::problems(&tool.spec().input_schema, input).is_empty() {
             return;
         }
+
         let scratch = Arc::new(files.scratch());
         let ctx = Context {
             workspace: plan.workspace.clone(),
@@ -110,6 +112,7 @@ impl Early {
         if !allowed {
             return;
         }
+
         let input = input.clone();
         let stop = self.stop.clone();
         let run = tokio::spawn(async move {

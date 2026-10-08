@@ -27,7 +27,7 @@ fn text_parts<'a>(parts: impl Iterator<Item = &'a Part>) -> String {
 }
 
 impl Engine {
-    /// Plugins see the user's own prompts before the model does: one may refuse it, rewrite its text or add context beside it.
+    /// Lets plugins refuse, rewrite or add context to a user prompt before admission.
     pub(super) async fn hook_prompt(
         &self,
         plan: &Plan,
@@ -74,7 +74,7 @@ impl Engine {
         Ok(prompt)
     }
 
-    /// A plugin reads the reply that would end the turn and may keep it going with a prompt of its own, a few times at most.
+    /// Lets plugins annotate the final reply or continue the turn, up to the continuation limit.
     pub(super) async fn hook_turn_end(&self, plan: &Plan, continued: &mut u32, abort: &CancellationToken) -> bool {
         if self.hooks.is_empty() || plan.turn_only || *continued >= MAX_CONTINUATIONS || abort.is_cancelled() {
             return false;
@@ -128,7 +128,7 @@ impl Engine {
         }
     }
 
-    /// A plugin may refuse the call or change its input; a changed input must still fit the tool. Says whether it changed.
+    /// Lets plugins refuse or rewrite tool input, returning whether a schema-valid rewrite changed the input.
     pub(super) async fn hook_before(
         &self,
         scope: &CallScope<'_>,

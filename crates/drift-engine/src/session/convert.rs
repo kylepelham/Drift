@@ -108,10 +108,20 @@ pub(crate) fn push(out: &mut Vec<ChatMessage>, role: LlmRole, blocks: Vec<Block>
 fn user_blocks(message: &MessageWithParts) -> Vec<Block> {
     message.parts.iter().filter_map(|row| match &row.part {
         Part::Text { text } | Part::Nudge { text } if !text.is_empty() => Some(Block::Text(text.clone())),
-        Part::Context { plugin, text } => Some(Block::Text(format!("<system-reminder>\nFrom the {plugin} plugin:\n{text}\n</system-reminder>"))),
-        Part::File { mime, url, .. } if mime.starts_with("image/") => url.split_once(',').map(|(_, data)| Block::Image { mime: mime.clone(), base64: data.to_string() }),
+        Part::Context { plugin, text } => {
+            let context = format!("<system-reminder>\nFrom the {plugin} plugin:\n{text}\n</system-reminder>");
+            Some(Block::Text(context))
+        }
+        Part::File { mime, url, .. } if mime.starts_with("image/") => {
+            url.split_once(',').map(|(_, data)| Block::Image {
+                mime: mime.clone(),
+                base64: data.to_string(),
+            })
+        }
         Part::File { mime, url, .. } if mime.starts_with("text/") => super::attach::data_text(url).map(Block::Text),
-        Part::File { mime, url, .. } if mime.eq_ignore_ascii_case(crate::tool::image::PDF) => url.split_once(',').map(|(_, data)| Block::Pdf { base64: data.to_string() }),
+        Part::File { mime, url, .. } if mime.eq_ignore_ascii_case(crate::tool::image::PDF) => {
+            url.split_once(',').map(|(_, data)| Block::Pdf { base64: data.to_string() })
+        }
         Part::TaskResult { task_id, description, outcome, text, .. } => Some(Block::Text(format!(
             "<task-result id=\"{task_id}\" description=\"{description}\" outcome=\"{outcome}\">\n{text}\n</task-result>"
         ))),
@@ -128,7 +138,8 @@ pub(crate) fn clarification_text(request_id: &str, items: &[super::types::Clarif
         .collect();
 
     format!(
-        "<question-answer id=\"{request_id}\">\nThe user answered the question you asked earlier.\n\n{}\n</question-answer>",
+        "<question-answer id=\"{request_id}\">\n\
+         The user answered the question you asked earlier.\n\n{}\n</question-answer>",
         answers.join("\n\n")
     )
 }

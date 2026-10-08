@@ -61,12 +61,14 @@ impl Engine {
                 Err(error) => Capture::Unrecorded(error.to_string()),
             });
         };
+
         let mut before = Vec::new();
         for path in paths {
             let path = relative(workspace, &path);
             let blob = self.snapshots.record(workspace, &path).await?;
             before.push((path, blob));
         }
+
         Ok(Capture::Paths(before))
     }
 
@@ -77,12 +79,13 @@ impl Engine {
             Capture::Paths(paths) => Some(paths.clone()),
             Capture::Tree(_) | Capture::Unrecorded(_) | Capture::Skipped => None,
         };
-        // Stamped where this call's writes have finished, not where its message began: two workers can start in one order and write in the other.
+        // Completion stamps preserve write order when workers start in a different order.
         let at = crate::id::new("chg");
         let error = match self.capture_after(workspace, capture).await {
             Ok(recorded) => return Ok(Recorded { at, ..recorded }),
             Err(error) => error,
         };
+
         let Some(paths) = before else {
             let note = format!("Drift could not record what this command changed ({error}); undo cannot put it back.");
             return Err(Lost {
@@ -91,12 +94,14 @@ impl Engine {
                 unrecorded: Vec::new(),
             });
         };
+
         let mut stuck = Vec::new();
         for (path, blob) in paths {
             if let Err(failure) = self.snapshots.put(&self.store, workspace, &path, blob.as_deref()).await {
                 stuck.push((path, failure.to_string()));
             }
         }
+
         if stuck.is_empty() {
             return Err(Lost {
                 note: format!(
@@ -106,14 +111,17 @@ impl Engine {
                 unrecorded: Vec::new(),
             });
         }
+
         let named: Vec<String> = stuck
             .iter()
             .map(|(path, failure)| format!("{path} ({failure})"))
             .collect();
         let note = format!(
-            "Drift could not record what this call wrote ({error}) and could not put back {}; undo cannot restore them.",
+            "Drift could not record what this call wrote ({error}) and could not put back {}; \
+             undo cannot restore them.",
             named.join("; ")
         );
+
         Err(Lost {
             note,
             put_back: false,
@@ -137,6 +145,7 @@ impl Engine {
                         ..change
                     })
                     .collect();
+
                 Ok(Recorded {
                     changes,
                     unrecorded: diff.unrecorded,
@@ -157,6 +166,7 @@ impl Engine {
                         });
                     }
                 }
+
                 Ok(Recorded {
                     changes,
                     ..Recorded::default()
@@ -189,6 +199,7 @@ mod tests {
             .capture_before(&ws, Some(vec![ws.join("a.txt"), ws.join("new.txt")]))
             .await
             .unwrap();
+
         // Written past what the store keeps, so the after state cannot be recorded.
         std::fs::write(ws.join("a.txt"), vec![b'x'; MAX_RECORDED_BYTES as usize + 1]).unwrap();
         std::fs::write(ws.join("new.txt"), "created\n").unwrap();
@@ -204,6 +215,7 @@ mod tests {
         let ws = h._dir.join("ws");
         std::fs::write(ws.join("seed.txt"), "s\n").unwrap();
         let capture = h.engine.capture_before(&ws, None).await.unwrap();
+
         // The shadow store vanishing is an I/O failure that has nothing to do with the file sizes.
         std::fs::remove_dir_all(h._dir.join("data/snapshots")).unwrap();
         std::fs::write(h._dir.join("data/snapshots"), "not a directory").unwrap();

@@ -38,7 +38,7 @@ pub struct Snapshots {
 #[derive(Clone, Debug)]
 struct Source {
     index: PathBuf,
-    /// Its object stores, lent to tree commands only; undo's blobs always go to the shadow store, out of reach of its gc.
+    /// Object stores borrowed for tree comparisons; undo blobs live in the shadow store, safe from source gc.
     objects: std::ffi::OsString,
 }
 
