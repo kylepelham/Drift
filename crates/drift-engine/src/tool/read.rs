@@ -6,8 +6,10 @@ use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, display, required_str};
 use crate::llm::ToolSpec;
 
+mod output;
 mod page;
 
+use output::{attached, list_dir, missing, reminders};
 use page::{Large, large_page, page};
 
 const MAX_LINES: usize = 2000;
@@ -170,112 +172,6 @@ async fn read_large(ctx: &Context, path: &std::path::Path, offset: usize, limit:
             ..Default::default()
         },
     })
-}
-
-/// A path that does not exist, with up to three names beside it that it may have meant.
-fn missing(ctx: &Context, path: &std::path::Path) -> ToolError {
-    let shown = display(path, &ctx.workspace);
-    let wanted = path
-        .file_name()
-        .map(|name| name.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    let mut close: Vec<String> = path
-        .parent()
-        .and_then(|dir| std::fs::read_dir(dir).ok())
-        .into_iter()
-        .flatten()
-        .flatten()
-        // Both names at least three characters, so `a` or `.c` is not suggested for every miss.
-        .filter(|entry| {
-            let name = entry.file_name().to_string_lossy().to_lowercase();
-            wanted.len() >= 3 && name.len() >= 3 && (name.contains(&wanted) || wanted.contains(&name))
-        })
-        .map(|entry| display(&entry.path(), &ctx.workspace))
-        .collect();
-    close.sort();
-    close.truncate(3);
-    match close.is_empty() {
-        true => ToolError(format!("{shown} does not exist")),
-        false => ToolError(format!(
-            "{shown} does not exist. Did you mean one of these?\n{}",
-            close.join("\n")
-        )),
-    }
-}
-
-/// An image or PDF comes back for the model to look at, not as text.
-fn attached(ctx: &Context, path: &std::path::Path, mime: &str, bytes: &[u8]) -> Result<Output, ToolError> {
-    let name = display(path, &ctx.workspace);
-    let (kind, limit) = if mime == super::image::PDF {
-        ("a PDF", super::image::MAX_PDF_BYTES)
-    } else {
-        ("an image", super::image::MAX_SOURCE_BYTES)
-    };
-    if bytes.len() > limit {
-        return Err(ToolError(format!(
-            "{name} is {kind} of {} bytes; too large to look at (the limit is {} MB)",
-            bytes.len(),
-            limit / 1024 / 1024
-        )));
-    }
-    let file = super::image::Image::from_bytes(mime, bytes);
-    Ok(Output {
-        title: name.clone(),
-        output: format!(
-            "{name} is {kind} ({mime}, {} KB); it follows this result.",
-            bytes.len().div_ceil(1024)
-        ),
-        metadata: ToolMetadata {
-            images: Some(super::image::metadata(&[file])),
-            ..Default::default()
-        },
-    })
-}
-
-/// Subdirectory instruction files not yet shown this session, within half a result; one that does
-/// not fit is named so the model can read it.
-fn reminders(ctx: &Context, path: &std::path::Path) -> String {
-    let mut out = String::new();
-    for (file, text) in crate::config::nested_instructions(&ctx.workspace, path) {
-        if file == path || !ctx.files.first_showing(&file) {
-            continue;
-        }
-        let name = display(&file, &ctx.workspace);
-        let reminder =
-            format!("\n\n<system-reminder>\nInstructions from {name}, for files under it:\n{text}\n</system-reminder>");
-        if out.len() + reminder.len() <= REMINDER_BYTES {
-            out.push_str(&reminder);
-        } else {
-            write!(out, "\n\n<system-reminder>\n{name} holds instructions for files under it; read it before working there.\n</system-reminder>").expect("writing to a String cannot fail");
-        }
-    }
-    out
-}
-
-async fn list_dir(ctx: &Context, path: &std::path::Path) -> Result<Output, ToolError> {
-    let mut entries = tokio::fs::read_dir(path).await?;
-    let mut names = Vec::new();
-    while let Some(entry) = entries.next_entry().await? {
-        let suffix = if entry.file_type().await.is_ok_and(|kind| kind.is_dir()) {
-            "/"
-        } else {
-            ""
-        };
-        names.push(format!("{}{suffix}", entry.file_name().to_string_lossy()));
-    }
-    names.sort();
-    let total = names.len();
-    names.truncate(MAX_ENTRIES);
-    let mut output = names.join("\n");
-    if total > MAX_ENTRIES {
-        write!(
-            output,
-            "\n\n({} more entries; use glob with a pattern to narrow it)",
-            total - MAX_ENTRIES
-        )
-        .expect("writing to a String cannot fail");
-    }
-    Ok(Output::new(display(path, &ctx.workspace), output))
 }
 
 #[cfg(test)]
