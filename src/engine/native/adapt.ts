@@ -1,12 +1,10 @@
 // Native engine shapes to the shapes the UI was built on. Dies at M4 when the UI adopts native types.
-import type { AssistantMessage, Message, Part, Permission, ToolPart } from "../shapes"
-import type { ModelInfo, ProviderInfo, QuestionRequest } from "../store"
+import type { AssistantMessage, Message, Part, ToolPart } from "../shapes"
+import type { ModelInfo, ProviderInfo } from "../store"
 import type { components } from "./types"
 
 type NativeMessage = components["schemas"]["Message"]
 type NativePartRow = components["schemas"]["PartRow"]
-type NativeRequest = components["schemas"]["PermissionRequest"]
-type NativeQuestion = components["schemas"]["QuestionRequest"]
 type NativeProvider = components["schemas"]["ProviderStatus"]
 type NativeModel = components["schemas"]["Model"]
 export type NativeMessageWithParts = components["schemas"]["MessageWithParts"]
@@ -185,27 +183,6 @@ function toolState(row: Extract<NativePartRow, { type: "tool_call" }>): ToolPart
   }
 }
 
-export function adaptPermission(request: NativeRequest, directory: string): Permission {
-  return {
-    id: request.id,
-    type: request.kind,
-    pattern: [request.pattern],
-    sessionID: request.sessionId,
-    messageID: request.messageId,
-    callID: request.callId ?? undefined,
-    title: request.title,
-    // `always` is what answering "always" would grant, decided by the engine.
-    metadata: {
-      directory,
-      tool: request.tool,
-      always: request.always ?? [],
-      ...(request.diff ? { diff: request.diff } : {}),
-      ...(request.reason ? { reason: request.reason } : {}),
-    },
-    time: { created: request.createdAt },
-  }
-}
-
 export function adaptProvider(provider: NativeProvider): ProviderInfo {
   const models = Object.fromEntries(
     Object.values(provider.models).map((model) => [model.id, adaptModel(provider.id, model)]),
@@ -243,30 +220,3 @@ function adaptModel(providerID: string, model: NativeModel): ModelInfo {
     variants: Object.fromEntries((model.variants ?? []).map((variant) => [variant.name, variant])),
   } as ModelInfo
 }
-
-export function adaptTodos(todos: components["schemas"]["Todo"][]) {
-  return todos.map((todo, index) => ({
-    id: String(index),
-    content: todo.content,
-    status: todo.status,
-    priority: todo.priority ?? "medium",
-  }))
-}
-
-export function adaptQuestion(request: NativeQuestion): QuestionRequest {
-  return {
-    id: request.id,
-    sessionID: request.sessionId,
-    questions: request.questions.map((q) => ({
-      question: q.question,
-      header: q.header ?? "",
-      options: (q.options ?? []).map((o) => ({ label: o.label, description: o.description ?? "" })),
-      multiple: q.multiple ?? false,
-      custom: q.custom ?? true,
-    })),
-    async: request.async ?? false,
-    tool: { messageID: request.messageId, callID: request.callId },
-  }
-}
-
-export type { NativeRequest }

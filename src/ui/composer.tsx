@@ -68,8 +68,7 @@ import {
   updatePrefs,
 } from "../state/prefs"
 
-import type { QuestionRequest } from "../engine/store"
-import type { Permission } from "../engine/shapes"
+import type { Permission, QuestionRequest } from "../engine/store"
 
 // Autosize ceiling for the textarea. Must stay in sync with the `max-h-50` class on the textarea
 // (Tailwind spacing 50 = 12.5rem = 200px); otherwise the element and its inline height disagree.
@@ -598,17 +597,13 @@ export function Composer() {
               <PermissionCard
                 permission={permission()}
                 thread={
-                  permission().sessionID !== selectedSession()
+                  permission().sessionId !== selectedSession()
                     ? {
                         label: t("drift.composer.pendingInThread", {
                           thread:
-                            engine.state.sessions[permission().sessionID]?.title || t("drift.composer.anotherThread"),
+                            engine.state.sessions[permission().sessionId]?.title || t("drift.composer.anotherThread"),
                         }),
-                        onOpen: () =>
-                          openAttentionSession(
-                            permission().sessionID,
-                            permission().metadata?.directory as string | undefined,
-                          ),
+                        onOpen: () => openAttentionSession(permission().sessionId, permission().directory),
                       }
                     : undefined
                 }
@@ -630,7 +625,7 @@ export function Composer() {
                     {request.async ? "" : `${t("drift.question.blocking")}: `}
                     {request.questions[0]?.header || t("drift.question.number", { number: 1 })}
                     {" - "}
-                    {engine.state.sessions[request.sessionID]?.title || t("drift.composer.anotherThread")}
+                    {engine.state.sessions[request.sessionId]?.title || t("drift.composer.anotherThread")}
                   </option>
                 )}
               </For>
@@ -649,18 +644,18 @@ export function Composer() {
                       async={request().async}
                       questions={[...request().questions]}
                       thread={
-                        request().sessionID !== selectedSession()
+                        request().sessionId !== selectedSession()
                           ? {
                               label: t("drift.composer.pendingInThread", {
                                 thread:
-                                  engine.state.sessions[request().sessionID]?.title ||
+                                  engine.state.sessions[request().sessionId]?.title ||
                                   t("drift.composer.anotherThread"),
                               }),
-                              onOpen: () => openAttentionSession(request().sessionID, request().directory),
+                              onOpen: () => openAttentionSession(request().sessionId, request().directory),
                             }
                           : undefined
                       }
-                      onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}
+                      onAnswer={(answers) => engine.actions.answerQuestion(request().sessionId, questionID, answers)}
                     />
                   </div>
                 )}

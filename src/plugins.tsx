@@ -329,11 +329,11 @@ export function PluginHost(props: { engine: Engine }) {
       untrack(
         () =>
           void emit("permission.requested", {
-            sessionId: permission.sessionID,
+            sessionId: permission.sessionId,
             permissionId: permission.id,
             title: permission.title,
-            type: permission.type,
-            patterns: [permission.pattern ?? []].flat(),
+            type: permission.kind,
+            patterns: [permission.pattern],
           }),
       )
     }
@@ -349,7 +349,7 @@ export function PluginHost(props: { engine: Engine }) {
       untrack(
         () =>
           void emit("question.requested", {
-            sessionId: question.sessionID,
+            sessionId: question.sessionId,
             requestId: question.id,
             headers: question.questions.map((item) => item.header),
           }),

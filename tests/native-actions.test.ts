@@ -204,7 +204,17 @@ test("permission replies translate reject to deny and forget stale requests", as
     ["perm_3", { reply: "stop" }],
   ])
   h.state.permissions.ses_1 = [
-    { id: "gone", type: "bash", sessionID: "ses_1", messageID: "m", title: "t", metadata: {}, time: { created: 0 } },
+    {
+      id: "gone",
+      kind: "bash",
+      tool: "bash",
+      sessionId: "ses_1",
+      messageId: "m",
+      callId: "c",
+      title: "t",
+      pattern: "git status",
+      createdAt: 0,
+    },
   ]
   await h.actions.replyPermission("ses_1", "gone", "once")
   expect(h.state.permissions.ses_1).toEqual([])

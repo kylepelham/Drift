@@ -17,11 +17,9 @@ import {
   type QuestionDraft,
 } from "../state/question-drafts"
 
-import type { PermissionGrant } from "../engine/native/client"
+import type { Permission, QuestionInfo } from "../engine/store"
 import type { PermissionResponse } from "../engine/actions"
 import type { components } from "../engine/native/types"
-import type { QuestionInfo } from "../engine/store"
-import type { Permission } from "../engine/shapes"
 
 export function AttentionStrip() {
   return (
@@ -131,15 +129,15 @@ const REASONS = {
 export function PermissionCard(props: { permission: Permission; thread?: ThreadLink }) {
   const engine = useEngine()
   const reply = (response: PermissionResponse) =>
-    void engine.actions.replyPermission(props.permission.sessionID, props.permission.id, response)
-  const diff = () => (props.permission.metadata as { diff?: unknown } | undefined)?.diff
-  const filename = () => [props.permission.pattern].flat()[0] ?? ""
+    void engine.actions.replyPermission(props.permission.sessionId, props.permission.id, response)
+  const diff = () => props.permission.diff
+  const filename = () => props.permission.pattern
   const alwaysCovers = () => {
-    const grants = (props.permission.metadata as { always?: PermissionGrant[] } | undefined)?.always ?? []
+    const grants = props.permission.always ?? []
     return grants.length ? t("drift.permission.alwaysCovers", { what: grants.map(grantLabel).join("; ") }) : undefined
   }
-  const reason = () => (props.permission.metadata as { reason?: AskReason } | undefined)?.reason
-  const target = () => [props.permission.pattern].flat().filter(Boolean).join(", ")
+  const reason = () => props.permission.reason
+  const target = () => props.permission.pattern
   // A call with no description of its own is titled with its target; that is shown once, below.
   const title = () => (props.permission.title === target() ? "" : props.permission.title)
   return (

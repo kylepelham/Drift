@@ -570,8 +570,8 @@ test("queued async selection preserves request drafts and the ordinary composer 
   const { clearComposerDraft, composerDraft, composerScope, patchComposerDraft } = await import("../src/state/composer")
   const { createEngineState } = await import("../src/engine/store")
   const [state, set] = createEngineState()
-  const first = { id: "queue-async", sessionID: "owner", async: true, questions: [] }
-  const second = { id: "queue-blocking", sessionID: "other", async: false, questions: [] }
+  const first = { id: "queue-async", sessionId: "owner", async: true, questions: [] }
+  const second = { id: "queue-blocking", sessionId: "other", async: false, questions: [] }
   const scope = composerScope("queue-current", "queue-workspace")
   try {
     set("questions", { owner: [first], other: [second] })
@@ -612,7 +612,7 @@ test("queued question UI routes answers by owner without conditionally mounting 
   expect(source).toContainCode('request.async ? "" : `${t("drift.question.blocking")}: `')
   expect(source).toContainCode("async={request().async}")
   expect(source).toContainCode(
-    "onAnswer={(answers) => engine.actions.answerQuestion(request().sessionID, questionID, answers)}",
+    "onAnswer={(answers) => engine.actions.answerQuestion(request().sessionId, questionID, answers)}",
   )
   expect(source).toContainCode("const ready = () => online() && !!activeWorkspace()")
 

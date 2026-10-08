@@ -1,4 +1,4 @@
-import { adaptMessage, adaptPart, adaptPermission, adaptProvider } from "../src/engine/native/adapt"
+import { adaptMessage, adaptPart, adaptProvider } from "../src/engine/native/adapt"
 import { hiddenParent, sessionInWorkspace } from "../src/engine/sessions"
 import { toolElapsedMs } from "../src/ui/tool-duration"
 import { createEngineState } from "../src/engine/store"
@@ -236,7 +236,7 @@ test("an async answer becomes the Answered row the transcript already draws", as
 })
 
 test("an async question keeps its flag for the Answer later card", async () => {
-  const { adaptQuestion } = await import("../src/engine/native/adapt")
+  const { questionForCard } = await import("../src/engine/questions")
   const request = {
     id: "q_1",
     sessionId: "ses_1",
@@ -246,8 +246,8 @@ test("an async question keeps its flag for the Answer later card", async () => {
     async: true,
     questions: [{ question: "Deploy?", header: "Deploy", options: [] }],
   }
-  expect(adaptQuestion(request).async).toBe(true)
-  expect(adaptQuestion({ ...request, async: false }).async).toBe(false)
+  expect(questionForCard(request).async).toBe(true)
+  expect(questionForCard({ ...request, async: false }).async).toBe(false)
 })
 
 test("a compaction becomes the boundary part and summary message the transcript already draws", () => {
@@ -354,17 +354,13 @@ test("native events update busy status, text and pending permissions", () => {
   }
   reduce(set, { type: "permission.asked", request })
   expect(state.permissions.ses_1[0].id).toBe("perm_1")
-  expect(adaptPermission(request, "C:/repo")).toMatchObject({
+  expect(state.permissions.ses_1[0]).toMatchObject({
     id: "perm_1",
-    type: "bash",
-    pattern: ["cargo test"],
-    callID: "t",
-    metadata: { directory: "C:/repo", tool: "bash" },
+    kind: "bash",
+    pattern: "cargo test",
+    callId: "t",
+    tool: "bash",
   })
-  expect(
-    adaptPermission({ ...request, diff: "@@ -1 +1 @@\n-a\n+b" }, "C:/repo").metadata,
-    "the change to review travels with the request",
-  ).toMatchObject({ diff: "@@ -1 +1 @@\n-a\n+b" })
   reduce(set, { type: "workspace.created", workspace: { id: "w", path: "p", name: "n", icon: "", lastUsed: 0 } })
   expect(state.permissions.ses_1).toHaveLength(1)
 })

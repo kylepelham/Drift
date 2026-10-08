@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import "./source"
 
 if (!("localStorage" in globalThis))
   Object.defineProperty(globalThis, "localStorage", {
@@ -120,7 +121,7 @@ test("nudges show as Drift's own prompts, not the user's", async () => {
 
 test("async questions do not mark tools as awaiting permission", async () => {
   const parts = await Bun.file("src/ui/parts.tsx").text()
-  expect(parts).toContain("(question) => !question.async && question.tool?.callID === part.callID")
+  expect(parts).toContainCode("(question) => !question.async && question.callId === part.callID")
 })
 
 test("the orchestrator agent is a native built-in with delegation-only tools and the status protocol", async () => {

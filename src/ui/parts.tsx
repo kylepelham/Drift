@@ -532,8 +532,8 @@ function argsPreview(input: Record<string, unknown> | undefined) {
 
 function awaitingPermission(state: EngineState, part: ToolPart) {
   return (
-    (state.permissions[part.sessionID] ?? []).some((permission) => permission.callID === part.callID) ||
-    (state.questions[part.sessionID] ?? []).some((question) => !question.async && question.tool?.callID === part.callID)
+    (state.permissions[part.sessionID] ?? []).some((permission) => permission.callId === part.callID) ||
+    (state.questions[part.sessionID] ?? []).some((question) => !question.async && question.callId === part.callID)
   )
 }
 

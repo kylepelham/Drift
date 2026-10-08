@@ -2,9 +2,14 @@ import { createStore, produce, type SetStoreFunction } from "solid-js/store"
 import { hiddenParent } from "./sessions"
 
 import type { McpServerConfig, McpServerConfigView, McpServerStatus, PermissionRule, TaskRecord } from "./native/client"
-import type { Command, Message, Model, Part, Permission, SessionStatus, Todo, ToolPart } from "./shapes"
+import type { Command, Message, Model, Part, SessionStatus, ToolPart } from "./shapes"
+import type { QuestionRequest } from "./questions"
+import type { components } from "./native/types"
 import type { Session } from "./sessions"
 export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }
+export type { QuestionInfo, QuestionRequest } from "./questions"
+export type Permission = components["schemas"]["PermissionRequest"] & { directory?: string }
+type Todo = components["schemas"]["Todo"]
 export type Connection = "idle" | "connecting" | "online" | "offline"
 
 export type ModelInfo = Model & { family?: string; release_date?: string; variants?: Record<string, unknown> }
@@ -93,22 +98,6 @@ export function nextUserMessage(entries: MessageEntry[], after: string) {
 }
 
 export type SessionActivity = { tools: number; lastPartId: string; current?: string }
-
-export type QuestionInfo = {
-  question: string
-  header: string
-  options: { label: string; description: string }[]
-  multiple?: boolean
-  custom?: boolean
-}
-export type QuestionRequest = {
-  id: string
-  sessionID: string
-  async?: boolean
-  questions: QuestionInfo[]
-  tool?: { messageID: string; callID: string }
-  directory?: string
-}
 
 export type Notice = {
   id: string

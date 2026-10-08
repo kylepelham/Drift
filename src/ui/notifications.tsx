@@ -35,10 +35,10 @@ export function AttentionNotifier(props: { engine: Engine }) {
       if (seen.has(permission.id)) continue
       seen.add(permission.id)
       untrack(() => {
-        const session = props.engine.state.sessions[permission.sessionID]
+        const session = props.engine.state.sessions[permission.sessionId]
         show(
           "permission",
-          permission.sessionID,
+          permission.sessionId,
           t("notification.permission.title"),
           `${permission.title} · ${session?.title ?? t("drift.thread.untitled")}`,
         )
@@ -55,10 +55,10 @@ export function AttentionNotifier(props: { engine: Engine }) {
       if (seenQuestions.has(question.id)) continue
       seenQuestions.add(question.id)
       untrack(() => {
-        const session = props.engine.state.sessions[question.sessionID]
+        const session = props.engine.state.sessions[question.sessionId]
         show(
           "agent",
-          question.sessionID,
+          question.sessionId,
           t("notification.question.title"),
           question.questions[0]?.header ?? session?.title ?? t("drift.thread.untitled"),
         )

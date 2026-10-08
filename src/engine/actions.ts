@@ -1,10 +1,12 @@
 import { EngineError, maxRequestBytes, type Client, type PermissionGrant, type PermissionRule } from "./native/client"
+import { adaptMessage, adaptPart, adaptProvider, type NativeMessageWithParts } from "./native/adapt"
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
 import { applyProviderCatalog } from "../state/provider-cache"
 import { formatAttachmentBytes } from "../attachments"
 import { handOverAutoAccept } from "../state/prefs"
 import { sessionInWorkspace } from "./sessions"
+import { questionForCard } from "./questions"
 import { untrack } from "solid-js"
 import { t } from "../state/i18n"
 import {
@@ -24,20 +26,10 @@ import {
   type ModelRef,
   type Notice,
 } from "./store"
-import {
-  adaptMessage,
-  adaptPart,
-  adaptPermission,
-  adaptProvider,
-  adaptQuestion,
-  adaptTodos,
-  type NativeMessageWithParts,
-} from "./native/adapt"
 
 // Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
 import type { Session, WorkspaceIndex } from "./sessions"
 import type { components } from "./native/types"
-import type { Permission } from "./shapes"
 
 type NativeSession = components["schemas"]["Session"]
 
@@ -135,7 +127,7 @@ export function createActions(
         .tasks(id)
         .catch(() => undefined),
     ])
-    if (todos) set("todos", id, adaptTodos(todos))
+    if (todos) set("todos", id, todos)
     if (tasks) putTasks(set, state, id, tasks)
   }
 
@@ -412,10 +404,10 @@ export function createActions(
         draft.questions = {}
         for (const request of permissions) {
           const directory = draft.sessions[request.sessionId]?.directory ?? ""
-          const permission: Permission = adaptPermission(request, directory)
+          const permission = { ...request, directory }
           ;(draft.permissions[request.sessionId] ??= []).push(permission)
         }
-        for (const request of questions) (draft.questions[request.sessionId] ??= []).push(adaptQuestion(request))
+        for (const request of questions) (draft.questions[request.sessionId] ??= []).push(questionForCard(request))
       }),
     )
   }

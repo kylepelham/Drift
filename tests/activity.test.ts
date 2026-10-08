@@ -961,10 +961,10 @@ test("native ask events update immediately and retain the current question direc
   )
   expect(state.permissions.s1[0]).toMatchObject({
     id: "perm-1",
-    type: "bash",
-    pattern: ["git status"],
+    kind: "bash",
+    pattern: "git status",
     title: "Run command",
-    metadata: { directory: "" },
+    directory: "",
   })
   expect(state.questions.s1[0].directory).toBe("C:/repo")
 
