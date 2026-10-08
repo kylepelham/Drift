@@ -1,10 +1,5 @@
 //! The Drift engine: sessions, providers, tools and the API that serves them.
 
-#![expect(
-    clippy::too_many_arguments,
-    reason = "parameter structs replace these in the lint pass; remove with it"
-)]
-
 pub mod api;
 pub mod config;
 pub mod edit;

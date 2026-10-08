@@ -558,10 +558,7 @@ async fn a_result_being_read_is_not_delivered_again_and_one_being_delivered_is_n
     let mut row = call_row(&h, "reading");
     h.engine.settle_delivering(
         &mut row,
-        ToolStatus::Done,
-        None,
-        out.output.clone(),
-        Some(out.metadata.clone()),
+        super::super::turn::Settlement::new(ToolStatus::Done, None, out.output.clone(), Some(out.metadata.clone())),
         Some(&task.id),
     );
     h.engine.release_claims(&Claimant::call(&h.session.id, "reading"));
@@ -604,10 +601,7 @@ async fn a_result_whose_call_was_not_saved_is_still_owed_and_arrives_as_a_messag
     h.engine.store.lock().execute_batch("CREATE TEMP TRIGGER no_room BEFORE UPDATE ON part WHEN NEW.json LIKE '%the answer%' BEGIN SELECT RAISE(ABORT, 'disk is full'); END;").unwrap();
     h.engine.settle_delivering(
         &mut row,
-        ToolStatus::Done,
-        None,
-        out.output.clone(),
-        Some(out.metadata.clone()),
+        super::super::turn::Settlement::new(ToolStatus::Done, None, out.output.clone(), Some(out.metadata.clone())),
         Some(&task.id),
     );
     h.engine.store.lock().execute_batch("DROP TRIGGER no_room;").unwrap();
@@ -668,10 +662,7 @@ async fn a_foreground_result_stays_its_launching_calls_even_when_saving_it_fails
     h.engine.store.lock().execute_batch("CREATE TEMP TRIGGER no_room BEFORE UPDATE ON part WHEN NEW.json LIKE '%front answer%' BEGIN SELECT RAISE(ABORT, 'disk is full'); END;").unwrap();
     h.engine.settle_delivering(
         &mut row,
-        ToolStatus::Done,
-        None,
-        out.output.clone(),
-        Some(out.metadata.clone()),
+        super::super::turn::Settlement::new(ToolStatus::Done, None, out.output.clone(), Some(out.metadata.clone())),
         Some(&task_id),
     );
     h.engine.store.lock().execute_batch("DROP TRIGGER no_room;").unwrap();

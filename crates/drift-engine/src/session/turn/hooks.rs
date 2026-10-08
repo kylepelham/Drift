@@ -111,7 +111,14 @@ impl Engine {
             sticky: true,
         };
         let parts = vec![Part::Context { plugin, text: reason }];
-        match self.admit_fenced(&plan.session.id, pick, parts, None, Some(abort), None) {
+        let prompt = FencedPrompt {
+            pick,
+            parts,
+            submission: None,
+            abort: Some(abort),
+            delivery: None,
+        };
+        match self.admit_fenced(&plan.session.id, prompt) {
             Ok(admitted) => {
                 self.announce(&plan.session.id, admitted);
                 *continued += 1;
@@ -142,7 +149,7 @@ impl Engine {
         let (call, denied) = self.hooks.before_tool(call).await;
         if let Some((plugin, reason)) = denied {
             let reason = format!("The {plugin} plugin refused this call: {reason}");
-            self.settle(row, ToolStatus::Error, None, reason, None);
+            self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);
         }
 
@@ -159,7 +166,7 @@ impl Engine {
                 "A plugin changed the call so it no longer fits the tool: {}.",
                 problems.join("; ")
             );
-            self.settle(row, ToolStatus::Error, None, reason, None);
+            self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);
         }
         stored.clone_from(&call.input);

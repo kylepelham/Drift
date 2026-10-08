@@ -1,5 +1,36 @@
 use super::*;
 
+pub(in crate::session) struct Settlement {
+    pub status: ToolStatus,
+    pub title: Option<String>,
+    pub text: String,
+    pub metadata: Option<ToolMetadata>,
+}
+
+impl Settlement {
+    pub(in crate::session) fn new(
+        status: ToolStatus,
+        title: Option<String>,
+        text: String,
+        metadata: Option<ToolMetadata>,
+    ) -> Self {
+        Self {
+            status,
+            title,
+            text,
+            metadata,
+        }
+    }
+
+    pub(super) fn error(text: String) -> Self {
+        Self::new(ToolStatus::Error, None, text, None)
+    }
+
+    pub(super) fn denied(text: String) -> Self {
+        Self::new(ToolStatus::Denied, None, text, None)
+    }
+}
+
 impl Engine {
     /// Persists the message's terminal state. On failure the published state is an error, and the caller stops.
     pub(super) fn finish(&self, message: &mut Message) -> rusqlite::Result<()> {
@@ -113,33 +144,25 @@ impl Engine {
                     ..
                 }
             ) {
-                self.settle(&mut row, ToolStatus::Error, None, format!("Not run: {reason}"), None);
+                self.settle(&mut row, Settlement::error(format!("Not run: {reason}")));
             }
         }
     }
 
     /// Writes the outcome. If that write fails, what is published is the failure, never a success the store lacks.
-    pub(super) fn settle(
-        &self,
-        row: &mut PartRow,
-        new_status: ToolStatus,
-        new_title: Option<String>,
-        text: String,
-        metadata: Option<ToolMetadata>,
-    ) {
-        self.settle_delivering(row, new_status, new_title, text, metadata, None);
+    pub(super) fn settle(&self, row: &mut PartRow, result: Settlement) {
+        self.settle_delivering(row, result, None);
     }
 
     /// [`Self::settle`] that also marks `delivers` handed over in the same write; a failed write leaves it owed.
-    pub(in crate::session) fn settle_delivering(
-        &self,
-        row: &mut PartRow,
-        new_status: ToolStatus,
-        new_title: Option<String>,
-        text: String,
-        meta: Option<ToolMetadata>,
-        delivers: Option<&str>,
-    ) {
+    pub(in crate::session) fn settle_delivering(&self, row: &mut PartRow, result: Settlement, delivers: Option<&str>) {
+        let Settlement {
+            status: new_status,
+            title: new_title,
+            text,
+            metadata: meta,
+        } = result;
+
         if let Part::ToolCall {
             status,
             title,

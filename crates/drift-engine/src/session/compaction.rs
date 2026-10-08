@@ -427,8 +427,10 @@ impl Engine {
             &plan.provider,
             &plan.credential,
             &request,
-            SUMMARY_TIMEOUT,
-            Some(session_id),
+            super::oneshot::SendOptions {
+                timeout: SUMMARY_TIMEOUT,
+                shown_in: Some(session_id),
+            },
         )
         .await
     }

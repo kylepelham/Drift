@@ -38,6 +38,7 @@ mod settle;
 
 use hooks::{AfterTool, BeforeTool};
 pub(super) use retry::Retry;
+pub(super) use settle::Settlement;
 
 /// Retries after a provider fault before the turn gives up and shows the error.
 const MAX_RETRIES: u32 = 8;
@@ -419,6 +420,32 @@ pub(super) struct Admission<'a> {
     pub(super) config: Option<&'a Config>,
 }
 
+struct StartingTurn<'a> {
+    plan: Plan,
+    abort: CancellationToken,
+    payload_hash: &'a str,
+    admission: Admission<'a>,
+}
+
+pub(super) struct FencedPrompt<'a> {
+    pub pick: Pick<'a>,
+    pub parts: Vec<Part>,
+    pub submission: Option<(&'a str, &'a str)>,
+    pub abort: Option<&'a CancellationToken>,
+    pub delivery: Option<&'a str>,
+}
+
+struct CallBatch {
+    rows: Vec<PartRow>,
+    early: super::early::Early,
+}
+
+struct CallAsk<'a> {
+    call_id: &'a str,
+    name: &'a str,
+    ask: crate::tool::Ask,
+}
+
 impl Engine {
     /// Records the prompt and starts the turn in the background; the receipt is what was recorded.
     pub async fn submit(self: &Arc<Self>, session_id: &str, prompt: Prompt) -> Result<Receipt, TurnError> {
@@ -499,7 +526,13 @@ impl Engine {
                         return Err(error);
                     }
                 };
-                self.start(session_id, prompt, plan, abort, &payload_hash, how)
+                let start = StartingTurn {
+                    plan,
+                    abort,
+                    payload_hash: &payload_hash,
+                    admission: how,
+                };
+                self.start(session_id, prompt, start)
             }
             Err(error) => {
                 self.turns.release(session_id);
@@ -535,7 +568,13 @@ impl Engine {
             return Err(error);
         }
         let hash = payload_hash(&prompt);
-        self.start(session_id, prompt, plan, abort, &hash, Admission::default())
+        let start = StartingTurn {
+            plan,
+            abort,
+            payload_hash: &hash,
+            admission: Admission::default(),
+        };
+        self.start(session_id, prompt, start)
     }
 
     async fn refresh_plan(&self, plan: &mut Plan) -> Result<(), TurnError> {
@@ -564,11 +603,15 @@ impl Engine {
         self: &Arc<Self>,
         session_id: &str,
         prompt: Prompt,
-        plan: Plan,
-        abort: CancellationToken,
-        payload_hash: &str,
-        how: Admission,
+        start: StartingTurn<'_>,
     ) -> Result<Receipt, TurnError> {
+        let StartingTurn {
+            plan,
+            abort,
+            payload_hash,
+            admission: how,
+        } = start;
+
         let attach = Attach {
             engine: self,
             session_id,
@@ -585,8 +628,14 @@ impl Engine {
             sticky: !plan.turn_only,
         };
         let admitted = attach.prepare(prompt.parts).and_then(|prepared| {
-            let admitted =
-                self.admit_fenced(session_id, pick, prepared.parts, submission, Some(&abort), how.delivery)?;
+            let prompt = FencedPrompt {
+                pick,
+                parts: prepared.parts,
+                submission,
+                abort: Some(&abort),
+                delivery: how.delivery,
+            };
+            let admitted = self.admit_fenced(session_id, prompt)?;
             self.count_as_read(session_id, &prepared.read);
             Ok(admitted)
         });
@@ -614,15 +663,14 @@ impl Engine {
     }
 
     /// The last check before a prompt is written, under the lock every Stop holds, so it lands wholly before a Stop or not at all.
-    pub(super) fn admit_fenced(
-        &self,
-        session_id: &str,
-        pick: Pick,
-        parts: Vec<Part>,
-        submission: Option<(&str, &str)>,
-        abort: Option<&CancellationToken>,
-        delivery: Option<&str>,
-    ) -> Result<Admitted, TurnError> {
+    pub(super) fn admit_fenced(&self, session_id: &str, prompt: FencedPrompt<'_>) -> Result<Admitted, TurnError> {
+        let FencedPrompt {
+            pick,
+            parts,
+            submission,
+            abort,
+            delivery,
+        } = prompt;
         let _fence = self.workers.fence();
         if abort.is_some_and(CancellationToken::is_cancelled) {
             return Err(TurnError::Stopped);
@@ -793,7 +841,14 @@ impl Engine {
             agent: prompt.agent.as_deref(),
             sticky: true,
         };
-        let admitted = self.admit_fenced(session_id, pick, prepared.parts, submission, how.parent, how.delivery)?;
+        let prompt = FencedPrompt {
+            pick,
+            parts: prepared.parts,
+            submission,
+            abort: how.parent,
+            delivery: how.delivery,
+        };
+        let admitted = self.admit_fenced(session_id, prompt)?;
         drop(steering);
         self.count_as_read(session_id, &prepared.read);
         Ok(Some(self.announce(session_id, admitted)))
@@ -1092,9 +1147,11 @@ impl Engine {
                 return false;
             }
         };
-        self.run_calls(plan, &message, rows, super::early::Early::new(abort), abort)
-            .await
-            != Outcome::Aborted
+        let batch = CallBatch {
+            rows,
+            early: super::early::Early::new(abort),
+        };
+        self.run_calls(plan, &message, batch, abort).await != Outcome::Aborted
     }
 
     pub(crate) fn command_config(&self, session_id: &str, workspace: &Path) -> Config {
@@ -1144,14 +1201,14 @@ impl Engine {
             agent: None,
             sticky: true,
         };
-        match self.admit_fenced(
-            session_id,
+        let prompt = FencedPrompt {
             pick,
-            vec![Part::Nudge { text: text.into() }],
-            None,
-            Some(abort),
-            None,
-        ) {
+            parts: vec![Part::Nudge { text: text.into() }],
+            submission: None,
+            abort: Some(abort),
+            delivery: None,
+        };
+        match self.admit_fenced(session_id, prompt) {
             Ok(admitted) => {
                 self.announce(session_id, admitted);
                 true
@@ -1533,10 +1590,11 @@ impl Engine {
             self.settle_unrun(&message, "tools were off for this reply, so this call was not run.");
             return Step::Done;
         }
-        match self
-            .run_calls(plan, &message, streamed.calls, streamed.early, abort)
-            .await
-        {
+        let batch = CallBatch {
+            rows: streamed.calls,
+            early: streamed.early,
+        };
+        match self.run_calls(plan, &message, batch, abort).await {
             Outcome::Aborted => {
                 // Calls queued behind the one that stopped never started; none is left pending.
                 self.settle_unrun(&message, "the turn was stopped before this call ran.");
@@ -1600,13 +1658,19 @@ impl Engine {
         let mut assembler = Assembler::new(&self.store, &self.hub, message);
         let files = self.turns.files_for(&self.store, &plan.session.id);
         let mut early = super::early::Early::new(abort);
+        let scope = super::early::ReadScope {
+            engine: self,
+            plan,
+            message,
+            files: &files,
+        };
         loop {
             // Each call that closed since the last chunk may start now, in the order the model wrote them; none when tools are off.
             for row in assembler.calls[early.seen()..]
                 .iter()
                 .filter(|_| !request.no_tool_calls)
             {
-                early.consider(self, plan, message, &files, row);
+                early.consider(&scope, row);
             }
             let next = tokio::select! {
                 chunk = chunks.next() => chunk,
@@ -1646,10 +1710,10 @@ impl Engine {
         self: &Arc<Self>,
         plan: &Plan,
         message: &Message,
-        calls: Vec<PartRow>,
-        early: super::early::Early,
+        batch: CallBatch,
         abort: &CancellationToken,
     ) -> Outcome {
+        let CallBatch { rows: calls, early } = batch;
         let files = self.turns.files_for(&self.store, &plan.session.id);
         let scope = CallScope {
             plan,
@@ -1845,10 +1909,7 @@ impl Engine {
         }
         self.settle(
             row,
-            ToolStatus::Error,
-            None,
-            "Aborted while waiting for another write to these files.".into(),
-            None,
+            Settlement::error("Aborted while waiting for another write to these files.".into()),
         );
         Err(Outcome::Aborted)
     }
@@ -1871,7 +1932,7 @@ impl Engine {
             None => tokio::select! {
                 captured = self.capture_before(&scope.plan.workspace, touches) => captured,
                 () = scope.abort.cancelled() => {
-                    self.settle(row, ToolStatus::Error, None, "Aborted while recording the files first.".into(), None);
+                    self.settle(row, Settlement::error("Aborted while recording the files first.".into()));
                     return Err(Outcome::Aborted);
                 }
             },
@@ -1882,10 +1943,7 @@ impl Engine {
                 // Nothing recorded means no way back, so the write does not happen.
                 self.settle(
                     row,
-                    ToolStatus::Error,
-                    None,
-                    format!("refused to write: could not record the files first ({error})"),
-                    None,
+                    Settlement::error(format!("refused to write: could not record the files first ({error})")),
                 );
                 Err(Outcome::Allowed)
             }
@@ -1955,14 +2013,8 @@ impl Engine {
 
     /// Checks one of a call's asks. `None` lets the call go on; otherwise the call is settled as
     /// refused and the outcome says whether the turn goes on.
-    async fn permit(
-        &self,
-        scope: &CallScope<'_>,
-        row: &mut PartRow,
-        call_id: &str,
-        name: &str,
-        ask: crate::tool::Ask,
-    ) -> Option<Outcome> {
+    async fn permit(&self, scope: &CallScope<'_>, row: &mut PartRow, call: CallAsk<'_>) -> Option<Outcome> {
+        let CallAsk { call_id, name, ask } = call;
         // A plugin may answer for the user, only where the user would otherwise be asked; the rules themselves stand.
         if !self.hooks.is_empty()
             && self.permissions.decide_under(
@@ -1987,10 +2039,7 @@ impl Engine {
                 Some((plugin, crate::hook::PermissionDecision::Deny(reason))) => {
                     self.settle(
                         row,
-                        ToolStatus::Denied,
-                        None,
-                        format!("The {plugin} plugin refused this call: {reason}"),
-                        None,
+                        Settlement::denied(format!("The {plugin} plugin refused this call: {reason}")),
                     );
                     return Some(Outcome::Allowed);
                 }
@@ -2013,17 +2062,11 @@ impl Engine {
         {
             Outcome::Allowed => None,
             Outcome::Refused => {
-                self.settle(
-                    row,
-                    ToolStatus::Denied,
-                    None,
-                    "A permission rule forbids this call.".into(),
-                    None,
-                );
+                self.settle(row, Settlement::denied("A permission rule forbids this call.".into()));
                 Some(Outcome::Allowed)
             }
             Outcome::Denied { feedback, stop } => {
-                self.settle(row, ToolStatus::Denied, None, denial(feedback.as_deref(), stop), None);
+                self.settle(row, Settlement::denied(denial(feedback.as_deref(), stop)));
                 if !stop {
                     return Some(Outcome::Allowed);
                 }
@@ -2032,13 +2075,7 @@ impl Engine {
                 Some(Outcome::Aborted)
             }
             Outcome::Aborted => {
-                self.settle(
-                    row,
-                    ToolStatus::Error,
-                    None,
-                    "Aborted while waiting for permission.".into(),
-                    None,
-                );
+                self.settle(row, Settlement::error("Aborted while waiting for permission.".into()));
                 Some(Outcome::Aborted)
             }
         }

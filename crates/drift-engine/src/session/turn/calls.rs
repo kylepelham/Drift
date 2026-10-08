@@ -36,7 +36,15 @@ impl Engine {
         };
         for ask in call.tool.asks(&call.context, &call.input) {
             if let Some(refused) = self
-                .permit(scope, &mut row, &call.context.call_id, &call.name, ask)
+                .permit(
+                    scope,
+                    &mut row,
+                    CallAsk {
+                        call_id: &call.context.call_id,
+                        name: &call.name,
+                        ask,
+                    },
+                )
                 .await
             {
                 return refused;
@@ -117,14 +125,14 @@ impl Engine {
         // Only the tools offered to this turn may run; a unique case-insensitive name is accepted.
         let Some((name, tool)) = scope.plan.offer.tool_named(&name) else {
             let reason = format!("`{name}` is not available in this session; use only the tools you were given");
-            self.settle(row, ToolStatus::Error, None, reason, None);
+            self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);
         };
         if let Part::ToolCall { name: stored, .. } = &mut row.part {
             stored.clone_from(&name);
         }
         if let Some(reason) = invalid_input(tool.as_ref(), &input) {
-            self.settle(row, ToolStatus::Error, None, reason, None);
+            self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);
         }
 
@@ -135,7 +143,7 @@ impl Engine {
             let reason = format!(
                 "The {agent} agent only reads, so this call was not run: it would change something. Use read-only commands and tools, or hand the work to a read-only subagent such as explore."
             );
-            self.settle(row, ToolStatus::Error, None, reason, None);
+            self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);
         }
 
@@ -169,7 +177,7 @@ impl Engine {
 
         if let Err(error) = self.start_call(row) {
             let reason = format!("refused to run: could not record the call ({error})");
-            self.settle(row, ToolStatus::Error, None, reason, None);
+            self.settle(row, Settlement::error(reason));
             return false;
         }
 
@@ -279,10 +287,7 @@ impl Engine {
             .map(str::to_owned);
         self.settle_delivering(
             row,
-            status,
-            result.title,
-            text,
-            metadata.merged(changes),
+            Settlement::new(status, result.title, text, metadata.merged(changes)),
             delivers.as_deref(),
         );
         self.release_claims(&claimant);

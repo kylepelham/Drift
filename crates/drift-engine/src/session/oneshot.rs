@@ -50,6 +50,11 @@ pub(crate) struct Answer {
     pub usage: Usage,
 }
 
+pub(super) struct SendOptions<'a> {
+    pub timeout: Duration,
+    pub shown_in: Option<&'a str>,
+}
+
 /// Why a one-shot failed.
 pub(crate) enum Failure {
     /// The provider refused or failed, after any retries.
@@ -231,8 +236,10 @@ impl Engine {
             &resolved.provider,
             &resolved.credential,
             &request,
-            shot.timeout,
-            shot.shown_in.as_deref(),
+            SendOptions {
+                timeout: shot.timeout,
+                shown_in: shot.shown_in.as_deref(),
+            },
         )
         .await
     }
@@ -244,9 +251,9 @@ impl Engine {
         provider: &Provider,
         credential: &Credential,
         request: &Request,
-        timeout: Duration,
-        shown_in: Option<&str>,
+        options: SendOptions<'_>,
     ) -> Result<Answer, Failure> {
+        let SendOptions { timeout, shown_in } = options;
         let mut retries = 0;
         loop {
             let attempt = tokio::time::timeout(timeout, collect_text(provider, request, credential))

@@ -714,10 +714,12 @@ impl Engine {
         };
         self.settle_delivering(
             &mut row,
-            status,
-            Some(task.description.clone()),
-            task.result.clone().unwrap_or_default(),
-            Some(metadata),
+            super::turn::Settlement::new(
+                status,
+                Some(task.description.clone()),
+                task.result.clone().unwrap_or_default(),
+                Some(metadata),
+            ),
             Some(&task.id),
         );
     }

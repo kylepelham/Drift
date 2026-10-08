@@ -26,6 +26,13 @@ pub(super) struct Started {
     files: Arc<SessionFiles>,
 }
 
+pub(super) struct ReadScope<'a> {
+    pub engine: &'a Arc<Engine>,
+    pub plan: &'a Plan,
+    pub message: &'a Message,
+    pub files: &'a SessionFiles,
+}
+
 impl Started {
     /// The call's result; what it read now counts as read in the session.
     pub(super) async fn finish(self, files: &SessionFiles) -> Result<Output, ToolError> {
@@ -55,14 +62,13 @@ impl Early {
     }
 
     /// Starts `row` now if it may, else leaves it for the step.
-    pub(super) fn consider(
-        &mut self,
-        engine: &Arc<Engine>,
-        plan: &Plan,
-        message: &Message,
-        files: &SessionFiles,
-        row: &PartRow,
-    ) {
+    pub(super) fn consider(&mut self, scope: &ReadScope<'_>, row: &PartRow) {
+        let ReadScope {
+            engine,
+            plan,
+            message,
+            files,
+        } = *scope;
         self.seen += 1;
         let Part::ToolCall {
             call_id, name, input, ..

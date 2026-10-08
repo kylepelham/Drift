@@ -118,11 +118,13 @@ impl Engine {
         let model = session.model.ok_or(TurnError::NoModel)?;
         match self.admit_fenced(
             session_id,
-            crate::store::Pick::model(&model),
-            prompt.parts,
-            submission,
-            None,
-            None,
+            super::turn::FencedPrompt {
+                pick: crate::store::Pick::model(&model),
+                parts: prompt.parts,
+                submission,
+                abort: None,
+                delivery: None,
+            },
         ) {
             Ok(admitted) => {
                 self.announce(session_id, admitted);
