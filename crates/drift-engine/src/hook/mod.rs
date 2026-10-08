@@ -179,24 +179,31 @@ pub struct SessionEvent {
 #[async_trait]
 pub trait Hook: Send + Sync {
     fn name(&self) -> &str;
+
     async fn before_tool(&self, _call: &ToolCall) -> BeforeTool {
         BeforeTool::Allow
     }
+
     async fn after_tool(&self, _result: &ToolResult) -> AfterTool {
         AfterTool::Keep
     }
+
     async fn prompt_submit(&self, _prompt: &PromptEvent) -> PromptSubmit {
         PromptSubmit::Keep
     }
+
     async fn turn_end(&self, _reply: &ReplyEvent) -> TurnEnd {
         TurnEnd::Accept
     }
+
     async fn permission(&self, _ask: &PermissionAsk) -> PermissionDecision {
         PermissionDecision::Pass
     }
+
     async fn compaction(&self, _event: &CompactionEvent) -> Compacting {
         Compacting::Proceed
     }
+
     async fn session(&self, _event: &SessionEvent) {}
 }
 
@@ -284,6 +291,7 @@ impl Hooks {
     ) -> Vec<PluginInfo> {
         let mut hooks: Vec<Arc<dyn Hook>> = Vec::new();
         let mut loaded = Vec::new();
+
         for Listed { entry, path, config } in entries {
             if disabled.contains(&entry) {
                 loaded.push(PluginInfo {
@@ -296,21 +304,19 @@ impl Hooks {
                 });
                 continue;
             }
+
             let outcome = match path {
                 Ok(path) => {
-                    self.load_one(
-                        cache_dir,
-                        &path,
-                        Site {
-                            entry: entry.clone(),
-                            config: config.clone(),
-                            engine: engine.clone(),
-                        },
-                    )
-                    .await
+                    let site = Site {
+                        entry: entry.clone(),
+                        config: config.clone(),
+                        engine: engine.clone(),
+                    };
+                    self.load_one(cache_dir, &path, site).await
                 }
                 Err(error) => Err(error),
             };
+
             match outcome {
                 Ok(plugin) => {
                     loaded.push(PluginInfo {
@@ -333,7 +339,9 @@ impl Hooks {
                 }),
             }
         }
+
         self.set(hooks, loaded.clone());
+
         loaded
     }
 
@@ -345,6 +353,7 @@ impl Hooks {
             .as_ref()
             .map_err(Clone::clone)?;
         let plugin = runtime.load(path, site).await?;
+
         Ok(Loaded {
             name: plugin.name().to_owned(),
             capabilities: plugin.capabilities.clone(),
@@ -383,12 +392,14 @@ impl Hooks {
                 BeforeTool::Replace(input) => call.input = input,
             }
         }
+
         (call, None)
     }
 
     /// Replacements chain; notes collect in order, one line each, named for the plugin that wrote it.
     pub async fn after_tool(&self, mut result: ToolResult) -> (String, Vec<String>) {
         let mut notes = Vec::new();
+
         for hook in self.list() {
             match hook.after_tool(&result).await {
                 AfterTool::Keep => {}
@@ -396,6 +407,7 @@ impl Hooks {
                 AfterTool::Note(note) => notes.push(note_line(hook.name(), &note)),
             }
         }
+
         (result.output, notes)
     }
 
@@ -405,6 +417,7 @@ impl Hooks {
         mut prompt: PromptEvent,
     ) -> Result<(String, Vec<(String, String)>), (String, String)> {
         let mut context = Vec::new();
+
         for hook in self.list() {
             match hook.prompt_submit(&prompt).await {
                 PromptSubmit::Keep => {}
@@ -413,12 +426,14 @@ impl Hooks {
                 PromptSubmit::Deny(reason) => return Err((hook.name().to_owned(), reason)),
             }
         }
+
         Ok((prompt.text, context))
     }
 
-    /// Every plugin sees the reply; notes collect, and the first that wants the turn to go on decides.
+    /// Visits plugins until the first continuation; notes from earlier hooks are retained.
     pub async fn turn_end(&self, reply: &ReplyEvent) -> Ended {
         let mut ended = Ended::default();
+
         for hook in self.list() {
             match hook.turn_end(reply).await {
                 TurnEnd::Accept => {}
@@ -429,6 +444,7 @@ impl Hooks {
                 }
             }
         }
+
         ended
     }
 
@@ -440,18 +456,21 @@ impl Hooks {
                 decision => return Some((hook.name().to_owned(), decision)),
             }
         }
+
         None
     }
 
     /// Every plugin's instructions for the summary, in order, each under its name.
     pub async fn compaction(&self, event: &CompactionEvent) -> Vec<String> {
-        let mut out = Vec::new();
+        let mut instructions = Vec::new();
+
         for hook in self.list() {
             if let Compacting::Instruct(text) = hook.compaction(event).await {
-                out.push(format!("From the {} plugin: {text}", hook.name()));
+                instructions.push(format!("From the {} plugin: {text}", hook.name()));
             }
         }
-        out
+
+        instructions
     }
 
     pub async fn session(&self, event: &SessionEvent) {
@@ -472,6 +491,7 @@ fn note_line(plugin: &str, note: &str) -> String {
         .find(|line| !line.is_empty())
         .unwrap_or_default();
     let cut = line.char_indices().nth(NOTE_CHARS).map(|(at, _)| at);
+
     match cut {
         Some(at) => format!("{plugin}: {}...", line[..at].trim_end()),
         None => format!("{plugin}: {line}"),

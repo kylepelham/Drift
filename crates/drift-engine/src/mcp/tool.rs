@@ -51,6 +51,7 @@ impl McpTool {
         if client.tools().iter().any(|tool| behaves_alike(tool, &self.tool)) {
             return Ok(());
         }
+
         Err(ToolError(format!(
             "{} changed its {} tool since this turn began, so it was not run; the next turn sees the new one",
             self.server, self.tool.name
@@ -64,12 +65,40 @@ impl McpTool {
                 None => std::future::pending().await,
             }
         };
+
         tokio::select! {
             result = client.call(&self.tool.name, input) => result,
             () = ctx.abort.cancelled() => Err(CallError::Failed("aborted".into())),
-            () = self.slot.closing() => Err(CallError::Failed(format!("the {} MCP server was disabled while the call ran; it may or may not have taken effect", self.server))),
-            () = limit => Err(CallError::Failed(format!("the {} MCP server did not answer within its {}s timeout; the call may or may not have taken effect", self.server, client.timeout.unwrap_or_default().as_secs()))),
+            () = self.slot.closing() => Err(self.disabled_during_call()),
+            () = limit => Err(self.timed_out(client.timeout.unwrap_or_default())),
         }
+    }
+
+    /// Reports uncertain effects when disabling interrupts a call already sent.
+    fn disabled_during_call(&self) -> CallError {
+        let message = format!(
+            concat!(
+                "the {} MCP server was disabled while the call ran; ",
+                "it may or may not have taken effect",
+            ),
+            self.server
+        );
+
+        CallError::Failed(message)
+    }
+
+    /// Reports the configured timeout without claiming the server cancelled its work.
+    fn timed_out(&self, limit: std::time::Duration) -> CallError {
+        let seconds = limit.as_secs();
+        let message = format!(
+            concat!(
+                "the {} MCP server did not answer within its {}s timeout; ",
+                "the call may or may not have taken effect",
+            ),
+            self.server, seconds
+        );
+
+        CallError::Failed(message)
     }
 
     /// A call cut off by a lost connection: a read-only one is asked again once of the reconnected server, never one that may have changed something.
@@ -83,6 +112,7 @@ impl McpTool {
         if !self.read_only() {
             return Err(uncertain());
         }
+
         let lost_again = || {
             ToolError(format!(
                 "the connection to {} closed during the call and it did not come back",
@@ -90,7 +120,7 @@ impl McpTool {
             ))
         };
         let next = match lost.holds_nothing_open() && lost.is_open() {
-            // Only the request failed; the client stands, so it is asked again there.
+            // Stateless HTTP can lose a request without losing the reusable client.
             true => lost.clone(),
             false => {
                 if lost.holds_nothing_open() {
@@ -103,6 +133,7 @@ impl McpTool {
             }
         };
         self.unchanged_on(&next)?;
+
         match self.call(ctx, &next, input).await {
             Ok(answer) => Ok(answer),
             Err(CallError::Lost) => Err(lost_again()),
@@ -111,14 +142,15 @@ impl McpTool {
     }
 }
 
-/// Same name, input and safety hints, judged by the defaults MCP gives missing ones; a new description or title changes nothing a call relies on.
-fn behaves_alike(a: &rmcp::model::Tool, b: &rmcp::model::Tool) -> bool {
+/// Compares names, input and safety hints using MCP's defaults, ignoring descriptions and titles.
+fn behaves_alike(first: &rmcp::model::Tool, second: &rmcp::model::Tool) -> bool {
     let hints = |tool: &rmcp::model::Tool| {
         tool.annotations.as_ref().map_or((false, true), |hint| {
             (hint.read_only_hint.unwrap_or(false), hint.is_destructive())
         })
     };
-    a.name == b.name && a.input_schema == b.input_schema && hints(a) == hints(b)
+
+    first.name == second.name && first.input_schema == second.input_schema && hints(first) == hints(second)
 }
 
 /// The longest name a tool is given: providers take 64, and the subscription route adds `mcp_`.
@@ -137,10 +169,9 @@ pub(crate) const RESERVED: [&str; 6] = [
 /// Names already given, by `(server, tool)`; a name once given is never given to another tool.
 pub(crate) type Given = HashMap<(String, String), String>;
 
-/// The names the model calls a set of servers' tools (`(server, tool)` pairs) by. A tool named
-/// before keeps its name, so connecting another server never renames one a transcript already
-/// calls. A new tool gets `<server>_<tool>` as written where no tool has or is getting that name,
-/// and a hashed name ([`wire_name`] with `clashes`) where one does (`a_b` + `c` and `a` + `b_c`).
+/// Keeps previously assigned tool names so new connections cannot rename tools in existing transcripts.
+/// New tools use `<server>_<tool>` when available, otherwise [`wire_name`] adds a collision hash.
+/// Distinct pairs such as `a_b` + `c` and `a` + `b_c` must never share a name.
 pub(crate) fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
     let taken: HashSet<&str> = given.values().map(String::as_str).collect();
     let known = |server: &str, tool: &str| given.get(&(server.to_string(), tool.to_string()));
@@ -160,6 +191,7 @@ pub(crate) fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
         None if taken.contains(plain.as_str()) || fresh(plain) > 1 => wire_name(server, tool, true),
         None => plain.clone(),
     };
+
     tools
         .iter()
         .zip(&plain)
@@ -167,17 +199,16 @@ pub(crate) fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
         .collect()
 }
 
-/// The name the model calls a server's tool by, in the characters every provider accepts
-/// (`[a-zA-Z0-9_-]`, at most 64). A name that had to change (a character replaced, or cut to fit),
-/// that spells a built-in tool's, or that `clashes` with another server's, ends in a hash of the
-/// original, keeping every name apart.
+/// Produces provider-safe `[a-zA-Z0-9_-]` names within the length limit.
+/// Changed, shortened, reserved or colliding names include a hash of the original server/tool pair.
+/// This keeps distinct tools apart without changing names that already fit.
 pub(super) fn wire_name(server: &str, tool: &str, clashes: bool) -> String {
     let raw = format!("{server}_{tool}");
     let clean: String = raw
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
-                c
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
+                character
             } else {
                 '_'
             }
@@ -186,6 +217,7 @@ pub(super) fn wire_name(server: &str, tool: &str, clashes: bool) -> String {
     if clean == raw && clean.len() <= MAX_NAME && !RESERVED.contains(&clean.as_str()) && !clashes {
         return clean;
     }
+
     // Server and tool apart, so `a_b` + `c` and `a` + `b_c` hash differently.
     let digest = sha2::Sha256::digest(format!("{server}\0{tool}").as_bytes());
     let mut hash = String::with_capacity(8);
@@ -213,6 +245,7 @@ impl Tool for McpTool {
             .ok()
             .flatten()
             .is_some_and(|row| row.read_only_trusted && row.hash == self.pinned.hash);
+
         self.read_only() && trusted
     }
 
@@ -255,6 +288,7 @@ impl Tool for McpTool {
             if self.slot.is_closed() {
                 return Err(self.closed());
             }
+
             let client = self.slot.client_for(&self.pinned);
             self.unchanged_on(&client)?;
             let answer = match self.call(ctx, &client, input.clone()).await {
@@ -265,6 +299,7 @@ impl Tool for McpTool {
             if answer.is_error {
                 return Err(ToolError(answer.text));
             }
+
             let mut metadata = ToolMetadata {
                 server: Some(self.server.clone()),
                 ..Default::default()
@@ -272,6 +307,7 @@ impl Tool for McpTool {
             if !answer.images.is_empty() {
                 metadata.images = Some(crate::tool::image::metadata(&answer.images));
             }
+
             Ok(Output {
                 title: format!("{}: {}", self.server, self.tool.name),
                 output: answer.text,

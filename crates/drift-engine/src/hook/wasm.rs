@@ -15,7 +15,9 @@ use super::{
 };
 
 mod bindings {
-    wasmtime::component::bindgen!({ world: "plugin", path: "wit", imports: { default: async }, exports: { default: async } });
+    wasmtime::component::bindgen!({
+        world: "plugin", path: "wit", imports: { default: async }, exports: { default: async }
+    });
 }
 mod host;
 
@@ -59,11 +61,13 @@ impl Runtime {
     pub fn new(cache_dir: &Path) -> Result<Self, Error> {
         let mut config = Config::new();
         config.epoch_interruption(true);
+
         let mut cache = CacheConfig::new();
         cache.with_directory(cache_dir);
         config.cache(Some(
             Cache::new(cache).map_err(|error| Error::Cache(error.to_string()))?,
         ));
+
         let engine = Engine::new(&config).map_err(|error| Error::Runtime(error.to_string()))?;
         let ticker = engine.clone();
         std::thread::Builder::new()
@@ -75,10 +79,12 @@ impl Runtime {
                 }
             })
             .map_err(|error| Error::Runtime(error.to_string()))?;
+
         let mut linker = Linker::new(&engine);
         wasmtime_wasi::p2::add_to_linker_async(&mut linker).map_err(|error| Error::Runtime(error.to_string()))?;
         Plugin::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
             .map_err(|error| Error::Runtime(error.to_string()))?;
+
         Ok(Self { engine, linker })
     }
 
@@ -89,6 +95,7 @@ impl Runtime {
             .await
             .map_err(|error| Error::CompileTask(error.to_string()))?
             .map_err(|error| Error::Compile(error.to_string()))?;
+
         let capabilities = capabilities(&self.engine, &component);
         let state = State {
             name: file_name(path),
@@ -98,6 +105,7 @@ impl Runtime {
             wasi: WasiCtxBuilder::new().inherit_stderr().build(),
             table: ResourceTable::new(),
         };
+
         let mut store = Store::new(&self.engine, state);
         store.set_epoch_deadline(1);
         store.epoch_deadline_callback(|store| {
@@ -107,6 +115,7 @@ impl Runtime {
                 Err(wasmtime::Error::msg("the plugin ran past its time"))
             }
         });
+
         let bindings = Plugin::instantiate_async(&mut store, &component, &self.linker)
             .await
             .map_err(|error| Error::Instantiate(error.to_string()))?;
@@ -117,7 +126,9 @@ impl Runtime {
         if name.trim().is_empty() {
             return Err(Error::EmptyName);
         }
+
         store.data_mut().name.clone_from(&name);
+
         Ok(WasmPlugin {
             name,
             path: path.to_path_buf(),
@@ -138,6 +149,7 @@ fn capabilities(engine: &Engine, component: &Component) -> Vec<String> {
         .filter(|name| name != "host" && name != "types")
         .collect();
     found.sort();
+
     found
 }
 
@@ -167,6 +179,7 @@ impl WasmPlugin {
         let state = store.data_mut();
         state.workspace = PathBuf::from(workspace);
         state.deadline = Instant::now() + CALL_BUDGET;
+
         store
     }
 }
@@ -186,6 +199,7 @@ impl Hook for WasmPlugin {
             input: call.input.to_string(),
         };
         let mut store = self.enter(&call.workspace).await;
+
         match self.bindings.call_before_tool(&mut *store, &input).await {
             Ok(wit::BeforeTool::Allow) => BeforeTool::Allow,
             Ok(wit::BeforeTool::Deny(reason)) => BeforeTool::Deny(reason),
@@ -217,6 +231,7 @@ impl Hook for WasmPlugin {
             failed: result.failed,
         };
         let mut store = self.enter(&result.workspace).await;
+
         match self.bindings.call_after_tool(&mut *store, &input).await {
             Ok(wit::AfterTool::Keep) => AfterTool::Keep,
             Ok(wit::AfterTool::Replace(output)) => AfterTool::Replace(output),
@@ -236,6 +251,7 @@ impl Hook for WasmPlugin {
             text: prompt.text.clone(),
         };
         let mut store = self.enter(&prompt.workspace).await;
+
         match self.bindings.call_prompt_submit(&mut *store, &input).await {
             Ok(wit::PromptSubmit::Keep) => PromptSubmit::Keep,
             Ok(wit::PromptSubmit::Replace(text)) => PromptSubmit::Replace(text),
@@ -256,6 +272,7 @@ impl Hook for WasmPlugin {
             text: reply.text.clone(),
         };
         let mut store = self.enter(&reply.workspace).await;
+
         match self.bindings.call_turn_end(&mut *store, &input).await {
             Ok(wit::TurnEnd::Accept) => TurnEnd::Accept,
             Ok(wit::TurnEnd::Note(note)) => TurnEnd::Note(note),
@@ -279,6 +296,7 @@ impl Hook for WasmPlugin {
             commands: ask.commands.clone(),
         };
         let mut store = self.enter(&ask.workspace).await;
+
         match self.bindings.call_permission(&mut *store, &input).await {
             Ok(wit::Permission::Pass) => PermissionDecision::Pass,
             Ok(wit::Permission::Allow) => PermissionDecision::Allow,
@@ -297,6 +315,7 @@ impl Hook for WasmPlugin {
             agent: event.agent.clone(),
         };
         let mut store = self.enter(&event.workspace).await;
+
         match self.bindings.call_compaction(&mut *store, &input).await {
             Ok(wit::Compacting::Proceed) => Compacting::Proceed,
             Ok(wit::Compacting::Instruct(text)) => Compacting::Instruct(text),
@@ -323,6 +342,7 @@ impl Hook for WasmPlugin {
             SessionKind::Compacted => wit::SessionKind::Compacted,
         };
         let mut store = self.enter(&event.workspace).await;
+
         if let Err(error) = self.bindings.call_session(&mut *store, &session, kind).await {
             self.failed("session", &error);
         }

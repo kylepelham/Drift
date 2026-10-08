@@ -124,10 +124,23 @@ fn unreadable(name: String) -> ServerStatus {
         cwd: None,
         timeout_seconds: None,
     };
+    let server = ServerView {
+        name,
+        config,
+        enabled: false,
+        read_only_trusted: false,
+        updated_at: 0,
+        workspaces: Vec::new(),
+    };
+    let error = concat!(
+        "Its saved definition could not be read, probably because a newer Drift wrote it. ",
+        "Edit and save it again, or remove it.",
+    );
+
     ServerStatus {
-        server: ServerView { name, config, enabled: false, read_only_trusted: false, updated_at: 0, workspaces: Vec::new() },
+        server,
         state: State::Failed,
-        error: Some("Its saved definition could not be read, probably because a newer Drift wrote it. Edit and save it again, or remove it.".into()),
+        error: Some(error.into()),
         tools: Vec::new(),
         transport: Transport::Stdio,
         protocol: None,
@@ -176,6 +189,7 @@ impl ServerRow {
             .workspaces
             .iter()
             .find(|choice| crate::tool::canonical(Path::new(&choice.path)) == workspace);
+
         chosen.map_or(self.enabled, |choice| choice.enabled)
     }
 
@@ -510,6 +524,7 @@ impl Shown {
         let Some(rows) = store.and_then(|store| store.mcp_servers().ok()) else {
             return Self(None);
         };
+
         Self(Some(
             rows.into_iter()
                 .filter(|row| workspace.map_or(row.on_anywhere(), |workspace| row.on_in(workspace)))

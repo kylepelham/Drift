@@ -42,6 +42,7 @@ impl SseTransport {
                 needs_sign_in,
             });
         }
+
         let mut bytes = response.bytes_stream();
         let mut parser = Parser::default();
         let mut pending: Vec<String> = Vec::new();
@@ -59,11 +60,13 @@ impl SseTransport {
                     .map_err(|e| format!("bad message endpoint: {e}"))?;
             }
         };
+
         let (tx, incoming) = mpsc::channel(64);
         let reader = tokio::spawn(async move {
             for data in pending {
                 forward(&tx, &data).await;
             }
+
             while let Some(Ok(chunk)) = bytes.next().await {
                 for event in parser
                     .feed(&chunk)
@@ -74,6 +77,7 @@ impl SseTransport {
                 }
             }
         });
+
         Ok(Self {
             client,
             endpoint,
@@ -109,6 +113,7 @@ impl rmcp::transport::Transport<RoleClient> for SseTransport {
             .post(self.endpoint.clone())
             .headers(self.headers.clone())
             .json(&item);
+
         async move {
             let response = request.send().await.map_err(std::io::Error::other)?;
             if response.status().is_success() {

@@ -150,6 +150,7 @@ impl ServerView {
                 timeout_seconds: *timeout_seconds,
             },
         };
+
         Self {
             name: row.name.clone(),
             config,
@@ -169,8 +170,12 @@ impl ServerConfigInput {
             Some(ServerConfig::Http { headers, .. } | ServerConfig::Sse { headers, .. }) => (None, Some(headers)),
             None => (None, None),
         };
-        let cwd_of = |cwd: Option<String>| cwd.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
+        let cwd_of = |cwd: Option<String>| {
+            cwd.map(|directory| directory.trim().to_string())
+                .filter(|directory| !directory.is_empty())
+        };
         let saved_app = saved.and_then(|config| config.remote()).and_then(|(_, app)| app);
+
         Ok(match self {
             Self::Stdio {
                 command,
@@ -224,6 +229,7 @@ impl OAuthView {
 /// The app to save; one with no client id is none, and a secret left out keeps the saved one only for the same app.
 fn app(sent: Option<OAuthInput>, saved: Option<&OAuthClient>) -> Option<OAuthClient> {
     let sent = sent.filter(|sent| !sent.client_id.trim().is_empty())?;
+
     let client_id = sent.client_id.trim().to_string();
     let client_secret = match sent.client_secret {
         Some(secret) => Some(secret).filter(|secret| !secret.is_empty()),
@@ -237,6 +243,7 @@ fn app(sent: Option<OAuthInput>, saved: Option<&OAuthClient>) -> Option<OAuthCli
         .map(|scope| scope.trim().to_string())
         .filter(|scope| !scope.is_empty())
         .collect();
+
     Some(OAuthClient {
         client_id,
         client_secret,
@@ -250,12 +257,13 @@ fn keep(
 ) -> Result<BTreeMap<String, String>, Error> {
     values
         .into_iter()
-        .map(
-            |(name, value)| match value.or_else(|| saved.and_then(|saved| saved.get(&name)).cloned()) {
+        .map(|(name, value)| {
+            let kept = value.or_else(|| saved.and_then(|saved| saved.get(&name)).cloned());
+            match kept {
                 Some(value) => Ok((name, value)),
                 None => Err(Error::MissingSavedValue { name }),
-            },
-        )
+            }
+        })
         .collect()
 }
 
@@ -353,7 +361,11 @@ mod tests {
             cwd: None,
             timeout_seconds: None,
         };
-        let sent: ServerConfigInput = serde_json::from_value(json!({ "type": "stdio", "command": "npx", "env": { "TOKEN": null, "MODE": "fast" }, "cwd": " C:/tools ", "timeoutSeconds": 60 })).unwrap();
+        let sent: ServerConfigInput = serde_json::from_value(json!({
+            "type": "stdio", "command": "npx", "env": { "TOKEN": null, "MODE": "fast" },
+            "cwd": " C:/tools ", "timeoutSeconds": 60,
+        }))
+        .unwrap();
         let ServerConfig::Stdio {
             env,
             cwd,

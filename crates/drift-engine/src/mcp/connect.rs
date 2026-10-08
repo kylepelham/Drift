@@ -159,7 +159,7 @@ async fn start(
             let transport = TokioChildProcess::new(command_process)
                 .map_err(|error| format!("could not start {command}: {error}"))?;
 
-            // Adopted before it answers, so a start cut short takes the server's children with it.
+            // Adopt the process tree before the handshake so cancellation also kills server children.
             let tree = transport.id().and_then(|pid| Tree::adopt(pid).ok());
             let service = DriftClient::rooted(workspace)
                 .serve_with_lifecycle(transport, lifecycle(known))
