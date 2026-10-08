@@ -383,7 +383,7 @@ pub fn list_skills(workspace: Option<&Path>, off: &[PathBuf]) -> Vec<UserSkill> 
             });
         }
     }
-    skills.sort_by(|a, b| a.pack.cmp(&b.pack).then(a.name.cmp(&b.name)));
+    skills.sort_by(|left, right| left.pack.cmp(&right.pack).then(left.name.cmp(&right.name)));
     skills
 }
 

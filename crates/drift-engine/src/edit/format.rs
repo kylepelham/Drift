@@ -158,10 +158,11 @@ fn candidates<'a>(
         .unwrap_or_default();
     formatters
         .iter()
-        .filter(move |f| {
-            f.extensions.iter().any(|ext| name.ends_with(ext.as_str())) && project_uses(f.uses, path, workspace)
+        .filter(move |formatter| {
+            formatter.extensions.iter().any(|ext| name.ends_with(ext.as_str()))
+                && project_uses(formatter.uses, path, workspace)
         })
-        .filter_map(move |f| Some((f, locate(f.command.first()?, path, workspace)?)))
+        .filter_map(move |formatter| Some((formatter, locate(formatter.command.first()?, path, workspace)?)))
 }
 
 /// A program inside the project that formatting could run, and its line for the approval.
@@ -188,8 +189,8 @@ pub fn project_programs(files: &[PathBuf], workspace: &Path, formatters: &[Forma
                 .collect::<Vec<_>>()
         })
         .collect();
-    found.sort_by(|a, b| (&a.0.name, &a.1).cmp(&(&b.0.name, &b.1)));
-    found.dedup_by(|a, b| a.0.name == b.0.name && a.1 == b.1);
+    found.sort_by(|(left, left_path), (right, right_path)| (&left.name, left_path).cmp(&(&right.name, right_path)));
+    found.dedup_by(|(left, left_path), (right, right_path)| left.name == right.name && left_path == right_path);
     found
         .into_iter()
         .map(|(formatter, path)| Program {
@@ -205,7 +206,7 @@ pub fn project_programs(files: &[PathBuf], workspace: &Path, formatters: &[Forma
 fn program_line(formatter: &Formatter, program: &Path) -> String {
     let name = formatter.command.first().map(String::as_str).unwrap_or_default();
     let (version, hash) = super::package::fingerprint(program, name);
-    let version = version.map(|v| format!(" {v}")).unwrap_or_default();
+    let version = version.map(|version| format!(" {version}")).unwrap_or_default();
     format!("formatter {}{version}: {} ({hash})", formatter.name, program.display())
 }
 
@@ -223,7 +224,12 @@ fn locate(name: &str, file: &Path, workspace: &Path) -> Option<Found> {
     let local = dirs_up(file, workspace)
         .into_iter()
         .map(|dir| dir.join("node_modules").join(".bin"))
-        .find_map(|bin| names.iter().map(|n| bin.join(n)).find(|candidate| candidate.is_file()));
+        .find_map(|bin| {
+            names
+                .iter()
+                .map(|name| bin.join(name))
+                .find(|candidate| candidate.is_file())
+        });
     match local {
         Some(program) => Some(Found::Project(program)),
         None => crate::platform::process::which(name).map(Found::User),
@@ -316,12 +322,16 @@ mod tests {
             },
         );
         let resolved = resolve(&overrides);
-        assert!(!resolved.iter().any(|f| f.name == "prettier"));
+        assert!(!resolved.iter().any(|formatter| formatter.name == "prettier"));
         assert_eq!(
-            resolved.iter().find(|f| f.name == "rustfmt").unwrap().command[0],
+            resolved
+                .iter()
+                .find(|formatter| formatter.name == "rustfmt")
+                .unwrap()
+                .command[0],
             "cargo"
         );
-        assert!(resolved.iter().any(|f| f.name == "zig"));
+        assert!(resolved.iter().any(|formatter| formatter.name == "zig"));
     }
 
     #[tokio::test]

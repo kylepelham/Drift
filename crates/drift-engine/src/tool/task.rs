@@ -404,7 +404,10 @@ impl Tool for TaskStop {
                     format!("{} had already ended: {}.", task.id, task.state.as_str()),
                 ));
             }
-            let task = ctx.engine.stop_task(&task.id).map_err(|e| ToolError(e.to_string()))?;
+            let task = ctx
+                .engine
+                .stop_task(&task.id)
+                .map_err(|error| ToolError(error.to_string()))?;
             Ok(Output::new(task.description.clone(), format!("Stopping {}.", task.id)))
         })
     }
@@ -446,14 +449,14 @@ impl Tool for ReadThread {
                 .permissions
                 .pending()
                 .into_iter()
-                .filter(|p| p.session_id == id)
+                .filter(|permission| permission.session_id == id)
                 .count()
                 + ctx
                     .engine
                     .questions
                     .pending()
                     .into_iter()
-                    .filter(|q| q.session_id == id)
+                    .filter(|question| question.session_id == id)
                     .count();
             let mut lines = vec![
                 format!("Thread: {}", child.title),

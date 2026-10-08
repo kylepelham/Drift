@@ -191,9 +191,11 @@ pub(super) const LATEST: i64 = MIGRATIONS.len() as i64;
 
 pub(super) fn apply(conn: &Connection) -> rusqlite::Result<()> {
     let current: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+
     for (index, sql) in MIGRATIONS.iter().enumerate().skip(current as usize) {
         let version = index as i64 + 1;
         conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {version}; COMMIT;"))?;
     }
+
     Ok(())
 }

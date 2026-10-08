@@ -150,7 +150,12 @@ mod tests {
                 AgentOverride::from_json(&json!({ "model": "openai/gpt-5" })),
             ),
         ]);
-        config.agents.iter_mut().find(|a| a.name == "plan").unwrap().model = parse_model("anthropic/claude");
+        config
+            .agents
+            .iter_mut()
+            .find(|agent| agent.name == "plan")
+            .unwrap()
+            .model = parse_model("anthropic/claude");
         config.apply_overrides(&overrides);
         assert_eq!(config.agent_model("title"), parse_model("openai/gpt-5-nano"));
         assert_eq!(config.agent_model("plan"), None, "an empty model restores inheritance");

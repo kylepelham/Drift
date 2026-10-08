@@ -255,7 +255,7 @@ mod tests {
         let Replay::Events(events) = hub.attach(Some(1)).replay else {
             panic!("expected replay");
         };
-        assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [2, 3]);
+        assert_eq!(events.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(), [2, 3]);
     }
 
     #[test]
@@ -289,7 +289,7 @@ mod tests {
             panic!("live output crowded the receiver, not the window")
         };
         assert_eq!(
-            missed.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            missed.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(),
             [1],
             "the durable event is replayed; live output is not, by design"
         );
@@ -320,7 +320,7 @@ mod tests {
         let Replay::Events(events) = hub.attach(Some(1)).replay else {
             panic!("cursor at the ring's edge must still replay");
         };
-        assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [2, 3]);
+        assert_eq!(events.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(), [2, 3]);
     }
 
     #[tokio::test]
@@ -347,14 +347,14 @@ mod tests {
             panic!("nothing real was evicted, so not stale")
         };
         assert_eq!(
-            events.iter().map(|e| e.seq).collect::<Vec<_>>(),
+            events.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(),
             [1, 12],
             "only real events replay"
         );
         let Replay::Events(after) = hub.attach(Some(5)).replay else {
             panic!("a cursor on a transient event resumes")
         };
-        assert_eq!(after.iter().map(|e| e.seq).collect::<Vec<_>>(), [12]);
+        assert_eq!(after.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(), [12]);
     }
 
     #[test]

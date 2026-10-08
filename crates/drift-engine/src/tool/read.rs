@@ -59,7 +59,7 @@ impl Tool for Read {
             let offset = input["offset"].as_u64().unwrap_or(1).max(1) as usize;
             let limit = input["limit"]
                 .as_u64()
-                .map_or(MAX_LINES, |l| l as usize)
+                .map_or(MAX_LINES, |limit| limit as usize)
                 .clamp(1, MAX_LINES);
             let meta = tokio::fs::metadata(&path).await.map_err(|_| missing(ctx, &path))?;
             if meta.is_dir() {
@@ -75,7 +75,7 @@ impl Tool for Read {
                 ctx.files.mark_read(&path);
                 return attached(ctx, &path, mime, &bytes);
             }
-            if bytes.iter().take(8000).any(|b| *b == 0) {
+            if bytes.iter().take(8000).any(|byte| *byte == 0) {
                 return Err(ToolError(format!("{} is binary", display(&path, &ctx.workspace))));
             }
             let text = String::from_utf8_lossy(&bytes);
@@ -143,7 +143,7 @@ async fn read_large(ctx: &Context, path: &std::path::Path, offset: usize, limit:
     let (file, stop) = (path.to_path_buf(), ctx.abort.clone());
     let read = tokio::task::spawn_blocking(move || large_page(&file, offset, limit, budget, &stop))
         .await
-        .map_err(|e| ToolError(e.to_string()))??;
+        .map_err(|error| ToolError(error.to_string()))??;
     if ctx.abort.is_cancelled() {
         return Err(ToolError("stopped".into()));
     }
@@ -399,7 +399,10 @@ mod tests {
             sandbox.file(&format!("many/f{i:04}.txt"), "");
         }
         let out = Read.run(&sandbox.ctx, json!({ "path": "many" })).await.unwrap();
-        assert_eq!(out.output.lines().filter(|l| l.starts_with('f')).count(), MAX_ENTRIES);
+        assert_eq!(
+            out.output.lines().filter(|line| line.starts_with('f')).count(),
+            MAX_ENTRIES
+        );
         assert!(
             out.output
                 .ends_with("(200 more entries; use glob with a pattern to narrow it)")

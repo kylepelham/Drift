@@ -160,16 +160,16 @@ fn the_model_hears_a_bounded_list_and_the_metadata_keeps_the_same() {
     let dir = PathBuf::from("/ws");
     let errors = |count: usize| {
         (1..=count)
-            .map(|n| Diagnostic {
-                line: n as u32,
+            .map(|line| Diagnostic {
+                line: line as u32,
                 column: 1,
-                message: format!("e{n}"),
+                message: format!("e{line}"),
             })
             .collect::<Vec<_>>()
     };
     let found: Vec<Found> = (0..4)
-        .map(|n| Found {
-            file: dir.join(format!("f{n}.rs")),
+        .map(|index| Found {
+            file: dir.join(format!("f{index}.rs")),
             server: "rust-analyzer".into(),
             errors: errors(12),
         })
@@ -357,9 +357,9 @@ async fn reads_in_parallel_start_one_server() {
     let config = Arc::new(fake(&[&format!("--count={}", count.display())]));
     // As a step's reads do: each warms from its own task, all at once.
     let warms: Vec<_> = (0..5)
-        .map(|n| {
+        .map(|index| {
             let (servers, config, dir) = (servers.clone(), config.clone(), dir.clone());
-            let file = dir.join(format!("f{n}.fake"));
+            let file = dir.join(format!("f{index}.fake"));
             std::fs::write(&file, "fine").unwrap();
             tokio::spawn(async move { servers.warm(&dir, &file, &config).await })
         })

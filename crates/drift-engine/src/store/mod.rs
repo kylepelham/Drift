@@ -227,7 +227,7 @@ pub(crate) mod tests {
         let conn = Connection::open_in_memory().unwrap();
         migrations::apply(&conn).unwrap();
         migrations::apply(&conn).unwrap();
-        let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
         assert_eq!(version, migrations::LATEST);
     }
 

@@ -121,7 +121,7 @@ pub(super) async fn tools(
         .workspace
         .as_deref()
         .and_then(|id| engine.store.workspace(id).ok().flatten())
-        .map(|w| crate::tool::canonical(std::path::Path::new(&w.path)));
+        .map(|workspace| crate::tool::canonical(std::path::Path::new(&workspace.path)));
     let builtin = engine
         .tools
         .offered(ToolProfile::Edit)

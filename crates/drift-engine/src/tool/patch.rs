@@ -220,10 +220,10 @@ fn locate(lines: &[String], chunk: &Chunk, from: usize) -> Option<usize> {
 /// ignoring surrounding whitespace, then with Unicode dashes, quotes and spaces read as ASCII. The
 /// first pass that matches wins. `edit` stays exact.
 const PASSES: [fn(&str, &str) -> bool; 4] = [
-    |a, b| a == b,
-    |a, b| a.trim_end() == b.trim_end(),
-    |a, b| a.trim() == b.trim(),
-    |a, b| ascii_punctuation(a.trim()) == ascii_punctuation(b.trim()),
+    |line, wanted| line == wanted,
+    |line, wanted| line.trim_end() == wanted.trim_end(),
+    |line, wanted| line.trim() == wanted.trim(),
+    |line, wanted| ascii_punctuation(line.trim()) == ascii_punctuation(wanted.trim()),
 ];
 
 /// Where `pattern` starts at or after `from`, by the first pass that finds it; an end-of-file hunk

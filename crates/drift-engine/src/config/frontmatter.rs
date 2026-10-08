@@ -161,21 +161,21 @@ impl Flow {
 }
 
 fn skip_space(chars: &mut std::iter::Peekable<std::str::Chars>) {
-    while chars.next_if(|c| c.is_whitespace()).is_some() {}
+    while chars.next_if(|character| character.is_whitespace()).is_some() {}
 }
 
 /// A quoted string, or bare text up to one of `ends`.
 fn scalar(chars: &mut std::iter::Peekable<std::str::Chars>, ends: &[char]) -> Result<String, PermissionError> {
     skip_space(chars);
-    if let Some(quote) = chars.next_if(|c| *c == '"' || *c == '\'') {
-        let text: String = chars.by_ref().take_while(|c| *c != quote).collect();
+    if let Some(quote) = chars.next_if(|character| *character == '"' || *character == '\'') {
+        let text: String = chars.by_ref().take_while(|character| *character != quote).collect();
         skip_space(chars);
         return Ok(text);
     }
 
     let mut text = String::new();
-    while let Some(c) = chars.next_if(|c| !ends.contains(c) && *c != '}') {
-        text.push(c);
+    while let Some(character) = chars.next_if(|next| !ends.contains(next) && *next != '}') {
+        text.push(character);
     }
 
     let text = text.trim().to_string();
@@ -281,7 +281,7 @@ fn entry(text: &str) -> Option<String> {
 }
 
 fn unquote(text: &str) -> &str {
-    text.trim_matches(|c| c == '"' || c == '\'')
+    text.trim_matches(|character| character == '"' || character == '\'')
 }
 
 #[cfg(test)]

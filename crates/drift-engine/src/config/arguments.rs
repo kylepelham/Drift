@@ -21,7 +21,7 @@ pub(super) fn referenced_skill(template: &str) -> Option<String> {
         let boundary = template[..at]
             .chars()
             .next_back()
-            .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
+            .is_none_or(|next| !(next.is_ascii_alphanumeric() || next == '_'));
         if let Some(name) = call_name(&template[at + "skill".len()..]).filter(|_| boundary)
             && !found.contains(&name)
         {
@@ -47,13 +47,16 @@ fn call_name(text: &str) -> Option<String> {
     let text = quote(text);
     let text = quote(text.strip_prefix("name")?);
     let text = text.trim_start().strip_prefix(':')?.trim_start();
-    let open = text.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+    let open = text
+        .chars()
+        .next()
+        .filter(|character| matches!(character, '"' | '\''))?;
     let rest = &text[1..];
     let name = &rest[..rest.find(open)?];
     let named = !name.is_empty()
         && name
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-'));
     let closed = rest[name.len() + 1..]
         .trim_start()
         .strip_prefix('}')
@@ -158,8 +161,8 @@ fn add(found: &mut Vec<Subcommand>, spec: &str, description: &str) {
         None => (spec.as_str(), None),
     };
     let mut chars = name.chars();
-    if !chars.next().is_some_and(|c| c.is_ascii_alphabetic())
-        || !chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+    if !chars.next().is_some_and(|first| first.is_ascii_alphabetic())
+        || !chars.all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
     {
         return;
     }
@@ -185,8 +188,11 @@ fn add(found: &mut Vec<Subcommand>, spec: &str, description: &str) {
 /// A code fence's marker and length, indented at most three spaces.
 fn fence_marker(line: &str) -> Option<(char, usize)> {
     let trimmed = line.trim_start();
-    let marker = trimmed.chars().next().filter(|c| matches!(c, '`' | '~'))?;
-    let length = trimmed.chars().take_while(|c| *c == marker).count();
+    let marker = trimmed
+        .chars()
+        .next()
+        .filter(|character| matches!(character, '`' | '~'))?;
+    let length = trimmed.chars().take_while(|character| *character == marker).count();
     (line.len() - trimmed.len() <= 3 && length >= 3).then_some((marker, length))
 }
 
@@ -263,7 +269,7 @@ mod tests {
             "| `audit [target]` | Evaluate | Technical quality checks | [guide](audit.md) |".into(),
             "| `polish [target]` | Refine | Final quality pass | [guide](polish.md) |".into(),
         ];
-        lines.extend((0..12).map(|i| format!("| action-{i} [target] | Refine | Action {i} | ref |")));
+        lines.extend((0..12).map(|index| format!("| action-{index} [target] | Refine | Action {index} | ref |")));
         lines.extend([
             "".into(),
             "**Doctor:** `/design doctor` reports outdated project artifacts.".into(),
@@ -307,7 +313,7 @@ mod tests {
         let names: Vec<String> = skill_arguments("design", "", Some("[shape · audit|critique · polish] [target]"))
             .1
             .into_iter()
-            .map(|s| s.name)
+            .map(|subcommand| subcommand.name)
             .collect();
         assert_eq!(names, ["shape", "audit", "critique", "polish"]);
     }

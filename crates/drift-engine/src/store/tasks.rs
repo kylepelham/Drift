@@ -348,7 +348,7 @@ pub(crate) mod tests {
         assert_eq!(
             children
                 .iter()
-                .filter(|s| s.parent_id.as_deref() == Some(parent.id.as_str()))
+                .filter(|session| session.parent_id.as_deref() == Some(parent.id.as_str()))
                 .count(),
             1,
             "no orphan transcript"
