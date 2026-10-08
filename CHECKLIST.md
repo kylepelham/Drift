@@ -303,3 +303,12 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [ ] Remote execution targets (same report)
 - [ ] Deferred MCP tool schemas, only if a workspace still sends more than about 30 KB of them (`docs/research/claude-agent-quality-2.0.2.md`)
 - [ ] Pin the user's own corrections through compaction, once there is a rule for when a new goal retires them (same report)
+
+## Parity with Claude Code, Codex and opencode
+
+- [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API
+- [ ] Plugins add tools: a WIT export declaring tools (name, description, input schema) and a call entry, offered and permission-checked like built-in tools
+- [ ] `/review`: diff against a chosen ref (default the merge-base with the default branch) reviewed by a read-only agent
+- [ ] `/security-review`: the same flow with a security-focused prompt
+- [ ] Headless one-shot mode: run one prompt against a workspace from the command line and exit (as `claude -p`, `codex exec`, `opencode run`), with plain text or JSON event output for scripts and CI
+- [ ] `/init` that interviews instead of generating: asks the user for build and test commands, conventions and no-go areas, and writes only their answers to `AGENTS.md`, about 30 lines at most, with no summary of the codebase (generated instruction files tend to be long and make results worse)
