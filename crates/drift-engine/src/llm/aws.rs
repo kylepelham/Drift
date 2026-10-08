@@ -28,6 +28,7 @@ pub fn detect() -> Option<String> {
     if env("AWS_ACCESS_KEY_ID").is_some() && env("AWS_SECRET_ACCESS_KEY").is_some() {
         return Some("AWS_ACCESS_KEY_ID".into());
     }
+
     let profile = profile_name();
     profile_keys(&profile).map(|_| format!("AWS profile {profile}"))
 }
@@ -44,6 +45,7 @@ pub fn auth() -> Option<Auth> {
             session_token: env("AWS_SESSION_TOKEN"),
         }));
     }
+
     profile_keys(&profile_name()).map(Auth::Signed)
 }
 
@@ -86,6 +88,7 @@ fn home() -> PathBuf {
 
 fn profile_keys(profile: &str) -> Option<Keys> {
     let mut section = ini(&aws_file("AWS_SHARED_CREDENTIALS_FILE", "credentials")).remove(profile)?;
+
     Some(Keys {
         access_key: section.remove("aws_access_key_id")?,
         secret_key: section.remove("aws_secret_access_key")?,
@@ -97,8 +100,10 @@ fn profile_keys(profile: &str) -> Option<Keys> {
 fn ini(path: &std::path::Path) -> HashMap<String, HashMap<String, String>> {
     let mut sections: HashMap<String, HashMap<String, String>> = HashMap::new();
     let mut current = String::new();
-    for line in std::fs::read_to_string(path).unwrap_or_default().lines().map(str::trim) {
-        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+
+    for line in text.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix('[').and_then(|line| line.strip_suffix(']')) {
             current = name.trim().to_string();
         } else if let Some((key, value)) = line.split_once('=').filter(|_| !line.starts_with(['#', ';'])) {
             sections
@@ -107,6 +112,7 @@ fn ini(path: &std::path::Path) -> HashMap<String, HashMap<String, String>> {
                 .insert(key.trim().to_lowercase(), value.trim().to_string());
         }
     }
+
     sections
 }
 
@@ -133,6 +139,7 @@ pub fn sign(request: &Signing, keys: &Keys) -> Vec<(String, String)> {
     if let Some(token) = &keys.session_token {
         headers.push(("x-amz-security-token", token.clone()));
     }
+
     let signed = headers.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(";");
     let mut canonical_headers = String::new();
     for (name, value) in &headers {
@@ -147,17 +154,16 @@ pub fn sign(request: &Signing, keys: &Keys) -> Vec<(String, String)> {
     );
     let day = &request.amz_date[..8];
     let scope = format!("{day}/{}/{}/aws4_request", request.region, request.service);
-    let to_sign = format!(
-        "AWS4-HMAC-SHA256\n{}\n{scope}\n{}",
-        request.amz_date,
-        hex(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref())
-    );
+    let canonical_hash = hex(digest::digest(&digest::SHA256, canonical.as_bytes()).as_ref());
+    let to_sign = format!("AWS4-HMAC-SHA256\n{}\n{scope}\n{canonical_hash}", request.amz_date);
+
     let key = [day, request.region, request.service, "aws4_request"]
         .iter()
         .fold(format!("AWS4{}", keys.secret_key).into_bytes(), |key, part| {
             mac(&key, part.as_bytes())
         });
     let signature = hex(&mac(&key, to_sign.as_bytes()));
+
     let mut out: Vec<(String, String)> = headers
         .into_iter()
         .filter(|(name, _)| *name != "host")
@@ -170,6 +176,7 @@ pub fn sign(request: &Signing, keys: &Keys) -> Vec<(String, String)> {
             keys.access_key
         ),
     ));
+
     out
 }
 
@@ -205,6 +212,7 @@ pub fn amz_date() -> String {
         .map_or(0, |duration| duration.as_secs());
     let (days, rest) = (seconds / 86_400, seconds % 86_400);
     let (year, month, day) = civil(days as i64);
+
     format!(
         "{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z",
         rest / 3600,
@@ -215,15 +223,23 @@ pub fn amz_date() -> String {
 
 /// Days since 1970-01-01 to a calendar date (Howard Hinnant's algorithm).
 fn civil(days: i64) -> (i64, u32, u32) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (yoe + era * 400 + i64::from(month <= 2), month, day)
+    let shifted_days = days + 719_468;
+    let era = shifted_days.div_euclid(146_097);
+    let day_of_era = shifted_days - era * 146_097;
+    let year_of_era = (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+
+    // Hinnant's calendar starts in March so leap days fall at the end of each year.
+    let march_month = (5 * day_of_year + 2) / 153;
+    let day = (day_of_year - (153 * march_month + 2) / 5 + 1) as u32;
+    let month = if march_month < 10 {
+        march_month + 3
+    } else {
+        march_month - 9
+    } as u32;
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+
+    (year, month, day)
 }
 
 #[cfg(test)]
@@ -250,7 +266,10 @@ mod tests {
             hex(&key),
             "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9"
         );
-        let to_sign = "AWS4-HMAC-SHA256\n20150830T123600Z\n20150830/us-east-1/iam/aws4_request\nf536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59";
+        let to_sign = concat!(
+            "AWS4-HMAC-SHA256\n20150830T123600Z\n20150830/us-east-1/iam/aws4_request\n",
+            "f536975d06c0309214f805bb90ccff089219ecd68b2577efef23edd43b7e1a59",
+        );
         assert_eq!(
             hex(&mac(&key, to_sign.as_bytes())),
             "5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7"
@@ -282,7 +301,10 @@ mod tests {
             "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
         );
         let authorization = &headers["authorization"];
-        assert!(authorization.starts_with("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260101/us-east-1/bedrock/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature="));
+        assert!(authorization.starts_with(concat!(
+            "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260101/us-east-1/bedrock/aws4_request, ",
+            "SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=",
+        )));
         let with_token = sign(
             &request,
             &Keys {
@@ -315,7 +337,12 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("drift-aws-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&dir).unwrap();
         let credentials = dir.join("credentials");
-        std::fs::write(&credentials, "# comment\n[default]\naws_access_key_id = AKIA1\naws_secret_access_key = s1\n\n[work]\naws_access_key_id=AKIA2\naws_secret_access_key=s2\naws_session_token=t2\n").unwrap();
+        let contents = concat!(
+            "# comment\n[default]\naws_access_key_id = AKIA1\naws_secret_access_key = s1\n\n",
+            "[work]\naws_access_key_id=AKIA2\naws_secret_access_key=s2\naws_session_token=t2\n",
+        );
+        std::fs::write(&credentials, contents).unwrap();
+
         let sections = ini(&credentials);
         assert_eq!(sections["work"]["aws_session_token"], "t2");
         assert_eq!(sections["default"]["aws_access_key_id"], "AKIA1");

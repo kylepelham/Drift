@@ -155,367 +155,381 @@ mod tests {
     use super::*;
     use crate::llm::ToolSpec;
 
-    #[test]
-    fn a_sign_in_bound_to_a_region_names_it() {
-        use base64::Engine as _;
-        let token = |claims: Value| {
-            format!(
-                "h.{}.s",
-                base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string())
-            )
-        };
-        assert_eq!(
-            residency(&token(
-                json!({ "https://api.openai.com/auth": { "chatgpt_compute_residency": "eu" } })
-            ))
-            .as_deref(),
-            Some("eu")
-        );
-        assert_eq!(
-            residency(&token(json!({ "chatgpt_compute_residency": "no_constraint" }))),
-            None
-        );
-        assert_eq!(residency("not-a-jwt"), None);
-    }
+    mod subscriptions {
+        use super::requests::request;
+        use super::*;
 
-    #[tokio::test]
-    async fn a_codex_request_carries_its_session_and_residency() {
-        use base64::Engine as _;
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let seen: std::sync::Arc<std::sync::Mutex<Option<axum::http::HeaderMap>>> = Default::default();
-        let recorded = seen.clone();
-        let app = axum::Router::new().fallback(axum::routing::post(move |headers: axum::http::HeaderMap| {
-            *recorded.lock().unwrap() = Some(headers);
-            async {
-                (
-                    [("content-type", "text/event-stream")],
-                    "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{}}}\n\n",
+        #[test]
+        fn a_sign_in_bound_to_a_region_names_it() {
+            use base64::Engine as _;
+            let token = |claims: Value| {
+                format!(
+                    "h.{}.s",
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string())
                 )
-            }
-        }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-        let access = format!(
-            "h.{}.s",
-            base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .encode(json!({ "chatgpt_compute_residency": "eu" }).to_string())
-        );
-        let credential = Credential::OAuth {
-            access,
-            refresh: String::new(),
-            expires_at: 0,
-            account: Some("acct".into()),
-        };
-        let request = Request {
-            cache_key: Some("ses_1".into()),
-            ..request()
-        };
-        let _ = OpenAi::new(&url)
-            .stream(&request, &credential)
-            .await
-            .unwrap()
-            .collect::<Vec<_>>()
-            .await;
-        let headers = seen.lock().unwrap().clone().unwrap();
-        assert_eq!(
-            (
-                headers["session-id"].to_str().unwrap(),
-                headers["x-openai-internal-codex-residency"].to_str().unwrap()
-            ),
-            ("ses_1", "eu")
-        );
-        assert_eq!(headers["chatgpt-account-id"], "acct");
-    }
+            };
+            assert_eq!(
+                residency(&token(
+                    json!({ "https://api.openai.com/auth": { "chatgpt_compute_residency": "eu" } })
+                ))
+                .as_deref(),
+                Some("eu")
+            );
+            assert_eq!(
+                residency(&token(json!({ "chatgpt_compute_residency": "no_constraint" }))),
+                None
+            );
+            assert_eq!(residency("not-a-jwt"), None);
+        }
 
-    #[test]
-    fn a_pdf_is_an_input_file() {
-        let sent = items(&ChatMessage {
-            role: Role::User,
-            blocks: vec![Block::Pdf {
-                base64: "JVBERi0=".into(),
-            }],
-        });
-        assert_eq!(
-            sent[0]["content"][0],
-            json!({ "type": "input_file", "filename": "document.pdf", "file_data": "data:application/pdf;base64,JVBERi0=" })
-        );
-    }
-
-    #[test]
-    fn verbosity_rides_in_text() {
-        assert!(body(&request(), false).get("text").is_none());
-        assert_eq!(
-            body(
-                &Request {
-                    verbosity: Some("low"),
-                    ..request()
-                },
-                true
-            )["text"],
-            json!({ "verbosity": "low" })
-        );
-    }
-
-    #[test]
-    fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
-        assert_eq!(body(&request(), false)["tool_choice"], "auto");
-        let built = body(
-            &Request {
-                no_tool_calls: true,
+        #[tokio::test]
+        async fn a_codex_request_carries_its_session_and_residency() {
+            use base64::Engine as _;
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            let seen: std::sync::Arc<std::sync::Mutex<Option<axum::http::HeaderMap>>> = Default::default();
+            let recorded = seen.clone();
+            let app = axum::Router::new().fallback(axum::routing::post(move |headers: axum::http::HeaderMap| {
+                *recorded.lock().unwrap() = Some(headers);
+                async {
+                    (
+                        [("content-type", "text/event-stream")],
+                        "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{}}}\n\n",
+                    )
+                }
+            }));
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+            let access = format!(
+                "h.{}.s",
+                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .encode(json!({ "chatgpt_compute_residency": "eu" }).to_string())
+            );
+            let credential = Credential::OAuth {
+                access,
+                refresh: String::new(),
+                expires_at: 0,
+                account: Some("acct".into()),
+            };
+            let request = Request {
+                cache_key: Some("ses_1".into()),
                 ..request()
-            },
-            true,
-        );
-        assert_eq!(
-            (
-                built["tool_choice"].clone(),
-                built["tools"].as_array().is_some_and(|tools| !tools.is_empty())
-            ),
-            (json!("none"), true)
-        );
-    }
-
-    fn request() -> Request {
-        Request {
-            model: "gpt-5.4".into(),
-            system: "You are Drift.".into(),
-            messages: vec![
-                ChatMessage {
-                    role: Role::User,
-                    blocks: vec![
-                        Block::Text("hi".into()),
-                        Block::Image {
-                            mime: "image/png".into(),
-                            base64: "AAAA".into(),
-                        },
-                    ],
-                },
-                ChatMessage {
-                    role: Role::Assistant,
-                    blocks: vec![
-                        Block::Reasoning {
-                            text: "think".into(),
-                            signature: Some("enc".into()),
-                            redacted: None,
-                        },
-                        Block::Text("Let me look".into()),
-                        Block::ToolUse {
-                            id: "call_1".into(),
-                            name: "read".into(),
-                            input: json!({ "path": "a" }),
-                        },
-                    ],
-                },
-                ChatMessage {
-                    role: Role::User,
-                    blocks: vec![Block::ToolResult {
-                        call_id: "call_1".into(),
-                        content: "ok".into(),
-                        is_error: false,
-                    }],
-                },
-            ],
-            tools: vec![ToolSpec {
-                name: "read".into(),
-                description: "Reads".into(),
-                input_schema: json!({ "type": "object" }),
-            }],
-            max_tokens: 1000,
-            reasoning: Some(Reasoning::Effort { level: "medium".into() }),
-            temperature: None,
-            cache_key: Some("ses_1".into()),
-            no_tool_calls: false,
-            verbosity: None,
-            show_thinking: false,
-            top_p: None,
-            top_k: None,
-            mode: None,
+            };
+            let _ = OpenAi::new(&url)
+                .stream(&request, &credential)
+                .await
+                .unwrap()
+                .collect::<Vec<_>>()
+                .await;
+            let headers = seen.lock().unwrap().clone().unwrap();
+            assert_eq!(
+                (
+                    headers["session-id"].to_str().unwrap(),
+                    headers["x-openai-internal-codex-residency"].to_str().unwrap()
+                ),
+                ("ses_1", "eu")
+            );
+            assert_eq!(headers["chatgpt-account-id"], "acct");
         }
     }
 
-    #[test]
-    fn every_request_of_a_conversation_carries_its_cache_key_on_both_routes() {
-        assert_eq!(body(&request(), false)["prompt_cache_key"], "ses_1");
-        assert_eq!(
-            body(&request(), true)["prompt_cache_key"],
-            "ses_1",
-            "the Codex route too"
-        );
-        let mut keyless = request();
-        keyless.cache_key = None;
-        assert!(body(&keyless, false).get("prompt_cache_key").is_none());
+    mod requests {
+        use super::*;
+
+        #[test]
+        fn a_pdf_is_an_input_file() {
+            let sent = items(&ChatMessage {
+                role: Role::User,
+                blocks: vec![Block::Pdf {
+                    base64: "JVBERi0=".into(),
+                }],
+            });
+            assert_eq!(
+                sent[0]["content"][0],
+                json!({ "type": "input_file", "filename": "document.pdf", "file_data": "data:application/pdf;base64,JVBERi0=" })
+            );
+        }
+
+        #[test]
+        fn verbosity_rides_in_text() {
+            assert!(body(&request(), false).get("text").is_none());
+            assert_eq!(
+                body(
+                    &Request {
+                        verbosity: Some("low"),
+                        ..request()
+                    },
+                    true
+                )["text"],
+                json!({ "verbosity": "low" })
+            );
+        }
+
+        #[test]
+        fn a_text_only_request_keeps_its_tools_but_forbids_calls() {
+            assert_eq!(body(&request(), false)["tool_choice"], "auto");
+            let built = body(
+                &Request {
+                    no_tool_calls: true,
+                    ..request()
+                },
+                true,
+            );
+            assert_eq!(
+                (
+                    built["tool_choice"].clone(),
+                    built["tools"].as_array().is_some_and(|tools| !tools.is_empty())
+                ),
+                (json!("none"), true)
+            );
+        }
+
+        pub(super) fn request() -> Request {
+            Request {
+                model: "gpt-5.4".into(),
+                system: "You are Drift.".into(),
+                messages: vec![
+                    ChatMessage {
+                        role: Role::User,
+                        blocks: vec![
+                            Block::Text("hi".into()),
+                            Block::Image {
+                                mime: "image/png".into(),
+                                base64: "AAAA".into(),
+                            },
+                        ],
+                    },
+                    ChatMessage {
+                        role: Role::Assistant,
+                        blocks: vec![
+                            Block::Reasoning {
+                                text: "think".into(),
+                                signature: Some("enc".into()),
+                                redacted: None,
+                            },
+                            Block::Text("Let me look".into()),
+                            Block::ToolUse {
+                                id: "call_1".into(),
+                                name: "read".into(),
+                                input: json!({ "path": "a" }),
+                            },
+                        ],
+                    },
+                    ChatMessage {
+                        role: Role::User,
+                        blocks: vec![Block::ToolResult {
+                            call_id: "call_1".into(),
+                            content: "ok".into(),
+                            is_error: false,
+                        }],
+                    },
+                ],
+                tools: vec![ToolSpec {
+                    name: "read".into(),
+                    description: "Reads".into(),
+                    input_schema: json!({ "type": "object" }),
+                }],
+                max_tokens: 1000,
+                reasoning: Some(Reasoning::Effort { level: "medium".into() }),
+                temperature: None,
+                cache_key: Some("ses_1".into()),
+                no_tool_calls: false,
+                verbosity: None,
+                show_thinking: false,
+                top_p: None,
+                top_k: None,
+                mode: None,
+            }
+        }
+
+        #[test]
+        fn every_request_of_a_conversation_carries_its_cache_key_on_both_routes() {
+            assert_eq!(body(&request(), false)["prompt_cache_key"], "ses_1");
+            assert_eq!(
+                body(&request(), true)["prompt_cache_key"],
+                "ses_1",
+                "the Codex route too"
+            );
+            let mut keyless = request();
+            keyless.cache_key = None;
+            assert!(body(&keyless, false).get("prompt_cache_key").is_none());
+        }
+
+        #[test]
+        fn body_matches_the_responses_api() {
+            let built = body(&request(), false);
+            assert_eq!(built["instructions"], "You are Drift.");
+            assert_eq!(built["store"], false);
+            assert_eq!(built["include"][0], "reasoning.encrypted_content");
+            assert_eq!(built["reasoning"]["effort"], "medium");
+            assert_eq!(built["max_output_tokens"], 1000);
+            assert_eq!(built["tools"][0]["type"], "function");
+            assert!(body(&request(), true).get("max_output_tokens").is_none());
+        }
+
+        #[test]
+        fn message_blocks_become_responses_input_items() {
+            let built = body(&request(), false);
+            let input = built["input"].as_array().unwrap();
+            assert_eq!(input[0]["role"], "user");
+            assert_eq!(input[0]["content"][0]["type"], "input_text");
+            assert_eq!(input[0]["content"][1]["type"], "input_image");
+            assert_eq!(input[1]["type"], "reasoning");
+            assert_eq!(input[1]["encrypted_content"], "enc");
+            assert_eq!(input[2]["role"], "assistant");
+            assert_eq!(input[2]["content"][0]["type"], "output_text");
+            assert_eq!(input[3]["type"], "function_call");
+            assert_eq!(input[3]["call_id"], "call_1");
+            assert_eq!(input[3]["arguments"], r#"{"path":"a"}"#);
+            assert_eq!(input[4]["type"], "function_call_output");
+        }
+
+        #[test]
+        fn a_budget_is_not_an_openai_setting() {
+            let mut request = request();
+            request.reasoning = Some(Reasoning::Budget { tokens: 8000 });
+            assert!(body(&request, false).get("reasoning").is_none());
+        }
     }
 
-    #[test]
-    fn body_matches_the_responses_api() {
-        let built = body(&request(), false);
-        assert_eq!(built["instructions"], "You are Drift.");
-        assert_eq!(built["store"], false);
-        assert_eq!(built["include"][0], "reasoning.encrypted_content");
-        assert_eq!(built["reasoning"]["effort"], "medium");
-        assert_eq!(built["max_output_tokens"], 1000);
-        assert_eq!(built["tools"][0]["type"], "function");
-        assert!(body(&request(), true).get("max_output_tokens").is_none());
-    }
+    mod streams {
+        use super::*;
 
-    #[test]
-    fn message_blocks_become_responses_input_items() {
-        let built = body(&request(), false);
-        let input = built["input"].as_array().unwrap();
-        assert_eq!(input[0]["role"], "user");
-        assert_eq!(input[0]["content"][0]["type"], "input_text");
-        assert_eq!(input[0]["content"][1]["type"], "input_image");
-        assert_eq!(input[1]["type"], "reasoning");
-        assert_eq!(input[1]["encrypted_content"], "enc");
-        assert_eq!(input[2]["role"], "assistant");
-        assert_eq!(input[2]["content"][0]["type"], "output_text");
-        assert_eq!(input[3]["type"], "function_call");
-        assert_eq!(input[3]["call_id"], "call_1");
-        assert_eq!(input[3]["arguments"], r#"{"path":"a"}"#);
-        assert_eq!(input[4]["type"], "function_call_output");
-    }
+        #[test]
+        fn stream_events_map_to_chunks() {
+            let mut state = StreamState::default();
+            let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
+            assert_eq!(feed(&mut state, r#"{"type":"response.created","response":{}}"#), vec![]);
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.output_item.added","item":{"type":"reasoning","id":"rs_1"}}"#
+                ),
+                vec![Chunk::ReasoningStart]
+            );
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","delta":"hm"}"#
+                ),
+                vec![Chunk::ReasoningDelta("hm".into())]
+            );
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.reasoning_summary_part.added","item_id":"rs_1","summary_index":1}"#
+                ),
+                vec![Chunk::ReasoningDelta("\n\n".into())]
+            );
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","encrypted_content":"enc"}}"#
+                ),
+                vec![Chunk::ReasoningSignature("enc".into()), Chunk::BlockStop]
+            );
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.output_item.added","item":{"type":"message","id":"msg_1"}}"#
+                ),
+                vec![Chunk::TextStart]
+            );
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.output_text.delta","item_id":"msg_1","delta":"Hi"}"#
+                ),
+                vec![Chunk::TextDelta("Hi".into())]
+            );
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.output_item.done","item":{"type":"message","id":"msg_1"}}"#
+                ),
+                vec![Chunk::BlockStop]
+            );
+        }
 
-    #[test]
-    fn stream_events_map_to_chunks() {
-        let mut state = StreamState::default();
-        let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
-        assert_eq!(feed(&mut state, r#"{"type":"response.created","response":{}}"#), vec![]);
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.output_item.added","item":{"type":"reasoning","id":"rs_1"}}"#
-            ),
-            vec![Chunk::ReasoningStart]
-        );
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","delta":"hm"}"#
-            ),
-            vec![Chunk::ReasoningDelta("hm".into())]
-        );
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.reasoning_summary_part.added","item_id":"rs_1","summary_index":1}"#
-            ),
-            vec![Chunk::ReasoningDelta("\n\n".into())]
-        );
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.output_item.done","item":{"type":"reasoning","id":"rs_1","encrypted_content":"enc"}}"#
-            ),
-            vec![Chunk::ReasoningSignature("enc".into()), Chunk::BlockStop]
-        );
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.output_item.added","item":{"type":"message","id":"msg_1"}}"#
-            ),
-            vec![Chunk::TextStart]
-        );
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.output_text.delta","item_id":"msg_1","delta":"Hi"}"#
-            ),
-            vec![Chunk::TextDelta("Hi".into())]
-        );
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.output_item.done","item":{"type":"message","id":"msg_1"}}"#
-            ),
-            vec![Chunk::BlockStop]
-        );
-    }
+        #[test]
+        fn function_call_deltas_finish_with_usage_and_tool_stop() {
+            let mut state = StreamState::default();
+            let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
 
-    #[test]
-    fn function_call_deltas_finish_with_usage_and_tool_stop() {
-        let mut state = StreamState::default();
-        let feed = |state: &mut StreamState, json: &str| state.chunks(json).unwrap();
-
-        assert_eq!(
-            feed(
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.output_item.added","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":""}}"#
+                ),
+                vec![Chunk::ToolUseStart {
+                    id: "call_1".into(),
+                    name: "read".into()
+                }]
+            );
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"pa"}"#
+                ),
+                vec![Chunk::ToolInputDelta("{\"pa".into())]
+            );
+            assert_eq!(
+                feed(
+                    &mut state,
+                    r#"{"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{\"path\":\"a\"}"}}"#
+                ),
+                vec![Chunk::BlockStop]
+            );
+            let done = feed(
                 &mut state,
-                r#"{"type":"response.output_item.added","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":""}}"#
-            ),
-            vec![Chunk::ToolUseStart {
-                id: "call_1".into(),
-                name: "read".into()
-            }]
-        );
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"pa"}"#
-            ),
-            vec![Chunk::ToolInputDelta("{\"pa".into())]
-        );
-        assert_eq!(
-            feed(
-                &mut state,
-                r#"{"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":"{\"path\":\"a\"}"}}"#
-            ),
-            vec![Chunk::BlockStop]
-        );
-        let done = feed(
-            &mut state,
-            r#"{"type":"response.completed","response":{"usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":40},"output_tokens":9}}}"#,
-        );
-        assert_eq!(
-            done,
-            vec![
-                Chunk::Usage(Usage {
-                    input: 60,
-                    output: 9,
-                    cache_read: 40,
-                    cache_write: 0
-                }),
-                Chunk::Stop(StopReason::ToolUse)
-            ]
-        );
-    }
+                r#"{"type":"response.completed","response":{"usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":40},"output_tokens":9}}}"#,
+            );
+            assert_eq!(
+                done,
+                vec![
+                    Chunk::Usage(Usage {
+                        input: 60,
+                        output: 9,
+                        cache_read: 40,
+                        cache_write: 0
+                    }),
+                    Chunk::Stop(StopReason::ToolUse)
+                ]
+            );
+        }
 
-    #[test]
-    fn a_call_without_deltas_takes_arguments_from_done() {
-        let mut state = StreamState::default();
-        state.chunks(r#"{"type":"response.output_item.added","item":{"type":"function_call","id":"fc_1","call_id":"c","name":"read"}}"#).unwrap();
-        let done = state.chunks(r#"{"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"c","name":"read","arguments":"{}"}}"#).unwrap();
-        assert_eq!(done, vec![Chunk::ToolInputDelta("{}".into()), Chunk::BlockStop]);
-    }
+        #[test]
+        fn a_call_without_deltas_takes_arguments_from_done() {
+            let mut state = StreamState::default();
+            state.chunks(r#"{"type":"response.output_item.added","item":{"type":"function_call","id":"fc_1","call_id":"c","name":"read"}}"#).unwrap();
+            let done = state.chunks(r#"{"type":"response.output_item.done","item":{"type":"function_call","id":"fc_1","call_id":"c","name":"read","arguments":"{}"}}"#).unwrap();
+            assert_eq!(done, vec![Chunk::ToolInputDelta("{}".into()), Chunk::BlockStop]);
+        }
 
-    #[test]
-    fn incomplete_and_errors_classify() {
-        let state = StreamState::default();
-        let out = state.finished(
-            &json!({ "incomplete_details": { "reason": "max_output_tokens" }, "usage": {} }),
-            true,
-        );
-        assert_eq!(out[1], Chunk::Stop(StopReason::MaxTokens));
-        let streamed = StreamState::default().chunks(r#"{"type":"error","code":"server_error","message":"try again"}"#);
-        assert!(
-            matches!(streamed, Err(Error::Api { ref kind, retryable: true, .. }) if kind == "server_error"),
-            "{streamed:?}"
-        );
-        let failed = StreamState::default().chunks(
-            r#"{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"slow"}}}"#,
-        );
-        assert!(matches!(failed, Err(Error::Api { retryable: true, .. })), "{failed:?}");
-        let refused = StreamState::default().chunks(r#"{"type":"error","code":"invalid_prompt","message":"no"}"#);
-        assert!(matches!(refused, Err(Error::Api { retryable: false, .. })));
-        assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
-        assert!(
-            matches!(api_error(401, r#"{"error":{"message":"token expired"}}"#), Error::Unauthenticated(ref m) if m == "token expired")
-        );
-    }
-
-    #[test]
-    fn a_budget_is_not_an_openai_setting() {
-        let mut request = request();
-        request.reasoning = Some(Reasoning::Budget { tokens: 8000 });
-        assert!(body(&request, false).get("reasoning").is_none());
+        #[test]
+        fn incomplete_and_errors_classify() {
+            let state = StreamState::default();
+            let out = state.finished(
+                &json!({ "incomplete_details": { "reason": "max_output_tokens" }, "usage": {} }),
+                true,
+            );
+            assert_eq!(out[1], Chunk::Stop(StopReason::MaxTokens));
+            let streamed =
+                StreamState::default().chunks(r#"{"type":"error","code":"server_error","message":"try again"}"#);
+            assert!(
+                matches!(streamed, Err(Error::Api { ref kind, retryable: true, .. }) if kind == "server_error"),
+                "{streamed:?}"
+            );
+            let failed = StreamState::default().chunks(
+                r#"{"type":"response.failed","response":{"error":{"code":"rate_limit_exceeded","message":"slow"}}}"#,
+            );
+            assert!(matches!(failed, Err(Error::Api { retryable: true, .. })), "{failed:?}");
+            let refused = StreamState::default().chunks(r#"{"type":"error","code":"invalid_prompt","message":"no"}"#);
+            assert!(matches!(refused, Err(Error::Api { retryable: false, .. })));
+            assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
+            assert!(
+                matches!(api_error(401, r#"{"error":{"message":"token expired"}}"#), Error::Unauthenticated(ref m) if m == "token expired")
+            );
+        }
     }
 }

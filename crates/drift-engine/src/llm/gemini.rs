@@ -39,11 +39,13 @@ impl Gemini {
             "{}/models/{}:streamGenerateContent?alt=sse",
             self.base_url, request.model
         );
+
         let http = match credential {
             Credential::ApiKey { key } => self.client.post(url).header("x-goog-api-key", key),
             Credential::OAuth { access, .. } => self.client.post(url).bearer_auth(access),
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
+
         stream_from(http, request, &self.timeouts).await
     }
 }
@@ -62,10 +64,11 @@ pub(super) async fn stream_from(
     let status = response.status();
     if !status.is_success() {
         let headers = response.headers().clone();
-        return Err(
-            api_error(status.as_u16(), &super::http::bounded_body(response, timeouts).await).with_headers(&headers),
-        );
+        let text = super::http::bounded_body(response, timeouts).await;
+
+        return Err(api_error(status.as_u16(), &text).with_headers(&headers));
     }
+
     let mut state = StreamState::default();
     let events = sse::events(response.bytes_stream(), timeouts.idle);
     Ok(Box::pin(events.flat_map(move |event| {
@@ -83,9 +86,10 @@ pub(super) async fn stream_from(
 fn body(request: &Request) -> Value {
     let mut names: HashMap<String, String> = HashMap::new();
     let mut body = json!({
-        "contents": request.messages.iter().map(|m| content(m, &mut names)).collect::<Vec<_>>(),
+        "contents": request.messages.iter().map(|message| content(message, &mut names)).collect::<Vec<_>>(),
         "generationConfig": { "maxOutputTokens": request.max_tokens },
     });
+
     if !request.system.is_empty() {
         body["systemInstruction"] = json!({ "parts": [{ "text": request.system }] });
     }
@@ -100,6 +104,7 @@ fn body(request: &Request) -> Value {
             body["toolConfig"] = json!({ "functionCallingConfig": { "mode": "NONE" } });
         }
     }
+
     let config = &mut body["generationConfig"];
     match &request.reasoning {
         Some(Reasoning::Budget { tokens }) => {
@@ -111,6 +116,7 @@ fn body(request: &Request) -> Value {
         None if request.show_thinking => config["thinkingConfig"] = json!({ "includeThoughts": true }),
         None => {}
     }
+
     let sampling = [
         ("temperature", request.temperature.map(Value::from)),
         ("topP", request.top_p.map(Value::from)),
@@ -121,6 +127,7 @@ fn body(request: &Request) -> Value {
             config[key] = value;
         }
     }
+
     body
 }
 
@@ -131,6 +138,7 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
         Role::Assistant => "model",
     };
     let mut parts: Vec<Value> = Vec::new();
+
     for block in &message.blocks {
         let first = parts.len();
         match block.unsigned() {
@@ -159,14 +167,15 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
             } => {
                 let name = names.get(call_id).cloned().unwrap_or_default();
                 let key = if *is_error { "error" } else { "output" };
-                parts
-                    .push(json!({ "functionResponse": { "id": call_id, "name": name, "response": { key: content } } }));
+                let response = json!({ "id": call_id, "name": name, "response": { key: content } });
+                parts.push(json!({ "functionResponse": response }));
             }
         }
         if let (Block::Signed { signature, .. }, Some(part)) = (block, parts.get_mut(first)) {
             part["thoughtSignature"] = json!(signature);
         }
     }
+
     json!({ "role": role, "parts": parts })
 }
 
@@ -198,11 +207,13 @@ impl StreamState {
         if value["error"].is_object() {
             return Err(api_error(super::STREAMED, data));
         }
+
         let mut out = Vec::new();
         let candidate = &value["candidates"][0];
         for part in candidate["content"]["parts"].as_array().into_iter().flatten() {
             out.extend(self.part(part));
         }
+
         if let Some(usage) = value.get("usageMetadata").filter(|u| u.is_object()) {
             let count = |key: &str| usage[key].as_u64().unwrap_or(0);
             let cache_read = count("cachedContentTokenCount");
@@ -213,6 +224,7 @@ impl StreamState {
                 cache_write: 0,
             }));
         }
+
         if let Some(reason) = candidate["finishReason"].as_str() {
             out.extend(self.close());
             out.push(Chunk::Stop(match reason {
@@ -225,6 +237,7 @@ impl StreamState {
                 _ => StopReason::Other,
             }));
         }
+
         Ok(out)
     }
 
@@ -251,11 +264,13 @@ impl StreamState {
             out.push(Chunk::BlockStop);
             return out;
         }
+
         let text = match (part["text"].as_str(), signature) {
             (Some(text), _) => text,
             (None, Some(_)) => "",
             _ => return out,
         };
+
         let kind = if part["thought"].as_bool().unwrap_or(false) {
             Open::Thought
         } else {
@@ -279,17 +294,17 @@ impl StreamState {
             out.push(Chunk::PartSignature(signature.into()));
             out.extend(self.close());
         }
+
         out
     }
 
     /// Closes only the open block; signatures have already been attached to their own parts.
     fn close(&mut self) -> Vec<Chunk> {
         let mut out = Vec::new();
-        match self.open.take() {
-            Some(Open::Thought) => out.push(Chunk::BlockStop),
-            Some(Open::Text) => out.push(Chunk::BlockStop),
-            None => {}
+        if self.open.take().is_some() {
+            out.push(Chunk::BlockStop);
         }
+
         out
     }
 }
@@ -458,6 +473,7 @@ mod tests {
         });
         let mut request = request();
         request.tools[0].input_schema = input.clone();
+
         let out = body(&request);
         assert_eq!(
             out["tools"][0]["functionDeclarations"][0]["parametersJsonSchema"],
@@ -467,6 +483,7 @@ mod tests {
             crate::tool::schema::problems(&input, &json!({ "default":"x", "level":1, "examples":null })).is_empty()
         );
         assert!(!crate::tool::schema::problems(&input, &json!({ "default":"x", "level":"1" })).is_empty());
+
         let union = json!({ "type": ["string", "number", "null"] });
         request.tools[0].input_schema = union.clone();
         assert_eq!(

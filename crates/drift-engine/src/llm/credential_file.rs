@@ -95,12 +95,14 @@ impl ProtectedFile {
                 let mut nonce = [0u8; 12];
                 getrandom::fill(&mut nonce).map_err(|error| FileError::Random(error.to_string()))?;
                 let mut encrypted = plaintext.to_vec();
+
                 key.seal_in_place_append_tag(
                     Nonce::assume_unique_for_key(nonce),
                     Aad::from(AES_HEADER),
                     &mut encrypted,
                 )
                 .map_err(|_| FileError::Encrypt)?;
+
                 Ok([AES_HEADER, &nonce, &encrypted].concat())
             }
             #[cfg(windows)]
@@ -117,6 +119,7 @@ impl ProtectedFile {
                     .ok_or(FileError::Envelope)?;
                 let nonce: [u8; 12] = body[..12].try_into().unwrap();
                 let mut encrypted = body[12..].to_vec();
+
                 key.open_in_place(
                     Nonce::assume_unique_for_key(nonce),
                     Aad::from(AES_HEADER),
@@ -164,6 +167,7 @@ fn dpapi(bytes: &[u8], protect: bool) -> Result<Vec<u8>, FileError> {
         cbData: 0,
         pbData: std::ptr::null_mut(),
     };
+
     // SAFETY: DPAPI borrows live input bytes and returns a LocalAlloc buffer copied before LocalFree.
     unsafe {
         let success = if protect {
@@ -190,8 +194,10 @@ fn dpapi(bytes: &[u8], protect: bool) -> Result<Vec<u8>, FileError> {
         if success == 0 {
             return Err(FileError::Dpapi(std::io::Error::last_os_error()));
         }
+
         let result = std::slice::from_raw_parts(output.pbData, output.cbData as usize).to_vec();
         LocalFree(output.pbData.cast());
+
         Ok(result)
     }
 }
@@ -212,12 +218,14 @@ mod tests {
         assert_eq!(file.read().unwrap(), map);
         let first = std::fs::read(&file.path).unwrap();
         assert!(!String::from_utf8_lossy(&first).contains("secret-token"));
+
         file.save(&map).unwrap();
         assert_ne!(
             std::fs::read(&file.path).unwrap(),
             first,
             "every save uses a fresh nonce"
         );
+
         let wrong = ProtectedFile {
             path: file.path.clone(),
             protection: Protection::Aes(aes_key(&[43u8; 32]).unwrap()),
@@ -228,10 +236,12 @@ mod tests {
             error.to_string(),
             "credential authentication failed; the key is wrong or the file is damaged"
         );
+
         let mut damaged = first;
         *damaged.last_mut().unwrap() ^= 1;
         std::fs::write(&file.path, damaged).unwrap();
         assert!(file.read().is_err());
+
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -19,11 +19,13 @@ fn credentials_file() -> Option<PathBuf> {
     if let Some(path) = env("GOOGLE_APPLICATION_CREDENTIALS") {
         return Some(PathBuf::from(path));
     }
+
     let base = if cfg!(windows) {
         env("APPDATA").map(PathBuf::from)
     } else {
         env("HOME").map(|home| PathBuf::from(home).join(".config"))
     };
+
     base.map(|dir| dir.join("gcloud").join("application_default_credentials.json"))
         .filter(|path| path.is_file())
 }
@@ -66,6 +68,7 @@ pub fn target() -> Result<Target, Error> {
     let location = env("GOOGLE_VERTEX_LOCATION")
         .or_else(|| env("GOOGLE_CLOUD_LOCATION"))
         .unwrap_or_else(|| "global".into());
+
     Ok(Target { project, location })
 }
 
@@ -100,11 +103,13 @@ async fn token_from(
     if let Some(token) = cached(&path, &contents) {
         return Ok(token);
     }
+
     let _minting = MINTING.lock().await;
     // Another request may have minted it while this one waited.
     if let Some(token) = cached(&path, &contents) {
         return Ok(token);
     }
+
     let file: Value = serde_json::from_str(&text).map_err(|e| Error::Malformed(format!("{}: {e}", path.display())))?;
     let (token, lifetime) = exchange(client, &file, timeouts).await?;
     let expires = crate::id::now_ms() / 1000 + lifetime;
@@ -116,6 +121,7 @@ async fn token_from(
             expires,
         },
     );
+
     Ok(token)
 }
 
@@ -123,10 +129,11 @@ async fn token_from(
 fn cached(path: &PathBuf, contents: &str) -> Option<String> {
     let now = crate::id::now_ms() / 1000;
     let cache = CACHE.lock().unwrap();
+
     cache
         .get(path)
-        .filter(|c| c.contents == contents && now < c.expires - EARLY_SECONDS)
-        .map(|c| c.token.clone())
+        .filter(|cached| cached.contents == contents && now < cached.expires - EARLY_SECONDS)
+        .map(|cached| cached.token.clone())
 }
 
 fn hex_digest(text: &str) -> String {
@@ -163,6 +170,7 @@ async fn exchange(
             )));
         }
     };
+
     let url = file["token_uri"].as_str().unwrap_or(TOKEN_URL);
     let encoded = form
         .iter()
@@ -178,17 +186,21 @@ async fn exchange(
         .post(url)
         .header("content-type", "application/x-www-form-urlencoded")
         .body(encoded);
+
     let response = super::http::send(sending, timeouts).await?;
     let status = response.status().as_u16();
     let headers = response.headers().clone();
-    let body: Value = serde_json::from_str(&super::http::bounded_body(response, timeouts).await).unwrap_or_default();
+    let text = super::http::bounded_body(response, timeouts).await;
+    let body: Value = serde_json::from_str(&text).unwrap_or_default();
     if !(200..300).contains(&status) {
         return Err(token_error(status, &body).with_headers(&headers));
     }
+
     let token = body["access_token"]
         .as_str()
         .ok_or_else(|| Error::Malformed("the token response had no access_token".into()))?
         .to_string();
+
     Ok((token, body["expires_in"].as_i64().unwrap_or(3600)))
 }
 
@@ -206,6 +218,7 @@ fn token_error(status: u16, body: &Value) -> Error {
     if refused || matches!(status, 401 | 403) {
         return Error::Unauthenticated(message.to_string());
     }
+
     Error::api(status, kind, format!("Google token exchange: {message}"))
 }
 
@@ -220,15 +233,15 @@ fn text(file: &Value, key: &str) -> Result<String, Error> {
 fn assertion(file: &Value, now: i64) -> Result<String, Error> {
     let encode = |value: &Value| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.to_string());
     let header = encode(&json!({ "alg": "RS256", "typ": "JWT" }));
-    let claims = encode(
-        &json!({ "iss": text(file, "client_email")?, "scope": SCOPE, "aud": file["token_uri"].as_str().unwrap_or(TOKEN_URL), "iat": now, "exp": now + 3600 }),
-    );
+    let issuer = text(file, "client_email")?;
+    let audience = file["token_uri"].as_str().unwrap_or(TOKEN_URL);
+    let claims = encode(&json!({ "iss": issuer, "scope": SCOPE, "aud": audience, "iat": now, "exp": now + 3600 }));
     let unsigned = format!("{header}.{claims}");
+
     let signature = sign_rs256(&text(file, "private_key")?, unsigned.as_bytes())?;
-    Ok(format!(
-        "{unsigned}.{}",
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature)
-    ))
+    let encoded_signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature);
+
+    Ok(format!("{unsigned}.{encoded_signature}"))
 }
 
 fn sign_rs256(pem: &str, message: &[u8]) -> Result<Vec<u8>, Error> {
@@ -246,6 +259,7 @@ fn sign_rs256(pem: &str, message: &[u8]) -> Result<Vec<u8>, Error> {
         &mut signature,
     )
     .map_err(|_| Error::Malformed("could not sign the token request".into()))?;
+
     Ok(signature)
 }
 
@@ -255,7 +269,12 @@ mod tests {
 
     /// A throwaway 2048-bit key made for the test (node is already needed for the MCP fixtures), so none is committed.
     fn throwaway_key() -> String {
-        let script = "const {generateKeyPairSync}=require('crypto');process.stdout.write(generateKeyPairSync('rsa',{modulusLength:2048,privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}}).privateKey)";
+        let script = concat!(
+            "const {generateKeyPairSync}=require('crypto');",
+            "process.stdout.write(generateKeyPairSync('rsa',{modulusLength:2048,",
+            "privateKeyEncoding:{type:'pkcs8',format:'pem'},",
+            "publicKeyEncoding:{type:'spki',format:'pem'}}).privateKey)",
+        );
         let out = std::process::Command::new("node")
             .args(["-e", script])
             .output()
@@ -341,7 +360,12 @@ mod tests {
     }
 
     fn write_user(file: &PathBuf, url: &str, refresh: &str) {
-        std::fs::write(file, json!({ "type": "authorized_user", "client_id": "id", "client_secret": "s", "refresh_token": refresh, "token_uri": url }).to_string()).unwrap();
+        let credentials = json!({
+            "type": "authorized_user", "client_id": "id", "client_secret": "s",
+            "refresh_token": refresh, "token_uri": url,
+        });
+
+        std::fs::write(file, credentials.to_string()).unwrap();
     }
 
     #[tokio::test]

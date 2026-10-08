@@ -56,6 +56,7 @@ impl Credentials {
         if prefer_file {
             return Self::open_test_file(data_dir.join(FALLBACK_FILE));
         }
+
         let backend = match keyring::Entry::store_status() {
             Ok(()) if !prefer_file => Backend::Keyring,
             _ => match super::credential_file::ProtectedFile::open(data_dir) {
@@ -63,17 +64,20 @@ impl Credentials {
                 Err(error) => Backend::Unavailable(Arc::new(error)),
             },
         };
+
         let this = Self {
             backend,
             write_lock: Mutex::default(),
             index: Mutex::default(),
             keyless: Mutex::default(),
         };
+
         let index = this
             .read(INDEX)
             .and_then(|json| serde_json::from_str(&json).ok())
             .unwrap_or_default();
         *this.index.lock().unwrap() = index;
+
         this
     }
 
@@ -94,6 +98,7 @@ impl Credentials {
             .read(INDEX)
             .and_then(|json| serde_json::from_str(&json).ok())
             .unwrap_or_default();
+
         this
     }
 
@@ -117,10 +122,12 @@ impl Credentials {
         if let Some(stored) = self.get(provider) {
             return Some(stored);
         }
+
         // A cloud route's variables are keys to sign with or files to read, never an API key.
         if let Some(found) = super::ambient(provider) {
             return found.map(|source| Credential::Ambient { source });
         }
+
         let from_env = env
             .iter()
             .find_map(|name| std::env::var(name).ok())
@@ -132,6 +139,7 @@ impl Credentials {
                 .contains(provider)
                 .then(|| "none".to_string())
         };
+
         from_env.or_else(keyless).map(|key| Credential::ApiKey { key })
     }
 
@@ -142,8 +150,10 @@ impl Credentials {
 
     fn set_locked(&self, provider: &str, credential: &Credential) -> Result<(), CredentialError> {
         self.write(provider, &serde_json::to_string(credential).unwrap())?;
+
         let mut index = self.index.lock().unwrap();
         index.insert(provider.into());
+
         self.write(INDEX, &serde_json::to_string(&*index).unwrap())
     }
 
@@ -158,15 +168,19 @@ impl Credentials {
         if self.get(provider).as_ref() != Some(expected) {
             return Ok(false);
         }
+
         self.set_locked(provider, credential)?;
+
         Ok(true)
     }
 
     pub fn remove(&self, provider: &str) -> Result<(), CredentialError> {
         let _held = self.write_lock.lock().unwrap();
         self.delete(provider)?;
+
         let mut index = self.index.lock().unwrap();
         index.remove(provider);
+
         self.write(INDEX, &serde_json::to_string(&*index).unwrap())
     }
 
@@ -196,6 +210,7 @@ impl Credentials {
                 let Some(count) = head.strip_prefix(CHUNKED).and_then(|n| n.parse::<usize>().ok()) else {
                     return Some(head);
                 };
+
                 (0..count)
                     .map(|i| {
                         keyring::Entry::new(SERVICE, &format!("{key}#{i}"))
@@ -215,23 +230,25 @@ impl Credentials {
     fn write(&self, key: &str, value: &str) -> Result<(), CredentialError> {
         match &self.backend {
             Backend::Keyring => {
-                let chunks: Vec<String> = value
-                    .chars()
-                    .collect::<Vec<_>>()
+                let characters: Vec<char> = value.chars().collect();
+                let chunks: Vec<String> = characters
                     .chunks(CHUNK_CHARS)
-                    .map(|c| c.iter().collect())
+                    .map(|chunk| chunk.iter().collect())
                     .collect();
                 let put = |name: String, text: &str| {
                     keyring::Entry::new(SERVICE, &name)
                         .and_then(|e| e.set_password(text))
                         .map_err(CredentialError::Keyring)
                 };
+
                 if chunks.len() <= 1 {
                     return put(key.into(), value);
                 }
+
                 for (i, chunk) in chunks.iter().enumerate() {
                     put(format!("{key}#{i}"), chunk)?;
                 }
+
                 put(key.into(), &format!("{CHUNKED}{}", chunks.len()))
             }
             Backend::Protected(file) => {
@@ -260,9 +277,11 @@ impl Credentials {
                     .strip_prefix(CHUNKED)
                     .and_then(|n| n.parse::<usize>().ok())
                     .unwrap_or(0);
+
                 for i in 0..count {
                     let _ = keyring::Entry::new(SERVICE, &format!("{key}#{i}")).and_then(|e| e.delete_credential());
                 }
+
                 match keyring::Entry::new(SERVICE, key).and_then(|entry| entry.delete_credential()) {
                     Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
                     Err(error) => Err(CredentialError::Keyring(error)),
@@ -383,7 +402,7 @@ mod tests {
             };
             let replaced = refresher.join().unwrap();
             logout.join().unwrap();
-            // Whichever ran first, a logout is never undone by a refresh that read the old value earlier.
+            // A refresh based on older credentials must never undo a concurrent logout.
             assert_eq!(store.get("p"), None, "replaced={replaced}");
         }
         std::fs::remove_file(path).ok();

@@ -26,7 +26,9 @@ impl Vertex {
             Credential::OAuth { access, .. } | Credential::ApiKey { key: access } => access.clone(),
             Credential::Ambient { .. } => google::token(&self.client, &self.timeouts).await?,
         };
-        self.send(request, &token, &google::target()?).await
+        let target = google::target()?;
+
+        self.send(request, &token, &target).await
     }
 
     async fn send(&self, request: &Request, token: &str, target: &google::Target) -> Result<ChunkStream, Error> {
@@ -36,6 +38,7 @@ impl Vertex {
             target.project,
             target.location
         );
+
         if is_claude(&request.model) {
             let url = format!("{models}/anthropic/models/{}:streamRawPredict", request.model);
             let mut http = self
@@ -47,10 +50,14 @@ impl Vertex {
             if anthropic::interleaves(request) {
                 http = http.header("anthropic-beta", anthropic::INTERLEAVED_THINKING);
             }
+
             return anthropic::stream_from(http, &self.timeouts, false).await;
         }
+
         let url = format!("{models}/google/models/{}:streamGenerateContent?alt=sse", request.model);
-        gemini::stream_from(self.client.post(url).bearer_auth(token), request, &self.timeouts).await
+        let http = self.client.post(url).bearer_auth(token);
+
+        gemini::stream_from(http, request, &self.timeouts).await
     }
 
     /// `global` has no region in its host name; every other location does.

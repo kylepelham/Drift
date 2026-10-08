@@ -51,6 +51,7 @@ async fn start_at(client: &reqwest::Client, url: &str) -> Result<Device, OAuthEr
     if !status.is_success() {
         return Err(OAuthError::DeviceStart(status));
     }
+
     let field = |key: &str| {
         json[key]
             .as_str()
@@ -64,6 +65,7 @@ async fn start_at(client: &reqwest::Client, url: &str) -> Result<Device, OAuthEr
             .filter(|n| *n > 0)
             .map_or(default, Duration::from_secs)
     };
+
     Ok(Device {
         device_code: field("device_code")?,
         user_code: field("user_code")?,
@@ -84,6 +86,7 @@ pub async fn wait(client: &reqwest::Client, device: &Device) -> Result<Credentia
 async fn wait_at(client: &reqwest::Client, url: &str, device: &Device) -> Result<Credential, OAuthError> {
     let deadline = tokio::time::Instant::now() + Duration::from_millis(device.lifetime_ms);
     let mut interval = Duration::from_millis(device.interval_ms);
+
     while tokio::time::Instant::now() < deadline {
         let (status, json) = post(
             client,
@@ -98,6 +101,7 @@ async fn wait_at(client: &reqwest::Client, url: &str, device: &Device) -> Result
         if status.is_success() {
             return credential(&json, None);
         }
+
         match json["error"].as_str() {
             Some("authorization_pending") => {}
             Some("slow_down") => interval += SLOW_DOWN,
@@ -110,8 +114,11 @@ async fn wait_at(client: &reqwest::Client, url: &str, device: &Device) -> Result
                 });
             }
         }
-        tokio::time::sleep(interval.min(deadline.saturating_duration_since(tokio::time::Instant::now()))).await;
+
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        tokio::time::sleep(interval.min(remaining)).await;
     }
+
     Err(OAuthError::ExpiredBeforeApproval)
 }
 
@@ -133,6 +140,7 @@ async fn refresh_at(client: &reqwest::Client, url: &str, refresh_token: &str) ->
     if !status.is_success() {
         return Err(OAuthError::DeviceRefresh(status));
     }
+
     credential(&json, Some(refresh_token))
 }
 
@@ -149,6 +157,7 @@ fn credential(json: &Value, previous_refresh: Option<&str>) -> Result<Credential
         .ok_or_else(|| OAuthError::MissingDeviceField("refresh_token".into()))?
         .to_string();
     let expires_in = json["expires_in"].as_i64().unwrap_or(DEFAULT_EXPIRES_IN);
+
     Ok(Credential::OAuth {
         access,
         refresh,
@@ -172,9 +181,11 @@ async fn post(
         .header("content-type", "application/x-www-form-urlencoded")
         .header("accept", "application/json")
         .body(body.join("&"));
+
     let response = crate::llm::http::send(request, &timeouts).await?;
     let status = response.status();
     let text = crate::llm::http::bounded_body(response, &timeouts).await;
+
     Ok((status, serde_json::from_str(&text).unwrap_or(Value::Null)))
 }
 

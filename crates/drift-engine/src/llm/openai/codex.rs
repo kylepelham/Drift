@@ -40,6 +40,7 @@ pub fn small_model(
 ) -> Option<crate::session::types::ModelRef> {
     let signed_in = like.provider == "openai" && matches!(credential, crate::llm::Credential::OAuth { .. });
     let offered = catalog.model("openai", SMALL).is_some() && like.model != SMALL;
+
     (signed_in && offered).then(|| crate::session::types::ModelRef {
         provider: "openai".into(),
         model: SMALL.into(),
@@ -53,19 +54,24 @@ fn accepted(id: &str) -> bool {
     if ALLOWED.contains(&id) {
         return true;
     }
+
     let Some(version) = id.strip_prefix("gpt-") else {
         return false;
     };
-    let mut numbers = version.split(|c: char| !c.is_ascii_digit()).map(str::parse::<u32>);
+
+    let mut numbers = version
+        .split(|character: char| !character.is_ascii_digit())
+        .map(str::parse::<u32>);
     let major = numbers.next().and_then(Result::ok);
     let minor = if version
-        .trim_start_matches(|c: char| c.is_ascii_digit())
+        .trim_start_matches(|character: char| character.is_ascii_digit())
         .starts_with('.')
     {
         numbers.next().and_then(Result::ok).unwrap_or(0)
     } else {
         0
     };
+
     major.is_some_and(|major| major > 5 || (major == 5 && minor > 4))
 }
 

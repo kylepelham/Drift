@@ -38,15 +38,22 @@ pub async fn discover(client: &reqwest::Client, provider: &str, base: &str, show
     let base = base.trim_end_matches('/');
     let listed = get(client, &format!("{base}/models")).await?;
     let details = lm_studio_details(client, base).await;
+
     let mut models: Vec<Model> = listed["data"]
         .as_array()?
         .iter()
         .filter_map(|entry| entry["id"].as_str())
-        .filter_map(|id| model(id, details.as_ref().and_then(|d| d.iter().find(|m| m["id"] == id))))
+        .filter_map(|id| {
+            let description = details
+                .as_ref()
+                .and_then(|details| details.iter().find(|model| model["id"] == id));
+            model(id, description)
+        })
         .collect();
     if provider == "ollama" {
         models = ollama_details(client, base, shown, models).await;
     }
+
     Some(models)
 }
 
@@ -56,6 +63,7 @@ async fn ollama_details(client: &reqwest::Client, base: &str, shown: &Shown, mod
     let running = ollama_listing(client, base, "ps", "context_length").await;
     let digests = ollama_listing(client, base, "tags", "digest").await;
     let mut kept = Vec::new();
+
     for mut model in models {
         let digest = digests
             .get(&model.id)
@@ -65,6 +73,7 @@ async fn ollama_details(client: &reqwest::Client, base: &str, shown: &Shown, mod
         if !showing.tools {
             continue;
         }
+
         model.attachment = showing.vision;
         model.limit.context = running
             .get(&model.id)
@@ -73,23 +82,24 @@ async fn ollama_details(client: &reqwest::Client, base: &str, shown: &Shown, mod
             .unwrap_or(0);
         kept.push(model);
     }
+
     kept
 }
 
 async fn get(client: &reqwest::Client, url: &str) -> Option<Value> {
-    read(
-        tokio::time::timeout(ASK_WITHIN, client.get(url).send())
-            .await
-            .ok()?
-            .ok()?,
-    )
-    .await
+    let response = tokio::time::timeout(ASK_WITHIN, client.get(url).send())
+        .await
+        .ok()?
+        .ok()?;
+
+    read(response).await
 }
 
 async fn read(response: reqwest::Response) -> Option<Value> {
     if !response.status().is_success() {
         return None;
     }
+
     tokio::time::timeout(ASK_WITHIN, response.json::<Value>())
         .await
         .ok()?
@@ -103,28 +113,32 @@ async fn ollama_listing(client: &reqwest::Client, base: &str, what: &str, field:
     let Some(listed) = get(client, &format!("{root}/api/{what}")).await else {
         return BTreeMap::new();
     };
+
     let mut by_name = BTreeMap::new();
     for model in listed["models"].as_array().cloned().unwrap_or_default() {
         let value = model[field].clone();
         if value.is_null() {
             continue;
         }
+
         for name in [&model["name"], &model["model"]].into_iter().filter_map(Value::as_str) {
             by_name.insert(name.to_string(), value.clone());
             by_name.entry(format!("{name}:latest")).or_insert(value.clone());
         }
     }
+
     by_name
 }
 
 impl Shown {
-    /// What `/api/show` says of a model. A model whose window Ollama sets none of gets `None`, since
-    /// then Ollama decides when it loads (its default depends on the server's memory). One that does
-    /// not answer is taken as able to call tools, and asked again next time.
+    /// Caches `/api/show` by model digest, keeping an unset context window as `None`.
+    /// Ollama chooses that window at load time according to available memory.
+    /// An unanswered request assumes tool support and is retried on the next discovery.
     async fn describe(&self, client: &reqwest::Client, base: &str, model: &str, digest: &str) -> Showing {
         if let Some(known) = self.0.lock().unwrap().get(digest) {
             return *known;
         }
+
         let root = base.strip_suffix("/v1").unwrap_or(base);
         let shown = async {
             read(
@@ -143,6 +157,7 @@ impl Shown {
                 ..Showing::default()
             };
         };
+
         let set = shown["parameters"].as_str().and_then(|parameters| {
             parameters.lines().find_map(|line| {
                 line.trim()
@@ -165,6 +180,7 @@ impl Shown {
             vision: capabilities.contains(&"vision"),
         };
         self.0.lock().unwrap().insert(digest.into(), showing);
+
         showing
     }
 }
@@ -183,7 +199,8 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
     if kind == "embeddings" || id.contains("embed") {
         return None;
     }
-    // A model LM Studio has not loaded gets its own default window when it loads, not its maximum: unknown.
+
+    // LM Studio chooses an unloaded model's default window at load time, not from its maximum.
     let context = details
         .filter(|d| d["state"] == "loaded")
         .and_then(|d| d["loaded_context_length"].as_u64())
@@ -194,6 +211,7 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
     if details.is_some() && !capabilities.is_empty() && !capabilities.iter().any(|c| c == "tool_use") {
         return None;
     }
+
     Some(Model {
         id: id.into(),
         name: id.into(),

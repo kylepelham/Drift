@@ -24,6 +24,7 @@ impl Decoder {
     pub(super) fn feed(&mut self, bytes: &[u8]) -> Result<Vec<Message>, FrameError> {
         self.buffer.extend_from_slice(bytes);
         let mut messages = Vec::new();
+
         while self.buffer.len() >= PRELUDE {
             let total = u32::from_be_bytes(self.buffer[0..4].try_into().unwrap()) as usize;
             if total < PRELUDE + TRAILER {
@@ -32,9 +33,11 @@ impl Decoder {
             if self.buffer.len() < total {
                 break;
             }
+
             let frame: Vec<u8> = self.buffer.drain(..total).collect();
             messages.push(decode(&frame)?);
         }
+
         Ok(messages)
     }
 }
@@ -44,14 +47,17 @@ fn decode(frame: &[u8]) -> Result<Message, FrameError> {
     if crc32fast::hash(&frame[..8]) != word(8) {
         return Err(FrameError::PreludeChecksum);
     }
+
     let end = frame.len() - TRAILER;
     if crc32fast::hash(&frame[..end]) != word(end) {
         return Err(FrameError::MessageChecksum);
     }
+
     let headers_end = PRELUDE + word(4) as usize;
     if headers_end > end {
         return Err(FrameError::HeadersOverrun);
     }
+
     Ok(Message {
         headers: headers(&frame[PRELUDE..headers_end])?,
         payload: frame[headers_end..end].to_vec(),
@@ -60,11 +66,13 @@ fn decode(frame: &[u8]) -> Result<Message, FrameError> {
 
 fn headers(mut bytes: &[u8]) -> Result<HashMap<String, String>, FrameError> {
     let mut out = HashMap::new();
+
     while !bytes.is_empty() {
         let name_len = bytes[0] as usize;
         let name_bytes = bytes.get(1..1 + name_len).ok_or(FrameError::TruncatedHeader("name"))?;
         let name = String::from_utf8_lossy(name_bytes).into_owned();
         bytes = &bytes[1 + name_len..];
+
         let kind = *bytes.first().ok_or(FrameError::TruncatedHeader("type"))?;
         let size = value_size(kind, bytes.get(1..3))?;
         let value = bytes.get(1..1 + size).ok_or(FrameError::TruncatedHeader("value"))?;
@@ -73,6 +81,7 @@ fn headers(mut bytes: &[u8]) -> Result<HashMap<String, String>, FrameError> {
         }
         bytes = &bytes[1 + size..];
     }
+
     Ok(out)
 }
 
@@ -120,6 +129,7 @@ pub(super) fn frame(headers: &[(&str, &str)], payload: &[u8]) -> Vec<u8> {
         head.extend_from_slice(&(value.len() as u16).to_be_bytes());
         head.extend_from_slice(value.as_bytes());
     }
+
     let total = (PRELUDE + head.len() + payload.len() + TRAILER) as u32;
     let mut out = total.to_be_bytes().to_vec();
     out.extend_from_slice(&(head.len() as u32).to_be_bytes());
@@ -127,6 +137,7 @@ pub(super) fn frame(headers: &[(&str, &str)], payload: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&head);
     out.extend_from_slice(payload);
     out.extend_from_slice(&crc32fast::hash(&out).to_be_bytes());
+
     out
 }
 

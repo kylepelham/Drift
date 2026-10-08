@@ -38,6 +38,7 @@ async fn handle(
         query: uri.query().map(str::to_string),
         body,
     });
+
     let (status, text) = fake.reply.lock().unwrap().clone();
     if status != 200 {
         return Response::builder()
@@ -46,6 +47,7 @@ async fn handle(
             .body(Body::from(text))
             .unwrap();
     }
+
     // Seven-byte chunks force every frame boundary to land mid-line somewhere.
     let chunks: Vec<Result<Vec<u8>, std::io::Error>> = text.as_bytes().chunks(7).map(|c| Ok(c.to_vec())).collect();
     Response::builder()
@@ -68,6 +70,7 @@ async fn fake(status: u16, reply: &str) -> (Arc<Fake>, String) {
         .unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+
     (fake, url)
 }
 
@@ -102,7 +105,8 @@ async fn anthropic_streams_thinking_text_and_tool_use() {
         .stream(&request(), &Credential::ApiKey { key: "k".into() })
         .await
         .unwrap();
-    let chunks: Vec<Chunk> = stream.map(|c| c.unwrap()).collect().await;
+    let chunks: Vec<Chunk> = stream.map(Result::unwrap).collect().await;
+
     assert_eq!(
         chunks,
         vec![
@@ -206,7 +210,8 @@ async fn subscription_tokens_send_the_claude_code_shape_and_unprefix_tool_names(
         input_schema: serde_json::json!({}),
     }];
     let stream = Anthropic::new(&url).stream(&request, &credential).await.unwrap();
-    let chunks: Vec<Chunk> = stream.map(|c| c.unwrap()).collect().await;
+    let chunks: Vec<Chunk> = stream.map(Result::unwrap).collect().await;
+
     assert_eq!(
         chunks[0],
         Chunk::ToolUseStart {

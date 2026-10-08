@@ -25,6 +25,7 @@ impl Parser {
     pub(crate) fn feed(&mut self, chunk: &[u8]) -> Vec<SseEvent> {
         self.decode(chunk);
         let mut events = Vec::new();
+
         while let Some(end) = self.buffer.find('\n') {
             let line = self.buffer[..end].trim_end_matches('\r').to_string();
             self.buffer.drain(..=end);
@@ -32,6 +33,7 @@ impl Parser {
                 events.push(event);
             }
         }
+
         events
     }
 
@@ -39,6 +41,7 @@ impl Parser {
     /// that can never form a character become U+FFFD.
     fn decode(&mut self, chunk: &[u8]) {
         self.pending.extend_from_slice(chunk);
+
         loop {
             let error = match std::str::from_utf8(&self.pending) {
                 Ok(text) => {
@@ -48,6 +51,7 @@ impl Parser {
                 }
                 Err(error) => error,
             };
+
             let valid = error.valid_up_to();
             self.buffer
                 .push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
@@ -55,6 +59,7 @@ impl Parser {
                 self.pending.drain(..valid);
                 return;
             };
+
             self.buffer.push('\u{FFFD}');
             self.pending.drain(..valid + bad);
         }
@@ -64,6 +69,7 @@ impl Parser {
         if line.is_empty() {
             return self.flush();
         }
+
         let (field, value) = line.split_once(':').unwrap_or((line, ""));
         let value = value.strip_prefix(' ').unwrap_or(value);
         match field {
@@ -71,6 +77,7 @@ impl Parser {
             "data" => self.data.push(value.to_string()),
             _ => {}
         }
+
         None
     }
 
@@ -78,6 +85,7 @@ impl Parser {
         if self.data.is_empty() && self.event.is_empty() {
             return None;
         }
+
         let event = SseEvent {
             event: std::mem::take(&mut self.event),
             data: std::mem::take(&mut self.data).join("\n"),
@@ -93,11 +101,13 @@ where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
     let mut parser = Parser::default();
+
     watched(bytes, idle).flat_map(move |chunk| {
         let items: Vec<Result<SseEvent, StreamError>> = match chunk {
             Ok(bytes) => parser.feed(&bytes).into_iter().map(Ok).collect(),
             Err(error) => vec![Err(error)],
         };
+
         futures_util::stream::iter(items)
     })
 }
@@ -171,7 +181,7 @@ mod tests {
             let mut parser = Parser::default();
             bytes
                 .iter()
-                .flat_map(|b| parser.feed(std::slice::from_ref(b)))
+                .flat_map(|byte| parser.feed(std::slice::from_ref(byte)))
                 .collect()
         };
         assert_eq!(one_by_one, whole, "one byte per read");

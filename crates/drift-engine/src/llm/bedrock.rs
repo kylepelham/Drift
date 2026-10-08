@@ -28,7 +28,7 @@ impl Bedrock {
     }
 
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
-        // A key saved in Settings is a Bedrock API key; otherwise the environment's, found now.
+        // Settings keys are Bedrock bearer tokens; other credentials come from the current AWS environment.
         let auth = match credential {
             Credential::ApiKey { key } => Auth::Bearer(key.clone()),
             _ => aws::auth().ok_or(Error::Unauthenticated(String::new()))?,
@@ -43,17 +43,20 @@ impl Bedrock {
             .clone()
             .unwrap_or_else(|| format!("https://bedrock-runtime.{region}.amazonaws.com"));
         let path = format!("/model/{}/invoke-with-response-stream", aws::encode(&request.model));
+
         let mut body = anthropic::cloud_body(request, VERSION, false);
         // Bedrock takes Anthropic betas in the body.
         if anthropic::interleaves(request) {
             body["anthropic_beta"] = serde_json::json!([anthropic::INTERLEAVED_THINKING]);
         }
         let body = serde_json::to_vec(&body).map_err(|e| Error::Malformed(e.to_string()))?;
+
         let mut http = self
             .client
             .post(format!("{base}{path}"))
             .header("content-type", "application/json")
             .header("accept", "application/vnd.amazon.eventstream");
+
         http = match auth {
             Auth::Bearer(token) => http.bearer_auth(token),
             Auth::Signed(keys) => {
@@ -73,6 +76,7 @@ impl Bedrock {
                     .fold(http, |http, (name, value)| http.header(name, value))
             }
         };
+
         let response = super::http::send(http.body(body), &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
@@ -84,13 +88,11 @@ impl Bedrock {
                 .and_then(|v| v.split(':').next())
                 .unwrap_or_default()
                 .to_string();
-            return Err(api_error(
-                status.as_u16(),
-                &kind,
-                &super::http::bounded_body(response, &self.timeouts).await,
-            )
-            .with_headers(&headers));
+            let text = super::http::bounded_body(response, &self.timeouts).await;
+
+            return Err(api_error(status.as_u16(), &kind, &text).with_headers(&headers));
         }
+
         let mut decoder = Decoder::default();
         let frames = super::sse::watched(response.bytes_stream(), self.timeouts.idle);
         Ok(Box::pin(frames.flat_map(move |bytes| {
@@ -110,6 +112,7 @@ impl Bedrock {
 fn message_chunks(message: super::eventstream::Message) -> Vec<Result<Chunk, Error>> {
     let payload: Value = serde_json::from_slice(&message.payload).unwrap_or_default();
     let header = |name: &str| message.headers.get(name).map(String::as_str);
+
     match (header(":message-type"), header(":event-type")) {
         (Some("event"), Some("chunk")) => chunk_events(&payload),
         // Other event kinds carry no content for this route.
@@ -142,6 +145,7 @@ fn chunk_events(payload: &Value) -> Vec<Result<Chunk, Error>> {
     let Some(decoded) = decoded else {
         return vec![Err(Error::Malformed("a Bedrock chunk had no bytes".into()))];
     };
+
     let text = String::from_utf8_lossy(&decoded);
     let event: Value = serde_json::from_str(&text).unwrap_or_default();
     match anthropic::chunks(event["type"].as_str().unwrap_or_default(), &text) {
@@ -160,6 +164,7 @@ fn stream_exception(kind: &str, payload: &Value) -> Error {
         .as_str()
         .or(payload["message"].as_str())
         .unwrap_or(kind);
+
     classify(status, kind, message)
 }
 
@@ -169,6 +174,7 @@ fn api_error(status: u16, kind: &str, text: &str) -> Error {
         .ok()
         .and_then(|v| v["message"].as_str().map(str::to_string))
         .unwrap_or_else(|| text.to_string());
+
     classify(status, kind, &message)
 }
 
@@ -182,6 +188,7 @@ fn classify(status: u16, kind: &str, message: &str) -> Error {
     {
         return Error::Unauthenticated(message.to_string());
     }
+
     let implied = match name.trim_end_matches("exception") {
         "throttling" => 429,
         "serviceunavailable" | "modelnotready" => 503,
@@ -196,6 +203,7 @@ fn classify(status: u16, kind: &str, message: &str) -> Error {
     } else {
         status
     };
+
     Error::api(status, kind, message)
 }
 

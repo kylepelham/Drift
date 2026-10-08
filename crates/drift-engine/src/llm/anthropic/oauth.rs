@@ -55,6 +55,7 @@ pub fn start(mode: Mode) -> Started {
         encode(REDIRECT_URI),
         encode(SCOPES)
     );
+
     Started { url, state, verifier }
 }
 
@@ -64,6 +65,7 @@ pub fn parse_callback(input: &str) -> Option<(String, String)> {
     if let Some((code, state)) = input.split_once('#') {
         return Some((code.into(), state.into()));
     }
+
     let query = input.split_once('?').map_or(input, |(_, query)| query);
     let mut code = None;
     let mut state = None;
@@ -74,6 +76,7 @@ pub fn parse_callback(input: &str) -> Option<(String, String)> {
             _ => {}
         }
     }
+
     Some((code?, state?))
 }
 
@@ -91,11 +94,13 @@ pub async fn exchange(
         "redirect_uri": REDIRECT_URI,
         "code_verifier": verifier,
     });
+
     token_request(client, &body).await
 }
 
 pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Credential, OAuthError> {
     let body = json!({ "grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": CLIENT_ID });
+
     token_request(client, &body).await
 }
 
@@ -106,12 +111,14 @@ async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credent
         .header("accept", "application/json, text/plain, */*")
         .header("user-agent", TOKEN_USER_AGENT)
         .json(body);
+
     let response = crate::llm::http::send(request, &timeouts).await?;
     let status = response.status();
     let text = crate::llm::http::bounded_body(response, &timeouts).await;
     if !status.is_success() {
         return Err(OAuthError::TokenResponse { status, text });
     }
+
     let json: Value = serde_json::from_str(&text)?;
     let field = |key: &str| {
         json[key]
@@ -120,6 +127,7 @@ async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credent
             .ok_or_else(|| OAuthError::MissingTokenField(key.to_owned()))
     };
     let expires_in = json["expires_in"].as_i64().unwrap_or(0);
+
     Ok(Credential::OAuth {
         access: field("access_token")?,
         refresh: field("refresh_token")?,
@@ -131,6 +139,7 @@ async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credent
 fn random_bytes(len: usize) -> Vec<u8> {
     let mut bytes = vec![0u8; len];
     getrandom::fill(&mut bytes).expect("system random source unavailable");
+
     bytes
 }
 
@@ -142,24 +151,26 @@ pub(crate) fn sha256(data: &[u8]) -> [u8; 32] {
 pub(crate) fn base64url(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+
     for chunk in bytes.chunks(3) {
-        let bits = chunk
-            .iter()
-            .enumerate()
-            .fold(0u32, |acc, (i, b)| acc | (u32::from(*b) << (16 - 8 * i)));
-        for i in 0..chunk.len() + 1 {
-            out.push(TABLE[((bits >> (18 - 6 * i)) & 63) as usize] as char);
+        let bits = chunk.iter().enumerate().fold(0u32, |accumulator, (index, byte)| {
+            accumulator | (u32::from(*byte) << (16 - 8 * index))
+        });
+        for index in 0..chunk.len() + 1 {
+            let symbol = TABLE[((bits >> (18 - 6 * index)) & 63) as usize];
+            out.push(symbol as char);
         }
     }
+
     out
 }
 
 fn encode(value: &str) -> String {
     value
         .bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
         })
         .collect()
 }

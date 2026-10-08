@@ -1,6 +1,7 @@
 //! One HTTP client for every provider and service: shared connections, a bounded connect, a bounded
 //! wait for the response to begin, and a stream that goes quiet too long counts as broken.
 
+use futures_util::StreamExt;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -37,6 +38,7 @@ impl Timeouts {
                 idle: Duration::from_secs(600),
             };
         }
+
         Self::default()
     }
 }
@@ -48,7 +50,7 @@ pub fn client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
-            // Release builds get the shell's TLS provider; a test process must install one before its first client.
+            // The shell installs TLS in release builds; test processes install it before their first client.
             #[cfg(test)]
             let _ = rustls::crypto::ring::default_provider().install_default();
 
@@ -70,16 +72,20 @@ const MAX_ERROR_WAIT: Duration = Duration::from_secs(10);
 /// A response body cut at a size and a time limit, so a stalled or endless one cannot hold the turn:
 /// whatever arrived in time is what it says.
 pub async fn bounded_body(response: reqwest::Response, timeouts: &Timeouts) -> String {
-    use futures_util::StreamExt;
     let deadline = tokio::time::Instant::now() + timeouts.idle.min(MAX_ERROR_WAIT);
     let mut stream = response.bytes_stream();
     let mut body = Vec::new();
+
     while body.len() < MAX_ERROR_BODY {
         match tokio::time::timeout_at(deadline, stream.next()).await {
-            Ok(Some(Ok(chunk))) => body.extend_from_slice(&chunk[..chunk.len().min(MAX_ERROR_BODY - body.len())]),
+            Ok(Some(Ok(chunk))) => {
+                let remaining = MAX_ERROR_BODY - body.len();
+                body.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
+            }
             _ => break,
         }
     }
+
     String::from_utf8_lossy(&body).into_owned()
 }
 
