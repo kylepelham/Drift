@@ -48,6 +48,10 @@ pub fn client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT
         .get_or_init(|| {
+            // Release builds get the shell's TLS provider; a test process must install one before its first client.
+            #[cfg(test)]
+            let _ = rustls::crypto::ring::default_provider().install_default();
+
             reqwest::Client::builder()
                 .connect_timeout(CONNECT)
                 .tcp_keepalive(Duration::from_secs(30))
