@@ -76,7 +76,7 @@ pub fn open_file(file: &Path) -> rusqlite::Result<Store> {
 impl Store {
     /// The one connection. Hold the guard for the whole unit of work and no longer.
     pub fn lock(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     pub fn workspace(&self, id: &str) -> rusqlite::Result<Option<Workspace>> {

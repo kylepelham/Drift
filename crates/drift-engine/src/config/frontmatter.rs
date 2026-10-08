@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 
 #[derive(Debug, Default, PartialEq)]
-pub struct Document {
+pub(super) struct Document {
     pub fields: BTreeMap<String, String>,
     /// Indented lines under a key with no value of its own: `- item` lines, or `name: true|false` lines.
     nested: BTreeMap<String, Vec<String>>,
@@ -12,7 +12,7 @@ pub struct Document {
 }
 
 impl Document {
-    pub fn field(&self, key: &str) -> Option<String> {
+    pub(super) fn field(&self, key: &str) -> Option<String> {
         self.fields
             .get(key)
             .map(|v| unquote(v).to_string())
@@ -21,7 +21,7 @@ impl Document {
 
     /// A list given inline (`a, b` or `[a, b]`), as `- item` lines, or as a `name: true|false` map,
     /// where a false entry comes back as `!name`.
-    pub fn list(&self, key: &str) -> Option<Vec<String>> {
+    pub(super) fn list(&self, key: &str) -> Option<Vec<String>> {
         if let Some(items) = self.nested.get(key) {
             return Some(
                 items
@@ -39,7 +39,7 @@ impl Document {
     }
 
     /// Rules in the order written; `Config::agent_policy` makes the last match win.
-    pub fn permissions(&self) -> Result<Vec<crate::permission::Rule>, String> {
+    pub(super) fn permissions(&self) -> Result<Vec<crate::permission::Rule>, String> {
         let key = if self.fields.contains_key("permissions") {
             "permissions"
         } else {
@@ -199,7 +199,7 @@ fn map_permissions(value: &Flow) -> Result<Vec<crate::permission::Rule>, String>
     Ok(rules)
 }
 
-pub fn parse(text: &str) -> Document {
+pub(super) fn parse(text: &str) -> Document {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text).replace("\r\n", "\n");
     let Some(rest) = text.strip_prefix("---\n") else {
         return Document {

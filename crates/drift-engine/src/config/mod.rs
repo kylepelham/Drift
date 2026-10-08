@@ -365,7 +365,7 @@ impl Command {
                 let value = if i == last {
                     words.get(i..).map(|rest| rest.join(" "))
                 } else {
-                    words.get(i).map(|w| w.to_string())
+                    words.get(i).cloned()
                 };
                 value
                     .filter(|v| !v.is_empty())
@@ -420,7 +420,7 @@ fn instruction_files(listed: &str, resolved: &Path) -> Vec<(String, PathBuf)> {
     let mut found: Vec<PathBuf> = crate::tool::walk(&base)
         .flatten()
         .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
-        .map(|entry| entry.into_path())
+        .map(ignore::DirEntry::into_path)
         .filter(|path| glob.is_match(path.to_string_lossy().replace('\\', "/")))
         .take(MAX_INSTRUCTION_MATCHES * 4)
         .collect();

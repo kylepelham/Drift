@@ -42,8 +42,7 @@ impl Rule {
         GlobBuilder::new(&self.pattern)
             .literal_separator(false)
             .build()
-            .map(|glob| glob.compile_matcher().is_match(target))
-            .unwrap_or(false)
+            .is_ok_and(|glob| glob.compile_matcher().is_match(target))
     }
 
     fn has_wildcards(&self) -> bool {

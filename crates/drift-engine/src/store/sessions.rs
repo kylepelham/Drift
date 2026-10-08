@@ -1040,7 +1040,7 @@ fn save_message_in(conn: &Connection, message: &Message) -> rusqlite::Result<()>
             message.cost,
             message.error,
             message.finished_at,
-            message.ending.map(|ending| ending.as_str())
+            message.ending.map(crate::session::types::Ending::as_str)
         ])?;
     Ok(())
 }

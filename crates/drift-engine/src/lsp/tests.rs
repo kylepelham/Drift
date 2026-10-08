@@ -2,11 +2,7 @@ use super::*;
 
 fn fake(mode: &[&str]) -> BTreeMap<String, LspConfig> {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/fixtures/lsp/fake-server.cjs");
-    let command = ["node", script]
-        .iter()
-        .chain(mode)
-        .map(|part| part.to_string())
-        .collect();
+    let command = ["node", script].iter().chain(mode).map(ToString::to_string).collect();
     BTreeMap::from([(
         "fake".to_string(),
         LspConfig::Custom {

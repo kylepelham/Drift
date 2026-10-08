@@ -1,24 +1,24 @@
 //! Text matching excludes the UTF-8 BOM; replacement preserves it and the file's line endings.
 
 #[derive(Clone, Copy, Default)]
-pub struct TextFormat {
+pub(super) struct TextFormat {
     crlf: bool,
     bom: bool,
 }
 
 impl TextFormat {
-    pub fn detect(text: &str) -> Self {
+    pub(super) fn detect(text: &str) -> Self {
         Self {
             crlf: text.contains("\r\n"),
             bom: text.starts_with('\u{feff}'),
         }
     }
 
-    pub fn normalise(self, text: &str) -> String {
+    pub(super) fn normalise(self, text: &str) -> String {
         text.strip_prefix('\u{feff}').unwrap_or(text).replace("\r\n", "\n")
     }
 
-    pub fn apply(self, text: &str) -> String {
+    pub(super) fn apply(self, text: &str) -> String {
         let bom = self.bom || text.starts_with('\u{feff}');
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let body = if self.crlf {

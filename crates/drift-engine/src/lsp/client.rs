@@ -32,7 +32,7 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-pub struct Client {
+pub(super) struct Client {
     stdin: tokio::sync::Mutex<ChildStdin>,
     next_id: AtomicI64,
     pending: Mutex<HashMap<i64, oneshot::Sender<Value>>>,
@@ -50,7 +50,7 @@ pub struct Client {
 
 impl Client {
     /// Starts `program` in `root` and initializes it in the background; `Err` when it cannot start at all.
-    pub async fn start(program: &Path, args: &[String], root: &Path) -> std::io::Result<Arc<Self>> {
+    pub(super) async fn start(program: &Path, args: &[String], root: &Path) -> std::io::Result<Arc<Self>> {
         let mut spawn = tokio::process::Command::new(program);
         process::use_current_path(&mut spawn, &Default::default());
         spawn
@@ -85,17 +85,17 @@ impl Client {
         Ok(client)
     }
 
-    pub fn alive(&self) -> bool {
+    pub(super) fn alive(&self) -> bool {
         self.alive.load(Ordering::SeqCst)
     }
 
-    pub fn idle_for(&self) -> Duration {
+    pub(super) fn idle_for(&self) -> Duration {
         self.used.lock().unwrap().elapsed()
     }
 
     /// Sends each file's current text and returns the errors the server published for it after that,
     /// by `deadline`; a file it said nothing new about by then is left out.
-    pub async fn check(
+    pub(super) async fn check(
         &self,
         files: &[(PathBuf, String)],
         deadline: tokio::time::Instant,
@@ -125,7 +125,7 @@ impl Client {
     }
 
     /// Asks the server to stop, then ends its process tree whether it listened or not.
-    pub async fn shutdown(&self) {
+    pub(super) async fn shutdown(&self) {
         if self.alive() {
             let _ = self.request("shutdown", Value::Null, Duration::from_secs(2)).await;
             let _ = self.notify("exit", Value::Null).await;

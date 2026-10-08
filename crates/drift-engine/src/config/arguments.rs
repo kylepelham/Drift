@@ -15,7 +15,7 @@ pub struct Subcommand {
 }
 
 /// The one skill a command's template calls (`skill({ name: "design" })`), when it calls exactly one.
-pub fn referenced_skill(template: &str) -> Option<String> {
+pub(super) fn referenced_skill(template: &str) -> Option<String> {
     let mut found: Vec<String> = Vec::new();
     for (at, _) in template.match_indices("skill") {
         let boundary = template[..at]
@@ -35,8 +35,7 @@ pub fn referenced_skill(template: &str) -> Option<String> {
 fn call_name(text: &str) -> Option<String> {
     let quote = |text: &str| {
         text.strip_prefix(['"', '\''])
-            .map(str::to_string)
-            .unwrap_or_else(|| text.to_string())
+            .map_or_else(|| text.to_string(), str::to_string)
     };
     let text = text
         .trim_start()
@@ -62,7 +61,7 @@ fn call_name(text: &str) -> Option<String> {
 }
 
 /// The usage to show and the choices to offer for skill `name`.
-pub fn skill_arguments(name: &str, content: &str, hint: Option<&str>) -> (Option<String>, Vec<Subcommand>) {
+pub(super) fn skill_arguments(name: &str, content: &str, hint: Option<&str>) -> (Option<String>, Vec<Subcommand>) {
     let mut found = Vec::new();
     for choice in hint.and_then(hint_choices).unwrap_or_default() {
         add(&mut found, choice, "");

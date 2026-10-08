@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 /// Where a server for a file is rooted.
 #[derive(Debug, PartialEq)]
-pub enum Root {
+pub(super) enum Root {
     /// The folder of the nearest marker, trying each group in turn; the workspace when none is found.
     Nearest(&'static [&'static [&'static str]]),
     /// The folder of the nearest marker; with none the server is not used for the file.
@@ -14,7 +14,7 @@ pub enum Root {
     Cargo,
 }
 
-pub struct Builtin {
+pub(super) struct Builtin {
     pub name: &'static str,
     /// Commands to try in order; the first installed one runs.
     pub commands: &'static [&'static [&'static str]],
@@ -48,7 +48,7 @@ const fn server(
     }
 }
 
-pub const BUILTIN: &[Builtin] = &[
+pub(super) const BUILTIN: &[Builtin] = &[
     server("rust-analyzer", &[&["rust-analyzer"]], &[".rs"], Root::Cargo),
     Builtin {
         name: "typescript",
@@ -238,7 +238,7 @@ pub const BUILTIN: &[Builtin] = &[
 ];
 
 /// Where the server for `file` roots, or `None` when it is not used for that file.
-pub fn root_for(root: &Root, unless: &[&str], file: &Path, workspace: &Path) -> Option<PathBuf> {
+pub(super) fn root_for(root: &Root, unless: &[&str], file: &Path, workspace: &Path) -> Option<PathBuf> {
     let start = file.parent()?;
     if !unless.is_empty() && nearest(start, workspace, unless).is_some() {
         return None;
@@ -285,7 +285,7 @@ fn holds(dir: &Path, marker: &str) -> bool {
 }
 
 /// The first of `commands` installed: on PATH, else in a `node_modules/.bin` from `root` up to the workspace.
-pub fn installed(commands: &[Vec<String>], root: &Path, workspace: &Path) -> Option<(PathBuf, Vec<String>)> {
+pub(super) fn installed(commands: &[Vec<String>], root: &Path, workspace: &Path) -> Option<(PathBuf, Vec<String>)> {
     let local: Vec<PathBuf> = root
         .ancestors()
         .take_while(|dir| dir.starts_with(workspace))

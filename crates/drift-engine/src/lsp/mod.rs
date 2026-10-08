@@ -55,9 +55,9 @@ pub fn resolve(config: &BTreeMap<String, LspConfig>) -> Vec<Spec> {
             commands: server
                 .commands
                 .iter()
-                .map(|command| command.iter().map(|part| part.to_string()).collect())
+                .map(|command| command.iter().map(ToString::to_string).collect())
                 .collect(),
-            extensions: server.extensions.iter().map(|ext| ext.to_string()).collect(),
+            extensions: server.extensions.iter().map(ToString::to_string).collect(),
             language: None,
             root: &server.root,
             unless: server.unless,

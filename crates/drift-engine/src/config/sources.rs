@@ -301,11 +301,7 @@ fn bearer(token: Option<&str>) -> Vec<(String, String)> {
 }
 
 fn host_of(url: &str) -> Option<String> {
-    url.split("://")
-        .nth(1)?
-        .split('/')
-        .next()
-        .map(|host| host.to_ascii_lowercase())
+    url.split("://").nth(1)?.split('/').next().map(str::to_ascii_lowercase)
 }
 
 /// A token is sent only to the host the source names, never to a download that points elsewhere.

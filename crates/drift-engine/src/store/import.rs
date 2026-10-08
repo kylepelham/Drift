@@ -194,7 +194,7 @@ fn insert_message(conn: &Connection, message: &Message) -> rusqlite::Result<()> 
         message.finished_at,
         message.summary,
         message.agent,
-        message.ending.map(|ending| ending.as_str())
+        message.ending.map(crate::session::types::Ending::as_str)
     ])?;
     Ok(())
 }

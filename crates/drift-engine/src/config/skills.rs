@@ -172,7 +172,7 @@ fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) 
             continue;
         }
         let Some(name) = entry.enclosed_name() else { continue };
-        let relative = name.to_path_buf();
+        let relative = name.clone();
         if !subdirs.is_empty() && !subdirs.iter().any(|sub| relative.starts_with(sub.trim_matches('/'))) {
             continue;
         }

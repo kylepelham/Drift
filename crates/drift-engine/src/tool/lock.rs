@@ -43,7 +43,7 @@ fn writers() -> &'static Writers {
 }
 
 /// Dropping a reservation releases its complete path set or directory tree.
-pub struct Held(u64);
+pub(crate) struct Held(u64);
 
 impl Drop for Held {
     fn drop(&mut self) {
@@ -67,7 +67,7 @@ impl Drop for Pending {
 }
 
 /// Reserves all physical paths at once; dropping a waiting future cancels without retaining any paths.
-pub async fn files(paths: &[PathBuf]) -> Held {
+pub(crate) async fn files(paths: &[PathBuf]) -> Held {
     let mut paths: Vec<PathBuf> = paths.iter().map(|path| path_key(path)).collect();
     paths.sort();
     paths.dedup();
@@ -75,7 +75,7 @@ pub async fn files(paths: &[PathBuf]) -> Held {
 }
 
 /// Excludes all writers beneath this root, irrespective of the workspace each writer belongs to.
-pub async fn workspace(root: &Path) -> Held {
+pub(crate) async fn workspace(root: &Path) -> Held {
     acquire(Scope::Tree(path_key(root))).await
 }
 
