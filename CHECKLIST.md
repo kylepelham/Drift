@@ -318,9 +318,9 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [x] Rust 2024 on a pinned toolchain; rustfmt and Prettier at 120 columns; ESLint (import order, complexity 15, Solid reactivity); clippy thresholds and `[workspace.lints]`
 - [x] Gates check formatting; CI on `next/**` and pull requests with typos, cargo-deny, cargo-machete and nextest; `drift.json` checks TypeScript with ESLint
 - [x] Source-text tests compare code, not layout (`tests/source.ts`)
-- [ ] Typed tool-call metadata (`ToolMetadata`), same JSON, typed in the generated client
+- [x] Typed tool-call metadata (`ToolMetadata`), same JSON, typed in the generated client
 - [ ] Shell, importer and headless crates: workspace lints, typed errors, split files, grouped blocks
-- [ ] ESLint clean, then in the gates and CI
+- [x] ESLint clean, then in the gates and CI
 - [ ] Engine: workspace lints (parameter structs, split functions, `SAFETY` notes), `session/turn.rs` split, typed errors
 - [ ] UI speaks the native engine: `shapes.ts` and `native/adapt.ts` removed, knip clean and in CI
 - [ ] Large UI files split (`settings.tsx`, `parts.tsx`, `chat.tsx`, `markdown.tsx`, `composer.tsx`)
