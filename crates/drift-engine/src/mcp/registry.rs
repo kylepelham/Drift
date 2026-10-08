@@ -164,7 +164,9 @@ impl Servers {
         };
         let opened = tokio::select! {
             opened = open(&row.config, row.hash.clone(), sign_in, row.era, key.workspace.as_deref()) => opened,
-            () = attempt.cancel.cancelled() => Err(Failure::from("server definition changed during connect".to_string())),
+            () = attempt.cancel.cancelled() => {
+                Err(Failure::from("server definition changed during connect".to_string()))
+            }
         };
 
         let finished = self.finish(&row, &connecting, hub, opened);

@@ -97,7 +97,13 @@ fn body(request: &Request) -> Value {
         let declarations: Vec<Value> = request
             .tools
             .iter()
-            .map(|tool| json!({ "name": tool.name, "description": tool.description, "parametersJsonSchema": tool.input_schema }))
+            .map(|tool| {
+                json!({
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parametersJsonSchema": tool.input_schema
+                })
+            })
             .collect();
         body["tools"] = json!([{ "functionDeclarations": declarations }]);
         if request.no_tool_calls {

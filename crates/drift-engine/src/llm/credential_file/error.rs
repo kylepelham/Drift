@@ -31,7 +31,8 @@ pub enum FileError {
     ProtectionMethod,
     #[cfg(not(windows))]
     #[error(
-        "keychain unavailable; set DRIFT_CREDENTIALS_KEY to a base64-encoded 32-byte key for encrypted credential persistence"
+        "keychain unavailable; set DRIFT_CREDENTIALS_KEY to a base64-encoded 32-byte key \
+         for encrypted credential persistence"
     )]
     Unavailable,
     #[cfg(windows)]

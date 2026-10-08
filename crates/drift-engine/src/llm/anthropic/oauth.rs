@@ -51,7 +51,8 @@ pub fn start(mode: Mode) -> Started {
         Mode::Console => AUTHORIZE_CONSOLE,
     };
     let url = format!(
-        "{base}?code=true&client_id={CLIENT_ID}&response_type=code&redirect_uri={}&scope={}&code_challenge={challenge}&code_challenge_method=S256&state={state}",
+        "{base}?code=true&client_id={CLIENT_ID}&response_type=code&redirect_uri={}&scope={}\
+         &code_challenge={challenge}&code_challenge_method=S256&state={state}",
         encode(REDIRECT_URI),
         encode(SCOPES)
     );

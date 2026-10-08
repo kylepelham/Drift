@@ -81,7 +81,9 @@ impl Live {
 
 fn call_error(error: ServiceError) -> CallError {
     match error {
-        ServiceError::TransportClosed | ServiceError::TransportSend(_) | ServiceError::Cancelled { .. } => CallError::Lost,
+        ServiceError::TransportClosed | ServiceError::TransportSend(_) | ServiceError::Cancelled { .. } => {
+            CallError::Lost
+        }
         ServiceError::InputRequiredRoundsExceeded { .. } => CallError::Failed(concat!(
             "the server kept asking for input Drift does not give (a person's answer, a model's reply or the roots), ",
             "so the call did not finish",

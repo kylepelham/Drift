@@ -110,7 +110,8 @@ pub(crate) async fn respond(socket: &mut tokio::net::TcpStream, status: u16, tex
         .replace("{title}", title)
         .replace("{text}", text);
     let response = format!(
-        "HTTP/1.1 {status} {reason}\r\ncontent-type: text/html; charset=utf-8\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status} {reason}\r\ncontent-type: text/html; charset=utf-8\r\n\
+         content-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
     );
 
