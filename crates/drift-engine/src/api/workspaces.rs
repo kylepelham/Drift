@@ -42,6 +42,7 @@ pub(super) async fn create(
         .store
         .add_workspace(&body.path, &body.name, &body.icon)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     engine.hub.publish(Event::WorkspaceCreated {
         workspace: workspace.clone(),
     });
@@ -70,6 +71,7 @@ pub(super) async fn files(
         .workspace(&id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+
     let root = crate::tool::canonical(std::path::Path::new(&workspace.path));
     let limit = query.limit.unwrap_or(20).clamp(1, 200);
     let found = tokio::task::spawn_blocking(move || crate::tool::glob::search_names(&root, &query.query, limit))
@@ -118,6 +120,7 @@ pub(super) async fn config(
         .workspace(&id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+
     let path = crate::tool::canonical(std::path::Path::new(&workspace.path));
     let mut config = engine.workspace_config(&path);
     // As opencode starts a project's MCP servers when it opens, a workspace's stdio servers start when its config is first asked for.

@@ -34,6 +34,7 @@ pub(super) async fn save_rules(
     if let Some(problem) = rules.iter().find_map(Rule::problem) {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", problem));
     }
+
     engine.set_permission_rules(rules)?;
     Ok(Json(engine.permission_rules()))
 }

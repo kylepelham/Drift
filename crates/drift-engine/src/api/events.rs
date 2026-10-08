@@ -134,6 +134,8 @@ async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>, lease:
         engine: engine.clone(),
         socket: SOCKETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
     };
+
+    // Hello first, then whatever the cursor missed.
     let attached = engine.hub.attach(cursor);
     let mut rx = attached.rx;
     let mut client = Client {
@@ -148,6 +150,7 @@ async fn run(engine: Arc<Engine>, socket: WebSocket, cursor: Option<u64>, lease:
     if !client.send(&Frame::Control(hello)).await || !client.catch_up(attached.seq, attached.replay).await {
         return;
     }
+
     let (results, mut finished) = mpsc::unbounded_channel();
     loop {
         tokio::select! {

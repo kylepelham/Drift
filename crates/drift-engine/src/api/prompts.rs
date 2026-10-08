@@ -66,6 +66,7 @@ fn listed(engine: &Engine) -> Result<BasePrompts, ApiError> {
             custom,
         });
     }
+
     Ok(BasePrompts {
         prompts,
         shared: prompt::shared_rules().into(),
@@ -85,6 +86,7 @@ pub(super) async fn save(
     Json(body): Json<PromptBody>,
 ) -> Result<Json<BasePrompts>, ApiError> {
     known(&id)?;
+
     if body.text.trim().is_empty() {
         return Err(ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -99,6 +101,7 @@ pub(super) async fn save(
             format!("a base prompt holds at most {} KB", MAX_PROMPT_BYTES / 1024),
         ));
     }
+
     engine.store.set_setting(&prompt::custom_key(&id), &body.text)?;
     Ok(Json(listed(&engine)?))
 }

@@ -42,6 +42,7 @@ pub(super) async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<Provider
         .values()
         .map(|info| status(&engine, info, &stored))
         .collect();
+
     Json(statuses)
 }
 
@@ -53,6 +54,7 @@ fn status(engine: &Engine, info: &ProviderInfo, stored: &[String]) -> ProviderSt
     } else {
         None
     };
+
     ProviderStatus {
         id: info.id.clone(),
         name: info.name.clone(),
@@ -75,20 +77,18 @@ pub(super) async fn set_key(
     if key.is_empty() {
         return Err(ApiError::new(StatusCode::BAD_REQUEST, "invalid", "key is empty"));
     }
+
     engine
         .credentials
         .set(&id, &Credential::ApiKey { key: key.into() })
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e.to_string()))?;
+        .map_err(credentials_error)?;
     credentials_changed(&engine);
     Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(delete, path = "/providers/{id}/credentials", operation_id = "removeProviderCredentials", responses((status = 204)))]
 pub(super) async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
-    engine
-        .credentials
-        .remove(&id)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e.to_string()))?;
+    engine.credentials.remove(&id).map_err(credentials_error)?;
     engine.hub.publish(crate::event::Event::CatalogUpdated {});
     Ok(StatusCode::NO_CONTENT)
 }
@@ -157,6 +157,7 @@ pub(super) async fn oauth_start(
         ("xai", OAuthMode::Supergrok) => return supergrok_start(&engine).await,
         _ => return Err(ApiError::not_found("oauth provider")),
     };
+
     engine
         .oauth
         .lock()
@@ -174,7 +175,8 @@ pub(super) async fn oauth_start(
 async fn supergrok_start(engine: &Arc<Engine>) -> Result<Json<OAuthStarted>, ApiError> {
     let device = crate::llm::xai::start(&engine.http)
         .await
-        .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e.to_string()))?;
+        .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", error.to_string()))?;
+
     let state = crate::random_hex(16);
     engine
         .oauth
@@ -195,53 +197,53 @@ pub(super) async fn oauth_finish(
     Path(id): Path<String>,
     Json(body): Json<OAuthFinishBody>,
 ) -> Result<StatusCode, ApiError> {
-    let invalid = |message: &str| ApiError::new(StatusCode::BAD_REQUEST, "invalid", message);
     let credential = match id.as_str() {
         "anthropic" => {
             let (code, state) = oauth::parse_callback(&body.input)
                 .ok_or_else(|| invalid("paste the code#state value or the callback URL"))?;
-            let verifier = engine
-                .oauth
-                .lock()
-                .unwrap()
-                .remove(&state)
-                .ok_or_else(|| invalid("unknown or expired sign-in state"))?;
+            let verifier = pending(&engine, &state)?;
             oauth::exchange(&engine.http, &code, &state, &verifier).await
         }
         "openai" => {
             let state = body.state.ok_or_else(|| invalid("state is required"))?;
-            let verifier = engine
-                .oauth
-                .lock()
-                .unwrap()
-                .remove(&state)
-                .ok_or_else(|| invalid("unknown or expired sign-in state"))?;
+            let verifier = pending(&engine, &state)?;
             let code = codex::wait_for_callback(&state)
                 .await
-                .map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e.to_string()))?;
+                .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", error.to_string()))?;
             codex::exchange(&engine.http, &code, &verifier).await
         }
         "xai" => {
             let state = body.state.ok_or_else(|| invalid("state is required"))?;
-            let started = engine
-                .oauth
-                .lock()
-                .unwrap()
-                .remove(&state)
-                .ok_or_else(|| invalid("unknown or expired sign-in state"))?;
+            let started = pending(&engine, &state)?;
             let device: crate::llm::xai::Device =
                 serde_json::from_str(&started).map_err(|_| invalid("unknown or expired sign-in state"))?;
             crate::llm::xai::wait(&engine.http, &device).await
         }
         _ => return Err(ApiError::not_found("oauth provider")),
     };
-    let credential = credential.map_err(|e| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", e.to_string()))?;
-    engine
-        .credentials
-        .set(&id, &credential)
-        .map_err(|e| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", e.to_string()))?;
+    let credential = credential.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", error.to_string()))?;
+
+    engine.credentials.set(&id, &credential).map_err(credentials_error)?;
     credentials_changed(&engine);
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// What `startOAuth` kept for `state`, taken so a sign-in finishes once.
+fn pending(engine: &Engine, state: &str) -> Result<String, ApiError> {
+    engine
+        .oauth
+        .lock()
+        .unwrap()
+        .remove(state)
+        .ok_or_else(|| invalid("unknown or expired sign-in state"))
+}
+
+fn invalid(message: &str) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "invalid", message)
+}
+
+fn credentials_error(error: impl std::fmt::Display) -> ApiError {
+    ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", error.to_string())
 }
 
 /// A sign-in changes which models a provider offers (a ChatGPT one only what Codex takes), so the picker reloads.

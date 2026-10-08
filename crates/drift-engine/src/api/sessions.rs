@@ -78,6 +78,7 @@ pub(super) async fn list(
         before: query.before.as_deref(),
         limit: query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT),
     })?;
+
     for session in &mut sessions {
         session.running = engine.turns.is_running(&session.id);
     }
@@ -93,20 +94,23 @@ pub(super) async fn create(
         .store
         .workspace(&body.workspace_id)?
         .ok_or_else(|| ApiError::not_found("workspace"))?;
+    // The workspace's default agent, read only when the body names none.
     let config = body
         .agent
         .is_none()
         .then(|| engine.workspace_config(&crate::tool::canonical(std::path::Path::new(&workspace.path))));
+    let agent = body
+        .agent
+        .as_deref()
+        .or_else(|| config.as_ref().map(crate::config::Config::default_agent))
+        .unwrap_or("build");
+
     let session = engine.store.create_session(NewSession {
         workspace_id: &body.workspace_id,
         parent_id: None,
         visibility: Visibility::Sibling,
         title: &body.title,
-        agent: body
-            .agent
-            .as_deref()
-            .or_else(|| config.as_ref().map(crate::config::Config::default_agent))
-            .unwrap_or("build"),
+        agent,
         model: body.model.as_ref(),
     })?;
     engine.hub.publish(Event::SessionCreated {
@@ -115,12 +119,14 @@ pub(super) async fn create(
     Ok((StatusCode::CREATED, Json(session)))
 }
 
+/// The session, or 404 when there is none by that id.
+fn known(engine: &Engine, id: &str) -> Result<Session, ApiError> {
+    engine.store.session(id)?.ok_or_else(|| ApiError::not_found("session"))
+}
+
 #[utoipa::path(get, path = "/sessions/{id}", operation_id = "getSession", responses((status = 200, body = Session), (status = 404)))]
 pub(super) async fn get(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<Json<Session>, ApiError> {
-    let mut session = engine
-        .store
-        .session(&id)?
-        .ok_or_else(|| ApiError::not_found("session"))?;
+    let mut session = known(&engine, &id)?;
     session.running = engine.turns.is_running(&id);
     Ok(Json(session))
 }
@@ -135,6 +141,7 @@ pub(super) async fn update(
         .store
         .update_session(&id, body.title.as_deref(), body.model.as_ref(), body.agent.as_deref())?
         .ok_or_else(|| ApiError::not_found("session"))?;
+
     if let Some(archived) = body.archived {
         if archived {
             engine.abort(&id);
@@ -150,6 +157,7 @@ pub(super) async fn update(
             .set_session_auto_accept(&id, on)?
             .ok_or_else(|| ApiError::not_found("session"))?;
     }
+
     engine.hub.publish(Event::SessionUpdated {
         session: session.clone(),
     });
@@ -164,10 +172,8 @@ pub(super) async fn messages(
     Path(id): Path<String>,
     Query(query): Query<MessagesQuery>,
 ) -> Result<Json<Vec<MessageWithParts>>, ApiError> {
-    engine
-        .store
-        .session(&id)?
-        .ok_or_else(|| ApiError::not_found("session"))?;
+    known(&engine, &id)?;
+
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
     Ok(Json(engine.store.messages(&id, query.before.as_deref(), limit)?))
 }
@@ -265,10 +271,8 @@ pub(super) async fn todos(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<crate::session::types::Todo>>, ApiError> {
-    engine
-        .store
-        .session(&id)?
-        .ok_or_else(|| ApiError::not_found("session"))?;
+    known(&engine, &id)?;
+
     Ok(Json(engine.store.todos(&id)?))
 }
 
@@ -278,10 +282,8 @@ pub(super) async fn tasks(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<TaskRecord>>, ApiError> {
-    engine
-        .store
-        .session(&id)?
-        .ok_or_else(|| ApiError::not_found("session"))?;
+    known(&engine, &id)?;
+
     Ok(Json(engine.store.tasks_of(&id)?))
 }
 
@@ -302,6 +304,7 @@ pub(super) async fn abort_task(
     Path(id): Path<String>,
 ) -> Result<Json<TaskRecord>, ApiError> {
     engine.store.task(&id)?.ok_or_else(|| ApiError::not_found("task"))?;
+
     Ok(Json(engine.stop_task(&id)?))
 }
 
@@ -332,12 +335,14 @@ pub(super) async fn delete(
             Purge::Missing => return Err(ApiError::not_found("session")),
         }
     }
+
     engine.abort(&id);
     engine.permissions.forget_session(&id);
     engine.questions.forget_session(&id);
     if !query.archived && !engine.store.delete_session(&id)? {
         return Err(ApiError::not_found("session"));
     }
+
     engine.hub.publish(Event::SessionDeleted { session_id: id });
     Ok(StatusCode::NO_CONTENT)
 }
