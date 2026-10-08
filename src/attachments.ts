@@ -190,10 +190,17 @@ export function resolveAttachmentKind(input: {
   bytes?: Uint8Array
 }): AttachmentResolution {
   const ext = extension(input.filename)
-  const basename = input.filename?.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase() ?? ""
   const declared = normalizedMime(input.mime)
   const bytes = input.bytes
 
+  return (
+    resolveSignature(ext, declared, bytes) ??
+    resolveMedia(ext, declared, bytes) ??
+    resolveText(input.filename, ext, declared)
+  )
+}
+
+function resolveSignature(ext: string, declared: string, bytes?: Uint8Array): AttachmentResolution | undefined {
   if (
     starts(bytes, [0x50, 0x4b, 0x03, 0x04]) ||
     archiveExtensions.has(ext) ||
@@ -205,6 +212,9 @@ export function resolveAttachmentKind(input: {
     return { kind: "unsupported", reason: "binary", mime: declared || "application/octet-stream" }
   if (starts(bytes, [0x25, 0x50, 0x44, 0x46]) || ext === "pdf" || declared === "application/pdf")
     return { kind: "pdf", mime: "application/pdf" }
+}
+
+function resolveMedia(ext: string, declared: string, bytes?: Uint8Array): AttachmentResolution | undefined {
   if (
     starts(bytes, [0x89, 0x50, 0x4e, 0x47]) ||
     starts(bytes, [0xff, 0xd8, 0xff]) ||
@@ -216,6 +226,11 @@ export function resolveAttachmentKind(input: {
     return { kind: "audio", mime: declared.startsWith("audio/") ? declared : mimeForExtension(ext, "audio/mpeg") }
   if (videoExtensions.has(ext) || declared.startsWith("video/"))
     return { kind: "video", mime: declared.startsWith("video/") ? declared : mimeForExtension(ext, "video/mp4") }
+}
+
+function resolveText(filename: string | undefined, ext: string, declared: string): AttachmentResolution {
+  const basename = attachmentBasename(filename)
+
   if (csvExtensions.has(ext) || declared === "text/csv" || declared === "text/tab-separated-values")
     return {
       kind: "csv",
@@ -229,6 +244,10 @@ export function resolveAttachmentKind(input: {
   )
     return { kind: "text", mime: declared && declared !== "application/octet-stream" ? declared : "text/plain" }
   return { kind: "unsupported", reason: "binary", mime: declared || "application/octet-stream" }
+}
+
+function attachmentBasename(filename?: string) {
+  return filename?.replaceAll("\\", "/").split("/").at(-1)?.toLowerCase() ?? ""
 }
 
 function mimeForExtension(ext: string, fallback: string) {
@@ -314,7 +333,7 @@ function parseDelimitedRows(text: string, delimiter: string) {
       field = ""
       continue
     }
-    if ((character === "\n" || character === "\r") && !quoted) {
+    if (isRowBreak(character, quoted)) {
       if (character === "\r" && text[index + 1] === "\n") index++
       row.push(field)
       rows.push(row)
@@ -329,6 +348,10 @@ function parseDelimitedRows(text: string, delimiter: string) {
     rows.push(row)
   }
   return rows
+}
+
+function isRowBreak(character: string, quoted: boolean) {
+  return (character === "\n" || character === "\r") && !quoted
 }
 
 export function sniffDelimiter(text: string) {

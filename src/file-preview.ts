@@ -33,11 +33,10 @@ export async function readFilePreview(request: FilePreviewRequest) {
 export function previewParentDirectory(path: string) {
   const normalized = path.replaceAll("\\", "/")
   const split = normalized.lastIndexOf("/")
-  return split <= 0
-    ? "/"
-    : /^[a-z]:\/$/i.test(normalized.slice(0, split + 1))
-      ? normalized.slice(0, split + 1)
-      : normalized.slice(0, split)
+  if (split <= 0) return "/"
+
+  const parent = normalized.slice(0, split + 1)
+  return /^[a-z]:\/$/i.test(parent) ? parent : normalized.slice(0, split)
 }
 
 // Limit rendered cells and stop parsing once the visible row window is full.
@@ -60,12 +59,12 @@ export function previewTable(text: string, delimiter: string, rowLimit = 200, co
         index++
       } else quoted = !quoted
     } else if (!quoted && character === delimiter) cell()
-    else if (!quoted && (character === "\n" || character === "\r")) {
+    else if (isRowBreak(character, quoted)) {
       if (character === "\r" && text[index + 1] === "\n") index++
       cell()
       rows.push(row)
       row = []
-      if (rows.length >= rowLimit) return { rows, truncated: truncated || index + 1 < text.length }
+      if (rows.length >= rowLimit) return tableWindow(rows, truncated, index, text.length)
     } else field += character
   }
   if (field || row.length) {
@@ -73,4 +72,12 @@ export function previewTable(text: string, delimiter: string, rowLimit = 200, co
     rows.push(row)
   }
   return { rows, truncated }
+}
+
+function isRowBreak(character: string, quoted: boolean) {
+  return !quoted && (character === "\n" || character === "\r")
+}
+
+function tableWindow(rows: string[][], truncated: boolean, index: number, length: number) {
+  return { rows, truncated: truncated || index + 1 < length }
 }

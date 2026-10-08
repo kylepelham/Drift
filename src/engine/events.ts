@@ -26,16 +26,43 @@ import type { SetStoreFunction } from "solid-js/store"
 type SetEngineState = SetStoreFunction<EngineState>
 
 export function reduce(set: SetEngineState, event: Event, directory?: string, reconcile?: (sessionID: string) => void) {
+  if (reduceExtended(set, event, directory, reconcile)) return
+
+  reduceTyped(set, event, directory)
+}
+
+function reduceExtended(
+  set: SetEngineState,
+  event: Event,
+  directory?: string,
+  reconcile?: (sessionID: string) => void,
+) {
+  const handled = new Set([
+    "question.v2.asked",
+    "question.asked",
+    "question.v2.replied",
+    "question.v2.rejected",
+    "question.replied",
+    "question.rejected",
+    "permission.v2.replied",
+    "permission.replied",
+    "tui.toast.show",
+    "message.part.delta",
+    "session.compacted",
+    "session.next.moved",
+  ])
+  if (!handled.has(event.type)) return false
+
+  reduceRaw(set, event, directory, reconcile)
+  return true
+}
+
+function reduceRaw(set: SetEngineState, event: Event, directory?: string, reconcile?: (sessionID: string) => void) {
   // These events are newer than the generated v1 SDK's Event union.
   const raw = event as { id?: string; type: string; properties: Record<string, unknown> }
   if (raw.type === "question.v2.asked" || raw.type === "question.asked")
     return addQuestion(set, { ...(raw.properties as unknown as QuestionRequest), directory })
-  if (
-    raw.type === "question.v2.replied" ||
-    raw.type === "question.v2.rejected" ||
-    raw.type === "question.replied" ||
-    raw.type === "question.rejected"
-  )
+  if (["question.v2.replied", "question.v2.rejected", "question.replied", "question.rejected"].includes(raw.type))
     return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string, directory)
   if (raw.type === "permission.v2.replied" || raw.type === "permission.replied")
     return dropPermission(
@@ -70,6 +97,9 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, re
         timestamp: number
       },
     )
+}
+
+function reduceTyped(set: SetEngineState, event: Event, directory?: string) {
   switch (event.type) {
     case "session.created":
     case "session.updated":
@@ -85,9 +115,7 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, re
           if (event.properties.status.type === "idle") clearLiveTools(draft, sessionID)
         }),
       )
-      if (event.properties.status.type !== "idle") {
-        clearError(set, event.properties.sessionID)
-      }
+      clearActiveError(set, sessionID, event.properties.status)
       return
     }
     case "session.idle":
@@ -115,6 +143,10 @@ export function reduce(set: SetEngineState, event: Event, directory?: string, re
     case "todo.updated":
       return set("todos", event.properties.sessionID, event.properties.todos)
   }
+}
+
+function clearActiveError(set: SetEngineState, sessionID: string, status: SessionStatus) {
+  if (status.type !== "idle") clearError(set, sessionID)
 }
 
 function upsertSession(set: SetEngineState, info: Session) {

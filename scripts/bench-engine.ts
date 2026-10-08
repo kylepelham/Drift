@@ -32,11 +32,7 @@ function stubProvider(file: string) {
       }
       const messages = body.messages ?? []
       const users = messages.filter((m) => m.role === "user").map((m) => JSON.stringify(m.content))
-      const marker = users
-        .at(-1)
-        ?.match(/(turn|read) (\d+)/)
-        ?.slice(1)
-        .join(" ")
+      const marker = requestMarker(users)
       const last = messages.at(-1)?.role ?? ""
       const tools = body.tools ?? []
       const system = messages
@@ -72,6 +68,14 @@ function stubProvider(file: string) {
 }
 
 type Stub = ReturnType<typeof stubProvider>
+
+function requestMarker(users: string[]) {
+  return users
+    .at(-1)
+    ?.match(/(turn|read) (\d+)/)
+    ?.slice(1)
+    .join(" ")
+}
 
 /** What a benchmark needs of an engine, whichever it is. */
 type Engine = {

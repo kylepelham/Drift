@@ -160,12 +160,7 @@ function packageOption(item: RegistryPackage, index: number): InstallOption | nu
   return {
     id: `package:${index}`,
     kind: runtime.kind,
-    detail:
-      runtime.kind === "docker"
-        ? (reference.split("@")[0].match(/:([^/:]+)$/)?.[1] ?? "latest")
-        : isPinned(item.registryType, item.version)
-          ? item.version
-          : "latest",
+    detail: packageDetail(runtime.kind, reference, item),
     fields: fieldsOf([...runtimeArguments, ...envParts, ...packageArguments]),
     build(values) {
       const before = filledArguments(runtimeArguments, values)
@@ -181,6 +176,12 @@ function packageOption(item: RegistryPackage, index: number): InstallOption | nu
       }
     },
   }
+}
+
+function packageDetail(kind: InstallKind, reference: string, item: RegistryPackage) {
+  if (kind === "docker") return reference.split("@")[0].match(/:([^/:]+)$/)?.[1] ?? "latest"
+
+  return isPinned(item.registryType, item.version) ? item.version : "latest"
 }
 
 /** npx gets `-y`, so it never stops to ask on the server's stdin; docker gets each variable passed through by name. */
@@ -215,12 +216,11 @@ function packageReference(item: RegistryPackage) {
   const pinned = isPinned(item.registryType, item.version)
   if (item.registryType === "npm")
     return validNpmIdentifier(item.identifier) ? `${item.identifier}@${pinned ? item.version : "latest"}` : null
-  if (item.registryType === "pypi")
-    return validPypiIdentifier(item.identifier)
-      ? pinned
-        ? `${item.identifier}==${item.version}`
-        : item.identifier
-      : null
+  if (item.registryType === "pypi") {
+    if (!validPypiIdentifier(item.identifier)) return null
+
+    return pinned ? `${item.identifier}==${item.version}` : item.identifier
+  }
   return validImage(item.identifier) ? item.identifier : null
 }
 
@@ -265,7 +265,7 @@ function template(
   const fixed: Record<string, string> = {}
   for (const name of names) {
     const variable = variables?.[name]
-    const given = variable && (Object.prototype.hasOwnProperty.call(variable, "value") ? variable.value : undefined)
+    const given = variableValue(variable)
     if (typeof given === "string" && !/[{}]/.test(given)) {
       fixed[name] = given
       continue
@@ -298,6 +298,12 @@ function template(
   }
 }
 
+function variableValue(variable: RegistryInput | undefined) {
+  if (!variable) return variable
+
+  return Object.prototype.hasOwnProperty.call(variable, "value") ? variable.value : undefined
+}
+
 function typed(value: string | undefined) {
   const trimmed = value?.trim()
   return trimmed ? trimmed : undefined
@@ -312,11 +318,7 @@ function fieldsOf(parts: Part[]) {
 function argumentParts(items: RegistryArgument[] | undefined, key: string) {
   const parts: (Part & { argument: RegistryArgument })[] = []
   for (const [index, item] of (items ?? []).entries()) {
-    if (
-      item.isRepeated ||
-      (item.type === "named" && (!item.name || !/^-{1,2}[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item.name)))
-    )
-      return null
+    if (!validArgument(item)) return null
     if (item.type !== "named" && item.type !== "positional") return null
     // A named argument with nothing to put after it is a flag: present when the entry requires it, else left out.
     const flag = item.type === "named" && item.value === undefined && item.default === undefined && !item.variables
@@ -329,6 +331,13 @@ function argumentParts(items: RegistryArgument[] | undefined, key: string) {
     parts.push({ ...part, argument: item })
   }
   return parts
+}
+
+function validArgument(item: RegistryArgument) {
+  return (
+    !item.isRepeated &&
+    !(item.type === "named" && (!item.name || !/^-{1,2}[A-Za-z0-9][A-Za-z0-9._-]*$/.test(item.name)))
+  )
 }
 
 /** A double-dash flag takes its value after `=`, a single-dash one as the next word; an optional argument left empty is dropped. */

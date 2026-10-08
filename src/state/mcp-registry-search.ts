@@ -118,16 +118,34 @@ export function registryScore(server: RegistryServer, query: string) {
   let score = 0
   for (const word of words) {
     const points = Math.max(
-      title === word ? 100 : title.startsWith(word) ? 70 : title.includes(word) ? 45 : 0,
-      name.split(/[._-]/).includes(word) ? 50 : name.includes(word) ? 30 : 0,
-      publisher === word ? 40 : publisher.includes(word) ? 20 : 0,
-      topics.includes(word) ? 25 : topics.some((topic) => topic.includes(word)) ? 12 : 0,
+      titleScore(title, word),
+      matchScore(name.split(/[._-]/).includes(word), name.includes(word), 50, 30),
+      matchScore(publisher === word, publisher.includes(word), 40, 20),
+      matchScore(
+        topics.includes(word),
+        topics.some((topic) => topic.includes(word)),
+        25,
+        12,
+      ),
       description.includes(word) ? 10 : 0,
     )
     if (!points) return 0
     score += points
   }
   return score
+}
+
+function titleScore(title: string, word: string) {
+  if (title === word) return 100
+  if (title.startsWith(word)) return 70
+
+  return title.includes(word) ? 45 : 0
+}
+
+function matchScore(exact: boolean, partial: boolean, exactPoints: number, partialPoints: number) {
+  if (exact) return exactPoints
+
+  return partial ? partialPoints : 0
 }
 
 /** The servers that match, best first, popularity breaking ties; with no query, all of them by popularity. */
@@ -242,9 +260,7 @@ function parsePackage(value: unknown): RegistryPackage | null {
   const item = record(value)
   const transport = record(item?.transport)
   if (!item || !transport || !text(transport.type, 40)) return null
-  if (!text(item.registryType, 40) || !text(item.identifier, 500)) return null
-  if (item.version !== undefined && !text(item.version, 255)) return null
-  if (item.runtimeHint !== undefined && !text(item.runtimeHint, 40)) return null
+  if (!validPackageOptions(item)) return null
   const runtimeArguments = optionalArray(item.runtimeArguments, parseArgument)
   const packageArguments = optionalArray(item.packageArguments, parseArgument)
   const environmentVariables = optionalArray(item.environmentVariables, parseVariable)
@@ -259,6 +275,14 @@ function parsePackage(value: unknown): RegistryPackage | null {
     ...(packageArguments ? { packageArguments } : {}),
     ...(environmentVariables ? { environmentVariables } : {}),
   }
+}
+
+function validPackageOptions(item: Record<string, unknown>) {
+  if (!text(item.registryType, 40) || !text(item.identifier, 500)) return false
+  if (item.version !== undefined && !text(item.version, 255)) return false
+  if (item.runtimeHint !== undefined && !text(item.runtimeHint, 40)) return false
+
+  return true
 }
 
 function parseRemote(value: unknown): RegistryRemote | null {

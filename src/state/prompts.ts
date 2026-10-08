@@ -33,11 +33,7 @@ export function agentBehaviorIssue(behavior: Record<string, unknown>): string | 
   const steps = behavior.steps
   if (steps !== undefined && !(typeof steps === "number" && Number.isInteger(steps) && steps > 0)) return "steps"
   const tools = behavior.tools
-  if (
-    tools !== undefined &&
-    !(Array.isArray(tools) && tools.length > 0 && tools.every((tool) => typeof tool === "string"))
-  )
-    return "tools"
+  if (tools !== undefined && !validTools(tools)) return "tools"
   const permissions = behavior.permissions
   if (
     permissions !== undefined &&
@@ -54,6 +50,10 @@ export function agentBehaviorIssue(behavior: Record<string, unknown>): string | 
     )
   )
     return "permissions"
+}
+
+function validTools(tools: unknown) {
+  return Array.isArray(tools) && tools.length > 0 && tools.every((tool) => typeof tool === "string")
 }
 
 /** A stored override keeps only what the engine still applies, so saving never re-sends retired fields. */

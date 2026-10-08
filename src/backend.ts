@@ -2,7 +2,10 @@ import { shellInvoke, type ShellInvoke } from "./shell"
 import { isRemoteRuntime } from "./runtime"
 
 export function backendRoute(desktop: boolean, remote: boolean) {
-  return desktop ? "tauri" : remote ? "rpc" : "browser"
+  if (desktop) return "tauri"
+  if (remote) return "rpc"
+
+  return "browser"
 }
 
 export function backendInvoke(): ShellInvoke | undefined {

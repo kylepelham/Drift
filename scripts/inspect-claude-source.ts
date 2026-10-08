@@ -134,11 +134,7 @@ function callCategories(calls: TenguCall[]) {
   const labels = ["candidateFlagAccessor", "telemetryEvent", "otherCallee"] as const
   const categories = new Map(labels.map((label) => [label, { count: 0, names: new Set<string>() }]))
   for (const call of calls) {
-    const label = ["F8", "p5", "oS"].includes(call.callee)
-      ? "candidateFlagAccessor"
-      : call.callee === "c"
-        ? "telemetryEvent"
-        : "otherCallee"
+    const label = callCategory(call.callee)
     const group = categories.get(label)!
     group.count++
     group.names.add(call.name)
@@ -149,6 +145,13 @@ function callCategories(calls: TenguCall[]) {
       { count: categories.get(label)!.count, distinctNames: categories.get(label)!.names.size },
     ]),
   )
+}
+
+function callCategory(callee: string) {
+  if (["F8", "p5", "oS"].includes(callee)) return "candidateFlagAccessor"
+  if (callee === "c") return "telemetryEvent"
+
+  return "otherCallee"
 }
 
 export function indexSource(ts: TS, data: Buffer, base: number) {

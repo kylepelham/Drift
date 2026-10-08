@@ -123,13 +123,7 @@ export function validatePublishedRelease(release: GitHubRelease, runId: string, 
   const markerMatches = [...body.matchAll(releaseAssetsMarkerPattern)]
   if (markerMatches.length !== 1) throw new Error("Published release must contain exactly one immutable asset manifest")
 
-  let manifest: ReleaseAssetDigest[]
-  try {
-    manifest = JSON.parse(Buffer.from(markerMatches[0][1], "base64url").toString("utf8"))
-  } catch {
-    throw new Error("Published release has an invalid immutable asset manifest")
-  }
-  if (!Array.isArray(manifest)) throw new Error("Published release has an invalid immutable asset manifest")
+  const manifest = readAssetManifest(markerMatches[0][1])
   releaseAssetsMarker(manifest)
 
   const assets = (release.assets ?? []).map((asset) => ({
@@ -155,6 +149,18 @@ export function validatePublishedRelease(release: GitHubRelease, runId: string, 
   }
   if (digests.size !== assets.length)
     throw new Error("Published release asset manifest does not match published assets")
+}
+
+function readAssetManifest(encoded: string): ReleaseAssetDigest[] {
+  let manifest: ReleaseAssetDigest[]
+  try {
+    manifest = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"))
+  } catch {
+    throw new Error("Published release has an invalid immutable asset manifest")
+  }
+  if (!Array.isArray(manifest)) throw new Error("Published release has an invalid immutable asset manifest")
+
+  return manifest
 }
 
 export function validateReleasePolicy(input: {

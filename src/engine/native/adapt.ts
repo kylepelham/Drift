@@ -82,6 +82,13 @@ export function adaptMessage(message: NativeMessage, directory: string): Message
   if (message.status === "paused")
     assistant.error = { name: "MessageAbortedError", data: { message: message.error ?? "Paused" } }
   if (message.status === "done") assistant.finish = "stop"
+  applyMessageEnding(assistant, message)
+  if (message.summary) assistant.summary = true
+
+  return assistant
+}
+
+function applyMessageEnding(assistant: AssistantMessage, message: NativeMessage) {
   // A finished reply that did not end on its own says how (`ending`), and `error` says it in words.
   if (message.status === "done" && message.ending === "length") {
     assistant.finish = "length"
@@ -97,8 +104,6 @@ export function adaptMessage(message: NativeMessage, directory: string): Message
       data: { message: message.error ?? "The provider's safety filter ended the reply." },
     }
   }
-  if (message.summary) assistant.summary = true
-  return assistant
 }
 
 export function adaptPart(row: NativePartRow): Part {
@@ -283,8 +288,6 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
           status: event.status === "running" ? { type: "busy" } : { type: "idle" },
         },
       }
-    case "message.removed":
-      return { type: "message.removed", properties: { sessionID: event.sessionId, messageID: event.messageId } }
     case "session.retry":
       return {
         type: "session.status",
@@ -293,6 +296,15 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
           status: { type: "retry", attempt: event.attempt, message: event.message, next: event.nextAt },
         },
       }
+    default:
+      return adaptContentEvent(event)
+  }
+}
+
+function adaptContentEvent(event: NativeEvent): Event | undefined {
+  switch (event.type) {
+    case "message.removed":
+      return { type: "message.removed", properties: { sessionID: event.sessionId, messageID: event.messageId } }
     case "message.created":
     case "message.updated":
       return { type: "message.updated", properties: { info: adaptMessage(event.message, "") } }
@@ -339,11 +351,7 @@ export function adaptEvent(event: NativeEvent, workspaces: WorkspaceIndex): Even
           duration: 8000,
         },
       } as unknown as Event
-    case "catalog.updated":
-    case "mcp.updated":
-    case "mcp.removed":
-    case "workspace.created":
-    case "task.updated":
+    default:
       return undefined
   }
 }

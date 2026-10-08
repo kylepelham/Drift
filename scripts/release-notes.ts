@@ -146,18 +146,7 @@ async function main() {
   const output = process.argv[2] ?? "release-notes.md"
   if (!repository || !token || !current || !sha) throw new Error("Missing GitHub release environment")
 
-  let previous: string | undefined
-  let releasesRead = false
-  try {
-    previous = previousReleaseTag(await github<Release[]>(repository, token, "/releases?per_page=100"), current)
-    releasesRead = true
-  } catch (error) {
-    console.warn("Could not read published releases; falling back to local tags", error)
-  }
-  if (!releasesRead)
-    previous = git(["tag", "--sort=-version:refname"])
-      .split("\n")
-      .find((tag) => tag && tag !== current)
+  const previous = await readPreviousRelease(repository, token, current)
 
   const range = previous ? `${previous}..${current}` : current
   const commits = git(["log", range, "--no-merges", "--format=%h%x09%an%x09%s"])
@@ -179,6 +168,18 @@ async function main() {
   notes = normalizeCommitLinks(notes, repository)
   await Bun.write(output, `${notes.trim()}\n\n---\n\n${policyLinks(repository)}\n`)
   console.log(`Wrote release notes for ${previous ?? "the first release"}..${current} to ${output}`)
+}
+
+async function readPreviousRelease(repository: string, token: string, current: string) {
+  try {
+    return previousReleaseTag(await github<Release[]>(repository, token, "/releases?per_page=100"), current)
+  } catch (error) {
+    console.warn("Could not read published releases; falling back to local tags", error)
+  }
+
+  return git(["tag", "--sort=-version:refname"])
+    .split("\n")
+    .find((tag) => tag && tag !== current)
 }
 
 if (import.meta.main) await main()

@@ -79,11 +79,21 @@ export type OrchestratorNotice = { title: string; message: string; variant: "suc
  * or a refused nudge ended the turn, and the user already knows or sees why.
  */
 export function orchestratorNotice(input: OrchestratorEndInput): OrchestratorNotice | null {
-  if (input.agent !== ORCHESTRATOR_AGENT || input.parentID || input.status !== "idle") return null
-  if (input.previousStatus !== "busy" && input.previousStatus !== "retry") return null
+  if (!orchestratorTurnEnded(input)) return null
+
   const last = input.lastMessage
   if (!last || last.role !== "assistant" || !last.completed || last.errored) return null
   const status = parseOrchestratorStatus(last.text)
+  return orchestratorEndNotice(status, input.rounds)
+}
+
+function orchestratorTurnEnded(input: OrchestratorEndInput) {
+  if (input.agent !== ORCHESTRATOR_AGENT || input.parentID || input.status !== "idle") return false
+
+  return input.previousStatus === "busy" || input.previousStatus === "retry"
+}
+
+function orchestratorEndNotice(status: OrchestratorStatus | undefined, rounds: number): OrchestratorNotice | null {
   if (status?.state === "done")
     return {
       title: "Orchestrator finished",
@@ -96,7 +106,7 @@ export function orchestratorNotice(input: OrchestratorEndInput): OrchestratorNot
       message: status.headline ?? "The orchestrator needs your input to continue.",
       variant: "warning",
     }
-  if (input.rounds < ORCHESTRATOR_MAX_ROUNDS) return null
+  if (rounds < ORCHESTRATOR_MAX_ROUNDS) return null
   return {
     title: "Orchestrator paused",
     message: "The round limit was reached for this goal. Send a message to keep going.",

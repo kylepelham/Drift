@@ -248,19 +248,10 @@ async function flushMutations() {
   try {
     while (retry || queued) {
       if (!retry) {
-        const patch = queued!
-        queued = undefined
-        retry = {
-          patch,
-          mutation: {
-            clientId,
-            mutationId: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
-            ...patch,
-          },
-        }
+        prepareMutation()
       }
       try {
-        const snapshot = await invoke<UiMirrorSnapshot>("ui_state_update", { mutation: retry.mutation })
+        const snapshot = await invoke<UiMirrorSnapshot>("ui_state_update", { mutation: retry!.mutation })
         retry = undefined
         acceptMirrorSnapshot(snapshot)
         setLiveError("")
@@ -286,6 +277,19 @@ async function flushMutations() {
     } else if ((retry || queued) && !retryTimer) {
       void flushMutations()
     }
+  }
+}
+
+function prepareMutation() {
+  const patch = queued!
+  queued = undefined
+  retry = {
+    patch,
+    mutation: {
+      clientId,
+      mutationId: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+      ...patch,
+    },
   }
 }
 

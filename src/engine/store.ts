@@ -1,7 +1,7 @@
 import { createStore, produce, type SetStoreFunction } from "solid-js/store"
 
+import type { McpServerConfig, McpServerConfigView, McpServerStatus, PermissionRule, TaskRecord } from "./native/client"
 import type { Command, Message, Model, Part, Permission, Session, SessionStatus, Todo, ToolPart } from "./shapes"
-import type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord } from "./native/client"
 export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord }
 export type Connection = "idle" | "connecting" | "online" | "offline"
 
@@ -22,7 +22,7 @@ export type AgentInfo = {
   tools: string[]
   /** Its own step limit, in place of the workspace's. */
   steps?: number
-  permissions?: import("./native/client").PermissionRule[]
+  permissions?: PermissionRule[]
   variant?: string
   /** Why the engine refuses to run it (a broken file or override); other agents are unaffected. */
   problem?: string
@@ -430,8 +430,7 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
   const maxOutput = replyRoom(limits.output ?? 0, context)
   const reserved = Math.min(compactionReserveTokens, maxOutput)
   // Mirrors `Model::compaction_point`: an input cap counts only when it is below the window.
-  const capped = !!limits.input && limits.input < context
-  const usable = capped ? Math.max(0, (limits.input ?? 0) - reserved) : Math.max(0, context - maxOutput)
+  const usable = usableContext(limits.input, context, reserved, maxOutput)
   return {
     count,
     context,
@@ -440,6 +439,12 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
     // The engine keeps cost per message (replies and compaction summaries), not per session.
     cost: entries.reduce((sum, entry) => sum + ((entry.info as { cost?: number }).cost ?? 0), 0),
   }
+}
+
+function usableContext(input: number | undefined, context: number, reserved: number, maxOutput: number) {
+  if (input && input < context) return Math.max(0, input - reserved)
+
+  return Math.max(0, context - maxOutput)
 }
 
 export function spawnLink(part: Part): { child: string; parent: string } | undefined {
@@ -456,8 +461,15 @@ export function taskActive(task: Pick<TaskRecord, "state">) {
 
 // A task only moves forward (queued, running, ended, held, delivered), so the further one is the newer.
 function taskProgress(task: TaskRecord) {
-  const stage = task.state === "queued" ? 0 : task.state === "running" ? 1 : 2
+  const stage = taskStage(task.state)
   return stage + (task.held ? 1 : 0) + (task.delivered ? 2 : 0)
+}
+
+function taskStage(state: TaskRecord["state"]) {
+  if (state === "queued") return 0
+  if (state === "running") return 1
+
+  return 2
 }
 
 /** Folds task records in; an older copy (a snapshot that raced an event) never replaces a newer one. */
@@ -560,7 +572,7 @@ export function resolveModel(state: EngineState, pref: ModelRef | null): ModelRe
   )
     return pref
   const connected = state.providers.filter((p) => state.connected.includes(p.id))
-  const pool = state.connection === "online" ? connected : connected.length ? connected : state.providers
+  const pool = availableProviders(state, connected)
   const rank = (id: string) => {
     const index = providerPriority.indexOf(id)
     return index < 0 ? providerPriority.length : index
@@ -573,4 +585,10 @@ export function resolveModel(state: EngineState, pref: ModelRef | null): ModelRe
     return { providerID: provider.id, modelID: model.id }
   }
   return null
+}
+
+function availableProviders(state: EngineState, connected: ProviderInfo[]) {
+  if (state.connection === "online" || connected.length) return connected
+
+  return state.providers
 }

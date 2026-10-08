@@ -56,20 +56,8 @@ export function normalizeProviderCatalog(value: unknown): ProviderCatalog | null
   if (!Array.isArray(record.providers)) return null
   const providers: ProviderInfo[] = []
   for (const entry of record.providers) {
-    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue
-    const provider = entry as Record<string, unknown>
-    if (typeof provider.id !== "string" || typeof provider.name !== "string") continue
-    if (!provider.models || typeof provider.models !== "object" || Array.isArray(provider.models)) continue
-    const models: Record<string, ModelInfo> = {}
-    for (const [key, candidate] of Object.entries(provider.models as Record<string, unknown>)) {
-      if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue
-      const model = candidate as Record<string, unknown>
-      if (typeof model.id !== "string" || typeof model.name !== "string") continue
-      if (!model.capabilities || typeof model.capabilities !== "object") continue
-      if (!model.limit || typeof model.limit !== "object") continue
-      models[key] = compactModel(model as unknown as ModelInfo)
-    }
-    if (Object.keys(models).length) providers.push({ id: provider.id, name: provider.name, models })
+    const provider = normalizeProvider(entry)
+    if (provider) providers.push(provider)
   }
   if (!providers.length) return null
   const connected = Array.isArray(record.connected)
@@ -80,6 +68,32 @@ export function normalizeProviderCatalog(value: unknown): ProviderCatalog | null
     for (const [key, model] of Object.entries(record.defaultModels as Record<string, unknown>))
       if (typeof model === "string") defaultModels[key] = model
   return { providers, connected, defaultModels }
+}
+
+function normalizeProvider(entry: unknown): ProviderInfo | undefined {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return
+
+  const provider = entry as Record<string, unknown>
+  if (typeof provider.id !== "string" || typeof provider.name !== "string") return
+  if (!provider.models || typeof provider.models !== "object" || Array.isArray(provider.models)) return
+
+  const models: Record<string, ModelInfo> = {}
+  for (const [key, candidate] of Object.entries(provider.models)) {
+    const model = normalizeModel(candidate)
+    if (model) models[key] = model
+  }
+  if (Object.keys(models).length) return { id: provider.id, name: provider.name, models }
+}
+
+function normalizeModel(candidate: unknown) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return
+
+  const model = candidate as Record<string, unknown>
+  if (typeof model.id !== "string" || typeof model.name !== "string") return
+  if (!model.capabilities || typeof model.capabilities !== "object") return
+  if (!model.limit || typeof model.limit !== "object") return
+
+  return compactModel(model as unknown as ModelInfo)
 }
 
 // persisted() guards a missing/failing localStorage (remote browser runtime), leaving the
