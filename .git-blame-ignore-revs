@@ -1,0 +1,3 @@
+# Formatting-only commits; `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes blame skip them.
+# Format all Rust with rustfmt at 120 columns
+2fba6cfb56e80ffa729756375c665bcbf733ad58
