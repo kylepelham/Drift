@@ -45,7 +45,7 @@ This is the first fix I would make. It affects correctness directly and does
 not require another inference call.
 
 Drift's read record stores canonical path membership, retained across restart
-(`crates/drift-engine/src/tool/mod.rs:42`). Write checks membership, rereads
+(`crates/drift-engine/src/tool/context.rs:10`). Write checks membership, rereads
 the current file for format/history, then replaces it with the model's complete
 content (`crates/drift-engine/src/tool/write.rs:54`). It never compares the
 current bytes with the bytes the model actually saw. Per-path locks serialize

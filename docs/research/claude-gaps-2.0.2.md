@@ -125,10 +125,10 @@ Drift already keeps the user's prompt, recent tool steps, primary-agent
 reminders, durable worker results and a bounded tail. Successful compaction
 clears the subdirectory-instruction display set, so another read can show
 those instructions again (`crates/drift-engine/src/session/compaction.rs:154`,
-`crates/drift-engine/src/tool/mod.rs:61`). It does not
+`crates/drift-engine/src/tool/context.rs:63`). It does not
 automatically reread files or reattach invoked skill bodies outside the tail.
 The persistent read record stores path identities, not file contents or
-recency (`crates/drift-engine/src/tool/mod.rs:42`).
+recency (`crates/drift-engine/src/tool/context.rs:10`).
 
 The gap appears when the important read or skill invocation falls before the
 tail: the next request depends on what the summary retained or another read.
