@@ -1,4 +1,4 @@
-//! Imports opencode conversations once into their workspace, without writing to opencode's database.
+//! Imports opencode conversations once into the workspace where they ran, without writing to opencode's database.
 //! Reads and writes bounded pages, listing a conversation only after its final page is stored.
 //! Rebuilds recent file edits as native undo records.
 
@@ -21,7 +21,7 @@ pub use undo::Blobs;
 
 /// Maximum messages read from opencode in one page.
 const READ_PAGE: usize = 200;
-/// Maximum messages in a write page, also bounded by WRITE_BYTES.
+/// Maximum messages in a write page, also bounded by `WRITE_BYTES`.
 /// Small write transactions keep the store's single connection available to the UI.
 const WRITE_MESSAGES: usize = 100;
 /// Approximate byte limit for a write page.
@@ -94,9 +94,9 @@ struct ImportRun<'a> {
     pending: HashSet<String>,
 }
 
-/// Imports conversations not yet brought in from import.source and reports progress through import.progress.
+/// Imports conversations not yet brought in from `import.source` and reports progress through `import.progress`.
 /// Sessions archived in Drift or opencode arrive archived as of the import time.
-/// Rebuilt file versions for undo are stored through import.blobs.
+/// Rebuilt file versions for undo are stored through `import.blobs`.
 pub fn import_sessions(import: SessionImport<'_>) -> rusqlite::Result<Report> {
     let source = source::Source::open(import.source)?;
     let workspaces: Workspaces = import

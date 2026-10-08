@@ -5,9 +5,11 @@ use serde_json::{Map, Value, json};
 use std::marker::PhantomData;
 use std::path::Path;
 
+/// opencode's global config, preserving the written order of its permission section.
+/// opencode uses the last matching pattern, while an ordinary JSON object forgets that order.
 pub struct OcConfig {
     pub value: Value,
-    // Preserve permission order because opencode uses the last matching pattern.
+    /// Ordered permission entries, or None when the value is neither a decision nor a map of decisions.
     permission: Option<Vec<(String, Setting)>>,
 }
 
@@ -25,6 +27,7 @@ enum Permission {
     Other(IgnoredAny),
 }
 
+/// One permission kind's decision, or its patterns in written order.
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Setting {
@@ -33,6 +36,7 @@ enum Setting {
     Other(IgnoredAny),
 }
 
+/// A JSON object deserialized as entries in their written order.
 struct Entries<T>(Vec<(String, T)>);
 struct EntryVisitor<T>(PhantomData<T>);
 
@@ -60,6 +64,7 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Entries<T> {
 }
 
 impl OcConfig {
+    /// Parses config text whose comments have already been stripped.
     pub fn parse(text: &str) -> Option<Self> {
         let value = serde_json::from_str(text).ok()?;
         let permission = match serde_json::from_str::<Root>(text).ok().and_then(|root| root.permission) {
@@ -72,6 +77,7 @@ impl OcConfig {
     }
 }
 
+/// Converts supported opencode keys to drift.json fields and reports every unsupported key by name.
 pub(super) fn convert(config: &OcConfig, config_dir: &Path, report: &mut SettingsReport) -> Map<String, Value> {
     let mut file = Map::new();
 
@@ -149,6 +155,8 @@ fn write_permissions(config: &OcConfig, file: &mut Map<String, Value>, report: &
     }
 }
 
+/// Makes relative instruction paths absolute against opencode's config directory for use from ~/.config/drift.
+/// Absolute paths and ~/ paths keep their spelling.
 fn instruction(path: &str, config_dir: &Path) -> String {
     if path.starts_with("~/") || Path::new(path).is_absolute() {
         return path.into();
@@ -157,6 +165,9 @@ fn instruction(path: &str, config_dir: &Path) -> String {
     config_dir.join(path).to_string_lossy().replace('\\', "/")
 }
 
+/// Converts opencode permission decisions and ordered patterns into Drift rules, including `*` for every tool.
+/// Reverses the full list because opencode uses the last match while Drift uses the first.
+/// A `*` entry written before a tool-specific entry therefore still loses to that later entry.
 fn permissions(kinds: &[(String, Setting)], report: &mut SettingsReport) -> Vec<Value> {
     let mut rules = Vec::new();
 

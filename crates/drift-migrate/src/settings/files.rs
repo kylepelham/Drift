@@ -2,6 +2,7 @@ use super::SettingsReport;
 use serde_json::{Map, Value};
 use std::path::Path;
 
+/// Folder names under opencode's config directory paired with their corresponding Drift folder names.
 const FOLDERS: [(&str, &str); 5] = [
     ("agents", "agents"),
     ("agent", "agents"),
@@ -10,6 +11,8 @@ const FOLDERS: [(&str, &str); 5] = [
     ("skills", "skills"),
 ];
 
+/// Copies opencode's global AGENTS.md, agents, commands and skills to the folders Drift reads.
+/// Existing files are never replaced; JavaScript plugins are reported by name, not copied.
 pub(super) fn copy_home(from: &Path, to: &Path, report: &mut SettingsReport) {
     copy_file(&from.join("AGENTS.md"), &to.join("AGENTS.md"), "AGENTS.md", report);
     for (source, target) in FOLDERS {
@@ -68,6 +71,7 @@ fn copy_file(from: &Path, to: &Path, shown: &str, report: &mut SettingsReport) {
     }
 }
 
+/// Writes drift.json only when some settings map and the user has no file yet; returns the written path.
 pub(super) fn write_config(home: &Path, file: Map<String, Value>, report: &mut SettingsReport) -> Option<String> {
     if file.is_empty() {
         return None;

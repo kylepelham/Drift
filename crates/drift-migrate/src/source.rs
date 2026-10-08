@@ -143,7 +143,7 @@ impl Source {
         rows.collect()
     }
 
-    /// Returns up to limit messages after after's creation time and ID, in written order.
+    /// Returns up to `limit` messages after the `after` message's creation time and ID, in written order.
     /// Per-file diff summaries on user messages are left in the database rather than read.
     pub(crate) fn messages_after(
         &self,
@@ -162,7 +162,7 @@ impl Source {
         rows.collect()
     }
 
-    /// Returns the conversation's newest limit messages, newest first.
+    /// Returns the conversation's newest `limit` messages, newest first.
     pub(crate) fn newest_messages(&self, session_id: &str, limit: usize) -> rusqlite::Result<Vec<OcMessage>> {
         let mut statement = self.conn.prepare_cached(
             "SELECT id, time_created, '' FROM message WHERE session_id = ?1
@@ -173,7 +173,7 @@ impl Source {
         rows.collect()
     }
 
-    /// Returns a message's parts in order, reducing tool calls larger than OVERSIZED_PART_BYTES.
+    /// Returns a message's parts in order, reducing tool calls larger than `OVERSIZED_PART_BYTES`.
     /// Oversized tool calls are streamed from disk rather than held whole in memory.
     pub(crate) fn parts(&self, message_id: &str) -> rusqlite::Result<Vec<OcPart>> {
         let mut statement = self.conn.prepare_cached(

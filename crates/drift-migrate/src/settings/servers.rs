@@ -19,6 +19,7 @@ pub enum McpConfigError {
     UnreadableFile { path: PathBuf },
 }
 
+/// Saves the imported server and returns whether it was left enabled.
 pub(super) fn save(store: &Store, server: &OcServer, config_dir: &Path) -> Result<bool, Left> {
     let failed = |error: rusqlite::Error| Left::Out(error.to_string());
     if store.mcp_server(&server.name).map_err(failed)?.is_some()
@@ -46,6 +47,8 @@ pub(super) fn save(store: &Store, server: &OcServer, config_dir: &Path) -> Resul
     Ok(enabled)
 }
 
+/// Converts opencode's local and remote server shapes to native server configs.
+/// Resolves environment-variable and file substitutions at import time.
 pub fn mcp_config(definition: &Value, config_dir: &Path) -> Result<ServerConfig, McpConfigError> {
     match definition["type"].as_str() {
         Some("local") => local_config(definition, config_dir),
@@ -109,7 +112,8 @@ fn substituted_table(value: &Value, config_dir: &Path) -> Result<BTreeMap<String
     Ok(table)
 }
 
-// Unreadable substitutions refuse the server rather than save a blank secret.
+/// Resolves `{env:NAME}` and `{file:path}` tokens as opencode reads them.
+/// An unreadable substitution rejects the server rather than saving a blank secret.
 fn substitute(text: &str, config_dir: &Path) -> Result<String, McpConfigError> {
     let mut output = String::new();
     let mut rest = text;

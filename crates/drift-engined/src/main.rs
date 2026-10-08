@@ -1,6 +1,6 @@
 //! Headless Drift engine for conformance tests and remote hosts.
-//! drift-engined [--data-dir DIR] [--port N] [--file-credentials] serves and prints url and token lines.
-//! drift-engined --openapi prints the API document and exits.
+//! `drift-engined [--data-dir DIR] [--port N] [--file-credentials]` serves and prints `url` and `token` lines.
+//! `drift-engined --openapi` prints the API document and exits.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -24,7 +24,7 @@ enum ArgumentError {
     Unknown(String),
 }
 
-/// Defaults to $XDG_DATA_HOME/drift, then ~/.local/share/drift, using the temp directory if no home is available.
+/// Defaults to `$XDG_DATA_HOME/drift`, then `~/.local/share/drift`, falling back to the temp directory without a home.
 fn default_data_dir() -> PathBuf {
     let home = || drift_engine::config::home().map(|home| home.join(".local").join("share"));
     let base = std::env::var_os("XDG_DATA_HOME")

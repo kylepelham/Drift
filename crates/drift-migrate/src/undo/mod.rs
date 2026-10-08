@@ -1,5 +1,5 @@
-//! Rebuilds recent file versions from today's files by reversing opencode diffs, newest edit first across sessions.
-//! A mismatched diff stops reconstruction for every file the call touched, including their older edits.
+//! Rebuilds recent versions from today's files because opencode kept diffs, not the versions needed for undo.
+//! Edits run backwards across all imported sessions; a mismatch ends history for the touched files and older edits.
 //! Those calls get no undo record; undo reports them rather than guessing.
 
 use std::collections::HashMap;
@@ -23,8 +23,8 @@ const WRITERS: [&str; 3] = ["edit", "write", "apply_patch"];
 
 /// Stores rebuilt file versions in a workspace's undo history.
 pub trait Blobs {
-    /// Stores bytes in workspace owner's history at root and returns the blob ID.
-    /// Returns None if the version could not be stored.
+    /// Stores `bytes` in workspace `owner`'s history at `root` and returns the blob ID.
+    /// Returns `None` if the version could not be stored.
     fn store(&mut self, owner: &str, root: &Path, bytes: &[u8]) -> Option<String>;
 }
 

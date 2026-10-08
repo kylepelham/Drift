@@ -129,7 +129,7 @@ fn parse_body(lines: &mut Lines<'_>, mut old_left: usize, mut new_left: usize) -
     Some(body)
 }
 
-/// Parses start[,length], defaulting to length 1 when omitted.
+/// Parses `start[,length]`, defaulting to length 1 when omitted.
 fn range(text: &str) -> Option<(usize, usize)> {
     match text.split_once(',') {
         Some((start, len)) => Some((start.parse().ok()?, len.parse().ok()?)),

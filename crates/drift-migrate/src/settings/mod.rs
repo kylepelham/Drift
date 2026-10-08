@@ -1,4 +1,6 @@
-//! Imports settings once; Drift's existing credentials, servers and files always win.
+//! Imports opencode sign-ins, MCP servers and global config once, without replacing Drift's existing settings.
+//! An existing provider sign-in, same-named server or ~/.config/drift/drift.json always wins.
+//! Unsupported imports are reported rather than guessed at.
 
 use drift_engine::llm::Credential;
 use drift_engine::llm::credentials::Credentials;
@@ -15,14 +17,17 @@ mod servers;
 pub use config::OcConfig;
 pub use servers::{McpConfigError, mcp_config};
 
-// Keep the ledger after deletions so a removed import stays removed.
+/// Tracks earlier imports so a credential or server the user removed stays removed.
 const LEDGER: &str = "opencodeImported";
+/// Stored report from the last import run, for the user to read.
 pub const REPORT: &str = "opencodeImportReport";
-// Local providers use placeholder keys, not real credentials.
+/// Providers requiring no key; their opencode placeholder keys are not credentials to import.
 const KEYLESS: [&str; 2] = ["lmstudio", "ollama"];
-// Drift must be able to refresh an imported OAuth sign-in.
+/// Providers whose OAuth sign-ins Drift can refresh; other sign-ins would expire without renewal.
 const SIGN_INS: [&str; 3] = ["anthropic", "openai", "xai"];
 
+/// opencode's auth.json, global config and MCP servers.
+/// The config directory supplies the base for file substitutions.
 pub struct Settings {
     pub auth: Option<Value>,
     pub config: Option<OcConfig>,
@@ -30,6 +35,7 @@ pub struct Settings {
     pub servers: Vec<OcServer>,
 }
 
+/// An MCP server in opencode's shape, with approval from Drift's old MCP approval step.
 pub struct OcServer {
     pub name: String,
     pub definition: Value,
@@ -43,33 +49,46 @@ struct Ledger {
     credentials: BTreeSet<String>,
     servers: BTreeSet<String>,
     config: bool,
+    /// Whether opencode's global instructions, agents, commands and skills have been copied.
     files: bool,
 }
 
 #[derive(Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsReport {
+    /// Providers given opencode's key or sign-in.
     pub credentials: Vec<String>,
+    /// Servers saved during this run.
     pub servers: Vec<String>,
+    /// Saved servers left disabled because they were unapproved or switched off in opencode.
     pub disabled_servers: Vec<String>,
+    /// Path to drift.json written from opencode's config, if one was created.
     pub config_written: Option<String>,
-    /// Copied paths relative to `~/.config/drift`.
+    /// Files copied from opencode's config directory, with paths relative to ~/.config/drift.
     pub files: Vec<String>,
+    /// Unsupported imports grouped by kind and name for the one-time summary.
+    /// The window supplies the user-facing wording.
     pub left_out: LeftOut,
-    /// Log messages include both unsupported imports and items kept because Drift had its own.
+    /// Log messages for unsupported imports and items kept because Drift had its own, each with a reason.
     pub skipped: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LeftOut {
+    /// Providers whose key or sign-in Drift cannot use.
     pub sign_ins: Vec<String>,
+    /// opencode's JavaScript plugins.
     pub plugins: Vec<String>,
+    /// opencode settings with no Drift equivalent.
     pub settings: Vec<String>,
+    /// MCP servers that could not be added.
     pub servers: Vec<String>,
+    /// Files and settings that could not be written.
     pub failed: Vec<String>,
 }
 
+/// Reason an import stayed behind: Drift already had its own, or the item has no place in Drift.
 enum Left {
     Kept(String),
     Out(String),
@@ -173,7 +192,8 @@ fn import_servers(store: &Store, settings: &Settings, ledger: &mut Ledger, repor
     }
 }
 
-// Err(None) skips local placeholder keys without recording them in the ledger.
+/// Returns Err(None) for a local provider's placeholder key, without recording it in the ledger.
+/// Returns Err(Some(reason)) for a credential left behind.
 fn credential(
     credentials: &Credentials,
     providers: &[String],
