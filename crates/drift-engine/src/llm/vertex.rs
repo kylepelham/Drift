@@ -1,4 +1,4 @@
-//! Vertex AI: Claude through Anthropic's publisher endpoint and Gemini through Google's, with a Google Cloud access token.
+//! Vertex AI: Claude through Anthropic's publisher endpoint and Gemini through Google's, with a Google Cloud token.
 
 use super::{ChunkStream, Credential, Error, Request, anthropic, gemini, google};
 

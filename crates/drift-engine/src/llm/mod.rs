@@ -49,7 +49,8 @@ pub enum Credential {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         account: Option<String>,
     },
-    /// A cloud route's own credentials (AWS keys or profile, Google service account or ADC), read per request; never stored.
+    /// A cloud route's own credentials (AWS keys or profile, Google service account or ADC),
+    /// read per request; never stored.
     Ambient {
         source: String,
     },
@@ -99,7 +100,8 @@ pub enum Block {
         signature: String,
     },
     Text(String),
-    /// signature is whatever the provider needs to accept the block back: Anthropic's signature, OpenAI's encrypted content.
+    /// signature is whatever the provider needs to accept the block back:
+    /// Anthropic's signature, OpenAI's encrypted content.
     Reasoning {
         text: String,
         signature: Option<String>,
@@ -171,7 +173,8 @@ pub struct Request {
     pub mode: Option<catalog::ModelMode>,
 }
 
-/// Lays the mode's body fields over the adapter's body, objects merged key by key (`reasoning.mode` beside `reasoning.effort`).
+/// Lays the mode's body fields over the adapter's body, objects merged key by key
+/// (`reasoning.mode` beside `reasoning.effort`).
 pub(crate) fn apply_mode(body: &mut serde_json::Value, request: &Request) {
     fn merge(into: &mut serde_json::Value, value: &serde_json::Value) {
         match (into, value) {

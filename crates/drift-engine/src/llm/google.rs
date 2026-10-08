@@ -318,7 +318,8 @@ mod tests {
 
     use crate::llm::http::Timeouts;
 
-    /// A local token endpoint answering every exchange with `status` and `body` after `delay`; returns its URL and call count.
+    /// A local token endpoint answering every exchange with `status` and `body` after `delay`;
+    /// returns its URL and call count.
     async fn endpoint(
         status: u16,
         body: Value,

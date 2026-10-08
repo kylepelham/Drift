@@ -411,7 +411,7 @@ impl Hooks {
         (result.output, notes)
     }
 
-    /// The first refusal wins; a replacement feeds the hooks after it; context collects in order with each plugin's name.
+    /// The first refusal wins; a replacement feeds later hooks; context collects in order with each plugin's name.
     pub async fn prompt_submit(
         &self,
         mut prompt: PromptEvent,

@@ -46,7 +46,8 @@ impl McpTool {
         ToolError(format!("the {} MCP server was disabled or removed", self.server))
     }
 
-    /// A reconnected or re-listed server may redefine the tool (no longer read-only, another schema); the turn was given this one.
+    /// A reconnected or re-listed server may redefine the tool (no longer read-only, another schema);
+    /// the turn was given this one.
     fn unchanged_on(&self, client: &Arc<Live>) -> Result<(), ToolError> {
         if client.tools().iter().any(|tool| behaves_alike(tool, &self.tool)) {
             return Ok(());
@@ -101,7 +102,8 @@ impl McpTool {
         CallError::Failed(message)
     }
 
-    /// A call cut off by a lost connection: a read-only one is asked again once of the reconnected server, never one that may have changed something.
+    /// A call cut off by a lost connection: a read-only one is asked again once of the reconnected server,
+    /// never one that may have changed something.
     async fn after_loss(&self, ctx: &Context, lost: &Arc<Live>, input: Value) -> Result<Answer, ToolError> {
         let uncertain = || {
             ToolError(format!(
@@ -261,7 +263,8 @@ impl Tool for McpTool {
         }
     }
 
-    /// As opencode: a call runs without asking unless a rule says otherwise; the read-only hint matters to read-only agents.
+    /// As opencode: a call runs without asking unless a rule says otherwise; the read-only hint matters
+    /// to read-only agents.
     fn ask(&self, _ctx: &Context, _input: &Value) -> Option<Ask> {
         Some(
             Ask::new(

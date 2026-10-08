@@ -432,7 +432,8 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
     }
 }
 
-/// Cloud routes host many vendors; only the wires the adapters speak are offered: Claude on Bedrock, Claude and Gemini on Vertex.
+/// Cloud routes host many vendors; only the wires the adapters speak are offered:
+/// Claude on Bedrock, Claude and Gemini on Vertex.
 fn speaks(provider: &str, model: &str) -> bool {
     match provider {
         "amazon-bedrock" => model.contains("anthropic."),

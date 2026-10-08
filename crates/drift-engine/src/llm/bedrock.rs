@@ -1,4 +1,5 @@
-//! Claude on Amazon Bedrock: the Anthropic Messages body, signed with SigV4 (or a Bedrock API key), streamed as AWS event-stream frames.
+//! Claude on Amazon Bedrock: the Anthropic Messages body, signed with SigV4 (or a Bedrock API key),
+//! streamed as AWS event-stream frames.
 
 use base64::Engine as _;
 use futures_util::StreamExt;
@@ -108,7 +109,8 @@ impl Bedrock {
     }
 }
 
-/// A `chunk` wraps an Anthropic event; exception and error frames end the stream with their reason; unknown kinds are a broken stream.
+/// A `chunk` wraps an Anthropic event; exception and error frames end the stream with their reason;
+/// unknown kinds are a broken stream.
 fn message_chunks(message: super::eventstream::Message) -> Vec<Result<Chunk, Error>> {
     let payload: Value = serde_json::from_slice(&message.payload).unwrap_or_default();
     let header = |name: &str| message.headers.get(name).map(String::as_str);

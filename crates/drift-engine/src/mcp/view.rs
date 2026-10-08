@@ -64,7 +64,8 @@ pub struct OAuthView {
     pub scopes: Vec<String>,
 }
 
-/// A pre-registered app as a client sends it: a `null` secret keeps the saved one for the same client id, an empty one clears it.
+/// A pre-registered app as a client sends it: a `null` secret keeps the saved one for the same client id,
+/// an empty one clears it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthInput {
@@ -75,7 +76,8 @@ pub struct OAuthInput {
     pub scopes: Vec<String>,
 }
 
-/// A config as a client sends it. A `null` value keeps the one saved under that name, so a secret can be kept without being read.
+/// A config as a client sends it. A `null` value keeps the one saved under that name,
+/// so a secret can be kept without being read.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerConfigInput {

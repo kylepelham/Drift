@@ -128,7 +128,7 @@ pub struct Signing<'a> {
     pub amz_date: &'a str,
 }
 
-/// The headers that make a signed request: `x-amz-date`, `x-amz-content-sha256`, the session token if any, and `authorization`.
+/// The signed request's headers: `x-amz-date`, `x-amz-content-sha256`, the session token if any, `authorization`.
 pub fn sign(request: &Signing, keys: &Keys) -> Vec<(String, String)> {
     let payload = hex(digest::digest(&digest::SHA256, request.body).as_ref());
     let mut headers = vec![

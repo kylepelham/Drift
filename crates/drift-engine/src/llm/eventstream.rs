@@ -1,4 +1,5 @@
-//! AWS event-stream framing (`application/vnd.amazon.eventstream`): length-prefixed messages with string headers and CRC32 checks.
+//! AWS event-stream framing (`application/vnd.amazon.eventstream`):
+//! length-prefixed messages with string headers and CRC32 checks.
 
 use std::collections::HashMap;
 
@@ -20,7 +21,7 @@ pub(super) struct Decoder {
 }
 
 impl Decoder {
-    /// Feeds bytes and returns every message completed by them; a bad frame is an error, since nothing after it can be trusted.
+    /// Feeds bytes and returns every message they complete; a bad frame is an error, as nothing after it is trusted.
     pub(super) fn feed(&mut self, bytes: &[u8]) -> Result<Vec<Message>, FrameError> {
         self.buffer.extend_from_slice(bytes);
         let mut messages = Vec::new();

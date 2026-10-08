@@ -79,7 +79,7 @@ pub enum ServerConfig {
     },
 }
 
-/// An app registered with the server's authorization server beforehand, for servers that do not let Drift register itself.
+/// An app registered with the server's authorization server beforehand, for servers Drift cannot register with.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct OAuthClient {
@@ -157,7 +157,7 @@ pub struct ServerRow {
     pub name: String,
     pub config: ServerConfig,
     pub enabled: bool,
-    /// The config's identity, secrets included, so a connection knows which definition it serves; never sent to clients.
+    /// The config's identity, secrets included, so a connection knows the definition it serves; never sent to clients.
     #[serde(skip)]
     pub hash: String,
     pub updated_at: i64,
@@ -253,7 +253,8 @@ impl Transport {
     }
 }
 
-/// Which generation of MCP a server speaks: 2026-07-28 and later, with no handshake and no session, or the `initialize` handshake before it.
+/// Which generation of MCP a server speaks: 2026-07-28 and later, with no handshake and no session,
+/// or the `initialize` handshake before it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Era {
@@ -327,7 +328,7 @@ struct Live {
     tree: Option<Tree>,
 }
 
-/// A server's tools as last listed, and when that list goes stale by its `ttlMs`; a server that gives none is listed once.
+/// A server's tools as last listed, and when the list goes stale by its `ttlMs`; with none it is listed once.
 struct Listing {
     tools: Vec<rmcp::model::Tool>,
     stale_at: Option<Instant>,
@@ -439,15 +440,16 @@ const STEP_LIMIT: Duration = Duration::from_secs(5);
 const STABLE: Duration = Duration::from_secs(60);
 #[cfg(test)]
 const STABLE: Duration = Duration::from_millis(500);
-/// After a re-list fails, how long before a turn tries again, so a server that stopped answering does not hold up every turn.
+/// After a re-list fails, how long before a turn tries again, so a silent server does not hold up every turn.
 const RELIST_BACKOFF: Duration = Duration::from_secs(30);
-/// How long rmcp waits for an HTTP server to answer the `server/discover` probe before falling back to `initialize`; it is fixed there.
+/// How long rmcp waits for an HTTP server to answer the `server/discover` probe before falling back to
+/// `initialize`; it is fixed there.
 const PROBE_WAIT: Duration = Duration::from_secs(10);
 /// How long a turn being planned waits for connects already under way, so its tools are not briefly missing.
 pub const READY_WAIT: Duration = Duration::from_secs(2);
 /// Why a stdio server cannot connect with no workspace to run in.
 pub const NEEDS_WORKSPACE: &str = "a stdio server runs in a workspace; open one and connect it there";
-/// How long a stdio server of a workspace no client has open may go unused before it stops; the next use starts it again.
+/// How long a stdio server of a workspace no client has open may sit unused before it stops; next use restarts it.
 pub const IDLE: Duration = Duration::from_secs(5 * 60);
 /// How often idle servers are looked for.
 const IDLE_SWEEP: Duration = Duration::from_secs(60);
@@ -516,7 +518,8 @@ struct Slots {
     held: std::collections::HashSet<String>,
 }
 
-/// The servers turns in a workspace are offered; with no store (a bare registry) or no workspace, every one on anywhere.
+/// The servers turns in a workspace are offered; with no store (a bare registry) or no workspace,
+/// every one on anywhere.
 struct Shown(Option<std::collections::HashSet<String>>);
 
 impl Shown {
@@ -563,7 +566,7 @@ pub struct Servers {
     settled: tokio::sync::Notify,
     /// Where remote servers' sign-ins are kept; none in a bare test registry.
     sign_ins: Option<Arc<crate::llm::credentials::Credentials>>,
-    /// The workspace each connected client (window or device) has open, by socket; their servers never stop for idleness.
+    /// The workspace each connected client (window or device) has open, by socket; its servers never idle out.
     open: Mutex<HashMap<u64, PathBuf>>,
     /// Where each workspace's choices are read; none in a bare test registry, which offers every server.
     store: Option<Arc<Store>>,

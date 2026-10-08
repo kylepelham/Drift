@@ -354,7 +354,7 @@ pub(super) mod tests {
     use super::*;
     use std::sync::Weak;
 
-    /// The example plugin, built into the workspace's own `target/plugins`; `None` when the wasm32-wasip2 target is not installed.
+    /// The example plugin, built into the workspace's `target/plugins`; `None` without the wasm32-wasip2 target.
     pub(super) fn guard() -> Option<PathBuf> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let target = root.join("target/plugins");
