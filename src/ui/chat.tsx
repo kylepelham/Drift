@@ -17,15 +17,6 @@ import { Chevron } from "./controls";
 import { DriftLogo } from "./logo";
 import { t } from "../state/i18n";
 import {
-    activeFindMessage,
-    activeFindOccurrence,
-    clearFindHighlights,
-    paintFindHighlights,
-    scrollFindOccurrence,
-    syncTranscriptMatches,
-    transcriptFindNeedle,
-} from "./transcript-find";
-import {
     compareMessages,
     messageRevisionKey,
     messageText,
@@ -34,7 +25,17 @@ import {
     type EngineState,
     type MessageEntry,
     type ModelRef,
+    type SessionStatus,
 } from "../engine/store";
+import {
+    activeFindMessage,
+    activeFindOccurrence,
+    clearFindHighlights,
+    paintFindHighlights,
+    scrollFindOccurrence,
+    syncTranscriptMatches,
+    transcriptFindNeedle,
+} from "./transcript-find";
 import {
     assistantFlowContinues,
     groupAssistantEntries,
@@ -51,7 +52,7 @@ import {
     updatePrefs,
 } from "../state/prefs";
 
-import type { Part, SessionStatus } from "../engine/shapes";
+import type { Part } from "../engine/parts";
 
 const estimatedRow = 96;
 const overscan = 800;
@@ -642,12 +643,12 @@ export function estimatedTimelineRow(
     if (collapsedSummary) return 44;
     if (clarificationAnswer(parts === entry.parts ? entry : { ...entry, parts })) return 40;
     const text = messageText(parts === entry.parts ? entry : { ...entry, parts });
-    const generated = parts.some((part) => part.type === "text" && part.metadata?.generated === true);
+    const generated = parts.some((part) => part.type === "nudge");
     if (entry.info.role === "user" && !generated && largeUserText(text))
         return Math.max(estimatedRow, Math.ceil(text.split("\n").length * fontSize * 1.6 + 62));
     const width = entry.info.role === "user" ? 72 : 88;
     const textHeight = estimateTextLines(text, width) * 14 * 1.6;
-    const toolHeight = parts.filter((part) => part.type === "tool").length * 56;
+    const toolHeight = parts.filter((part) => part.type === "tool_call").length * 56;
     return Math.max(estimatedRow, Math.ceil(textHeight + toolHeight + (text ? 48 : 0)));
 }
 
@@ -718,14 +719,7 @@ export function shouldShowScrollToBottom(distanceFromBottom: number) {
     return distanceFromBottom >= stickyThresholdPx;
 }
 
-type RevisionPart = {
-    type: string;
-    text?: string;
-    state?: { status?: string; output?: unknown; error?: unknown; metadata?: Record<string, unknown> };
-    metadata?: Record<string, unknown>;
-};
-
-export function transcriptRevision(entry?: { parts: RevisionPart[] }) {
+export function transcriptRevision(entry?: { parts: Part[] }) {
     if (!entry) return "0";
     let revision = `${entry.parts.length}`;
     for (const part of entry.parts) revision += partRevision(part);
@@ -733,20 +727,18 @@ export function transcriptRevision(entry?: { parts: RevisionPart[] }) {
     return revision;
 }
 
-function partRevision(part: RevisionPart) {
+function partRevision(part: Part) {
     if (part.type === "text" || part.type === "reasoning") return `|${part.type}:${part.text?.length ?? 0}`;
-    if (part.type !== "tool") return "";
+    if (part.type !== "tool_call") return "";
 
     return toolRevision(part);
 }
 
-function toolRevision(part: RevisionPart) {
-    const state = part.state;
-    let revision = `|tool:${state?.status ?? ""}`;
-    if (typeof state?.output === "string") revision += `:o${state.output.length}`;
-    if (typeof state?.error === "string") revision += `:e${state.error.length}`;
+function toolRevision(part: Extract<Part, { type: "tool_call" }>) {
+    let revision = `|tool:${part.status}`;
+    if (typeof part.output === "string") revision += `:o${part.output.length}`;
 
-    const metadata = state?.metadata ?? part.metadata;
+    const metadata = part.metadata;
     if (typeof metadata?.output === "string") revision += `:m${metadata.output.length}`;
     if (typeof metadata?.diff === "string") revision += `:d${metadata.diff.length}`;
 

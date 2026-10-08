@@ -1,7 +1,6 @@
 import { clearQuestionDraft } from "../state/question-drafts";
 import { sessionInWorkspace } from "./sessions";
 import { questionForCard } from "./questions";
-import { adaptPart } from "./native/adapt";
 import { produce } from "solid-js/store";
 import {
     bumpRevision,
@@ -19,12 +18,13 @@ import {
     type Notice,
     type Permission,
     type QuestionRequest,
+    type SessionStatus,
 } from "./store";
 
 import type { Session, WorkspaceIndex } from "./sessions";
 import type { SetStoreFunction } from "solid-js/store";
-import type { Part, SessionStatus } from "./shapes";
 import type { components } from "./native/types";
+import type { Part, ToolPart } from "./parts";
 import type { Message } from "./messages";
 
 type SetEngineState = SetStoreFunction<EngineState>;
@@ -81,7 +81,7 @@ function reduceContentEvent(
             return dropMessage(set, event.sessionId, event.messageId);
         case "part.created":
         case "part.updated":
-            return upsertPart(set, adaptPart(event.part));
+            return upsertPart(set, event.part);
         case "part.delta":
             return appendPartDelta(set, event, reconcile);
         case "permission.asked":
@@ -242,20 +242,18 @@ function upsertPart(set: SetEngineState, part: Part) {
     set(
         produce((draft) => {
             if (link) draft.links[link.child] = link.parent;
-            if (link && part.type === "tool") {
-                const metadata = (("metadata" in part.state ? part.state.metadata : undefined) ?? part.metadata) as
-                    { model?: ModelRef } | undefined;
+            if (link && part.type === "tool_call") {
+                const metadata = part.metadata as { model?: ModelRef } | undefined;
                 if (metadata?.model) draft.sessionModels[link.child] = metadata.model;
             }
-            if (part.type === "tool") {
+            if (part.type === "tool_call") {
                 trackActivity(draft, part);
-                if (part.state.status === "pending" || part.state.status === "running")
-                    draft.liveTools[part.id] = part.sessionID;
+                if (part.status === "pending" || part.status === "running") draft.liveTools[part.id] = part.sessionId;
                 else delete draft.liveTools[part.id];
             }
-            const entry = draft.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID);
+            const entry = draft.transcripts[part.sessionId]?.find((item) => item.info.id === part.messageId);
             if (!entry) return;
-            bumpRevision(draft, messageRevisionKey(part.sessionID, part.messageID));
+            bumpRevision(draft, messageRevisionKey(part.sessionId, part.messageId));
             const index = entry.parts.findIndex((existing) => existing.id === part.id);
             if (index >= 0) entry.parts[index] = reconcilePart(entry.parts[index]!, part);
             else entry.parts.push(part);
@@ -271,11 +269,7 @@ function reconcilePart(existing: Part, incoming: Part) {
     // authoritative and can still replace the part normally. This relies on the engine allocating a
     // fresh part ID per streamed attempt (PartID.ascending on every text-start): a same-ID reset to
     // a shorter prefix is therefore always the stale frame, never a legitimate rewrite.
-    if (
-        incoming.time?.end === undefined &&
-        existing.text.length > incoming.text.length &&
-        existing.text.startsWith(incoming.text)
-    ) {
+    if (existing.text.length > incoming.text.length && existing.text.startsWith(incoming.text)) {
         return { ...incoming, text: existing.text };
     }
     return incoming;
@@ -320,14 +314,15 @@ function appendPartDelta(set: SetEngineState, ref: PartDeltaRef, reconcile?: (se
     if (gap) reconcile?.(ref.sessionId);
 }
 
-function trackActivity(draft: EngineState, part: Part & { type: "tool" }) {
-    const entry = draft.activity[part.sessionID] ?? { tools: 0, lastPartId: "" };
+function trackActivity(draft: EngineState, part: ToolPart) {
+    const entry = draft.activity[part.sessionId] ?? { tools: 0, lastPartId: "" };
     if (entry.lastPartId !== part.id) {
         entry.tools += 1;
         entry.lastPartId = part.id;
     }
-    entry.current = part.state.status === "completed" || part.state.status === "error" ? undefined : part.tool;
-    draft.activity[part.sessionID] = entry;
+    const active = part.status === "pending" || part.status === "running";
+    entry.current = active ? part.name : undefined;
+    draft.activity[part.sessionId] = entry;
 }
 
 function addQuestion(set: SetEngineState, question: QuestionRequest) {

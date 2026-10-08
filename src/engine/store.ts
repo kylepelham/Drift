@@ -1,13 +1,14 @@
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
 import { hiddenParent } from "./sessions";
 import { messageModel } from "./messages";
+import { promptPartText } from "./parts";
 
-import type { Command, Part, SessionStatus, ToolPart } from "./shapes";
 import type { ModelInfo, ProviderInfo } from "./catalog";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
 import type { Session } from "./sessions";
 import type { Message } from "./messages";
+import type { Part } from "./parts";
 import type {
     McpServerConfig,
     McpServerConfigView,
@@ -42,7 +43,10 @@ export type AgentInfo = {
     /** Why the engine refuses to run it (a broken file or override); other agents are unaffected. */
     problem?: string;
 };
-export type CommandInfo = Command & {
+export type SessionStatus =
+    { type: "idle" | "busy" } | { type: "retry"; attempt: number; message: string; next: number };
+
+export type CommandInfo = Pick<components["schemas"]["Command"], "name" | "description" | "template"> & {
     usage?: string;
     subcommands?: { name: string; description: string; usage?: string }[];
 };
@@ -56,30 +60,29 @@ export function interruptStaleTools(
     return entries.map((entry) => {
         let changed = false;
         const parts = entry.parts.map((part) => {
-            if (part.type !== "tool" || (part.state.status !== "pending" && part.state.status !== "running"))
-                return part;
-            if (liveTools[part.id] === part.sessionID) return part;
+            if (part.type !== "tool_call" || (part.status !== "pending" && part.status !== "running")) return part;
+            if (liveTools[part.id] === part.sessionId) return part;
             changed = true;
             const completed = entry.info.finishedAt;
-            const start = "time" in part.state ? part.state.time.start : undefined;
-            const metadata = "metadata" in part.state ? part.state.metadata : undefined;
+            const start = part.startedAt ?? undefined;
             return {
                 ...part,
-                state: {
-                    status: "error",
-                    input: part.state.input,
-                    error,
-                    metadata,
-                    ...(start === undefined ? {} : { time: { start, end: Math.max(start, completed ?? start) } }),
-                },
-            } as ToolPart;
+                status: "error" as const,
+                output: error,
+                finishedAt: start === undefined ? undefined : Math.max(start, completed ?? start),
+            };
         });
         return changed ? { ...entry, parts } : entry;
     });
 }
 
 export function messageText(entry: MessageEntry) {
-    return entry.parts.flatMap((part) => (part.type === "text" && !part.synthetic ? [part.text] : [])).join("\n");
+    return entry.parts
+        .flatMap((part) => {
+            const text = promptPartText(part);
+            return text === undefined ? [] : [text];
+        })
+        .join("\n");
 }
 
 // Engine IDs are not chronologically sortable (the embedded timestamp wraps), so order by time first.
@@ -396,11 +399,10 @@ function usableContext(input: number | undefined, context: number, reserved: num
 }
 
 export function spawnLink(part: Part): { child: string; parent: string } | undefined {
-    if (part.type !== "tool" || (part.tool !== "task" && part.tool !== "spawn_thread")) return;
-    const state = part.state;
-    const meta = (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as { sessionId?: string };
+    if (part.type !== "tool_call" || (part.name !== "task" && part.name !== "spawn_thread")) return;
+    const meta = part.metadata;
     if (!meta?.sessionId) return;
-    return { child: meta.sessionId, parent: part.sessionID };
+    return { child: meta.sessionId, parent: part.sessionId };
 }
 
 export function taskActive(task: Pick<TaskRecord, "state">) {

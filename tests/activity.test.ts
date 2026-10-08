@@ -305,7 +305,7 @@ test("Shiki promise caches evict by approximate size and retry failures", async 
 test("taskBody extracts prompt and task_result for task cards", async () => {
     const { taskBody } = await import("../src/ui/parts");
     const part = (tool: string, input: Record<string, string>, output: string) =>
-        ({ tool, state: { status: "completed", input, output } }) as never;
+        ({ name: tool, status: "done", input, output }) as never;
     expect(
         taskBody(
             part(
@@ -365,21 +365,19 @@ test("a compaction draws one marker: the summary row, or the prompt's divider on
 
 test("loaded stale tool states become interrupted without mutating live or completed parts", async () => {
     const { interruptStaleTools } = await import("../src/engine/store");
-    const toolState = (status: "pending" | "running" | "completed") => {
-        if (status === "pending") return { status, input: {}, raw: "" };
-        if (status === "running") return { status, input: {}, time: { start: 2 } };
-
-        return { status, input: {}, output: "ok", title: "", metadata: {}, time: { start: 2, end: 3 } };
-    };
     const tool = (id: string, status: "pending" | "running" | "completed", messageID = "a1") =>
         ({
             id,
-            sessionID: "s1",
-            messageID,
-            type: "tool",
-            callID: id,
-            tool: "bash",
-            state: toolState(status),
+            sessionId: "s1",
+            messageId: messageID,
+            type: "tool_call",
+            callId: id,
+            name: "bash",
+            status: status === "completed" ? "done" : status,
+            input: {},
+            output: status === "completed" ? "ok" : undefined,
+            startedAt: status === "pending" ? undefined : 2,
+            finishedAt: status === "completed" ? 3 : undefined,
         }) as never;
     const entry = {
         info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
@@ -388,21 +386,18 @@ test("loaded stale tool states become interrupted without mutating live or compl
 
     expect(interruptStaleTools([entry], { stale: "s1", pending: "s1" }, "Interrupted")[0]).toBe(entry);
     const interrupted = interruptStaleTools([entry], {}, "Interrupted")[0];
-    expect((interrupted.parts[0] as { state: { status: string; error: string } }).state).toMatchObject({
+    expect(interrupted.parts[0]).toMatchObject({
         status: "error",
-        error: "Interrupted",
+        output: "Interrupted",
     });
-    expect((interrupted.parts[1] as { state: { status: string; error: string } }).state).toMatchObject({
+    expect(interrupted.parts[1]).toMatchObject({
         status: "error",
-        error: "Interrupted",
+        output: "Interrupted",
     });
-    expect((interrupted.parts[1] as { state: Record<string, unknown> }).state).not.toHaveProperty("time");
-    expect((interrupted.parts[0] as { state: { time: { start: number; end: number } } }).state.time).toEqual({
-        start: 2,
-        end: 2,
-    });
-    expect((interrupted.parts[2] as { state: { status: string } }).state.status).toBe("completed");
-    expect((entry.parts[0] as { state: { status: string } }).state.status).toBe("running");
+    expect(interrupted.parts[1]).toMatchObject({ startedAt: undefined, finishedAt: undefined });
+    expect(interrupted.parts[0]).toMatchObject({ startedAt: 2, finishedAt: 2 });
+    expect(interrupted.parts[2]).toMatchObject({ status: "done" });
+    expect(entry.parts[0]).toMatchObject({ status: "running" });
 
     const old = entry;
     const live = {
@@ -410,8 +405,8 @@ test("loaded stale tool states become interrupted without mutating live or compl
         parts: [tool("live", "running", "a2")],
     } as never;
     const duringTurn = interruptStaleTools([old, live], { live: "s1" }, "Interrupted");
-    expect((duringTurn[0].parts[0] as { state: { status: string } }).state.status).toBe("error");
-    expect((duringTurn[1].parts[0] as { state: { status: string } }).state.status).toBe("running");
+    expect(duringTurn[0].parts[0]).toMatchObject({ status: "error" });
+    expect(duringTurn[1].parts[0]).toMatchObject({ status: "running" });
 });
 
 test("streamed tool replacements retain mounted group and plugin identities", async () => {
@@ -428,11 +423,14 @@ test("streamed tool replacements retain mounted group and plugin identities", as
     };
     const tool = (id: string, name: string, status: string, output = "") => ({
         id,
-        sessionID: "s1",
-        messageID: "m1",
-        type: "tool",
-        tool: name,
-        state: status === "completed" ? { status, input: {}, output } : { status, input: {}, metadata: { output } },
+        sessionId: "s1",
+        messageId: "m1",
+        type: "tool_call",
+        name,
+        status: status === "completed" ? "done" : status,
+        input: {},
+        output: status === "completed" ? output : undefined,
+        metadata: { output },
     });
 
     createRoot((dispose) => {
@@ -586,7 +584,7 @@ test("upward transcript gestures unstick immediately near the bottom", async () 
 test("transcript follow revision tracks lengths and status without embedding large output", async () => {
     const { transcriptRevision } = await import("../src/ui/chat");
     const part = (output: string, status = "running") => ({
-        parts: [{ type: "tool", state: { status, metadata: { output } } }],
+        parts: [{ type: "tool_call", status: status === "completed" ? "done" : status, metadata: { output } }],
     });
     const first = transcriptRevision(part("a".repeat(1_550_000)));
     const sameLength = transcriptRevision(part("b".repeat(1_550_000)));
@@ -604,8 +602,8 @@ test("timeline omits hidden-only messages without dropping the active thinking r
         parts,
     });
     const hidden = entry("hidden", [{ id: "r1", type: "reasoning", text: "private", time: { start: 1, end: 2 } }]);
-    const todo = entry("todo", [{ id: "t1", type: "tool", tool: "todowrite", state: { status: "completed" } }]);
-    const visible = entry("visible", [{ id: "t2", type: "tool", tool: "edit", state: { status: "completed" } }]);
+    const todo = entry("todo", [{ id: "t1", type: "tool_call", name: "todowrite", status: "done" }]);
+    const visible = entry("visible", [{ id: "t2", type: "tool_call", name: "edit", status: "done" }]);
 
     expect(timelineEntries([hidden, todo, visible] as never).map((item) => item.info.id)).toEqual(["visible"]);
     expect(timelineEntries([hidden, todo, visible] as never, "hidden").map((item) => item.info.id)).toEqual([
@@ -656,7 +654,7 @@ test("large multiline user content uses a full-height literal row estimate", asy
     const entry = (text: string, generated = false) =>
         ({
             info: { id: "u1", role: "user", time: { created: 1 } },
-            parts: [{ type: "text", text, metadata: generated ? { generated: true } : undefined }],
+            parts: [{ type: generated ? "nudge" : "text", text }],
         }) as never;
     const long = Array.from({ length: 41 }, () => "line").join("\n");
     expect(estimatedTimelineRow(entry(long))).toBe(915);

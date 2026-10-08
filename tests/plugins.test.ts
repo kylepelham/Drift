@@ -1,7 +1,8 @@
 import { nextUserMessage, previousUserMessage, type MessageEntry } from "../src/engine/store";
 import { expect, test } from "bun:test";
 
-import type { Message, ToolPart } from "../src/engine/shapes";
+import type { Message } from "../src/engine/messages";
+import type { ToolPart } from "../src/engine/parts";
 
 if (!("localStorage" in globalThis))
     Object.defineProperty(globalThis, "localStorage", {
@@ -39,28 +40,31 @@ test("patchFiles reads per-file apply_patch metadata", async () => {
             deletions: 0,
         },
     ];
-    const part = { state: { status: "completed", metadata: { files } } } as unknown as ToolPart;
+    const part = { name: "apply_patch", status: "done", input: {}, metadata: { files } } as unknown as ToolPart;
     expect(patchFiles(part)).toEqual(files);
     expect(patchSubtitle(part)).toBe("2 files");
     expect(
-        patchSubtitle({ state: { status: "completed", metadata: { files: [files[0]] } } } as unknown as ToolPart),
+        patchSubtitle({
+            name: "apply_patch",
+            status: "done",
+            input: {},
+            metadata: { files: [files[0]] },
+        } as unknown as ToolPart),
     ).toBe("app.tsx");
     const running = {
-        state: {
-            status: "running",
-            input: {
-                patchText: "*** Begin Patch\n*** Update File: src/app.tsx\n@@\n-old\n+new\n*** End Patch",
-            },
+        name: "apply_patch",
+        status: "running",
+        input: {
+            patchText: "*** Begin Patch\n*** Update File: src/app.tsx\n@@\n-old\n+new\n*** End Patch",
         },
     } as unknown as ToolPart;
     expect(patchInputPaths(running)).toEqual(["src/app.tsx"]);
     expect(patchSubtitle(running)).toBe("app.tsx");
     expect(
         patchSubtitle({
-            state: {
-                status: "running",
-                input: { patchText: "*** Add File: src/one.ts\n*** Delete File: src/two.ts" },
-            },
+            name: "apply_patch",
+            status: "running",
+            input: { patchText: "*** Add File: src/one.ts\n*** Delete File: src/two.ts" },
         } as unknown as ToolPart),
     ).toBe("2 files");
     expect(nextToolOpen(true, false, true, false)).toBeFalse();
@@ -70,7 +74,7 @@ test("patchFiles reads per-file apply_patch metadata", async () => {
 
 test("tool context actions compose wildcard and tool providers with cleanup", async () => {
     const { registerToolContextActions, toolContextActions } = await import("../src/tool-actions");
-    const part = { tool: "custom", state: { status: "completed", input: {} } } as unknown as ToolPart;
+    const part = { name: "custom", status: "done", input: {} } as unknown as ToolPart;
     const offAny = registerToolContextActions("*", () => ({ id: "any", label: "Any", run: () => undefined }));
     const offTool = registerToolContextActions("custom", () => [
         { id: "one", label: "One", run: () => undefined },
@@ -86,33 +90,29 @@ test("file tool actions resolve changed lines and patch targets", async () => {
     const { builtinFileTargets, firstChangedLine } = await import("../src/tool-actions");
     expect(firstChangedLine("@@ -10,3 +20,4 @@\n context\n-old\n+new")).toBe(21);
     const edit = {
-        tool: "edit",
-        state: {
-            status: "completed",
-            input: { filePath: "src/app.tsx" },
-            metadata: { diff: "@@ -4 +7 @@\n-old\n+new" },
-        },
+        name: "edit",
+        status: "done",
+        input: { filePath: "src/app.tsx" },
+        metadata: { diff: "@@ -4 +7 @@\n-old\n+new" },
     } as unknown as ToolPart;
     expect(builtinFileTargets(edit, "S:\\Personal\\Drift")).toEqual([
         { path: "S:\\Personal\\Drift\\src/app.tsx", label: "src/app.tsx", line: 7 },
     ]);
     const patch = {
-        tool: "apply_patch",
-        state: {
-            status: "completed",
-            input: {},
-            metadata: {
-                files: [
-                    {
-                        filePath: "S:/Personal/Drift/old.ts",
-                        movePath: "S:/Personal/Drift/new.ts",
-                        relativePath: "new.ts",
-                        type: "move",
-                        patch: "@@ -1 +3 @@\n-old\n+new",
-                    },
-                    { filePath: "S:/Personal/Drift/gone.ts", relativePath: "gone.ts", type: "delete", patch: "" },
-                ],
-            },
+        name: "apply_patch",
+        status: "done",
+        input: {},
+        metadata: {
+            files: [
+                {
+                    filePath: "S:/Personal/Drift/old.ts",
+                    movePath: "S:/Personal/Drift/new.ts",
+                    relativePath: "new.ts",
+                    type: "move",
+                    patch: "@@ -1 +3 @@\n-old\n+new",
+                },
+                { filePath: "S:/Personal/Drift/gone.ts", relativePath: "gone.ts", type: "delete", patch: "" },
+            ],
         },
     } as unknown as ToolPart;
     expect(builtinFileTargets(patch, "S:/Personal/Drift")).toEqual([

@@ -1,7 +1,6 @@
 import { EngineError, maxRequestBytes, type Client, type PermissionGrant, type PermissionRule } from "./native/client";
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
 import { produce, reconcile, type SetStoreFunction } from "solid-js/store";
-import { adaptPart, type NativeMessageWithParts } from "./native/adapt";
 import { applyProviderCatalog } from "../state/provider-cache";
 import { formatAttachmentBytes } from "../attachments";
 import { handOverAutoAccept } from "../state/prefs";
@@ -33,6 +32,7 @@ import type { ProviderAuthMethod } from "./provider-auth";
 import type { components } from "./native/types";
 
 type NativeSession = components["schemas"]["Session"];
+type NativeMessageWithParts = components["schemas"]["MessageWithParts"];
 
 type PromptFile = {
     filename?: string;
@@ -105,7 +105,7 @@ export function createActions(
     function entries(messages: NativeMessageWithParts[]): MessageEntry[] {
         return messages.map(({ parts, ...info }) => ({
             info,
-            parts: parts.map(adaptPart),
+            parts,
         }));
     }
 

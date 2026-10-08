@@ -26,25 +26,40 @@ const legacyBody =
     "Which colors?\nBlue, Green, teal\n\nAny notes?\nKeep raw\ntext <unchanged>\n\nAnything else?\nUnanswered";
 const legacyText = `Answer to clarification ${requestID}:\n${legacyBody}`;
 
-function entry(text = legacyText, metadata?: Record<string, unknown>): MessageEntry {
+function entry(text = legacyText): MessageEntry {
     return {
         info: {
             id: "u1",
-            sessionID: "s1",
+            sessionId: "s1",
             role: "user",
-            time: { created: 1 },
+            createdAt: 1,
+            status: "done",
+            cost: 0,
+            usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
             agent: "plan",
-            model: { providerID: "test", modelID: "test" },
+            model: { provider: "openai", model: "gpt-6-astra" },
         },
-        parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "text", text, ...(metadata ? { metadata } : {}) }],
+        parts: [{ id: "p1", messageId: "u1", sessionId: "s1", type: "text", text }],
     };
 }
 
 function structured(rows = items) {
-    return entry(legacyText, { driftClarification: { version: 1, requestID, items: rows } });
+    return {
+        ...entry(),
+        parts: [
+            {
+                id: "p1",
+                messageId: "u1",
+                sessionId: "s1",
+                type: "clarification" as const,
+                requestId: requestID,
+                items: rows,
+            },
+        ],
+    };
 }
 
-test("metadata search uses rendered questions and answers, not protocol, headers, or empty-answer UI", () => {
+test("native clarification search uses rendered questions and answers, not headers or empty-answer UI", () => {
     const message = structured();
     expect(entrySearchText(message)).toBe(clarificationAnswer(message)!.text);
     for (const query of ["which colors?", "include details.", "Green, teal", "text <unchanged>", "anything else?"])
@@ -63,7 +78,7 @@ test("legacy search preserves the full displayed body but excludes the protocol 
     for (const query of [requestID, "Answer to clarification"]) expect(transcriptMatches([message], query)).toEqual([]);
 });
 
-test("clarification search cache follows metadata changes even when raw text and answer lengths stay the same", () => {
+test("clarification search cache follows answer changes even when answer lengths stay the same", () => {
     const row = { ...single, answers: ["Blue"] };
     const message = structured([row]);
     expect(transcriptMatches([message], "blue")).toEqual([{ messageId: "u1", count: 1 }]);
@@ -75,26 +90,18 @@ test("clarification search cache follows metadata changes even when raw text and
 test("ordinary and malformed clarification messages still search their raw displayed text", () => {
     for (const message of [
         entry("An ordinary Answer to clarification question"),
-        entry(legacyText, { driftClarification: { version: 2, requestID, items } }),
         { ...entry(), parts: [...entry().parts, ...entry("attachment text").parts] },
         { ...entry(), info: { ...entry().info, role: "assistant" } } as MessageEntry,
     ])
         expect(transcriptMatches([message], "Answer to clarification")).toEqual([{ messageId: "u1", count: 1 }]);
 });
 
-test("exact driftClarification version 1 metadata renders a single question without protocol text", () => {
+test("a native clarification renders one question without protocol text", () => {
     expect(clarificationAnswer(structured([single]))).toEqual({
         items: [single],
         text: "Which color?\nBlue",
         preview: "Blue",
     });
-    expect(
-        clarificationAnswer(
-            entry("ordinary message", {
-                driftClarification: { version: 1, requestID, items: [single] },
-            }),
-        ),
-    ).toEqual(clarificationAnswer(structured([single])));
 });
 
 test("multiple questions preserve multiselect boundaries, custom multiline text, and empty answers", () => {
@@ -122,13 +129,13 @@ test.each([{ answers: [] }, { answers: [""] }, { answers: ["", "  ", "\n"] }])(
     },
 );
 
-test("metadata survives a persistence-like JSON roundtrip without mutating stored text or answers", () => {
+test("native clarification survives a JSON roundtrip without mutating its stored answers", () => {
     const persisted = JSON.stringify(structured());
     const restored: MessageEntry = JSON.parse(persisted);
     const before = clarificationAnswer(restored)!;
     expect(before).toEqual(clarificationAnswer(structured()));
     expect(JSON.stringify(restored)).toBe(persisted);
-    expect(messageText(restored)).toBe(legacyText);
+    expect(messageText(restored)).toContain("Answer: Blue, Green, teal");
 
     before.items[0].answers.push("Changed outside the message");
     before.items[1].answers[0] = "Replaced";
@@ -139,87 +146,43 @@ test("metadata survives a persistence-like JSON roundtrip without mutating store
     expect(clarificationAnswer(restored)).toEqual(clarificationAnswer(structured()));
 });
 
-test.each([
-    ["null", null],
-    ["boolean", true],
-    ["string", "version 1"],
-    ["array", []],
-    ["missing version", { requestID, items: [single] }],
-    ["string version", { version: "1", requestID, items: [single] }],
-    ["unknown version", { version: 2, requestID, items: [single] }],
-    ["missing requestID", { version: 1, items: [single] }],
-    ["non-string requestID", { version: 1, requestID: 42, items: [single] }],
-    ["missing items", { version: 1, requestID }],
-    ["non-array items", { version: 1, requestID, items: {} }],
-    ["empty items", { version: 1, requestID, items: [] }],
-    ...[
-        null,
-        "question",
-        {},
-        { ...single, header: undefined },
-        { ...single, header: 1 },
-        { ...single, question: null },
-        { ...single, question: undefined },
-        { ...single, answers: undefined },
-        { ...single, answers: "Blue" },
-        { ...single, answers: ["Blue", null] },
-        { ...single, answers: [42] },
-    ].map((item, index) => [`invalid item ${index}`, { version: 1, requestID, items: [single, item] }]),
-])("malformed metadata (%s) falls back to raw text even with a valid legacy prefix", (_, metadata) => {
-    const message = entry(legacyText, { driftClarification: metadata });
-    const before = JSON.stringify(message);
-    expect(clarificationAnswer(message)).toBeUndefined();
-    expect(messageText(message)).toBe(legacyText);
-    expect(JSON.stringify(message)).toBe(before);
+test.each(["native", "legacy"])("%s detection excludes assistant, multipart, and attachment messages", (format) => {
+    const message = format === "native" ? structured() : entry();
+    const part = message.parts[0];
+    const file = {
+        id: "f1",
+        messageId: "u1",
+        sessionId: "s1",
+        type: "file",
+        mime: "image/png",
+        name: "image.png",
+        url: "file:///image.png",
+    } as const;
+    const excluded = [
+        { ...message, info: { ...message.info, role: "assistant" } } as MessageEntry,
+        { ...message, parts: [part, { ...part, id: "p2" }] },
+        { ...message, parts: [part, file] },
+        { ...message, parts: [file, part] },
+        { ...message, parts: [file] },
+        { ...message, parts: [] },
+        { ...message, parts: [{ ...part, type: "reasoning" }] } as MessageEntry,
+    ];
+    for (const candidate of excluded) expect(clarificationAnswer(candidate)).toBeUndefined();
+    expect(clarificationAnswer(entry("Please keep this ordinary user message expanded."))).toBeUndefined();
 });
-
-test("other metadata names and nested lookalikes do not opt ordinary messages into collapsing", () => {
-    const data = { version: 1, requestID, items: [single] };
-    for (const metadata of [
-        { clarification: data },
-        { driftclarification: data },
-        { other: { driftClarification: data } },
-    ])
-        expect(clarificationAnswer(entry("ordinary message", metadata))).toBeUndefined();
-});
-
-test.each(["metadata", "legacy"])(
-    "%s detection excludes assistant, synthetic, multipart, and attachment messages",
-    (format) => {
-        const message = format === "metadata" ? structured() : entry();
-        const part = message.parts[0];
-        const file = {
-            id: "f1",
-            messageID: "u1",
-            sessionID: "s1",
-            type: "file",
-            mime: "image/png",
-            url: "file:///image.png",
-        } as const;
-        const excluded = [
-            { ...message, info: { ...message.info, role: "assistant" } } as MessageEntry,
-            { ...message, parts: [{ ...part, synthetic: true }] } as MessageEntry,
-            { ...message, parts: [part, { ...part, id: "p2" }] },
-            { ...message, parts: [part, file] },
-            { ...message, parts: [file, part] },
-            { ...message, parts: [file] },
-            { ...message, parts: [] },
-            { ...message, parts: [{ ...part, type: "reasoning" }] } as MessageEntry,
-        ];
-        for (const candidate of excluded) expect(clarificationAnswer(candidate)).toBeUndefined();
-        expect(clarificationAnswer(entry("Please keep this ordinary user message expanded."))).toBeUndefined();
-    },
-);
 
 test("an answer that carries held worker results along still renders as the answer", () => {
     const message = structured([single]);
     const rider = {
         id: "p0",
-        messageID: "u1",
-        sessionID: "s1",
-        type: "text",
+        messageId: "u1",
+        sessionId: "s1",
+        type: "task_result",
+        taskId: "task",
+        workerSessionId: "worker",
+        description: "Survey",
+        outcome: "replied",
         text: 'Background task "Survey" replied',
-        synthetic: true,
     } as const;
     expect(clarificationAnswer({ ...message, parts: [rider, ...message.parts] })).toEqual(clarificationAnswer(message));
 });
@@ -289,9 +252,7 @@ test("normal estimates and explicit thinking/summary modes are unaffected", asyn
     expect(estimatedTimelineRow(message, 13, entry("ordinary override").parts)).toBe(96);
     expect(estimatedTimelineRow(entry("ordinary original"), 13, message.parts)).toBe(40);
     for (const candidate of [
-        entry(legacyText, { driftClarification: { version: 2, requestID, items } }),
         { ...message, info: { ...message.info, role: "assistant" } } as MessageEntry,
-        { ...message, parts: [{ ...message.parts[0], synthetic: true }] } as MessageEntry,
         { ...message, parts: [...message.parts, ...entry("attachment text").parts] },
         {
             ...message,
@@ -299,10 +260,11 @@ test("normal estimates and explicit thinking/summary modes are unaffected", asyn
                 ...message.parts,
                 {
                     id: "f1",
-                    messageID: "u1",
-                    sessionID: "s1",
+                    messageId: "u1",
+                    sessionId: "s1",
                     type: "file",
                     mime: "image/png",
+                    name: "image.png",
                     url: "file:///image.png",
                 },
             ],

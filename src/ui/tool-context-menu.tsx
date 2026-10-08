@@ -3,7 +3,7 @@ import { createSignal, For, Show } from "solid-js";
 import { createDismissOnOutside } from "./dismiss";
 import { fixedMenuPosition } from "../state/zoom";
 
-import type { ToolPart } from "../engine/shapes";
+import type { ToolPart } from "../engine/parts";
 
 type MenuState = { x: number; y: number; actions: ToolContextAction[] };
 

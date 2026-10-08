@@ -1,5 +1,7 @@
+import { promptPartText, toolInput } from "./parts";
+
 import type { MessageEntry } from "./store";
-import type { Part } from "./shapes";
+import type { Part } from "./parts";
 
 export type BreakdownKey = "system" | "user" | "assistant" | "tool";
 export type BreakdownSegment = { key: BreakdownKey; tokens: number };
@@ -10,18 +12,24 @@ const charsPerToken = 4;
 const charsPerToolArgument = 16;
 
 function userChars(part: Part) {
-    if (part.type === "text") return part.text.length;
-    if (part.type === "file") return part.source?.text.value.length ?? 0;
-    if (part.type === "agent") return part.source?.value.length ?? 0;
+    if (part.type === "task_result")
+        return `Background task "${part.description}" ${part.outcome}:\n\n${part.text}`.length;
+
+    const text = promptPartText(part);
+    if (text !== undefined) return text.length;
+    if (part.type === "file" && part.path) return part.path.length + 1;
     return 0;
 }
 
 function assistantChars(part: Part) {
-    if (part.type === "text" || part.type === "reasoning") return { assistant: part.text.length, tool: 0 };
-    if (part.type !== "tool") return { assistant: 0, tool: 0 };
-    const input = Object.keys(part.state.input ?? {}).length * charsPerToolArgument;
-    if (part.state.status === "completed") return { assistant: 0, tool: input + part.state.output.length };
-    if (part.state.status === "error") return { assistant: 0, tool: input + part.state.error.length };
+    const text = promptPartText(part);
+    if (text !== undefined) return { assistant: text.length, tool: 0 };
+    if (part.type === "reasoning") return { assistant: part.text.length, tool: 0 };
+    if (part.type !== "tool_call") return { assistant: 0, tool: 0 };
+    const input = Object.keys(toolInput(part)).length * charsPerToolArgument;
+    if (part.status === "done") return { assistant: 0, tool: input + (part.output ?? "").length };
+    if (part.status === "error" || part.status === "denied")
+        return { assistant: 0, tool: input + (part.output ?? "Failed").length };
     return { assistant: 0, tool: input };
 }
 

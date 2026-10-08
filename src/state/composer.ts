@@ -1,4 +1,5 @@
 import { resolveAttachmentKind, type StagedAttachment } from "../attachments";
+import { messageText } from "../engine/store";
 import { createSignal } from "solid-js";
 import { persisted } from "./persist";
 
@@ -123,24 +124,21 @@ export function navigateComposerHistory(
 }
 
 export function draftFromMessage(entry: MessageEntry): ComposerDraft {
-    const text = entry.parts
-        .flatMap((part) => (part.type === "text" && !part.synthetic && !part.ignored ? [part.text] : []))
-        .join("\n");
+    const text = messageText(entry);
     const staged: StagedFile[] = [];
     const mentions: string[] = [];
     for (const part of entry.parts) {
         if (part.type !== "file") continue;
-        if (part.source?.type === "file") {
-            const value = part.source.text.value;
-            if (value.startsWith("@")) mentions.push(value.slice(1));
+        if (part.path) {
+            mentions.push(part.path);
             continue;
         }
         if (!part.url.startsWith("data:")) continue;
-        const resolved = resolveAttachmentKind({ filename: part.filename, mime: part.mime });
+        const resolved = resolveAttachmentKind({ filename: part.name, mime: part.mime });
         if (resolved.kind === "unsupported") continue;
         staged.push({
             id: part.id,
-            filename: part.filename ?? "attachment",
+            filename: part.name ?? "attachment",
             mime: resolved.mime,
             dataUrl: part.url,
             size: 0,

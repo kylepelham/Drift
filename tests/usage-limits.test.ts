@@ -84,7 +84,7 @@ test("the breakdown estimates transcript categories and attributes the rest to s
         entry("user", [{ type: "text", text: "x".repeat(400) }]),
         entry("assistant", [
             { type: "text", text: "y".repeat(800) },
-            { type: "tool", state: { status: "completed", input: { path: "a" }, output: "z".repeat(1184) } },
+            { type: "tool_call", name: "bash", status: "done", input: { path: "a" }, output: "z".repeat(1184) },
         ]),
     ];
     expect(estimateContextBreakdown(entries, 10_000)).toEqual([

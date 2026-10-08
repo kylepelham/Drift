@@ -79,22 +79,11 @@ test("rounds are counted as the engine counts them, against the engine's limit",
         parts,
     });
     const reply = { info: { role: "assistant" }, parts: [{ type: "text" }] };
-    const nudge = user({ type: "text", metadata: { generated: true } });
-    const entries = [
-        user({ type: "text" }),
-        reply,
-        nudge,
-        reply,
-        user({ type: "text", synthetic: true }),
-        reply,
-        nudge,
-        reply,
-    ];
+    const nudge = user({ type: "nudge" });
+    const entries = [user({ type: "text" }), reply, nudge, reply, user({ type: "task_result" }), reply, nudge, reply];
     expect(nudgesSincePrompt(entries)).toBe(2);
     expect(nudgesSincePrompt([...entries, user({ type: "file" }), reply, nudge, reply])).toBe(1);
-    expect(
-        nudgesSincePrompt([...entries, user({ type: "text", metadata: { driftClarification: {} } }), reply, nudge]),
-    ).toBe(3);
+    expect(nudgesSincePrompt([...entries, user({ type: "clarification" }), reply, nudge])).toBe(3);
     const drive = await Bun.file("crates/drift-engine/src/session/drive.rs").text();
     expect(drive).toContain(`pub const MAX_ROUNDS: usize = ${ORCHESTRATOR_MAX_ROUNDS};`);
 });
@@ -107,21 +96,9 @@ test("the engine drives the orchestrator; the app only reports how a turn ended"
     expect(drive).toContain("Proceed toward the goal");
 });
 
-test("nudges show as Drift's own prompts, not the user's", async () => {
-    const { adaptPart } = await import("../src/engine/native/adapt");
-    const part = adaptPart({
-        id: "p",
-        sessionId: "s",
-        messageId: "m",
-        type: "nudge",
-        text: "Proceed toward the goal.",
-    } as never);
-    expect(part).toMatchObject({ type: "text", text: "Proceed toward the goal.", metadata: { generated: true } });
-});
-
 test("async questions do not mark tools as awaiting permission", async () => {
     const parts = await Bun.file("src/ui/parts.tsx").text();
-    expect(parts).toContainCode("(question) => !question.async && question.callId === part.callID");
+    expect(parts).toContainCode("(question) => !question.async && question.callId === part.callId");
 });
 
 test("the orchestrator agent is a native built-in with delegation-only tools and the status protocol", async () => {

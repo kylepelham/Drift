@@ -33,8 +33,9 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
 - Catalog models use the generated native schema, including ordered reasoning variants
   and optional context limits. The persisted catalog restores SDK-era caches at the storage
   boundary; live provider responses are stored without capability placeholders.
-- `src/engine/native/adapt.ts` maps the engine's parts onto the shapes
-  the views render (`src/engine/shapes.ts`).
+- `src/engine/parts.ts` aliases the generated native part union and supplies text and
+  file-tool selectors. Stored records retain native IDs, tags, timestamps and metadata.
+  `src/ui/tool-presentation.ts` derives row status and timing without changing those records.
 - Messages are stored as native records. `src/engine/messages.ts` derives visible failure
   and interruption text from their status and ending; it never replaces their usage,
   timestamps, agent or provider model reference with SDK fields.
@@ -43,8 +44,7 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
 - `src/engine/events.ts` is the reducer: one function per event type, applied with
   `produce` for fine-grained solid updates. It consumes the generated native event union
   directly, including `part.delta`, `session.retry`, `permission.asked` and `plugin.notice`.
-  There is no event-name translation; record conversions remain in the adapter while
-  the views migrate to native records.
+  There is no SDK record conversion or event-name translation.
 - `src/engine/actions.ts` is the only place engine calls happen.
 - `src/engine/index.tsx` glues it together: provider, hydration, event pump.
 

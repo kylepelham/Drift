@@ -9,21 +9,19 @@ export type TranscriptMatch = { messageId: string; count: number };
 /** A single occurrence: which message it is in and which occurrence within that message. */
 export type TranscriptOccurrence = { messageId: string; index: number };
 
-type TextualPart = { type: string; text?: string; synthetic?: boolean; state?: { output?: string } };
-
-/** Returns readable message text, reasoning, and retained tool output, excluding synthetic parts. */
+/** Returns readable message text, reasoning and finished tool output; engine-only parts such as worker results are left out. */
 export function entrySearchText(entry: MessageEntry) {
     const clarification = clarificationAnswer(entry);
     if (clarification) return clarification.text;
 
     const parts: string[] = [];
-    for (const part of entry.parts as unknown as TextualPart[]) {
-        if (part.synthetic) continue;
-        if (part.type === "text" || part.type === "reasoning") {
+    for (const part of entry.parts) {
+        if (part.type === "text" || part.type === "reasoning" || part.type === "nudge") {
             if (part.text) parts.push(part.text);
             continue;
         }
-        if (part.type === "tool" && typeof part.state?.output === "string") parts.push(part.state.output);
+        if (part.type === "tool_call" && part.status === "done" && typeof part.output === "string")
+            parts.push(part.output);
     }
 
     return parts.join("\n");
@@ -35,10 +33,10 @@ const loweredCache = new WeakMap<MessageEntry, { fingerprint: number | string; l
 function textFingerprint(entry: MessageEntry) {
     let total = entry.parts.length;
 
-    for (const part of entry.parts as unknown as TextualPart[]) {
-        if (part.synthetic) continue;
-        if (part.type === "text" || part.type === "reasoning") total += part.text?.length ?? 0;
-        else if (part.type === "tool" && typeof part.state?.output === "string") total += part.state.output.length;
+    for (const part of entry.parts) {
+        if (part.type === "text" || part.type === "reasoning" || part.type === "nudge") total += part.text.length;
+        else if (part.type === "tool_call" && part.status === "done" && typeof part.output === "string")
+            total += part.output.length;
     }
 
     return total;

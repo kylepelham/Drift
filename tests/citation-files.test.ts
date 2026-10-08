@@ -3,16 +3,23 @@ import { citationFileGroups } from "../src/ui/citation-files";
 import { expect, test } from "bun:test";
 
 import type { EngineState, MessageEntry } from "../src/engine/store";
-import type { Part } from "../src/engine/shapes";
+import type { Part } from "../src/engine/parts";
 
 function tool(id: string, name: string, input: Record<string, unknown>, metadata: Record<string, unknown> = {}): Part {
     return {
         id,
-        type: "tool",
-        sessionID: "session",
-        messageID: "response",
-        tool: name,
-        state: { status: "completed", input, metadata, output: "", title: "", time: { start: 1, end: 2 } },
+        type: "tool_call",
+        sessionId: "session",
+        messageId: "response",
+        callId: id,
+        name,
+        status: "done",
+        input,
+        metadata,
+        output: "",
+        title: "",
+        startedAt: 1,
+        finishedAt: 2,
     } as Part;
 }
 
@@ -26,8 +33,8 @@ function state(entries: MessageEntry[]): Pick<EngineState, "sessions" | "transcr
 
 const citation = {
     id: "citation",
-    messageID: "response",
-    sessionID: "session",
+    messageId: "response",
+    sessionId: "session",
     type: "text",
     text: "See AmazingCode.cs:345:21",
 } as Part;
@@ -66,8 +73,10 @@ test("a drive-root citation resolves the current task's file rather than older o
 
 test("collects successful reads, edits, writes, patch moves and attachments without decoding native paths", () => {
     const failed = tool("failed", "read", { filePath: "C:/Missing.cs" });
-    if (failed.type === "tool")
-        failed.state = { status: "error", input: failed.state.input, error: "missing", time: { start: 1, end: 2 } };
+    if (failed.type === "tool_call") {
+        failed.status = "error";
+        failed.output = "missing";
+    }
     const value = state([
         message("response", "assistant", 1, [
             tool("read", "read", { filePath: "C:\\Project\\100% notes#1.cs" }),
@@ -90,8 +99,9 @@ test("collects successful reads, edits, writes, patch moves and attachments with
             {
                 id: "attachment",
                 type: "file",
-                sessionID: "session",
-                messageID: "response",
+                sessionId: "session",
+                messageId: "response",
+                name: "Attached#file.cs",
                 url: "file:///C:/Project/Attached%23file.cs",
                 mime: "text/plain",
             },
@@ -114,7 +124,7 @@ test("collects successful reads, edits, writes, patch moves and attachments with
 
 test("delegated result context excludes tools that completed after the result", () => {
     const late = tool("late", "read", { filePath: "C:/Later/AmazingCode.cs" });
-    if (late.type === "tool" && late.state.status === "completed") late.state.time.end = 10;
+    if (late.type === "tool_call") late.finishedAt = 10;
     const value = state([
         message("response", "assistant", 1, [
             tool("read", "read", { filePath: "C:/Projects/App/AmazingCode.cs" }),

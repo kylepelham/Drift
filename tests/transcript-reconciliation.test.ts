@@ -1,7 +1,6 @@
 import { captureRevisions, createEngineState, mergeTranscriptSnapshot, messageRevisionKey } from "../src/engine/store";
 import { sessionInWorkspace } from "../src/engine/sessions";
 import { reduce, withDelta } from "../src/engine/events";
-import { adaptPart } from "../src/engine/native/adapt";
 import { createActions } from "../src/engine/actions";
 import { expect, test } from "bun:test";
 
@@ -24,7 +23,7 @@ function message(text: string): MessageWithParts {
 
 function entry(text: string) {
     const { parts, ...info } = message(text);
-    return { info, parts: parts.map(adaptPart) };
+    return { info, parts };
 }
 
 test("a delta gap leaves the cached prefix and revision unchanged and requests reconciliation", () => {

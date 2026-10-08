@@ -1,6 +1,7 @@
 import { createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { selectedSession, selectSession } from "./state/selection";
 import { activeWorkspace } from "./state/workspaces";
+import { toolDisplay } from "./ui/tool-presentation";
 import { ToolDuration } from "./ui/tool-duration";
 import { backendInvoke } from "./backend";
 import { pushAsk } from "./state/asks";
@@ -12,7 +13,7 @@ import {
     type ToolContextActionProvider,
 } from "./tool-actions";
 
-import type { Part, ToolPart } from "./engine/shapes";
+import type { Part, ToolPart } from "./engine/parts";
 import type { QuestionInfo } from "./engine/store";
 import type { Workspace } from "./state/store";
 import type { Engine } from "./engine";
@@ -149,8 +150,8 @@ export function PluginToolView(props: { part: ToolPart }) {
         // Both reads exist purely to declare dependencies; their values are unused. `rendererVersion`
         // tracks plugin (un)registration, `status` re-renders the tool as it progresses. Do not remove.
         rendererVersion();
-        props.part.state.status;
-        const output = renderers.get(props.part.tool)?.(props.part);
+        props.part.status;
+        const output = renderers.get(props.part.name)?.(props.part);
         root.replaceChildren();
         if (typeof output === "string") root.textContent = output;
         else if (output) root.append(output);
@@ -158,7 +159,7 @@ export function PluginToolView(props: { part: ToolPart }) {
     return (
         <div class="flex min-w-0 items-start gap-2 text-sm">
             <div ref={root} class="min-w-0 flex-1" />
-            <ToolDuration state={props.part.state} />
+            <ToolDuration state={toolDisplay(props.part)} />
         </div>
     );
 }

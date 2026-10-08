@@ -9,20 +9,15 @@ export const ORCHESTRATOR_AGENT = "orchestrator";
 /** The engine's `drive::MAX_ROUNDS`: nudges it sends per prompt of the user's own. */
 export const ORCHESTRATOR_MAX_ROUNDS = 30;
 
-type EntryPart = { type: string; synthetic?: boolean; metadata?: Record<string, unknown> };
+type EntryPart = { type: string };
 
 /** Nudges since the user's newest prompt of their own (text they typed, or a file), as the engine counts them. */
 export function nudgesSincePrompt(entries: Array<{ info: { role: string }; parts: EntryPart[] }>) {
     let count = 0;
     for (const entry of [...entries].reverse()) {
         if (entry.info.role !== "user") continue;
-        if (
-            entry.parts.some(
-                (part) => part.type === "file" || (part.type === "text" && !part.synthetic && !part.metadata),
-            )
-        )
-            return count;
-        if (entry.parts.some((part) => part.metadata?.generated === true)) count++;
+        if (entry.parts.some((part) => part.type === "file" || part.type === "text")) return count;
+        if (entry.parts.some((part) => part.type === "nudge")) count++;
     }
     return count;
 }

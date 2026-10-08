@@ -192,7 +192,7 @@ test("reverted messages restore uploads and file mentions", async () => {
             {
                 id: "i1",
                 type: "file",
-                filename: "screen.png",
+                name: "screen.png",
                 mime: "image/png",
                 url: "data:image/png;base64,abc",
                 messageID: "u1",
@@ -201,7 +201,7 @@ test("reverted messages restore uploads and file mentions", async () => {
             {
                 id: "p1",
                 type: "file",
-                filename: "notes.pdf",
+                name: "notes.pdf",
                 mime: "application/pdf",
                 url: "data:application/pdf;base64,def",
                 messageID: "u1",
@@ -210,14 +210,10 @@ test("reverted messages restore uploads and file mentions", async () => {
             {
                 id: "f1",
                 type: "file",
-                filename: "app.tsx",
+                name: "app.tsx",
                 mime: "text/plain",
                 url: "file:///C:/work/src/app.tsx",
-                source: {
-                    type: "file",
-                    path: "C:/work/src/app.tsx",
-                    text: { value: "@src/app.tsx", start: 6, end: 18 },
-                },
+                path: "src/app.tsx",
                 messageID: "u1",
                 sessionID: "s1",
             },
@@ -315,7 +311,7 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     expect(shellScrollTarget(250, false, 700)).toBe(250);
     expect(shellScrollTarget(300, true, 700)).toBe(700);
     const shellPart = (status: "running" | "completed", metadata: Record<string, unknown>) =>
-        ({ tool: "bash", state: { status, input: {}, metadata } }) as never;
+        ({ name: "bash", status: status === "completed" ? "done" : status, input: {}, metadata }) as never;
     expect(shellTimeoutStatus(shellPart("running", { shellTimeoutMs: 300_000 }))).toEqual({
         timedOut: false,
         timeoutMs: 300_000,
@@ -393,7 +389,7 @@ test("shell transcript preserves a visible command-output gap and normalizes out
 
 test("active tool rows keep their target subtitle visible", async () => {
     const source = await Bun.file("src/ui/parts.tsx").text();
-    expect(source).toContainCode('info().subtitle && !(props.part.tool === "bash" && expanded())');
+    expect(source).toContainCode('info().subtitle && !(props.part.name === "bash" && expanded())');
     expect(source).not.toContainCode("info().subtitle && !active()");
 });
 

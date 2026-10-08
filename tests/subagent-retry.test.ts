@@ -1,7 +1,9 @@
+import { toolDisplay } from "../src/ui/tool-presentation";
 import { createEngineState } from "../src/engine/store";
 import { expect, test } from "bun:test";
+import "./source";
 
-import type { ToolPart } from "../src/engine/shapes";
+import type { ToolPart } from "../src/engine/parts";
 
 if (!("localStorage" in globalThis))
     Object.defineProperty(globalThis, "localStorage", {
@@ -13,10 +15,12 @@ test("parent delegated status follows ordinary child errors, resumed work, and c
     const [state, set] = createEngineState();
     const part = {
         id: "launch",
-        type: "tool",
-        tool: "task",
-        sessionID: "parent",
-        state: { status: "completed", input: {}, output: '<task id="child" state="running">' },
+        type: "tool_call",
+        name: "task",
+        sessionId: "parent",
+        status: "done",
+        input: {},
+        output: '<task id="child" state="running">',
     } as never;
     set("errors", "child", "usage limit reached");
     expect(delegatedTaskStatus(state, part, "child")).toBe("error");
@@ -62,7 +66,7 @@ test("a live delegated part overrides an older completion marker", async () => {
             ],
         },
     ] as never);
-    const live = { sessionID: "parent", state: { status: "running", input: {}, time: { start: 1 } } } as never;
+    const live = { sessionId: "parent", name: "task", status: "running", input: {}, startedAt: 1 } as never;
     const status = delegatedTaskStatus(state, live, "child");
     expect(status).toBe("running");
     expect(delegatedTaskClickPolicy(status, "child")).toBe("navigate");
@@ -71,19 +75,18 @@ test("a live delegated part overrides an older completion marker", async () => {
 function taskPart(id: string, output: string): ToolPart {
     return {
         id,
-        type: "tool",
-        tool: "task",
-        sessionID: "parent",
-        messageID: "message",
-        callID: id,
-        state: {
-            status: "completed",
-            input: { task_id: "child", description: id, subagent_type: "general" },
-            output,
-            title: id,
-            metadata: { sessionId: "child" },
-            time: { start: 1, end: 2 },
-        },
+        type: "tool_call",
+        name: "task",
+        sessionId: "parent",
+        messageId: "message",
+        callId: id,
+        status: "done",
+        input: { task_id: "child", description: id, subagent_type: "general" },
+        output,
+        title: id,
+        metadata: { sessionId: "child" },
+        startedAt: 1,
+        finishedAt: 2,
     };
 }
 
@@ -97,7 +100,10 @@ test("finished task cards do not follow a resumed child session's busy, retry, o
     );
     const resumed: ToolPart = {
         ...taskPart("resumed", ""),
-        state: { status: "running", input: { task_id: "child" }, time: { start: 3 } },
+        status: "running",
+        input: { task_id: "child" },
+        startedAt: 3,
+        finishedAt: undefined,
     };
     for (const type of ["busy", "retry", "idle"] as const) {
         set("status", "child", type === "retry" ? { type, attempt: 1, message: "retry", next: 10 } : { type });
@@ -107,8 +113,8 @@ test("finished task cards do not follow a resumed child session's busy, retry, o
         expect(current).toBe("running");
         expect(delegatedTaskClickPolicy(previous, "child")).toBe("expand");
         expect(delegatedTaskClickPolicy(current, "child")).toBe("navigate");
-        expect(toolElapsedMs(original.state, 100)).toBe(1);
-        expect(toolElapsedMs(resumed.state, 100)).toBe(97);
+        expect(toolElapsedMs(toolDisplay(original), 100)).toBe(1);
+        expect(toolElapsedMs(toolDisplay(resumed), 100)).toBe(97);
     }
     set("errors", "child", "The resumed invocation failed");
     expect(delegatedTaskStatus(state, original, "child")).toBe("completed");
@@ -120,7 +126,9 @@ test("failed task cards stay failed when the child is resumed or later completes
     const [state, set] = createEngineState();
     const failed: ToolPart = {
         ...taskPart("failed", ""),
-        state: { status: "error", input: {}, error: "Original failure", time: { start: 1, end: 2 } },
+        status: "error",
+        input: {},
+        output: "Original failure",
     };
     set("status", "child", { type: "busy" });
     expect(delegatedTaskStatus(state, failed, "child")).toBe("error");
@@ -143,10 +151,10 @@ test("background tasks track work while spawned-thread receipts finish at admiss
     const { delegatedTaskStatus } = await import("../src/ui/parts");
     const [state, set] = createEngineState();
     const background = taskPart("background", "Background task started");
-    if (background.state.status === "completed") background.state.metadata.background = true;
+    background.metadata = { ...background.metadata, background: true };
     const spawned = {
         ...taskPart("spawned", 'Spawned thread "Child" (id child); its seed prompt was accepted for processing.'),
-        tool: "spawn_thread",
+        name: "spawn_thread",
     };
     for (const type of ["busy", "idle"] as const) {
         set("status", "child", { type });
@@ -163,18 +171,18 @@ test("spawned-thread rows only track their own pending, running, or failed invoc
     const { delegatedTaskStatus } = await import("../src/ui/parts");
     const [state, set] = createEngineState();
     set("errors", "child", "Unrelated sibling error");
-    const spawned = { ...taskPart("spawned", ""), tool: "spawn_thread" };
+    const spawned = { ...taskPart("spawned", ""), name: "spawn_thread" };
     for (const status of ["pending", "running"] as const) {
-        const toolState =
-            status === "pending" ? { status, input: {}, raw: "" } : { status, input: {}, time: { start: 1 } };
-        expect(delegatedTaskStatus(state, { ...spawned, state: toolState }, "child")).toBe("running");
+        expect(delegatedTaskStatus(state, { ...spawned, status, input: {} }, "child")).toBe("running");
     }
     expect(
         delegatedTaskStatus(
             state,
             {
                 ...spawned,
-                state: { status: "error", input: {}, error: "Spawn failed", time: { start: 1, end: 2 } },
+                status: "error",
+                input: {},
+                output: "Spawn failed",
             },
             "child",
         ),
@@ -183,7 +191,7 @@ test("spawned-thread rows only track their own pending, running, or failed invoc
 
 test("only subagent tasks render child activity progress", async () => {
     const source = await Bun.file(new URL("../src/ui/parts.tsx", import.meta.url)).text();
-    expect(source).toMatch(/const progress = \(\) => \{\s*if \(props\.part\.tool !== "task"\) return null/);
+    expect(source).toContainCode('const progress = () => { if (props.part.name !== "task") return null;');
 });
 
 test("background completions belong to the invocation preceding them, including after reload", async () => {
@@ -276,13 +284,11 @@ test("a running delegated row recovers its child when parallel task metadata is 
         updatedAt: 1,
     } as never);
     const part = {
-        tool: "task",
-        sessionID: "parent",
-        state: {
-            status: "running",
-            input: { description: "Explore service sinks", subagent_type: "explore" },
-            time: { start: 2 },
-        },
+        name: "task",
+        sessionId: "parent",
+        status: "running",
+        input: { description: "Explore service sinks", subagent_type: "explore" },
+        startedAt: 2,
     } as never;
     const childId = delegatedChildId(state, part);
     const status = delegatedTaskStatus(state, part, childId!);

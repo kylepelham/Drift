@@ -3,7 +3,7 @@ import { createActions } from "../src/engine/actions";
 import { expect, test } from "bun:test";
 
 import type { Client, TaskRecord } from "../src/engine/native/client";
-import type { ToolPart } from "../src/engine/shapes";
+import type { ToolPart } from "../src/engine/parts";
 
 if (!("localStorage" in globalThis))
     Object.defineProperty(globalThis, "localStorage", { value: { getItem: () => null, setItem: () => undefined } });
@@ -30,19 +30,18 @@ function task(id: string, overrides: Partial<TaskRecord> = {}): TaskRecord {
 function receipt(id: string): ToolPart {
     return {
         id: `part_${id}`,
-        type: "tool",
-        tool: "task",
-        sessionID: "parent",
-        messageID: "message",
-        callID: `call_${id}`,
-        state: {
-            status: "completed",
-            input: { description: `do ${id}`, subagent_type: "explore", run_in_background: true },
-            output: `Started do ${id} in the background as ${id} (@explore).`,
-            title: `do ${id}`,
-            metadata: { sessionId: `worker_${id}`, taskId: id, outcome: "launched", mode: "background" },
-            time: { start: 1, end: 2 },
-        },
+        type: "tool_call",
+        name: "task",
+        sessionId: "parent",
+        messageId: "message",
+        callId: `call_${id}`,
+        status: "done",
+        input: { description: `do ${id}`, subagent_type: "explore", run_in_background: true },
+        output: `Started do ${id} in the background as ${id} (@explore).`,
+        title: `do ${id}`,
+        metadata: { sessionId: `worker_${id}`, taskId: id, outcome: "launched", mode: "background" },
+        startedAt: 1,
+        finishedAt: 2,
     };
 }
 
@@ -85,7 +84,13 @@ test("a background task row follows its worker, not the call that launched it", 
 test("a running foreground call is matched to its task by call id before its metadata lands", async () => {
     const { delegatedTaskStatus } = await import("../src/ui/parts");
     const [state, set] = createEngineState();
-    const running = { ...receipt("f"), state: { status: "running", input: {}, time: { start: 1 } } } as ToolPart;
+    const running = {
+        ...receipt("f"),
+        status: "running",
+        input: {},
+        metadata: undefined,
+        finishedAt: undefined,
+    } as ToolPart;
     putTasks(set, state, "parent", [task("f", { mode: "foreground", state: "running" })]);
     expect(delegatedTaskStatus(state, running, "worker_f")).toBe("running");
 });
@@ -95,7 +100,9 @@ test("a background call is marked as one, by its record or before that by what i
     const [state, set] = createEngineState();
     const launched = {
         ...receipt("a"),
-        state: { status: "running", input: { run_in_background: true }, time: { start: 1 } },
+        status: "running",
+        input: { run_in_background: true },
+        finishedAt: undefined,
     } as ToolPart;
     expect(backgroundRun(state, launched)).toEqual({ task: undefined });
     expect(backgroundRun(state, receipt("a"))).toEqual({ task: undefined });
@@ -106,10 +113,10 @@ test("a background call is marked as one, by its record or before that by what i
     expect(
         backgroundRun(state, {
             ...receipt("f"),
-            state: { ...receipt("f").state, input: { run_in_background: true } },
+            input: { run_in_background: true },
         } as ToolPart),
     ).toBeNull();
-    expect(backgroundRun(state, { ...receipt("x"), tool: "read" })).toBeNull();
+    expect(backgroundRun(state, { ...receipt("x"), name: "read" })).toBeNull();
 });
 
 test("a background row times its worker, not the instant its launch returned", () => {

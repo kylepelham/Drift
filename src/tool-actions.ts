@@ -1,7 +1,8 @@
+import { toolInput, toolMetadata } from "./engine/parts";
 import { activeWorkspace } from "./state/workspaces";
 import { backendInvoke } from "./backend";
 
-import type { ToolPart } from "./engine/shapes";
+import type { ToolPart } from "./engine/parts";
 
 export type FileLocation = { line?: number; column?: number };
 export type ToolContextAction = {
@@ -31,7 +32,7 @@ export function registerToolContextActions(tool: string, provider: ToolContextAc
 
 export function toolContextActions(part: ToolPart) {
     const actions: ToolContextAction[] = [];
-    for (const tool of ["*", part.tool]) {
+    for (const tool of ["*", part.name]) {
         for (const provider of providers.get(tool) ?? []) {
             try {
                 const result = provider(part);
@@ -39,7 +40,7 @@ export function toolContextActions(part: ToolPart) {
                     if (action && typeof action.label === "string" && typeof action.run === "function")
                         actions.push(action);
             } catch (error) {
-                console.warn(`[Drift] Tool context actions for ${part.tool} failed`, error);
+                console.warn(`[Drift] Tool context actions for ${part.name} failed`, error);
             }
         }
     }
@@ -72,16 +73,16 @@ export function firstChangedLine(diff: string) {
 }
 
 export function builtinFileTargets(part: ToolPart, workspace = activeWorkspace()?.path): FileTarget[] {
-    const input = part.state.input as { filePath?: string };
+    const input = toolInput(part) as { filePath?: string };
     const metadata = toolMetadata(part);
-    if (part.tool === "write") return target(input.filePath, input.filePath, 1, workspace);
-    if (part.tool === "edit") {
+    if (part.name === "write") return target(input.filePath, input.filePath, 1, workspace);
+    if (part.name === "edit") {
         const filediff = metadata?.filediff as { file?: string; patch?: string } | undefined;
         const path = filediff?.file ?? input.filePath;
         const diff = filediff?.patch ?? (metadata?.diff as string | undefined) ?? "";
         return target(path, input.filePath, firstChangedLine(diff), workspace);
     }
-    if (part.tool !== "apply_patch" || !Array.isArray(metadata?.files)) return [];
+    if (part.name !== "apply_patch" || !Array.isArray(metadata?.files)) return [];
     return metadata.files.flatMap((value) => {
         if (!value || typeof value !== "object") return [];
         const file = value as {
@@ -110,11 +111,6 @@ function resolvePath(path: string, workspace?: string) {
     if (!workspace || /^(?:[a-z]:[\\/]|\\\\|\/)/i.test(path)) return path;
     const separator = workspace.includes("\\") ? "\\" : "/";
     return `${workspace.replace(/[\\/]$/, "")}${separator}${path.replace(/^[\\/]/, "")}`;
-}
-
-function toolMetadata(part: ToolPart) {
-    const state = part.state;
-    return (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as Record<string, unknown> | undefined;
 }
 
 function fileActions(part: ToolPart) {

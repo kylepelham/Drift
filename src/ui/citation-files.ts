@@ -1,7 +1,8 @@
+import { toolInput, toolMetadata } from "../engine/parts";
 import { classifyMarkdownLink } from "./markdown-links";
 
 import type { EngineState, MessageEntry } from "../engine/store";
-import type { Part } from "../engine/shapes";
+import type { Part, ToolPart } from "../engine/parts";
 
 /** Build context only on a click, and stop at the cited message/part so old links stay stable. */
 export function citationFileGroups(
@@ -38,7 +39,7 @@ export function citationFileGroups(
         }
         for (const entry of messages) {
             for (const part of entry.parts) {
-                if (part.sessionID !== sessionID) continue;
+                if (part.sessionId !== sessionID) continue;
                 collectPart(part, files, add);
                 if (entry.info.id === messageID && part.id === partID) break;
             }
@@ -51,15 +52,21 @@ export function citationFileGroups(
             const link = classifyMarkdownLink(part.url);
             if (link.kind === "file") files.add(link.path);
         }
-        if (part.type !== "tool" || part.state.status !== "completed") return;
-        if (!(beforeTime === undefined || part.state.time.end <= beforeTime)) return;
+        if (part.type !== "tool_call" || part.status !== "done") return;
+        if (!completedBefore(part, beforeTime)) return;
 
-        const input = part.state.input;
-        const metadata = part.state.metadata;
-        if (["read", "write", "edit", "multiedit"].includes(part.tool)) add(input.filePath);
-        if (part.tool === "edit") add((metadata?.filediff as { file?: string } | undefined)?.file);
-        if (part.tool === "apply_patch") collectPatchFiles(metadata?.files, input.patchText, add);
+        const input = toolInput(part);
+        const metadata = toolMetadata(part);
+        if (["read", "write", "edit", "multiedit"].includes(part.name)) add(input.filePath);
+        if (part.name === "edit") add((metadata?.filediff as { file?: string } | undefined)?.file);
+        if (part.name === "apply_patch") collectPatchFiles(metadata?.files, input.patchText, add);
     }
+}
+
+function completedBefore(part: ToolPart, beforeTime: number | undefined) {
+    const finished = part.finishedAt ?? part.startedAt;
+
+    return beforeTime === undefined || (finished !== undefined && finished !== null && finished <= beforeTime);
 }
 
 function collectPatchFiles(files: unknown, patch: unknown, add: (value: unknown) => void) {

@@ -4,6 +4,7 @@ import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconInfo, IconPlug }
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins";
 import { diffIndicator, diffLineNumbers, diffWordWrap, syntaxTheme } from "../state/code";
 import { splitOrchestratorStatus, type OrchestratorStatus } from "../state/orchestrator";
+import { promptPartText, toolInput, toolMetadata } from "../engine/parts";
 import { showReasoning, toolErrorsExpanded } from "../state/prefs";
 import { openToolContextMenu } from "./tool-context-menu";
 import { resolveFileLanguage } from "../syntax-language";
@@ -11,6 +12,7 @@ import { classifyMarkdownLink } from "./markdown-links";
 import { resolveAttachmentKind } from "../attachments";
 import { citationFileGroups } from "./citation-files";
 import { selectSession } from "../state/selection";
+import { toolDisplay } from "./tool-presentation";
 import { ToolDuration } from "./tool-duration";
 import { formatBytes } from "../state/storage";
 import { agentLabel, t } from "../state/i18n";
@@ -35,7 +37,7 @@ import {
     type JSX,
 } from "solid-js";
 
-import type { FilePart, Part, PluginPart, ReasoningPart, ToolPart } from "../engine/shapes";
+import type { FilePart, Part, ContextPart, ReasoningPart, ToolPart } from "../engine/parts";
 import type { TaskRecord } from "../engine/store";
 
 export const contextTools = new Set(["read", "glob", "grep", "list"]);
@@ -70,7 +72,7 @@ export function PartView(props: {
     const engine = useEngine();
     return (
         <Switch>
-            <Match when={props.part.type !== "tool" && hasPartRenderer(props.part.type) && props.part}>
+            <Match when={props.part.type !== "tool_call" && hasPartRenderer(props.part.type) && props.part}>
                 {(part) => <PluginPartView part={part()} />}
             </Match>
             <Match when={visibleText(props.part)}>
@@ -81,11 +83,16 @@ export function PartView(props: {
                             <Show when={split().prose}>
                                 <Markdown
                                     text={split().prose}
-                                    directory={engine.state.sessions[part().sessionID]?.directory}
+                                    directory={engine.state.sessions[part().part.sessionId]?.directory}
                                     fileGroups={() =>
-                                        citationFileGroups(engine.state, part().sessionID, part().messageID, part().id)
+                                        citationFileGroups(
+                                            engine.state,
+                                            part().part.sessionId,
+                                            part().part.messageId,
+                                            part().part.id,
+                                        )
                                     }
-                                    done={!!part().time?.end}
+                                    done={false}
                                     responseID={props.responseID}
                                     live={props.live}
                                     revision={props.revision}
@@ -98,16 +105,14 @@ export function PartView(props: {
                     );
                 }}
             </Match>
-            <Match when={props.part.type === "plugin" && (props.part as PluginPart)}>
-                {(part) => <PluginRow part={part()} />}
-            </Match>
+            <Match when={props.part.type === "context" && props.part}>{(part) => <PluginRow part={part()} />}</Match>
             <Match when={showReasoning() && props.part.type === "reasoning" && (props.part as ReasoningPart)}>
                 {(part) => <ReasoningView part={part()} revision={props.revision} />}
             </Match>
             <Match
                 when={
-                    props.part.type === "tool" &&
-                    hasToolRenderer((props.part as ToolPart).tool) &&
+                    props.part.type === "tool_call" &&
+                    hasToolRenderer((props.part as ToolPart).name) &&
                     (props.part as ToolPart)
                 }
             >
@@ -119,8 +124,8 @@ export function PartView(props: {
             </Match>
             <Match
                 when={
-                    props.part.type === "tool" &&
-                    !hiddenTools.has((props.part as ToolPart).tool) &&
+                    props.part.type === "tool_call" &&
+                    !hiddenTools.has((props.part as ToolPart).name) &&
                     (props.part as ToolPart)
                 }
             >
@@ -140,15 +145,6 @@ export function PartView(props: {
                     <div class="h-px flex-1 bg-edge" />
                 </div>
             </Match>
-            <Match when={props.part.type === "subtask" && props.part}>
-                {(part) => (
-                    <div class="text-sm text-ink-muted">
-                        <span class="font-semibold text-ink">{t("drift.tool.subtask")}</span>{" "}
-                        <span class="text-ink-faint">{agentLabel((part() as { agent: string }).agent)}</span>{" "}
-                        {(part() as { description: string }).description}
-                    </div>
-                )}
-            </Match>
             <Match when={props.part.type === "file" && props.part}>
                 {(part) => <FilePartView part={part() as FilePart} />}
             </Match>
@@ -161,9 +157,11 @@ function ToolContextTarget(props: { part: ToolPart; children: JSX.Element }) {
 }
 
 function visibleText(part: Part) {
-    if (part.type !== "text" || part.synthetic || part.ignored) return undefined;
-    const split = splitOrchestratorStatus(part.text);
-    return split.prose.trim() || split.status ? part : undefined;
+    const text = promptPartText(part);
+    if (text === undefined) return undefined;
+
+    const split = splitOrchestratorStatus(text);
+    return split.prose.trim() || split.status ? { part, text } : undefined;
 }
 
 const statusLabels = {
@@ -199,7 +197,7 @@ function OrchestratorStatusRow(props: { status: OrchestratorStatus }) {
 }
 
 /** What a plugin said, as a row like a tool's: its name, then its words on one line. */
-export function PluginRow(props: { part: PluginPart; end?: boolean }) {
+export function PluginRow(props: { part: ContextPart; end?: boolean }) {
     return (
         <div
             class="flex min-h-8 min-w-0 items-center gap-2 px-1.5 text-sm"
@@ -214,32 +212,30 @@ export function PluginRow(props: { part: PluginPart; end?: boolean }) {
 }
 
 export function partVisible(part: Part) {
-    if (part.type !== "tool" && hasPartRenderer(part.type)) return true;
+    if (part.type !== "tool_call" && hasPartRenderer(part.type)) return true;
     switch (part.type) {
         case "text":
+        case "nudge":
+        case "clarification":
             return !!visibleText(part);
         case "reasoning":
             return showReasoning();
-        case "tool":
-            return !hiddenTools.has((part as ToolPart).tool);
+        case "tool_call":
+            return !hiddenTools.has(part.name);
         case "compaction":
-        case "subtask":
         case "file":
-        case "plugin":
+        case "context":
             return true;
         default:
             return false;
     }
 }
 
-export function FilePartView(props: {
-    part: Pick<FilePart, "mime" | "filename" | "url" | "source">;
-    directory?: string;
-}) {
+export function FilePartView(props: { part: Pick<FilePart, "mime" | "name" | "url" | "path">; directory?: string }) {
     const linkable = () => props.part.url.startsWith("data:") || props.part.url.startsWith("http");
-    const resolved = () => resolveAttachmentKind(props.part);
+    const resolved = () => resolveAttachmentKind({ filename: props.part.name, mime: props.part.mime });
     const kind = () => resolved().kind;
-    const mention = () => (props.part.source?.type === "file" && props.directory ? props.part.source.path : undefined);
+    const mention = () => (props.directory ? props.part.path : undefined);
     return (
         <Show when={mention()} fallback={<AttachmentView part={props.part} linkable={linkable()} kind={kind()} />}>
             {(path) => <MentionChip path={path()} directory={props.directory!} kind={kind()} />}
@@ -265,7 +261,7 @@ function MentionChip(props: { path: string; directory: string; kind: string }) {
     );
 }
 
-function AttachmentView(props: { part: Pick<FilePart, "mime" | "filename" | "url">; linkable: boolean; kind: string }) {
+function AttachmentView(props: { part: Pick<FilePart, "mime" | "name" | "url">; linkable: boolean; kind: string }) {
     const linkable = () => props.linkable;
     const kind = () => props.kind;
     return (
@@ -275,23 +271,23 @@ function AttachmentView(props: { part: Pick<FilePart, "mime" | "filename" | "url
                     when={linkable()}
                     fallback={
                         <span class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-edge bg-raised px-2 py-1 text-xs text-ink-muted">
-                            <span class="truncate">{props.part.filename ?? t("common.attachment")}</span>
+                            <span class="truncate">{props.part.name ?? t("common.attachment")}</span>
                         </span>
                     }
                 >
                     <a
                         href={props.part.url}
-                        download={props.part.filename ?? "attachment"}
+                        download={props.part.name ?? "attachment"}
                         title={t("drift.attachment.download")}
                         class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-edge bg-raised px-2 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
                     >
-                        <span class="truncate">{props.part.filename ?? t("common.attachment")}</span>
+                        <span class="truncate">{props.part.name ?? t("common.attachment")}</span>
                     </a>
                 </Show>
             }
         >
             <Match when={kind() === "image" && linkable()}>
-                <ImageThumb url={props.part.url} filename={props.part.filename} mime={props.part.mime} />
+                <ImageThumb url={props.part.url} filename={props.part.name} mime={props.part.mime} />
             </Match>
             <Match when={kind() === "audio" && linkable()}>
                 <audio controls src={props.part.url} class="max-w-full" />
@@ -303,15 +299,15 @@ function AttachmentView(props: { part: Pick<FilePart, "mime" | "filename" | "url
                 {(attachmentKind) => (
                     <Show
                         when={linkable()}
-                        fallback={<AttachmentFileLabel filename={props.part.filename} kind={attachmentKind()} />}
+                        fallback={<AttachmentFileLabel filename={props.part.name} kind={attachmentKind()} />}
                     >
                         <a
                             href={props.part.url}
-                            download={props.part.filename ?? "attachment"}
+                            download={props.part.name ?? "attachment"}
                             title={t("drift.attachment.download")}
                             class="inline-flex max-w-full items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-2 pl-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
                         >
-                            <AttachmentFileLabel filename={props.part.filename} kind={attachmentKind()} bare />
+                            <AttachmentFileLabel filename={props.part.name} kind={attachmentKind()} bare />
                         </a>
                     </Show>
                 )}
@@ -351,7 +347,6 @@ function ImageThumb(props: { url: string; filename?: string; mime?: string }) {
 function ReasoningView(props: { part: ReasoningPart; revision?: number }) {
     const engine = useEngine();
     const [open, setOpen] = createSignal(false);
-    const thinking = () => !props.part.time.end;
     return (
         <div class="text-sm">
             <button
@@ -359,20 +354,17 @@ function ReasoningView(props: { part: ReasoningPart; revision?: number }) {
                 onClick={() => setOpen(!open())}
             >
                 <Chevron open={open()} />
-                <TextShimmer
-                    text={thinking() ? t("drift.reasoning.thinking") : t("drift.reasoning.thought")}
-                    active={thinking()}
-                />
+                <TextShimmer text={t("drift.reasoning.thinking")} active />
             </button>
             <Show when={open()}>
                 <div class="mt-1.5 border-l-2 border-edge pl-3 text-ink-muted">
                     <Markdown
                         text={props.part.text}
-                        directory={engine.state.sessions[props.part.sessionID]?.directory}
+                        directory={engine.state.sessions[props.part.sessionId]?.directory}
                         fileGroups={() =>
-                            citationFileGroups(engine.state, props.part.sessionID, props.part.messageID, props.part.id)
+                            citationFileGroups(engine.state, props.part.sessionId, props.part.messageId, props.part.id)
                         }
-                        done={!thinking()}
+                        done={false}
                         revision={props.revision}
                     />
                 </div>
@@ -392,13 +384,13 @@ type PatchFile = {
 };
 
 export function toolInfo(part: ToolPart): ToolInfo {
-    const input = part.state.input as Record<string, unknown>;
+    const input = toolInput(part);
     const meta = toolMeta(part) ?? {};
     const text = (key: string) => toolInputText(input, key);
     const context = contextToolInfo(part, input, meta);
     if (context) return context;
 
-    switch (part.tool) {
+    switch (part.name) {
         case "bash":
             return { title: t("prompt.mode.shell"), subtitle: text("command"), mono: true };
         case "edit":
@@ -431,11 +423,11 @@ function contextToolInfo(
     meta: Record<string, unknown>,
 ): ToolInfo | undefined {
     const text = (key: string) => toolInputText(input, key);
-    const output = () => (part.state.status === "completed" ? part.state.output : "");
+    const output = () => (part.status === "done" ? (part.output ?? "") : "");
     const count = (value: unknown, singular: string, plural: string) =>
         toolCount(value, meta.truncated, singular, plural);
 
-    switch (part.tool) {
+    switch (part.name) {
         case "read": {
             const lines = output() ? output().split("\n").length : undefined;
             const path = filename(text("filePath")) ?? "";
@@ -491,7 +483,7 @@ function contextToolInfo(
 function delegatedToolInfo(part: ToolPart, input: Record<string, unknown>, meta: Record<string, unknown>): ToolInfo {
     const text = (key: string) => toolInputText(input, key);
 
-    switch (part.tool) {
+    switch (part.name) {
         case "task": {
             const agent = text("subagent_type");
             return { title: taskHeading(agent, text("description")) };
@@ -503,14 +495,14 @@ function delegatedToolInfo(part: ToolPart, input: Record<string, unknown>, meta:
         case "read_thread":
             return {
                 title: t("drift.tool.readThread"),
-                subtitle: part.state.status === "completed" ? part.state.title : undefined,
+                subtitle: part.status === "done" ? (part.title ?? part.name) : undefined,
             };
         case "question":
             return questionToolInfo(input, meta);
         case "skill":
             return { title: text("name") ?? t("prompt.slash.badge.skill") };
         default:
-            return { called: part.tool, subtitle: argsPreview(input), mono: true };
+            return { called: part.name, subtitle: argsPreview(input), mono: true };
     }
 }
 
@@ -545,14 +537,13 @@ function argsPreview(input: Record<string, unknown> | undefined) {
 
 function awaitingPermission(state: EngineState, part: ToolPart) {
     return (
-        (state.permissions[part.sessionID] ?? []).some((permission) => permission.callId === part.callID) ||
-        (state.questions[part.sessionID] ?? []).some((question) => !question.async && question.callId === part.callID)
+        (state.permissions[part.sessionId] ?? []).some((permission) => permission.callId === part.callId) ||
+        (state.questions[part.sessionId] ?? []).some((question) => !question.async && question.callId === part.callId)
     );
 }
 
 function toolMeta(part: ToolPart) {
-    const state = part.state;
-    return (("metadata" in state ? state.metadata : undefined) ?? part.metadata) as Record<string, unknown> | undefined;
+    return toolMetadata(part);
 }
 
 export function formatShellTimeout(ms: number) {
@@ -562,13 +553,13 @@ export function formatShellTimeout(ms: number) {
 }
 
 export function shellTimeoutStatus(part: ToolPart) {
-    if (part.tool !== "bash") return null;
+    if (part.name !== "bash") return null;
     const metadata = toolMeta(part);
     if (!metadata || !("shellTimeoutMs" in metadata)) return null;
     const timeout = metadata.shellTimeoutMs;
     const timedOut = metadata.timedOut === true;
     if (typeof timeout !== "number" || !Number.isFinite(timeout) || timeout <= 0) return null;
-    if (!timedOut && part.state.status !== "running" && part.state.status !== "pending") return null;
+    if (!timedOut && part.status !== "running" && part.status !== "pending") return null;
     const duration = formatShellTimeout(timeout);
     return {
         timedOut,
@@ -594,7 +585,7 @@ export function patchFiles(part: ToolPart) {
 export function patchSubtitle(part: ToolPart) {
     const files = patchFiles(part);
     if (files.length === 1) return filename(files[0].relativePath ?? files[0].filePath);
-    const input = part.state.input as { files?: unknown[] } | undefined;
+    const input = toolInput(part) as { files?: unknown[] };
     const paths = patchInputPaths(part);
     if (!files.length && paths.length === 1) return filename(paths[0]);
     const count = files.length || paths.length || input?.files?.length || 0;
@@ -602,7 +593,7 @@ export function patchSubtitle(part: ToolPart) {
 }
 
 export function patchInputPaths(part: ToolPart) {
-    const patchText = (part.state.input as { patchText?: unknown } | undefined)?.patchText;
+    const patchText = toolInput(part).patchText;
     if (typeof patchText !== "string") return [];
     return [...patchText.matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)].map((match) => match[1].trim());
 }
@@ -611,7 +602,11 @@ export function nextToolOpen(current: boolean, hadError: boolean, hasError: bool
     return hasError && !hadError ? errorsExpanded : current;
 }
 
-export function initialToolOpen(tool: string, status: ToolPart["state"]["status"], errorsExpanded: boolean) {
+export function initialToolOpen(
+    tool: string,
+    status: ReturnType<typeof toolDisplay>["status"],
+    errorsExpanded: boolean,
+) {
     if (status === "error") return errorsExpanded;
     return tool === "bash";
 }
@@ -622,7 +617,7 @@ const maxExplicitToolOpen = 1000;
 export function initialToolOpenForPart(
     partId: string,
     tool: string,
-    status: ToolPart["state"]["status"],
+    status: ReturnType<typeof toolDisplay>["status"],
     errorsExpanded: boolean,
 ) {
     return explicitToolOpen.get(partId) ?? initialToolOpen(tool, status, errorsExpanded);
@@ -657,18 +652,18 @@ export function delegatedTaskClickPolicy(status: DelegatedTaskStatus | null, chi
 }
 
 export function delegatedChildId(state: EngineState, part: ToolPart) {
-    if (part.tool !== "task" && part.tool !== "spawn_thread") return null;
+    if (part.name !== "task" && part.name !== "spawn_thread") return null;
     const sessionId = (toolMeta(part) as { sessionId?: unknown } | undefined)?.sessionId;
     if (typeof sessionId === "string" && sessionId) return sessionId;
-    if (part.tool !== "task") return null;
+    if (part.name !== "task") return null;
 
-    const input = part.state.input as { description?: unknown; subagent_type?: unknown; task_id?: unknown } | undefined;
+    const input = toolInput(part) as { description?: unknown; subagent_type?: unknown; task_id?: unknown };
     if (typeof input?.task_id === "string" && input.task_id) return input.task_id;
     if (typeof input?.description !== "string" || typeof input.subagent_type !== "string") return null;
 
     // Parallel tasks can create their child before the running tool part persists its session metadata.
     const title = `${input.description} (@${input.subagent_type} subagent)`;
-    const matches = childrenOf(state, part.sessionID).filter((session) => session.title === title);
+    const matches = childrenOf(state, part.sessionId).filter((session) => session.title === title);
     return matches.length === 1 ? matches[0].id : null;
 }
 
@@ -684,9 +679,9 @@ function diffStats(diff: string) {
 
 export function ToolView(props: { part: ToolPart }) {
     const engine = useEngine();
-    const state = () => props.part.state;
+    const state = () => toolDisplay(props.part);
     const info = () => toolInfo(props.part);
-    const delegated = () => props.part.tool === "task" || props.part.tool === "spawn_thread";
+    const delegated = () => props.part.name === "task" || props.part.name === "spawn_thread";
     // A hoisted declaration: delegatedStatus below is an eager memo, and a `const` accessor here
     // would still be in its temporal dead zone during the first evaluation, crashing every
     // transcript that contains a delegated task row.
@@ -712,9 +707,9 @@ export function ToolView(props: { part: ToolPart }) {
         return state().status === "running" || state().status === "pending";
     };
     const title = () =>
-        info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.tool);
+        info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.name);
     const progress = () => {
-        if (props.part.tool !== "task") return null;
+        if (props.part.name !== "task") return null;
         const childId = spawnedId();
         if (!childId || delegatedStatus() !== "running") return null;
         const activity = engine.state.activity[childId];
@@ -730,7 +725,7 @@ export function ToolView(props: { part: ToolPart }) {
     };
     const error = () => (state().status === "error" ? (state() as { error: string }).error : null);
     const [open, setOpen] = createSignal(
-        untrack(() => initialToolOpenForPart(props.part.id, props.part.tool, state().status, toolErrorsExpanded())),
+        untrack(() => initialToolOpenForPart(props.part.id, props.part.name, state().status, toolErrorsExpanded())),
     );
     createEffect(
         on(error, (value, previous) => setOpen(nextToolOpen(open(), !!previous, !!value, toolErrorsExpanded()))),
@@ -802,7 +797,7 @@ export function ToolView(props: { part: ToolPart }) {
                 <Show when={background()}>
                     <BackgroundTag />
                 </Show>
-                <Show when={info().subtitle && !(props.part.tool === "bash" && expanded())}>
+                <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
                     <span
                         class="min-w-0 truncate text-ink-faint"
                         classList={{ "font-mono text-xs": info().mono, "text-[0.85rem]": !info().mono }}
@@ -840,7 +835,7 @@ export function ToolView(props: { part: ToolPart }) {
                         <span
                             role="button"
                             title={t(
-                                props.part.tool === "task" ? "drift.thread.openSubagent" : "drift.thread.openSpawned",
+                                props.part.name === "task" ? "drift.thread.openSubagent" : "drift.thread.openSpawned",
                             )}
                             class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
                             onClick={(event) => openSpawnedThread(event, childId(), selectSession)}
@@ -870,32 +865,21 @@ export function ToolView(props: { part: ToolPart }) {
 export type DelegatedTaskStatus = "running" | "completed" | "error";
 
 /** A `task` call whose worker runs in the background: the engine's record, or before it arrives, what the call says. */
-export function backgroundRun(
-    state: EngineState,
-    part: Pick<ToolPart, "tool" | "sessionID" | "state"> & { callID?: string },
-) {
-    if (part.tool !== "task") return null;
-    const metadata =
-        "metadata" in part.state
-            ? (part.state.metadata as { taskId?: unknown; background?: unknown; mode?: unknown } | undefined)
-            : undefined;
-    const task = taskForCall(state, part.sessionID, part.callID, metadata?.taskId);
+export function backgroundRun(state: EngineState, part: ToolPart) {
+    if (part.name !== "task") return null;
+    const metadata = part.metadata;
+    const task = taskForCall(state, part.sessionId, part.callId, metadata?.taskId);
     if (task) return task.mode === "background" ? { task } : null;
-    const asked = (part.state.input as { run_in_background?: unknown } | undefined)?.run_in_background === true;
+    const asked = toolInput(part).run_in_background === true;
     return asked || metadata?.background === true || metadata?.mode === "background" ? { task: undefined } : null;
 }
 
-export function delegatedTaskStatus(
-    state: EngineState,
-    part: Pick<ToolPart, "id" | "tool" | "sessionID" | "state"> & { callID?: string },
-    childId: string,
-): DelegatedTaskStatus {
+export function delegatedTaskStatus(state: EngineState, part: ToolPart, childId: string): DelegatedTaskStatus {
     // This invocation's result stays terminal even when another call resumes the same child.
-    if (part.state.status === "error") return "error";
-    if (part.tool === "spawn_thread") return part.state.status === "completed" ? "completed" : "running";
+    if (part.status === "error" || part.status === "denied") return "error";
+    if (part.name === "spawn_thread") return part.status === "done" ? "completed" : "running";
     // The engine's record outranks the call: a background call finishes at launch, its worker later.
-    const metadata = "metadata" in part.state ? (part.state.metadata as { taskId?: unknown } | undefined) : undefined;
-    const task = taskForCall(state, part.sessionID, part.callID, metadata?.taskId);
+    const task = taskForCall(state, part.sessionId, part.callId, part.metadata?.taskId);
     if (task) return delegatedRecordStatus(task);
     const terminal = delegatedTerminalState(state, part, childId);
     if (terminal) return terminal;
@@ -910,19 +894,19 @@ function delegatedRecordStatus(task: Pick<TaskRecord, "state">): DelegatedTaskSt
 
 function delegatedTerminalState(
     state: EngineState,
-    part: Pick<ToolPart, "id" | "tool" | "sessionID" | "state">,
+    part: ToolPart,
     childId: string,
 ): "completed" | "error" | undefined {
-    if (part.state.status !== "completed") return;
+    if (part.status !== "done") return;
     const pattern = new RegExp(
         `^\\s*<task\\s+id=["']${escapeRegExp(childId)}["']\\s+state=["'](running|completed|error)["']`,
     );
-    const result = part.state.output.match(pattern)?.[1];
+    const result = (part.output ?? "").match(pattern)?.[1];
     if (result === "completed" || result === "error") return result;
-    const background = part.state.metadata?.background === true || part.state.metadata?.mode === "background";
-    if (part.tool === "task" && result !== "running" && !background) return "completed";
+    const background = part.metadata?.background === true || part.metadata?.mode === "background";
+    if (part.name === "task" && result !== "running" && !background) return "completed";
 
-    return followingTaskResult(state.transcripts[part.sessionID] ?? [], part.id, pattern);
+    return followingTaskResult(state.transcripts[part.sessionId] ?? [], part.id, pattern);
 }
 
 function followingTaskResult(entries: EngineState["transcripts"][string], partID: string, pattern: RegExp) {
@@ -945,7 +929,7 @@ function escapeRegExp(value: string) {
 
 function ToolBody(props: { part: ToolPart; diff: string | null; error: string | null }) {
     const engine = useEngine();
-    const state = () => props.part.state;
+    const state = () => toolDisplay(props.part);
     const shellCommand = () => (state().input as { command?: string }).command ?? "";
     // While running, the output so far rides on the part's metadata; once ended, the saved result is the output.
     const shellOutput = () => {
@@ -956,11 +940,11 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
     };
     const shell = createMemo(() => splitNotes(shellOutput() ?? "", toolMeta(props.part)?.notes));
     const written = () => {
-        if (props.part.tool !== "write") return null;
+        if (props.part.name !== "write") return null;
         const input = state().input as { content?: string; filePath?: string };
         return typeof input.content === "string" ? { content: input.content, name: filename(input.filePath) } : null;
     };
-    const patched = () => (props.part.tool === "apply_patch" ? patchFiles(props.part) : []);
+    const patched = () => (props.part.name === "apply_patch" ? patchFiles(props.part) : []);
     const diffFilename = () => {
         const input = state().input as { filePath?: string };
         const file = patched()[0];
@@ -975,9 +959,11 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
                   child,
                   undefined,
                   undefined,
-                  props.part.state.status === "completed" ? props.part.state.time.end : undefined,
+                  props.part.status === "done"
+                      ? (props.part.finishedAt ?? props.part.startedAt ?? undefined)
+                      : undefined,
               )
-            : citationFileGroups(engine.state, props.part.sessionID, props.part.messageID, props.part.id);
+            : citationFileGroups(engine.state, props.part.sessionId, props.part.messageId, props.part.id);
     };
     return (
         <>
@@ -996,7 +982,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
                                         text={task().result}
                                         directory={
                                             engine.state.sessions[
-                                                delegatedChildId(engine.state, props.part) ?? props.part.sessionID
+                                                delegatedChildId(engine.state, props.part) ?? props.part.sessionId
                                             ]?.directory
                                         }
                                         fileGroups={citationFiles}
@@ -1007,7 +993,7 @@ function ToolBody(props: { part: ToolPart; diff: string | null; error: string | 
                         </div>
                     )}
                 </Match>
-                <Match when={props.part.tool === "bash"}>
+                <Match when={props.part.name === "bash"}>
                     <ShellOutput
                         command={shellCommand()}
                         output={shell().output}
@@ -1359,16 +1345,16 @@ export function shellScrollTarget(savedTop: number, following: boolean, scrollHe
 }
 
 export function taskBody(part: ToolPart) {
-    if (part.tool !== "task" && part.tool !== "spawn_thread") return null;
-    const input = part.state.input as { prompt?: string; task?: string };
-    const output = part.state.status === "completed" ? (part.state as { output: string }).output : "";
+    if (part.name !== "task" && part.name !== "spawn_thread") return null;
+    const input = toolInput(part) as { prompt?: string; task?: string };
+    const output = part.status === "done" ? (part.output ?? "") : "";
     const result = output.match(/<task_result>\n?([\s\S]*?)\n?<\/task_result>/)?.[1] ?? output;
     // The engine tells the model how to continue the subagent; the card shows the subagent's own words.
     return { prompt: input.prompt ?? input.task ?? "", result: result.replace(/\n\n\(task_id: [^)]*\)$/, "") };
 }
 
 function GenericBody(props: { part: ToolPart }) {
-    const state = () => props.part.state;
+    const state = () => toolDisplay(props.part);
     const output = () => (state().status === "completed" ? (state() as { output: string }).output : "");
     const showInput = () => !!toolInfo(props.part).called;
     return (
@@ -1622,12 +1608,11 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
     const [open, setOpen] = createSignal(false);
     const label = () => `${t("settings.permissions.tool.read.title")} · ${props.parts.length}`;
     const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part));
-    const running = () =>
-        props.parts.some((part) => part.state.status === "running" || part.state.status === "pending");
+    const running = () => props.parts.some((part) => part.status === "running" || part.status === "pending");
     const activePart = () => {
         for (let index = props.parts.length - 1; index >= 0; index--) {
             const part = props.parts[index];
-            if (part.state.status === "running" || part.state.status === "pending") return part;
+            if (part.status === "running" || part.status === "pending") return part;
         }
     };
     const expanded = () => open() || waiting();
@@ -1650,7 +1635,7 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
                 <Show when={waiting()}>
                     <span class="text-xs text-warn/90">{t("notification.permission.title")}</span>
                 </Show>
-                <Show when={activePart()}>{(part) => <ToolDuration state={part().state} />}</Show>
+                <Show when={activePart()}>{(part) => <ToolDuration state={toolDisplay(part())} />}</Show>
                 <Chevron open={expanded()} />
             </button>
             <Show when={expanded()}>

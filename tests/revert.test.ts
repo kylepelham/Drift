@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 
-import type { Message, Part } from "../src/engine/shapes";
 import type { MessageEntry } from "../src/engine/store";
+import type { Message } from "../src/engine/messages";
+import type { Part } from "../src/engine/parts";
 
 if (!("localStorage" in globalThis))
     Object.defineProperty(globalThis, "localStorage", {

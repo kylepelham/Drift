@@ -186,21 +186,22 @@ workspace can never make Drift execute plugin code merely by being opened.
 
 ```js
 export default function (api) {
-  api.on("composer.submit", ({ text }) => {
-    if (text === "!!ping") return "Say exactly: pong"
-  })
+    api.on("composer.submit", ({ text }) => {
+        if (text === "!!ping") return "Say exactly: pong";
+    });
 
-  api.registerToolRenderer("weather", (part) => {
-    const row = document.createElement("div")
-    row.textContent = part.state.status === "completed" ? part.state.output : "Loading weather..."
-    return row
-  })
+    api.registerToolRenderer("weather", (part) => {
+        const row = document.createElement("div");
+        row.textContent = part.status === "done" ? part.output : "Loading weather...";
 
-  api.registerToolContextActions("weather", (part) => ({
-    id: "open-source",
-    label: "Open weather source",
-    run: () => api.files.open(part.state.input.filePath, { line: 1 }),
-  }))
+        return row;
+    });
+
+    api.registerToolContextActions("weather", (part) => ({
+        id: "open-source",
+        label: "Open weather source",
+        run: () => api.files.open(part.input.filePath, { line: 1 }),
+    }));
 }
 ```
 
@@ -208,6 +209,11 @@ export default function (api) {
 and engine connection state. `api.threads.create()` creates and selects a thread;
 `api.threads.select(id)` changes the selected thread. Renderers may return a DOM node,
 plain text, or `null`; strings are never treated as HTML.
+
+Renderer and context-action callbacks receive generated native part records. Tool parts
+have `type: "tool_call"`, `name`, `callId`, `input`, `status`, `output`, `metadata`,
+`startedAt` and `finishedAt`. Completion is `done`; permission refusal is `denied`.
+The old SDK `tool`, `callID` and nested `state` fields are no longer supplied.
 
 Hook events: `composer.submit`, `thread.created`, `thread.selected`, `thread.archived`,
 `workspace.changed`, `theme.changed`, `message.rendered` (a message entered the

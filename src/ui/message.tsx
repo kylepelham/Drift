@@ -17,7 +17,7 @@ import { useEngine } from "../engine";
 import { Markdown } from "./markdown";
 import { Chevron } from "./controls";
 
-import type { Part, PluginPart, ToolPart } from "../engine/shapes";
+import type { Part, ContextPart, ToolPart } from "../engine/parts";
 import type { Message, MessageProblem } from "../engine/messages";
 
 /** `hideError`: the reply's failure is no longer news (it is being retried, or the session went on), so its error box is left out; a stop's divider stays. */
@@ -69,7 +69,7 @@ export function messageVisible(entry: MessageEntry) {
     if (entry.info.role === "user")
         return (
             !!messageText(entry) ||
-            entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "plugin")
+            entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "context")
         );
     const info = entry.info;
     if (info.summary && collapseCompaction()) return true;
@@ -123,9 +123,9 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     );
     const text = () => clarification()?.text ?? messageText(props.entry);
     // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
-    const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true);
+    const generated = () => props.entry.parts.some((part) => part.type === "nudge");
     const files = () => props.entry.parts.filter((part) => part.type === "file");
-    const plugins = () => props.entry.parts.filter((part): part is PluginPart => part.type === "plugin");
+    const plugins = () => props.entry.parts.filter((part): part is ContextPart => part.type === "context");
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
     const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
     const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -294,7 +294,7 @@ export function groupParts(parts: Part[]): PartGroup[] {
     const groups: PartGroup[] = [];
     for (const part of parts) {
         if (!partVisible(part)) continue;
-        if (part.type === "tool" && contextTools.has(part.tool)) {
+        if (part.type === "tool_call" && contextTools.has(part.name)) {
             const last = groups.at(-1);
             if (last && "explored" in last) last.explored.push(part);
             else groups.push({ id: `explored:${part.id}`, key: `explored:${part.id}`, explored: [part] });
@@ -430,7 +430,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     };
     const liveTextPartID = () => {
         if (info().finishedAt || !sessionBusy(engine.state, info().sessionId)) return undefined;
-        return [...props.entry.parts].reverse().find((part) => part.type === "text" && !part.time?.end)?.id;
+        return [...props.entry.parts].reverse().find((part) => part.type === "text")?.id;
     };
     return (
         <Show when={visible()}>
@@ -527,10 +527,8 @@ export function generationMs(entry: MessageEntry) {
     let total = 0;
     for (const part of entry.parts) {
         if (part.type !== "text" && part.type !== "reasoning") continue;
-        const time = (part as { time?: { start?: number; end?: number } }).time;
-        if (time?.start === undefined) continue;
-        const end = time.end ?? info.finishedAt;
-        if (end) total += Math.max(0, end - time.start);
+        // Native reasoning has no timestamps; its previous display used a zero start.
+        if (part.type === "reasoning" && info.finishedAt) total += Math.max(0, info.finishedAt);
     }
     return total;
 }

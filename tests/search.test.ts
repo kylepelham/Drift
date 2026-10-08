@@ -128,11 +128,11 @@ test("in-session search reads every visible surface and counts repeats", async (
         entry("m1", [{ type: "text", text: "the cache is warm" }]),
         entry("m2", [
             { type: "reasoning", text: "the cache might be cold" },
-            { type: "tool", state: { output: "cache miss, cache miss" } },
+            { type: "tool_call", status: "done", output: "cache miss, cache miss" },
         ]),
         entry("m3", [{ type: "text", text: "unrelated" }]),
         // Drift's own scaffolding is not something the user ever saw.
-        entry("m4", [{ type: "text", text: "cache", synthetic: true }]),
+        entry("m4", [{ type: "task_result", text: "cache" }]),
     ];
 
     const matches = transcriptMatches(entries, "cache");

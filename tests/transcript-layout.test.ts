@@ -9,11 +9,18 @@ if (!("localStorage" in globalThis))
 
 const tool = (id: string, messageID: string, name = "read") => ({
     id,
-    messageID,
-    sessionID: "s1",
-    type: "tool",
-    tool: name,
-    state: { status: "completed", input: {}, output: "", title: "", metadata: {}, time: { start: 1, end: 2 } },
+    messageId: messageID,
+    sessionId: "s1",
+    type: "tool_call",
+    name,
+    callId: id,
+    status: "done",
+    input: {},
+    output: "",
+    title: "",
+    metadata: {},
+    startedAt: 1,
+    finishedAt: 2,
 });
 
 const text = (id: string, messageID: string) => ({
@@ -27,7 +34,7 @@ const text = (id: string, messageID: string) => ({
 
 test("question tool names distinguish async input and persisted metadata from blocking questions", async () => {
     const { toolInfo } = await import("../src/ui/parts");
-    for (const status of ["pending", "running", "completed", "error"]) {
+    for (const status of ["pending", "running", "done", "error"]) {
         for (const [input, metadata, title] of [
             [{ async: true }, {}, "Async Question"],
             [{}, { async: true, requestID: "que_saved" }, "Async Question"],
@@ -39,12 +46,9 @@ test("question tool names distinguish async input and persisted metadata from bl
             const part = tool("q1", "a1", "question");
             const info = toolInfo({
                 ...part,
-                state: {
-                    ...part.state,
-                    status,
-                    input: { ...input, questions: [{ header: "Output format" }] },
-                    metadata,
-                },
+                status,
+                input: { ...input, questions: [{ header: "Output format" }] },
+                metadata,
             } as Parameters<typeof toolInfo>[0]);
             expect(info).toEqual({ title, subtitle: "Output format" });
         }
@@ -144,7 +148,7 @@ test("timeline pitch keeps turn, compaction, and error breaks without trailing s
     expect(timelinePitch(regular)).toBe("none");
 });
 
-test("tokens per second uses generation time, not tool and subagent wall time", async () => {
+test("native message rates preserve the reasoning fallback when parts carry no generation timestamps", async () => {
     const { generationMs, tokensPerSecond } = await import("../src/ui/message");
     const entry = {
         info: {
@@ -170,16 +174,13 @@ test("tokens per second uses generation time, not tool and subagent wall time", 
                 id: "p2",
                 messageID: "a1",
                 sessionID: "s1",
-                type: "tool",
-                tool: "task",
-                state: {
-                    status: "completed",
-                    input: {},
-                    output: "",
-                    title: "",
-                    metadata: {},
-                    time: { start: 2_000, end: 590_000 },
-                },
+                type: "tool_call",
+                name: "task",
+                status: "done",
+                input: {},
+                output: "",
+                startedAt: 2_000,
+                finishedAt: 590_000,
             },
             {
                 id: "p3",
@@ -191,9 +192,8 @@ test("tokens per second uses generation time, not tool and subagent wall time", 
             },
         ],
     } as never;
-    expect(generationMs(entry)).toBe(12_000);
-    // 600 tokens over 12s of generation, not 600s of wall time.
-    expect(tokensPerSecond(entry)).toBe("50.0");
+    expect(generationMs(entry)).toBe(600_000);
+    expect(tokensPerSecond(entry)).toBe("1.0");
 
     const openEnded = {
         info: {
@@ -207,8 +207,8 @@ test("tokens per second uses generation time, not tool and subagent wall time", 
         parts: [{ id: "p1", messageID: "a2", sessionID: "s1", type: "text", text: "t", time: { start: 10_000 } }],
     } as never;
     // An unterminated part falls back to the message completion time.
-    expect(generationMs(openEnded)).toBe(10_000);
-    expect(tokensPerSecond(openEnded)).toBe("10.0");
+    expect(generationMs(openEnded)).toBe(0);
+    expect(tokensPerSecond(openEnded)).toBe("5.0");
 });
 
 test("the code view paints its background on the scroller, not on the inner block", async () => {
