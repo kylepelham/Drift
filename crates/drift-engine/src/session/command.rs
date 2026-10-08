@@ -451,7 +451,7 @@ impl Engine {
                 self.mcp
                     .get_prompt(server, Some(&workspace), prompt, command.named_arguments(arguments))
                     .await
-                    .map_err(CommandError::Mcp)?
+                    .map_err(|error| CommandError::Mcp(error.to_string()))?
             }
             None => command.expand(arguments),
         };

@@ -7,8 +7,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+mod error;
 #[cfg(feature = "wasm-plugins")]
 pub mod wasm;
+
+pub use error::Error;
+
+/// Where a plugin lives and what it may reach: its drift.json entry, its config, and the engine for host calls.
+pub struct Site {
+    pub entry: String,
+    pub config: Value,
+    pub engine: std::sync::Weak<crate::Engine>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -217,7 +227,7 @@ impl PluginEntry {
 /// A listed plugin as the loader takes it: its entry, where it resolved to (or why not), and its config.
 pub struct Listed {
     pub entry: String,
-    pub path: Result<std::path::PathBuf, String>,
+    pub path: Result<std::path::PathBuf, Error>,
     pub config: Value,
 }
 
@@ -245,7 +255,7 @@ pub struct Hooks {
     hooks: RwLock<Vec<Arc<dyn Hook>>>,
     loaded: RwLock<Vec<PluginInfo>>,
     #[cfg(feature = "wasm-plugins")]
-    runtime: std::sync::OnceLock<Result<wasm::Runtime, String>>,
+    runtime: std::sync::OnceLock<Result<wasm::Runtime, Error>>,
 }
 
 /// What a loaded plugin reports about itself.
@@ -285,8 +295,16 @@ impl Hooks {
             }
             let outcome = match path {
                 Ok(path) => {
-                    self.load_one(cache_dir, &path, &entry, config.clone(), engine.clone())
-                        .await
+                    self.load_one(
+                        cache_dir,
+                        &path,
+                        Site {
+                            entry: entry.clone(),
+                            config: config.clone(),
+                            engine: engine.clone(),
+                        },
+                    )
+                    .await
                 }
                 Err(error) => Err(error),
             };
@@ -308,7 +326,7 @@ impl Hooks {
                     enabled: true,
                     config,
                     capabilities: vec![],
-                    error: Some(error),
+                    error: Some(error.to_string()),
                 }),
             }
         }
@@ -317,29 +335,13 @@ impl Hooks {
     }
 
     #[cfg(feature = "wasm-plugins")]
-    async fn load_one(
-        &self,
-        cache_dir: &std::path::Path,
-        path: &std::path::Path,
-        entry: &str,
-        config: Value,
-        engine: std::sync::Weak<crate::Engine>,
-    ) -> Result<Loaded, String> {
+    async fn load_one(&self, cache_dir: &std::path::Path, path: &std::path::Path, site: Site) -> Result<Loaded, Error> {
         let runtime = self
             .runtime
             .get_or_init(|| wasm::Runtime::new(cache_dir))
             .as_ref()
             .map_err(Clone::clone)?;
-        let plugin = runtime
-            .load(
-                path,
-                wasm::Site {
-                    entry: entry.to_owned(),
-                    config,
-                    engine,
-                },
-            )
-            .await?;
+        let plugin = runtime.load(path, site).await?;
         Ok(Loaded {
             name: plugin.name().to_owned(),
             capabilities: plugin.capabilities.clone(),
@@ -352,11 +354,9 @@ impl Hooks {
         &self,
         _cache_dir: &std::path::Path,
         _path: &std::path::Path,
-        _entry: &str,
-        _config: Value,
-        _engine: std::sync::Weak<crate::Engine>,
-    ) -> Result<Loaded, String> {
-        Err("this build of Drift runs no plugins".into())
+        _site: Site,
+    ) -> Result<Loaded, Error> {
+        Err(Error::Unsupported)
     }
 
     pub fn loaded(&self) -> Vec<PluginInfo> {
@@ -479,8 +479,7 @@ fn note_line(plugin: &str, note: &str) -> String {
 fn plugin_name(entry: &str) -> String {
     std::path::Path::new(entry)
         .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_else(|| entry.to_owned())
+        .map_or_else(|| entry.to_owned(), |stem| stem.to_string_lossy().into_owned())
 }
 
 /// Session events as the hub publishes them, handed to the hooks until the hub closes.

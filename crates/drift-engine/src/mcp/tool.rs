@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
 use std::sync::Arc;
 
 use serde_json::Value;
+use sha2::Digest;
 
 use super::{Answer, CallError, Key, Live, REPLACEMENT_WAIT, Slot};
 use crate::llm::ToolSpec;
@@ -133,13 +135,13 @@ pub(crate) const RESERVED: [&str; 6] = [
 ];
 
 /// Names already given, by `(server, tool)`; a name once given is never given to another tool.
-pub type Given = HashMap<(String, String), String>;
+pub(crate) type Given = HashMap<(String, String), String>;
 
 /// The names the model calls a set of servers' tools (`(server, tool)` pairs) by. A tool named
 /// before keeps its name, so connecting another server never renames one a transcript already
 /// calls. A new tool gets `<server>_<tool>` as written where no tool has or is getting that name,
 /// and a hashed name ([`wire_name`] with `clashes`) where one does (`a_b` + `c` and `a` + `b_c`).
-pub fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
+pub(crate) fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
     let taken: HashSet<&str> = given.values().map(String::as_str).collect();
     let known = |server: &str, tool: &str| given.get(&(server.to_string(), tool.to_string()));
     let plain: Vec<String> = tools
@@ -169,7 +171,7 @@ pub fn wire_names(given: &Given, tools: &[(&str, &str)]) -> Vec<String> {
 /// (`[a-zA-Z0-9_-]`, at most 64). A name that had to change (a character replaced, or cut to fit),
 /// that spells a built-in tool's, or that `clashes` with another server's, ends in a hash of the
 /// original, keeping every name apart.
-pub fn wire_name(server: &str, tool: &str, clashes: bool) -> String {
+pub(super) fn wire_name(server: &str, tool: &str, clashes: bool) -> String {
     let raw = format!("{server}_{tool}");
     let clean: String = raw
         .chars()
@@ -184,13 +186,13 @@ pub fn wire_name(server: &str, tool: &str, clashes: bool) -> String {
     if clean == raw && clean.len() <= MAX_NAME && !RESERVED.contains(&clean.as_str()) && !clashes {
         return clean;
     }
-    use sha2::Digest;
     // Server and tool apart, so `a_b` + `c` and `a` + `b_c` hash differently.
-    let hash: String = sha2::Sha256::digest(format!("{server}\0{tool}").as_bytes())
-        .iter()
-        .take(4)
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let digest = sha2::Sha256::digest(format!("{server}\0{tool}").as_bytes());
+    let mut hash = String::with_capacity(8);
+    for byte in &digest[..4] {
+        write!(hash, "{byte:02x}").unwrap();
+    }
+
     let keep = clean.len().min(MAX_NAME - hash.len() - 1);
     format!("{}_{hash}", &clean[..keep])
 }

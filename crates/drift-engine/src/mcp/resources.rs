@@ -7,8 +7,8 @@ use crate::llm::ToolSpec;
 use crate::tool::ToolMetadata;
 use crate::tool::{Ask, Context, Output, RunFuture, Tool, ToolError, required_str};
 
-pub struct ListResources;
-pub struct ReadResource;
+pub(super) struct ListResources;
+pub(super) struct ReadResource;
 
 impl Tool for ListResources {
     fn spec(&self) -> ToolSpec {
@@ -39,7 +39,7 @@ impl Tool for ListResources {
                     .mcp
                     .list_resources(server, Some(&ctx.workspace))
                     .await
-                    .map_err(ToolError)?
+                    .map_err(|error| ToolError(error.to_string()))?
                 {
                     let about = resource
                         .description
@@ -92,7 +92,7 @@ impl Tool for ReadResource {
                 .mcp
                 .read_resource(server, Some(&ctx.workspace), uri)
                 .await
-                .map_err(ToolError)?;
+                .map_err(|error| ToolError(error.to_string()))?;
             let mut metadata = ToolMetadata {
                 server: Some(server.into()),
                 uri: Some(uri.into()),

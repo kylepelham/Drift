@@ -583,7 +583,7 @@ async fn a_server_that_never_finishes_starting_times_out_and_its_process_tree_di
     });
     let pids = pids_in(&file).await;
     let failed = connecting.await.unwrap().unwrap_err();
-    assert!(failed.contains("did not start within"), "{failed}");
+    assert!(failed.to_string().contains("did not start within"), "{failed}");
     let status = engine.mcp.status_of(row);
     assert_eq!(status.state, State::Failed);
     assert!(!engine.mcp.connecting(), "waiters are not held up by it");
@@ -601,7 +601,7 @@ async fn a_server_that_never_lists_its_tools_times_out() {
     });
     let pids = pids_in(&file).await;
     let failed = connecting.await.unwrap().unwrap_err();
-    assert!(failed.contains("did not list its tools within"), "{failed}");
+    assert!(failed.to_string().contains("did not list its tools within"), "{failed}");
     all_dead(&pids).await;
 }
 
@@ -669,7 +669,7 @@ async fn the_startup_sweep_never_cancels_a_connect_already_under_way() {
     });
     until("connecting", || engine.mcp.connecting()).await;
     engine.connect_all_mcp();
-    assert_eq!(connecting.await.unwrap(), Ok(()), "the user's connect lands");
+    connecting.await.unwrap().expect("the user's connect lands");
     assert_eq!(engine.mcp.status_of(row).state, State::Connected);
 }
 
@@ -1166,9 +1166,9 @@ async fn bearer_only(request: axum::extract::Request, next: axum::middleware::Ne
 
 /// An MCP server on `/mcp` (streamable HTTP) and `/sse` that wants a bearer token, with the OAuth endpoints to get one; registration only without `app`.
 async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
-    use axum::extract::{Path, Query, State as Shared};
+    use axum::extract::{Path, State as Shared};
     use axum::http::{HeaderMap, StatusCode};
-    use axum::response::{IntoResponse, Redirect};
+    use axum::response::IntoResponse;
     use axum::routing::{get, post};
     let _ = rustls::crypto::ring::default_provider().install_default();
     let seen: AuthLog = Arc::default();
@@ -1205,47 +1205,6 @@ async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
             }
         }
     };
-    let register = {
-        let seen = seen.clone();
-        post(move |axum::Json(body): axum::Json<serde_json::Value>| async move {
-            seen.lock().unwrap().push("register".into());
-            (
-                StatusCode::CREATED,
-                axum::Json(
-                    json!({ "client_id": "drift-test-client", "redirect_uris": body["redirect_uris"], "token_endpoint_auth_method": "none" }),
-                ),
-            )
-        })
-    };
-    let authorize = {
-        let seen = seen.clone();
-        get(
-            move |axum::extract::RawQuery(raw): axum::extract::RawQuery,
-                  Query(query): Query<std::collections::HashMap<String, String>>| async move {
-                seen.lock()
-                    .unwrap()
-                    .push(format!("authorize {}", raw.unwrap_or_default()));
-                Redirect::to(&format!(
-                    "{}?code=granted&state={}",
-                    query["redirect_uri"], query["state"]
-                ))
-            },
-        )
-    };
-    let token = {
-        let seen = seen.clone();
-        post(move |headers: HeaderMap, body: String| async move {
-            let authorization = headers
-                .get("authorization")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or_default()
-                .to_string();
-            seen.lock().unwrap().push(format!("token {body} {authorization}"));
-            axum::Json(
-                json!({ "access_token": "good-token", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "again" }),
-            )
-        })
-    };
     let mcp = post(
         move |Shared(base): Shared<String>, headers: HeaderMap, axum::Json(message): axum::Json<serde_json::Value>| async move {
             if headers.get("authorization").and_then(|v| v.to_str().ok()) != Some("Bearer good-token") {
@@ -1266,9 +1225,7 @@ async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
         .route("/.well-known/oauth-protected-resource", get(resource("mcp")))
         .route("/.well-known/oauth-protected-resource/{path}", get(resource_at))
         .route("/.well-known/oauth-authorization-server", get(metadata))
-        .route("/register", register)
-        .route("/authorize", authorize)
-        .route("/token", token)
+        .merge(oauth_token_routes(&seen))
         .route(
             "/mcp",
             mcp.get(|| async { StatusCode::METHOD_NOT_ALLOWED })
@@ -1278,6 +1235,63 @@ async fn oauth_mcp_server(app: Option<&'static str>) -> (String, AuthLog) {
         .merge(legacy_sse_routes().route_layer(axum::middleware::from_fn(bearer_only)));
     tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
     (base, seen)
+}
+
+/// Registration, browser authorization and token endpoints for the fake OAuth server.
+fn oauth_token_routes(seen: &AuthLog) -> axum::Router<String> {
+    use axum::extract::Query;
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::Redirect;
+    use axum::routing::{get, post};
+
+    let register = {
+        let seen = seen.clone();
+        post(move |axum::Json(body): axum::Json<serde_json::Value>| async move {
+            seen.lock().unwrap().push("register".into());
+            (
+                StatusCode::CREATED,
+                axum::Json(
+                    json!({ "client_id": "drift-test-client", "redirect_uris": body["redirect_uris"], "token_endpoint_auth_method": "none" }),
+                ),
+            )
+        })
+    };
+
+    let authorize = {
+        let seen = seen.clone();
+        get(
+            move |axum::extract::RawQuery(raw): axum::extract::RawQuery,
+                  Query(query): Query<std::collections::HashMap<String, String>>| async move {
+                seen.lock()
+                    .unwrap()
+                    .push(format!("authorize {}", raw.unwrap_or_default()));
+                Redirect::to(&format!(
+                    "{}?code=granted&state={}",
+                    query["redirect_uri"], query["state"]
+                ))
+            },
+        )
+    };
+
+    let token = {
+        let seen = seen.clone();
+        post(move |headers: HeaderMap, body: String| async move {
+            let authorization = headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            seen.lock().unwrap().push(format!("token {body} {authorization}"));
+            axum::Json(
+                json!({ "access_token": "good-token", "token_type": "Bearer", "expires_in": 3600, "refresh_token": "again" }),
+            )
+        })
+    };
+
+    axum::Router::new()
+        .route("/register", register)
+        .route("/authorize", authorize)
+        .route("/token", token)
 }
 
 /// The echo server in one era, logging every method it receives.
@@ -1936,9 +1950,8 @@ async fn a_stdio_server_runs_in_each_workspace_that_uses_it_and_is_told_it_as_it
 async fn a_workspace_never_borrows_another_place_s_stdio_connection_and_one_closed_and_idle_or_removed_stops() {
     let engine = engine();
     saved(&engine, "echo", &echo_config()).await;
-    assert_eq!(
-        engine.connect_mcp("echo").await,
-        Err(NEEDS_WORKSPACE.into()),
+    assert!(
+        matches!(engine.connect_mcp("echo").await, Err(Error::NeedsWorkspace)),
         "no shared stdio connection, where Drift runs"
     );
     engine.connect_mcp_in("echo", Some(&here())).await.unwrap();

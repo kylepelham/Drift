@@ -1,5 +1,6 @@
 //! MCP servers: configured in the store, connected with rmcp, tools offered to the model.
 
+mod error;
 mod oauth;
 mod resources;
 mod sse;
@@ -30,6 +31,7 @@ use crate::store::Store;
 use crate::tool::image::Image;
 pub(crate) use tool::{Given, wire_names};
 
+pub use error::Error;
 pub use oauth::{forget as forget_sign_in, forget_if_moved, move_sign_in};
 pub use tool::McpTool;
 pub use view::{ServerConfigInput, ServerConfigView, ServerView};
@@ -286,7 +288,6 @@ fn lifecycle(known: Option<Era>) -> ClientLifecycleMode {
 /// Drift as an MCP client: no sampling or elicitation, so a server asking for them is declined; a
 /// connection for a workspace offers roots and names that workspace, as opencode does; the
 /// handshake offers 2025-11-25.
-#[allow(deprecated)]
 fn client_info(roots: bool) -> ClientConfig {
     let mut capabilities = ClientCapabilities::default();
     if roots {
@@ -313,7 +314,7 @@ impl DriftClient {
     }
 }
 
-#[allow(deprecated)]
+#[expect(deprecated, reason = "legacy servers still request workspace roots")]
 impl rmcp::ClientHandler for DriftClient {
     fn get_info(&self) -> ClientConfig {
         client_info(self.root.is_some())
@@ -375,7 +376,8 @@ impl Listing {
 }
 
 /// Why a connect failed, and whether the server asked for a sign-in (a 401 or 403), as rmcp's typed error says.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
+#[error("{message}")]
 pub(super) struct Failure {
     message: String,
     needs_sign_in: bool,
@@ -393,6 +395,12 @@ impl From<String> for Failure {
 impl From<&str> for Failure {
     fn from(message: &str) -> Self {
         Self::from(message.to_string())
+    }
+}
+
+impl From<Error> for Failure {
+    fn from(error: Error) -> Self {
+        Self::from(error.to_string())
     }
 }
 
@@ -560,6 +568,21 @@ struct Attempt {
     id: u64,
     generation: u64,
     cancel: CancellationToken,
+}
+
+struct Connecting {
+    key: Key,
+    attempt: Attempt,
+}
+
+struct EndConnections<'a> {
+    name: &'a str,
+    ending: Ending,
+}
+
+pub struct WorkspaceServer<'a> {
+    pub name: &'a str,
+    pub workspace: &'a Path,
 }
 
 /// One connection of a server: a remote server has one, shared (`workspace` none); a stdio server
@@ -764,8 +787,9 @@ impl Servers {
                 .iter()
                 .find(|transient| transient.state == State::Connecting)
                 .or(states.first())
-                .map(|transient| (*transient).clone())
-                .unwrap_or(Transient::new(State::Disconnected, None))
+                .map_or(Transient::new(State::Disconnected, None), |transient| {
+                    (*transient).clone()
+                })
         };
         let protocol = live
             .as_ref()
@@ -819,25 +843,30 @@ impl Servers {
     }
 
     /// Connects `key` as its server's row stands now.
-    async fn connect(&self, key: &Key, store: &Store, hub: &Hub, start: Start) -> Result<Arc<Live>, String> {
+    async fn connect(&self, key: &Key, store: &Store, hub: &Hub, start: Start) -> Result<Arc<Live>, Error> {
         let (row, attempt) = self.begin(key, store, start)?;
-        self.complete(row, key.clone(), attempt, store, hub).await
+        let connecting = Connecting {
+            key: key.clone(),
+            attempt,
+        };
+
+        self.complete(row, connecting, store, hub).await
     }
 
     /// The rest of a connect `begin` started: opens the server and publishes what it opened.
     async fn complete(
         &self,
         row: ServerRow,
-        key: Key,
-        attempt: Attempt,
+        connecting: Connecting,
         store: &Store,
         hub: &Hub,
-    ) -> Result<Arc<Live>, String> {
+    ) -> Result<Arc<Live>, Error> {
+        let Connecting { key, attempt } = &connecting;
         let _settle = Settle {
             servers: self,
             hub,
             row: &row,
-            key: &key,
+            key,
             id: attempt.id,
         };
         hub.publish(Event::McpUpdated {
@@ -851,33 +880,29 @@ impl Servers {
             opened = open(&row.config, row.hash.clone(), sign_in, row.era, key.workspace.as_deref()) => opened,
             () = attempt.cancel.cancelled() => Err(Failure::from("server definition changed during connect".to_string())),
         };
-        let finished = self.finish(&row, &key, hub, &attempt, opened);
+        let finished = self.finish(&row, &connecting, hub, opened);
         remember_era(store, &row, finished.as_ref().ok().map(|live| live.era));
         finished
     }
 
     /// Reads the row and its generation together, so a save cannot slip between them. The engine's
     /// own connects never retry one that failed; the user's connect does.
-    fn begin(&self, key: &Key, store: &Store, start: Start) -> Result<(ServerRow, Attempt), String> {
+    fn begin(&self, key: &Key, store: &Store, start: Start) -> Result<(ServerRow, Attempt), Error> {
         let mut slots = self.lock();
-        let row = store
-            .mcp_server(&key.server)
-            .map_err(|e| e.to_string())?
-            .ok_or("no such server")?;
+        let row = store.mcp_server(&key.server)?.ok_or(Error::NotFound)?;
         if row.config.is_remote() != key.workspace.is_none() {
             return Err(if key.workspace.is_none() {
-                NEEDS_WORKSPACE
+                Error::NeedsWorkspace
             } else {
-                "a remote server has one shared connection"
-            }
-            .into());
+                Error::SharedRemote
+            });
         }
         let generation = slots.generation_of(key);
         if matches!(start, Start::Reconnect(expected) if expected != generation) {
-            return Err("server definition changed".into());
+            return Err(Error::DefinitionChanged);
         }
         if start != Start::User && (slots.attempts.contains_key(key) || slots.live(key).is_some()) {
-            return Err("already connected or connecting".into());
+            return Err(Error::Busy);
         }
         if start == Start::Startup
             && slots
@@ -885,11 +910,11 @@ impl Servers {
                 .get(key)
                 .is_some_and(|transient| transient.state == State::Failed)
         {
-            return Err("it failed to connect; connect it again in Settings".into());
+            return Err(Error::RetryInSettings);
         }
         match start {
             Start::User => drop(slots.held.remove(&key.server)),
-            _ if slots.held.contains(&key.server) => return Err("the user disconnected it".into()),
+            _ if slots.held.contains(&key.server) => return Err(Error::Disconnected),
             _ => {}
         }
         if !key
@@ -898,11 +923,10 @@ impl Servers {
             .map_or(row.on_anywhere(), |workspace| row.on_in(workspace))
         {
             return Err(if row.on_anywhere() {
-                "it is off in this workspace"
+                Error::OffWorkspace
             } else {
-                "server is disabled"
-            }
-            .into());
+                Error::Disabled
+            });
         }
         let attempt = Attempt {
             id: self.next_attempt.fetch_add(1, Ordering::Relaxed),
@@ -922,14 +946,14 @@ impl Servers {
     fn finish(
         &self,
         row: &ServerRow,
-        key: &Key,
+        connecting: &Connecting,
         hub: &Hub,
-        attempt: &Attempt,
         opened: Result<Live, Failure>,
-    ) -> Result<Arc<Live>, String> {
+    ) -> Result<Arc<Live>, Error> {
+        let Connecting { key, attempt } = connecting;
         let mut slots = self.lock();
         if !slots.is_current(key, attempt) {
-            return Err("server definition changed during connect".into());
+            return Err(Error::ConnectChanged);
         }
         slots.attempts.remove(key);
         let result = match opened {
@@ -948,7 +972,7 @@ impl Servers {
                         needs_sign_in,
                     },
                 );
-                Err(message)
+                Err(Error::Connect { message, needs_sign_in })
             }
         };
         drop(slots);
@@ -966,18 +990,18 @@ impl Servers {
         ending: Ending,
         write: impl FnOnce(&Store) -> Result<R, E>,
     ) -> Result<(Vec<Arc<Live>>, R), E> {
-        self.detach_where(name, store, ending, |_| true, write)
+        self.detach_where(EndConnections { name, ending }, store, |_| true, write)
     }
 
     /// [`Self::detach`] for the connections `ends` picks.
     fn detach_where<R, E>(
         &self,
-        name: &str,
+        connections: EndConnections<'_>,
         store: &Store,
-        ending: Ending,
         ends: impl Fn(&Key) -> bool,
         write: impl FnOnce(&Store) -> Result<R, E>,
     ) -> Result<(Vec<Arc<Live>>, R), E> {
+        let EndConnections { name, ending } = connections;
         let mut slots = self.lock();
         let written = write(store)?;
         let mut lives = Vec::new();
@@ -1041,12 +1065,12 @@ impl Servers {
     /// remote server's shared one ends only once no workspace has it on. No other workspace is touched.
     pub async fn disconnect_in<E>(
         &self,
-        name: &str,
-        workspace: &Path,
+        server: WorkspaceServer<'_>,
         store: &Store,
         hub: &Hub,
         write: impl FnOnce(&Store) -> Result<bool, E>,
     ) -> Result<bool, E> {
+        let WorkspaceServer { name, workspace } = server;
         let ends = |key: &Key| match &key.workspace {
             Some(own) => own == workspace,
             None => !store
@@ -1055,7 +1079,11 @@ impl Servers {
                 .flatten()
                 .is_some_and(|row| row.on_anywhere()),
         };
-        let (lives, found) = self.detach_where(name, store, Ending::Keep, ends, write)?;
+        let connections = EndConnections {
+            name,
+            ending: Ending::Keep,
+        };
+        let (lives, found) = self.detach_where(connections, store, ends, write)?;
         self.retire(name, store, hub, lives).await;
         Ok(found)
     }
@@ -1265,12 +1293,14 @@ impl Servers {
             .collect()
     }
 
-    fn live(&self, server: &str, workspace: Option<&Path>) -> Result<Arc<Live>, String> {
+    fn live(&self, server: &str, workspace: Option<&Path>) -> Result<Arc<Live>, Error> {
         let shown = self.shown(workspace);
         self.lock()
             .live_for(server, workspace, &shown)
             .map(|(_, live)| live)
-            .ok_or_else(|| format!("the {server} MCP server is not connected"))
+            .ok_or_else(|| Error::NotConnected {
+                server: server.to_owned(),
+            })
     }
 
     /// Servers connected for `workspace` that serve resources, by name.
@@ -1306,10 +1336,10 @@ impl Servers {
         &self,
         server: &str,
         workspace: Option<&Path>,
-    ) -> Result<Vec<rmcp::model::Resource>, String> {
+    ) -> Result<Vec<rmcp::model::Resource>, Error> {
         let live = self.live(server, workspace)?;
         within("list its resources", async {
-            live.service.list_all_resources().await.map_err(|e| e.to_string())
+            live.service.list_all_resources().await.map_err(Error::Service)
         })
         .await
     }
@@ -1320,13 +1350,13 @@ impl Servers {
         server: &str,
         workspace: Option<&Path>,
         uri: &str,
-    ) -> Result<Answer, String> {
+    ) -> Result<Answer, Error> {
         let live = self.live(server, workspace)?;
         let read = within("read the resource", async {
             live.service
                 .read_resource(rmcp::model::ReadResourceRequestParams::new(uri))
                 .await
-                .map_err(|e| e.to_string())
+                .map_err(Error::Service)
         })
         .await?;
         let mut answer = Answer {
@@ -1371,12 +1401,12 @@ impl Servers {
         workspace: Option<&Path>,
         name: &str,
         arguments: serde_json::Map<String, serde_json::Value>,
-    ) -> Result<String, String> {
+    ) -> Result<String, Error> {
         let live = self.live(server, workspace)?;
         let mut params = rmcp::model::GetPromptRequestParams::new(name);
         params.arguments = Some(arguments);
         let got = within("fill the prompt", async {
-            live.service.get_prompt(params).await.map_err(|e| e.to_string())
+            live.service.get_prompt(params).await.map_err(Error::Service)
         })
         .await?;
         let texts: Vec<String> = got
@@ -1455,7 +1485,7 @@ async fn open(
     // A server whose prompts cannot be listed still serves its tools; it simply offers no commands.
     let prompts = match info.as_ref().is_some_and(|info| info.capabilities.prompts.is_some()) {
         true => within("list its prompts", async {
-            service.list_all_prompts().await.map_err(|e| e.to_string())
+            service.list_all_prompts().await.map_err(Error::Service)
         })
         .await
         .unwrap_or_default(),
@@ -1477,13 +1507,13 @@ async fn open(
 }
 
 /// Every page of the server's tools, and the shortest freshness any page gave.
-async fn list_tools(service: &Client) -> Result<(Vec<rmcp::model::Tool>, Option<Duration>), String> {
+async fn list_tools(service: &Client) -> Result<(Vec<rmcp::model::Tool>, Option<Duration>), Error> {
     let (mut tools, mut ttl, mut cursor) = (Vec::new(), None::<u64>, None);
     loop {
         let page = service
             .list_tools(Some(rmcp::model::PaginatedRequestParams::default().with_cursor(cursor)))
             .await
-            .map_err(|e| format!("tools/list failed: {e}"))?;
+            .map_err(Error::Tools)?;
         ttl = match (ttl, page.ttl_ms) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
@@ -1537,18 +1567,17 @@ async fn begin(
     Err(failed)
 }
 
-async fn within<T>(what: &str, step: impl Future<Output = Result<T, String>>) -> Result<T, String> {
+async fn within<T>(what: &str, step: impl Future<Output = Result<T, Error>>) -> Result<T, Error> {
     within_for(STEP_LIMIT, what, step).await
 }
 
-async fn within_for<T>(
-    limit: Duration,
-    what: &str,
-    step: impl Future<Output = Result<T, String>>,
-) -> Result<T, String> {
-    tokio::time::timeout(limit, step)
-        .await
-        .unwrap_or_else(|_| Err(format!("the server did not {what} within {limit:?}")))
+async fn within_for<T>(limit: Duration, what: &str, step: impl Future<Output = Result<T, Error>>) -> Result<T, Error> {
+    tokio::time::timeout(limit, step).await.unwrap_or_else(|_| {
+        Err(Error::Timeout {
+            what: what.to_owned(),
+            limit,
+        })
+    })
 }
 
 /// Opens the transport and begins the session in the server's era, probing for it when `known` is `None`; HTTP+SSE predates the probe.
@@ -1567,23 +1596,7 @@ async fn start(
             cwd,
             ..
         } => {
-            // Found on the PATH as it is now, so a program installed while Drift runs is found without a restart.
-            let program = crate::platform::process::which(command)
-                .ok_or_else(|| format!("{command} was not found on PATH; install it, or give its full path"))?;
-            let mut cmd = tokio::process::Command::new(program);
-            crate::platform::process::use_current_path(&mut cmd, env);
-            cmd.args(args).envs(env);
-            if let Some(dir) = cwd
-                .as_deref()
-                .filter(|cwd| !cwd.trim().is_empty())
-                .map(PathBuf::from)
-                .or_else(|| workspace.map(Path::to_path_buf))
-            {
-                cmd.current_dir(dir);
-            }
-            crate::platform::process::prepare(&mut cmd);
-            #[cfg(windows)]
-            cmd.creation_flags(0x0800_0000);
+            let cmd = stdio_command(command, args, env, cwd.as_deref(), workspace)?;
             let transport = TokioChildProcess::new(cmd).map_err(|e| format!("could not start {command}: {e}"))?;
             // Adopted before it answers, so a start cut short takes the server's children with it.
             let tree = transport.id().and_then(|pid| Tree::adopt(pid).ok());
@@ -1650,6 +1663,36 @@ async fn start(
     }
 }
 
+/// A stdio server's command with its current environment and workspace directory.
+fn stdio_command(
+    command: &str,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+    cwd: Option<&str>,
+    workspace: Option<&Path>,
+) -> Result<tokio::process::Command, Failure> {
+    // Resolve the current PATH so programs installed while Drift runs are found without a restart.
+    let program = crate::platform::process::which(command)
+        .ok_or_else(|| format!("{command} was not found on PATH; install it, or give its full path"))?;
+    let mut process = tokio::process::Command::new(program);
+    crate::platform::process::use_current_path(&mut process, env);
+    process.args(args).envs(env);
+
+    let directory = cwd
+        .filter(|cwd| !cwd.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| workspace.map(Path::to_path_buf));
+    if let Some(directory) = directory {
+        process.current_dir(directory);
+    }
+
+    crate::platform::process::prepare(&mut process);
+    #[cfg(windows)]
+    process.creation_flags(0x0800_0000);
+
+    Ok(process)
+}
+
 /// Headers as given, any that are not valid HTTP left out.
 fn header_map(headers: &BTreeMap<String, String>) -> http::HeaderMap {
     headers
@@ -1686,14 +1729,14 @@ fn after_loss(lived: Duration, carried: Duration) -> Duration {
 
 impl crate::Engine {
     /// [`Self::connect_mcp_in`] with no workspace: a remote server's connection, or a stdio server's wherever it runs.
-    pub async fn connect_mcp(self: &Arc<Self>, name: &str) -> Result<(), String> {
+    pub async fn connect_mcp(self: &Arc<Self>, name: &str) -> Result<(), Error> {
         self.connect_mcp_in(name, None).await
     }
 
     /// The user's connect (Connect, a save, an enable): a remote server's shared connection; a stdio
     /// server's for `workspace` (the active one) and for every other workspace it runs in, all at once.
     /// A stdio server running nowhere and given no workspace is refused with [`NEEDS_WORKSPACE`].
-    pub async fn connect_mcp_in(self: &Arc<Self>, name: &str, workspace: Option<&Path>) -> Result<(), String> {
+    pub async fn connect_mcp_in(self: &Arc<Self>, name: &str, workspace: Option<&Path>) -> Result<(), Error> {
         let stdio = self
             .store
             .mcp_server(name)
@@ -1709,7 +1752,7 @@ impl crate::Engine {
         keys.sort();
         keys.dedup();
         if keys.is_empty() {
-            return Err(NEEDS_WORKSPACE.into());
+            return Err(Error::NeedsWorkspace);
         }
         let connected = futures_util::future::join_all(
             keys.iter()
@@ -1720,7 +1763,7 @@ impl crate::Engine {
     }
 
     /// `backoff` is the wait before reconnecting if this connection drops before it proves stable.
-    async fn connect_mcp_at(self: &Arc<Self>, key: &Key, start: Start, backoff: Duration) -> Result<(), String> {
+    async fn connect_mcp_at(self: &Arc<Self>, key: &Key, start: Start, backoff: Duration) -> Result<(), Error> {
         let live = self.mcp.connect(key, &self.store, &self.hub, start).await?;
         self.watch_if_open(key, &live, backoff);
         Ok(())
@@ -1796,11 +1839,11 @@ impl crate::Engine {
         };
         let engine = self.clone();
         tokio::spawn(async move {
-            if let Ok(live) = engine
-                .mcp
-                .complete(row, key.clone(), attempt, &engine.store, &engine.hub)
-                .await
-            {
+            let connecting = Connecting {
+                key: key.clone(),
+                attempt,
+            };
+            if let Ok(live) = engine.mcp.complete(row, connecting, &engine.store, &engine.hub).await {
                 engine.watch_if_open(&key, &live, FIRST_RETRY);
             }
         });

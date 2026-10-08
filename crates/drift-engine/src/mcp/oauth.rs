@@ -17,13 +17,13 @@ use crate::llm::credentials::Credentials;
 const SIGN_IN_WAIT: Duration = Duration::from_secs(10 * 60);
 
 /// One server's sign-in in the keychain, as rmcp reads, saves and refreshes it.
-pub struct KeychainStore {
+pub(super) struct KeychainStore {
     credentials: Arc<Credentials>,
     key: String,
 }
 
 impl KeychainStore {
-    pub fn new(credentials: Arc<Credentials>, server: &str) -> Self {
+    pub(super) fn new(credentials: Arc<Credentials>, server: &str) -> Self {
         Self {
             credentials,
             key: key(server),
@@ -88,7 +88,7 @@ async fn signed_in(
 }
 
 /// A client for a server signed in before, refreshing its token as needed; `None` when it never was.
-pub async fn signed_in_client(
+pub(super) async fn signed_in_client(
     credentials: &Arc<Credentials>,
     server: &str,
     url: &str,
@@ -100,7 +100,7 @@ pub async fn signed_in_client(
 }
 
 /// A signed-in server's access token, refreshed first when it is due.
-pub async fn signed_in_token(
+pub(super) async fn signed_in_token(
     credentials: &Arc<Credentials>,
     server: &str,
     url: &str,
@@ -113,7 +113,7 @@ pub async fn signed_in_token(
         .ok()
 }
 
-pub fn has_sign_in(credentials: &Credentials, server: &str) -> bool {
+pub(super) fn has_sign_in(credentials: &Credentials, server: &str) -> bool {
     credentials.secret(&key(server)).is_some()
 }
 

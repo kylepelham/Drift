@@ -110,7 +110,7 @@ fn user_plugins_in(home: &Path) -> Vec<crate::hook::Listed> {
         .into_iter()
         .map(|entry| crate::hook::Listed {
             entry: entry.path().to_owned(),
-            path: plugin_path(&root, entry.path()),
+            path: plugin_path(&root, entry.path()).map_err(crate::hook::Error::Resolve),
             config: entry.config(),
         })
         .collect()
@@ -1198,9 +1198,19 @@ mod tests {
         );
         assert_eq!(listed[0].config["strict"], true);
         assert_eq!(listed[1].config, serde_json::json!({}));
-        assert!(listed[1].path.as_ref().is_err_and(|error| error.contains("stay under")));
+        assert!(
+            listed[1]
+                .path
+                .as_ref()
+                .is_err_and(|error| error.to_string().contains("stay under"))
+        );
         assert!(listed[2].path.is_err());
-        assert!(listed[3].path.as_ref().is_err_and(|error| error.contains(".wasm")));
+        assert!(
+            listed[3]
+                .path
+                .as_ref()
+                .is_err_and(|error| error.to_string().contains(".wasm"))
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

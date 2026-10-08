@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 
 use crate::llm::sse::Parser;
 
-pub struct SseTransport {
+pub(super) struct SseTransport {
     client: reqwest::Client,
     endpoint: reqwest::Url,
     headers: HeaderMap,
@@ -19,7 +19,11 @@ pub struct SseTransport {
 
 impl SseTransport {
     /// Opens the stream and waits for the server to say where messages go.
-    pub async fn connect(client: reqwest::Client, url: &str, headers: HeaderMap) -> Result<Self, super::Failure> {
+    pub(super) async fn connect(
+        client: reqwest::Client,
+        url: &str,
+        headers: HeaderMap,
+    ) -> Result<Self, super::Failure> {
         let base = reqwest::Url::parse(url).map_err(|e| format!("{url} is not a URL: {e}"))?;
         let response = client
             .get(base.clone())

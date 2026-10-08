@@ -234,9 +234,9 @@ pub async fn connect_route(
     if let Err(why) = engine
         .connect_mcp_in(&name, workspace_path(&engine, query.workspace.as_deref()).as_deref())
         .await
-        && why == crate::mcp::NEEDS_WORKSPACE
+        && matches!(why, crate::mcp::Error::NeedsWorkspace)
     {
-        return Err(ApiError::new(StatusCode::CONFLICT, "workspace", why));
+        return Err(ApiError::new(StatusCode::CONFLICT, "workspace", why.to_string()));
     }
     status(&engine, &name)
 }
@@ -277,7 +277,15 @@ pub async fn disconnect(
             let off = |store: &crate::store::Store| store.set_mcp_choice(&name, id, false);
             if !engine
                 .mcp
-                .disconnect_in(&name, &path, &engine.store, &engine.hub, off)
+                .disconnect_in(
+                    crate::mcp::WorkspaceServer {
+                        name: &name,
+                        workspace: &path,
+                    },
+                    &engine.store,
+                    &engine.hub,
+                    off,
+                )
                 .await?
             {
                 return Err(ApiError::not_found("mcp server"));

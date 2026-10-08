@@ -1,7 +1,6 @@
 //! Plugins as sandboxed WebAssembly components, compiled once into a disk cache; the contract is `wit/drift.wit`.
 
 use std::path::{Path, PathBuf};
-use std::sync::Weak;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -20,6 +19,8 @@ mod bindings {
     wasmtime::component::bindgen!({ world: "plugin", path: "wit", imports: { default: async }, exports: { default: async } });
 }
 
+use super::Error;
+pub use super::Site;
 use bindings::Plugin;
 use bindings::drift::plugin::host::{Host, Level};
 use bindings::drift::plugin::types as wit;
@@ -33,13 +34,6 @@ const FETCH_LIMIT: Duration = Duration::from_secs(30);
 const OUTPUT_BYTES: usize = 64 * 1024;
 const BODY_BYTES: usize = 1024 * 1024;
 const WASM_PACKAGE: &str = "drift:plugin/";
-
-/// Where a plugin lives and what it may reach: its drift.json entry, its config, and the engine for host calls.
-pub struct Site {
-    pub entry: String,
-    pub config: Value,
-    pub engine: Weak<crate::Engine>,
-}
 
 struct State {
     name: String,
@@ -266,15 +260,15 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn new(cache_dir: &Path) -> Result<Self, String> {
+    pub fn new(cache_dir: &Path) -> Result<Self, Error> {
         let mut config = Config::new();
         config.epoch_interruption(true);
         let mut cache = CacheConfig::new();
         cache.with_directory(cache_dir);
         config.cache(Some(
-            Cache::new(cache).map_err(|error| format!("plugin cache: {error}"))?,
+            Cache::new(cache).map_err(|error| Error::Cache(error.to_string()))?,
         ));
-        let engine = Engine::new(&config).map_err(|error| format!("plugin runtime: {error}"))?;
+        let engine = Engine::new(&config).map_err(|error| Error::Runtime(error.to_string()))?;
         let ticker = engine.clone();
         std::thread::Builder::new()
             .name("drift-plugin-epoch".into())
@@ -284,21 +278,21 @@ impl Runtime {
                     ticker.increment_epoch();
                 }
             })
-            .map_err(|error| format!("plugin runtime: {error}"))?;
+            .map_err(|error| Error::Runtime(error.to_string()))?;
         let mut linker = Linker::new(&engine);
-        wasmtime_wasi::p2::add_to_linker_async(&mut linker).map_err(|error| format!("plugin runtime: {error}"))?;
+        wasmtime_wasi::p2::add_to_linker_async(&mut linker).map_err(|error| Error::Runtime(error.to_string()))?;
         Plugin::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)
-            .map_err(|error| format!("plugin runtime: {error}"))?;
+            .map_err(|error| Error::Runtime(error.to_string()))?;
         Ok(Self { engine, linker })
     }
 
-    pub async fn load(&self, path: &Path, site: Site) -> Result<WasmPlugin, String> {
+    pub async fn load(&self, path: &Path, site: Site) -> Result<WasmPlugin, Error> {
         let engine = self.engine.clone();
         let file = path.to_path_buf();
         let component = tokio::task::spawn_blocking(move || Component::from_file(&engine, &file))
             .await
-            .map_err(|error| error.to_string())?
-            .map_err(|error| format!("could not compile: {error}"))?;
+            .map_err(|error| Error::CompileTask(error.to_string()))?
+            .map_err(|error| Error::Compile(error.to_string()))?;
         let capabilities = capabilities(&self.engine, &component);
         let state = State {
             name: file_name(path),
@@ -319,13 +313,13 @@ impl Runtime {
         });
         let bindings = Plugin::instantiate_async(&mut store, &component, &self.linker)
             .await
-            .map_err(|error| format!("could not instantiate: {error}"))?;
+            .map_err(|error| Error::Instantiate(error.to_string()))?;
         let name = bindings
             .call_name(&mut store)
             .await
-            .map_err(|error| format!("name(): {error}"))?;
+            .map_err(|error| Error::Name(error.to_string()))?;
         if name.trim().is_empty() {
-            return Err("name() returned nothing".into());
+            return Err(Error::EmptyName);
         }
         store.data_mut().name.clone_from(&name);
         Ok(WasmPlugin {
@@ -542,6 +536,7 @@ impl Hook for WasmPlugin {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use std::sync::Weak;
 
     /// The example plugin, built into the workspace's own `target/plugins`; `None` when the wasm32-wasip2 target is not installed.
     pub(super) fn guard() -> Option<PathBuf> {
@@ -636,11 +631,7 @@ pub(super) mod tests {
             })
             .await;
         // A second load of the same file comes from the cache the first one wrote.
-        assert!(
-            std::fs::read_dir(&cache)
-                .map(|entries| entries.count() > 0)
-                .unwrap_or(false)
-        );
+        assert!(std::fs::read_dir(&cache).is_ok_and(|entries| entries.count() > 0));
         runtime.load(&path, site()).await.unwrap();
         let _ = std::fs::remove_dir_all(&cache);
     }
@@ -700,7 +691,8 @@ pub(super) mod tests {
             .await
             .err()
             .expect("refused");
-        assert!(error.starts_with("could not compile:"), "{error}");
+        assert!(matches!(error, Error::Compile(_)), "{error}");
+        assert!(error.to_string().starts_with("could not compile:"));
         let _ = std::fs::remove_dir_all(&cache);
     }
 }
@@ -723,7 +715,7 @@ mod load_tests {
                 },
                 Listed {
                     entry: "plugins/x.js".to_owned(),
-                    path: Err("a plugin is a .wasm component".to_owned()),
+                    path: Err(super::Error::Resolve("a plugin is a .wasm component".to_owned())),
                     config: serde_json::json!({}),
                 },
             ]
