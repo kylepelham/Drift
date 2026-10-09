@@ -77,7 +77,7 @@ impl Engine {
         started: Option<&str>,
     ) -> Option<String> {
         let mut attempts = 0;
-        let mut recovered = false;
+        let mut recovered = Recovered::default();
         let mut steps = 0;
         let mut repeats = Repeats::default();
         let mut answered = None;
@@ -137,17 +137,31 @@ impl Engine {
                     }
                 }
                 Step::Retry(_) => break,
-                Step::Overflow if !recovered => {
-                    recovered = true;
-                    if !self.recover_from_overflow(&plan.session.id, reply, abort).await {
+                refused @ (Step::Overflow | Step::UnreadableImage) => {
+                    let first = recovered.first(&refused);
+                    if !first || !self.recover(&plan.session.id, &refused, reply, abort).await {
                         break;
                     }
                 }
-                Step::Overflow => break,
             }
         }
 
         answered
+    }
+
+    /// Recovers from a request the provider refused for what it carried; false ends the turn.
+    async fn recover(
+        self: &Arc<Self>,
+        session_id: &str,
+        refused: &Step,
+        reply: String,
+        abort: &CancellationToken,
+    ) -> bool {
+        match refused {
+            Step::Overflow => self.recover_from_overflow(session_id, reply, abort).await,
+            Step::UnreadableImage => self.drop_unreadable_images(session_id, reply),
+            _ => false,
+        }
     }
 
     /// Compacts an overflowing request and discards an empty refused reply once recovery succeeds.
@@ -161,14 +175,18 @@ impl Engine {
             return false;
         }
 
+        self.discard_refused_reply(session_id, reply);
+        true
+    }
+
+    /// A refused request leaves an empty reply; once recovered, it goes, so no error stays in the transcript.
+    pub(super) fn discard_refused_reply(&self, session_id: &str, reply: String) {
         if self.store.discard_empty_reply(&reply).unwrap_or(false) {
             self.hub.publish(Event::MessageRemoved {
                 session_id: session_id.into(),
                 message_id: reply,
             });
         }
-
-        true
     }
 
     /// The transcript for the next request, compacted first when the last reply left too little room.
@@ -286,6 +304,9 @@ impl Engine {
                 );
                 if error.is_context_overflow() {
                     return Step::Overflow;
+                }
+                if error.is_unreadable_image() {
+                    return Step::UnreadableImage;
                 }
 
                 Retry::from(&error).map_or(Step::Done, Step::Retry)

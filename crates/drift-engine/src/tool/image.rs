@@ -38,6 +38,8 @@ pub enum ImageError {
     Read(image::ImageError),
     #[error("it could not be decoded ({0})")]
     Decode(image::ImageError),
+    #[error("its data is corrupt ({0}), so providers refuse it; re-encode the file to look at it")]
+    Corrupt(String),
     #[error("at {width}x{height} it could not be scaled under {} MB", MAX_IMAGE_BYTES / 1024 / 1024)]
     CannotScale { width: u32, height: u32 },
 }
@@ -72,6 +74,7 @@ pub fn normalize(image: Image) -> Result<(Image, Option<String>), ImageError> {
     if bytes.len() > MAX_SOURCE_BYTES {
         return Err(ImageError::TooLarge);
     }
+    check(&bytes)?;
     let (width, height) = reader(&bytes)?.into_dimensions().map_err(ImageError::Read)?;
     if width <= MAX_SIDE && height <= MAX_SIDE && image.base64.len() <= MAX_IMAGE_BYTES {
         return Ok((image, None));
@@ -86,6 +89,23 @@ pub fn normalize(image: Image) -> Result<(Image, Option<String>), ImageError> {
             })
         })
         .ok_or(ImageError::CannotScale { width, height })
+}
+
+/// Decodes `bytes` whole, a JPEG strictly: a lenient decoder draws corrupt data that providers refuse.
+pub fn check(bytes: &[u8]) -> Result<(), ImageError> {
+    if sniff(bytes) != Some("image/jpeg") {
+        return reader(bytes)?.decode().map(drop).map_err(ImageError::Decode);
+    }
+
+    let side = MAX_DECODED_SIDE as usize;
+    let options = zune_core::options::DecoderOptions::default()
+        .set_strict_mode(true)
+        .set_max_width(side)
+        .set_max_height(side);
+    zune_jpeg::JpegDecoder::new_with_options(zune_core::bytestream::ZCursor::new(bytes), options)
+        .decode()
+        .map(drop)
+        .map_err(|error| ImageError::Corrupt(format!("{error:?}").trim_matches('"').to_string()))
 }
 
 fn reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, ImageError> {
@@ -231,6 +251,21 @@ pub fn stored(metadata: Option<&ToolMetadata>) -> Vec<Stored> {
         .collect()
 }
 
+/// A valid JPEG with entropy data broken as a mangled extraction breaks it: a stray `FF 09` in the scan.
+#[cfg(test)]
+pub(crate) fn corrupt_jpeg() -> Vec<u8> {
+    let picture = image::RgbImage::from_fn(64, 64, |x, y| image::Rgb([(x * 4) as u8, (y * 4) as u8, (x ^ y) as u8]));
+    let mut bytes = Vec::new();
+    picture
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Jpeg)
+        .unwrap();
+    let scan = bytes.windows(2).position(|pair| pair == [0xFF, 0xDA]).unwrap();
+    let length = usize::from(u16::from_be_bytes([bytes[scan + 2], bytes[scan + 3]]));
+    let inside = scan + 2 + length + 40;
+    bytes[inside..inside + 2].copy_from_slice(&[0xFF, 0x09]);
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -282,6 +317,30 @@ mod tests {
         assert_eq!(normalize(small.clone()).unwrap(), (small, None));
         let pdf = Image::from_bytes(PDF, b"%PDF-1.7");
         assert_eq!(normalize(pdf.clone()).unwrap(), (pdf, None));
+    }
+
+    #[test]
+    fn a_corrupt_jpeg_that_decodes_leniently_is_refused_and_good_ones_pass() {
+        let corrupt = corrupt_jpeg();
+        assert!(
+            image::load_from_memory(&corrupt).is_ok(),
+            "the lenient decoder draws it anyway, which is how it used to get through"
+        );
+        let refused = normalize(Image::from_bytes("image/jpeg", &corrupt))
+            .unwrap_err()
+            .to_string();
+        assert!(refused.starts_with("its data is corrupt ("), "{refused}");
+        assert!(refused.ends_with("re-encode the file to look at it"), "{refused}");
+
+        let picture = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(32, 16, image::Rgb([20, 90, 160])));
+        for format in [image::ImageFormat::Jpeg, image::ImageFormat::Png] {
+            let mut bytes = Vec::new();
+            picture.write_to(&mut std::io::Cursor::new(&mut bytes), format).unwrap();
+            assert!(check(&bytes).is_ok(), "{format:?}");
+        }
+        let mut cut = png(40, 30, |x, y| [x as u8, y as u8, 7]).bytes().unwrap();
+        cut.truncate(cut.len() / 2);
+        assert!(check(&cut).is_err(), "a cut-off PNG fails a full decode");
     }
 
     #[test]

@@ -21,6 +21,9 @@ httpdate = "1"
 ignore = "0.4"
 # Oversized returned images are scaled under provider limits; only the four sendable codecs.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+# image decodes JPEG leniently; strict decoding catches corrupt data providers refuse. Already in the tree through image.
+zune-core = "0.5"
+zune-jpeg = "0.5"
 keyring = "4"
 percent-encoding = "2"
 # Bedrock's SigV4 (HMAC, SHA-256) and Vertex service-account JWTs (RS256); already in the tree through rustls.
