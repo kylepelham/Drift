@@ -1214,6 +1214,18 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
   out publishes `catalog.updated` so the picker reloads. Nothing is priced to choose a small
   model by, so titles run on `gpt-5.4-mini` when the backend offers it (`codex::small_model`),
   never an API-only model.
+- Daybreak entries come from the signed-in account's Codex model list, fetched with Drift's
+  `client_version`. Startup and sign-in discover access asynchronously; a single-flight cache
+  lasts 15 minutes, retries failures after a minute, and never crosses users or ChatGPT accounts.
+  Logout discards it. Each offered Blue or Red program adds `<id>-daybreak`, named `<Name> Daybreak`,
+  retaining the base entry's limits, prices, reasoning, tools and any speed-mode settings.
+  Requests send the base model id with `access_programs.cyber` set to the offered program.
+  Unknown programs and models without Daybreak are left alone. API-key discovery is not supported.
+  The regular entries and their requests are unchanged. OpenAI still owns authorization.
+  Live comparison on 2026-10-09 found the installed Codex 0.155.0-alpha.9.2 client sending the
+  same `daybreak_blue` selection and receiving the same `standard` response echo as Drift's
+  direct HTTP and WebSocket probes. No extra Daybreak proof header appeared. Request selection
+  is verified; the backend echo does not establish that reduced-refusal treatment was applied.
 - One-shot requests (titles, summaries) on a reasoning model run at its weakest level with
   4096 tokens of thinking room on top of the answer's own (a budget level adds its budget),
   within the model's output limit; a budget that cannot fit is dropped.

@@ -82,13 +82,16 @@ pub(super) async fn set_key(
         .credentials
         .set(&id, &Credential::ApiKey { key: key.into() })
         .map_err(credentials_error)?;
-    credentials_changed(&engine);
+    credentials_changed(&engine, &id);
     Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(delete, path = "/providers/{id}/credentials", operation_id = "removeProviderCredentials", responses((status = 204)))]
 pub(super) async fn remove(State(engine): State<Arc<Engine>>, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
     engine.credentials.remove(&id).map_err(credentials_error)?;
+    if id == "openai" {
+        engine.codex_credentials_changed();
+    }
     engine.hub.publish(crate::event::Event::CatalogUpdated {});
     Ok(StatusCode::NO_CONTENT)
 }
@@ -224,7 +227,7 @@ pub(super) async fn oauth_finish(
     let credential = credential.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", error.to_string()))?;
 
     engine.credentials.set(&id, &credential).map_err(credentials_error)?;
-    credentials_changed(&engine);
+    credentials_changed(&engine, &id);
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -247,7 +250,10 @@ fn credentials_error(error: impl std::fmt::Display) -> ApiError {
 }
 
 /// A sign-in changes which models a provider offers (a ChatGPT one only what Codex takes), so the picker reloads.
-fn credentials_changed(engine: &Arc<Engine>) {
+fn credentials_changed(engine: &Arc<Engine>, id: &str) {
+    if id == "openai" {
+        engine.codex_credentials_changed();
+    }
     engine.retry_deliveries(None);
     engine.hub.publish(crate::event::Event::CatalogUpdated {});
 }

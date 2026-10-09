@@ -24,7 +24,7 @@ use request::items;
 use stream::StreamState;
 
 const API_BASE_URL: &str = "https://api.openai.com/v1";
-const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
+pub(crate) const CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 /// The client identity the Codex backend expects on subscription traffic.
 const CODEX_ORIGINATOR: &str = "opencode";
 
@@ -398,6 +398,25 @@ mod tests {
             let mut request = request();
             request.reasoning = Some(Reasoning::Budget { tokens: 8000 });
             assert!(body(&request, false).get("reasoning").is_none());
+        }
+
+        #[test]
+        fn a_daybreak_mode_selects_the_program_without_changing_the_wire_model() {
+            let mut request = request();
+            assert!(body(&request, true).get("access_programs").is_none());
+            request.mode = Some(crate::llm::catalog::ModelMode {
+                name: "daybreak".into(),
+                base: request.model.clone(),
+                body: json!({ "access_programs": { "cyber": "daybreak_blue" } })
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                headers: Default::default(),
+            });
+            let built = body(&request, true);
+            assert_eq!(built["model"], request.model);
+            assert_eq!(built["access_programs"]["cyber"], "daybreak_blue");
+            assert_eq!(built["reasoning"]["effort"], "medium");
         }
     }
 

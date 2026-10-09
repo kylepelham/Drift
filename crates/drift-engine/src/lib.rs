@@ -85,6 +85,7 @@ pub struct Engine {
     local_models: std::sync::Mutex<std::collections::BTreeMap<String, Vec<llm::catalog::Model>>>,
     /// Ollama models' own windows, asked once per installed build.
     local_shown: llm::local::Shown,
+    codex_daybreak: llm::openai::codex::Daybreak,
     /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
     /// The user's plugins, loaded at start and on request.
@@ -153,6 +154,7 @@ impl Engine {
             runtime: Default::default(),
             local_models: Default::default(),
             local_shown: Default::default(),
+            codex_daybreak: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
         }))
@@ -362,12 +364,10 @@ impl Engine {
     pub fn catalog_view(&self) -> Catalog {
         let mut catalog = self.catalog.read().unwrap().clone();
         if let Some(openai) = catalog.providers.get_mut("openai")
-            && matches!(
-                self.credentials.resolve("openai", &openai.env),
-                Some(llm::Credential::OAuth { .. })
-            )
+            && let Some(credential @ llm::Credential::OAuth { .. }) = self.credentials.resolve("openai", &openai.env)
         {
             llm::openai::codex::shape(openai);
+            self.codex_daybreak.apply(openai, &credential);
         }
 
         catalog
@@ -386,6 +386,39 @@ impl Engine {
             }
             *self.catalog.write().unwrap() = catalog;
             self.hub.publish(event::Event::CatalogUpdated {});
+        }
+    }
+
+    pub(crate) fn codex_credentials_changed(self: &Arc<Self>) {
+        self.codex_daybreak.clear();
+        let engine = self.clone();
+        tokio::spawn(async move { engine.refresh_codex_models().await });
+    }
+
+    async fn refresh_codex_models(&self) {
+        let Some(credential @ llm::Credential::OAuth { .. }) = self.current_credential("openai").await else {
+            if self.codex_daybreak.clear() {
+                self.hub.publish(event::Event::CatalogUpdated {});
+            }
+            return;
+        };
+        if self
+            .codex_daybreak
+            .refresh(&self.http, llm::openai::CODEX_BASE_URL, &credential)
+            .await
+        {
+            self.hub.publish(event::Event::CatalogUpdated {});
+        }
+    }
+
+    async fn watch_codex(self: Arc<Self>) {
+        let engine = Arc::downgrade(&self);
+        drop(self);
+        loop {
+            let Some(engine) = engine.upgrade() else { return };
+            engine.refresh_codex_models().await;
+            drop(engine);
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     }
 
@@ -509,6 +542,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
     let _ = engine.runtime.set(tokio::runtime::Handle::current());
     let starting = engine.clone();
     tokio::spawn(engine.clone().watch_local());
+    tokio::spawn(engine.clone().watch_codex());
     tokio::spawn(engine.clone().stop_idle_mcp());
     tokio::spawn(hook::relay_session_events(engine.clone()));
     tokio::spawn(async move {

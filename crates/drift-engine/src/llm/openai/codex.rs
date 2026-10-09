@@ -3,6 +3,9 @@
 
 use crate::llm::catalog::{Limit, ProviderInfo};
 
+mod daybreak;
+pub(crate) use daybreak::Daybreak;
+
 /// Accepted although their version alone would not be.
 const ALLOWED: [&str; 6] = [
     "gpt-5.5",
