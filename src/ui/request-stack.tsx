@@ -20,42 +20,11 @@ export type RequestStack = {
     onSelect: (id: string) => void;
 };
 
-/** The ghost cards drawn behind the front one: one per extra request, at most two. */
-export function stackDepth(stack: RequestStack | undefined) {
-    const count = stack?.items.length ?? 0;
-
-    return Math.min(Math.max(count - 1, 0), 2);
-}
-
 /** The neighbouring request in the stack, or nothing at either end. */
 export function neighbour(stack: RequestStack, offset: -1 | 1) {
     const index = stack.items.findIndex((item) => item.id === stack.current);
 
     return stack.items[index + offset]?.id;
-}
-
-/** Wraps a card so the requests behind it show as card edges above it. */
-export function RequestStackLayers(props: { stack?: RequestStack; children: JSX.Element }) {
-    const depth = () => stackDepth(props.stack);
-
-    return (
-        <div class="relative" classList={{ "pt-1.5": depth() === 1, "pt-3": depth() === 2 }}>
-            <Show when={depth() === 2}>
-                <div
-                    aria-hidden="true"
-                    class="pointer-events-none absolute inset-x-6 top-0 h-8 rounded-t-xl border border-b-0 border-edge bg-surface opacity-50"
-                />
-            </Show>
-            <Show when={depth() >= 1}>
-                <div
-                    aria-hidden="true"
-                    class="pointer-events-none absolute inset-x-3 h-8 rounded-t-xl border border-b-0 border-edge bg-surface opacity-80"
-                    classList={{ "top-0": depth() === 1, "top-1.5": depth() === 2 }}
-                />
-            </Show>
-            {props.children}
-        </div>
-    );
 }
 
 /** The strip at the top of a card that steps through the waiting requests or picks one. */

@@ -722,9 +722,9 @@ test("one reference is one mention: a path never matches inside a longer one", a
     expect(sent.map((file) => file.filename)).toEqual(["database.ts", "README.md"]);
 });
 
-test("waiting questions stack in the front card: each names its thread and whether a turn waits on it", async () => {
+test("waiting questions are listed in the front card: each names its thread and whether a turn waits on it", async () => {
     const { questionStackItems } = await import("../src/ui/composer-attention");
-    const { neighbour, stackDepth } = await import("../src/ui/request-stack");
+    const { neighbour } = await import("../src/ui/request-stack");
     const asked = (id: string, sessionId: string, header: string, async: boolean) =>
         ({ id, sessionId, async, questions: [{ question: "Which?", header, options: [] }] }) as never;
     const titles: Record<string, string> = { s1: "Release notes" };
@@ -738,12 +738,8 @@ test("waiting questions stack in the front card: each names its thread and wheth
         { id: "q2", title: "Question 1", thread: "another thread", blocking: false },
     ]);
 
-    // Stepping stops at either end, and at most two ghost cards are drawn behind the front one.
+    // Stepping stops at either end.
     const stack = { items, current: "q1", onSelect: () => undefined };
     expect(neighbour(stack, 1)).toBe("q2");
     expect(neighbour(stack, -1)).toBeUndefined();
-    expect(stackDepth(undefined)).toBe(0);
-    expect(stackDepth({ ...stack, items: items.slice(0, 1) })).toBe(0);
-    expect(stackDepth(stack)).toBe(1);
-    expect(stackDepth({ ...stack, items: [...items, ...items] })).toBe(2);
 });
