@@ -107,10 +107,29 @@ jobs:
             - name: Stamp release version
               run: bun scripts/release-policy.ts stamp "$env:GITHUB_REF_NAME"
 
+            # Master CI caches the speech recognizer under this key; a tag restores only master's caches, which only push runs write.
+            # With no cache (a changed build script, or evicted after a week unused) the next steps build it from source.
+            - name: Restore speech recognizer
+              id: whisper
+              uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+              with:
+                  path: src-tauri/binaries/whisper-cli*.exe
+                  key: whisper-${{ runner.os }}-${{ hashFiles('scripts/build-whisper.ts') }}
+
+            # Both sidecars Tauri bundles must be there; anything less builds them again.
+            - name: Check restored speech recognizer
+              id: restored
+              shell: pwsh
+              run: |
+                  $sidecars = @("whisper-cli", "whisper-cli-vulkan") | ForEach-Object { "src-tauri\binaries\$_-x86_64-pc-windows-msvc.exe" }
+                  $ready = "${{ steps.whisper.outputs.cache-hit }}" -eq "true" -and -not ($sidecars | Where-Object { -not (Test-Path $_) })
+                  "ready=$($ready.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+                  if ($ready) { Write-Host "Using the speech recognizer master CI built" } else { Write-Host "Building the speech recognizer" }
+
             # Provides glslc for the GPU sidecar's shaders. Installed directly so the release build gains
-            # no third-party action, and deliberately uncached: a release builds its binaries from
-            # source rather than restoring an artifact a branch build could have written.
+            # no third-party action.
             - name: Install Vulkan SDK
+              if: steps.restored.outputs.ready != 'true'
               shell: pwsh
               run: |
                   $version = "1.4.350.0"
@@ -123,6 +142,7 @@ jobs:
                   "VULKAN_SDK=C:\VulkanSDK\$version" | Out-File -FilePath $env:GITHUB_ENV -Append
 
             - name: Build speech recognizer
+              if: steps.restored.outputs.ready != 'true'
               run: bun run build:whisper
 
             - name: Build installer and updater artifacts
