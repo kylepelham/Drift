@@ -251,6 +251,28 @@ enum Step {
     Retry(Retry),
     /// The request no longer fit the model's context.
     Overflow,
+    /// The provider could not read an image the request carried.
+    UnreadableImage,
+}
+
+/// Which content refusals a turn has already recovered from; each is tried once.
+#[derive(Default)]
+struct Recovered {
+    overflow: bool,
+    images: bool,
+}
+
+impl Recovered {
+    /// True the first time this turn meets `refused`, which is then counted.
+    fn first(&mut self, refused: &Step) -> bool {
+        let seen = match refused {
+            Step::Overflow => &mut self.overflow,
+            Step::UnreadableImage => &mut self.images,
+            _ => return false,
+        };
+
+        !std::mem::replace(seen, true)
+    }
 }
 
 /// One call as the loop check sees it: what was asked and what came back.

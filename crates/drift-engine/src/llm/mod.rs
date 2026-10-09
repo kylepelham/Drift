@@ -385,7 +385,17 @@ impl Error {
     pub fn is_context_overflow(&self) -> bool {
         matches!(self, Self::Api { status: 400 | 413, .. }) && mentions_context_overflow(&self.to_string())
     }
+
+    /// The provider could not read an image the request carried; dropping it can recover where retrying cannot.
+    pub fn is_unreadable_image(&self) -> bool {
+        let text = self.to_string().to_ascii_lowercase();
+        matches!(self, Self::Api { status: 400, .. })
+            && UNREADABLE_IMAGE_PHRASES.iter().any(|phrase| text.contains(phrase))
+    }
 }
+
+/// How providers say they could not read an image: Anthropic's wording, seen on a corrupt JPEG on 2026-10-09.
+const UNREADABLE_IMAGE_PHRASES: [&str; 1] = ["could not process image"];
 
 /// Also used on errors already flattened to text, such as a failed summary request.
 pub fn mentions_context_overflow(text: &str) -> bool {
@@ -414,6 +424,13 @@ mod overflow_tests {
         }
         assert!(api(413, "Input is too long for requested model.").is_context_overflow());
         assert!(!api(400, "messages: text content blocks must be non-empty").is_context_overflow());
+        assert!(api(400, "Could not process image").is_unreadable_image());
+        assert!(!api(400, "Could not process image").is_context_overflow());
+        assert!(
+            !api(500, "Could not process image").is_unreadable_image(),
+            "a server fault retries instead"
+        );
+        assert!(!api(400, "prompt is too long").is_unreadable_image());
         assert!(
             !api(429, "prompt is too long").is_context_overflow(),
             "a rate limit is not an overflow"

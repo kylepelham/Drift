@@ -1616,7 +1616,12 @@ Settled after the first external review of M1; each has a regression test.
   one of those images or a PDF is attached, whether the server returns it from a read or embeds
   it in a call's result (`mcp::take_resource`), as opencode does; other binaries are named.
   Before it is stored, every returned image is checked against what providers accept
-  (`image::normalize`, on a blocking thread): one within 2000 px a side and 5 MB of base64 passes
+  (`image::normalize`, on a blocking thread). Every image is first decoded whole (`image::check`),
+  a JPEG strictly through `zune-jpeg`: the `image` crate decodes JPEG leniently and draws corrupt
+  entropy data (a frame mangled by extraction) that Anthropic refuses with "Could not process
+  image", so such a file is dropped with a line saying it is corrupt and to re-encode it. Strict
+  mode was checked on 2026-10-09 against baseline, progressive, grayscale, CMYK and 4:4:4 JPEGs and
+  the Windows wallpapers: all pass. Then one within 2000 px a side and 5 MB of base64 passes
   unchanged; a larger one is decoded (at most 16384 px a side) and scaled to fit, then down by a
   quarter at a time, each size tried until one fits: an opaque picture as JPEG at falling quality,
   then PNG; one with transparency as PNG, then JPEG flattened onto white. webfetch still stops
@@ -1636,6 +1641,13 @@ Settled after the first external review of M1; each has a regression test.
   reached, since providers cap both a request's images and its size (Anthropic: 100 images, 32 MB)
   and a rejected request would replay the same images forever; older ones become a line. A model
   whose catalog entry does not take images gets a line for each, on turns and engine requests alike.
+- A provider that still cannot read an image (`llm::Error::is_unreadable_image`: a 400 saying
+  "could not process image", Anthropic's wording) would refuse every later request too, since the
+  same images go out again. Once per turn the engine takes the newest images calls returned (as
+  many as a request carries), drops those that fail `image::check`, or all of them when none does,
+  from their calls' stored metadata with a line in each result ("the provider could not process
+  it"), discards the refused empty reply and retries. A second refusal in that turn ends it. A
+  conversation stuck on images stored before the strict check recovers on its next prompt.
 - While a command runs, every 500 ms that it has printed more, its part is republished with
   `metadata.output` = the last 4 KB so far (`Spool::recent`), through the call's `tool::Progress`.
   That is shown, never stored: the saved part is the result, and the UI shows the result once the
