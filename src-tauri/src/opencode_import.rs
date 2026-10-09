@@ -1,13 +1,13 @@
-//! Brings opencode's sign-ins, MCP servers, config, workspaces and conversations in on a background
-//! thread: at startup, and again whenever a workspace is added, since its directory may hold
-//! conversations an earlier run skipped. Each item comes in once (see `drift-migrate`).
+//! Imports opencode sign-ins, MCP servers, config, workspaces, and conversations on a background thread.
+//! Runs at startup and when a workspace is added so earlier skipped conversations can be retried.
+//! Each item is imported once through drift-migrate.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
-use drift_engine::event::Event;
 use drift_engine::Engine;
+use drift_engine::event::Event;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -17,18 +17,18 @@ use crate::store::Store;
 
 pub(crate) struct Importer {
     requests: mpsc::Sender<()>,
-    /// What the last run that brought anything in did, until the window takes it to show once.
+    /// The last import that brought anything in, retained until the window takes it to show once.
     summary: Arc<Mutex<Option<Summary>>>,
 }
 
 impl Importer {
-    /// Asks for another run; requests made while one runs fold into one more.
+    /// Requests another import; requests made during a run are combined into one later run.
     pub(crate) fn request(&self) {
         let _ = self.requests.send(());
     }
 }
 
-/// What a run brought in and left behind, shown to the user once.
+/// What an import brought in and left behind, shown to the user once.
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Summary {
@@ -49,8 +49,18 @@ pub(crate) struct Summary {
 impl Summary {
     fn worth_showing(&self) -> bool {
         let left = &self.left_out;
-        let left_out = !(left.sign_ins.is_empty() && left.plugins.is_empty() && left.settings.is_empty() && left.servers.is_empty() && left.failed.is_empty());
-        self.conversations > 0 || !self.sign_ins.is_empty() || !self.servers.is_empty() || self.files > 0 || left_out || !self.pending.is_empty() || self.failed > 0
+        let left_out = !(left.sign_ins.is_empty()
+            && left.plugins.is_empty()
+            && left.settings.is_empty()
+            && left.servers.is_empty()
+            && left.failed.is_empty());
+        self.conversations > 0
+            || !self.sign_ins.is_empty()
+            || !self.servers.is_empty()
+            || self.files > 0
+            || left_out
+            || !self.pending.is_empty()
+            || self.failed > 0
     }
 }
 
@@ -58,14 +68,17 @@ pub(crate) fn start(app: &AppHandle) -> Importer {
     let (requests, received) = mpsc::channel();
     let summary = Arc::new(Mutex::new(None));
     let (app, kept) = (app.clone(), summary.clone());
+
     std::thread::spawn(move || {
         while received.recv().is_ok() {
             while received.try_recv().is_ok() {}
             run(&app, &kept);
         }
     });
+
     let importer = Importer { requests, summary };
     importer.request();
+
     importer
 }
 
@@ -77,9 +90,11 @@ pub(crate) fn opencode_import_summary(importer: State<Importer>) -> Option<Summa
 
 fn run(app: &AppHandle, kept: &Mutex<Option<Summary>>) {
     let Some(dir) = opencode_data_dir() else { return };
+
     let store = app.state::<Store>();
     let engine = app.state::<Native>().engine().clone();
     let mut summary = Summary::default();
+
     if let Some(report) = import_settings(&engine, &store, &dir) {
         summary.sign_ins = report.credentials;
         summary.servers = report.servers;
@@ -87,16 +102,18 @@ fn run(app: &AppHandle, kept: &Mutex<Option<Summary>>) {
         summary.files = report.files.len();
         summary.left_out = report.left_out;
     }
+
     for source in sources(&dir) {
         import_source(app, &engine, &store, &source, &mut summary);
     }
+
     if summary.worth_showing() {
         *kept.lock().unwrap() = Some(summary);
         let _ = app.emit("opencode-import-done", ());
     }
 }
 
-/// A folder opencode's own tests or tools made, never one a person works in.
+/// Whether a folder was made by opencode tests or tools rather than used as a workspace.
 fn scratch(directory: &str) -> bool {
     let path = directory.replace('\\', "/").to_lowercase();
     path.contains("/appdata/local/temp/") || path.starts_with("/tmp/")
@@ -110,29 +127,50 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
         }
         Err(error) => eprintln!("opencode import: workspaces from {}: {error}", source.display()),
     }
-    let archived: HashSet<String> = store.archived().map(|rows| rows.into_iter().map(|row| row.session_id).collect()).unwrap_or_default();
+
+    let archived: HashSet<String> = store
+        .archived()
+        .map(|rows| rows.into_iter().map(|row| row.session_id).collect())
+        .unwrap_or_default();
     let (mut done, mut total) = (0usize, 0usize);
-    // Each conversation is announced as it lands; the window shows how far the import has got.
+
+    // Report each imported conversation so the window can show progress before the run finishes.
     let mut announce = |step: drift_migrate::Progress| {
         match step {
             drift_migrate::Progress::Planned(count) => total = count,
             drift_migrate::Progress::Finished(session) => {
                 done += 1;
                 if let Some(session) = session {
-                    engine.hub.publish(Event::SessionCreated { session: session.clone() });
+                    engine.hub.publish(Event::SessionCreated {
+                        session: session.clone(),
+                    });
                 }
             }
         }
         let _ = app.emit("opencode-import", serde_json::json!({ "done": done, "total": total }));
     };
+
     let mut history = match drift_migrate::History::new(&engine.snapshots) {
         Ok(history) => history,
         Err(error) => return eprintln!("opencode import: {error}"),
     };
-    match drift_migrate::import_sessions(&engine.store, source, &archived, &mut history, &mut announce) {
+
+    match drift_migrate::import_sessions(drift_migrate::SessionImport {
+        store: &engine.store,
+        source,
+        archived: &archived,
+        blobs: &mut history,
+        progress: &mut announce,
+    }) {
         Ok(report) => {
             if report.imported > 0 || !report.failed.is_empty() {
-                eprintln!("opencode import from {}: {} imported ({} edits can be undone), {} failed", source.display(), report.imported, report.undoable, report.failed.len());
+                eprintln!(
+                    "opencode import from {}: {} imported ({} edits can be undone), {} failed",
+                    source.display(),
+                    report.imported,
+                    report.undoable,
+                    report.failed.len()
+                );
                 for (id, error) in &report.failed {
                     eprintln!("opencode import: {id}: {error}");
                 }
@@ -141,7 +179,11 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
             summary.undoable += report.undoable;
             summary.failed += report.failed.len();
             summary.pending.extend(report.pending);
-            for (directory, count) in report.unmatched.into_iter().filter(|(directory, _)| !scratch(directory)) {
+            for (directory, count) in report
+                .unmatched
+                .into_iter()
+                .filter(|(directory, _)| !scratch(directory))
+            {
                 *summary.waiting.entry(directory).or_default() += count;
             }
         }
@@ -149,23 +191,49 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
     }
 }
 
-/// opencode's sign-ins, MCP servers (its own and those Drift's old manager kept) and global config.
+/// Imports opencode sign-ins, global config, and MCP servers from both opencode and Drift's old manager.
 fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Option<drift_migrate::SettingsReport> {
     let read = |path: PathBuf| read_text(&path).and_then(|text| serde_json::from_str::<Value>(&text).ok());
     let config_dir = opencode_config_dir();
     let config = config_dir.as_deref().and_then(read_config);
+
     let state = store.mcp_state().ok();
-    let approved: HashSet<String> = state.iter().flat_map(|state| &state.decisions).filter(|decision| decision.decision == "approved").map(|decision| decision.fingerprint.clone()).collect();
+    let approved: HashSet<String> = state
+        .iter()
+        .flat_map(|state| &state.decisions)
+        .filter(|decision| decision.decision == "approved")
+        .map(|decision| decision.fingerprint.clone())
+        .collect();
+
     let server = |name: &str, definition: &Value| drift_migrate::OcServer {
         name: name.into(),
         definition: definition.clone(),
         approved: fingerprint(name, definition).is_some_and(|fingerprint| approved.contains(&fingerprint)),
     };
-    let mut servers: Vec<drift_migrate::OcServer> = state.iter().flat_map(|state| &state.servers).map(|row| server(&row.name, &row.config)).collect();
-    servers.extend(config.as_ref().and_then(|config| config.value["mcp"].as_object()).into_iter().flatten().map(|(name, definition)| server(name, definition)));
-    let settings = drift_migrate::Settings { auth: read(data_dir.join("auth.json")), config, config_dir: config_dir.unwrap_or_default(), servers };
+
+    let mut servers: Vec<drift_migrate::OcServer> = state
+        .iter()
+        .flat_map(|state| &state.servers)
+        .map(|row| server(&row.name, &row.config))
+        .collect();
+    servers.extend(
+        config
+            .as_ref()
+            .and_then(|config| config.value["mcp"].as_object())
+            .into_iter()
+            .flatten()
+            .map(|(name, definition)| server(name, definition)),
+    );
+
+    let settings = drift_migrate::Settings {
+        auth: read(data_dir.join("auth.json")),
+        config,
+        config_dir: config_dir.unwrap_or_default(),
+        servers,
+    };
     let providers: Vec<String> = engine.catalog.read().unwrap().providers.keys().cloned().collect();
     let home = drift_engine::config::home()?;
+
     match drift_migrate::import_settings(&engine.store, &engine.credentials, &providers, &home, &settings) {
         Ok(report) => {
             if !report.credentials.is_empty() {
@@ -175,8 +243,15 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
                 let engine = engine.clone();
                 tauri::async_runtime::spawn(async move { engine.connect_all_mcp() });
             }
-            if !report.credentials.is_empty() || !report.servers.is_empty() || !report.skipped.is_empty() || !report.files.is_empty() {
-                eprintln!("opencode import: sign-ins {:?}, MCP servers {:?} (off: {:?}), config {:?}, files {:?}", report.credentials, report.servers, report.disabled_servers, report.config_written, report.files);
+            if !report.credentials.is_empty()
+                || !report.servers.is_empty()
+                || !report.skipped.is_empty()
+                || !report.files.is_empty()
+            {
+                eprintln!(
+                    "opencode import: sign-ins {:?}, MCP servers {:?} (off: {:?}), config {:?}, files {:?}",
+                    report.credentials, report.servers, report.disabled_servers, report.config_written, report.files
+                );
                 for line in &report.skipped {
                     eprintln!("opencode import: left out {line}");
                 }
@@ -191,36 +266,62 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
 }
 
 fn read_text(path: &Path) -> Option<String> {
-    std::fs::read_to_string(path).ok().map(|text| drift_engine::config::jsonc::strip(&text))
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|text| drift_engine::config::jsonc::strip(&text))
 }
 
-/// opencode's global config: `opencode.json`, else `opencode.jsonc`; a file that does not parse is passed over as a missing one is.
+/// Reads opencode.json, falling back to opencode.jsonc when the first file is missing or invalid.
 fn read_config(dir: &Path) -> Option<drift_migrate::OcConfig> {
-    ["opencode.json", "opencode.jsonc"].into_iter().find_map(|name| read_text(&dir.join(name)).and_then(|text| drift_migrate::OcConfig::parse(&text)))
+    ["opencode.json", "opencode.jsonc"]
+        .into_iter()
+        .find_map(|name| read_text(&dir.join(name)).and_then(|text| drift_migrate::OcConfig::parse(&text)))
 }
 
-/// The fingerprint Drift's old MCP approval step recorded for a named definition (`enabled` aside):
-/// a server is imported switched on only when this matches an approval.
+/// Reproduces the old MCP manager's approval fingerprint for a named definition, excluding enabled.
+/// Only a matching approval lets the imported server start enabled.
 fn fingerprint(name: &str, definition: &Value) -> Option<String> {
     use sha2::Digest;
-    let effective: serde_json::Map<String, Value> = definition.as_object()?.iter().filter(|(key, _)| key.as_str() != "enabled").map(|(key, value)| (key.clone(), value.clone())).collect();
-    let serialized = canonical(&Value::Array(vec![Value::String(name.to_string()), Value::Object(effective)]))?;
+
+    let effective: serde_json::Map<String, Value> = definition
+        .as_object()?
+        .iter()
+        .filter(|(key, _)| key.as_str() != "enabled")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+
+    let serialized = canonical(&Value::Array(vec![
+        Value::String(name.to_string()),
+        Value::Object(effective),
+    ]))?;
+
     Some(format!("sha256:{:x}", sha2::Sha256::digest(serialized.as_bytes())))
 }
 
-/// As the approval step serialized it: keys sorted by UTF-16 code unit, numbers as `JSON.stringify` writes them.
+/// Serializes values like the old approval step: UTF-16 key order and JSON.stringify number formatting.
 fn canonical(value: &Value) -> Option<String> {
     match value {
         Value::Null | Value::Bool(_) | Value::String(_) => serde_json::to_string(value).ok(),
-        Value::Number(number) => match number.as_f64().filter(|float| float.fract() == 0.0 && float.abs() <= 9_007_199_254_740_991.0) {
+        Value::Number(number) => match number
+            .as_f64()
+            .filter(|float| float.fract() == 0.0 && float.abs() <= 9_007_199_254_740_991.0)
+        {
             Some(whole) => Some(format!("{}", whole as i64)),
             None => serde_json::to_string(number).ok(),
         },
-        Value::Array(items) => Some(format!("[{}]", items.iter().map(canonical).collect::<Option<Vec<_>>>()?.join(","))),
+        Value::Array(items) => Some(format!(
+            "[{}]",
+            items.iter().map(canonical).collect::<Option<Vec<_>>>()?.join(",")
+        )),
         Value::Object(entries) => {
             let mut sorted: Vec<(&String, &Value)> = entries.iter().collect();
             sorted.sort_by_key(|(key, _)| key.encode_utf16().collect::<Vec<_>>());
-            let parts = sorted.into_iter().map(|(key, item)| Some(format!("{}:{}", serde_json::to_string(key).ok()?, canonical(item)?))).collect::<Option<Vec<_>>>()?;
+
+            let parts = sorted
+                .into_iter()
+                .map(|(key, item)| Some(format!("{}:{}", serde_json::to_string(key).ok()?, canonical(item)?)))
+                .collect::<Option<Vec<_>>>()?;
+
             Some(format!("{{{}}}", parts.join(",")))
         }
     }
@@ -228,12 +329,16 @@ fn canonical(value: &Value) -> Option<String> {
 
 /// Where opencode keeps its databases and `auth.json`, as opencode looks for it.
 fn opencode_data_dir() -> Option<PathBuf> {
-    std::env::var_os("XDG_DATA_HOME").map(|root| PathBuf::from(root).join("opencode")).or_else(|| drift_engine::config::home().map(|home| home.join(".local").join("share").join("opencode")))
+    std::env::var_os("XDG_DATA_HOME")
+        .map(|root| PathBuf::from(root).join("opencode"))
+        .or_else(|| drift_engine::config::home().map(|home| home.join(".local").join("share").join("opencode")))
 }
 
 /// Where opencode keeps its global config, as opencode looks for it.
 fn opencode_config_dir() -> Option<PathBuf> {
-    std::env::var_os("XDG_CONFIG_HOME").map(|root| PathBuf::from(root).join("opencode")).or_else(|| drift_engine::config::home().map(|home| home.join(".config").join("opencode")))
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(|root| PathBuf::from(root).join("opencode"))
+        .or_else(|| drift_engine::config::home().map(|home| home.join(".config").join("opencode")))
 }
 
 /// The shared database first, then any channel database an older build wrote apart from it.
@@ -243,7 +348,13 @@ fn sources(dir: &Path) -> Vec<PathBuf> {
         .flatten()
         .flatten()
         .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "db") && path.file_stem().and_then(|stem| stem.to_str()).is_some_and(|stem| stem.starts_with("opencode")))
+        .filter(|path| {
+            path.extension().is_some_and(|ext| ext == "db")
+                && path
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .is_some_and(|stem| stem.starts_with("opencode"))
+        })
         .collect();
     found.sort_by_key(|path| (path.file_name().is_none_or(|name| name != "opencode.db"), path.clone()));
     found
@@ -255,20 +366,49 @@ mod tests {
 
     #[test]
     fn approvals_match_the_fingerprint_drifts_old_approval_step_recorded() {
-        let definition = serde_json::json!({ "type": "remote", "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer x" }, "enabled": true, "timeout": 30000 });
-        assert_eq!(fingerprint("docs", &definition).as_deref(), Some("sha256:933d9f99f6458ef8004d9f0e9b5fe8768211fe67a62e7baa87b08d8e9a5220dd"), "the vector the old plugin and locator shared");
-        let disabled = serde_json::json!({ "type": "remote", "url": "https://example.com/mcp", "headers": { "Authorization": "Bearer x" }, "enabled": false, "timeout": 30000.0 });
-        assert_eq!(fingerprint("docs", &disabled), fingerprint("docs", &definition), "enabled is left out and a whole float reads as the integer");
+        let definition = serde_json::json!({
+            "type": "remote",
+            "url": "https://example.com/mcp",
+            "headers": { "Authorization": "Bearer x" },
+            "enabled": true,
+            "timeout": 30000
+        });
+        assert_eq!(
+            fingerprint("docs", &definition).as_deref(),
+            Some("sha256:933d9f99f6458ef8004d9f0e9b5fe8768211fe67a62e7baa87b08d8e9a5220dd"),
+            "the vector the old plugin and locator shared"
+        );
+        let disabled = serde_json::json!({
+            "type": "remote",
+            "url": "https://example.com/mcp",
+            "headers": { "Authorization": "Bearer x" },
+            "enabled": false,
+            "timeout": 30000.0
+        });
+        assert_eq!(
+            fingerprint("docs", &disabled),
+            fingerprint("docs", &definition),
+            "enabled is left out and a whole float reads as the integer"
+        );
     }
 
     #[test]
     fn the_shared_database_goes_first_and_only_opencode_databases_are_read() {
         let dir = std::env::temp_dir().join(format!("drift-import-sources-{}", drift_engine::id::new("t")));
         std::fs::create_dir_all(&dir).unwrap();
-        for name in ["opencode-master.db", "opencode.db", "opencode.db-wal", "other.db", "opencode-dev.db"] {
+        for name in [
+            "opencode-master.db",
+            "opencode.db",
+            "opencode.db-wal",
+            "other.db",
+            "opencode-dev.db",
+        ] {
             std::fs::write(dir.join(name), b"").unwrap();
         }
-        let names: Vec<String> = super::sources(&dir).iter().map(|path| path.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        let names: Vec<String> = super::sources(&dir)
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(names, ["opencode.db", "opencode-dev.db", "opencode-master.db"]);
     }
@@ -278,13 +418,21 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("drift-import-config-{}", drift_engine::id::new("t")));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("opencode.json"), "{ \"model\": ").unwrap();
-        std::fs::write(dir.join("opencode.jsonc"), "{\n  // mine\n  \"model\": \"anthropic/claude\",\n}").unwrap();
+        std::fs::write(
+            dir.join("opencode.jsonc"),
+            "{\n  // mine\n  \"model\": \"anthropic/claude\",\n}",
+        )
+        .unwrap();
         let found = read_config(&dir).map(|config| config.value["model"].clone());
         std::fs::write(dir.join("opencode.json"), "{ \"model\": \"openai/gpt\" }").unwrap();
         let first = read_config(&dir).map(|config| config.value["model"].clone());
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(found, Some(serde_json::json!("anthropic/claude")));
-        assert_eq!(first, Some(serde_json::json!("openai/gpt")), "a readable opencode.json still comes first");
+        assert_eq!(
+            first,
+            Some(serde_json::json!("openai/gpt")),
+            "a readable opencode.json still comes first"
+        );
     }
 
     #[test]
@@ -297,8 +445,23 @@ mod tests {
     #[test]
     fn a_run_that_brought_nothing_in_shows_nothing() {
         assert!(!Summary::default().worth_showing());
-        assert!(Summary { conversations: 1, ..Summary::default() }.worth_showing());
-        let left_out = drift_migrate::LeftOut { plugins: vec!["oh-my-opencode".into()], ..Default::default() };
-        assert!(Summary { left_out, ..Summary::default() }.worth_showing());
+        assert!(
+            Summary {
+                conversations: 1,
+                ..Summary::default()
+            }
+            .worth_showing()
+        );
+        let left_out = drift_migrate::LeftOut {
+            plugins: vec!["oh-my-opencode".into()],
+            ..Default::default()
+        };
+        assert!(
+            Summary {
+                left_out,
+                ..Summary::default()
+            }
+            .worth_showing()
+        );
     }
 }

@@ -1,454 +1,438 @@
-import type { AssistantMessage, Part, ToolPart, UserMessage } from "../engine/shapes"
-import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js"
-import { createStore, reconcile, unwrap } from "solid-js/store"
-import { useEngine } from "../engine"
-import { errorText } from "../engine/error"
-import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store"
-import { emitMessageRendered } from "../plugins"
-import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer"
-import { agentLabel, t } from "../state/i18n"
-import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator"
-import { collapseCompaction, compactionCollapsed } from "../state/prefs"
-import { selectedSession, selectSession } from "../state/selection"
-import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons"
-import { Markdown } from "./markdown"
-import { Chevron } from "./controls"
-import { contextTools, ExploredGroup, FilePartView, PartView, partVisible } from "./parts"
-import { TextShimmer } from "./text-shimmer"
-import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer"
-import { citationFileGroups } from "./citation-files"
+import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js";
+import { groupParts, updatePartGroupSlots, type PartGroup, type PartGroupSlot } from "./message-groups";
+import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store";
+import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer";
+import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
+import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator";
+import { collapseCompaction, compactionCollapsed } from "../state/prefs";
+import { selectedSession, selectSession } from "../state/selection";
+import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
+import { messageModel, messageProblem } from "../engine/messages";
+import { PartView, partVisible, PluginRow } from "./parts";
+import { citationFileGroups } from "./citation-files";
+import { emitMessageRendered } from "../plugins";
+import { agentLabel, t } from "../state/i18n";
+import { TextShimmer } from "./text-shimmer";
+import { ExploredGroup } from "./tool-view";
+import { FilePartView } from "./file-part";
+import { useEngine } from "../engine";
+import { Markdown } from "./markdown";
+import { Chevron } from "./controls";
 
-export function MessageView(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; thinking?: boolean; spawned?: boolean }) {
-  onMount(() =>
-    emitMessageRendered({
-      sessionId: props.entry.info.sessionID,
-      messageId: props.entry.info.id,
-      role: props.entry.info.role,
-    }),
-  )
-  const summary = () => (props.entry.info as AssistantMessage).summary && collapseCompaction()
-  return (
-    <Show when={props.entry.info.role === "assistant"} fallback={<UserBubble entry={props.entry} thinking={props.thinking} spawned={props.spawned} />}>
-      <Show when={summary()} fallback={<AssistantFlow entry={props.entry} footer={props.footer} groups={props.groups} />}>
-        <CompactionSummary entry={props.entry} footer={props.footer} thinking={props.thinking} />
-      </Show>
-    </Show>
-  )
+import type { Message, MessageProblem } from "../engine/messages";
+import type { ContextPart } from "../engine/parts";
+
+/**
+ * `hideError`: the reply's failure is no longer news (it is being retried, or the session went on), so its error box is
+ * left out; a stop's divider stays.
+ */
+export function MessageView(props: {
+    entry: MessageEntry;
+    footer?: boolean;
+    groups?: PartGroup[];
+    thinking?: boolean;
+    spawned?: boolean;
+    hideError?: boolean;
+}) {
+    onMount(() =>
+        emitMessageRendered({
+            sessionId: props.entry.info.sessionId,
+            messageId: props.entry.info.id,
+            role: props.entry.info.role,
+        }),
+    );
+    const summary = () => props.entry.info.summary && collapseCompaction();
+    return (
+        <Show
+            when={props.entry.info.role === "assistant"}
+            fallback={<UserBubble entry={props.entry} thinking={props.thinking} spawned={props.spawned} />}
+        >
+            <Show
+                when={summary()}
+                fallback={
+                    <AssistantFlow
+                        entry={props.entry}
+                        footer={props.footer}
+                        groups={props.groups}
+                        hideError={props.hideError}
+                    />
+                }
+            >
+                <CompactionSummary entry={props.entry} footer={props.footer} thinking={props.thinking} />
+            </Show>
+        </Show>
+    );
 }
 
 /** A turn that paused itself says why; a plain stop reads as interrupted. */
-function interruptionText(error: NonNullable<AssistantMessage["error"]>) {
-  const reason = (error.data as { message?: string } | undefined)?.message
-  return reason && reason !== "Interrupted" ? reason : t("drift.message.interrupted")
+function interruptionText(error: MessageProblem) {
+    const reason = error.text;
+    return reason && reason !== "Interrupted" ? reason : t("drift.message.interrupted");
 }
 
 export function messageVisible(entry: MessageEntry) {
-  if (entry.info.role === "user")
-    return !!messageText(entry) || entry.parts.some((part) => part.type === "file" || part.type === "compaction")
-  const info = entry.info as AssistantMessage
-  if (info.summary && collapseCompaction()) return true
-  return entry.parts.some(partVisible) || !!info.error
+    if (entry.info.role === "user")
+        return (
+            !!messageText(entry) ||
+            entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "context")
+        );
+
+    const info = entry.info;
+    if (info.summary && collapseCompaction()) return true;
+
+    return entry.parts.some(partVisible) || !!messageProblem(info);
 }
 
 function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; thinking?: boolean }) {
-  const [open, setOpen] = createSignal(!compactionCollapsed())
-  return (
-    <div class="min-w-0 max-w-full">
-      <button
-        class="flex w-full items-center gap-3 py-1 text-xs text-ink-faint transition-colors hover:text-ink-muted"
-        aria-expanded={open()}
-        onClick={() => setOpen(!open())}
-      >
-        <div class="h-px flex-1 bg-edge" />
-        <span class="flex items-center gap-1.5">
-          <Chevron open={open()} />
-          <TextShimmer
-            text={props.thinking ? t("drift.context.compacting") : t("drift.message.compactedSummary")}
-            active={!!props.thinking}
-          />
-        </span>
-        <div class="h-px flex-1 bg-edge" />
-      </button>
-      <Show when={open()}>
-        <div class="mt-2 cursor-pointer border-l-2 border-edge pl-3" onClick={() => setOpen(false)}>
-          <AssistantFlow entry={props.entry} footer={props.footer} />
+    const [open, setOpen] = createSignal(!compactionCollapsed());
+    return (
+        <div class="min-w-0 max-w-full">
+            <button
+                class="flex w-full items-center gap-3 py-1 text-xs text-ink-faint transition-colors hover:text-ink-muted"
+                aria-expanded={open()}
+                onClick={() => setOpen(!open())}
+            >
+                <div class="h-px flex-1 bg-edge" />
+                <span class="flex items-center gap-1.5">
+                    <Chevron open={open()} />
+                    <TextShimmer
+                        text={props.thinking ? t("drift.context.compacting") : t("drift.message.compactedSummary")}
+                        active={!!props.thinking}
+                    />
+                </span>
+                <div class="h-px flex-1 bg-edge" />
+            </button>
+            <Show when={open()}>
+                <div class="mt-2 cursor-pointer border-l-2 border-edge pl-3" onClick={() => setOpen(false)}>
+                    <AssistantFlow entry={props.entry} footer={props.footer} />
+                </div>
+            </Show>
         </div>
-      </Show>
-    </div>
-  )
+    );
 }
 
 export function compactionParts(entry: MessageEntry) {
-  return entry.parts.filter((part) => part.type === "compaction")
+    return entry.parts.filter((part) => part.type === "compaction");
 }
 
-/** The collapsible summary row is a compaction's one marker; the prompt's divider stands in only before that row exists, or when summaries are not collapsible. */
+/**
+ * The collapsible summary row is a compaction's one marker; the prompt's divider stands in only before that row exists,
+ * or when summaries are not collapsible.
+ */
 export function boundaryCompactions(entry: MessageEntry, collapsible: boolean, starting: boolean) {
-  return collapsible && !starting ? [] : compactionParts(entry)
+    return collapsible && !starting ? [] : compactionParts(entry);
 }
 
 function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: boolean }) {
-  const engine = useEngine()
-  const info = () => props.entry.info as UserMessage
-  const answered = createMemo(() => clarificationAnswer(props.entry))
-  // A spawned thread's instruction folds like an answer: a label, a preview, the full text on open.
-  const clarification = createMemo(() => answered() ?? (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined))
-  const text = () => clarification()?.text ?? messageText(props.entry)
-  // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
-  const generated = () => props.entry.parts.some((part) => part.type === "text" && part.metadata?.generated === true)
-  const files = () => props.entry.parts.filter((part) => part.type === "file")
-  const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking)
-  const model = () => modelInfo(engine.state, info().model)?.name ?? info().model.modelID
-  const time = () => new Date(info().time.created).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-  const revert = async () => {
-    const restored = draftFromMessage(props.entry)
-    if (clarification()) restored.text = text()
-    if (await engine.actions.revert(info().sessionID, info().id))
-      setComposerDraft(composerScope(info().sessionID), restored)
-  }
-  return (
-    <Show
-      when={clarification()}
-      fallback={
-        <>
-          <Show when={text() || files().length > 0}>
-            <div class="group flex flex-col items-end gap-1.5">
-              <Show when={files().length > 0}>
-                <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
-                  <For each={files()}>{(file) => <FilePartView part={file} directory={engine.state.sessions[info().sessionID]?.directory} />}</For>
-                </div>
-              </Show>
-              <Show when={text()}>
-                <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
-                  <Show
-                    when={!generated() && largeUserText(text())}
-                    fallback={<Markdown text={text()} directory={engine.state.sessions[info().sessionID]?.directory} fileGroups={() => citationFileGroups(engine.state, info().sessionID, info().id)} done humanAuthored={!generated()} />}
-                  >
-                    <pre class="user-paste">{text()}</pre>
-                  </Show>
-                </div>
-              </Show>
-              <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
-                <span>{agentLabel(info().agent)} · {model()} · {time()}</span>
-                <button title={t("drift.message.revertHere")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
-                  <IconUndo class="size-3.5" />
-                </button>
-                <button
-                  title={t("drift.message.copy")}
-                  class="rounded p-0.5 hover:bg-raised hover:text-ink"
-                  onClick={() => void navigator.clipboard.writeText(text())}
-                >
-                  <IconCopy class="size-3.5" />
-                </button>
-              </div>
-            </div>
-          </Show>
-          <For each={compactions()}>{(part) => <PartView part={part} thinking={props.thinking} />}</For>
-        </>
-      }
-    >
-      {(answer) => (
-        <div class="group flex min-w-0 items-start justify-end gap-1.5">
-          <details class="group/answer min-w-0 max-w-[85%] text-xs">
-            <summary data-find-ignore class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden">
-              <Show when={answer().spawned} fallback={<IconCheck class="size-3.5 shrink-0 text-ink-faint" />}>
-                <IconBranch class="size-3.5 shrink-0 text-ink-faint" />
-              </Show>
-              <span class="shrink-0">{answer().spawned ? t("drift.chat.spawned.instruction") : t("drift.question.answered")}</span>
-              <Show when={answer().preview}>
-                <span class="min-w-0 truncate text-ink">{answer().preview}</span>
-              </Show>
-              <span class="shrink-0 transition-transform group-open/answer:rotate-90"><Chevron open={false} /></span>
-            </summary>
-            <div class="mt-1 mb-2 space-y-3 border-l border-edge px-3 py-1 text-sm">
-              <Show when={answer().items.length} fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}>
-                <For each={answer().items}>
-                  {(item) => (
-                    <div class="space-y-1">
-                      <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">{item.question}</div>
-                      <div data-find-ignore={item.answers.length ? undefined : ""} class="whitespace-pre-wrap break-words text-ink">
-                        {item.answers.length ? item.answers.join(", ") : t("drift.question.unanswered")}
-                      </div>
+    const engine = useEngine();
+    const info = () => props.entry.info;
+    const answered = createMemo(() => clarificationAnswer(props.entry));
+    // A spawned thread's instruction folds like an answer: a label, a preview, the full text on open.
+    const clarification = createMemo(
+        () => answered() ?? (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined),
+    );
+    const text = () => clarification()?.text ?? messageText(props.entry);
+    // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
+    const generated = () => props.entry.parts.some((part) => part.type === "nudge");
+    const files = () => props.entry.parts.filter((part) => part.type === "file");
+    const plugins = () => props.entry.parts.filter((part): part is ContextPart => part.type === "context");
+    const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
+    const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
+    const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+    // Shift keeps every file as it is: only the conversation goes back.
+    const revert = async (keepFiles: boolean) => {
+        const restored = draftFromMessage(props.entry);
+        if (clarification()) restored.text = text();
+        if (await engine.actions.revert(info().sessionId, info().id, keepFiles))
+            setComposerDraft(composerScope(info().sessionId), restored);
+    };
+
+    return (
+        <Show
+            when={clarification()}
+            fallback={
+                <>
+                    <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
+                    <Show when={text() || files().length > 0}>
+                        <div class="group flex flex-col items-end gap-1.5">
+                            <Show when={files().length > 0}>
+                                <div class="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+                                    <For each={files()}>
+                                        {(file) => (
+                                            <FilePartView
+                                                part={file}
+                                                directory={engine.state.sessions[info().sessionId]?.directory}
+                                            />
+                                        )}
+                                    </For>
+                                </div>
+                            </Show>
+                            <Show when={text()}>
+                                <div class="max-w-[85%] rounded-lg border border-edge bg-surface px-3 py-1.5">
+                                    <Show
+                                        when={!generated() && largeUserText(text())}
+                                        fallback={
+                                            <Markdown
+                                                text={text()}
+                                                directory={engine.state.sessions[info().sessionId]?.directory}
+                                                fileGroups={() =>
+                                                    citationFileGroups(engine.state, info().sessionId, info().id)
+                                                }
+                                                done
+                                                humanAuthored={!generated()}
+                                            />
+                                        }
+                                    >
+                                        <pre class="user-paste">{text()}</pre>
+                                    </Show>
+                                </div>
+                            </Show>
+                            <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
+                                <span>
+                                    {agentLabel(info().agent ?? "build")} · {model()} · {time()}
+                                </span>
+                                <button
+                                    title={`${t("drift.message.revertHere")}
+${t("drift.message.revertKeepFiles")}`}
+                                    class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                                    onClick={(event) => void revert(event.shiftKey)}
+                                >
+                                    <IconUndo class="size-3.5" />
+                                </button>
+                                <button
+                                    title={t("drift.message.copy")}
+                                    class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                                    onClick={() => void navigator.clipboard.writeText(text())}
+                                >
+                                    <IconCopy class="size-3.5" />
+                                </button>
+                            </div>
+                        </div>
+                    </Show>
+                    <For each={compactions()}>{(part) => <PartView part={part} thinking={props.thinking} />}</For>
+                </>
+            }
+        >
+            {(answer) => (
+                <div class="group flex min-w-0 items-start justify-end gap-1.5">
+                    <details class="group/answer min-w-0 max-w-[85%] text-xs">
+                        <summary
+                            data-find-ignore
+                            class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden"
+                        >
+                            <Show
+                                when={answer().spawned}
+                                fallback={<IconCheck class="size-3.5 shrink-0 text-ink-faint" />}
+                            >
+                                <IconBranch class="size-3.5 shrink-0 text-ink-faint" />
+                            </Show>
+                            <span class="shrink-0">
+                                {answer().spawned ? t("drift.chat.spawned.instruction") : t("drift.question.answered")}
+                            </span>
+                            <Show when={answer().preview}>
+                                <span class="min-w-0 truncate text-ink">{answer().preview}</span>
+                            </Show>
+                            <span class="shrink-0 transition-transform group-open/answer:rotate-90">
+                                <Chevron open={false} />
+                            </span>
+                        </summary>
+                        <div class="mt-1 mb-2 space-y-3 border-l border-edge px-3 py-1 text-sm">
+                            <Show
+                                when={answer().items.length}
+                                fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
+                            >
+                                <For each={answer().items}>
+                                    {(item) => (
+                                        <div class="space-y-1">
+                                            <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
+                                                {item.question}
+                                            </div>
+                                            <div
+                                                data-find-ignore={item.answers.length ? undefined : ""}
+                                                class="whitespace-pre-wrap break-words text-ink"
+                                            >
+                                                {item.answers.length
+                                                    ? item.answers.join(", ")
+                                                    : t("drift.question.unanswered")}
+                                            </div>
+                                        </div>
+                                    )}
+                                </For>
+                            </Show>
+                        </div>
+                    </details>
+                    <div class="flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                        <button
+                            title={`${t("drift.message.revertHere")}
+${t("drift.message.revertKeepFiles")}`}
+                            class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                            onClick={(event) => void revert(event.shiftKey)}
+                        >
+                            <IconUndo class="size-3.5" />
+                        </button>
+                        <button
+                            title={t("drift.message.copy")}
+                            class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                            onClick={() => void navigator.clipboard.writeText(text())}
+                        >
+                            <IconCopy class="size-3.5" />
+                        </button>
                     </div>
-                  )}
-                </For>
-              </Show>
-            </div>
-          </details>
-          <div class="flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
-            <button title={t("drift.message.revertHere")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void revert()}>
-              <IconUndo class="size-3.5" />
-            </button>
-            <button title={t("drift.message.copy")} class="rounded p-0.5 hover:bg-raised hover:text-ink" onClick={() => void navigator.clipboard.writeText(text())}>
-              <IconCopy class="size-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-    </Show>
-  )
+                </div>
+            )}
+        </Show>
+    );
 }
 
 function spawnedInstruction(text: string): ClarificationAnswer {
-  return { text, preview: text.replace(/\s+/g, " ").trim(), items: [], spawned: true }
+    return { text, preview: text.replace(/\s+/g, " ").trim(), items: [], spawned: true };
 }
 
 export function largeUserText(text: string) {
-  return text.length >= 2000 || text.split("\n", 41).length > 40
+    return text.length >= 2000 || text.split("\n", 41).length > 40;
 }
 
-export type PartGroup = { id: string; key: string; explored: ToolPart[] } | { id: string; key: string; part: Part }
+function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[]; hideError?: boolean }) {
+    const engine = useEngine();
+    const info = () => props.entry.info;
+    const problem = () => messageProblem(info());
+    const slots = new Map<string, PartGroupSlot>();
+    const [groups, setGroups] = createSignal<PartGroupSlot[]>([]);
+    createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)));
 
-export type PartGroupSlot = { id: string; value: PartGroup; revision?: () => number; update: (value: PartGroup) => void }
+    const visible = () => groups().length > 0 || !!problem() || (!!props.footer && !!info().finishedAt);
 
-export function groupParts(parts: Part[]): PartGroup[] {
-  const groups: PartGroup[] = []
-  for (const part of parts) {
-    if (!partVisible(part)) continue
-    if (part.type === "tool" && contextTools.has(part.tool)) {
-      const last = groups.at(-1)
-      if (last && "explored" in last) last.explored.push(part)
-      else groups.push({ id: `explored:${part.id}`, key: `explored:${part.id}`, explored: [part] })
-      continue
-    }
-    groups.push({ id: part.id, key: part.id, part })
-  }
-  return groups
-}
+    /**
+     * A new conversation with this conversation's history through this reply, opened only if the user is still here.
+     */
+    const forkHere = async () => {
+        const source = info().sessionId;
+        const forked = await engine.actions.fork(source, info().id);
+        if (forked && selectedSession() === source) selectSession(forked.id);
+    };
 
-function assistantBoundary(entry: MessageEntry) {
-  if (entry.info.role !== "assistant") return true
-  const info = entry.info as AssistantMessage
-  return !!info.summary || !!info.error || entry.parts.some((part) => part.type === "compaction")
-}
+    const liveTextPartID = () => {
+        if (info().finishedAt || !sessionBusy(engine.state, info().sessionId)) return undefined;
+        return [...props.entry.parts].reverse().find((part) => part.type === "text")?.id;
+    };
 
-export function assistantFlowContinues(previous: MessageEntry, next: MessageEntry) {
-  return previous.info.role === "assistant" && next.info.role === "assistant" &&
-    !assistantBoundary(previous) && !assistantBoundary(next)
-}
-
-export function groupAssistantEntries(entries: MessageEntry[]) {
-  const result = new Map<string, PartGroup[]>()
-  let previous: MessageEntry | undefined
-  let trailing: Extract<PartGroup, { explored: ToolPart[] }> | undefined
-  for (const entry of entries) {
-    if (entry.info.role !== "assistant") {
-      previous = entry
-      trailing = undefined
-      continue
-    }
-    if (!previous || !assistantFlowContinues(previous, entry)) trailing = undefined
-    const groups: PartGroup[] = []
-    for (const group of groupParts(entry.parts)) {
-      if ("explored" in group && trailing) {
-        trailing.explored.push(...group.explored)
-        continue
-      }
-      groups.push(group)
-      trailing = "explored" in group ? group : undefined
-    }
-    result.set(entry.info.id, groups)
-    previous = entry
-  }
-  return result
-}
-
-function createPartGroupSlot(group: PartGroup): PartGroupSlot {
-  const [value, setValue] = createStore(group)
-  const [revision, setRevision] = createSignal(0)
-  return {
-    id: group.id,
-    value,
-    revision,
-    update: (updated) => {
-      setValue(reconcile(unwrap(updated)))
-      // reconcile can update a nested source proxy without invalidating consumers of part.text.
-      // An explicit revision preserves the mounted slot while guaranteeing those consumers rerun.
-      setRevision((value) => value + 1)
-    },
-  }
-}
-
-export function updatePartGroupSlots(
-  groups: PartGroup[],
-  slots: Map<string, PartGroupSlot>,
-  createSlot = createPartGroupSlot,
-) {
-  const previous = [...slots.values()]
-  const exploredByPart = new Map<string, { index: number; slot: PartGroupSlot }>()
-  previous.forEach((slot, index) => {
-    if (!("explored" in slot.value)) return
-    slot.value.explored.forEach((part) => exploredByPart.set(part.id, { index, slot }))
-  })
-  // A split can overlap one prior group more than once; its anchor-containing fragment owns the old mount.
-  const reserved = new Map<string, number>()
-  previous.forEach((slot) => {
-    if (!("explored" in slot.value)) return
-    const owner = groups.findIndex(
-      (group) => "explored" in group && group.explored.some((part) => `explored:${part.id}` === slot.id),
-    )
-    if (owner !== -1) reserved.set(slot.id, owner)
-  })
-  const claimed = new Set<string>()
-  const active = new Set<string>()
-  const next = groups.map((input, index) => {
-    const existing = "explored" in input
-      ? input.explored.reduce<{ index: number; slot: PartGroupSlot } | undefined>((result, part) => {
-          const candidate = exploredByPart.get(part.id)
-          if (!candidate || claimed.has(candidate.slot.id)) return result
-          const owner = reserved.get(candidate.slot.id)
-          if (owner !== undefined && owner !== index) return result
-          return !result || candidate.index < result.index ? candidate : result
-        }, undefined)?.slot
-      : slots.get(input.id)
-    const group = existing && input.id !== existing.id
-      ? { ...input, id: existing.id, key: existing.id }
-      : input
-    if (existing && "explored" in input) claimed.add(existing.id)
-    active.add(group.id)
-    if (existing) {
-      existing.update(group)
-      return existing
-    }
-    const slot = createSlot(group)
-    slots.set(group.id, slot)
-    return slot
-  })
-  for (const id of slots.keys()) if (!active.has(id)) slots.delete(id)
-  for (const slot of next) {
-    slots.delete(slot.id)
-    slots.set(slot.id, slot)
-  }
-  return next
-}
-
-function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: PartGroup[] }) {
-  const engine = useEngine()
-  const info = () => props.entry.info as AssistantMessage
-  const slots = new Map<string, PartGroupSlot>()
-  const [groups, setGroups] = createSignal<PartGroupSlot[]>([])
-  createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)))
-  const visible = () => groups().length > 0 || !!info().error || (!!props.footer && !!info().time.completed)
-  /** A new conversation with this conversation's history through this reply, opened only if the user is still here. */
-  const forkHere = async () => {
-    const source = info().sessionID
-    const forked = await engine.actions.fork(source, info().id)
-    if (forked && selectedSession() === source) selectSession(forked.id)
-  }
-  const liveTextPartID = () => {
-    if (info().time.completed || !sessionBusy(engine.state, info().sessionID)) return undefined
-    return [...props.entry.parts]
-      .reverse()
-      .find((part) => part.type === "text" && !part.time?.end)?.id
-  }
-  return (
-    <Show when={visible()}>
-      <div class="group flex min-w-0 max-w-full flex-col gap-3">
-        <For each={groups()}>
-          {(group) => (
-            <Switch>
-              <Match when={"explored" in group.value && group.value}>
-                {(explored) => <ExploredGroup parts={explored().explored} />}
-              </Match>
-              <Match when={"part" in group.value && group.value}>
-                {(single) => (
-                  <PartView
-                    part={single().part}
-                    revision={group.revision?.()}
-                    responseID={`${info().id}:${single().part.id}`}
-                    live={single().part.id === liveTextPartID()}
-                    orchestrated={info().mode === ORCHESTRATOR_AGENT}
-                  />
-                )}
-              </Match>
-            </Switch>
-          )}
-        </For>
-        <Show when={info().error}>
-          {(error) => (
-            <Show
-              when={error().name !== "MessageAbortedError"}
-              fallback={
-                <div class="flex items-center gap-3 py-1 text-xs text-ink-faint" role="status">
-                  <div class="h-px flex-1 bg-edge" />
-                  {interruptionText(error())}
-                  <div class="h-px flex-1 bg-edge" />
-                </div>
-              }
-            >
-              <div class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger" role="alert">
-                {errorText(error())}
-              </div>
-            </Show>
-          )}
+    return (
+        <Show when={visible()}>
+            <div class="group flex min-w-0 max-w-full flex-col gap-3">
+                <For each={groups()}>
+                    {(group) => (
+                        <Switch>
+                            <Match when={"explored" in group.value && group.value}>
+                                {(explored) => <ExploredGroup parts={explored().explored} />}
+                            </Match>
+                            <Match when={"part" in group.value && group.value}>
+                                {(single) => (
+                                    <PartView
+                                        part={single().part}
+                                        revision={group.revision?.()}
+                                        responseID={`${info().id}:${single().part.id}`}
+                                        live={single().part.id === liveTextPartID()}
+                                        orchestrated={info().agent === ORCHESTRATOR_AGENT}
+                                    />
+                                )}
+                            </Match>
+                        </Switch>
+                    )}
+                </For>
+                <Show when={!(props.hideError && !problem()?.interrupted) && problem()}>
+                    {(error) => (
+                        <Show
+                            when={!error().interrupted}
+                            fallback={
+                                <div class="flex items-center gap-3 py-1 text-xs text-ink-faint" role="status">
+                                    <div class="h-px flex-1 bg-edge" />
+                                    {interruptionText(error())}
+                                    <div class="h-px flex-1 bg-edge" />
+                                </div>
+                            }
+                        >
+                            <div
+                                class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger"
+                                role="alert"
+                            >
+                                {error().text}
+                            </div>
+                        </Show>
+                    )}
+                </Show>
+                <Show when={props.footer && info().finishedAt}>
+                    <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
+                        <span>{info().model?.model ?? ""}</span>
+                        <span>{formatTokens(info())}</span>
+                        <Show when={tokensPerSecond(props.entry)}>
+                            {(rate) => <span>{t("drift.message.tokensPerSecond", { rate: rate() })}</span>}
+                        </Show>
+                        <Show when={info().cost > 0}>
+                            <span>${info().cost.toFixed(3)}</span>
+                        </Show>
+                        <span>{formatDuration(info().finishedAt! - info().createdAt)}</span>
+                        <button
+                            title={t("drift.message.copyResponse")}
+                            class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                            onClick={() =>
+                                void navigator.clipboard.writeText(
+                                    splitOrchestratorStatus(messageText(props.entry)).prose,
+                                )
+                            }
+                        >
+                            <IconCopy class="size-3.5" />
+                        </button>
+                        <button
+                            title={t("drift.message.forkHere")}
+                            class="rounded p-0.5 hover:bg-raised hover:text-ink"
+                            onClick={() => void forkHere()}
+                        >
+                            <IconBranch class="size-3.5" />
+                        </button>
+                    </div>
+                </Show>
+            </div>
         </Show>
-        <Show when={props.footer && info().time.completed}>
-          <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
-            <span>{info().modelID}</span>
-            <span>{formatTokens(info())}</span>
-            <Show when={tokensPerSecond(props.entry)}>
-              {(rate) => <span>{t("drift.message.tokensPerSecond", { rate: rate() })}</span>}
-            </Show>
-            <Show when={info().cost > 0}>
-              <span>${info().cost.toFixed(3)}</span>
-            </Show>
-            <span>{formatDuration(info().time.completed! - info().time.created)}</span>
-            <button
-              title={t("drift.message.copyResponse")}
-              class="rounded p-0.5 hover:bg-raised hover:text-ink"
-              onClick={() => void navigator.clipboard.writeText(splitOrchestratorStatus(messageText(props.entry)).prose)}
-            >
-              <IconCopy class="size-3.5" />
-            </button>
-            <button
-              title={t("drift.message.forkHere")}
-              class="rounded p-0.5 hover:bg-raised hover:text-ink"
-              onClick={() => void forkHere()}
-            >
-              <IconBranch class="size-3.5" />
-            </button>
-          </div>
-        </Show>
-      </div>
-    </Show>
-  )
+    );
 }
 
 function formatDuration(ms: number) {
-  const seconds = Math.max(1, Math.round(ms / 1000))
-  if (seconds < 60) return t("drift.message.duration.seconds", { seconds })
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return t("drift.message.duration.minutes", { minutes, seconds: seconds % 60 })
-  return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 })
+    const seconds = Math.max(1, Math.round(ms / 1000));
+    if (seconds < 60) return t("drift.message.duration.seconds", { seconds });
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return t("drift.message.duration.minutes", { minutes, seconds: seconds % 60 });
+
+    return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
-// Only the spans the model spent generating text or reasoning count toward the rate; wall time
-// also covers tool runs and subagent waits, which made the shown rate meaningless.
+/** Time spent generating text or reasoning; wall time would count tool runs and subagent waits. */
 export function generationMs(entry: MessageEntry) {
-  const info = entry.info as AssistantMessage
-  let total = 0
-  for (const part of entry.parts) {
-    if (part.type !== "text" && part.type !== "reasoning") continue
-    const time = (part as { time?: { start?: number; end?: number } }).time
-    if (time?.start === undefined) continue
-    const end = time.end ?? info.time.completed
-    if (end) total += Math.max(0, end - time.start)
-  }
-  return total
+    const info = entry.info;
+    let total = 0;
+    for (const part of entry.parts) {
+        if (part.type !== "text" && part.type !== "reasoning") continue;
+        // Native reasoning has no timestamps; its previous display used a zero start.
+        if (part.type === "reasoning" && info.finishedAt) total += Math.max(0, info.finishedAt);
+    }
+
+    return total;
 }
 
 export function tokensPerSecond(entry: MessageEntry) {
-  const info = entry.info as AssistantMessage
-  const elapsed = generationMs(entry) || (info.time.completed ?? 0) - info.time.created
-  const tokens = info.tokens.output + info.tokens.reasoning
-  if (elapsed <= 0 || tokens <= 0) return null
-  return (tokens / (elapsed / 1000)).toFixed(1)
+    const info = entry.info;
+    const elapsed = generationMs(entry) || (info.finishedAt ?? 0) - info.createdAt;
+    const tokens = info.usage.output;
+    if (elapsed <= 0 || tokens <= 0) return null;
+
+    return (tokens / (elapsed / 1000)).toFixed(1);
 }
 
-function formatTokens(info: AssistantMessage) {
-  const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`)
-  return t("drift.message.tokenCounts", {
-    input: compact(info.tokens.input),
-    output: compact(info.tokens.output),
-  })
+function formatTokens(info: Message) {
+    const compact = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`);
+    return t("drift.message.tokenCounts", {
+        input: compact(info.usage.input),
+        output: compact(info.usage.output),
+    });
 }

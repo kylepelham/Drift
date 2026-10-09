@@ -29,6 +29,7 @@ fn test_store(name: &str) -> (std::path::PathBuf, Store) {
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
     let store = crate::store::open(&dir).unwrap();
+
     (dir, store)
 }
 
@@ -39,19 +40,16 @@ fn snapshot_initialization_is_insert_only_and_survives_reopen() {
     let authority = UiStateAuthority::load(&store).unwrap();
     let first = authority.initialize(&store, snapshot(Some("one"))).unwrap();
     assert_eq!(first.revision, 0);
+
     let mut replacement = snapshot(None);
     replacement.theme.name = "drift-light".into();
     assert_eq!(authority.initialize(&store, replacement).unwrap(), first);
+
     drop(authority);
     drop(store);
     let reopened = crate::store::open(&dir).unwrap();
-    assert_eq!(
-        UiStateAuthority::load(&reopened)
-            .unwrap()
-            .snapshot()
-            .unwrap(),
-        first
-    );
+    assert_eq!(UiStateAuthority::load(&reopened).unwrap().snapshot().unwrap(), first);
+
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -59,9 +57,7 @@ fn snapshot_initialization_is_insert_only_and_survives_reopen() {
 fn invalid_persisted_settings_are_discarded_before_initialization() {
     let (dir, store) = test_store("invalid-persisted");
     store.save_app_setting(UI_STATE_KEY, "not json").unwrap();
-    store
-        .save_app_setting(SHELL_TIMEOUT_KEY, r#"{"timeoutMs":1}"#)
-        .unwrap();
+    store.save_app_setting(SHELL_TIMEOUT_KEY, r#"{"timeoutMs":1}"#).unwrap();
 
     let ui = UiStateAuthority::load(&store).unwrap();
     let timeout = ShellTimeoutAuthority::load(&store).unwrap();
@@ -81,10 +77,7 @@ fn invalid_persisted_settings_are_discarded_before_initialization() {
         Some(60_000)
     );
     assert!(UiStateAuthority::load(&store).unwrap().snapshot().is_ok());
-    assert!(ShellTimeoutAuthority::load(&store)
-        .unwrap()
-        .snapshot()
-        .is_ok());
+    assert!(ShellTimeoutAuthority::load(&store).unwrap().snapshot().is_ok());
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -93,6 +86,7 @@ fn mutations_increment_once_and_deduplicate_retries() {
     let (dir, store) = test_store("dedupe");
     let authority = UiStateAuthority::load(&store).unwrap();
     authority.initialize(&store, snapshot(None)).unwrap();
+
     let mutation = UiStateMutation {
         client_id: "desktop".into(),
         mutation_id: "m1".into(),
@@ -102,10 +96,12 @@ fn mutations_increment_once_and_deduplicate_retries() {
     };
     let (first, changed) = authority.update(&store, mutation.clone()).unwrap();
     let (retry, retry_changed) = authority.update(&store, mutation).unwrap();
+
     assert!(changed);
     assert!(!retry_changed);
     assert_eq!(first.revision, 1);
     assert_eq!(retry, first);
+
     let (reordered, order_changed) = authority
         .update(
             &store,
@@ -121,6 +117,7 @@ fn mutations_increment_once_and_deduplicate_retries() {
     assert!(order_changed);
     assert_eq!(reordered.revision, 2);
     assert_eq!(reordered.workspace_order, vec!["two", "one"]);
+
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -131,10 +128,7 @@ fn workspace_selection_is_a_soft_reference() {
     let selected = authority
         .initialize(&store, snapshot(Some("not-hydrated-yet")))
         .unwrap();
-    assert_eq!(
-        selected.selection.workspace_id.as_deref(),
-        Some("not-hydrated-yet")
-    );
+    assert_eq!(selected.selection.workspace_id.as_deref(), Some("not-hydrated-yet"));
     std::fs::remove_dir_all(dir).ok();
 }
 
@@ -143,21 +137,60 @@ fn validation_rejects_bad_themes_selection_and_timeouts() {
     let mut invalid = snapshot(None);
     invalid.theme.name = "unknown".into();
     assert!(validate_snapshot(&invalid).is_err());
+
     let mut invalid = snapshot(None);
     invalid.selection.session_id = Some("session".into());
     assert!(validate_snapshot(&invalid).is_err());
+
     let mut invalid = snapshot(None);
     invalid.theme.custom_css = "x".repeat(20_001);
     assert!(validate_snapshot(&invalid).is_err());
+
     let mut invalid = snapshot(None);
     invalid.workspace_order = vec!["".into()];
     assert!(validate_snapshot(&invalid).is_err());
+
     let mut invalid = snapshot(None);
     invalid.workspace_order = vec!["w".into(); 501];
     assert!(validate_snapshot(&invalid).is_err());
+
     assert!(validate_timeout(Some(59_999)).is_err());
     assert!(validate_timeout(Some(60_000)).is_ok());
     assert!(validate_timeout(None).is_ok());
+}
+
+#[test]
+fn ui_state_errors_keep_the_command_boundary_text() {
+    let cases = [
+        (
+            UiStateError::NotInitialized,
+            "desktop UI state has not been initialized",
+        ),
+        (
+            UiStateError::TimeoutNotInitialized,
+            "shell timeout policy has not been initialized",
+        ),
+        (UiStateError::EmptyMutation, "UI state mutation is empty"),
+        (UiStateError::RevisionOverflow, "UI state revision overflow"),
+        (UiStateError::UnsupportedSchema, "unsupported UI state schema"),
+        (UiStateError::InvalidTheme, "invalid theme name"),
+        (
+            UiStateError::InvalidColor("accent"),
+            "invalid custom theme accent color",
+        ),
+        (UiStateError::SessionWithoutWorkspace, "sessionId requires workspaceId"),
+        (UiStateError::OrderTooLong, "workspace order is too long"),
+        (UiStateError::InvalidIdentifier("clientId"), "invalid clientId"),
+        (UiStateError::TextTooLong("UI font"), "UI font is too long"),
+        (
+            UiStateError::InvalidTimeout,
+            "shell timeout must be null or between 1 and 1,440 minutes",
+        ),
+    ];
+
+    for (error, message) in cases {
+        assert_eq!(error.to_string(), message);
+    }
 }
 
 #[test]
@@ -181,12 +214,6 @@ fn shell_timeout_is_insert_only_then_mutable_and_persistent() {
         timeout_ms: Some(300_000),
     };
     authority.update(&store, five.clone()).unwrap();
-    assert_eq!(
-        ShellTimeoutAuthority::load(&store)
-            .unwrap()
-            .snapshot()
-            .unwrap(),
-        five
-    );
+    assert_eq!(ShellTimeoutAuthority::load(&store).unwrap().snapshot().unwrap(), five);
     std::fs::remove_dir_all(dir).ok();
 }

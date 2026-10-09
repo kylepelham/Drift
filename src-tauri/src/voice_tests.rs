@@ -11,7 +11,7 @@ fn only_known_models_resolve() {
 fn every_model_publishes_a_sha1_and_a_ggml_file() {
     for model in MODELS {
         assert_eq!(model.sha1.len(), 40, "{} has a malformed sha1", model.id);
-        assert!(model.sha1.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(model.sha1.chars().all(|character| character.is_ascii_hexdigit()));
         assert!(model.file.starts_with("ggml-") && model.file.ends_with(".bin"));
         assert!(model.bytes > 0);
     }
@@ -23,6 +23,7 @@ fn model_ids_are_unique() {
     ids.sort_unstable();
     let count = ids.len();
     ids.dedup();
+
     assert_eq!(ids.len(), count);
 }
 
@@ -30,6 +31,7 @@ fn model_ids_are_unique() {
 fn the_wav_header_describes_16khz_mono_pcm() {
     let path = std::env::temp_dir().join(format!("drift-voice-header-{}.wav", std::process::id()));
     let samples = vec![0u8; 8];
+
     write_wav(&path, &samples).expect("wav should be written");
     let written = std::fs::read(&path).expect("wav should be readable");
     std::fs::remove_file(&path).ok();
@@ -44,4 +46,30 @@ fn the_wav_header_describes_16khz_mono_pcm() {
     assert_eq!(&written[36..40], b"data");
     assert_eq!(u32::from_le_bytes(written[40..44].try_into().unwrap()), 8);
     assert_eq!(written.len(), 44 + 8);
+}
+
+#[test]
+fn voice_errors_keep_the_command_boundary_text() {
+    let cases = [
+        (
+            VoiceError::UnknownModel("missing-model".into()),
+            "unknown voice model: missing-model",
+        ),
+        (VoiceError::Cancelled, "cancelled"),
+        (VoiceError::Checksum, "downloaded model failed its checksum"),
+        (VoiceError::ModelMissing, "the speech model is not downloaded"),
+        (
+            VoiceError::RecognizerMissing,
+            "the speech recognizer is missing from this build",
+        ),
+        (VoiceError::InvalidAudio, "unusable audio length"),
+        (
+            VoiceError::Transcription("cannot load model".into()),
+            "cannot load model",
+        ),
+    ];
+
+    for (error, message) in cases {
+        assert_eq!(error.to_string(), message);
+    }
 }

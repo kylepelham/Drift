@@ -26,7 +26,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio, Ollama. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec; it signs in with Codex's own OAuth client and sends `originator: opencode`, the value OpenAI accepts from that integration, so Drift keeps it rather than risk an unrecognised originator being refused). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
-| Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the upstream hook points. Compiled Rust plugins through a Drift SDK come later and are not designed for now. |
+| Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the hook points; plugins are WebAssembly components run by wasmtime against the WIT in `crates/drift-engine/wit` (see "Plugins" below). |
 | Tools | `read`, `edit`, `write`, `apply_patch`, `bash`, `glob`, `grep`, `webfetch`, `todowrite`, `skill`, `question`, `task`, `read_thread`. M3 adds parent-scoped `task_output` and `task_stop` for background workers. Branch creation is never a model tool. |
 | Dropped | `websearch`, the model-facing `lsp` tool (diagnostics after edits come from language servers instead; see Post-edit), `execute`, `plan`, share, ACP, TUI, CLI, Jev tool routing, Copilot, Azure, Cohere, Perplexity, GitLab, Venice, Poe, Alibaba, Gateway. |
 | Edit | Exact match only, with line ending normalisation on both sides. A file keeps its CRLF line endings and its UTF-8 byte order mark through `edit`, `write` and `apply_patch` (`tool::text::TextFormat`); `read` shows the text without the mark, so a match never has to include it. On a miss, return the closest region so the model can re-read cheaply; the tool text and the miss both say read's `N: ` prefix is not in the file, and a miss caused by copied prefixes says exactly that (still no fuzzy apply). `apply_patch`, offered only to the GPT and Codex models whose catalog profile asks for it, finds hunks as Codex's own `seek_sequence` does, because those models write patches that rely on it: exactly, then ignoring trailing whitespace, then surrounding whitespace, then with typographic dashes, quotes and spaces read as ASCII; the first pass that matches wins, and a miss shows the closest region as `edit` does. `apply_patch` replaces `edit` and `write` for models whose catalog profile says so. It follows the same rules: every existing file it adds over, updates, deletes or moves onto must have been read this session (so a secret needs its own read approval before it can reach a diff); every source and move destination is a separate edit ask (`Tool::asks`), any refusal refusing the call; and the whole patch is read, checked and worked out before any file changes. Only a missing file counts as absent; any other read error (denied, locked, a directory) stops preparation, and so does an update to a file that is not UTF-8 (a Windows-1252 page, say), which `edit` refuses too: decoding it loosely and writing it back would replace every such byte in the whole file. Every whole-file write the engine makes (`edit`, `write`, `apply_patch`, and undo and redo putting a file back) goes to a sibling file swapped into place (`tool::stage::replace`), so a failed write never truncates its target. Each replacement is one row in `staged_replacement` (migration 14): the destination, the staged sibling (`.<name>.drift-<8 hex>.tmp`) and the backup the swap may leave (same name, `.bak`), written in one statement before either file exists. After the swap, and at startup before any tool can run (`recover_leftovers`), the pair is settled: if the destination is missing and the backup exists, the backup is moved back first; only then are the siblings removed. The moment a swap succeeds the row is marked `swapped` (migration 15), before the backup is removed: from then on the backup is old content, so a backup that could not be removed yet (a scanner holding it) is only ever deleted later, never restored, even if the file has been deleted on purpose meanwhile. Until then it sits beside the file, so it can show in `git status`. If that move or a removal fails, both files and the row stay, and the next start tries again; rows are forgotten together in one short transaction only after their files are settled, and the store lock is never held across file I/O. A row whose paths are not exactly what the engine would name for its destination is dropped without touching any file. `write` treats only a missing file as new: a file it cannot read or decode still exists, so it must have been read first, and any other read error stops the write. On Windows an existing file is swapped with `ReplaceFileW` and no ignore flags, so its ACL and attributes carry over or the write fails; if the swap moved the original aside and could not put the new file in, it is moved back, and if even that fails the error names where the original is. A file another program holds open without delete sharing cannot be swapped: the write fails with that reason and the file is left as it was. On Unix the mode carries over; owner, group, extended attributes and POSIX ACLs are the new file's. On both, a file with other hard links is not written through them: the patched path gets a new file and the other links keep the old content. On a failure every step through the failing one is put back (a step already in its before state is left alone) and the error names any file that could not be. |
@@ -92,6 +92,11 @@ GET    /mcp                 POST /mcp/{id}/connect | disconnect | auth
 GET    /find/files?q=
 WS     /events?cursor=
 ```
+
+A request body may be up to 64 MB (`api::MAX_REQUEST_BYTES`; axum's own default is 2 MB): a prompt
+carries its attachments as base64, so a 2.5 MB screenshot is a 3.4 MB request. The composer checks
+a prompt's size against the same limit before sending and names it, since a browser sees a request
+cut off mid-upload only as a failed fetch.
 
 Server to client over the socket: `session.*`, `message.*`, `part.delta`,
 `permission.asked`, `question.asked`, `todo.updated`, `mcp.*`. Client to server:
@@ -261,7 +266,7 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
 
 #### Per-action models
 
-Every job the engine does can run on its own model, chosen under Settings > Agents.
+Every job the engine does can run on its own model, chosen under Settings > Prompts.
 
 | Agent | Kind | Runs | Default model |
 | --- | --- | --- | --- |
@@ -364,7 +369,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   - Overflow: a provider error recognised as too long (`llm::Error::is_context_overflow`, status
     400 or 413 plus each provider's wording), or a reply that stops because it filled the window
     (Anthropic `model_context_window_exceeded`, kept as an `error` message so it is never
-    replayed), compacts and retries once per turn; a second overflow fails the turn.
+    replayed), compacts and retries once per turn; a second overflow fails the turn. Once the
+    compaction succeeds, a refused reply with no parts is deleted (`message.removed`), so a
+    recovered overflow leaves no error in the transcript; a cut-off reply keeps its text.
   - Manual: `POST /sessions/{id}/compact` (`/compact`) runs as the session's job, 409 while a turn
     runs, cancelled by Stop.
 - **Off switch**: `GET`/`PUT /settings { autoCompact }`, stored in the engine's `setting` table,
@@ -457,7 +464,7 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 #### Shell time limit
 
 - A shell call runs for the model's explicit `timeout` if it gives one (capped at 24 hours, the
-  Settings ceiling), otherwise for the user's Settings value (Settings > Tool execution). "No
+  Settings ceiling), otherwise for the user's Settings value (Settings > Execution). "No
   timeout" means none. Until the shell reports the setting the engine uses two minutes.
 - The shell pushes the value with `Engine::set_shell_timeout` at startup and on every change; it
   applies to calls that start afterwards.
@@ -605,7 +612,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   capture of 5,000 1 KB files takes 2.1 s; an unchanged one about 90 ms, of which the size walk is
   13 ms. This repository (7,161 tracked files) takes about 190 ms unchanged, 70 ms of it the size
   walk. Git's stat cache already makes an unchanged capture cheap, and `core.untrackedCache`
-  measured no better. Within one step, a whole-tree call (a writing shell line, a writing MCP tool)
+  measured no better. A git repository's first capture, seeded from its index, takes 0.45 s for
+  this repository and 0.40 s for opencode's 6,302 files, where an unseeded one hashes everything
+  (about 2 s per 5,000 files). Seeding is only as good as the repository's own index: in a fresh
+  clone whose index is no newer than its files, every entry is racily clean and gets hashed again
+  (3.7 s for that clone before its first `git status`). Within one step, a whole-tree call (a writing shell line, a writing MCP tool)
   starts from the tree the step's previous whole-tree call ended on, so a run of n such calls takes
   n + 1 captures, not 2n. That reuse is safe only because a tree capture's changes are all
   observed, never undone: anything edited in the gap lands, still observed, in the next call's
@@ -621,6 +632,12 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   wrote: anything changed since is kept, never overwritten, and listed (`kept`, shown as a notice).
   No other file is read or rewritten. Calling revert again moves the point: back undoes the range
   in between, forward redoes it, with the same check.
+- `{ keepFiles: true }` (Shift-click on a prompt's undo button) moves only the conversation and
+  leaves every file as it is, to get back to earlier context without losing work. The marker then
+  records where the files stand (`Revert::files`: as the conversation left them, or put back to
+  before another prompt by an earlier undo); a later ordinary undo and a redo move the files from
+  there, so they never undo a range twice. When the next prompt commits it, the dropped turns'
+  changes stay on disk.
 - An undo or redo is all or nothing. Each file goes through the staged writer; if one cannot be
   written (on Windows, a program holding it open without delete sharing is enough), the files this
   call already changed are put back, newest first, to what they held before it, the conversation is
@@ -754,9 +771,11 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   workspace fails it (`TurnError::Moved`) instead of quietly re-planning.
 - Foreground: runs to its end within the call (`Task` stops itself, so a Stop waits for the worker
   to wind down and be recorded), and its result is the call's result.
-- Background: the call returns a receipt at once (`outcome: launched`). The worker waits for one
-  of four slots (`MAX_BACKGROUND`) or its token, whichever comes first, and checks its token again
-  after getting a slot, before it is marked running. Its turn's abort token descends from the
+- Background: the call returns a receipt at once (`outcome: launched`). The worker waits for a
+  slot or its token, whichever comes first, and checks its token again after getting a slot,
+  before it is marked running. Settings > Execution sets the slot count (`backgroundTaskLimit`,
+  1 to 16, default 4). Raising it starts queued workers at once; lowering it never stops a
+  running one, and its slots are taken back as running workers finish. Its turn's abort token descends from the
   worker's, so Stop reaches it while queued, starting (before its turn claims the session),
   planning and running.
 - Handing a result over is claimed and transactional. A claim (`Workers::claim`, in memory: the
@@ -828,6 +847,9 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   background workers while any is queued, running or not yet delivered, each with its state, the
   running worker's current tool, Stop (`POST /tasks/{id}/abort`) and a link to its transcript.
   Foreground workers are not listed there; their row in the transcript already waits for them.
+  A background worker keeps the subagent look but is marked in both places: its transcript row's
+  accent edge is dashed and its sidebar row's arrow is accent, each with a dashed "background"
+  tag. Its row times the worker (launch to end, from the record), not the launch call's instant.
 
 Initial async mode is selected at launch. Foreground-to-background promotion and
 adding to a running background task (opencode's `waitForPromotion` and
@@ -991,12 +1013,133 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
 
 ### M5: hook seam
 
-- `Hook` trait finalised with serde types.
-- Prompt overrides implemented as an internal hook to prove the seam.
+- `Hook` trait finalised with serde types (`hook/mod.rs`), with the WebAssembly runtime as its
+  first implementation. See "Plugins" below.
 - Background task controls: a foreground task the user moves to the background keeps running under
   its owner's scope and delivers like any background task; `task_output` (or a sibling call) can add
   a follow-up to a background task still running, which it reads at its next step. Both keep the
   worker's ownership, Stop fencing and one-delivery rules.
+
+### Plugins
+
+A plugin is a WebAssembly component implementing the `plugin` world of
+`crates/drift-engine/wit/drift.wit`. The engine runs them with wasmtime (`hook/wasm.rs`), behind
+the default `wasm-plugins` feature; without it, listed plugins report that the build runs none.
+
+- Contract: `name()`; `before-tool(call) -> allow | deny(reason) | replace(json)`;
+  `after-tool(result) -> keep | replace(output) | note(text)`; `prompt-submit(prompt) -> keep |
+  replace(text) | add-context(text) | deny(reason)`; `turn-end(reply) -> accept | note(text) | continue(text)`; `permission(ask) -> pass | allow |
+  deny(reason)`; `compaction(event) -> proceed | instruct(text)`;
+  and `session(session, kind)` for created, running, idle, updated, deleted and compacted. Tool inputs travel
+  as JSON strings. Host interfaces, each imported only by plugins that use it and listed as the
+  plugin's capabilities: `host` (`log`, `config`), `store` (per-plugin key-values in the
+  `plugin:<entry>` setting), `files` (read and write under the event's workspace, checked after
+  canonicalising), `process` (`run` with cwd the workspace, output 64 KiB per stream, a minute at
+  most), `http` (`fetch` on the engine's client, 30 s, 1 MiB) and `notify` (`show`, published as
+  `Event::PluginNotice`, which the UI shows as a toast titled with the plugin's name).
+- Sandbox: WASI preview 2 with nothing opened; stderr is inherited so a panicking plugin says so.
+  A call gets five seconds of its own time: an epoch ticker thread fires every 100 ms and the
+  store's deadline callback traps once `State::deadline` has passed; host calls move the deadline
+  on by what they took (`clocked`). A trap or an unusable answer is logged and read as the
+  do-nothing answer.
+- Dispatch (`Hooks`): plugins run in the order listed; the first denial wins and a replaced input
+  or prompt feeds the next; after a tool, replacements chain and notes collect as one bounded line
+  each, named for the plugin (`note_line`), appended with `tool::add_note`. `run_call` asks
+  before the permission asks and after the tool returns; a replaced input is checked against the
+  tool's schema again, and a read that started early while the reply streamed is dropped if its
+  input was rewritten. `admit_once` asks `hook_prompt` for the user's own prompts: a denial is
+  `TurnError::Refused` (403 `refused`), context lands as `Part::Context` beside the prompt. After
+  `run_steps`, `hook_turn_end` offers the reply and admits a `Part::Context` prompt when a plugin
+  continues, three times per user prompt at most, and appends a note as a `Part::Context` on the
+  reply, which `assistant_blocks` never sends; the model reads a user-side context part as a system
+  reminder from the plugin, and the UI renders every context part as a `plugin` part: one row with
+  the plugin's name (`PluginRow`). Session events come off the
+  hub's own stream (`relay_session_events`), so every site that publishes one is covered; `compact_once` sends `compacted` itself. `permit`
+  consults the hooks only when `decide_under` says Ask, so a rule's allow or deny is never a
+  plugin's to change; an allow skips the ask, a deny settles the call as Denied with the plugin's
+  reason. `compact_once` appends each plugin's `instruct` text to the summariser's instructions.
+- Loading: `plugins` in the user's own `~/.config/drift/drift.json`, each a path or
+  `{ path, config }`, paths relative to that directory, `.wasm` only, never from a workspace.
+  Compiled code is cached under `<data>/plugin-cache` keyed by the file's hash and wasmtime's
+  version, so a plugin compiles once. Loaded at startup; `GET /plugins` reports each with its
+  capabilities and error if any; `POST /plugins/reload` reads the file again; `PUT /plugins/enabled`
+  switches one off or on (setting `disabledPlugins`, keyed by the drift.json entry), and an off
+  plugin is listed but never instantiated. One instance per plugin for the engine's life, its calls
+  serialised. `POST /plugins/install` (`config::plugins`) fetches a component over https on the
+  engine's client, refuses it unless its SHA-256 matches the registry's, writes it under the config
+  directory's `plugins/` and rewrites drift.json's `plugins` list (the file is parsed as JSONC and
+  written back as JSON); `DELETE /plugins` and `PUT /plugins/config` edit the same list. Registry
+  sources the user adds are the `registrySources` setting on `/settings` (`config::sources`): a
+  kind (`url`, `github`, `azure_devops`, `folder`), the location, a ref and document path for a
+  repository, `allow_http`, and an extra root certificate; a token is a secret in the credential
+  store under `registry:<id>` and only `has_token` is reported. `Fetcher` reads a source's document
+  and files: a GitHub source through the contents API with the raw media type and the tarball API,
+  Azure DevOps through the items API (zip for an archive, told apart from tar.gz by its first bytes),
+  a folder straight from disk with no climbing out, a URL with the token only on its own host.
+  `GET /registries/fetch?source=` returns the document, and the install endpoints take `registry` so
+  a download goes through the same source.
+- Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`): refuses history
+  rewrites, notes failed commands, runs the configured test command on `@guard test` and continues
+  the turn with the failures; `hook::wasm::tests` builds it into `target/plugins` and runs it.
+
+### After 2.0.2
+
+Decided with Kyle after the 2.0.2 research pass (`docs/research/claude-gaps-2.0.2.md`,
+`claude-agent-quality-2.0.2.md`, `claude-desktop-2.19675.md`, `drift-versatility-2.0.2.md`,
+`claude-capability-gating-2.26454.md`). Drift stays host-native: commands run on the user's
+machine, with no mandatory VM or container, and it works the same with any provider.
+
+**2.1.1, agent correctness.**
+
+- `write` refuses to replace a file that changed since the agent's last full read of it. A full
+  read records a hash of what it returned; `write` compares it under the per-file lock it already
+  holds. A partial read is not a full view. Drift's own writes and formatter runs record the new
+  hash, so the agent never conflicts with itself. `edit` needs nothing: an exact match on stale
+  text already misses.
+- Skill front matter is honoured: `disable-model-invocation: true` keeps a skill out of the
+  model's list, `user-invocable: false` keeps it out of the slash menu.
+- Every check result reaches the model as one line: passed, failed, unavailable, denied, timed
+  out or stale. A failure links its full log, kept like spooled shell output. A later edit to a
+  file a check covered marks its earlier pass stale.
+- A turn that ends while a configured check (`drift.json` or Settings, never a command the model
+  ran itself) still fails gets exactly one nudge to fix it or say it is blocked. Stop still ends
+  the turn at once, and a check that already failed before the turn does not count.
+
+**2.1.2, what compaction keeps.** After the summary, the request carries what Drift already knows
+exactly: background tasks still running or owed, the todo list, and the skills invoked, at their
+current version. The user's own corrections are not pinned yet; that needs a rule for when a new
+goal retires them.
+
+**M6, capabilities.**
+
+- One settings mechanism decides what a session is offered: tools, instruction sections and
+  settings. New capabilities are off by default, and with them off a session is exactly what it
+  is today. Background processes are the one exception, on by default. `/watch-pr` needs no
+  switch, since it starts only when the user runs it.
+- Background processes, first:
+  - `bash` takes `background: true` and returns a process id at once. A command still running at
+    its time limit moves to the background with its output so far, instead of being killed.
+  - A `process` tool lists, reads output (new lines, or a search), types input, interrupts,
+    stops, and waits until a line appears or the process exits. Background processes get an input
+    pipe; foreground commands keep a closed one. Typing input asks like `bash` does.
+  - A process outlives the turn and Stop. The dock's Stop, archiving its conversation and quitting
+    Drift end it.
+  - Processes show in the Background tasks dock beside background subagents, with the dashed
+    background tag, a live last line and Stop.
+  - A URL a process prints is handed back to the model. With the chrome-devtools MCP that is the
+    whole browser check: start the dev server, wait for its URL, look at the page, stop it.
+- Worktrees: a toggle when a thread starts, never mid-turn. Drift makes branch `drift/<name>` from
+  the current commit in a folder under its data directory and says that uncommitted changes were
+  not copied. Spawned threads inherit the toggle and branch from the parent's worktree. Drift never
+  merges back; the header names the branch. Purging the thread removes the worktree if its branch
+  is merged and asks otherwise.
+- `/watch-pr` on one PR: Drift polls it through `gh` about once a minute, wakes the thread when CI
+  fails or a review comment arrives, and stops at merge, close or the fifth wake. Pushing still asks.
+
+**Not doing.** Side replies while busy (steering and async questions cover them), trimming old
+tool results in the request (it breaks the prompt cache), and moving Explore to a cheaper model
+(its model can already be pinned in Settings). Deferred tool schemas wait until a workspace still
+sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
 
 ### Trade-offs kept on purpose
 
@@ -1071,6 +1214,18 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
   out publishes `catalog.updated` so the picker reloads. Nothing is priced to choose a small
   model by, so titles run on `gpt-5.4-mini` when the backend offers it (`codex::small_model`),
   never an API-only model.
+- Daybreak entries come from the signed-in account's Codex model list, fetched with Drift's
+  `client_version`. Startup and sign-in discover access asynchronously; a single-flight cache
+  lasts 15 minutes, retries failures after a minute, and never crosses users or ChatGPT accounts.
+  Logout discards it. Each offered Blue or Red program adds `<id>-daybreak`, named `<Name> Daybreak`,
+  retaining the base entry's limits, prices, reasoning, tools and any speed-mode settings.
+  Requests send the base model id with `access_programs.cyber` set to the offered program.
+  Unknown programs and models without Daybreak are left alone. API-key discovery is not supported.
+  The regular entries and their requests are unchanged. OpenAI still owns authorization.
+  Live comparison on 2026-10-09 found the installed Codex 0.155.0-alpha.9.2 client sending the
+  same `daybreak_blue` selection and receiving the same `standard` response echo as Drift's
+  direct HTTP and WebSocket probes. No extra Daybreak proof header appeared. Request selection
+  is verified; the backend echo does not establish that reduced-refusal treatment was applied.
 - One-shot requests (titles, summaries) on a reasoning model run at its weakest level with
   4096 tokens of thinking room on top of the answer's own (a budget level adds its budget),
   within the model's output limit; a budget that cannot fit is dropped.
@@ -1366,9 +1521,50 @@ Settled after the first external review of M1; each has a regression test.
   its descendants exited. A query failure retains the writer reservation, logs and retries rather
   than recording while writers may remain. Fixer changes are then recorded or restored before
   releasing the reservation.
-- A mutating call refuses to run if its snapshot cannot be taken or its start cannot be
-  recorded, and says so in its result. A result whose save fails is published as an error,
+- A file tool refuses to run if its files cannot be recorded first, or if its start cannot be
+  recorded, and says so in its result. A whole-tree capture (a writing shell line, a writing MCP
+  tool) that cannot be taken does not stop its call: tree changes are only observed, never undone,
+  so the call runs and its result says what it changed was not recorded. A plain folder over
+  `MAX_TREE_FILES` (50,000 files, counted by the size walk before git runs) is never captured
+  whole: a drive or a home folder would keep `git add` busy for minutes. Nothing undoable is lost
+  there, only the list of files a command changed, so its calls say nothing about it
+  (`Capture::Skipped`). The verdict holds while the engine runs.
+- A workspace that is a git repository's top folder has no limit, as in opencode: its shadow
+  index starts as a copy of the repository's (`Snapshots::seed`, once per shadow repo), and tree
+  commands read the repository's objects through `GIT_ALTERNATE_OBJECT_DIRECTORIES`, so files git
+  has already hashed are neither hashed nor stored again, and `write-tree --missing-ok` lets a tree
+  name them. Large files are found from what git lists as changed or untracked, plus those already
+  left out, never by walking the tree. Blobs recorded for undo (`record`, file tools) are written
+  without the alternates, so they always live in the shadow store, where the repository's own gc
+  cannot drop them. A seeded entry holds the repository's converted content (line endings, filters)
+  while a rehashed one is raw, so a file whose timestamp moved but whose content did not would read
+  as changed; such changes are checked by hashing the file through the repository itself and
+  dropped when it still matches (`unconverted_changes`). A folder inside a repository is captured
+  as a plain folder, since the repository's index lists paths from elsewhere. opencode, by
+  contrast, takes no snapshots outside a git repository at all, so it cannot undo even a file
+  edit there.
+- Stop ends a capture in progress and kills its git; the `index.lock` a killed
+  git leaves is cleared by the next capture, which holds the only lock on that index. A result
+  whose save fails is published as an error,
   never as a success the store lacks; a message whose terminal save fails stops the turn.
+- What Drift says about a call, rather than what the call printed (a shell's exit code, a timeout,
+  a stop, lingering background processes, a record that failed, formatters, diagnostics, checks),
+  is added after the output for the model and listed in `metadata.notes` (`tool::add_note`). The UI
+  takes those notes off the end of a shell's output and shows them under the shell box
+  (`splitNotes`). opencode wrapped the same kind of note in a `<shell_metadata>` block that its UI
+  printed as part of the output.
+- A shell's output never sits whole in memory: the engine keeps its first and last 16 KB (`tool::spool`)
+  and writes the rest to `tool-output/` (at most 64 MB per call, kept a week); while it runs, the UI is
+  sent only its last 4 KB every half second, and afterwards the stored result, about 33 KB at most. The
+  line marking the cut is for the model; the UI shows it as a divider naming the size left out, with
+  a link that opens the saved file (`splitOmitted`).
+- Each failed attempt the engine retries stays in the transcript as an errored reply. The UI shows
+  one retry line for the run instead of a box per attempt: an attempt with nothing to show that a
+  later attempt followed is hidden, the reply being retried shows the line instead of its error box,
+  and the line stays up ("Retrying - attempt #n") while the next attempt runs, until it shows output
+  or fails too (`failedAttempt`, `retryInFlight`). If the retries run out, the last error shows once,
+  and only until the session goes on: once anything follows a failed reply (a retry, a new prompt), its
+  error box goes, and an attempt that showed nothing goes whole. A stop's "Interrupted" divider stays.
 - Stopping a shell stops its descendants: a Windows job object with kill-on-close, a unix
   process group. Dropping the run future has the same effect as an explicit abort.
 - The shell is `DRIFT_SHELL` when it names a file (bash, sh or zsh by name, else PowerShell);
@@ -1643,7 +1839,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   server's row reports one state across its connections. Connect, save, rename and enable take the
   active workspace (`?workspace=<id>`) and start the server there and in every workspace it already
   runs in; a stdio server running nowhere and given no workspace is refused (409 `workspace` on
-  Connect; a save or enable just waits for a workspace). A user's disconnect ends every connection
+  Connect; a save or enable just waits for a workspace). Connect and disconnect with
+  `?workspace=<id>` are that workspace's choice: on there, or off there, remembered in
+  `mcp_workspace` (only where it differs from the server's switch; the switch clears them all).
+  A server is offered to a turn, started for a workspace and listed for its prompts and resources
+  only where it is on (`ServerRow::on_in`); a remote server's shared connection ends once no
+  workspace has it on. A disconnect with no workspace ends every connection
   and holds the server: no turn or workspace starts it again until the user connects it. As opencode
   keeps a project's servers while the project is open, a workspace's connection runs for as long as
   any client has the workspace open: each socket says which folder its window or device shows
@@ -1958,8 +2159,12 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     startup and replaced whole by `PUT /permission-rules` (`GET` reads it). They are checked after
     the rules in drift.json and the first match wins, so a project's file still decides first. A
     rule whose kind names no operation or whose pattern is no glob is refused with the reason, and
-    the list holds at most 200. The same section lists the active workspace's "always" grants with
-    Revoke and Revoke all, through the routes below.
+    the list holds at most 200. Below them, under "Always allowed in one workspace", a workspace
+    picker (the active workspace first) shows that workspace's "always" grants, since a grant holds
+    only where it was given: grouped as shell commands, files and folders, websites, MCP tools and
+    other, each shown as what it covers, with a filter once there are eight or more, a trash icon on
+    each and Revoke all, through the routes below. One answer that names the same grant twice
+    (`a | head; b | head`) keeps it once, and twins an older build stored are dropped on load.
   - "Always" holds for the workspace, in every session and across restarts (`Permissions::bind`
     ties each planned session to its workspace; grants are kept in the `permissionGrants:<id>`
     setting), as opencode keeps it for the project. A session with no workspace keeps its grants
@@ -2176,7 +2381,7 @@ engine's start is what 1.3 waited on.
   edits the base prompts in the engine (`GET /prompts`, `PUT` and `DELETE /prompts/{id}`, one
   setting `basePrompt:{id}` each): "All models" (`all`) replaces every family's text, and a
   family's own replacement wins over it (`prompt::base_for`). A replacement is never empty (reset
-  instead) and holds at most 64 KB. The shared rules follow it and are shown read-only. A
+  instead) and holds at most 64 KB. The shared rules follow it; Settings does not show them. A
   conversation picks up a change when it next builds its system prompt, at its next turn. The
   shell's old `family:*` overrides, written for the opencode plugins, are not read.
 - MCP env and header values are secrets: they go into the engine and never come out. `/mcp`

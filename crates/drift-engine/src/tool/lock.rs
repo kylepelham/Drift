@@ -15,9 +15,11 @@ enum Scope {
 impl Scope {
     fn conflicts(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Files(a), Self::Files(b)) => a.iter().any(|path| b.binary_search(path).is_ok()),
-            (Self::Tree(a), Self::Tree(b)) => a.starts_with(b) || b.starts_with(a),
-            (Self::Tree(root), Self::Files(paths)) | (Self::Files(paths), Self::Tree(root)) => paths.iter().any(|path| path.starts_with(root)),
+            (Self::Files(mine), Self::Files(theirs)) => mine.iter().any(|path| theirs.binary_search(path).is_ok()),
+            (Self::Tree(mine), Self::Tree(theirs)) => mine.starts_with(theirs) || theirs.starts_with(mine),
+            (Self::Tree(root), Self::Files(paths)) | (Self::Files(paths), Self::Tree(root)) => {
+                paths.iter().any(|path| path.starts_with(root))
+            }
         }
     }
 }
@@ -41,7 +43,7 @@ fn writers() -> &'static Writers {
 }
 
 /// Dropping a reservation releases its complete path set or directory tree.
-pub struct Held(u64);
+pub(crate) struct Held(u64);
 
 impl Drop for Held {
     fn drop(&mut self) {
@@ -54,21 +56,27 @@ struct Pending(u64);
 
 impl Drop for Pending {
     fn drop(&mut self) {
-        writers().reservations.lock().unwrap().waiting.retain(|(id, _)| *id != self.0);
+        writers()
+            .reservations
+            .lock()
+            .unwrap()
+            .waiting
+            .retain(|(id, _)| *id != self.0);
         writers().changed.notify_waiters();
     }
 }
 
 /// Reserves all physical paths at once; dropping a waiting future cancels without retaining any paths.
-pub async fn files(paths: &[PathBuf]) -> Held {
+pub(crate) async fn files(paths: &[PathBuf]) -> Held {
     let mut paths: Vec<PathBuf> = paths.iter().map(|path| path_key(path)).collect();
     paths.sort();
     paths.dedup();
+
     acquire(Scope::Files(paths)).await
 }
 
 /// Excludes all writers beneath this root, irrespective of the workspace each writer belongs to.
-pub async fn workspace(root: &Path) -> Held {
+pub(crate) async fn workspace(root: &Path) -> Held {
     acquire(Scope::Tree(path_key(root))).await
 }
 
@@ -88,6 +96,7 @@ async fn acquire(scope: Scope) -> Held {
         state.waiting.push_back((id, scope.clone()));
         Pending(id)
     };
+
     loop {
         let changed = writers().changed.notified();
         tokio::pin!(changed);
@@ -102,10 +111,15 @@ async fn acquire(scope: Scope) -> Held {
 fn grant(id: u64, scope: &Scope) -> bool {
     let mut state = writers().reservations.lock().unwrap();
     let active = state.active.values().any(|other| scope.conflicts(other));
-    let earlier = state.waiting.iter().take_while(|(waiting, _)| *waiting != id).any(|(_, other)| scope.conflicts(other));
+    let earlier = state
+        .waiting
+        .iter()
+        .take_while(|(waiting, _)| *waiting != id)
+        .any(|(_, other)| scope.conflicts(other));
     if active || earlier {
         return false;
     }
+
     state.waiting.retain(|(waiting, _)| *waiting != id);
     state.active.insert(id, scope.clone());
     true
@@ -133,13 +147,20 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert!(!waiting.is_finished());
         let other = tokio::time::timeout(Duration::from_millis(100), files(std::slice::from_ref(&a))).await;
-        assert!(other.is_err(), "later conflicting writers cannot bypass an earlier reservation");
+        assert!(
+            other.is_err(),
+            "later conflicting writers cannot bypass an earlier reservation"
+        );
         waiting.abort();
         let _ = waiting.await;
-        let independent = tokio::time::timeout(Duration::from_secs(1), files(std::slice::from_ref(&a))).await.unwrap();
+        let independent = tokio::time::timeout(Duration::from_secs(1), files(std::slice::from_ref(&a)))
+            .await
+            .unwrap();
         drop(independent);
         drop(held);
-        let both = tokio::time::timeout(Duration::from_secs(1), files(&[a.clone(), b, a])).await.unwrap();
+        let both = tokio::time::timeout(Duration::from_secs(1), files(&[a.clone(), b, a]))
+            .await
+            .unwrap();
         drop(both);
     }
 
@@ -148,16 +169,34 @@ mod tests {
         let root = root();
         let nested = root.join("sub");
         let held = workspace(&root).await;
-        assert!(tokio::time::timeout(Duration::from_millis(50), workspace(&nested)).await.is_err());
-        assert!(tokio::time::timeout(Duration::from_millis(50), files(&[nested.join("a.rs")])).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), workspace(&nested))
+                .await
+                .is_err()
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), files(&[nested.join("a.rs")]))
+                .await
+                .is_err()
+        );
         let elsewhere = root.with_extension("other");
-        let independent = tokio::time::timeout(Duration::from_secs(1), files(&[elsewhere.join("a.rs")])).await.unwrap();
+        let independent = tokio::time::timeout(Duration::from_secs(1), files(&[elsewhere.join("a.rs")]))
+            .await
+            .unwrap();
         drop(independent);
         drop(held);
         let outside = files(&[nested.join("a.rs")]).await;
-        assert!(tokio::time::timeout(Duration::from_millis(50), workspace(&root)).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), workspace(&root))
+                .await
+                .is_err()
+        );
         drop(outside);
-        assert!(tokio::time::timeout(Duration::from_secs(1), workspace(&root)).await.is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), workspace(&root))
+                .await
+                .is_ok()
+        );
     }
 
     #[tokio::test]

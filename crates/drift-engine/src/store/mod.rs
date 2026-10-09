@@ -1,9 +1,12 @@
 //! One SQLite database, one connection, one writer. Schema changes are numbered migrations.
 
+mod admission;
 mod blobs;
 mod import;
-mod migrations;
 mod mcp;
+mod messages;
+mod migrations;
+mod parts;
 mod reads;
 mod sessions;
 mod settings;
@@ -12,9 +15,10 @@ pub(crate) mod tasks;
 mod todos;
 mod tree;
 
+pub use admission::{Admission, Admit, Admitted, Handover, Pick};
 pub use import::ImportCheckpoints;
 pub use mcp::Renamed;
-pub use sessions::{Admit, Admitted, Handover, NewSession, Pick, Purge, SessionFilter};
+pub use sessions::{NewSession, Purge, SessionFilter};
 pub use staged::StagedReplacement;
 pub use tasks::{Launch, NewTask};
 
@@ -40,7 +44,10 @@ pub struct Store {
 
 impl Store {
     fn new(conn: Connection) -> Self {
-        Self { conn: Mutex::new(conn), streaming: Mutex::default() }
+        Self {
+            conn: Mutex::new(conn),
+            streaming: Mutex::default(),
+        }
     }
 }
 
@@ -67,13 +74,14 @@ pub fn open_file(file: &Path) -> rusqlite::Result<Store> {
     conn.pragma_update(None, "synchronous", "NORMAL")?;
     conn.pragma_update(None, "mmap_size", MMAP_SIZE_BYTES)?;
     migrations::apply(&conn)?;
+
     Ok(Store::new(conn))
 }
 
 impl Store {
     /// The one connection. Hold the guard for the whole unit of work and no longer.
     pub fn lock(&self) -> MutexGuard<'_, Connection> {
-        self.conn.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.conn.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     pub fn workspace(&self, id: &str) -> rusqlite::Result<Option<Workspace>> {
@@ -89,6 +97,7 @@ impl Store {
             "SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE removed_at IS NULL ORDER BY last_used DESC"
         ))?;
         let rows = stmt.query_map([], map_workspace)?;
+
         rows.collect()
     }
 
@@ -103,6 +112,7 @@ impl Store {
             )?
             .query_row([path], |row| row.get(0))
             .optional()?;
+
         let id = match existing {
             Some(id) => {
                 conn.prepare_cached("UPDATE workspace SET removed_at = NULL, last_used = ?2 WHERE id = ?1")?
@@ -118,9 +128,11 @@ impl Store {
                 id
             }
         };
+
         let workspace = conn
             .prepare_cached(&format!("SELECT {WORKSPACE_COLUMNS} FROM workspace WHERE id = ?1"))?
             .query_row([&id], map_workspace)?;
+
         Ok(workspace)
     }
 }
@@ -129,22 +141,36 @@ impl Store {
     /// The workspace's conversations, archived and subagents included; `None` when it is not a removed workspace.
     pub fn removed_workspace_sessions(&self, id: &str) -> rusqlite::Result<Option<Vec<String>>> {
         let conn = self.lock();
-        let removed: Option<bool> = conn.prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?.query_row([id], |row| row.get(0)).optional()?;
+        let removed: Option<bool> = conn
+            .prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?
+            .query_row([id], |row| row.get(0))
+            .optional()?;
         if removed != Some(true) {
             return Ok(None);
         }
-        let ids = conn.prepare_cached("SELECT id FROM session WHERE workspace_id = ?1")?.query_map([id], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?;
+
+        let ids = conn
+            .prepare_cached("SELECT id FROM session WHERE workspace_id = ?1")?
+            .query_map([id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+
         Ok(Some(ids))
     }
 
     /// Deletes every conversation of a removed workspace in one write; `None`, deleting nothing, once it is in use again.
     pub fn purge_removed_workspace(&self, id: &str) -> rusqlite::Result<Option<usize>> {
         sessions::transaction(&self.lock(), |conn| {
-            let removed: Option<bool> = conn.prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?.query_row([id], |row| row.get(0)).optional()?;
+            let removed: Option<bool> = conn
+                .prepare_cached("SELECT removed_at IS NOT NULL FROM workspace WHERE id = ?1")?
+                .query_row([id], |row| row.get(0))
+                .optional()?;
             if removed != Some(true) {
                 return Ok(None);
             }
-            Ok(Some(conn.prepare_cached("DELETE FROM session WHERE workspace_id = ?1")?.execute([id])?))
+            Ok(Some(
+                conn.prepare_cached("DELETE FROM session WHERE workspace_id = ?1")?
+                    .execute([id])?,
+            ))
         })
     }
 }
@@ -201,22 +227,33 @@ pub(crate) mod tests {
         let conn = Connection::open_in_memory().unwrap();
         migrations::apply(&conn).unwrap();
         migrations::apply(&conn).unwrap();
-        let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0)).unwrap();
+        let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0)).unwrap();
         assert_eq!(version, migrations::LATEST);
     }
 
     #[test]
     fn widening_the_ending_check_keeps_the_endings_already_stored() {
         let conn = Connection::open_in_memory().unwrap();
-        let widening = migrations::MIGRATIONS.iter().position(|sql| sql.contains("RENAME COLUMN ended TO ending")).unwrap();
+        let widening = migrations::MIGRATIONS
+            .iter()
+            .position(|sql| sql.contains("RENAME COLUMN ended TO ending"))
+            .unwrap();
         for (index, sql) in migrations::MIGRATIONS.iter().take(widening).enumerate() {
-            conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {}; COMMIT;", index + 1)).unwrap();
+            conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {}; COMMIT;", index + 1))
+                .unwrap();
         }
         conn.execute_batch("PRAGMA foreign_keys = OFF; INSERT INTO message(id, session_id, role, status, usage_json, cost, created_at, summary, ending) VALUES('m', 's', 'assistant', 'done', '{}', 0, 0, 0, 'length');").unwrap();
         migrations::apply(&conn).unwrap();
-        let kept: String = conn.query_row("SELECT ending FROM message WHERE id = 'm'", [], |row| row.get(0)).unwrap();
+        let kept: String = conn
+            .query_row("SELECT ending FROM message WHERE id = 'm'", [], |row| row.get(0))
+            .unwrap();
         assert_eq!(kept, "length");
-        conn.execute_batch("UPDATE message SET ending = 'limit' WHERE id = 'm';").unwrap();
-        assert!(conn.execute_batch("UPDATE message SET ending = 'other' WHERE id = 'm';").is_err(), "the check still holds");
+        conn.execute_batch("UPDATE message SET ending = 'limit' WHERE id = 'm';")
+            .unwrap();
+        assert!(
+            conn.execute_batch("UPDATE message SET ending = 'other' WHERE id = 'm';")
+                .is_err(),
+            "the check still holds"
+        );
     }
 }

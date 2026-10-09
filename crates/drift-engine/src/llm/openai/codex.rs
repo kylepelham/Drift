@@ -3,8 +3,18 @@
 
 use crate::llm::catalog::{Limit, ProviderInfo};
 
+mod daybreak;
+pub(crate) use daybreak::Daybreak;
+
 /// Accepted although their version alone would not be.
-const ALLOWED: [&str; 6] = ["gpt-5.5", "gpt-5.3-codex-spark", "gpt-5.4", "gpt-5.4-mini", "gpt-6-sol", "gpt-6-luna"];
+const ALLOWED: [&str; 6] = [
+    "gpt-5.5",
+    "gpt-5.3-codex-spark",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-6-sol",
+    "gpt-6-luna",
+];
 /// Refused although their version alone would be.
 const REFUSED: [&str; 2] = ["gpt-5.5-pro", "gpt-5.6"];
 
@@ -13,7 +23,11 @@ pub fn shape(provider: &mut ProviderInfo) {
     provider.models.retain(|id, _| accepted(id));
     for model in provider.models.values_mut() {
         if model.id.contains("gpt-5.5") || model.id.contains("gpt-5.6") {
-            model.limit = Limit { context: 400_000, output: 128_000, input: 272_000 };
+            model.limit = Limit {
+                context: 400_000,
+                output: 128_000,
+                input: 272_000,
+            };
         }
     }
 }
@@ -22,10 +36,18 @@ pub fn shape(provider: &mut ProviderInfo) {
 const SMALL: &str = "gpt-5.4-mini";
 
 /// `SMALL` when the conversation runs on an OpenAI model through a ChatGPT sign-in and the backend offers it.
-pub fn small_model(catalog: &crate::llm::catalog::Catalog, like: &crate::session::types::ModelRef, credential: &crate::llm::Credential) -> Option<crate::session::types::ModelRef> {
+pub fn small_model(
+    catalog: &crate::llm::catalog::Catalog,
+    like: &crate::session::types::ModelRef,
+    credential: &crate::llm::Credential,
+) -> Option<crate::session::types::ModelRef> {
     let signed_in = like.provider == "openai" && matches!(credential, crate::llm::Credential::OAuth { .. });
     let offered = catalog.model("openai", SMALL).is_some() && like.model != SMALL;
-    (signed_in && offered).then(|| crate::session::types::ModelRef { provider: "openai".into(), model: SMALL.into() })
+
+    (signed_in && offered).then(|| crate::session::types::ModelRef {
+        provider: "openai".into(),
+        model: SMALL.into(),
+    })
 }
 
 fn accepted(id: &str) -> bool {
@@ -35,10 +57,24 @@ fn accepted(id: &str) -> bool {
     if ALLOWED.contains(&id) {
         return true;
     }
-    let Some(version) = id.strip_prefix("gpt-") else { return false };
-    let mut numbers = version.split(|c: char| !c.is_ascii_digit()).map(str::parse::<u32>);
+
+    let Some(version) = id.strip_prefix("gpt-") else {
+        return false;
+    };
+
+    let mut numbers = version
+        .split(|character: char| !character.is_ascii_digit())
+        .map(str::parse::<u32>);
     let major = numbers.next().and_then(Result::ok);
-    let minor = if version.trim_start_matches(|c: char| c.is_ascii_digit()).starts_with('.') { numbers.next().and_then(Result::ok).unwrap_or(0) } else { 0 };
+    let minor = if version
+        .trim_start_matches(|character: char| character.is_ascii_digit())
+        .starts_with('.')
+    {
+        numbers.next().and_then(Result::ok).unwrap_or(0)
+    } else {
+        0
+    };
+
     major.is_some_and(|major| major > 5 || (major == 5 && minor > 4))
 }
 
@@ -63,12 +99,23 @@ mod tests {
         ] {
             assert_eq!(accepted(id), offered, "{id}");
         }
+
         let mut provider = crate::llm::catalog::Catalog::bundled().providers["openai"].clone();
         shape(&mut provider);
         assert!(provider.models.keys().all(|id| accepted(id)) && !provider.models.is_empty());
-        assert!(provider.models.values().any(|model| model.cost.input > 0.0), "API prices are kept");
+        assert!(
+            provider.models.values().any(|model| model.cost.input > 0.0),
+            "API prices are kept"
+        );
         if let Some(model) = provider.models.get("gpt-5.5") {
-            assert_eq!(model.limit, Limit { context: 400_000, output: 128_000, input: 272_000 });
+            assert_eq!(
+                model.limit,
+                Limit {
+                    context: 400_000,
+                    output: 128_000,
+                    input: 272_000
+                }
+            );
         }
     }
 }

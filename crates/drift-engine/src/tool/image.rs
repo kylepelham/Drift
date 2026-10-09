@@ -3,8 +3,8 @@
 //! to the blob table and keeps `{mime, hash}`, and the request loads them again, only the newest few,
 //! and only for a model that reads that kind.
 
+use crate::session::types::{ToolImage, ToolMetadata};
 use base64::Engine as _;
-use serde_json::{json, Value};
 
 /// An image's base64 size a provider accepts (Anthropic's limit is 5 MB); larger ones are scaled down.
 pub const MAX_IMAGE_BYTES: usize = 5 * 1024 * 1024;
@@ -26,6 +26,22 @@ pub fn is_pdf(bytes: &[u8]) -> bool {
 /// The formats every image-reading provider takes; anything else (SVG, BMP, ...) is named, not sent.
 pub const SENDABLE: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
+#[derive(Debug, thiserror::Error)]
+pub enum ImageError {
+    #[error("its data is not valid base64")]
+    InvalidBase64,
+    #[error("it is over {} MB", MAX_SOURCE_BYTES / 1024 / 1024)]
+    TooLarge,
+    #[error("it could not be read ({0})")]
+    ReadIo(std::io::Error),
+    #[error("it could not be read ({0})")]
+    Read(image::ImageError),
+    #[error("it could not be decoded ({0})")]
+    Decode(image::ImageError),
+    #[error("at {width}x{height} it could not be scaled under {} MB", MAX_IMAGE_BYTES / 1024 / 1024)]
+    CannotScale { width: u32, height: u32 },
+}
+
 /// One image as a tool returns it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Image {
@@ -35,7 +51,10 @@ pub struct Image {
 
 impl Image {
     pub fn from_bytes(mime: &str, bytes: &[u8]) -> Self {
-        Self { mime: mime.into(), base64: base64::engine::general_purpose::STANDARD.encode(bytes) }
+        Self {
+            mime: mime.into(),
+            base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+        }
     }
 
     pub fn bytes(&self) -> Option<Vec<u8>> {
@@ -44,26 +63,36 @@ impl Image {
 }
 
 /// `image` as a model can take it, with a note when it had to be scaled; a PDF passes through.
-pub fn normalize(image: Image) -> Result<(Image, Option<String>), String> {
+pub fn normalize(image: Image) -> Result<(Image, Option<String>), ImageError> {
     if image.mime == PDF {
         return Ok((image, None));
     }
-    let bytes = image.bytes().ok_or("its data is not valid base64")?;
+
+    let bytes = image.bytes().ok_or(ImageError::InvalidBase64)?;
     if bytes.len() > MAX_SOURCE_BYTES {
-        return Err(format!("it is over {} MB", MAX_SOURCE_BYTES / 1024 / 1024));
+        return Err(ImageError::TooLarge);
     }
-    let (width, height) = reader(&bytes)?.into_dimensions().map_err(|e| format!("it could not be read ({e})"))?;
+    let (width, height) = reader(&bytes)?.into_dimensions().map_err(ImageError::Read)?;
     if width <= MAX_SIDE && height <= MAX_SIDE && image.base64.len() <= MAX_IMAGE_BYTES {
         return Ok((image, None));
     }
-    let decoded = reader(&bytes)?.decode().map_err(|e| format!("it could not be decoded ({e})"))?;
+
+    let decoded = reader(&bytes)?.decode().map_err(ImageError::Decode)?;
     sizes(width, height)
-        .find_map(|(w, h)| encoded(&decoded.resize_exact(w, h, image::imageops::FilterType::Lanczos3)).map(|image| (image, Some(format!("scaled from {width}x{height} to {w}x{h}")))))
-        .ok_or_else(|| format!("at {width}x{height} it could not be scaled under {} MB", MAX_IMAGE_BYTES / 1024 / 1024))
+        .find_map(|(to_width, to_height)| {
+            encoded(&decoded.resize_exact(to_width, to_height, image::imageops::FilterType::Lanczos3)).map(|image| {
+                let note = format!("scaled from {width}x{height} to {to_width}x{to_height}");
+                (image, Some(note))
+            })
+        })
+        .ok_or(ImageError::CannotScale { width, height })
 }
 
-fn reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, String> {
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| format!("it could not be read ({e})"))?;
+fn reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, ImageError> {
+    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(ImageError::ReadIo)?;
+
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_DECODED_SIDE);
     limits.max_image_height = Some(MAX_DECODED_SIDE);
@@ -73,20 +102,35 @@ fn reader(bytes: &[u8]) -> Result<image::ImageReader<std::io::Cursor<&[u8]>>, St
 
 /// Fits within `MAX_SIDE`, then shrinks by a quarter each step until it is one pixel.
 fn sizes(width: u32, height: u32) -> impl Iterator<Item = (u32, u32)> {
-    let scale = (MAX_SIDE as f64 / width as f64).min(MAX_SIDE as f64 / height as f64).min(1.0);
-    let first = (((width as f64 * scale).round() as u32).max(1), ((height as f64 * scale).round() as u32).max(1));
-    std::iter::successors(Some(first), |&(w, h)| (w > 1 || h > 1).then(|| ((w * 3 / 4).max(1), (h * 3 / 4).max(1)))).take(32)
+    let scale = (MAX_SIDE as f64 / width as f64)
+        .min(MAX_SIDE as f64 / height as f64)
+        .min(1.0);
+    let first = (
+        ((width as f64 * scale).round() as u32).max(1),
+        ((height as f64 * scale).round() as u32).max(1),
+    );
+
+    std::iter::successors(Some(first), |&(width, height)| {
+        (width > 1 || height > 1).then(|| ((width * 3 / 4).max(1), (height * 3 / 4).max(1)))
+    })
+    .take(32)
 }
 
 /// Opaque pictures as JPEG first (photos stay small), transparent ones as PNG first so the transparency survives.
 fn encoded(picture: &image::DynamicImage) -> Option<Image> {
     let transparent = picture.color().has_alpha() && picture.to_rgba8().pixels().any(|pixel| pixel[3] < u8::MAX);
-    if transparent { png(picture).or_else(|| jpeg(picture)) } else { jpeg(picture).or_else(|| png(picture)) }
+    if transparent {
+        png(picture).or_else(|| jpeg(picture))
+    } else {
+        jpeg(picture).or_else(|| png(picture))
+    }
 }
 
 fn png(picture: &image::DynamicImage) -> Option<Image> {
     let mut png = Vec::new();
-    picture.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+    picture
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .ok()?;
     Some(Image::from_bytes("image/png", &png)).filter(|image| image.base64.len() <= MAX_IMAGE_BYTES)
 }
 
@@ -94,14 +138,22 @@ fn png(picture: &image::DynamicImage) -> Option<Image> {
 fn jpeg(picture: &image::DynamicImage) -> Option<Image> {
     let rgba = picture.to_rgba8();
     let rgb = image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
-        let [r, g, b, a] = rgba.get_pixel(x, y).0;
-        let over_white = |channel: u8| ((channel as u16 * a as u16 + 255 * (255 - a as u16)) / 255) as u8;
-        image::Rgb([over_white(r), over_white(g), over_white(b)])
+        let [red, green, blue, alpha] = rgba.get_pixel(x, y).0;
+        let over_white = |channel: u8| ((channel as u16 * alpha as u16 + 255 * (255 - alpha as u16)) / 255) as u8;
+        image::Rgb([over_white(red), over_white(green), over_white(blue)])
     });
+
     JPEG_QUALITIES.iter().find_map(|&quality| {
         let mut jpeg = Vec::new();
         let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, quality);
-        image::ImageEncoder::write_image(encoder, rgb.as_raw(), rgb.width(), rgb.height(), image::ExtendedColorType::Rgb8).ok()?;
+        image::ImageEncoder::write_image(
+            encoder,
+            rgb.as_raw(),
+            rgb.width(),
+            rgb.height(),
+            image::ExtendedColorType::Rgb8,
+        )
+        .ok()?;
         Some(Image::from_bytes("image/jpeg", &jpeg)).filter(|image| image.base64.len() <= MAX_IMAGE_BYTES)
     })
 }
@@ -125,25 +177,58 @@ pub fn sniff(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// `images` as a tool's metadata.
-pub fn metadata(images: &[Image]) -> Value {
-    json!(images.iter().map(|image| json!({ "mime": image.mime, "data": image.base64 })).collect::<Vec<_>>())
+pub fn metadata(images: &[Image]) -> Vec<ToolImage> {
+    images
+        .iter()
+        .map(|image| ToolImage {
+            mime: image.mime.clone(),
+            data: Some(image.base64.clone()),
+            hash: None,
+            extra: Default::default(),
+        })
+        .collect()
 }
 
 /// The images a tool's metadata hands over, before they are stored.
-pub fn returned(metadata: &Value) -> Vec<Image> {
-    let Value::Array(images) = &metadata["images"] else { return Vec::new() };
-    images.iter().filter_map(|image| Some(Image { mime: image["mime"].as_str()?.into(), base64: image["data"].as_str()?.into() })).collect()
+pub fn returned(metadata: &ToolMetadata) -> Vec<Image> {
+    metadata
+        .images
+        .iter()
+        .flatten()
+        .filter_map(|image| {
+            Some(Image {
+                mime: image.mime.clone(),
+                base64: image.data.clone()?,
+            })
+        })
+        .collect()
 }
 
 /// `stored` as a call's saved metadata.
-pub fn stored_metadata(stored: &[Stored]) -> Value {
-    json!(stored.iter().map(|image| json!({ "mime": image.mime, "hash": image.hash })).collect::<Vec<_>>())
+pub fn stored_metadata(stored: &[Stored]) -> Vec<ToolImage> {
+    stored
+        .iter()
+        .map(|image| ToolImage {
+            mime: image.mime.clone(),
+            data: None,
+            hash: Some(image.hash.clone()),
+            extra: Default::default(),
+        })
+        .collect()
 }
 
 /// The images a stored call names.
-pub fn stored(metadata: Option<&Value>) -> Vec<Stored> {
-    let Some(Value::Array(images)) = metadata.map(|m| &m["images"]) else { return Vec::new() };
-    images.iter().filter_map(|image| Some(Stored { mime: image["mime"].as_str()?.into(), hash: image["hash"].as_str()?.into() })).collect()
+pub fn stored(metadata: Option<&ToolMetadata>) -> Vec<Stored> {
+    metadata
+        .into_iter()
+        .flat_map(|metadata| metadata.images.iter().flatten())
+        .filter_map(|image| {
+            Some(Stored {
+                mime: image.mime.clone(),
+                hash: image.hash.clone()?,
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -156,17 +241,34 @@ mod tests {
         assert_eq!(sniff(b"RIFF\0\0\0\0WEBPVP8 "), Some("image/webp"));
         assert_eq!(sniff(b"plain text"), None);
         let image = Image::from_bytes("image/png", b"\x89PNG");
-        assert_eq!(returned(&json!({ "images": metadata(std::slice::from_ref(&image)) })), vec![image.clone()]);
+        assert_eq!(
+            returned(&ToolMetadata {
+                images: Some(metadata(std::slice::from_ref(&image))),
+                ..Default::default()
+            }),
+            vec![image.clone()]
+        );
         assert_eq!(image.bytes().as_deref(), Some(&b"\x89PNG"[..]));
-        let saved = Stored { mime: "image/png".into(), hash: "abc".into() };
-        assert_eq!(stored(Some(&json!({ "images": stored_metadata(std::slice::from_ref(&saved)) }))), vec![saved]);
+        let saved = Stored {
+            mime: "image/png".into(),
+            hash: "abc".into(),
+        };
+        assert_eq!(
+            stored(Some(&ToolMetadata {
+                images: Some(stored_metadata(std::slice::from_ref(&saved))),
+                ..Default::default()
+            })),
+            vec![saved]
+        );
         assert!(stored(None).is_empty());
     }
 
     fn png(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u8; 3]) -> Image {
         let picture = image::RgbImage::from_fn(width, height, |x, y| image::Rgb(pixel(x, y)));
         let mut bytes = Vec::new();
-        picture.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+        picture
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
         Image::from_bytes("image/png", &bytes)
     }
 
@@ -192,9 +294,17 @@ mod tests {
     #[test]
     fn oversized_bytes_are_reencoded_under_the_provider_limit() {
         let mut seed = 0x2545_f491_u32;
-        let mut noise = || { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; seed.to_le_bytes() };
+        let mut noise = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed.to_le_bytes()
+        };
         let pixels: Vec<[u8; 4]> = (0..1600 * 1600).map(|_| noise()).collect();
-        let large = png(1600, 1600, |x, y| { let p = pixels[(y * 1600 + x) as usize]; [p[0], p[1], p[2]] });
+        let large = png(1600, 1600, |x, y| {
+            let pixel = pixels[(y * 1600 + x) as usize];
+            [pixel[0], pixel[1], pixel[2]]
+        });
         assert!(large.base64.len() > MAX_IMAGE_BYTES);
         let (image, note) = normalize(large).unwrap();
         assert!(image.base64.len() <= MAX_IMAGE_BYTES);
@@ -205,20 +315,48 @@ mod tests {
     fn opaque_pictures_become_jpeg_and_transparent_ones_stay_png() {
         let (photo, _) = normalize(png(2400, 1200, |x, y| [(x % 256) as u8, (y % 256) as u8, 90])).unwrap();
         assert_eq!(photo.mime, "image/jpeg");
-        let picture = image::RgbaImage::from_fn(2400, 100, |x, _| image::Rgba([200, 10, 10, if x < 1200 { 0 } else { 255 }]));
+        let picture = image::RgbaImage::from_fn(2400, 100, |x, _| {
+            image::Rgba([200, 10, 10, if x < 1200 { 0 } else { 255 }])
+        });
         let mut bytes = Vec::new();
-        picture.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+        picture
+            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
         let (cutout, _) = normalize(Image::from_bytes("image/png", &bytes)).unwrap();
         assert_eq!(cutout.mime, "image/png", "transparency survives");
-        let flattened = jpeg(&image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 0, 0])))).unwrap();
+        let flattened = jpeg(&image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            8,
+            8,
+            image::Rgba([0, 0, 0, 0]),
+        )))
+        .unwrap();
         let decoded = image::load_from_memory(&flattened.bytes().unwrap()).unwrap().to_rgb8();
-        assert!(decoded.get_pixel(4, 4).0.iter().all(|channel| *channel > 240), "transparent areas turn white, not black");
+        assert!(
+            decoded.get_pixel(4, 4).0.iter().all(|channel| *channel > 240),
+            "transparent areas turn white, not black"
+        );
     }
 
     #[test]
     fn images_that_cannot_be_decoded_are_refused_with_a_reason() {
-        let broken = Image { mime: "image/png".into(), base64: Image::from_bytes("image/png", b"\x89PNG\r\n\x1a\nbroken").base64 };
-        assert!(normalize(broken).unwrap_err().starts_with("it could not be"));
-        assert_eq!(normalize(Image { mime: "image/png".into(), base64: "%%%".into() }).unwrap_err(), "its data is not valid base64");
+        let broken = Image {
+            mime: "image/png".into(),
+            base64: Image::from_bytes("image/png", b"\x89PNG\r\n\x1a\nbroken").base64,
+        };
+        assert!(
+            normalize(broken)
+                .unwrap_err()
+                .to_string()
+                .starts_with("it could not be")
+        );
+        assert_eq!(
+            normalize(Image {
+                mime: "image/png".into(),
+                base64: "%%%".into()
+            })
+            .unwrap_err()
+            .to_string(),
+            "its data is not valid base64"
+        );
     }
 }

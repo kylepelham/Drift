@@ -1,0 +1,5 @@
+{
+    "checks": {
+        "eslint": { "command": ["bunx", "eslint", "$FILE"], "extensions": [".ts", ".tsx"] }
+    }
+}

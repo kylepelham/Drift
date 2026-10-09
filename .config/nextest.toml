@@ -1,0 +1,7 @@
+# A test still running after 60 s is reported, and after 5 minutes it is killed, so a hang fails with its name.
+[profile.default]
+slow-timeout = { period = "60s", terminate-after = 5 }
+fail-fast = false
+
+[profile.ci]
+failure-output = "immediate-final"

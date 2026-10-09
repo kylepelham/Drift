@@ -32,6 +32,7 @@ change the plan there when a decision changes.
 ## M2: breadth
 
 - [x] OpenAI Responses, Codex OAuth, `apply_patch` profile
+- [x] Account-specific Daybreak model entries and request selection for ChatGPT sign-ins; backend treatment unverified
 - [x] Gemini (adapter only; not yet exercised against the live API)
 - [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter, LM Studio and Ollama presets
 - [x] MCP through rmcp: stdio, HTTP, approval (reconnect and reload: M3)
@@ -255,9 +256,15 @@ change the plan there when a decision changes.
 
 ## M5: hook seam
 
-- [ ] `Hook` trait with serde types
-- [ ] Prompt overrides as an internal hook
+- [x] `Hook` trait with serde types (`hook/mod.rs`): tool before/after and session events, dispatch in listed order
+- [x] WebAssembly plugins: wasmtime behind the default `wasm-plugins` feature, WIT contract in `crates/drift-engine/wit`, WASI sandbox with nothing opened, five-second calls, compiled code cached under the data dir, `plugins` in the user's own drift.json only, `GET /plugins` and `POST /plugins/reload`, example `plugins/guard` built and run by the tests
+- [x] Settings > Plugins lists loaded plugins with their errors, a switch for each and a Reload button
+- [x] Plugin events: prompt submit (refuse, rewrite, add context) and turn end (continue with a prompt, three at most); host interfaces `store`, `files`, `process`, `http` and per-plugin config, each shown as a capability in Settings
+- [x] Plugin events: permission (answers only an ask the rules leave to the user), compaction (instructions for the summary, then a `compacted` session event); `notify` host interface shown as a toast
+- [x] Plugin registry: nine plugins at github.com/kylepelham/Drift-Plugins (guard, protect-files, auto-format, lint-check, test-gate, notify, git-autocommit, git-context, tool-log), Settings > Plugins > Registry with cards and an install sheet in the MCP registry's style, install with a hash check, remove, config; custom registry sources for plugins and MCP servers (`registrySources` setting) so a team publishes its own at one URL; a source is a URL, a GitHub or Azure DevOps repository (private with a token in the credential store) or a folder on a share, may allow http or trust an internal CA, and is read by the engine so the webview never holds a token
+- [x] Settings > Skills: every skill the engine offers (workspace, user, packs) with a switch each (the engine's `disabledSkills` list; the files are never renamed); a registry of single skills and packs (Superpowers, Matt Pocock, Addy Osmani, Karpathy, Erik Darling) with the skills to take chosen before install, unpacked from a pinned archive under `~/.config/drift/skills`
 - [ ] Background task controls: move a running foreground task to the background; add a follow-up to a running background task
+- [x] A background task waiting for a slot says so: the transcript row shows "queued" rather than running with a ticking timer (`delegatedRecordStatus` and `taskTiming` treat queued as active), a resumed task does not show the earlier run's tool count and time, and the sidebar and child view show the queued invocation instead of the finished earlier run
 - [ ] Measure `edit` miss rates per model family before considering any fuzzy fallback
 - [ ] Charge titles somewhere visible (they have no message of their own)
 - [ ] MCP resource templates as a tool (`mcp/resources.rs` lists and reads resources only)
@@ -265,3 +272,59 @@ change the plan there when a decision changes.
 - [ ] Translate the 349 English keys each locale lacks (they show in English meanwhile)
 - [ ] A plan file the plan agent may write (opencode allows `.opencode/plans/*.md`), so a plan survives compaction
 - [ ] Only if the UI or headless use wants them: user-run `!command` turns, `@agent` mention parts, `format: json_schema` structured output, project references
+
+## 2.1.1: agent correctness
+
+Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine-rewrite.md`.
+
+- [ ] `write` refuses a file that changed since the agent's last full read (hash of the read, checked under the file lock; partial reads are not a full view; Drift's own writes and formatters record the new hash), with tests for an outside edit at a newer, equal and older mtime
+- [ ] Honour skill `disable-model-invocation` (hidden from the model) and `user-invocable: false` (hidden from the slash menu)
+- [ ] Every check result reaches the model as one line (passed, failed, unavailable, denied, timed out, stale), a failure links its full log, and a later edit marks an earlier pass stale
+- [ ] One nudge when a turn ends with a configured check still failing; Stop still ends it, and failures from before the turn do not count
+
+## 2.1.2: what compaction keeps
+
+- [ ] After the summary, carry the background tasks still running or owed, the todo list and the skills invoked at their current version
+
+## M6: capabilities
+
+- [ ] One settings mechanism decides the tools, instruction sections and settings a session is offered; new capabilities off by default, and a session with them off is unchanged
+- [ ] Background processes, on by default:
+  - [ ] `bash` `background: true` returns a process id; a command at its time limit moves to the background instead of being killed
+  - [ ] `process` tool: list, output (new lines or search), input (asks like `bash`), interrupt, stop, wait for a line or exit; background processes get an input pipe
+  - [ ] A process outlives the turn and Stop; the dock's Stop, archiving the conversation and quitting Drift end it
+  - [ ] Processes in the Background tasks dock with the background tag, live last line and Stop
+  - [ ] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
+- [ ] Worktrees: per-thread toggle at start; branch `drift/<name>` from the current commit under Drift's data; uncommitted changes not copied (said so); spawned threads inherit; never merged by Drift; purged with the thread when merged, asked otherwise
+- [ ] `/watch-pr`: poll through `gh` about once a minute, wake the thread on CI failure or a review comment, stop at merge, close or the fifth wake
+
+### Later, each needs its own design round
+
+- [ ] Computer use: see and drive app windows (`docs/research/drift-versatility-2.0.2.md`)
+- [ ] Audio and video as evidence the model can use (same report)
+- [ ] Remote execution targets (same report)
+- [ ] Deferred MCP tool schemas, only if a workspace still sends more than about 30 KB of them (`docs/research/claude-agent-quality-2.0.2.md`)
+- [ ] Pin the user's own corrections through compaction, once there is a rule for when a new goal retires them (same report)
+
+## Parity with Claude Code, Codex and opencode
+
+- [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API
+- [ ] Plugins add tools: a WIT export declaring tools (name, description, input schema) and a call entry, offered and permission-checked like built-in tools
+- [ ] `/review`: diff against a chosen ref (default the merge-base with the default branch) reviewed by a read-only agent
+- [ ] `/security-review`: the same flow with a security-focused prompt
+- [ ] Headless one-shot mode: run one prompt against a workspace from the command line and exit (as `claude -p`, `codex exec`, `opencode run`), with plain text or JSON event output for scripts and CI
+- [ ] `/init` that interviews instead of generating: asks the user for build and test commands, conventions and no-go areas, and writes only their answers to `AGENTS.md`, about 30 lines at most, with no summary of the codebase (generated instruction files tend to be long and make results worse)
+
+## Readability and tooling pass
+
+- [x] Rust 2024 on a pinned toolchain; rustfmt and Prettier at 120 columns; ESLint (import order, complexity 15, Solid reactivity); clippy thresholds and `[workspace.lints]`
+- [x] Gates check formatting; CI on `next/**` and pull requests with typos, cargo-deny, cargo-machete and nextest; `drift.json` checks TypeScript with ESLint
+- [x] Source-text tests compare code, not layout (`tests/source.ts`)
+- [x] Typed tool-call metadata (`ToolMetadata`), same JSON, typed in the generated client
+- [x] Shell, importer and headless crates: workspace lints, typed errors, split files, grouped blocks
+- [x] ESLint clean, then in the gates and CI
+- [x] Engine: workspace lints (parameter structs, split functions, `SAFETY` notes), `session/turn.rs` split, typed errors
+- [x] UI speaks the native engine: `shapes.ts` and `native/adapt.ts` removed
+- [x] knip clean and in CI
+- [x] Large UI files split (`settings.tsx`, `parts.tsx`, `chat.tsx`, `markdown.tsx`, `composer.tsx`)
+- [x] Statements grouped into labelled blocks across the engine, UI and tests

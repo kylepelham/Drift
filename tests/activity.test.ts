@@ -1,968 +1,1095 @@
-import { expect, test } from "bun:test"
-import type { Event } from "../src/engine/shapes"
-import { reduce } from "../src/engine/events"
-import { createEngineState } from "../src/engine/store"
+import { createEngineState } from "../src/engine/store";
+import { reduce } from "../src/engine/events";
+import { expect, test } from "bun:test";
+
+import type { components } from "../src/engine/native/types";
+import type * as SolidStore from "solid-js/store";
+import type * as Solid from "solid-js";
 
 if (!("localStorage" in globalThis))
-  Object.defineProperty(globalThis, "localStorage", {
-    value: { getItem: () => null, setItem: () => undefined },
-  })
+    Object.defineProperty(globalThis, "localStorage", {
+        value: { getItem: () => null, setItem: () => undefined },
+    });
 
-const toolEvent = (partId: string, tool: string, status: string): Event =>
-  ({
-    type: "message.part.updated",
-    properties: {
-      part: { id: partId, sessionID: "child", messageID: "m1", type: "tool", tool, state: { status } },
+type Event = components["schemas"]["Event"];
+
+const toolEvent = (partId: string, tool: string, status: "pending" | "running" | "completed"): Event => ({
+    type: "part.updated",
+    part: {
+        id: partId,
+        sessionId: "child",
+        messageId: "m1",
+        type: "tool_call",
+        name: tool,
+        callId: partId,
+        input: {},
+        status: status === "completed" ? "done" : status,
     },
-  }) as unknown as Event
+});
 
-test("session.updated clears revert and share keys the engine dropped", () => {
-  const [state, set] = createEngineState()
-  const updated = (info: Record<string, unknown>): Event =>
-    ({ type: "session.updated", properties: { info } }) as unknown as Event
-  reduce(set, updated({ id: "s1", title: "t", revert: { messageID: "m5" }, share: { url: "u" } }))
-  expect(state.sessions["s1"].revert?.messageID).toBe("m5")
-  reduce(set, updated({ id: "s1", title: "t" }))
-  expect(state.sessions["s1"].revert).toBeUndefined()
-  expect(state.sessions["s1"].share).toBeUndefined()
-})
+test("session.updated clears the revert marker the engine dropped", () => {
+    const [state, set] = createEngineState();
+    const session: components["schemas"]["Session"] = {
+        id: "s1",
+        title: "t",
+        workspaceId: "w1",
+        visibility: "sibling",
+        agent: "build",
+        createdAt: 1,
+        updatedAt: 1,
+    };
+    reduce(set, { type: "session.updated", session: { ...session, revert: { messageId: "m5" } } });
+    expect(state.sessions["s1"].revert?.messageId).toBe("m5");
+    reduce(set, { type: "session.updated", session });
+    expect(state.sessions["s1"].revert).toBeUndefined();
+});
 
 test("fixEscapedEmphasis lets path-ending emphasis close without touching escapes or code", async () => {
-  const { fixEscapedEmphasis } = await import("../src/ui/markdown")
-  expect(fixEscapedEmphasis("*C:\\* (30 entries)")).toBe("*C:\\\\* (30 entries)")
-  expect(fixEscapedEmphasis("**S:\\Personal\\Drift\\** done")).toBe("**S:\\Personal\\Drift\\\\** done")
-  expect(fixEscapedEmphasis("`**C:\\**` and ```\nS:\\**\n```")).toBe("`**C:\\**` and ```\nS:\\**\n```")
-  expect(fixEscapedEmphasis("literal \\*star\\* stays and 5 \\* 3")).toBe("literal \\*star\\* stays and 5 \\* 3")
-})
+    const { fixEscapedEmphasis } = await import("../src/ui/markdown");
+    expect(fixEscapedEmphasis("*C:\\* (30 entries)")).toBe("*C:\\\\* (30 entries)");
+    expect(fixEscapedEmphasis("**S:\\Personal\\Drift\\** done")).toBe("**S:\\Personal\\Drift\\\\** done");
+    expect(fixEscapedEmphasis("`**C:\\**` and ```\nS:\\**\n```")).toBe("`**C:\\**` and ```\nS:\\**\n```");
+    expect(fixEscapedEmphasis("literal \\*star\\* stays and 5 \\* 3")).toBe("literal \\*star\\* stays and 5 \\* 3");
+});
 
 test("markdown escapes the unclosed HTML tag that enlarged the rest of a stored response", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  const response =
-    'contains the game title in an <h1 class="post-title">. A 404 won\'t.\n\nLet me check the lengths.'
-  expect(prepareMarkdown(response)).toBe(
-    'contains the game title in an &lt;h1 class="post-title"&gt;. A 404 won\'t.\n\nLet me check the lengths.',
-  )
-})
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    const response =
+        'contains the game title in an <h1 class="post-title">. A 404 won\'t.\n\nLet me check the lengths.';
+    expect(prepareMarkdown(response)).toBe(
+        'contains the game title in an &lt;h1 class="post-title"&gt;. A 404 won\'t.\n\nLet me check the lengths.',
+    );
+});
 
 test("markdown preserves balanced, void, and code-fenced HTML", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  expect(prepareMarkdown("<details><summary>More</summary>Text</details><br>")).toBe(
-    "<details><summary>More</summary>Text</details><br>",
-  )
-  expect(prepareMarkdown("`<h1>`\n```html\n<h2>Example</h2>\n```")).toBe(
-    "`<h1>`\n```html\n<h2>Example</h2>\n```",
-  )
-  expect(prepareMarkdown("orphan </strong> text")).toBe("orphan &lt;/strong&gt; text")
-})
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    expect(prepareMarkdown("<details><summary>More</summary>Text</details><br>")).toBe(
+        "<details><summary>More</summary>Text</details><br>",
+    );
+    expect(prepareMarkdown("`<h1>`\n```html\n<h2>Example</h2>\n```")).toBe("`<h1>`\n```html\n<h2>Example</h2>\n```");
+    expect(prepareMarkdown("orphan </strong> text")).toBe("orphan &lt;/strong&gt; text");
+});
 
 test("markdown preserves tilde fences and multi-backtick code spans", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  expect(prepareMarkdown("~~~html\n<h1>Example\n~~~\nafter")).toBe("~~~html\n<h1>Example\n~~~\nafter")
-  expect(prepareMarkdown("Use ``<h1>`literal`</h1>`` here")).toBe("Use ``<h1>`literal`</h1>`` here")
-})
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    expect(prepareMarkdown("~~~html\n<h1>Example\n~~~\nafter")).toBe("~~~html\n<h1>Example\n~~~\nafter");
+    expect(prepareMarkdown("Use ``<h1>`literal`</h1>`` here")).toBe("Use ``<h1>`literal`</h1>`` here");
+});
 
 test("streaming highlights closed fences and defers only the open one", async () => {
-  const { endsInsideFence } = await import("../src/ui/markdown")
-  // A closed block earlier in a still-streaming answer is highlightable immediately.
-  expect(endsInsideFence("```ts\nconst value = 1\n```\n\nprose after")).toBeFalse()
-  expect(endsInsideFence("```ts\nconst value = 1\n```\n\n```rust\nfn main() {")).toBeTrue()
-  expect(endsInsideFence("```ts\nconst value = 1\n")).toBeTrue()
-  expect(endsInsideFence("~~~py\nvalue = 1\n~~~")).toBeFalse()
-  // A longer opener needs an equally long closer, and inline spans never open a block.
-  expect(endsInsideFence("````md\n```\ninner\n```\n")).toBeTrue()
-  expect(endsInsideFence("````md\n```\ninner\n```\n````")).toBeFalse()
-  expect(endsInsideFence("text with `inline` code")).toBeFalse()
-  expect(endsInsideFence("```ts something ` odd\ncode")).toBeFalse()
-})
+    const { endsInsideFence } = await import("../src/ui/markdown");
+    // A closed block earlier in a still-streaming answer is highlightable immediately.
+    expect(endsInsideFence("```ts\nconst value = 1\n```\n\nprose after")).toBeFalse();
+    expect(endsInsideFence("```ts\nconst value = 1\n```\n\n```rust\nfn main() {")).toBeTrue();
+    expect(endsInsideFence("```ts\nconst value = 1\n")).toBeTrue();
+    expect(endsInsideFence("~~~py\nvalue = 1\n~~~")).toBeFalse();
+    // A longer opener needs an equally long closer, and inline spans never open a block.
+    expect(endsInsideFence("````md\n```\ninner\n```\n")).toBeTrue();
+    expect(endsInsideFence("````md\n```\ninner\n```\n````")).toBeFalse();
+    expect(endsInsideFence("text with `inline` code")).toBeFalse();
+    expect(endsInsideFence("```ts something ` odd\ncode")).toBeFalse();
+});
 
 test("streaming tables bound incomplete links and preserve completed anchors", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  const { marked } = await import("marked")
-  const url = `https://example.com/${"long-segment".repeat(20)}`
-  const prefix = "| Resource | State |\n| --- | --- |\n"
-  const incomplete = marked.parse(prepareMarkdown(`${prefix}| [documentation](${url} | loading |`), { async: false })
-  const complete = marked.parse(prepareMarkdown(`${prefix}| [documentation](${url}) | ready |`), { async: false })
-  expect(incomplete).toContain("<table>")
-  expect(incomplete).toContain(url)
-  expect(incomplete).toContain(`>${url}</a>`)
-  expect(complete).toContain(`<a href="${url}">documentation</a>`)
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    const { marked } = await import("marked");
+    const url = `https://example.com/${"long-segment".repeat(20)}`;
+    const prefix = "| Resource | State |\n| --- | --- |\n";
+    const incomplete = marked.parse(prepareMarkdown(`${prefix}| [documentation](${url} | loading |`), { async: false });
+    const complete = marked.parse(prepareMarkdown(`${prefix}| [documentation](${url}) | ready |`), { async: false });
+    expect(incomplete).toContain("<table>");
+    expect(incomplete).toContain(url);
+    expect(incomplete).toContain(`>${url}</a>`);
+    expect(complete).toContain(`<a href="${url}">documentation</a>`);
 
-  const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
-  expect(css).toMatch(/\.md :where\(table\) \{[^}]*width: 100%;[^}]*table-layout: fixed;/s)
-  expect(css).toMatch(/\.md :where\(th, td\) \{[^}]*overflow-wrap: anywhere;/s)
-})
+    const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
+    expect(css).toMatch(/\.md :where\(table\) \{[^}]*width: 100%;[^}]*table-layout: fixed;/s);
+    expect(css).toMatch(/\.md :where\(th, td\) \{[^}]*overflow-wrap: anywhere;/s);
+});
 
 test("user markdown preserves literal Windows path backslashes", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  expect(prepareMarkdown("Open \\\\server\\share\\folder", true)).toBe(
-    "Open &#92;&#92;server&#92;share&#92;folder",
-  )
-  expect(prepareMarkdown("`\\\\server\\share` and ```text\nC:\\work\n```", true)).toBe(
-    "`\\\\server\\share` and ```text\nC:\\work\n```",
-  )
-})
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    expect(prepareMarkdown("Open \\\\server\\share\\folder", true)).toBe("Open &#92;&#92;server&#92;share&#92;folder");
+    expect(prepareMarkdown("`\\\\server\\share` and ```text\nC:\\work\n```", true)).toBe(
+        "`\\\\server\\share` and ```text\nC:\\work\n```",
+    );
+});
 
 test("human-typed prose keeps accidental block markers literal", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  expect(prepareMarkdown("> quoted", true)).toBe("&gt; quoted")
-  expect(prepareMarkdown(">> continued", true)).toBe("&gt;> continued")
-  expect(prepareMarkdown("# comment", true)).toBe("&#35; comment")
-  expect(prepareMarkdown("#!/bin/sh", true)).toBe("#!/bin/sh")
-  expect(prepareMarkdown("-----", true)).toBe("&#45;----")
-  expect(prepareMarkdown("=====", true)).toBe("&#61;====")
-  expect(prepareMarkdown("snake_case_name and *glob*", true)).toBe("snake&#95;case&#95;name and &#42;glob&#42;")
-  expect(prepareMarkdown("~~kept~~", true)).toBe("&#126;&#126;kept&#126;&#126;")
-})
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    expect(prepareMarkdown("> quoted", true)).toBe("&gt; quoted");
+    expect(prepareMarkdown(">> continued", true)).toBe("&gt;> continued");
+    expect(prepareMarkdown("# comment", true)).toBe("&#35; comment");
+    expect(prepareMarkdown("#!/bin/sh", true)).toBe("#!/bin/sh");
+    expect(prepareMarkdown("-----", true)).toBe("&#45;----");
+    expect(prepareMarkdown("=====", true)).toBe("&#61;====");
+    expect(prepareMarkdown("snake_case_name and *glob*", true)).toBe("snake&#95;case&#95;name and &#42;glob&#42;");
+    expect(prepareMarkdown("~~kept~~", true)).toBe("&#126;&#126;kept&#126;&#126;");
+});
 
 test("human-typed prose renders shell transcripts and separators as written", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  const { marked } = await import("marked")
-  const url = "https://example.test/api/a_b?id=42"
-  const transcript = [`PS C:\\Demo> probe ${url}`, ">> retrying with diagnostic headers", `403 ${url}`].join("\n")
-  const html = marked.parse(prepareMarkdown(transcript, true), { async: false })
-  expect(html).not.toContain("<blockquote>")
-  expect(html).toContain(`href="${url}"`)
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    const { marked } = await import("marked");
+    const url = "https://example.test/api/a_b?id=42";
+    const transcript = [`PS C:\\Demo> probe ${url}`, ">> retrying with diagnostic headers", `403 ${url}`].join("\n");
+    const html = marked.parse(prepareMarkdown(transcript, true), { async: false });
+    expect(html).not.toContain("<blockquote>");
+    expect(html).toContain(`href="${url}"`);
 
-  const notes = marked.parse(prepareMarkdown("Deployment notes\n----------------\nRestart it.", true), {
-    async: false,
-  })
-  expect(notes).not.toContain("<hr")
-  expect(notes).not.toContain("<h1")
-  expect(notes).not.toContain("<h2")
-  expect(notes).toContain("Deployment notes")
-})
+    const notes = marked.parse(prepareMarkdown("Deployment notes\n----------------\nRestart it.", true), {
+        async: false,
+    });
+    expect(notes).not.toContain("<hr");
+    expect(notes).not.toContain("<h1");
+    expect(notes).not.toContain("<h2");
+    expect(notes).toContain("Deployment notes");
+});
 
 test("human-typed prose keeps pasted markup literal", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  const { marked } = await import("marked")
-  const paste = "<configuration>\n  <system.webServer>\n    <rewrite />\n  </system.webServer>\n</configuration>"
-  const html = marked.parse(prepareMarkdown(paste, true), { async: false })
-  expect(html).not.toMatch(/<(configuration|system\.webServer|rewrite)/)
-  expect(html).toContain("&lt;configuration")
-  const fenced = "```xml\n<configuration />\n```"
-  expect(prepareMarkdown(fenced, true)).toBe(fenced)
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    const { marked } = await import("marked");
+    const paste = "<configuration>\n  <system.webServer>\n    <rewrite />\n  </system.webServer>\n</configuration>";
+    const html = marked.parse(prepareMarkdown(paste, true), { async: false });
+    expect(html).not.toMatch(/<(configuration|system\.webServer|rewrite)/);
+    expect(html).toContain("&lt;configuration");
+    const fenced = "```xml\n<configuration />\n```";
+    expect(prepareMarkdown(fenced, true)).toBe(fenced);
 
-  const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
-  expect(css).not.toMatch(/\.user-paste \{[^}]*max-height:/s)
-  expect(css).toMatch(/\.transcript-scroll \{[^}]*overflow-anchor: none/s)
-  expect(css).not.toMatch(/\.timeline-thinking \{[^}]*padding-bottom:/s)
-})
+    const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
+    expect(css).not.toMatch(/\.user-paste \{[^}]*max-height:/s);
+    expect(css).toMatch(/\.transcript-scroll \{[^}]*overflow-anchor: none/s);
+    expect(css).not.toMatch(/\.timeline-thinking \{[^}]*padding-bottom:/s);
+});
 
 test("human-typed prose still renders deliberate fences and tables", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  const { marked } = await import("marked")
-  const fenced = "```powershell\n> $value = 1\n-----\n```"
-  expect(prepareMarkdown(fenced, true)).toBe(fenced)
-  const table = marked.parse(prepareMarkdown("| Name | State |\n| --- | --- |\n| a_b | ok |", true), { async: false })
-  expect(table).toContain("<table>")
-  expect(table).toContain("<td>a&#95;b</td>")
-})
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    const { marked } = await import("marked");
+    const fenced = "```powershell\n> $value = 1\n-----\n```";
+    expect(prepareMarkdown(fenced, true)).toBe(fenced);
+
+    const table = marked.parse(prepareMarkdown("| Name | State |\n| --- | --- |\n| a_b | ok |", true), {
+        async: false,
+    });
+    expect(table).toContain("<table>");
+    expect(table).toContain("<td>a&#95;b</td>");
+});
 
 test("standalone large numbers stay prose while numbered runs remain lists", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  const { marked } = await import("marked")
-  expect(prepareMarkdown("20456. it")).toBe("20456\\. it")
-  expect(prepareMarkdown("3500000.")).toBe("3500000\\.")
-  expect(prepareMarkdown("1234567. and then text", true)).toBe("1234567\\. and then text")
-  expect(prepareMarkdown("1. first\n2. second\n3. third")).toBe("1. first\n2. second\n3. third")
-  expect(prepareMarkdown("12. step one\n13. step two")).toBe("12. step one\n13. step two")
-  expect(prepareMarkdown("```\n20456. case\n```")).toBe("```\n20456. case\n```")
-  expect(marked.parse(prepareMarkdown("Pasted id:\n\n20456. it"), { async: false })).not.toContain("<ol")
-  expect(marked.parse(prepareMarkdown("12. step one\n13. step two"), { async: false })).toContain('<ol start="12"')
-  // Interleaved prose keeps each number's neighbours positional, not adjacent by line.
-  expect(prepareMarkdown("intro\n12. step one\nnote\n13. step two")).toBe("intro\n12. step one\nnote\n13. step two")
-  expect(prepareMarkdown("20456. it\nnote\n88. other")).toBe("20456\\. it\nnote\n88\\. other")
-  expect(prepareMarkdown("1. first\nnote\n20456. it")).toBe("1. first\nnote\n20456\\. it")
-  // An inline code span inside an item must not cut the sequence: `3.` still has `2.` before it.
-  const spanned = "1. one\n2. calls `SetCursor`, which fails\n3. three"
-  expect(prepareMarkdown(spanned)).toBe(spanned)
-  expect(marked.parse(prepareMarkdown(spanned), { async: false }).match(/<li>/g)).toHaveLength(3)
-  // Fenced blocks still shield their contents, and a sequence resumes across one.
-  const fencedRun = "1. one\n```\n99. not a step\n```\n2. two"
-  expect(prepareMarkdown(fencedRun)).toBe(fencedRun)
-  expect(prepareMarkdown("```\n5. a\n```\n6. b")).toBe("```\n5. a\n```\n6\\. b")
-})
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    const { marked } = await import("marked");
+
+    expect(prepareMarkdown("20456. it")).toBe("20456\\. it");
+    expect(prepareMarkdown("3500000.")).toBe("3500000\\.");
+    expect(prepareMarkdown("1234567. and then text", true)).toBe("1234567\\. and then text");
+    expect(prepareMarkdown("1. first\n2. second\n3. third")).toBe("1. first\n2. second\n3. third");
+    expect(prepareMarkdown("12. step one\n13. step two")).toBe("12. step one\n13. step two");
+    expect(prepareMarkdown("```\n20456. case\n```")).toBe("```\n20456. case\n```");
+    expect(marked.parse(prepareMarkdown("Pasted id:\n\n20456. it"), { async: false })).not.toContain("<ol");
+    expect(marked.parse(prepareMarkdown("12. step one\n13. step two"), { async: false })).toContain('<ol start="12"');
+    // Interleaved prose keeps each number's neighbours positional, not adjacent by line.
+    expect(prepareMarkdown("intro\n12. step one\nnote\n13. step two")).toBe("intro\n12. step one\nnote\n13. step two");
+    expect(prepareMarkdown("20456. it\nnote\n88. other")).toBe("20456\\. it\nnote\n88\\. other");
+    expect(prepareMarkdown("1. first\nnote\n20456. it")).toBe("1. first\nnote\n20456\\. it");
+
+    // An inline code span inside an item must not cut the sequence: `3.` still has `2.` before it.
+    const spanned = "1. one\n2. calls `SetCursor`, which fails\n3. three";
+    expect(prepareMarkdown(spanned)).toBe(spanned);
+    expect(marked.parse(prepareMarkdown(spanned), { async: false }).match(/<li>/g)).toHaveLength(3);
+
+    // Fenced blocks still shield their contents, and a sequence resumes across one.
+    const fencedRun = "1. one\n```\n99. not a step\n```\n2. two";
+    expect(prepareMarkdown(fencedRun)).toBe(fencedRun);
+    expect(prepareMarkdown("```\n5. a\n```\n6. b")).toBe("```\n5. a\n```\n6\\. b");
+});
 
 test("generated user-role seed prompts keep full markdown", async () => {
-  const { prepareMarkdown } = await import("../src/ui/markdown")
-  const seed = "## Carried context\nUse the *active* summary."
-  expect(prepareMarkdown(seed)).toBe(seed)
-})
+    const { prepareMarkdown } = await import("../src/ui/markdown");
+    const seed = "## Carried context\nUse the *active* summary.";
+    expect(prepareMarkdown(seed)).toBe(seed);
+});
 
 test("progressive code chunks retain the complete file", async () => {
-  const { codeChunks } = await import("../src/ui/markdown")
-  const code = Array.from({ length: 401 }, (_, index) => `line ${index + 1}`).join("\n")
-  expect(codeChunks(code).length).toBe(3)
-  expect(codeChunks(code).join("\n")).toBe(code)
-})
+    const { codeChunks } = await import("../src/ui/markdown");
+    const code = Array.from({ length: 401 }, (_, index) => `line ${index + 1}`).join("\n");
+    expect(codeChunks(code).length).toBe(3);
+    expect(codeChunks(code).join("\n")).toBe(code);
+});
 
 test("diff parsing does not invent a context row for the trailing newline", async () => {
-  const { parseDiff } = await import("../src/ui/parts")
-  expect(parseDiff("@@ -4,1 +4,1 @@\n-old\n+new\n")).toEqual([
-    { kind: "del", line: 4, text: "old" },
-    { kind: "add", line: 4, text: "new" },
-  ])
-})
+    const { parseDiff } = await import("../src/ui/diff-panel");
+    expect(parseDiff("@@ -4,1 +4,1 @@\n-old\n+new\n")).toEqual([
+        { kind: "del", line: 4, text: "old" },
+        { kind: "add", line: 4, text: "new" },
+    ]);
+});
 
 test("diff parsing distinguishes file headers from source lines and separates hunks", async () => {
-  const { parseDiff } = await import("../src/ui/parts")
-  const diff = [
-    "diff --git a/file b/file",
-    "--- a/file",
-    "+++ b/file",
-    "@@ -1,2 +1,2 @@",
-    "---flag",
-    "+++flag",
-    " keep",
-    "--- a/other",
-    "+++ b/other",
-    "@@ -10 +10 @@",
-    "-old",
-    "+new",
-    "",
-  ].join("\n")
-  expect(parseDiff(diff)).toEqual([
-    { kind: "del", line: 1, text: "--flag" },
-    { kind: "add", line: 1, text: "++flag" },
-    { kind: "ctx", line: 2, text: "keep" },
-    { kind: "gap", text: "" },
-    { kind: "del", line: 10, text: "old" },
-    { kind: "add", line: 10, text: "new" },
-  ])
-})
+    const { parseDiff } = await import("../src/ui/diff-panel");
+    const diff = [
+        "diff --git a/file b/file",
+        "--- a/file",
+        "+++ b/file",
+        "@@ -1,2 +1,2 @@",
+        "---flag",
+        "+++flag",
+        " keep",
+        "--- a/other",
+        "+++ b/other",
+        "@@ -10 +10 @@",
+        "-old",
+        "+new",
+        "",
+    ].join("\n");
+    expect(parseDiff(diff)).toEqual([
+        { kind: "del", line: 1, text: "--flag" },
+        { kind: "add", line: 1, text: "++flag" },
+        { kind: "ctx", line: 2, text: "keep" },
+        { kind: "gap", text: "" },
+        { kind: "del", line: 10, text: "old" },
+        { kind: "add", line: 10, text: "new" },
+    ]);
+});
 
 test("diff highlighting is keyed by content so redraws keep their colours", async () => {
-  const { diffHighlightKey, parseDiff } = await import("../src/ui/parts")
-  const filename = "C:\\repo\\src\\state\\mcp.ts"
-  const language = { filename, value: "typescript" }
-  const diff = "@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n"
-  const code = (input: string) => parseDiff(input).map((row) => row.text).join("\n")
+    const { diffHighlightKey, parseDiff } = await import("../src/ui/diff-panel");
+    const filename = "C:\\repo\\src\\state\\mcp.ts";
+    const language = { filename, value: "typescript" };
+    const diff = "@@ -1,2 +1,2 @@\n-const a = 1\n+const a = 2\n";
+    const code = (input: string) =>
+        parseDiff(input)
+            .map((row) => row.text)
+            .join("\n");
 
-  // Re-parsing the same diff produces fresh row objects, which must not count as new work.
-  const first = diffHighlightKey("github-dark-default", language, filename, code(diff))
-  expect(diffHighlightKey("github-dark-default", language, filename, code(diff))).toBe(first)
-  expect(first).not.toBe("")
+    // Re-parsing the same diff produces fresh row objects, which must not count as new work.
+    const first = diffHighlightKey("github-dark-default", language, filename, code(diff));
+    expect(diffHighlightKey("github-dark-default", language, filename, code(diff))).toBe(first);
+    expect(first).not.toBe("");
 
-  // Anything that changes the rendered colours has to produce a different key.
-  expect(diffHighlightKey("nord", language, filename, code(diff))).not.toBe(first)
-  expect(diffHighlightKey("github-dark-default", { filename, value: "text" }, filename, code(diff))).not.toBe(first)
-  expect(
-    diffHighlightKey("github-dark-default", language, filename, code("@@ -1,1 +1,1 @@\n-const a = 1\n+const a = 3\n")),
-  ).not.toBe(first)
+    // Anything that changes the rendered colours has to produce a different key.
+    expect(diffHighlightKey("nord", language, filename, code(diff))).not.toBe(first);
+    expect(diffHighlightKey("github-dark-default", { filename, value: "text" }, filename, code(diff))).not.toBe(first);
+    expect(
+        diffHighlightKey(
+            "github-dark-default",
+            language,
+            filename,
+            code("@@ -1,1 +1,1 @@\n-const a = 1\n+const a = 3\n"),
+        ),
+    ).not.toBe(first);
 
-  // An unresolved language, or one resolved for the previous file, highlights nothing.
-  expect(diffHighlightKey("github-dark-default", undefined, filename, code(diff))).toBe("")
-  expect(
-    diffHighlightKey("github-dark-default", { filename: "C:\\repo\\other.ts", value: "typescript" }, filename, code(diff)),
-  ).toBe("")
-})
+    // An unresolved language, or one resolved for the previous file, highlights nothing.
+    expect(diffHighlightKey("github-dark-default", undefined, filename, code(diff))).toBe("");
+    expect(
+        diffHighlightKey(
+            "github-dark-default",
+            { filename: "C:\\repo\\other.ts", value: "typescript" },
+            filename,
+            code(diff),
+        ),
+    ).toBe("");
+});
 
 test("Shiki promise caches evict by approximate size and retry failures", async () => {
-  const { AsyncSizeCache } = await import("../src/ui/markdown")
-  const cache = new AsyncSizeCache<string>(10, (value) => value.length)
-  await cache.set("first", 3, Promise.resolve("1234"))
-  await cache.set("second", 3, Promise.resolve("5678"))
-  expect(cache.size).toBeLessThanOrEqual(10)
-  expect(cache.count).toBe(1)
-  expect(cache.get("first")).toBeUndefined()
-  expect(await cache.get("second")).toBe("5678")
+    const { AsyncSizeCache } = await import("../src/ui/markdown");
+    const cache = new AsyncSizeCache<string>(10, (value) => value.length);
+    await cache.set("first", 3, Promise.resolve("1234"));
+    await cache.set("second", 3, Promise.resolve("5678"));
+    expect(cache.size).toBeLessThanOrEqual(10);
+    expect(cache.count).toBe(1);
+    expect(cache.get("first")).toBeUndefined();
+    expect(await cache.get("second")).toBe("5678");
 
-  const failure = cache.set("failure", 1, Promise.reject(new Error("highlight failed")))
-  await failure.catch(() => undefined)
-  expect(cache.get("failure")).toBeUndefined()
-  cache.set("oversized", 11, Promise.resolve("x"))
-  expect(cache.get("oversized")).toBeUndefined()
-})
+    const failure = cache.set("failure", 1, Promise.reject(new Error("highlight failed")));
+    await failure.catch(() => undefined);
+    expect(cache.get("failure")).toBeUndefined();
+    cache.set("oversized", 11, Promise.resolve("x"));
+    expect(cache.get("oversized")).toBeUndefined();
+});
 
 test("taskBody extracts prompt and task_result for task cards", async () => {
-  const { taskBody } = await import("../src/ui/parts")
-  const part = (tool: string, input: Record<string, string>, output: string) =>
-    ({ tool, state: { status: "completed", input, output } }) as never
-  expect(taskBody(part("task", { prompt: "do x" }, "<task id=\"s1\" state=\"completed\">\n<task_result>\nall done\n</task_result>\n</task>"))).toEqual({
-    prompt: "do x",
-    result: "all done",
-  })
-  expect(taskBody(part("spawn_thread", { task: "spin off" }, "Spawned thread ok"))).toEqual({
-    prompt: "spin off",
-    result: "Spawned thread ok",
-  })
-  expect(taskBody(part("task", { prompt: "find" }, "in parser.rs\n\n(task_id: task_1; pass it to task to continue this subagent's conversation)"))).toEqual({
-    prompt: "find",
-    result: "in parser.rs",
-  })
-  expect(taskBody(part("bash", {}, "x"))).toBeNull()
-})
+    const { taskBody } = await import("../src/ui/tool-body");
+    const part = (tool: string, input: Record<string, string>, output: string) =>
+        ({ name: tool, status: "done", input, output }) as never;
+    expect(
+        taskBody(
+            part(
+                "task",
+                { prompt: "do x" },
+                '<task id="s1" state="completed">\n<task_result>\nall done\n</task_result>\n</task>',
+            ),
+        ),
+    ).toEqual({
+        prompt: "do x",
+        result: "all done",
+    });
+    expect(taskBody(part("spawn_thread", { task: "spin off" }, "Spawned thread ok"))).toEqual({
+        prompt: "spin off",
+        result: "Spawned thread ok",
+    });
+    expect(
+        taskBody(
+            part(
+                "task",
+                { prompt: "find" },
+                "in parser.rs\n\n(task_id: task_1; pass it to task to continue this subagent's conversation)",
+            ),
+        ),
+    ).toEqual({
+        prompt: "find",
+        result: "in parser.rs",
+    });
+    expect(taskBody(part("bash", {}, "x"))).toBeNull();
+});
 
 test("task headings retain the agent and task title", async () => {
-  const { taskHeading } = await import("../src/ui/parts")
-  expect(taskHeading("explore", "Map settings translations")).toBe("Explore Map settings translations")
-  expect(taskHeading("general")).toBe("General")
-})
+    const { taskHeading } = await import("../src/ui/tool-labels");
+    expect(taskHeading("explore", "Map settings translations")).toBe("Explore Map settings translations");
+    expect(taskHeading("general")).toBe("General");
+});
 
 test("compaction-only user messages retain their delimiter part", async () => {
-  const { compactionParts } = await import("../src/ui/message")
-  const entry = {
-    info: { id: "m1", role: "user", sessionID: "s1" },
-    parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: true }],
-  } as never
-  expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"])
-})
+    const { compactionParts } = await import("../src/ui/message");
+    const entry = {
+        info: { id: "m1", role: "user", sessionID: "s1" },
+        parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: true }],
+    } as never;
+    expect(compactionParts(entry).map((part) => part.id)).toEqual(["p1"]);
+});
 
 test("a compaction draws one marker: the summary row, or the prompt's divider only while there is none", async () => {
-  const { boundaryCompactions } = await import("../src/ui/message")
-  const entry = {
-    info: { id: "m1", role: "user", sessionID: "s1" },
-    parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: false }],
-  } as never
-  expect(boundaryCompactions(entry, true, false)).toEqual([])
-  expect(boundaryCompactions(entry, true, true).length).toBe(1)
-  expect(boundaryCompactions(entry, false, false).length).toBe(1)
-})
+    const { boundaryCompactions } = await import("../src/ui/message");
+    const entry = {
+        info: { id: "m1", role: "user", sessionID: "s1" },
+        parts: [{ id: "p1", messageID: "m1", sessionID: "s1", type: "compaction", auto: false }],
+    } as never;
+    expect(boundaryCompactions(entry, true, false)).toEqual([]);
+    expect(boundaryCompactions(entry, true, true).length).toBe(1);
+    expect(boundaryCompactions(entry, false, false).length).toBe(1);
+});
 
 test("loaded stale tool states become interrupted without mutating live or completed parts", async () => {
-  const { interruptStaleTools } = await import("../src/engine/store")
-  const tool = (id: string, status: "pending" | "running" | "completed", messageID = "a1") =>
-    ({
-      id,
-      sessionID: "s1",
-      messageID,
-      type: "tool",
-      callID: id,
-      tool: "bash",
-      state:
-        status === "pending"
-          ? { status, input: {}, raw: "" }
-          : status === "running"
-          ? { status, input: {}, time: { start: 2 } }
-          : { status, input: {}, output: "ok", title: "", metadata: {}, time: { start: 2, end: 3 } },
-    }) as never
-  const entry = {
-    info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
-    parts: [tool("stale", "running"), tool("pending", "pending"), tool("done", "completed")],
-  } as never
+    const { interruptStaleTools } = await import("../src/engine/store");
+    const tool = (id: string, status: "pending" | "running" | "completed", messageID = "a1") =>
+        ({
+            id,
+            sessionId: "s1",
+            messageId: messageID,
+            type: "tool_call",
+            callId: id,
+            name: "bash",
+            status: status === "completed" ? "done" : status,
+            input: {},
+            output: status === "completed" ? "ok" : undefined,
+            startedAt: status === "pending" ? undefined : 2,
+            finishedAt: status === "completed" ? 3 : undefined,
+        }) as never;
+    const entry = {
+        info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
+        parts: [tool("stale", "running"), tool("pending", "pending"), tool("done", "completed")],
+    } as never;
 
-  expect(interruptStaleTools([entry], { stale: "s1", pending: "s1" }, "Interrupted")[0]).toBe(entry)
-  const interrupted = interruptStaleTools([entry], {}, "Interrupted")[0]
-  expect((interrupted.parts[0] as { state: { status: string; error: string } }).state).toMatchObject({
-    status: "error",
-    error: "Interrupted",
-  })
-  expect((interrupted.parts[1] as { state: { status: string; error: string } }).state).toMatchObject({
-    status: "error",
-    error: "Interrupted",
-  })
-  expect((interrupted.parts[1] as { state: Record<string, unknown> }).state).not.toHaveProperty("time")
-  expect((interrupted.parts[0] as { state: { time: { start: number; end: number } } }).state.time).toEqual({
-    start: 2,
-    end: 2,
-  })
-  expect((interrupted.parts[2] as { state: { status: string } }).state.status).toBe("completed")
-  expect((entry.parts[0] as { state: { status: string } }).state.status).toBe("running")
+    expect(interruptStaleTools([entry], { stale: "s1", pending: "s1" }, "Interrupted")[0]).toBe(entry);
+    const interrupted = interruptStaleTools([entry], {}, "Interrupted")[0];
+    expect(interrupted.parts[0]).toMatchObject({
+        status: "error",
+        output: "Interrupted",
+    });
+    expect(interrupted.parts[1]).toMatchObject({
+        status: "error",
+        output: "Interrupted",
+    });
+    expect(interrupted.parts[1]).toMatchObject({ startedAt: undefined, finishedAt: undefined });
+    expect(interrupted.parts[0]).toMatchObject({ startedAt: 2, finishedAt: 2 });
+    expect(interrupted.parts[2]).toMatchObject({ status: "done" });
+    expect(entry.parts[0]).toMatchObject({ status: "running" });
 
-  const old = entry
-  const live = {
-    info: { id: "a2", sessionID: "s1", role: "assistant", time: { created: 4 } },
-    parts: [tool("live", "running", "a2")],
-  } as never
-  const duringTurn = interruptStaleTools([old, live], { live: "s1" }, "Interrupted")
-  expect((duringTurn[0].parts[0] as { state: { status: string } }).state.status).toBe("error")
-  expect((duringTurn[1].parts[0] as { state: { status: string } }).state.status).toBe("running")
-})
+    const old = entry;
+    const live = {
+        info: { id: "a2", sessionID: "s1", role: "assistant", time: { created: 4 } },
+        parts: [tool("live", "running", "a2")],
+    } as never;
+    const duringTurn = interruptStaleTools([old, live], { live: "s1" }, "Interrupted");
+    expect(duringTurn[0].parts[0]).toMatchObject({ status: "error" });
+    expect(duringTurn[1].parts[0]).toMatchObject({ status: "running" });
+});
 
 test("streamed tool replacements retain mounted group and plugin identities", async () => {
-  const { groupParts, updatePartGroupSlots } = await import("../src/ui/message")
-  // Bun selects Solid's server condition for tests, so load the browser primitives
-  // used by Vite to verify the keyed mount behavior without requiring a DOM.
-  // @ts-expect-error Solid's browser build shares the package's public types.
-  const { createRoot, createSignal, mapArray, onCleanup } = await import("solid-js/dist/solid.js") as typeof import("solid-js")
-  // @ts-expect-error Solid's browser store build shares the package's public types.
-  const { createStore, reconcile } = await import("solid-js/store/dist/store.js") as typeof import("solid-js/store")
-  const createSlot = (group: ReturnType<typeof groupParts>[number]) => {
-    const [value, setValue] = createStore(group)
-    return { id: group.id, value, update: (updated: typeof group) => setValue(reconcile(updated)) }
-  }
-  const tool = (id: string, name: string, status: string, output = "") => ({
-    id,
-    sessionID: "s1",
-    messageID: "m1",
-    type: "tool",
-    tool: name,
-    state: status === "completed"
-      ? { status, input: {}, output }
-      : { status, input: {}, metadata: { output } },
-  })
+    const { groupParts, updatePartGroupSlots } = await import("../src/ui/message-groups");
+    // Bun loads Solid's server build in tests; the browser build checks keyed mounting without a DOM.
+    // @ts-expect-error Solid's browser build shares the package's public types.
+    const { createRoot, createSignal, mapArray, onCleanup } = (await import("solid-js/dist/solid.js")) as typeof Solid;
+    // @ts-expect-error Solid's browser store build shares the package's public types.
+    const { createStore, reconcile } = (await import("solid-js/store/dist/store.js")) as typeof SolidStore;
+    const createSlot = (group: ReturnType<typeof groupParts>[number]) => {
+        const [value, setValue] = createStore(group);
+        return { id: group.id, value, update: (updated: typeof group) => setValue(reconcile(updated)) };
+    };
+    const tool = (id: string, name: string, status: string, output = "") => ({
+        id,
+        sessionId: "s1",
+        messageId: "m1",
+        type: "tool_call",
+        name,
+        status: status === "completed" ? "done" : status,
+        input: {},
+        output: status === "completed" ? output : undefined,
+        metadata: { output },
+    });
 
-  createRoot((dispose) => {
-    const slots = new Map()
-    const initial = updatePartGroupSlots(groupParts([
-      tool("shell", "bash", "running", "first"),
-      tool("plugin", "custom-stream", "running", "one"),
-      tool("read-1", "read", "running"),
-      tool("read-2", "read", "running"),
-    ] as never), slots, createSlot)
-    const [groups, setGroups] = createSignal(initial)
-    let mounts = 0
-    let cleanups = 0
-    const mounted = mapArray(
-      groups,
-      (slot) => {
-        mounts++
-        const state = { scrollTop: 37, following: false, pluginRevision: 4 }
-        onCleanup(() => cleanups++)
-        return { slot, state }
-      },
-    )
-    const first = mounted()
-    const firstById = new Map(first.map((item) => [item.slot.id, item]))
-    const explored = firstById.get("explored:read-1")!.slot.value
-    const firstExplored = "explored" in explored ? [...explored.explored] : []
-    expect(mounts).toBe(3)
+    createRoot((dispose) => {
+        const slots = new Map();
+        const initial = updatePartGroupSlots(
+            groupParts([
+                tool("shell", "bash", "running", "first"),
+                tool("plugin", "custom-stream", "running", "one"),
+                tool("read-1", "read", "running"),
+                tool("read-2", "read", "running"),
+            ] as never),
+            slots,
+            createSlot,
+        );
+        const [groups, setGroups] = createSignal(initial);
+        let mounts = 0;
+        let cleanups = 0;
+        const mounted = mapArray(groups, (slot) => {
+            mounts++;
 
-    setGroups(updatePartGroupSlots(groupParts([
-      { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
-      tool("plugin", "custom-stream", "completed", "two"),
-      tool("shell", "bash", "running", "first\nsecond"),
-      tool("read-0", "read", "completed"),
-      tool("read-1", "read", "completed"),
-      tool("read-2", "read", "completed"),
-    ] as never), slots, createSlot))
-    const updated = mounted()
-    const updatedById = new Map(updated.map((item) => [item.slot.id, item]))
-    expect(updated.map((item) => item.slot.id)).toEqual(["text", "plugin", "shell", "explored:read-1"])
-    expect(updatedById.get("shell")).toBe(firstById.get("shell"))
-    expect(updatedById.get("plugin")).toBe(firstById.get("plugin"))
-    expect(updatedById.get("explored:read-1")).toBe(firstById.get("explored:read-1"))
-    expect(updatedById.get("shell")!.state).toEqual({ scrollTop: 37, following: false, pluginRevision: 4 })
-    expect(updatedById.get("plugin")!.state.pluginRevision).toBe(4)
-    const updatedExplored = updatedById.get("explored:read-1")!.slot.value
-    expect("explored" in updatedExplored && updatedExplored.explored.map((part) => part.id)).toEqual([
-      "read-0",
-      "read-1",
-      "read-2",
-    ])
-    expect("explored" in updatedExplored && updatedExplored.explored[1]).toBe(firstExplored[0])
-    expect("explored" in updatedExplored && updatedExplored.explored[2]).toBe(firstExplored[1])
-    expect(mounts).toBe(4)
-    expect(cleanups).toBe(0)
+            const state = { scrollTop: 37, following: false, pluginRevision: 4 };
 
-    setGroups(updatePartGroupSlots(groupParts([
-      tool("read-2", "read", "completed"),
-      { id: "divider", sessionID: "s1", messageID: "m1", type: "text", text: "Split" },
-      tool("read-0", "read", "completed"),
-      tool("read-1", "read", "completed"),
-    ] as never), slots, createSlot))
-    const split = mounted()
-    const splitExplored = split.filter((item) => "explored" in item.slot.value)
-    expect(splitExplored.map((item) => item.slot.id)).toEqual(["explored:read-2", "explored:read-1"])
-    expect(splitExplored[0]).not.toBe(firstById.get("explored:read-1"))
-    expect(splitExplored[1]).toBe(firstById.get("explored:read-1"))
+            onCleanup(() => cleanups++);
 
-    setGroups(updatePartGroupSlots(groupParts([
-      tool("read-2", "read", "completed"),
-      tool("read-0", "read", "completed"),
-      tool("read-1", "read", "completed"),
-    ] as never), slots, createSlot))
-    const merged = mounted()
-    expect(merged).toHaveLength(1)
-    expect(merged[0]).toBe(splitExplored[0])
-    expect(merged[0].slot.id).toBe("explored:read-2")
-    dispose()
-    expect(cleanups).toBe(mounts)
-  })
-})
+            return { slot, state };
+        });
+        const first = mounted();
+        const firstById = new Map(first.map((item) => [item.slot.id, item]));
+        const explored = firstById.get("explored:read-1")!.slot.value;
+        const firstExplored = "explored" in explored ? [...explored.explored] : [];
+        expect(mounts).toBe(3);
 
-test("compaction boundary merges into its adjacent summary", async () => {
-  const { mergeCompactionEntries } = await import("../src/ui/chat")
-  const boundary = {
-    info: { id: "u1", role: "user", sessionID: "s1" },
-    parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "compaction", auto: true }],
-  }
-  const summary = {
-    info: { id: "a1", role: "assistant", sessionID: "s1", parentID: "u1", summary: true },
-    parts: [{ id: "p2", messageID: "a1", sessionID: "s1", type: "text", text: "summary" }],
-  }
-  expect(mergeCompactionEntries([boundary, summary] as never).map((entry) => entry.info.id)).toEqual(["a1"])
-  expect(mergeCompactionEntries([boundary] as never).map((entry) => entry.info.id)).toEqual(["u1"])
-})
+        setGroups(
+            updatePartGroupSlots(
+                groupParts([
+                    { id: "text", sessionID: "s1", messageID: "m1", type: "text", text: "Now visible" },
+                    tool("plugin", "custom-stream", "completed", "two"),
+                    tool("shell", "bash", "running", "first\nsecond"),
+                    tool("read-0", "read", "completed"),
+                    tool("read-1", "read", "completed"),
+                    tool("read-2", "read", "completed"),
+                ] as never),
+                slots,
+                createSlot,
+            ),
+        );
+        const updated = mounted();
+        const updatedById = new Map(updated.map((item) => [item.slot.id, item]));
+        expect(updated.map((item) => item.slot.id)).toEqual(["text", "plugin", "shell", "explored:read-1"]);
+        expect(updatedById.get("shell")).toBe(firstById.get("shell"));
+        expect(updatedById.get("plugin")).toBe(firstById.get("plugin"));
+        expect(updatedById.get("explored:read-1")).toBe(firstById.get("explored:read-1"));
+        expect(updatedById.get("shell")!.state).toEqual({ scrollTop: 37, following: false, pluginRevision: 4 });
+        expect(updatedById.get("plugin")!.state.pluginRevision).toBe(4);
+        const updatedExplored = updatedById.get("explored:read-1")!.slot.value;
+        expect("explored" in updatedExplored && updatedExplored.explored.map((part) => part.id)).toEqual([
+            "read-0",
+            "read-1",
+            "read-2",
+        ]);
+        expect("explored" in updatedExplored && updatedExplored.explored[1]).toBe(firstExplored[0]);
+        expect("explored" in updatedExplored && updatedExplored.explored[2]).toBe(firstExplored[1]);
+        expect(mounts).toBe(4);
+        expect(cleanups).toBe(0);
+
+        setGroups(
+            updatePartGroupSlots(
+                groupParts([
+                    tool("read-2", "read", "completed"),
+                    { id: "divider", sessionID: "s1", messageID: "m1", type: "text", text: "Split" },
+                    tool("read-0", "read", "completed"),
+                    tool("read-1", "read", "completed"),
+                ] as never),
+                slots,
+                createSlot,
+            ),
+        );
+        const split = mounted();
+        const splitExplored = split.filter((item) => "explored" in item.slot.value);
+        expect(splitExplored.map((item) => item.slot.id)).toEqual(["explored:read-2", "explored:read-1"]);
+        expect(splitExplored[0]).not.toBe(firstById.get("explored:read-1"));
+        expect(splitExplored[1]).toBe(firstById.get("explored:read-1"));
+
+        setGroups(
+            updatePartGroupSlots(
+                groupParts([
+                    tool("read-2", "read", "completed"),
+                    tool("read-0", "read", "completed"),
+                    tool("read-1", "read", "completed"),
+                ] as never),
+                slots,
+                createSlot,
+            ),
+        );
+        const merged = mounted();
+        expect(merged).toHaveLength(1);
+        expect(merged[0]).toBe(splitExplored[0]);
+        expect(merged[0].slot.id).toBe("explored:read-2");
+        dispose();
+        expect(cleanups).toBe(mounts);
+    });
+});
 
 test("a spawned thread's copied messages are the ones older than the thread", async () => {
-  const { copiedCount } = await import("../src/ui/chat")
-  const entry = (id: string, created: number) => ({ info: { id, time: { created } }, parts: [] })
-  const transcript = [entry("copied-prompt", 10), entry("copied-reply", 20), entry("instruction", 100), entry("reply", 120)]
-  expect(copiedCount(transcript as never, 100)).toBe(2)
-  expect(copiedCount(transcript as never, 5)).toBe(0)
-  expect(copiedCount(transcript.slice(0, 2) as never, 100)).toBe(2)
-})
+    const { copiedCount } = await import("../src/ui/timeline-state");
+    const entry = (id: string, createdAt: number) => ({ info: { id, createdAt }, parts: [] });
+    const transcript = [
+        entry("copied-prompt", 10),
+        entry("copied-reply", 20),
+        entry("instruction", 100),
+        entry("reply", 120),
+    ];
+    expect(copiedCount(transcript as never, 100)).toBe(2);
+    expect(copiedCount(transcript as never, 5)).toBe(0);
+    expect(copiedCount(transcript.slice(0, 2) as never, 100)).toBe(2);
+});
 
-test("successful compaction clears a transient session error", () => {
-  const [state, set] = createEngineState()
-  set("errors", "s1", "Your input exceeds the context window")
-  reduce(
-    set,
-    { type: "session.compacted", properties: { sessionID: "s1" } } as unknown as Event,
-  )
-  expect(state.errors["s1"]).toBeUndefined()
-})
+test("a running status clears a transient session error", () => {
+    const [state, set] = createEngineState();
+    set("errors", "s1", "Your input exceeds the context window");
+    reduce(set, { type: "session.status", sessionId: "s1", status: "running" });
+    expect(state.errors["s1"]).toBeUndefined();
+});
 
 test("sidebar drag converts screen movement through the current zoom scale", async () => {
-  const { sidebarWidthFromDrag } = await import("../src/ui/sidebar")
-  expect(sidebarWidthFromDrag(256, 30, 1.5)).toBe(276)
-  expect(sidebarWidthFromDrag(470, 30, 1)).toBe(480)
-})
+    const { sidebarWidthFromDrag } = await import("../src/ui/sidebar");
+    expect(sidebarWidthFromDrag(256, 30, 1.5)).toBe(276);
+    expect(sidebarWidthFromDrag(470, 30, 1)).toBe(480);
+});
 
 test("fixed menus convert visual coordinates and viewport bounds through CSS zoom", async () => {
-  const { fixedMenuPosition } = await import("../src/state/zoom")
-  const metrics = { scale: 1.5, viewportWidth: 1200, viewportHeight: 900 }
-  expect(fixedMenuPosition(300, 225, 200, 100, metrics)).toEqual({ left: 200, top: 150, viewportHeight: 600 })
-  expect(fixedMenuPosition(1170, 870, 200, 100, metrics)).toEqual({ left: 592, top: 492, viewportHeight: 600 })
-})
+    const { fixedMenuPosition } = await import("../src/state/zoom");
+    const metrics = { scale: 1.5, viewportWidth: 1200, viewportHeight: 900 };
+    expect(fixedMenuPosition(300, 225, 200, 100, metrics)).toEqual({ left: 200, top: 150, viewportHeight: 600 });
+    expect(fixedMenuPosition(1170, 870, 200, 100, metrics)).toEqual({ left: 592, top: 492, viewportHeight: 600 });
+});
 
 test("upward transcript gestures unstick immediately near the bottom", async () => {
-  const { accumulatedWheelTarget, normalizedWheelDelta, scrollGestureSticks, shouldShowScrollToBottom } = await import(
-    "../src/ui/chat"
-  )
-  expect(scrollGestureSticks(1000, 980, 20)).toBeFalse()
-  expect(scrollGestureSticks(980, 1000, 20)).toBeTrue()
-  expect(scrollGestureSticks(980, 1000, 120)).toBeFalse()
-  expect(shouldShowScrollToBottom(79)).toBeFalse()
-  expect(shouldShowScrollToBottom(80)).toBeTrue()
-  expect(normalizedWheelDelta(3, 0, 800)).toBe(3)
-  expect(normalizedWheelDelta(3, 1, 800)).toBe(48)
-  expect(normalizedWheelDelta(2, 2, 800)).toBe(1600)
-  expect(accumulatedWheelTarget(100, null, 40, 500)).toBe(140)
-  expect(accumulatedWheelTarget(105, 140, 40, 500)).toBe(180)
-  expect(accumulatedWheelTarget(490, null, 40, 500)).toBe(500)
-})
+    const { accumulatedWheelTarget, normalizedWheelDelta } = await import("../src/ui/chat-wheel");
+    const { scrollGestureSticks, shouldShowScrollToBottom } = await import("../src/ui/timeline-virtual");
+    expect(scrollGestureSticks(1000, 980, 20)).toBeFalse();
+    expect(scrollGestureSticks(980, 1000, 20)).toBeTrue();
+    expect(scrollGestureSticks(980, 1000, 120)).toBeFalse();
+    expect(shouldShowScrollToBottom(79)).toBeFalse();
+    expect(shouldShowScrollToBottom(80)).toBeTrue();
+    expect(normalizedWheelDelta(3, 0, 800)).toBe(3);
+    expect(normalizedWheelDelta(3, 1, 800)).toBe(48);
+    expect(normalizedWheelDelta(2, 2, 800)).toBe(1600);
+    expect(accumulatedWheelTarget(100, null, 40, 500)).toBe(140);
+    expect(accumulatedWheelTarget(105, 140, 40, 500)).toBe(180);
+    expect(accumulatedWheelTarget(490, null, 40, 500)).toBe(500);
+});
 
 test("transcript follow revision tracks lengths and status without embedding large output", async () => {
-  const { transcriptRevision } = await import("../src/ui/chat")
-  const part = (output: string, status = "running") => ({
-    parts: [{ type: "tool", state: { status, metadata: { output } } }],
-  })
-  const first = transcriptRevision(part("a".repeat(1_550_000)))
-  const sameLength = transcriptRevision(part("b".repeat(1_550_000)))
-  const completed = transcriptRevision(part("b".repeat(1_550_000), "completed"))
-  expect(first).toBe(sameLength)
-  expect(first).not.toContain("aaaa")
-  expect(first.length).toBeLessThan(64)
-  expect(completed).not.toBe(first)
-})
+    const { transcriptRevision } = await import("../src/ui/timeline-virtual");
+    const part = (output: string, status = "running") => ({
+        parts: [{ type: "tool_call", status: status === "completed" ? "done" : status, metadata: { output } }],
+    });
+    const first = transcriptRevision(part("a".repeat(1_550_000)));
+    const sameLength = transcriptRevision(part("b".repeat(1_550_000)));
+    const completed = transcriptRevision(part("b".repeat(1_550_000), "completed"));
+
+    expect(first).toBe(sameLength);
+    expect(first).not.toContain("aaaa");
+    expect(first.length).toBeLessThan(64);
+    expect(completed).not.toBe(first);
+});
 
 test("timeline omits hidden-only messages without dropping the active thinking row", async () => {
-  const { estimatedTimelineRow, timelineEntries } = await import("../src/ui/chat")
-  const entry = (id: string, parts: unknown[]) => ({
-    info: { id, role: "assistant", time: { created: 1 }, tokens: { input: 0, output: 0, reasoning: 0 } },
-    parts,
-  })
-  const hidden = entry("hidden", [{ id: "r1", type: "reasoning", text: "private", time: { start: 1, end: 2 } }])
-  const todo = entry("todo", [{ id: "t1", type: "tool", tool: "todowrite", state: { status: "completed" } }])
-  const visible = entry("visible", [{ id: "t2", type: "tool", tool: "edit", state: { status: "completed" } }])
+    const { estimatedTimelineRow } = await import("../src/ui/timeline-virtual");
+    const { timelineEntries } = await import("../src/ui/timeline-state");
+    const entry = (id: string, parts: unknown[]) => ({
+        info: { id, role: "assistant", time: { created: 1 }, tokens: { input: 0, output: 0, reasoning: 0 } },
+        parts,
+    });
+    const hidden = entry("hidden", [{ id: "r1", type: "reasoning", text: "private", time: { start: 1, end: 2 } }]);
+    const todo = entry("todo", [{ id: "t1", type: "tool_call", name: "todowrite", status: "done" }]);
+    const visible = entry("visible", [{ id: "t2", type: "tool_call", name: "edit", status: "done" }]);
 
-  expect(timelineEntries([hidden, todo, visible] as never).map((item) => item.info.id)).toEqual(["visible"])
-  expect(timelineEntries([hidden, todo, visible] as never, "hidden").map((item) => item.info.id)).toEqual([
-    "hidden",
-    "visible",
-  ])
-  expect(estimatedTimelineRow(hidden as never, 13, hidden.parts as never, true)).toBe(32)
-  expect(estimatedTimelineRow(hidden as never, 13, hidden.parts as never, false, true)).toBe(44)
-  expect(await Bun.file("src/ui/chat.tsx").text()).toContain("max-w-3xl px-4 pt-14 pb-6")
-})
+    expect(timelineEntries([hidden, todo, visible] as never).map((item) => item.info.id)).toEqual(["visible"]);
+    expect(timelineEntries([hidden, todo, visible] as never, "hidden").map((item) => item.info.id)).toEqual([
+        "hidden",
+        "visible",
+    ]);
+    expect(estimatedTimelineRow(hidden as never, 13, hidden.parts as never, true)).toBe(32);
+    expect(estimatedTimelineRow(hidden as never, 13, hidden.parts as never, false, true)).toBe(44);
+    expect(await Bun.file("src/ui/chat.tsx").text()).toContain("max-w-3xl px-4 pt-14 pb-6");
+});
 
 test("virtualized rows use flow spacers so live activity cannot overlap them", async () => {
-  const chat = await Bun.file("src/ui/chat.tsx").text()
-  expect(chat).not.toContain("terminalThinking")
-  expect(chat).not.toContain("terminalRetry")
-  expect(chat).not.toContain("translateY(${offsets()[range().start]}px)")
-  expect(chat).toContain('height: `${offsets()[range().start]}px`')
-  expect(chat).toContain('(offsets().at(-1) ?? 0) - offsets()[range().end]')
-  expect(chat).toContain("thinking={thinking()?.messageID === entry.info.id && !retry()}")
-  expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}")
-})
+    const chat = await Bun.file("src/ui/chat.tsx").text();
+    expect(chat).not.toContain("terminalThinking");
+    expect(chat).not.toContain("terminalRetry");
+    expect(chat).not.toContain("translateY(${offsets()[range().start]}px)");
+    expect(chat).toContain("height: `${offsets()[range().start]}px`");
+    expect(chat).toContain("(offsets().at(-1) ?? 0) - offsets()[range().end]");
+    expect(chat).toContain("thinking={thinking()?.messageID === entry.info.id && !retry()}");
+    expect(chat).toContain("retry={thinking()?.messageID === entry.info.id ? retry() : undefined}");
+});
 
 test("tall row measurement only compensates rows actually above the viewport", async () => {
-  const { resizeCompensation } = await import("../src/ui/chat")
-  expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0)
-  expect(resizeCompensation(96, 2000, 900, 1000)).toBe(1904)
-})
+    const { resizeCompensation } = await import("../src/ui/timeline-virtual");
+    expect(resizeCompensation(96, 2000, 2100, 1000)).toBe(0);
+    expect(resizeCompensation(96, 2000, 900, 1000)).toBe(1904);
+});
 
 test("virtual range clamps a stale scroll offset after a tall row collapses", async () => {
-  const { virtualRange } = await import("../src/ui/chat")
-  expect(virtualRange([0, 100, 450, 550], 5000, 800)).toEqual({ start: 0, end: 3 })
-  expect(virtualRange([0, 500, 1000, 1096], 5000, 400)).toEqual({ start: 0, end: 3 })
-})
+    const { virtualRange } = await import("../src/ui/timeline-virtual");
+    expect(virtualRange([0, 100, 450, 550], 5000, 800)).toEqual({ start: 0, end: 3 });
+    expect(virtualRange([0, 500, 1000, 1096], 5000, 400)).toEqual({ start: 0, end: 3 });
+});
 
 test("large multiline user content uses a full-height literal row estimate", async () => {
-  const { largeUserText } = await import("../src/ui/message")
-  expect(largeUserText("x".repeat(1999))).toBeFalse()
-  expect(largeUserText("x".repeat(2000))).toBeTrue()
-  expect(largeUserText(Array.from({ length: 40 }, () => "line").join("\n"))).toBeFalse()
-  expect(largeUserText(Array.from({ length: 41 }, () => "line").join("\n"))).toBeTrue()
+    const { largeUserText } = await import("../src/ui/message");
+    expect(largeUserText("x".repeat(1999))).toBeFalse();
+    expect(largeUserText("x".repeat(2000))).toBeTrue();
+    expect(largeUserText(Array.from({ length: 40 }, () => "line").join("\n"))).toBeFalse();
+    expect(largeUserText(Array.from({ length: 41 }, () => "line").join("\n"))).toBeTrue();
 
-  const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text()
-  expect(css).toMatch(/\.user-paste \{[^}]*white-space: pre/s)
-  expect(css).toMatch(/\.user-paste \{[^}]*overflow-x: auto/s)
-  expect(css).toMatch(/\.user-paste \{[^}]*overflow-y: hidden/s)
+    const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
+    expect(css).toMatch(/\.user-paste \{[^}]*white-space: pre/s);
+    expect(css).toMatch(/\.user-paste \{[^}]*overflow-x: auto/s);
+    expect(css).toMatch(/\.user-paste \{[^}]*overflow-y: hidden/s);
 
-  const { estimatedTimelineRow } = await import("../src/ui/chat")
-  const entry = (text: string, generated = false) => ({
-    info: { id: "u1", role: "user", time: { created: 1 } },
-    parts: [{ type: "text", text, metadata: generated ? { generated: true } : undefined }],
-  }) as never
-  const long = Array.from({ length: 41 }, () => "line").join("\n")
-  expect(estimatedTimelineRow(entry(long))).toBe(915)
-  expect(estimatedTimelineRow(entry(long), 16)).toBe(1112)
-  expect(estimatedTimelineRow(entry(long, true))).toBe(967)
-})
+    const { estimatedTimelineRow } = await import("../src/ui/timeline-virtual");
+    const entry = (text: string, generated = false) =>
+        ({
+            info: { id: "u1", role: "user", time: { created: 1 } },
+            parts: [{ type: generated ? "nudge" : "text", text }],
+        }) as never;
+    const long = Array.from({ length: 41 }, () => "line").join("\n");
+    expect(estimatedTimelineRow(entry(long))).toBe(915);
+    expect(estimatedTimelineRow(entry(long), 16)).toBe(1112);
+    expect(estimatedTimelineRow(entry(long, true))).toBe(967);
+});
 
 test("assistant row estimates account for wrapping and fenced code", async () => {
-  const { estimatedTimelineRow, estimateTextLines } = await import("../src/ui/chat")
-  expect(estimateTextLines("a".repeat(176), 88)).toBe(2)
-  expect(estimateTextLines("```text\n" + "a".repeat(176) + "\n```", 88)).toBe(3)
-  const entry = {
-    info: { id: "a1", role: "assistant", time: { created: 1 } },
-    parts: [{ type: "text", text: "a".repeat(849) }],
-  } as never
-  expect(estimatedTimelineRow(entry)).toBe(272)
-})
+    const { estimatedTimelineRow, estimateTextLines } = await import("../src/ui/timeline-virtual");
+    expect(estimateTextLines("a".repeat(176), 88)).toBe(2);
+    expect(estimateTextLines("```text\n" + "a".repeat(176) + "\n```", 88)).toBe(3);
+
+    const entry = {
+        info: { id: "a1", role: "assistant", time: { created: 1 } },
+        parts: [{ type: "text", text: "a".repeat(849) }],
+    } as never;
+    expect(estimatedTimelineRow(entry)).toBe(272);
+});
 
 test("thinking remains attached to an assistant while the session is active", async () => {
-  const { thinkingAfterMessage } = await import("../src/ui/chat")
-  const message = (id: string, role: "user" | "assistant", parentID?: string, completed?: number) =>
-    ({ info: { id, role, parentID, time: { created: 1, completed } }, parts: [] }) as never
-  const first = message("u1", "user")
-  const response = message("a1", "assistant", "u1")
-  const steer = message("u2", "user")
-  // A running assistant owns the indicator even when the user steers with a newer message.
-  expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("a1")
-  // Once every assistant is complete, a newer user prompt anchors it under that prompt.
-  response.info.time.completed = 2
-  expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("u2")
-  const steeredResponse = message("a2", "assistant", "u2")
-  expect(thinkingAfterMessage([first, response, steer, steeredResponse], "busy")).toBe("a2")
-  expect(thinkingAfterMessage([first, response, steer, steeredResponse], "retry")).toBe("a2")
-  expect(thinkingAfterMessage([first, response, steer, steeredResponse], "idle")).toBeNull()
-  // The very first prompt of a session has no assistant yet.
-  expect(thinkingAfterMessage([first], "busy")).toBe("u1")
+    const { thinkingAfterMessage } = await import("../src/ui/timeline-state");
+    const message = (id: string, role: "user" | "assistant") =>
+        ({ info: { id, role, createdAt: 1 }, parts: [] }) as never;
+    const first = message("u1", "user");
+    const response = message("a1", "assistant");
+    const steer = message("u2", "user");
+    // A running assistant owns the indicator even when the user steers with a newer message.
+    expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("a1");
+    // Once every assistant is complete, a newer user prompt anchors it under that prompt.
+    response.info.finishedAt = 2;
+    expect(thinkingAfterMessage([first, response, steer], "busy")).toBe("u2");
+    const steeredResponse = message("a2", "assistant");
+    expect(thinkingAfterMessage([first, response, steer, steeredResponse], "busy")).toBe("a2");
+    expect(thinkingAfterMessage([first, response, steer, steeredResponse], "retry")).toBe("a2");
+    expect(thinkingAfterMessage([first, response, steer, steeredResponse], "idle")).toBeNull();
+    // The very first prompt of a session has no assistant yet.
+    expect(thinkingAfterMessage([first], "busy")).toBe("u1");
 
-  steeredResponse.info.time.completed = 3
-  const compacted = {
-    info: { id: "a3", role: "assistant", parentID: "u3", summary: true, time: { created: 4, completed: 5 } },
-    parts: [],
-  } as never
-  // A completed compaction summary never captures the indicator from a newer user prompt.
-  const afterCompaction = message("u4", "user")
-  expect(thinkingAfterMessage([first, response, steer, steeredResponse, compacted, afterCompaction], "busy")).toBe("u4")
-  expect(thinkingAfterMessage([first, response, steer, steeredResponse, compacted], "busy")).toBe("a3")
-})
+    steeredResponse.info.finishedAt = 3;
+    const compacted = {
+        info: { id: "a3", role: "assistant", summary: true, createdAt: 4, finishedAt: 5 },
+        parts: [],
+    } as never;
+    // A completed compaction summary never captures the indicator from a newer user prompt.
+    const afterCompaction = message("u4", "user");
+    expect(thinkingAfterMessage([first, response, steer, steeredResponse, compacted, afterCompaction], "busy")).toBe(
+        "u4",
+    );
+    expect(thinkingAfterMessage([first, response, steer, steeredResponse, compacted], "busy")).toBe("a3");
+});
 
 test("thinking derives the first provider reasoning heading for the active turn", async () => {
-  const { reasoningHeading, thinkingState } = await import("../src/ui/chat")
-  expect(reasoningHeading("## Inspecting `events.ts` ##\n\nChecking the reducer.")).toBe("Inspecting events.ts")
-  expect(reasoningHeading("<h3>Comparing <em>providers</em></h3>")).toBe("Comparing providers")
-  expect(reasoningHeading("**Reading [OpenCode](https://opencode.ai) behavior**\n\nDetails")).toBe("Reading OpenCode behavior")
-  expect(reasoningHeading("Unformatted reasoning text")).toBeUndefined()
+    const { reasoningHeading, thinkingState } = await import("../src/ui/timeline-state");
+    expect(reasoningHeading("## Inspecting `events.ts` ##\n\nChecking the reducer.")).toBe("Inspecting events.ts");
+    expect(reasoningHeading("<h3>Comparing <em>providers</em></h3>")).toBe("Comparing providers");
+    expect(reasoningHeading("**Reading [OpenCode](https://opencode.ai) behavior**\n\nDetails")).toBe(
+        "Reading OpenCode behavior",
+    );
+    expect(reasoningHeading("Unformatted reasoning text")).toBeUndefined();
 
-  const user = { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] }
-  const assistant = {
-    info: { id: "a1", role: "assistant", parentID: "u1", time: { created: 2 } },
-    parts: [{ id: "p1", type: "reasoning", text: "**Tracing session state**", time: { start: 2 } }],
-  }
-  expect(thinkingState([user, assistant] as never, "busy")).toEqual({
-    messageID: "a1",
-    heading: "Tracing session state",
-    compaction: false,
-  })
-})
+    const user = { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] };
+    const assistant = {
+        info: { id: "a1", role: "assistant", parentID: "u1", time: { created: 2 } },
+        parts: [{ id: "p1", type: "reasoning", text: "**Tracing session state**", time: { start: 2 } }],
+    };
+    expect(thinkingState([user, assistant] as never, "busy")).toEqual({
+        messageID: "a1",
+        heading: "Tracing session state",
+        compaction: false,
+    });
+});
 
 test("compaction turns carry the shimmer on the compaction row instead of the generic indicator", async () => {
-  const { compactionThinkingRow, thinkingState } = await import("../src/ui/chat")
-  const boundary = {
-    info: { id: "u1", role: "user", sessionID: "s1", time: { created: 1 } },
-    parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "compaction", auto: true }],
-  }
-  const summary = {
-    info: { id: "a1", role: "assistant", sessionID: "s1", parentID: "u1", summary: true, time: { created: 2 } },
-    parts: [{ id: "p2", messageID: "a1", sessionID: "s1", type: "text", text: "summary", time: { start: 2 } }],
-  }
-  // The brief window before the summary message arrives anchors on the boundary's compaction part.
-  expect(thinkingState([boundary] as never, "busy")).toMatchObject({ messageID: "u1", compaction: true })
-  // Once the streaming summary exists it owns the shimmer.
-  expect(thinkingState([boundary, summary] as never, "busy")).toMatchObject({ messageID: "a1", compaction: true })
-  const user = { info: { id: "u2", role: "user", time: { created: 1 } }, parts: [] }
-  const reply = { info: { id: "a2", role: "assistant", parentID: "u2", time: { created: 2 } }, parts: [] }
-  // Ordinary turns keep the separate indicator.
-  expect(thinkingState([user, reply] as never, "busy")).toMatchObject({ messageID: "a2", compaction: false })
+    const { compactionThinkingRow, thinkingState } = await import("../src/ui/timeline-state");
+    const boundary = {
+        info: { id: "u1", role: "user", sessionID: "s1", time: { created: 1 } },
+        parts: [{ id: "p1", messageID: "u1", sessionID: "s1", type: "compaction", auto: true }],
+    };
+    const summary = {
+        info: { id: "a1", role: "assistant", sessionID: "s1", parentID: "u1", summary: true, time: { created: 2 } },
+        parts: [{ id: "p2", messageID: "a1", sessionID: "s1", type: "text", text: "summary", time: { start: 2 } }],
+    };
+    // The brief window before the summary message arrives anchors on the boundary's compaction part.
+    expect(thinkingState([boundary] as never, "busy")).toMatchObject({ messageID: "u1", compaction: true });
+    // Once the streaming summary exists it owns the shimmer.
+    expect(thinkingState([boundary, summary] as never, "busy")).toMatchObject({ messageID: "a1", compaction: true });
+    const user = { info: { id: "u2", role: "user", time: { created: 1 } }, parts: [] };
+    const reply = { info: { id: "a2", role: "assistant", parentID: "u2", time: { created: 2 } }, parts: [] };
+    // Ordinary turns keep the separate indicator.
+    expect(thinkingState([user, reply] as never, "busy")).toMatchObject({ messageID: "a2", compaction: false });
 
-  // Boundary rows always render the divider; summary rows only do behind the collapsible pref.
-  expect(compactionThinkingRow(boundary as never, true)).toBeTrue()
-  expect(compactionThinkingRow(boundary as never, false)).toBeTrue()
-  expect(compactionThinkingRow(summary as never, true)).toBeTrue()
-  expect(compactionThinkingRow(summary as never, false)).toBeFalse()
-  expect(compactionThinkingRow(reply as never, true)).toBeFalse()
+    // Boundary rows always render the divider; summary rows only do behind the collapsible pref.
+    expect(compactionThinkingRow(boundary as never, true)).toBeTrue();
+    expect(compactionThinkingRow(boundary as never, false)).toBeTrue();
+    expect(compactionThinkingRow(summary as never, true)).toBeTrue();
+    expect(compactionThinkingRow(summary as never, false)).toBeFalse();
+    expect(compactionThinkingRow(reply as never, true)).toBeFalse();
 
-  // The row must suppress the generic indicator only when the divider itself shimmers.
-  const chat = await Bun.file("src/ui/chat.tsx").text()
-  expect(chat).toContain("props.thinking && !compactionShimmer()")
-  expect(chat).toContain("thinkingCompaction={thinking()?.compaction}")
-})
+    // The row must suppress the generic indicator only when the divider itself shimmers.
+    const chat = await Bun.file("src/ui/chat.tsx").text();
+    const row = await Bun.file("src/ui/timeline-row.tsx").text();
+    expect(row).toContain("props.thinking && !compactionShimmer()");
+    expect(chat).toContain("thinkingCompaction={thinking()?.compaction}");
+});
 
 test("retry presentation follows OpenCode countdown and truncation", async () => {
-  const { retryPresentation } = await import("../src/ui/chat")
-  const status = { type: "retry", attempt: 3, message: "x".repeat(90), next: 15_000 } as const
-  expect(retryPresentation(status, 7_400)).toEqual({
-    message: "x".repeat(80) + "...",
-    truncated: true,
-    info: "Retrying in 8s - attempt #3",
-  })
-  expect(retryPresentation({ ...status, message: "Rate limited" }, 16_000).info).toBe("Retrying - attempt #3")
-})
+    const { retryPresentation } = await import("../src/ui/timeline-row");
+    const status = { type: "retry", attempt: 3, message: "x".repeat(90), next: 15_000 } as const;
+    expect(retryPresentation(status, 7_400)).toEqual({
+        message: "x".repeat(80) + "...",
+        truncated: true,
+        info: "Retrying in 8s - attempt #3",
+    });
+    expect(retryPresentation({ ...status, message: "Rate limited" }, 16_000).info).toBe("Retrying - attempt #3");
+});
 
 test("busy thinking is suppressed by an assistant error while retry remains visible", async () => {
-  const { thinkingState } = await import("../src/ui/chat")
-  const entries = [
-    { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
-    {
-      info: {
-        id: "a1",
-        role: "assistant",
-        parentID: "u1",
-        time: { created: 2 },
-        error: { name: "APIError", data: { message: "failed" } },
-      },
-      parts: [],
-    },
-  ] as never
-  expect(thinkingState(entries, "busy")).toBeNull()
-  expect(thinkingState(entries, "retry")?.messageID).toBe("a1")
-})
+    const { thinkingState } = await import("../src/ui/timeline-state");
+    const entries = [
+        { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
+        {
+            info: {
+                id: "a1",
+                role: "assistant",
+                parentID: "u1",
+                createdAt: 2,
+                status: "error",
+                error: "failed",
+            },
+            parts: [],
+        },
+    ] as never;
+    expect(thinkingState(entries, "busy")).toBeNull();
+    expect(thinkingState(entries, "retry")?.messageID).toBe("a1");
+});
 
 test("assistant errors unwrap provider JSON and preserve plain text", async () => {
-  const { errorText, unwrapErrorMessage } = await import("../src/engine/error")
-  expect(unwrapErrorMessage('Error: {"error":{"type":"rate_limit","message":"slow down"}}')).toBe(
-    "rate_limit: slow down",
-  )
-  expect(unwrapErrorMessage('prefix {"message":"credit balance is too low"} suffix')).toBe(
-    "credit balance is too low",
-  )
-  expect(errorText({ name: "ProviderError", data: { message: "plain failure" } })).toBe("plain failure")
-})
+    const { errorText, unwrapErrorMessage } = await import("../src/engine/error");
+    expect(unwrapErrorMessage('Error: {"error":{"type":"rate_limit","message":"slow down"}}')).toBe(
+        "rate_limit: slow down",
+    );
+    expect(unwrapErrorMessage('prefix {"message":"credit balance is too low"} suffix')).toBe(
+        "credit balance is too low",
+    );
+    expect(errorText({ name: "ProviderError", data: { message: "plain failure" } })).toBe("plain failure");
+});
 
 test("message part deltas accumulate streamed reasoning summaries", () => {
-  const [state, set] = createEngineState()
-  set("loaded", "s1", true)
-  set("transcripts", "s1", [
-    {
-      info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
-      parts: [{ id: "p1", sessionID: "s1", messageID: "a1", type: "reasoning", text: "**Tracing" }],
-    },
-  ] as never)
-  reduce(
-    set,
-    {
-      type: "message.part.delta",
-      properties: { sessionID: "s1", messageID: "a1", partID: "p1", field: "text", delta: " events**" },
-    } as never,
-  )
-  expect((state.transcripts.s1[0].parts[0] as { text: string }).text).toBe("**Tracing events**")
-})
+    const [state, set] = createEngineState();
+    set("loaded", "s1", true);
+    set("transcripts", "s1", [
+        {
+            info: { id: "a1", sessionID: "s1", role: "assistant", time: { created: 1 } },
+            parts: [{ id: "p1", sessionID: "s1", messageID: "a1", type: "reasoning", text: "**Tracing" }],
+        },
+    ] as never);
+    reduce(set, { type: "part.delta", sessionId: "s1", messageId: "a1", partId: "p1", delta: " events**", offset: 9 });
+    expect((state.transcripts.s1[0].parts[0] as { text: string }).text).toBe("**Tracing events**");
+});
 
 test("context usage skips a trailing zero-token assistant message", async () => {
-  const { contextStats } = await import("../src/engine/store")
-  const [state, set] = createEngineState()
-  const assistant = (id: string, total: number) => ({
-    info: {
-      id,
-      sessionID: "s1",
-      role: "assistant",
-      providerID: "openai",
-      modelID: "gpt-5",
-      tokens: { total, input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    },
-    parts: [],
-  })
-  set("transcripts", "s1", [assistant("a1", 50_000), assistant("a2", 0)] as never)
-  set("providers", [
-    {
-      id: "openai",
-      name: "OpenAI",
-      models: { "gpt-5": { id: "gpt-5", limit: { context: 100_000 } } },
-    },
-  ] as never)
-  expect(contextStats(state, "s1")?.count).toBe(50_000)
-  expect(contextStats(state, "s1")?.percent).toBe(50)
+    const { contextStats } = await import("../src/engine/store");
+    const [state, set] = createEngineState();
+    const assistant = (id: string, total: number) => ({
+        info: {
+            id,
+            sessionId: "s1",
+            role: "assistant",
+            model: { provider: "openai", model: "gpt-5" },
+            usage: { input: total, output: 0, cacheRead: 0, cacheWrite: 0 },
+        },
+        parts: [],
+    });
+    set("transcripts", "s1", [assistant("a1", 50_000), assistant("a2", 0)] as never);
+    set("providers", [
+        {
+            id: "openai",
+            name: "OpenAI",
+            models: { "gpt-5": { id: "gpt-5", limit: { context: 100_000 } } },
+        },
+    ] as never);
+    expect(contextStats(state, "s1")?.count).toBe(50_000);
+    expect(contextStats(state, "s1")?.percent).toBe(50);
 
-  const summary = { ...assistant("s", 0), info: { ...assistant("s", 0).info, summary: true } }
-  set("transcripts", "s1", [assistant("a1", 90_000), summary] as never)
-  expect(contextStats(state, "s1")).toBeNull()
-  set("transcripts", "s1", [assistant("a1", 90_000), summary, assistant("a3", 12_000)] as never)
-  expect(contextStats(state, "s1")?.count).toBe(12_000)
+    const summary = { ...assistant("s", 0), info: { ...assistant("s", 0).info, summary: true } };
+    set("transcripts", "s1", [assistant("a1", 90_000), summary] as never);
+    expect(contextStats(state, "s1")).toBeNull();
+    set("transcripts", "s1", [assistant("a1", 90_000), summary, assistant("a3", 12_000)] as never);
+    expect(contextStats(state, "s1")?.count).toBe(12_000);
 
-  // Cost is the messages' own, a compaction summary's included; native sessions carry none of their own.
-  const costing = (entry: ReturnType<typeof assistant>, cost: number) => ({ ...entry, info: { ...entry.info, cost } })
-  set("transcripts", "s1", [costing(assistant("a1", 90_000), 0.5), costing(summary, 0.25), costing(assistant("a3", 12_000), 0.125)] as never)
-  expect(contextStats(state, "s1")?.cost).toBe(0.875)
-})
+    // Cost is the messages' own, a compaction summary's included; native sessions carry none of their own.
+    const costing = (entry: ReturnType<typeof assistant>, cost: number) => ({
+        ...entry,
+        info: { ...entry.info, cost },
+    });
+    set("transcripts", "s1", [
+        costing(assistant("a1", 90_000), 0.5),
+        costing(summary, 0.25),
+        costing(assistant("a3", 12_000), 0.125),
+    ] as never);
+    expect(contextStats(state, "s1")?.cost).toBe(0.875);
+});
 
 test("GPT-6 context meter retains catalog input headroom past the old OAuth threshold", async () => {
-  const { contextStats } = await import("../src/engine/store")
-  const [state, set] = createEngineState()
-  set("providers", [{
-    id: "openai",
-    name: "OpenAI",
-    models: { "gpt-6-astra": { id: "gpt-6-astra", limit: { context: 1_050_000, input: 922_000, output: 128_000 } } },
-  }] as never)
-  for (const count of [252_000, 901_999, 902_000]) {
-    set("transcripts", "s1", [{
-      info: {
-        id: "a1", sessionID: "s1", role: "assistant", providerID: "openai", modelID: "gpt-6-astra",
-        tokens: { total: count, input: count, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-      },
-      parts: [],
-    }] as never)
-    expect(contextStats(state, "s1")).toMatchObject({
-      context: 1_050_000, count, untilCompaction: 902_000 - count,
-    })
-  }
-})
+    const { contextStats } = await import("../src/engine/store");
+    const [state, set] = createEngineState();
+    set("providers", [
+        {
+            id: "openai",
+            name: "OpenAI",
+            models: {
+                "gpt-6-astra": { id: "gpt-6-astra", limit: { context: 1_050_000, input: 922_000, output: 128_000 } },
+            },
+        },
+    ] as never);
+    for (const count of [252_000, 901_999, 902_000]) {
+        set("transcripts", "s1", [
+            {
+                info: {
+                    id: "a1",
+                    sessionId: "s1",
+                    role: "assistant",
+                    model: { provider: "openai", model: "gpt-6-astra" },
+                    usage: { input: count, output: 0, cacheRead: 0, cacheWrite: 0 },
+                },
+                parts: [],
+            },
+        ] as never);
+        expect(contextStats(state, "s1")).toMatchObject({
+            context: 1_050_000,
+            count,
+            untilCompaction: 902_000 - count,
+        });
+    }
+});
 
 test("the meter keeps a quarter of a small window for the reply when the output limit is unknown", async () => {
-  const { replyRoom } = await import("../src/engine/store")
-  const { modelDetail } = await import("../src/ui/composer")
-  expect(replyRoom(0, 4_096)).toBe(1_024)
-  expect(replyRoom(0, 0)).toBe(32_000)
-  expect(replyRoom(64_000, 200_000)).toBe(32_000)
-  expect(replyRoom(32_768, 32_768)).toBe(16_384)
-  expect(replyRoom(8_192, 0)).toBe(8_192)
-  expect(modelDetail("ollama", { id: "llama", limit: { context: 4_096 } })).toContain("too small")
-  expect(modelDetail("openai", { id: "gpt", limit: { context: 200_000 } })).toBeUndefined()
-  expect(modelDetail("ollama", { id: "cold", limit: { context: 0 } })).toContain("unknown")
-  expect(modelDetail("openai", { id: "gpt", limit: { context: 0 } })).toBeUndefined()
-})
+    const { replyRoom } = await import("../src/engine/store");
+    const { modelDetail } = await import("../src/ui/composer-models");
+
+    expect(replyRoom(0, 4_096)).toBe(1_024);
+    expect(replyRoom(0, 0)).toBe(32_000);
+    expect(replyRoom(64_000, 200_000)).toBe(32_000);
+    expect(replyRoom(32_768, 32_768)).toBe(16_384);
+    expect(replyRoom(8_192, 0)).toBe(8_192);
+    expect(modelDetail("ollama", { id: "llama", limit: { context: 4_096 } })).toContain("too small");
+    expect(modelDetail("openai", { id: "gpt", limit: { context: 200_000 } })).toBeUndefined();
+    expect(modelDetail("ollama", { id: "cold", limit: { context: 0 } })).toContain("unknown");
+    expect(modelDetail("openai", { id: "gpt", limit: { context: 0 } })).toBeUndefined();
+});
 
 test("activity counts distinct tool parts and tracks the running tool", () => {
-  const [state, set] = createEngineState()
-  reduce(set, toolEvent("p1", "grep", "running"))
-  expect(state.liveTools.p1).toBe("child")
-  reduce(set, toolEvent("p1", "grep", "completed"))
-  expect(state.liveTools.p1).toBeUndefined()
-  reduce(set, toolEvent("p2", "read", "pending"))
-  reduce(set, toolEvent("p2", "read", "running"))
-  expect(state.liveTools.p2).toBe("child")
-  expect(state.activity["child"].tools).toBe(2)
-  expect(state.activity["child"].current).toBe("read")
-  reduce(set, toolEvent("p2", "read", "completed"))
-  expect(state.liveTools.p2).toBeUndefined()
-  expect(state.activity["child"].tools).toBe(2)
-  expect(state.activity["child"].current).toBeUndefined()
+    const [state, set] = createEngineState();
+    reduce(set, toolEvent("p1", "grep", "running"));
+    expect(state.liveTools.p1).toBe("child");
+    reduce(set, toolEvent("p1", "grep", "completed"));
+    expect(state.liveTools.p1).toBeUndefined();
+    reduce(set, toolEvent("p2", "read", "pending"));
+    reduce(set, toolEvent("p2", "read", "running"));
+    expect(state.liveTools.p2).toBe("child");
+    expect(state.activity["child"].tools).toBe(2);
+    expect(state.activity["child"].current).toBe("read");
+    reduce(set, toolEvent("p2", "read", "completed"));
+    expect(state.liveTools.p2).toBeUndefined();
+    expect(state.activity["child"].tools).toBe(2);
+    expect(state.activity["child"].current).toBeUndefined();
 
-  reduce(set, toolEvent("p3", "bash", "running"))
-  reduce(set, { type: "session.idle", properties: { sessionID: "child" } } as never)
-  expect(state.liveTools.p3).toBeUndefined()
-})
+    reduce(set, toolEvent("p3", "bash", "running"));
+    reduce(set, { type: "session.status", sessionId: "child", status: "idle" });
+    expect(state.liveTools.p3).toBeUndefined();
+});
 
-test("session errors terminate busy activity and remain visible", () => {
-  const [state, set] = createEngineState()
-  set("status", "s1", { type: "busy" })
-  set("activity", "s1", { tools: 1, lastPartId: "p1", current: "bash" })
-  set("liveTools", "p1", "s1")
-  reduce(
-    set,
-    {
-      type: "session.error",
-      properties: { sessionID: "s1", error: { name: "ProviderError", data: { message: "credit balance is too low" } } },
-    } as never,
-  )
-  expect(state.status["s1"].type).toBe("idle")
-  expect(state.activity["s1"].current).toBeUndefined()
-  expect(state.liveTools.p1).toBeUndefined()
-  expect(state.errors["s1"]).toBe("credit balance is too low")
-})
-
-test("current ask events update immediately and retain their workspace directory", () => {
-  const [state, set] = createEngineState()
-  reduce(
-    set,
-    {
-      type: "permission.updated",
-      properties: {
+test("native ask events update immediately and retain the current question directory", () => {
+    const [state, set] = createEngineState();
+    reduce(
+        set,
+        {
+            type: "permission.asked",
+            request: {
+                id: "perm-1",
+                sessionId: "s1",
+                kind: "bash",
+                tool: "bash",
+                pattern: "git status",
+                title: "Run command",
+                messageId: "m1",
+                callId: "c1",
+                createdAt: 1,
+            },
+        },
+        "C:/repo",
+    );
+    reduce(
+        set,
+        {
+            type: "question.asked",
+            request: {
+                id: "q1",
+                sessionId: "s1",
+                messageId: "m1",
+                callId: "c1",
+                createdAt: 1,
+                questions: [{ question: "Continue?", header: "Continue", options: [] }],
+            },
+        },
+        "C:/repo",
+    );
+    expect(state.permissions.s1[0]).toMatchObject({
         id: "perm-1",
-        sessionID: "s1",
-        type: "bash",
-        pattern: ["git status"],
+        kind: "bash",
+        pattern: "git status",
         title: "Run command",
-        messageID: "m1",
-        callID: "c1",
-        metadata: {},
-        time: { created: 1 },
-      },
-    } as never,
-    "C:/repo",
-  )
-  reduce(
-    set,
-    {
-      type: "question.asked",
-      properties: { id: "q1", sessionID: "s1", questions: [{ question: "Continue?", header: "Continue", options: [] }] },
-    } as never,
-    "C:/repo",
-  )
-  expect(state.permissions.s1[0]).toMatchObject({
-    id: "perm-1",
-    type: "bash",
-    pattern: ["git status"],
-    title: "Run command",
-    metadata: { directory: "C:/repo" },
-  })
-  expect(state.questions.s1[0].directory).toBe("C:/repo")
+        directory: "",
+    });
+    expect(state.questions.s1[0].directory).toBe("C:/repo");
 
-  reduce(set, { type: "permission.replied", properties: { sessionID: "s1", requestID: "perm-1" } } as never)
-  reduce(set, { type: "question.rejected", properties: { sessionID: "s1", requestID: "q1" } } as never)
-  expect(state.permissions.s1).toEqual([])
-  expect(state.questions.s1).toEqual([])
-})
+    reduce(set, { type: "permission.replied", sessionId: "s1", requestId: "perm-1", decision: "deny" });
+    reduce(set, { type: "question.replied", sessionId: "s1", requestId: "q1" });
+    expect(state.permissions.s1).toEqual([]);
+    expect(state.questions.s1).toEqual([]);
+});
 
-test("toast and sessionless error events become visible notices", () => {
-  const [state, set] = createEngineState()
-  reduce(
-    set,
-    {
-      id: "toast-1",
-      type: "tui.toast.show",
-      properties: { title: "Connected", message: "Provider ready", variant: "success", duration: 2500 },
-    } as never,
-  )
-  reduce(set, { type: "session.error", properties: {} } as never)
-  expect(state.notices[0]).toMatchObject({
-    id: "toast-1",
-    title: "Connected",
-    message: "Provider ready",
-    variant: "success",
-    duration: 2500,
-  })
-  expect(state.notices[1]).toMatchObject({ title: "Drift error", message: "An error occurred", variant: "error" })
-})
+test("plugin notices keep their title, body, tone and display duration", () => {
+    const [state, set] = createEngineState();
+    reduce(set, {
+        type: "plugin.notice",
+        plugin: "Review",
+        title: "Connected",
+        body: "Provider ready",
+        tone: "success",
+    });
+    expect(state.notices[0]).toMatchObject({
+        title: "Review: Connected",
+        message: "Provider ready",
+        variant: "success",
+        duration: 8000,
+    });
+});
 
 test("identical runtime errors collapse into one visible notice", () => {
-  const [state, set] = createEngineState()
-  const toast = (id: string) =>
-    reduce(
-      set,
-      {
-        id,
-        type: "tui.toast.show",
-        properties: { title: "Drift error", message: "Failed to load plugin", variant: "error" },
-      } as never,
-    )
-  toast("error-1")
-  toast("error-2")
-  toast("error-3")
-  expect(state.notices).toHaveLength(1)
-  expect(state.notices[0].id).toBe("error-3")
-})
+    const [state, set] = createEngineState();
+    const toast = () =>
+        reduce(set, {
+            type: "plugin.notice",
+            plugin: "Review",
+            title: "Drift error",
+            body: "Failed to load plugin",
+            tone: "error",
+        });
+    toast();
+
+    const first = state.notices[0].id;
+
+    toast();
+    toast();
+    expect(state.notices).toHaveLength(1);
+    expect(state.notices[0].id).not.toBe(first);
+});
 
 test("a new active status clears stale fallback errors", () => {
-  const [state, set] = createEngineState()
-  set("errors", "s1", "old failure")
-  reduce(set, { type: "session.status", properties: { sessionID: "s1", status: { type: "busy" } } } as never)
-  expect(state.errors.s1).toBeUndefined()
-})
+    const [state, set] = createEngineState();
+    set("errors", "s1", "old failure");
+    reduce(set, { type: "session.status", sessionId: "s1", status: "running" });
+    expect(state.errors.s1).toBeUndefined();
+});
+
+test("failed attempts the engine retried collapse into one retry line that stays up while the next attempt runs", async () => {
+    const { failedAttempt, retryInFlight, thinkingState } = await import("../src/ui/timeline-state");
+    const failed = (id: string, created: number) => ({
+        info: {
+            id,
+            role: "assistant",
+            createdAt: created,
+            finishedAt: created,
+            status: "error",
+            error: "overloaded_error: Overloaded",
+        },
+        parts: [],
+    });
+    const entries = [
+        { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
+        failed("a1", 2),
+        failed("a2", 3),
+        { info: { id: "a3", role: "assistant", createdAt: 4 }, parts: [] },
+    ] as never;
+    expect(failedAttempt((entries as never[])[1])).toBeTrue();
+
+    const thinking = thinkingState(entries, "busy");
+    expect(thinking?.messageID, "the attempt in flight still shows activity").toBe("a3");
+    expect(retryInFlight(entries, thinking?.messageID)).toEqual({
+        type: "retry",
+        attempt: 2,
+        message: "overloaded_error: Overloaded",
+        next: 0,
+    });
+
+    const answered = [
+        ...(entries as never[]).slice(0, 3),
+        {
+            info: { id: "a3", role: "assistant", createdAt: 4 },
+            parts: [{ id: "p", type: "text", text: "hello", sessionID: "s", messageID: "a3" }],
+        },
+    ] as never;
+    expect(retryInFlight(answered, "a3"), "once the attempt shows output, the line goes").toBeUndefined();
+});
+
+test("a failure stops showing once the session goes on, by a retry or a new prompt", async () => {
+    const { failedAttempt } = await import("../src/ui/timeline-state");
+    const failed = {
+        info: {
+            id: "a1",
+            role: "assistant",
+            createdAt: 2,
+            finishedAt: 2,
+            status: "error",
+            error: "Overloaded",
+        },
+        parts: [],
+    };
+    const stopped = { ...failed, info: { ...failed.info, status: "aborted" } };
+
+    expect(failedAttempt(failed as never)).toBeTrue();
+    expect(failedAttempt(stopped as never), "a stop is kept as its divider").toBeFalse();
+
+    const state = await Bun.file("src/ui/timeline-state.ts").text();
+    const row = await Bun.file("src/ui/timeline-row.tsx").text();
+
+    expect(state).toContain("if (failedAttempt(entry) && next) return false");
+    expect(row).toContain("hideError={!!props.retry || !!props.next}");
+});

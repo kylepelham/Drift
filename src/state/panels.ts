@@ -1,7 +1,7 @@
-import { createSignal } from "solid-js"
+import { createSignal } from "solid-js";
 
-export const [debugPanelOpen, setDebugPanelOpen] = createSignal(false)
+export const [debugPanelOpen, setDebugPanelOpen] = createSignal(false);
 
 export function toggleDebugPanel() {
-  setDebugPanelOpen(!debugPanelOpen())
+    setDebugPanelOpen(!debugPanelOpen());
 }

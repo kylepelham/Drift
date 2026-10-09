@@ -10,26 +10,26 @@ use super::convert;
 use super::oneshot::{Action, Answer, Failure, Fallback, OneShot};
 use super::turn::Plan;
 use super::turn::TurnError;
-use super::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, Role};
+use super::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, Role, Session};
+use crate::Engine;
 use crate::event::Event;
 use crate::id;
 use crate::llm::catalog::Model;
 use crate::llm::{self, Block, ChatMessage};
-use crate::Engine;
 
 /// The recent history kept verbatim: at most this many turns, within [`tail_budget`] estimated tokens.
 const TAIL_TURNS: usize = 2;
-/// A quarter of what the conversation's model may use before compacting, kept within these bounds:
-/// a small local model must not compact again on the very next step. opencode stops at 8k; Drift
-/// keeps the 15k it always kept for large windows.
+/// The tail budget is a quarter of the model's compaction point, clamped to these bounds.
+/// The minimum stops a small local model from compacting again on the next step.
+/// opencode caps the tail at 8k tokens; Drift keeps its earlier 15k cap for large windows.
 const TAIL_MIN_TOKENS: u64 = 2_000;
 const TAIL_MAX_TOKENS: u64 = 15_000;
-/// Each tool result the summary request carries is cut to this many characters; images and PDFs are named only.
+/// Character limit for each tool result in a summary request; images and PDFs are replaced by a mention.
 const SUMMARY_TOOL_CHARS: usize = 2_000;
 const SUMMARY_MAX_TOKENS: u32 = 8_192;
 const CACHE_WARM_MS: i64 = 5 * 60 * 1000;
 const SUMMARY_TIMEOUT: Duration = Duration::from_secs(300);
-/// A summary request that is itself too long drops the oldest fifth of its turns, this many times at most.
+/// Retries for an overlong summary request, each dropping the oldest fifth of its turns.
 const TRIM_ATTEMPTS: usize = 3;
 /// Automatic compaction stops for a session after this many failures in a row.
 pub(super) const MAX_AUTO_FAILURES: u32 = 3;
@@ -44,44 +44,110 @@ pub(super) enum Trigger {
     Overflow,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub(super) enum CompactionError {
+    #[error("{0}")]
+    Turn(#[from] TurnError),
+    #[error("{0}")]
+    Store(#[from] rusqlite::Error),
+    #[error("the conversation could not be read")]
+    Unreadable,
+    #[error("there is nothing to compact yet")]
+    Empty,
+    #[error("aborted")]
+    Aborted,
+    #[error("the summary was not saved ({0})")]
+    Unsaved(rusqlite::Error),
+    #[error("{0}")]
+    Request(String),
+    #[error("the conversation is too long to summarise")]
+    TooLong,
+}
+
+struct SummaryInput<'a> {
+    session_id: &'a str,
+    action: &'a Action,
+    instructions: &'a str,
+    window: &'a [MessageWithParts],
+    trigger: Trigger,
+    previous: Option<&'a str>,
+    head: &'a [&'a MessageWithParts],
+}
+
 /// What the model sees: the latest finished summary, then the messages it kept and everything after.
 pub(super) struct View<'a> {
     pub summary: Option<String>,
-    /// When the tail starts inside a turn, that turn's prompt, verbatim, so the request is not only as the summary retells it.
+    /// The original prompt of a turn split by the tail, sent verbatim beside its summary.
     pub request: Option<String>,
     pub messages: Vec<&'a MessageWithParts>,
 }
 
 pub(super) fn view(transcript: &[MessageWithParts]) -> View<'_> {
-    // A summary without text replaces nothing; the view before it stands.
-    let latest = transcript.iter().rposition(|m| m.info.summary && m.info.status == MessageStatus::Done && !text_of(m).trim().is_empty());
+    // An empty summary replaces nothing, so the previous view stays in effect.
+    let latest = transcript.iter().rposition(|message| {
+        message.info.summary && message.info.status == MessageStatus::Done && !text_of(message).trim().is_empty()
+    });
     let Some(index) = latest else {
-        return View { summary: None, request: None, messages: transcript.iter().filter(|m| !is_marker(m)).collect() };
+        return View {
+            summary: None,
+            request: None,
+            messages: transcript.iter().filter(|message| !is_marker(message)).collect(),
+        };
     };
+
     let tail_from = transcript[..index].iter().rev().find_map(boundary).flatten();
     let messages: Vec<&MessageWithParts> = transcript
         .iter()
         .enumerate()
-        .filter(|(i, m)| !is_marker(m) && tail_from.as_ref().map_or(*i > index, |tail| m.info.id >= *tail))
-        .map(|(_, m)| m)
+        .filter(|(position, message)| {
+            !is_marker(message)
+                && tail_from
+                    .as_ref()
+                    .map_or(*position > index, |tail| message.info.id >= *tail)
+        })
+        .map(|(_, message)| message)
         .collect();
-    let request = messages.first().filter(|first| first.info.role == Role::Assistant).and_then(|first| {
-        let prompt = transcript.iter().rev().find(|m| m.info.id < first.info.id && m.info.role == Role::User && !is_marker(m))?;
-        Some(text_of(prompt)).filter(|text| !text.trim().is_empty())
-    });
-    View { summary: Some(text_of(&transcript[index])), request, messages }
+
+    let request = messages
+        .first()
+        .filter(|first| first.info.role == Role::Assistant)
+        .and_then(|first| {
+            let prompt = transcript.iter().rev().find(|message| {
+                message.info.id < first.info.id && message.info.role == Role::User && !is_marker(message)
+            })?;
+            Some(text_of(prompt)).filter(|text| !text.trim().is_empty())
+        });
+
+    View {
+        summary: Some(text_of(&transcript[index])),
+        request,
+        messages,
+    }
 }
 
-/// The request history for `target`: the summary as the opening user turn (with `lead`, reminders for
-/// a prompt the summary stands for), then the kept messages.
-pub(super) fn request_messages(transcript: &[MessageWithParts], target: &impl convert::Target, lead: &[String]) -> Vec<ChatMessage> {
+/// Builds request history for `target`, opening with the summary, any prompt it split and `lead` reminders.
+/// The messages the summary kept follow unchanged.
+pub(super) fn request_messages(
+    transcript: &[MessageWithParts],
+    target: &impl convert::Target,
+    lead: &[String],
+) -> Vec<ChatMessage> {
     let view = view(transcript);
     let mut out = Vec::new();
+
     if let Some(summary) = &view.summary {
-        let request = view.request.as_ref().map(|text| format!("The request still being worked on, as the user wrote it:\n\n{text}"));
-        let blocks = std::iter::once(wrap(summary)).chain(request).chain(lead.iter().cloned()).map(Block::Text).collect();
+        let request = view
+            .request
+            .as_ref()
+            .map(|text| format!("The request still being worked on, as the user wrote it:\n\n{text}"));
+        let blocks = std::iter::once(wrap(summary))
+            .chain(request)
+            .chain(lead.iter().cloned())
+            .map(Block::Text)
+            .collect();
         convert::push(&mut out, llm::Role::User, blocks);
     }
+
     convert::append(&mut out, view.messages, target);
     out
 }
@@ -91,6 +157,7 @@ pub(super) fn overflowing(model: &Model, transcript: &[MessageWithParts]) -> boo
     if model.limit.context == 0 {
         return false;
     }
+
     let used = last_usage(transcript);
     used > 0 && used >= model.compaction_point()
 }
@@ -101,12 +168,14 @@ fn last_usage(transcript: &[MessageWithParts]) -> u64 {
         if message.info.summary {
             return 0;
         }
+
         let usage = message.info.usage;
         let total = usage.input + usage.output + usage.cache_read + usage.cache_write;
         if message.info.role == Role::Assistant && message.info.status == MessageStatus::Done && total > 0 {
             return total;
         }
     }
+
     0
 }
 
@@ -115,13 +184,14 @@ impl Engine {
         self.store.setting(AUTO_COMPACT_KEY).ok().flatten().unwrap_or(true)
     }
 
-    /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it. Refused while
-    /// undone: the summary would land after the hidden messages the next prompt deletes.
+    /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it.
+    /// Refused while undone, because the summary would follow hidden messages the next prompt deletes.
     pub fn start_compaction(self: &Arc<Self>, session_id: &str) -> Result<(), TurnError> {
         let abort = CancellationToken::new();
         if !self.turns.claim(session_id, &abort) {
             return Err(TurnError::Busy);
         }
+
         let session = match self.store.session(session_id) {
             Ok(Some(session)) => session,
             Ok(None) => return self.refuse_compaction(session_id, TurnError::NoSession),
@@ -130,11 +200,13 @@ impl Engine {
         if session.revert.is_some() {
             return self.refuse_compaction(session_id, TurnError::Reverted);
         }
+
         let engine = self.clone();
         let id = session_id.to_string();
         self.spawn_job(session_id, async move {
             let _ = engine.compact(&id, Trigger::Manual, &abort).await;
         });
+
         Ok(())
     }
 
@@ -145,18 +217,32 @@ impl Engine {
 
     /// Whether the turn should compact before its next request; three automatic failures in a row stop it.
     pub(super) fn wants_compaction(&self, session_id: &str, model: &Model, transcript: &[MessageWithParts]) -> bool {
-        let failures = self.turns.compaction_failures.lock().unwrap().get(session_id).copied().unwrap_or(0);
+        let failures = self
+            .turns
+            .compaction_failures
+            .lock()
+            .unwrap()
+            .get(session_id)
+            .copied()
+            .unwrap_or(0);
+
         self.auto_compact() && failures < MAX_AUTO_FAILURES && overflowing(model, transcript)
     }
 
-    /// Writes a boundary and a summary of everything before the recent turns. The summary message
-    /// records failure or abort; the caller decides what that means for the turn.
-    pub(super) async fn compact(self: &Arc<Self>, session_id: &str, trigger: Trigger, abort: &CancellationToken) -> Result<(), String> {
+    /// Writes a boundary and a summary of everything before the recent turns.
+    /// The summary message records failure or abort; the caller decides what that means for the turn.
+    pub(super) async fn compact(
+        self: &Arc<Self>,
+        session_id: &str,
+        trigger: Trigger,
+        abort: &CancellationToken,
+    ) -> Result<(), CompactionError> {
         let result = self.compact_once(session_id, trigger, abort).await;
         if result.is_ok() {
             self.turns.files_for(&self.store, session_id).forget_shown();
             self.turns.forget_checked(session_id);
         }
+
         if trigger != Trigger::Manual {
             let mut failures = self.turns.compaction_failures.lock().unwrap();
             match &result {
@@ -166,136 +252,292 @@ impl Engine {
                 Err(_) => *failures.entry(session_id.into()).or_default() += 1,
             }
         }
+
         result
     }
 
-    async fn compact_once(&self, session_id: &str, trigger: Trigger, abort: &CancellationToken) -> Result<(), String> {
-        let action = self.action_model(session_id, "compaction", Fallback::Conversation).await.map_err(|e| e.to_string())?;
-        let instructions = action.config.agent("compaction").map(|agent| agent.prompt.clone()).unwrap_or_default();
-        // Only what the view shows is summarised again, so history the last summary covered is not loaded.
-        let transcript = self.request_window(session_id).ok_or("the conversation could not be read")?;
+    async fn compact_once(
+        &self,
+        session_id: &str,
+        trigger: Trigger,
+        abort: &CancellationToken,
+    ) -> Result<(), CompactionError> {
+        let action = self
+            .action_model(session_id, "compaction", Fallback::Conversation)
+            .await?;
+        let session = self.store.session(session_id).ok().flatten();
+        let instructions = self.compaction_instructions(&action, session.as_ref()).await;
+
+        // Only the current view is summarised again; history the last summary covered is not loaded.
+        let transcript = self.request_window(session_id).ok_or(CompactionError::Unreadable)?;
         let view = view(&transcript);
         let tail = tail_start(&view.messages, tail_budget(&action.conversation));
         let head = &view.messages[..tail.unwrap_or(view.messages.len())];
         if head.is_empty() && view.summary.is_none() {
-            return Err("there is nothing to compact yet".into());
+            return Err(CompactionError::Empty);
         }
-        let tail_from = tail.map(|i| view.messages[i].info.id.clone());
-        let mut summary = self.open_compaction(session_id, &action.resolved.model_ref, trigger, tail_from).map_err(|e| e.to_string())?;
-        // The prompt a split turn kept verbatim rides with the previous summary, so a second compaction does not lose it.
-        let previous = view.summary.as_ref().map(|summary| match &view.request {
-            Some(request) => format!("{summary}\n\nThe request still being worked on, as the user wrote it:\n\n{request}"),
-            None => summary.clone(),
-        });
+
+        let tail_from = tail.map(|index| view.messages[index].info.id.clone());
+        let mut summary = self.open_compaction(session_id, &action.resolved.model_ref, trigger, tail_from)?;
+        let previous = previous_summary(&view);
         let mut spent = Spent::default();
-        let outcome = tokio::select! {
-            outcome = self.summarise(session_id, &action, &instructions, &transcript, trigger, previous.as_deref(), head, &mut spent) => outcome,
-            () = abort.cancelled() => Err("aborted".to_string()),
+        let input = SummaryInput {
+            session_id,
+            action: &action,
+            instructions: &instructions,
+            window: &transcript,
+            trigger,
+            previous: previous.as_deref(),
+            head,
         };
-        // Charged like any reply, the attempts that came back unusable included.
+        let outcome = tokio::select! {
+            outcome = self.summarise(&input, &mut spent) => outcome,
+            () = abort.cancelled() => Err(CompactionError::Aborted),
+        };
+
+        // Every attempt is charged like a reply, including attempts that came back unusable.
         summary.usage = spent.usage;
         summary.cost = spent.cost;
-        self.close_compaction(&mut summary, outcome, abort.is_cancelled())
+        let closed = self.close_compaction(&mut summary, outcome, abort.is_cancelled());
+
+        if let Some(session) = session.filter(|_| closed.is_ok() && !self.hooks.is_empty()) {
+            self.hooks
+                .session(&crate::hook::session_event(
+                    self,
+                    &session,
+                    crate::hook::SessionKind::Compacted,
+                ))
+                .await;
+        }
+
+        closed
+    }
+
+    /// The compaction agent's prompt, followed by any instructions plugins add for this session.
+    async fn compaction_instructions(&self, action: &Action, session: Option<&Session>) -> String {
+        let mut instructions = action
+            .config
+            .agent("compaction")
+            .map(|agent| agent.prompt.clone())
+            .unwrap_or_default();
+        let Some(session) = session.filter(|_| !self.hooks.is_empty()) else {
+            return instructions;
+        };
+
+        let event = crate::hook::CompactionEvent {
+            session_id: session.id.clone(),
+            workspace: action.workspace.to_string_lossy().into_owned(),
+            agent: session.agent.clone(),
+        };
+        for extra in self.hooks.compaction(&event).await {
+            instructions.push_str("\n\n");
+            instructions.push_str(&extra);
+        }
+
+        instructions
     }
 
     /// The boundary the UI draws and the streaming summary message it fills.
-    fn open_compaction(&self, session_id: &str, model: &ModelRef, trigger: Trigger, tail_from: Option<String>) -> rusqlite::Result<Message> {
+    fn open_compaction(
+        &self,
+        session_id: &str,
+        model: &ModelRef,
+        trigger: Trigger,
+        tail_from: Option<String>,
+    ) -> rusqlite::Result<Message> {
         let boundary = self.store.create_message(session_id, Role::User, Some(model))?;
-        self.hub.publish(Event::MessageCreated { message: boundary.clone() });
-        let part = self.store.add_part(&boundary.id, session_id, Part::Compaction { auto: trigger != Trigger::Manual, tail_from })?;
+        self.hub.publish(Event::MessageCreated {
+            message: boundary.clone(),
+        });
+
+        let part = self.store.add_part(
+            &boundary.id,
+            session_id,
+            Part::Compaction {
+                auto: trigger != Trigger::Manual,
+                tail_from,
+            },
+        )?;
         self.hub.publish(Event::PartCreated { part });
+
         let summary = self.store.create_summary_message(session_id, model)?;
-        self.hub.publish(Event::MessageCreated { message: summary.clone() });
+        self.hub.publish(Event::MessageCreated {
+            message: summary.clone(),
+        });
+
         Ok(summary)
     }
 
-    /// Publishes a finished summary only once its text and state are stored together. Anything less
-    /// leaves the summary failed, the previous request view in use, and the failure with the caller.
-    fn close_compaction(&self, summary: &mut Message, outcome: Result<String, String>, aborted: bool) -> Result<(), String> {
+    /// Publishes a finished summary only after its text and state are stored together.
+    /// Otherwise the summary is marked failed, the previous view stays in use, and the error is returned.
+    fn close_compaction(
+        &self,
+        summary: &mut Message,
+        outcome: Result<String, CompactionError>,
+        aborted: bool,
+    ) -> Result<(), CompactionError> {
         summary.finished_at = Some(id::now_ms());
         let stored = outcome.and_then(|text| {
             summary.status = MessageStatus::Done;
-            self.store.complete_summary(summary, text.trim()).map_err(|e| format!("the summary was not saved ({e})"))
+            self.store
+                .complete_summary(summary, text.trim())
+                .map_err(CompactionError::Unsaved)
         });
         let error = match stored {
             Ok(part) => {
                 self.hub.publish(Event::PartCreated { part });
-                self.hub.publish(Event::MessageUpdated { message: summary.clone() });
+                self.hub.publish(Event::MessageUpdated {
+                    message: summary.clone(),
+                });
                 return Ok(());
             }
             Err(error) => error,
         };
-        summary.status = if aborted { MessageStatus::Aborted } else { MessageStatus::Error };
-        summary.error = Some(error.clone());
+
+        summary.status = if aborted {
+            MessageStatus::Aborted
+        } else {
+            MessageStatus::Error
+        };
+        summary.error = Some(error.to_string());
         let _ = self.store.save_message(summary);
-        self.hub.publish(Event::MessageUpdated { message: summary.clone() });
+        self.hub.publish(Event::MessageUpdated {
+            message: summary.clone(),
+        });
+
         Err(error)
     }
 
-    /// The summary. On the conversation's own model with its cache still warm, the request is the
-    /// conversation's next one with the instructions after it, so its whole history is read at the
-    /// cached price. Otherwise, or when that reply is unusable or too long, a lean request on the
-    /// history before the tail.
-    #[allow(clippy::too_many_arguments)]
-    async fn summarise(&self, session_id: &str, action: &Action, instructions: &str, window: &[MessageWithParts], trigger: Trigger, previous: Option<&str>, head: &[&MessageWithParts], spent: &mut Spent) -> Result<String, String> {
-        if let Some(plan) = action.own.as_ref().filter(|_| trigger != Trigger::Overflow && warm(window)) {
-            match self.summarise_cached(session_id, plan, instructions, window.to_vec()).await {
+    /// Prefers the conversation's next request, with the instructions appended, while its model's cache is warm.
+    /// That reads the whole history at the cached price.
+    /// Otherwise, or when that reply is unusable or too long, summarises the history before the tail leanly.
+    async fn summarise(&self, input: &SummaryInput<'_>, spent: &mut Spent) -> Result<String, CompactionError> {
+        if let Some(plan) = input
+            .action
+            .own
+            .as_ref()
+            .filter(|_| input.trigger != Trigger::Overflow && warm(input.window))
+        {
+            match self
+                .summarise_cached(input.session_id, plan, input.instructions, input.window.to_vec())
+                .await
+            {
                 Ok(answer) => return Ok(spent.take(&plan.model, answer)),
                 Err(failure) => {
                     spent.add(&plan.model, failure.usage());
                     if !failure.retry_another_way() {
-                        return Err(failure.message());
+                        return Err(CompactionError::Request(failure.message()));
                     }
                 }
             }
         }
-        self.summarise_lean(session_id, action, instructions, previous, head, spent).await
+
+        self.summarise_lean(input, spent).await
     }
 
-    /// Exactly the request the turn's next step would send (same frame, reasoning and tool choice,
-    /// which providers key their cache on), with the instructions as the last user message.
-    async fn summarise_cached(&self, session_id: &str, plan: &Plan, instructions: &str, window: Vec<MessageWithParts>) -> Result<Answer, Failure> {
-        let started = self.turns.began(session_id).or_else(|| self.store.newest_prompt(session_id).ok().flatten());
+    /// Sends exactly the request the turn's next step would, with the instructions as the last user message.
+    /// Frame, reasoning and tool choice stay identical because providers key their prompt cache on them.
+    async fn summarise_cached(
+        &self,
+        session_id: &str,
+        plan: &Plan,
+        instructions: &str,
+        window: Vec<MessageWithParts>,
+    ) -> Result<Answer, Failure> {
+        let started = self
+            .turns
+            .began(session_id)
+            .or_else(|| self.store.newest_prompt(session_id).ok().flatten());
         let (mut request, _) = self.step_request(plan, window, started.as_deref(), None);
-        convert::push(&mut request.messages, llm::Role::User, vec![Block::Text(instructions.into())]);
-        self.send(&plan.provider, &plan.credential, &request, SUMMARY_TIMEOUT, Some(session_id)).await
+        convert::push(
+            &mut request.messages,
+            llm::Role::User,
+            vec![Block::Text(instructions.into())],
+        );
+
+        self.send(
+            &plan.provider,
+            &plan.credential,
+            &request,
+            super::oneshot::SendOptions {
+                timeout: SUMMARY_TIMEOUT,
+                shown_in: Some(session_id),
+            },
+        )
+        .await
     }
 
-    /// The history before the tail with files by mention and tool results cut, no system prompt;
-    /// when it is itself too long, the oldest turns are dropped and it is asked again.
-    async fn summarise_lean(&self, session_id: &str, action: &Action, instructions: &str, previous: Option<&str>, head: &[&MessageWithParts], spent: &mut Spent) -> Result<String, String> {
-        let resolved = &action.resolved;
-        let starts = turn_starts(head);
+    /// Summarises the history before the tail without a system prompt, files mentioned and tool results cut.
+    /// When that request is too long, drops the oldest turns and asks again.
+    async fn summarise_lean(&self, input: &SummaryInput<'_>, spent: &mut Spent) -> Result<String, CompactionError> {
+        let resolved = &input.action.resolved;
+        let starts = turn_starts(input.head);
         let mut dropped = 0;
+
         for attempt in 0..=TRIM_ATTEMPTS {
-            let from = starts.get(dropped).copied().unwrap_or(head.len());
-            let mut messages = Vec::new();
-            if let Some(previous) = previous {
-                convert::push(&mut messages, llm::Role::User, vec![Block::Text(wrap(previous))]);
-            }
-            if dropped > 0 {
-                convert::push(&mut messages, llm::Role::User, vec![Block::Text("(The oldest part of the conversation was left out to fit.)".into())]);
-            }
-            {
-                let catalog = self.catalog.read().unwrap();
-                convert::append(&mut messages, head[from..].iter().copied(), &convert::OnCatalog { model: &resolved.model_ref, catalog: &catalog });
-            }
-            lean(&mut messages);
-            convert::push(&mut messages, llm::Role::User, vec![Block::Text(instructions.into())]);
-            let shot = OneShot { system: String::new(), messages, tools: self.tool_specs(resolved.model.profile, Some(&action.workspace)), max_tokens: SUMMARY_MAX_TOKENS, timeout: SUMMARY_TIMEOUT, shown_in: Some(session_id.into()) };
+            let from = starts.get(dropped).copied().unwrap_or(input.head.len());
+            let shot = OneShot {
+                system: String::new(),
+                messages: self.lean_messages(input, from, dropped > 0),
+                tools: self.tool_specs(resolved.model.profile, Some(&input.action.workspace)),
+                max_tokens: SUMMARY_MAX_TOKENS,
+                timeout: SUMMARY_TIMEOUT,
+                shown_in: Some(input.session_id.into()),
+            };
             let failure = match self.complete(resolved, shot).await {
                 Ok(answer) => return Ok(spent.take(&resolved.model, answer)),
                 Err(failure) => failure,
             };
+
             spent.add(&resolved.model, failure.usage());
             let error = failure.message();
             if attempt == TRIM_ATTEMPTS || !llm::mentions_context_overflow(&error) || dropped >= starts.len() {
-                return Err(error);
+                return Err(CompactionError::Request(error));
             }
             dropped += (starts.len() / 5).max(1);
         }
-        Err("the conversation is too long to summarise".into())
+
+        Err(CompactionError::TooLong)
     }
+
+    /// The lean summary request for the head from message `from`, noting when older turns were left out.
+    fn lean_messages(&self, input: &SummaryInput<'_>, from: usize, trimmed: bool) -> Vec<ChatMessage> {
+        let mut messages = Vec::new();
+        if let Some(previous) = input.previous {
+            convert::push(&mut messages, llm::Role::User, vec![Block::Text(wrap(previous))]);
+        }
+        if trimmed {
+            let note = "(The oldest part of the conversation was left out to fit.)";
+            convert::push(&mut messages, llm::Role::User, vec![Block::Text(note.into())]);
+        }
+
+        let catalog = self.catalog.read().unwrap();
+        let target = convert::OnCatalog {
+            model: &input.action.resolved.model_ref,
+            catalog: &catalog,
+        };
+        convert::append(&mut messages, input.head[from..].iter().copied(), &target);
+
+        lean(&mut messages);
+        convert::push(
+            &mut messages,
+            llm::Role::User,
+            vec![Block::Text(input.instructions.into())],
+        );
+
+        messages
+    }
+}
+
+/// The previous summary, carrying a split turn's prompt so a second compaction does not lose it.
+fn previous_summary(view: &View<'_>) -> Option<String> {
+    let summary = view.summary.as_ref()?;
+    let previous = match &view.request {
+        Some(request) => format!("{summary}\n\nThe request still being worked on, as the user wrote it:\n\n{request}"),
+        None => summary.clone(),
+    };
+
+    Some(previous)
 }
 
 /// What a compaction's requests used and cost, each priced on the model it ran on.
@@ -325,7 +567,9 @@ impl Spent {
 fn lean(messages: &mut [ChatMessage]) {
     for block in messages.iter_mut().flat_map(|message| message.blocks.iter_mut()) {
         match block {
-            Block::Image { mime, .. } | Block::Stored { mime, .. } => *block = Block::Text(format!("[a {mime} file was attached here]")),
+            Block::Image { mime, .. } | Block::Stored { mime, .. } => {
+                *block = Block::Text(format!("[a {mime} file was attached here]"));
+            }
             Block::Pdf { .. } => *block = Block::Text("[a PDF was attached here]".into()),
             Block::ToolResult { content, .. } if content.chars().count() > SUMMARY_TOOL_CHARS => {
                 let kept: String = content.chars().take(SUMMARY_TOOL_CHARS).collect();
@@ -336,11 +580,16 @@ fn lean(messages: &mut [ChatMessage]) {
     }
 }
 
-/// Whether the conversation's last reply is recent enough that the provider still holds its prompt
-/// cache (five minutes is Anthropic's default and the shortest common one).
+/// Whether the last reply is recent enough for the provider to still hold its prompt cache.
+/// Five minutes is Anthropic's default and the shortest common cache lifetime.
 fn warm(window: &[MessageWithParts]) -> bool {
-    let last = window.iter().rev().find(|m| m.info.role == Role::Assistant && !m.info.summary);
-    last.and_then(|m| m.info.finished_at).is_some_and(|at| id::now_ms() - at < CACHE_WARM_MS)
+    let last = window
+        .iter()
+        .rev()
+        .find(|message| message.info.role == Role::Assistant && !message.info.summary);
+
+    last.and_then(|message| message.info.finished_at)
+        .is_some_and(|at| id::now_ms() - at < CACHE_WARM_MS)
 }
 
 /// How much recent history stays verbatim, in estimated tokens, for the model that will read it.
@@ -369,16 +618,29 @@ fn boundary(message: &MessageWithParts) -> Option<Option<String>> {
 }
 
 fn text_of(message: &MessageWithParts) -> String {
-    message.parts.iter().filter_map(|row| match &row.part { Part::Text { text } => Some(text.as_str()), _ => None }).collect::<Vec<_>>().join("\n")
+    message
+        .parts
+        .iter()
+        .filter_map(|row| match &row.part {
+            Part::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn turn_starts(messages: &[&MessageWithParts]) -> Vec<usize> {
-    messages.iter().enumerate().filter(|(_, m)| m.info.role == Role::User).map(|(i, _)| i).collect()
+    messages
+        .iter()
+        .enumerate()
+        .filter(|(_, message)| message.info.role == Role::User)
+        .map(|(index, _)| index)
+        .collect()
 }
 
-/// Where the verbatim tail begins: whole turns from the end, within both limits, always leaving
-/// something before it to summarise. When not even the last turn fits (one prompt and hundreds of
-/// calls), its newest steps are kept from a reply onwards. `None` summarises everything.
+/// Where the verbatim tail begins: whole turns from the end within both limits, leaving something to summarise.
+/// When even the last turn does not fit, its newest steps are kept from a reply onward.
+/// `None` summarises everything.
 fn tail_start(messages: &[&MessageWithParts], budget: usize) -> Option<usize> {
     let starts = turn_starts(messages);
     let mut chosen = None;
@@ -388,6 +650,7 @@ fn tail_start(messages: &[&MessageWithParts], budget: usize) -> Option<usize> {
         }
         chosen = Some(start);
     }
+
     chosen.or_else(|| split_turn(messages, starts.last().copied().unwrap_or(0), budget))
 }
 
@@ -404,6 +667,7 @@ fn split_turn(messages: &[&MessageWithParts], turn: usize, budget: usize) -> Opt
             chosen = Some(index);
         }
     }
+
     chosen
 }
 
@@ -411,15 +675,20 @@ fn split_turn(messages: &[&MessageWithParts], turn: usize, budget: usize) -> Opt
 fn estimate(messages: &[&MessageWithParts]) -> usize {
     let chars: usize = messages
         .iter()
-        .flat_map(|m| m.parts.iter())
+        .flat_map(|message| message.parts.iter())
         .map(|row| match &row.part {
-            Part::Text { text } | Part::Nudge { text } | Part::Reasoning { text, .. } | Part::TaskResult { text, .. } => text.len(),
+            Part::Text { text }
+            | Part::Nudge { text }
+            | Part::Context { text, .. }
+            | Part::Reasoning { text, .. }
+            | Part::TaskResult { text, .. } => text.len(),
             Part::ToolCall { input, output, .. } => input.to_string().len() + output.as_ref().map_or(0, String::len),
             Part::File { url, .. } => url.len(),
             Part::Clarification { request_id, items } => super::convert::clarification_text(request_id, items).len(),
             Part::Compaction { .. } | Part::Unknown { .. } => 0,
         })
         .sum();
+
     chars / 4
 }
 

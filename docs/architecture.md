@@ -23,13 +23,31 @@ src-tauri   -> shell: opens and serves the engine, owns Drift's own tables (docs
   engine's OpenAPI document (`bun run gen:engine`).
 - `src/engine/native/events.ts` keeps the event socket: it reconnects with its cursor,
   hydrates again on `resync`, and hands frames to the reducer.
-- `src/engine/native/adapt.ts` maps the engine's sessions, messages and parts onto the shapes
-  the views render (`src/engine/shapes.ts`).
+- `src/engine/sessions.ts` adds a workspace directory to native sessions without renaming
+  their fields. Hidden workers nest under `parentId`; spawned siblings keep a navigation link.
+- Permissions and todos retain their generated native fields. `src/engine/questions.ts`
+  supplies question-card defaults while keeping native request IDs and ownership fields.
+  Request directories are UI-owned routing data, not synthetic permission metadata.
+- `src/engine/provider-auth.ts` owns Settings' sign-in method type; these choices are
+  supplied by the actions layer rather than the engine's provider catalog schema.
+- Catalog models use the generated native schema, including ordered reasoning variants
+  and optional context limits. The persisted catalog restores SDK-era caches at the storage
+  boundary; live provider responses are stored without capability placeholders.
+- `src/engine/parts.ts` aliases the generated native part union and supplies text and
+  file-tool selectors. Stored records retain native IDs, tags, timestamps and metadata.
+  `src/ui/tool-presentation.ts` derives row status and timing without changing those records.
+- Messages are stored as native records. `src/engine/messages.ts` derives visible failure
+  and interruption text from their status and ending; it never replaces their usage,
+  timestamps, agent or provider model reference with SDK fields.
 - `src/engine/store.ts` holds the state shape plus pure helpers (`visibleSessions`,
   `resolveModel`, `sessionBusy`). No IO.
 - `src/engine/events.ts` is the reducer: one function per event type, applied with
-  `produce` for fine-grained solid updates.
-- `src/engine/actions.ts` is the only place engine calls happen.
+  `produce` for fine-grained solid updates. It consumes the generated native event union
+  directly, including `part.delta`, `session.retry`, `permission.asked` and `plugin.notice`.
+  There is no SDK record conversion or event-name translation.
+- `src/engine/actions.ts` and its `actions-*.ts` groups are the only place engine calls
+  happen. `actions.ts` keeps transcripts, session listing and sending, and merges the
+  groups for sessions, asks, providers and configuration, which share one `ActionContext`.
 - `src/engine/index.tsx` glues it together: provider, hydration, event pump.
 
 ## Rules that keep this sane
@@ -50,11 +68,33 @@ thinking indicators, and pending asks stay accurate for all of them at once. Swi
 workspaces (`EngineProvider.setDirectory`) loads that workspace's conversation list once per
 connection; session-keyed state persists.
 
+Workspace menus and editing live in `workspace-dialogs.tsx`; date headings and avatar
+initials live in `workspace-presentation.ts`. The list keeps its worker status logic,
+including queued background workers' outlined dots and absence of a running timer.
+
 The sidebar keeps workspace row geometry fixed while revealing actions, so hover never
 moves the thread list. Its 192-480px width is pointer and keyboard resizable and stored
-as a UI preference.
+as a UI preference. Settings > General > Display can turn on day dividers (off by default):
+each workspace's threads, newest first, get a heading at each local day they were last active
+in, reading Today, Yesterday, a weekday within the past week, or a date (`dayDividers`); the
+headings roll over at midnight without a restart.
 
 ## Tool rendering
+
+`src/ui/tool-labels.ts` owns tool titles, subtitles, patch-file selection and permission
+wait detection. Tool rows and message grouping share it rather than coupling these
+descriptions to the transcript renderer.
+
+`src/ui/message-groups.ts` groups adjacent exploration calls and reconciles their keyed
+slots. A split or merge keeps the surviving mounted slot and advances its revision;
+streamed record replacement does not remount the tool body or plugin renderer.
+
+`src/ui/parts.tsx` dispatches a part to its renderer: text, reasoning, plugin rows,
+compaction, files and tools. The tool row and its open state live in `tool-view.tsx`,
+its expanded body in `tool-body.tsx`, streamed shell output in `shell-output.tsx`, and
+diff and patch panels in `diff-panel.tsx`. `tool-delegation.ts` derives a delegated
+call's child session and status (queued, running, completed, error) and whether a
+click navigates or expands. Attachments and `@` mentions render from `file-part.tsx`.
 
 Single-file edit and write tools keep their filename and stats in the clickable summary
 row. A multi-file `apply_patch` uses the engine's per-file metadata to render a header,
@@ -208,6 +248,20 @@ bottom follow zone. Virtual row resize correction uses the measured row's real v
 position so a tall row cannot be mistaken for a short row above the viewport. Range
 selection clamps stale browser scroll offsets to the current measured transcript height,
 preventing blank space when a tall row collapses.
+
+`src/ui/chat.tsx` owns the transcript scroller: stickiness, gestures, paging and search
+jumps. Row height estimates, the virtual range and stick thresholds are in
+`timeline-virtual.ts`; which messages become rows, retry and thinking state are in
+`timeline-state.ts`; one row with its retry banner is `timeline-row.tsx`. Paging older
+history behind a revert is `revert-backfill.ts`, and wheel forwarding from the composer
+dock is `chat-wheel.ts`.
+
+`src/ui/composer.tsx` owns the draft, keys, history browsing, pickers and send. Around it:
+`composer-attention.tsx` stacks permission, question and ask cards from every thread;
+`composer-attachments.ts` stages uploads and rejects ones the selected model cannot read;
+`composer-drop.ts` takes files dropped anywhere in the window; `composer-models.ts` lists
+connected providers' models for the picker; the attachment chip, `@` mention menu and
+dictation status each have their own small component file.
 
 General settings can opt live assistant text into a smooth burst reveal. Markdown preserves unchanged
 top-level blocks, and engine updates queue behind an active reveal instead of replacing its animated

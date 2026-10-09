@@ -1,0 +1,21 @@
+[files]
+# Translations and recorded wire fixtures are not English; research notes quote other tools verbatim.
+extend-exclude = [
+  "src/i18n/*.ts",
+  "!src/i18n/en.ts",
+  "*.sse",
+  "docs/research/",
+  "examples/",
+  "licenses/",
+]
+
+[default.extend-words]
+# Fragments in tests: the stem of "cafe" in Unicode cases and a streamed "hel|lo".
+caf = "caf"
+hel = "hel"
+# Base64 test vectors, and Clojure's edn file extension.
+iy = "iy"
+fo = "fo"
+edn = "edn"
+alikes = "alikes"
+invokable = "invokable"

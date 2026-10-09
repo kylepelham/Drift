@@ -1,47 +1,50 @@
+pub(crate) mod access_commands;
+mod gateway;
+mod transport;
+
+use gateway::router;
+
+use transport::{accept_loop, discovery_loop, local_ipv4};
+
 use crate::remote_auth::{self, Auth, PendingLink};
+use crate::remote_tls::Tls;
 use crate::store::{RemoteDevice, Store};
 use crate::{commands, config, editor, file_preview, prompts, ui_state, voice};
-use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Extension, Request, State};
-use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode, Uri};
-use axum::middleware::{self, Next};
-use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{any, get, post};
-use axum::{Json, Router};
-use futures_util::StreamExt;
-use rust_embed::RustEmbed;
+use axum::Json;
+use axum::extract::{Extension, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use crate::remote_tls::Tls;
-use axum::extract::ConnectInfo;
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use hyper_util::service::TowerToHyperService;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::{Component, Path};
-use std::sync::{Arc, Mutex, OnceLock};
+use serde_json::{Value, json};
+use std::net::Ipv4Addr;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{broadcast, watch, Mutex as AsyncMutex};
+use tokio::sync::{Mutex as AsyncMutex, watch};
 use tokio::task::JoinHandle;
-use tokio_rustls::TlsAcceptor;
-use tower::ServiceExt;
 
 pub(crate) const HTTP_PORT: u16 = 41718;
 pub(crate) const DISCOVERY_PORT: u16 = 41717;
-const DISCOVERY_PROBE: &[u8] = b"OPENCODE_COMPANION_DISCOVERY";
 const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
-const TLS_HANDSHAKE_RECORD: u8 = 0x16;
-const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-/// What one request to the engine may carry (attachments ride in prompts).
-const MAX_ENGINE_BODY: usize = 32 * 1024 * 1024;
-const MAX_RPC_BODY: usize = 10 * 1024 * 1024;
 
-#[derive(RustEmbed)]
-#[folder = "../dist"]
-struct FrontendAssets;
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum RemoteError {
+    #[error("remote access is disabled")]
+    Disabled,
+    #[error("could not listen on port {HTTP_PORT}: {0}")]
+    Listen(#[source] std::io::Error),
+    #[error("could not listen for LAN discovery: {0}")]
+    Discovery(#[source] std::io::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Database(#[from] rusqlite::Error),
+    #[error(transparent)]
+    Auth(#[from] remote_auth::AuthError),
+    #[error(transparent)]
+    Tls(#[from] crate::remote_tls::TlsError),
+}
 
 #[derive(Clone)]
 struct RemoteConfig {
@@ -82,24 +85,11 @@ pub(crate) struct RemoteStatus {
     error: Option<String>,
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DiscoveryDescriptor {
-    kind: &'static str,
-    name: &'static str,
-    brand: &'static str,
-    protocol: &'static str,
-    version: u8,
-    url: String,
-    host: String,
-    port: u16,
-    certificate_sha256: String,
-}
-
 impl RemoteAccess {
-    pub(crate) fn load(store: &Store, data_dir: &Path) -> Result<Self, String> {
-        let enabled = store.remote_access_enabled().map_err(|error| error.to_string())?;
+    pub(crate) fn load(store: &Store, data_dir: &Path) -> Result<Self, RemoteError> {
+        let enabled = store.remote_access_enabled()?;
         let (auth_revision, _) = watch::channel(0);
+
         Ok(Self {
             config: Mutex::new(RemoteConfig { enabled, error: None }),
             auth: Mutex::new(Auth::load(store)?),
@@ -115,34 +105,41 @@ impl RemoteAccess {
         self.config.lock().unwrap().enabled
     }
 
-    pub(crate) async fn start(&self, app: tauri::AppHandle) -> Result<(), String> {
+    pub(crate) async fn start(&self, app: tauri::AppHandle) -> Result<(), RemoteError> {
         let mut running = self.running.lock().await;
         if !self.config.lock().unwrap().enabled {
-            return Err("remote access is disabled".into());
+            return Err(RemoteError::Disabled);
         }
         if running.is_some() {
             return Ok(());
         }
+
         let http_listener = tokio::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, HTTP_PORT))
             .await
-            .map_err(|error| format!("could not listen on port {HTTP_PORT}: {error}"))?;
+            .map_err(RemoteError::Listen)?;
         let discovery_socket = tokio::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, DISCOVERY_PORT))
             .await
-            .map_err(|error| format!("could not listen for LAN discovery: {error}"))?;
-        discovery_socket
-            .set_broadcast(true)
-            .map_err(|error| error.to_string())?;
+            .map_err(RemoteError::Discovery)?;
+        discovery_socket.set_broadcast(true)?;
+
         let (shutdown, http_shutdown) = watch::channel(false);
         let discovery_shutdown = shutdown.subscribe();
-        let http = tokio::spawn(accept_loop(http_listener, router(app.clone()), self.tls.clone(), http_shutdown));
+        let http = tokio::spawn(accept_loop(
+            http_listener,
+            router(app.clone()),
+            self.tls.clone(),
+            http_shutdown,
+        ));
         let fingerprint = self.tls.fingerprint().to_string();
         let discovery = tokio::spawn(discovery_loop(discovery_socket, fingerprint, discovery_shutdown));
+
         *running = Some(Running {
             shutdown,
             http,
             discovery,
         });
         self.config.lock().unwrap().error = None;
+
         Ok(())
     }
 
@@ -156,12 +153,9 @@ impl RemoteAccess {
             {
                 running.http.abort();
             }
-            if tokio::time::timeout(
-                std::time::Duration::from_millis(500),
-                &mut running.discovery,
-            )
-            .await
-            .is_err()
+            if tokio::time::timeout(std::time::Duration::from_millis(500), &mut running.discovery)
+                .await
+                .is_err()
             {
                 running.discovery.abort();
             }
@@ -169,10 +163,10 @@ impl RemoteAccess {
     }
 
     pub(crate) fn stop_on_exit(&self) {
-        if let Ok(running) = self.running.try_lock() {
-            if let Some(running) = running.as_ref() {
-                let _ = running.shutdown.send(true);
-            }
+        if let Ok(running) = self.running.try_lock()
+            && let Some(running) = running.as_ref()
+        {
+            let _ = running.shutdown.send(true);
         }
     }
 
@@ -185,6 +179,7 @@ impl RemoteAccess {
         status.pending_links = auth.pending();
         status.password_username = auth.password_username();
         status.certificate_fingerprint = self.tls.fingerprint().to_string();
+
         status
     }
 
@@ -204,6 +199,7 @@ impl RemoteAccess {
         if !self.config.lock().unwrap().enabled {
             return None;
         }
+
         let device = self.auth().device(remote_auth::supplied_token(headers)?, store)?;
         Some((self.auth_changes(), device))
     }
@@ -220,71 +216,6 @@ impl RemoteAccess {
         let next = self.auth_revision.borrow().wrapping_add(1);
         let _ = self.auth_revision.send(next);
     }
-}
-
-/// Serves HTTPS; dropping the connection set on shutdown aborts every open connection.
-async fn accept_loop(listener: TcpListener, router: Router, tls: Arc<Tls>, mut shutdown: watch::Receiver<bool>) {
-    let mut connections = tokio::task::JoinSet::new();
-    loop {
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            accepted = listener.accept() => {
-                let Ok((stream, peer)) = accepted else { continue };
-                connections.spawn(serve_connection(stream, peer, router.clone(), tls.clone()));
-            }
-            Some(_) = connections.join_next(), if !connections.is_empty() => {}
-        }
-    }
-}
-
-async fn serve_connection(stream: TcpStream, peer: SocketAddr, router: Router, tls: Arc<Tls>) {
-    let mut first = [0u8; 1];
-    let peeked = tokio::time::timeout(HANDSHAKE_TIMEOUT, stream.peek(&mut first)).await;
-    let Ok(local) = stream.local_addr() else { return };
-    if !matches!(peeked, Ok(Ok(1))) || first[0] != TLS_HANDSHAKE_RECORD {
-        return redirect_plain(stream, local).await;
-    }
-    let Ok(config) = tls.config_for(local.ip()) else { return };
-    let accepted = tokio::time::timeout(HANDSHAKE_TIMEOUT, TlsAcceptor::from(config).accept(stream)).await;
-    let Ok(Ok(stream)) = accepted else { return };
-    let service = router.map_request(move |mut request: Request<hyper::body::Incoming>| {
-        request.extensions_mut().insert(ConnectInfo(peer));
-        request
-    });
-    let _ = hyper_util::server::conn::auto::Builder::new(TokioExecutor::new())
-        .serve_connection_with_upgrades(TokioIo::new(stream), TowerToHyperService::new(service))
-        .await;
-}
-
-/// Plain-HTTP visitors (a typed address defaults to http://) are sent to the HTTPS origin.
-async fn redirect_plain(mut stream: TcpStream, local: SocketAddr) {
-    let mut head = vec![0u8; 8192];
-    let Ok(Ok(read)) = tokio::time::timeout(HANDSHAKE_TIMEOUT, stream.read(&mut head)).await else {
-        return;
-    };
-    let response = plain_redirect(&String::from_utf8_lossy(&head[..read]), &local.to_string());
-    let _ = stream.write_all(response.as_bytes()).await;
-    let _ = stream.shutdown().await;
-}
-
-fn plain_redirect(head: &str, fallback_host: &str) -> String {
-    let safe = |value: &str| !value.is_empty() && value.chars().all(|c| c.is_ascii_graphic());
-    let target = head
-        .lines()
-        .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .filter(|target| target.starts_with('/') && safe(target))
-        .unwrap_or("/");
-    let host = head
-        .lines()
-        .filter_map(|line| line.split_once(':'))
-        .find(|(name, _)| name.trim().eq_ignore_ascii_case("host"))
-        .map(|(_, value)| value.trim())
-        .filter(|host| safe(host) && !host.contains(['/', '\\', '@']))
-        .unwrap_or(fallback_host);
-    format!(
-        "HTTP/1.1 308 Permanent Redirect\r\nLocation: https://{host}{target}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-    )
 }
 
 fn status_for(config: &RemoteConfig, listening: bool) -> RemoteStatus {
@@ -321,353 +252,31 @@ fn address_qr(url: &str) -> Option<String> {
     )
 }
 
-#[tauri::command]
-pub(crate) async fn remote_access_status(
-    access: tauri::State<'_, RemoteAccess>,
-) -> Result<RemoteStatus, String> {
-    Ok(access.status().await)
-}
-
-#[tauri::command]
-pub(crate) async fn remote_access_enable(
-    app: tauri::AppHandle,
-    access: tauri::State<'_, RemoteAccess>,
-    store: tauri::State<'_, Store>,
-) -> Result<RemoteStatus, String> {
-    let _transition = access.transition.lock().await;
-    store.save_remote_access(true).map_err(|error| error.to_string())?;
-    {
-        let mut config = access.config.lock().unwrap();
-        config.enabled = true;
-        config.error = None;
-    }
-    if let Err(error) = access.start(app).await {
-        {
-            let mut config = access.config.lock().unwrap();
-            config.enabled = false;
-            config.error = Some(error.clone());
-        }
-        let _ = store.save_remote_access(false);
-        return Err(error);
-    }
-    Ok(access.status().await)
-}
-
-#[tauri::command]
-pub(crate) async fn remote_access_disable(
-    access: tauri::State<'_, RemoteAccess>,
-    store: tauri::State<'_, Store>,
-) -> Result<RemoteStatus, String> {
-    let _transition = access.transition.lock().await;
-    store.save_remote_access(false).map_err(|error| error.to_string())?;
-    {
-        let mut config = access.config.lock().unwrap();
-        config.enabled = false;
-        config.error = None;
-    }
-    access.invalidate_streams();
-    access.stop().await;
-    Ok(access.status().await)
-}
-
-/// Approves the device showing `code`; returns that device's name.
-#[tauri::command]
-pub(crate) fn remote_access_link(access: tauri::State<'_, RemoteAccess>, code: String) -> Result<String, String> {
-    access.auth().approve(&code)
-}
-
-/// Signs out one linked device, or all of them when `id` is omitted.
-#[tauri::command]
-pub(crate) async fn remote_access_revoke(
-    access: tauri::State<'_, RemoteAccess>,
-    store: tauri::State<'_, Store>,
-    id: Option<String>,
-) -> Result<RemoteStatus, String> {
-    access.auth().revoke(id.as_deref(), &store)?;
-    access.invalidate_streams();
-    Ok(access.status().await)
-}
-
-/// Enables password sign-in with these credentials, or turns it off when both are omitted.
-#[tauri::command]
-pub(crate) async fn remote_access_set_password(
-    access: tauri::State<'_, RemoteAccess>,
-    store: tauri::State<'_, Store>,
-    username: Option<String>,
-    password: Option<String>,
-) -> Result<RemoteStatus, String> {
-    let credentials = match (username, password) {
-        (Some(username), Some(password)) => {
-            remote_auth::validate_credentials(&username, &password)?;
-            let hash = tokio::task::spawn_blocking(move || remote_auth::new_password_hash(&password))
-                .await
-                .map_err(|error| error.to_string())?;
-            Some((username.trim().to_string(), hash))
-        }
-        (None, None) => None,
-        _ => return Err("Enter both a username and a password.".into()),
-    };
-    access.auth().set_password(credentials, &store)?;
-    access.invalidate_streams();
-    Ok(access.status().await)
-}
-
-fn router(app: tauri::AppHandle) -> Router {
-    Router::new()
-        .route("/", get(|| async { Redirect::temporary("/companion") }))
-        .route("/companion", get(static_asset))
-        .route("/auth/options", get(remote_auth::options))
-        .route("/auth/certificate", get(remote_auth::certificate))
-        .route("/auth/link", post(remote_auth::start_link))
-        .route("/auth/link/{id}", get(remote_auth::poll_link))
-        .route("/auth/login", post(remote_auth::login))
-        .route("/auth/logout", post(remote_auth::logout))
-        .route("/auth/me", get(remote_auth::me))
-        // Nested rather than routed by a `{*path}` capture, which the engine's own `Path` extractors would also see.
-        .nest_service("/engine", any(native_engine).layer(DefaultBodyLimit::max(MAX_ENGINE_BODY)).with_state(app.clone()))
-        .route("/api/invoke", post(invoke_rpc))
-        .route("/api/ui-state/events", get(ui_state_events))
-        .fallback(static_asset)
-        .layer(DefaultBodyLimit::max(MAX_RPC_BODY))
-        .layer(middleware::from_fn_with_state(
-            app.clone(),
-            gateway_middleware,
-        ))
-        .layer(middleware::from_fn(host_guard))
-        .with_state(app)
-}
-
-async fn ui_state_events(
-    State(app): State<tauri::AppHandle>,
-    Extension(auth): Extension<watch::Receiver<u64>>,
-) -> Response {
-    let authority = app.state::<ui_state::UiStateAuthority>();
-    let Ok(initial) = authority.snapshot() else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "desktop UI state has not been initialized",
-        )
-            .into_response();
-    };
-    let receiver = authority.subscribe();
-    let stream = futures_util::stream::unfold(
-        (Some(initial), receiver, auth),
-        |(initial, mut receiver, mut auth)| async move {
-            if let Some(snapshot) = initial {
-                let event = Event::default().json_data(snapshot).ok()?;
-                return Some((
-                    Ok::<_, std::convert::Infallible>(event),
-                    (None, receiver, auth),
-                ));
-            }
-            loop {
-                tokio::select! {
-                    changed = auth.changed() => {
-                        let _ = changed;
-                        return None;
-                    }
-                    received = receiver.recv() => match received {
-                        Ok(snapshot) => {
-                            let event = Event::default().json_data(snapshot).ok()?;
-                            return Some((Ok(event), (None, receiver, auth)));
-                        }
-                        Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(broadcast::error::RecvError::Closed) => return None,
-                    }
-                }
-            }
-        },
-    );
-    Sse::new(stream)
-        .keep_alive(KeepAlive::default())
-        .into_response()
-}
-
-async fn gateway_middleware(
-    State(app): State<tauri::AppHandle>,
-    mut request: Request,
-    next: Next,
-) -> Response {
-    let access = app.state::<RemoteAccess>();
-    let path = request.uri().path().to_string();
-    let enabled = access.config.lock().unwrap().enabled;
-    let response = if enabled && remote_auth::public_path(&path) {
-        next.run(request).await
-    } else if let Some((auth, device)) = access.authorize(request.headers(), &app.state::<Store>()) {
-        request.extensions_mut().insert(auth);
-        request.extensions_mut().insert(device);
-        next.run(request).await
-    } else if enabled && request.method() == axum::http::Method::GET && remote_auth::sign_in_path(&path) {
-        remote_auth::sign_in_page()
-    } else {
-        (StatusCode::UNAUTHORIZED, "remote access authentication required").into_response()
-    };
-    secure(response)
-}
-
-/// Runs before authentication so a DNS-rebound page cannot reach even the sign-in routes.
-async fn host_guard(request: Request, next: Next) -> Response {
-    let authority = request.uri().authority().map(|authority| authority.as_str().to_owned());
-    if valid_host_origin(request.headers(), authority.as_deref()) {
-        return next.run(request).await;
-    }
-    secure((StatusCode::FORBIDDEN, "invalid host or origin").into_response())
-}
-
-/// HTTP/2 carries the host in the :authority pseudo-header, which hyper puts in the URI, not in Host.
-fn valid_host_origin(headers: &HeaderMap, authority: Option<&str>) -> bool {
-    let header_host = headers.get(header::HOST).and_then(|value| value.to_str().ok());
-    let Some(host) = authority.or(header_host) else {
-        return false;
-    };
-    if host.is_empty() || host.contains(['/', '\\', '@']) {
-        return false;
-    }
-    let Some(origin) = headers
-        .get(header::ORIGIN)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return true;
-    };
-    let Ok(origin) = url::Url::parse(origin) else {
-        return false;
-    };
-    origin.scheme() == "https"
-        && origin[url::Position::BeforeHost..url::Position::AfterPort] == *host
-}
-
-fn secure(mut response: Response) -> Response {
-    let headers = response.headers_mut();
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
-    );
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
-    headers.insert(
-        HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_static("frame-ancestors 'self'"),
-    );
-    headers.insert(
-        HeaderName::from_static("permissions-policy"),
-        HeaderValue::from_static("camera=(), geolocation=()"),
-    );
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response
-}
-
-async fn static_asset(uri: Uri) -> Response {
-    let Some(path) = static_path(uri.path()) else {
-        return (StatusCode::BAD_REQUEST, "invalid asset path").into_response();
-    };
-    let path = if path.is_empty() || path == "companion" {
-        "index.html"
-    } else {
-        path
-    };
-    let content =
-        dev_asset(path).or_else(|| FrontendAssets::get(path).map(|asset| asset.data.into_owned()));
-    let Some(content) = content.or_else(|| {
-        Path::new(path).extension().is_none()
-            .then(|| {
-                dev_asset("index.html").or_else(|| {
-                    FrontendAssets::get("index.html").map(|asset| asset.data.into_owned())
-                })
-            })
-            .flatten()
-    }) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let mime = mime_guess::from_path(path).first_or_octet_stream();
-    let mut response = Body::from(content).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(mime.as_ref()).unwrap(),
-    );
-    response
-}
-
-fn dev_asset(path: &str) -> Option<Vec<u8>> {
-    if !cfg!(debug_assertions) {
-        return None;
-    }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("dist");
-    std::fs::read(root.join(path)).ok()
-}
-
-fn static_path(path: &str) -> Option<&str> {
-    let raw = path.trim_start_matches('/');
-    let lower = raw.to_ascii_lowercase();
-    if raw.contains('\\') || lower.contains("%2e") || lower.contains("%2f") || lower.contains("%5c")
-    {
-        return None;
-    }
-    if Path::new(raw)
-        .components()
-        .any(|part| !matches!(part, Component::Normal(_)))
-        && !raw.is_empty()
-    {
-        return None;
-    }
-    Some(raw)
-}
-
-/// The native engine, served in this process under `/engine` (stripped before it gets here). The
-/// gateway has already signed the device in, so the engine's own token goes in here and never
-/// reaches a device; a socket is leased to the device's credentials, so signing the device out
-/// closes what it holds open.
-async fn native_engine(
-    State(app): State<tauri::AppHandle>,
-    Extension(mut auth): Extension<watch::Receiver<u64>>,
-    mut request: Request,
-) -> Response {
-    let engine = app.state::<crate::native::Native>().engine().clone();
-    let Ok(bearer) = HeaderValue::from_str(&format!("Bearer {}", engine.token)) else {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    };
-    request.headers_mut().insert(header::AUTHORIZATION, bearer);
-    request.headers_mut().remove(header::COOKIE);
-    let router = ENGINE_ROUTER.get_or_init(|| drift_engine::api::router(engine)).clone();
-    if request.headers().contains_key(header::UPGRADE) {
-        let lease = drift_engine::api::Lease::default();
-        request.extensions_mut().insert(lease.clone());
-        tokio::spawn(async move {
-            let _ = auth.changed().await;
-            lease.cancel();
-        });
-        return router.oneshot(request).await.into_response();
-    }
-    let response = tokio::select! {
-        _ = auth.changed() => return (StatusCode::UNAUTHORIZED, "remote access credentials changed").into_response(),
-        response = router.oneshot(request) => response.into_response(),
-    };
-    let (parts, body) = response.into_parts();
-    Response::from_parts(parts, Body::from_stream(revoke_on_auth_change(body.into_data_stream(), auth)))
-}
-
-static ENGINE_ROUTER: OnceLock<Router> = OnceLock::new();
-
-fn revoke_on_auth_change<S>(
-    stream: S,
-    mut auth: watch::Receiver<u64>,
-) -> impl futures_util::Stream<Item = S::Item>
-where
-    S: futures_util::Stream,
-{
-    stream.take_until(async move {
-        let _ = auth.changed().await;
-    })
-}
-
 #[derive(Deserialize)]
 struct RpcRequest {
     command: String,
     #[serde(default)]
     args: Value,
+}
+
+#[derive(Debug, thiserror::Error)]
+enum RpcError {
+    #[error("command is not available remotely")]
+    NotAllowed,
+    #[error("missing argument: {0}")]
+    MissingArgument(String),
+    #[error("invalid argument {key}: {source}")]
+    InvalidArgument { key: String, source: serde_json::Error },
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error("{0}")]
+    Command(String),
+}
+
+impl From<String> for RpcError {
+    fn from(error: String) -> Self {
+        Self::Command(error)
+    }
 }
 
 macro_rules! remote_commands {
@@ -683,11 +292,11 @@ macro_rules! remote_commands {
             $app: &tauri::AppHandle,
             command: &str,
             $args: &Value,
-        ) -> Result<Value, String> {
+        ) -> Result<Value, RpcError> {
             let $store = || $app.state::<Store>();
             match command {
                 $($name => $handler,)+
-                _ => Err("command is not available remotely".into()),
+                _ => Err(RpcError::NotAllowed),
             }
         }
     };
@@ -708,13 +317,14 @@ async fn invoke_rpc(
     let result = tokio::select! {
         changed = auth.changed() => {
             let _ = changed;
-            return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "remote access credentials changed" }))).into_response();
+            let error = Json(json!({ "error": "remote access credentials changed" }));
+            return (StatusCode::UNAUTHORIZED, error).into_response();
         }
         result = dispatch_rpc(&app, &request.command, &request.args) => result,
     };
     match result {
         Ok(value) => Json(value).into_response(),
-        Err(error) => (StatusCode::BAD_REQUEST, Json(json!({ "error": error }))).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, Json(json!({ "error": error.to_string() }))).into_response(),
     }
 }
 
@@ -830,9 +440,9 @@ remote_commands! {
             arg(args, "mutation")?,
         )?),
         "shell_timeout_snapshot" => {
-            value(ui_state::shell_timeout_snapshot(app.state())?)
+            value(ui_state::timeout::shell_timeout_snapshot(app.state())?)
         },
-        "shell_timeout_update" => value(ui_state::shell_timeout_update(
+        "shell_timeout_update" => value(ui_state::timeout::shell_timeout_update(
             app.clone(),
             app.state(),
             store(),
@@ -840,343 +450,43 @@ remote_commands! {
         )?),
 }
 
-fn arg<T: DeserializeOwned>(args: &Value, key: &str) -> Result<T, String> {
+fn arg<T: DeserializeOwned>(args: &Value, key: &str) -> Result<T, RpcError> {
     let value = args
         .get(key)
         .cloned()
-        .ok_or_else(|| format!("missing argument: {key}"))?;
-    serde_json::from_value(value).map_err(|error| format!("invalid argument {key}: {error}"))
+        .ok_or_else(|| RpcError::MissingArgument(key.to_string()))?;
+
+    serde_json::from_value(value).map_err(|source| RpcError::InvalidArgument {
+        key: key.to_string(),
+        source,
+    })
 }
 
-fn optional<T: DeserializeOwned>(args: &Value, key: &str) -> Result<Option<T>, String> {
+fn optional<T: DeserializeOwned>(args: &Value, key: &str) -> Result<Option<T>, RpcError> {
     args.get(key)
         .cloned()
         .map(serde_json::from_value)
         .transpose()
-        .map_err(|error| format!("invalid argument {key}: {error}"))
+        .map_err(|source| RpcError::InvalidArgument {
+            key: key.to_string(),
+            source,
+        })
 }
 
-fn value<T: Serialize>(value: T) -> Result<Value, String> {
-    serde_json::to_value(value).map_err(|error| error.to_string())
-}
-
-async fn discovery_loop(socket: tokio::net::UdpSocket, fingerprint: String, mut shutdown: watch::Receiver<bool>) {
-    let mut buffer = [0u8; 256];
-    loop {
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            received = socket.recv_from(&mut buffer) => {
-                let Ok((size, peer)) = received else { continue };
-                if &buffer[..size] != DISCOVERY_PROBE { continue; }
-                let Some(ip) = local_ipv4_for(peer) else { continue };
-                let descriptor = discovery_descriptor(ip, &fingerprint);
-                if let Ok(payload) = serde_json::to_vec(&descriptor) {
-                    let _ = socket.send_to(&payload, peer).await;
-                }
-            }
-        }
-    }
-}
-
-/// Version 2 moved to HTTPS; clients may pin `certificateSha256`, the gateway CA fingerprint.
-fn discovery_descriptor(ip: Ipv4Addr, fingerprint: &str) -> DiscoveryDescriptor {
-    DiscoveryDescriptor {
-        kind: "drift-companion",
-        name: "Drift",
-        brand: "Drift",
-        protocol: "drift-remote",
-        version: 2,
-        url: format!("https://{ip}:{HTTP_PORT}/companion"),
-        host: ip.to_string(),
-        port: HTTP_PORT,
-        certificate_sha256: fingerprint.into(),
-    }
-}
-
-fn local_ipv4_for(peer: SocketAddr) -> Option<Ipv4Addr> {
-    let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
-    socket.connect(peer).ok()?;
-    match socket.local_addr().ok()?.ip() {
-        IpAddr::V4(ip) if !ip.is_unspecified() && !ip.is_loopback() => Some(ip),
-        _ => None,
-    }
-}
-
-fn local_ipv4() -> Option<Ipv4Addr> {
-    local_ipv4_for(SocketAddr::from(([8, 8, 8, 8], 53)))
+fn value<T: Serialize>(value: T) -> Result<Value, RpcError> {
+    Ok(serde_json::to_value(value)?)
 }
 
 pub(crate) fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     let mut difference = left.len() ^ right.len();
+
     for index in 0..left.len().max(right.len()) {
-        difference |= left.get(index).copied().unwrap_or(0) as usize
-            ^ right.get(index).copied().unwrap_or(0) as usize;
+        difference |= left.get(index).copied().unwrap_or(0) as usize ^ right.get(index).copied().unwrap_or(0) as usize;
     }
+
     difference == 0
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use reqwest::redirect::Policy;
-
-    /// The engine's routes read their own path parameters; the gateway's mount must add none of its own.
-    #[tokio::test]
-    async fn the_engine_mounted_under_the_gateway_sees_only_its_own_path_parameters() {
-        use axum::extract::Path;
-        let engine = || Router::new().route("/sessions/{id}/messages", get(|Path(id): Path<String>| async move { id }));
-        let ask = |router: Router| async move {
-            let request = Request::builder().uri("/engine/sessions/ses_1/messages?limit=5").body(Body::empty()).unwrap();
-            let response = router.oneshot(request).await.unwrap();
-            (response.status(), String::from_utf8(axum::body::to_bytes(response.into_body(), 1024).await.unwrap().to_vec()).unwrap())
-        };
-        let nested = Router::new().nest_service("/engine", any(move |request: Request| async move { engine().oneshot(request).await.unwrap() }));
-        assert_eq!(ask(nested).await, (StatusCode::OK, "ses_1".to_string()));
-        let captured = Router::new().route("/engine/{*path}", any(move |request: Request| async move {
-            let (mut parts, body) = request.into_parts();
-            parts.uri = parts.uri.path().trim_start_matches("/engine").parse().unwrap();
-            engine().oneshot(Request::from_parts(parts, body)).await.unwrap()
-        }));
-        assert_eq!(ask(captured).await.0, StatusCode::INTERNAL_SERVER_ERROR, "a capture route leaks its parameter, which is what broke history on the phone");
-    }
-
-    #[test]
-    fn disabled_status_has_no_listening_urls_or_code() {
-        let status = status_for(&RemoteConfig { enabled: false, error: None }, false);
-        assert!(!status.enabled);
-        assert!(!status.listening);
-        assert!(status.urls.is_empty());
-        assert!(status.address_qr.is_none());
-    }
-
-    #[test]
-    fn address_qr_is_an_svg_of_the_plain_address() {
-        let svg = address_qr("https://192.168.1.20:41718/companion").unwrap();
-        assert!(svg.contains("<svg"));
-        assert!(!svg.contains("token"));
-    }
-
-    #[test]
-    fn remote_access_management_is_not_remotely_invokable() {
-        for command in [
-            "remote_access_enable",
-            "remote_access_link",
-            "remote_access_revoke",
-            "remote_access_set_password",
-            "remote_access_status",
-        ] {
-            assert!(!rpc_allowed(command), "{command} must stay desktop-only");
-        }
-    }
-
-    #[tokio::test]
-    async fn auth_changes_terminate_existing_streams() {
-        let (revision, auth) = watch::channel(0u64);
-        let source = futures_util::stream::unfold(0, |index| async move {
-            if index == 0 {
-                Some(("first", 1))
-            } else {
-                futures_util::future::pending().await
-            }
-        });
-        let mut stream = Box::pin(revoke_on_auth_change(source, auth));
-        assert_eq!(stream.next().await, Some("first"));
-        revision.send(1).unwrap();
-        assert_eq!(stream.next().await, None);
-    }
-
-    #[test]
-    fn rpc_has_a_finite_allowlist() {
-        assert!(rpc_allowed("store_workspaces"));
-        assert!(rpc_allowed("store_expired_archived"));
-        assert!(rpc_allowed("voice_transcribe"));
-        assert!(rpc_allowed("ui_state_snapshot"));
-        assert!(rpc_allowed("ui_state_update"));
-        assert!(rpc_allowed("shell_timeout_snapshot"));
-        assert!(rpc_allowed("shell_timeout_update"));
-        assert!(rpc_allowed("pick_folder"));
-        assert!(rpc_allowed("open_file"));
-        assert!(rpc_allowed("open_file_in_editor"));
-        assert!(rpc_allowed("read_file_preview"));
-        assert!(!rpc_allowed("voice_dictation_set_enabled"));
-        assert!(!rpc_allowed("remote_access_enable"));
-        assert!(!rpc_allowed("ui_state_initialize"));
-        assert!(!rpc_allowed("shell_timeout_initialize"));
-        assert!(!rpc_allowed("plugin:shell|execute"));
-    }
-
-    #[tokio::test]
-    async fn file_preview_rpc_requires_typed_arguments_and_safe_limits() {
-        let valid = json!({ "path": "file", "directory": "workspace", "maxBytes": 0 });
-        assert_eq!(arg::<String>(&valid, "path").unwrap(), "file");
-        assert_eq!(arg::<String>(&valid, "directory").unwrap(), "workspace");
-        assert_eq!(arg::<u64>(&valid, "maxBytes").unwrap(), 0);
-        for key in ["path", "directory", "maxBytes"] {
-            let mut missing = valid.clone();
-            missing.as_object_mut().unwrap().remove(key);
-            let error = if key == "maxBytes" {
-                arg::<u64>(&missing, key).unwrap_err()
-            } else {
-                arg::<String>(&missing, key).unwrap_err()
-            };
-            assert_eq!(error, format!("missing argument: {key}"));
-        }
-        for invalid in [Value::Null, json!(false), json!(1), json!([]), json!({})] {
-            for key in ["path", "directory"] {
-                let mut args = valid.clone();
-                args[key] = invalid.clone();
-                assert!(arg::<String>(&args, key)
-                    .unwrap_err()
-                    .contains("invalid argument"));
-            }
-        }
-        for invalid in [
-            Value::Null,
-            json!(false),
-            json!(-1),
-            json!(1.5),
-            json!("10"),
-            json!([]),
-            json!({}),
-            json!(18446744073709551616.0),
-        ] {
-            let mut args = valid.clone();
-            args["maxBytes"] = invalid;
-            assert!(arg::<u64>(&args, "maxBytes")
-                .unwrap_err()
-                .contains("invalid argument"));
-        }
-        assert!(arg::<u64>(&json!({ "max_bytes": 1 }), "maxBytes").is_err());
-        for limit in [40 * 1024 * 1024 + 1, u64::MAX] {
-            let args = json!({ "path": "file", "directory": "workspace", "maxBytes": limit });
-            let error = file_preview::read_file_preview(
-                arg(&args, "path").unwrap(),
-                arg(&args, "directory").unwrap(),
-                arg(&args, "maxBytes").unwrap(),
-            )
-            .await
-            .unwrap_err();
-            assert!(error.contains("too large"));
-        }
-    }
-
-    #[test]
-    fn static_paths_reject_traversal_and_choose_mime() {
-        assert_eq!(static_path("/assets/app.js"), Some("assets/app.js"));
-        assert_eq!(static_path("/../secret"), None);
-        assert_eq!(static_path("/%2e%2e/secret"), None);
-        assert_eq!(
-            mime_guess::from_path("font.woff2").first_raw(),
-            Some("font/woff2")
-        );
-    }
-
-    #[test]
-    fn discovery_is_branded_without_disclosing_credentials() {
-        let descriptor = discovery_descriptor(Ipv4Addr::new(192, 168, 1, 20), "AB:CD");
-        let value = serde_json::to_value(descriptor).unwrap();
-        assert_eq!(value["kind"], "drift-companion");
-        assert_eq!(value["brand"], "Drift");
-        assert_eq!(value["version"], 2);
-        assert_eq!(value["url"], "https://192.168.1.20:41718/companion");
-        assert_eq!(value["certificateSha256"], "AB:CD");
-        assert!(!value.to_string().contains("token"));
-    }
-
-    #[tokio::test]
-    async fn the_gateway_listener_serves_https_and_redirects_plain_http() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let mut bytes = [0u8; 8];
-        getrandom::fill(&mut bytes).unwrap();
-        let directory = std::env::temp_dir().join(format!("drift-gateway-{}", u64::from_ne_bytes(bytes)));
-        let tls = Arc::new(Tls::load_or_create(&directory).unwrap());
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let router = Router::new()
-            .route(
-                "/peer",
-                get(|ConnectInfo(peer): ConnectInfo<SocketAddr>| async move { peer.ip().to_string() }),
-            )
-            .layer(middleware::from_fn(host_guard));
-        let (shutdown, receiver) = watch::channel(false);
-        let server = tokio::spawn(accept_loop(listener, router, tls.clone(), receiver));
-
-        let mut roots = rustls::RootCertStore::empty();
-        roots.add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec())).unwrap();
-        let mut config = rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth();
-        config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
-        let client = reqwest::Client::builder().use_preconfigured_tls(config).redirect(Policy::none()).build().unwrap();
-        let secure = client.get(format!("https://127.0.0.1:{port}/peer")).send().await.unwrap();
-        assert_eq!(secure.version(), reqwest::Version::HTTP_2);
-        assert_eq!(secure.text().await.unwrap(), "127.0.0.1", "HTTP/2 requests pass the host guard");
-        let forged = client
-            .get(format!("https://127.0.0.1:{port}/peer"))
-            .header(header::ORIGIN, "https://evil.example")
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(forged.status(), reqwest::StatusCode::FORBIDDEN);
-        let http1 = reqwest::Client::builder()
-            .use_preconfigured_tls({
-                let mut roots = rustls::RootCertStore::empty();
-                roots.add(rustls::pki_types::CertificateDer::from(tls.ca_der().to_vec())).unwrap();
-                rustls::ClientConfig::builder().with_root_certificates(roots).with_no_client_auth()
-            })
-            .http1_only()
-            .build()
-            .unwrap();
-        let legacy = http1.get(format!("https://127.0.0.1:{port}/peer")).send().await.unwrap();
-        assert_eq!(legacy.version(), reqwest::Version::HTTP_11);
-        assert_eq!(legacy.status(), reqwest::StatusCode::OK, "HTTP/1.1 requests pass with a Host header");
-
-        let plain = client.get(format!("http://127.0.0.1:{port}/companion?a=1")).send().await.unwrap();
-        assert_eq!(plain.status(), reqwest::StatusCode::PERMANENT_REDIRECT);
-        assert_eq!(plain.headers()["location"], format!("https://127.0.0.1:{port}/companion?a=1"));
-
-        let untrusted = reqwest::Client::builder()
-            .use_preconfigured_tls(
-                rustls::ClientConfig::builder()
-                    .with_root_certificates(rustls::RootCertStore::empty())
-                    .with_no_client_auth(),
-            )
-            .build()
-            .unwrap();
-        assert!(untrusted.get(format!("https://127.0.0.1:{port}/peer")).send().await.is_err());
-
-        shutdown.send(true).unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(2), server).await.unwrap().unwrap();
-        assert!(client.get(format!("https://127.0.0.1:{port}/peer")).send().await.is_err());
-        std::fs::remove_dir_all(directory).unwrap();
-    }
-
-    #[test]
-    fn plain_http_redirects_to_the_same_path_over_https() {
-        let head = "GET /companion?x=1 HTTP/1.1\r\nHost: 192.168.1.20:41718\r\n\r\n";
-        let response = plain_redirect(head, "10.0.0.2:41718");
-        assert!(response.starts_with("HTTP/1.1 308"));
-        assert!(response.contains("Location: https://192.168.1.20:41718/companion?x=1\r\n"));
-        let injected = "GET /\r\nSet-Cookie:x HTTP/1.1\r\nHost: evil\r\n x\r\n\r\n";
-        assert!(plain_redirect(injected, "10.0.0.2:41718").contains("Location: https://evil/\r\n"));
-        let hostless = plain_redirect("GET http://elsewhere/ HTTP/1.1\r\n\r\n", "10.0.0.2:41718");
-        assert!(hostless.contains("Location: https://10.0.0.2:41718/\r\n"));
-        assert!(plain_redirect("garbage", "10.0.0.2:41718").contains("https://10.0.0.2:41718/"));
-    }
-
-    #[test]
-    fn origins_must_match_the_https_host() {
-        let mut headers = HeaderMap::new();
-        assert!(!valid_host_origin(&headers, None), "a request without any host is rejected");
-        headers.insert(header::HOST, HeaderValue::from_static("192.168.1.20:41718"));
-        assert!(valid_host_origin(&headers, None));
-        headers.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
-        assert!(valid_host_origin(&headers, None));
-        headers.insert(header::ORIGIN, HeaderValue::from_static("http://192.168.1.20:41718"));
-        assert!(!valid_host_origin(&headers, None));
-        headers.insert(header::ORIGIN, HeaderValue::from_static("https://evil.example"));
-        assert!(!valid_host_origin(&headers, None));
-        let mut h2 = HeaderMap::new();
-        h2.insert(header::ORIGIN, HeaderValue::from_static("https://192.168.1.20:41718"));
-        assert!(valid_host_origin(&h2, Some("192.168.1.20:41718")), "HTTP/2 sends the host as :authority");
-        assert!(!valid_host_origin(&h2, Some("evil.example")));
-    }
-}
+#[path = "remote/tests.rs"]
+mod tests;

@@ -1,0 +1,3 @@
+# The style guide's 120 column limit; the default width heuristics break long chains and calls vertically within it.
+max_width = 120
+style_edition = "2024"

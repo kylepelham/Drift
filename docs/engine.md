@@ -16,7 +16,7 @@ uses it.
 - `crates/drift-engined` is the same engine headless: `bun run dev` runs it for the browser
   dev loop, the conformance tests drive it, and it can serve a remote host
   (`drift-engined [--data-dir DIR] [--port N]`, data in `~/.local/share/drift` by default).
-- Settings the shell keeps (agent overrides from Settings > Agents, the shell time limit) are
+- Settings the shell keeps (agent overrides from Settings > Prompts, the shell time limit) are
   handed to the engine at startup and on every change; everything else the engine owns.
 
 ## Data
@@ -31,6 +31,18 @@ uses it.
 - On first launch `crates/drift-migrate` imports opencode's conversations, sign-ins, MCP
   servers and config once, in the background ("Importing opencode conversations" in
   engine-rewrite.md).
+
+Tool-call metadata uses `ToolMetadata` in `session/types.rs`, shared by tool results,
+running progress, history capture and replay. Its OpenAPI schema gives the generated
+client named fields without changing the JSON stored in `part.json` or sent over HTTP
+and WebSocket. The tool-call variant boxes metadata to keep other part variants small.
+
+Absent fields remain absent; explicit nulls such as an unlimited `shellTimeoutMs` or a
+large read's unknown `lines` stay null. `files` accepts native path strings and imported
+opencode file objects. `images` keeps returned `{mime, data}` entries and stored
+`{mime, hash}` entries. Unknown keys, including `filediff`, stay in a flattened map.
+Known fields with legacy shapes and non-object metadata are preserved rather than
+making a stored tool call unreadable. No SQLite migration or Tauri IPC change is needed.
 
 ## API and events
 

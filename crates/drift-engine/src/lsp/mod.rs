@@ -11,11 +11,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use percent_encoding::{percent_decode_str, utf8_percent_encode, AsciiSet, CONTROLS};
-use serde::Serialize;
+use crate::session::types::ToolDiagnostic;
+use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, utf8_percent_encode};
 
-pub use client::Diagnostic;
 use client::Client;
+pub use client::Diagnostic;
 
 use crate::config::LspConfig;
 
@@ -47,25 +47,46 @@ static WORKSPACE: table::Root = table::Root::Nearest(&[]);
 pub fn resolve(config: &BTreeMap<String, LspConfig>) -> Vec<Spec> {
     // The engine's own tests write source files; they never start whatever servers this machine has.
     let table: &[table::Builtin] = if cfg!(test) { &[] } else { table::BUILTIN };
-    let builtin = table.iter().filter(|server| !config.contains_key(server.name)).map(|server| Spec {
-        name: server.name.to_string(),
-        commands: server.commands.iter().map(|command| command.iter().map(|part| part.to_string()).collect()).collect(),
-        extensions: server.extensions.iter().map(|ext| ext.to_string()).collect(),
-        language: None,
-        root: &server.root,
-        unless: server.unless,
-    });
+    let builtin = table
+        .iter()
+        .filter(|server| !config.contains_key(server.name))
+        .map(|server| Spec {
+            name: server.name.to_string(),
+            commands: server
+                .commands
+                .iter()
+                .map(|command| command.iter().map(ToString::to_string).collect())
+                .collect(),
+            extensions: server.extensions.iter().map(ToString::to_string).collect(),
+            language: None,
+            root: &server.root,
+            unless: server.unless,
+        });
     let custom = config.iter().filter_map(|(name, server)| match server {
-        LspConfig::Custom { command, extensions, language } if !command.is_empty() => {
-            Some(Spec { name: name.clone(), commands: vec![command.clone()], extensions: extensions.clone(), language: language.clone(), root: &WORKSPACE, unless: &[] })
-        }
+        LspConfig::Custom {
+            command,
+            extensions,
+            language,
+        } if !command.is_empty() => Some(Spec {
+            name: name.clone(),
+            commands: vec![command.clone()],
+            extensions: extensions.clone(),
+            language: language.clone(),
+            root: &WORKSPACE,
+            unless: &[],
+        }),
         _ => None,
     });
+
     builtin.chain(custom).collect()
 }
 
 fn handles(spec: &Spec, file: &Path) -> bool {
-    let name = file.file_name().map(|name| name.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let name = file
+        .file_name()
+        .map(|name| name.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
     spec.extensions.iter().any(|ext| name.ends_with(&ext.to_lowercase()))
 }
 
@@ -74,7 +95,11 @@ fn language(spec: &Spec, file: &Path) -> String {
     if let Some(language) = &spec.language {
         return language.clone();
     }
-    let ext = file.extension().map(|ext| ext.to_string_lossy().to_lowercase()).unwrap_or_default();
+
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
     let id = match ext.as_str() {
         "rs" => "rust",
         "ts" | "mts" | "cts" => "typescript",
@@ -99,9 +124,15 @@ fn language(spec: &Spec, file: &Path) -> String {
         "tex" => "latex",
         "bib" => "bibtex",
         "typ" | "typc" => "typst",
-        "" if file.file_name().is_some_and(|name| name.eq_ignore_ascii_case("dockerfile")) => "dockerfile",
+        "" if file
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("dockerfile")) =>
+        {
+            "dockerfile"
+        }
         other => other,
     };
+
     id.to_string()
 }
 
@@ -131,15 +162,24 @@ type Slot = (PathBuf, String);
 
 impl Servers {
     /// What the servers that handle `files` report about them within [`WAIT`]; files with no errors are left out.
-    pub async fn report(&self, workspace: &Path, files: &[PathBuf], config: &BTreeMap<String, LspConfig>) -> Vec<Found> {
+    pub async fn report(
+        &self,
+        workspace: &Path,
+        files: &[PathBuf],
+        config: &BTreeMap<String, LspConfig>,
+    ) -> Vec<Found> {
         let deadline = tokio::time::Instant::now() + WAIT;
         let specs = resolve(config);
         let mut checks = Vec::new();
+
         for spec in &specs {
             let mut by_root: BTreeMap<PathBuf, Vec<(PathBuf, String)>> = BTreeMap::new();
             for file in files.iter().filter(|file| handles(spec, file)) {
                 if let Some(root) = table::root_for(spec.root, spec.unless, file, workspace) {
-                    by_root.entry(root).or_default().push((file.clone(), language(spec, file)));
+                    by_root
+                        .entry(root)
+                        .or_default()
+                        .push((file.clone(), language(spec, file)));
                 }
             }
             for (root, handled) in by_root {
@@ -148,8 +188,21 @@ impl Servers {
                 }
             }
         }
+
         let reported = futures_util::future::join_all(checks).await;
-        reported.into_iter().flat_map(|(server, files)| files.into_iter().filter(|(_, errors)| !errors.is_empty()).map(move |(file, errors)| Found { file, server: server.clone(), errors })).collect()
+        reported
+            .into_iter()
+            .flat_map(|(server, files)| {
+                files
+                    .into_iter()
+                    .filter(|(_, errors)| !errors.is_empty())
+                    .map(move |(file, errors)| Found {
+                        file,
+                        server: server.clone(),
+                        errors,
+                    })
+            })
+            .collect()
     }
 
     /// Starts the servers that would handle `file` (a read, ahead of the first edit), so they have
@@ -165,23 +218,39 @@ impl Servers {
     /// The running server for `spec` at `root`, started now if it is not running and did not fail to start lately.
     async fn client(&self, workspace: &Path, root: &Path, spec: &Spec) -> Option<Arc<Client>> {
         let slot: Slot = (root.to_path_buf(), spec.name.clone());
-        let running = || self.running.lock().unwrap().get(&slot).filter(|client| client.alive()).cloned();
+        let running = || {
+            self.running
+                .lock()
+                .unwrap()
+                .get(&slot)
+                .filter(|client| client.alive())
+                .cloned()
+        };
         if let Some(client) = running() {
             return Some(client);
         }
+
         let gate = self.starting.lock().unwrap().entry(slot.clone()).or_default().clone();
         let _starting = gate.lock().await;
-        // Another caller may have started it, or failed to, while this one waited.
+        // Recheck after taking the start lock because another caller may have started the server.
         if let Some(client) = running() {
             return Some(client);
         }
-        if self.failed.lock().unwrap().get(&slot).is_some_and(|at| at.elapsed() < RETRY) {
+        if self
+            .failed
+            .lock()
+            .unwrap()
+            .get(&slot)
+            .is_some_and(|at| at.elapsed() < RETRY)
+        {
             return None;
         }
+
         let started = match table::installed(&spec.commands, root, workspace) {
             Some((program, args)) => Client::start(&program, &args, root).await,
             None => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "not installed")),
         };
+
         match started {
             Ok(client) => {
                 self.running.lock().unwrap().insert(slot, client.clone());
@@ -200,6 +269,7 @@ impl Servers {
         if self.reaping.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
+
         let running = Arc::downgrade(&self.running);
         tokio::spawn(async move {
             loop {
@@ -207,7 +277,11 @@ impl Servers {
                 let Some(running) = running.upgrade() else { return };
                 let idle: Vec<Arc<Client>> = {
                     let mut map = running.lock().unwrap();
-                    let stale: Vec<_> = map.iter().filter(|(_, client)| !client.alive() || client.idle_for() > IDLE).map(|(slot, _)| slot.clone()).collect();
+                    let stale: Vec<_> = map
+                        .iter()
+                        .filter(|(_, client)| !client.alive() || client.idle_for() > IDLE)
+                        .map(|(slot, _)| slot.clone())
+                        .collect();
                     stale.iter().filter_map(|slot| map.remove(slot)).collect()
                 };
                 for client in idle {
@@ -236,7 +310,11 @@ pub fn note(found: &[Found], workspace: &Path) -> Option<String> {
         total += shown.len();
         let path = crate::tool::display(&entry.file, workspace);
         lines.push(format!("{} reports errors in {path}:", entry.server));
-        lines.extend(shown.iter().map(|error| format!("  {path}:{}:{} {}", error.line, error.column, clip(&error.message))));
+        lines.extend(
+            shown
+                .iter()
+                .map(|error| format!("  {path}:{}:{} {}", error.line, error.column, clip(&error.message))),
+        );
         if entry.errors.len() > shown.len() {
             lines.push(format!("  ({} more not shown)", entry.errors.len() - shown.len()));
         }
@@ -244,24 +322,21 @@ pub fn note(found: &[Found], workspace: &Path) -> Option<String> {
     (!lines.is_empty()).then(|| lines.join("\n"))
 }
 
-#[derive(Serialize)]
-struct Shown<'a> {
-    file: String,
-    server: &'a str,
-    line: u32,
-    column: u32,
-    message: String,
-}
-
 /// The same errors as the call's metadata keeps them.
-pub fn metadata(found: &[Found], workspace: &Path) -> serde_json::Value {
-    let shown: Vec<Shown> = found
+pub fn metadata(found: &[Found], workspace: &Path) -> Vec<ToolDiagnostic> {
+    found
         .iter()
         .flat_map(|entry| entry.errors.iter().take(MAX_PER_FILE).map(move |error| (entry, error)))
         .take(MAX_TOTAL)
-        .map(|(entry, error)| Shown { file: crate::tool::display(&entry.file, workspace), server: &entry.server, line: error.line, column: error.column, message: clip(&error.message) })
-        .collect();
-    serde_json::to_value(shown).unwrap_or_default()
+        .map(|(entry, error)| ToolDiagnostic {
+            file: crate::tool::display(&entry.file, workspace),
+            server: entry.server.clone(),
+            line: error.line,
+            column: error.column,
+            message: clip(&error.message),
+            extra: Default::default(),
+        })
+        .collect()
 }
 
 fn clip(message: &str) -> String {
@@ -272,12 +347,30 @@ fn clip(message: &str) -> String {
 }
 
 /// Characters a `file:` URI cannot carry as they are.
-const URI: &AsciiSet = &CONTROLS.add(b' ').add(b'"').add(b'#').add(b'%').add(b'<').add(b'>').add(b'?').add(b'[').add(b']').add(b'`').add(b'{').add(b'}').add(b'^').add(b'|');
+const URI: &AsciiSet = &CONTROLS
+    .add(b' ')
+    .add(b'"')
+    .add(b'#')
+    .add(b'%')
+    .add(b'<')
+    .add(b'>')
+    .add(b'?')
+    .add(b'[')
+    .add(b']')
+    .add(b'`')
+    .add(b'{')
+    .add(b'}')
+    .add(b'^')
+    .add(b'|');
 
 /// `file:///C:/work/a.rs` for `C:\work\a.rs`, `file:///home/a.rs` for `/home/a.rs`.
 fn uri(path: &Path) -> String {
     let text = path.to_string_lossy().replace('\\', "/");
-    let rooted = if text.starts_with('/') { text } else { format!("/{text}") };
+    let rooted = if text.starts_with('/') {
+        text
+    } else {
+        format!("/{text}")
+    };
     format!("file://{}", utf8_percent_encode(&rooted, URI))
 }
 

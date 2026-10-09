@@ -90,6 +90,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** With a workspace, the server goes off there only; without one, every connection ends until the user connects it again. */
         post: operations["disconnectMcpServer"];
         delete?: never;
         options?: never;
@@ -196,6 +197,92 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["replyPermission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The plugins the user's drift.json lists, loaded or with why they are not. */
+        get: operations["listPlugins"];
+        put?: never;
+        post?: never;
+        /** Removes a plugin: its drift.json entry and, for one under the plugins directory, its component. */
+        delete: operations["removePlugin"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces a plugin's config object in drift.json. */
+        put: operations["configurePlugin"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Switches one plugin on or off; off, it stays listed and runs nothing. */
+        put: operations["setPluginEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Installs a plugin from a registry: fetched over https, checked against the hash, listed in drift.json. */
+        post: operations["installPlugin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/plugins/reload": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reads drift.json again and loads every plugin afresh, so an edited one runs without a restart. */
+        post: operations["reloadPlugins"];
         delete?: never;
         options?: never;
         head?: never;
@@ -360,6 +447,23 @@ export interface paths {
         put?: never;
         /** An async question's answer is saved before this returns; resending the same answer is accepted, a different one is 409. */
         post: operations["answerQuestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/registries/fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A source's registry document, read by the engine with the source's token and trust settings. */
+        get: operations["fetchRegistry"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -639,6 +743,59 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/skills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every skill the engine offers, packs and the workspace's included, and every one switched off. */
+        get: operations["listSkills"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Turns a skill on or off; off, the model is never offered it. */
+        put: operations["setSkillEnabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/skills/packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The skill packs installed from a registry. */
+        get: operations["listSkillPacks"];
+        put?: never;
+        /** Installs a skill pack: its archive is fetched over https and the asked folders are unpacked under the user's skills. */
+        post: operations["installSkillPack"];
+        /** Removes a skill pack and every skill it brought. */
+        delete: operations["removeSkillPack"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/tasks/{id}": {
         parameters: {
             query?: never;
@@ -666,6 +823,23 @@ export interface paths {
         put?: never;
         /** Stops one worker and nothing else: a queued one never starts, a running one stops as its turn would. */
         post: operations["abortTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/tools": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every tool an agent could be offered: the built-ins of both tool profiles, then the workspace's MCP tools. */
+        get: operations["listTools"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -868,6 +1042,8 @@ export interface components {
             command: string[];
             extensions: string[];
         };
+        /** @enum {string} */
+        CheckStatus: "passed" | "problems" | "unavailable";
         /** @description One answered question: what was asked and what the user chose or typed. */
         Clarified: {
             answers: string[];
@@ -986,12 +1162,24 @@ export interface components {
         Ending: "length" | "refused" | "limit";
         /** @description Engine-wide preferences the user changes in Settings. */
         EngineSettings: {
-            /** @description Every session answers its own asks, except secrets and anything outside the workspace. Left out of a PUT, it stays as it is. */
+            /** @description Every session answers its own asks; only a deny rule still refuses. Left out of a PUT, it stays as it is. */
             autoAcceptAll?: boolean | null;
             /** @description Compact a conversation automatically when it nears its model's context window. Left out of a PUT, it stays as it is. */
             autoCompact?: boolean | null;
+            /** @description How many background subagents run at once, 1 to 16; more wait for a slot. Left out of a PUT, it stays as it is. */
+            backgroundTaskLimit?: number | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
+            /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
+            registrySources?: components["schemas"]["RegistrySource"][] | null;
+        };
+        /** @description The same settings, with each source's token to store or clear, for a PUT. */
+        EngineSettingsInput: {
+            autoAcceptAll?: boolean | null;
+            autoCompact?: boolean | null;
+            backgroundTaskLimit?: number | null;
+            backgroundTasks?: boolean | null;
+            registrySources?: components["schemas"]["SourceInput"][] | null;
         };
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
@@ -1104,6 +1292,18 @@ export interface components {
             task: components["schemas"]["TaskRecord"];
             /** @enum {string} */
             type: "task.updated";
+        } | {
+            body: string;
+            plugin: string;
+            title: string;
+            tone: string;
+            /** @enum {string} */
+            type: "plugin.notice";
+        };
+        /** @description The files of an undo that did not put them back to its own point. */
+        FilesAt: "current" | {
+            /** @description Put back to before this prompt. */
+            before: string;
         };
         ForkBody: {
             /** @description Copy through this message; default is the last finished one, leaving out a turn in flight. */
@@ -1137,6 +1337,14 @@ export interface components {
         Health: {
             version: string;
         };
+        HistoryChange: {
+            after?: string | null;
+            before?: string | null;
+            observed?: boolean | null;
+            path: string;
+        } & {
+            [key: string]: unknown;
+        };
         /** @description Replies can ride the socket so a permission prompt never waits on a new HTTP connection. */
         Incoming: (components["schemas"]["ReplyBody"] & {
             requestId: string;
@@ -1152,6 +1360,36 @@ export interface components {
             directory?: string | null;
             /** @enum {string} */
             type: "workspace.open";
+        };
+        /** @description What a registry entry needs to be installed. */
+        Install: {
+            config?: unknown;
+            /** @description Becomes the file name: letters, digits, `-` and `_` only. */
+            id: string;
+            /** @description The registry source it was listed by, whose token and trust apply to the download; none for Drift's own. */
+            registry?: string | null;
+            /** @description Hex SHA-256 of the component; the download must match it. */
+            sha256: string;
+            url: string;
+        };
+        /** @description What a registry entry of kind `skills` needs to be installed. */
+        InstallPack: {
+            /** @description A `.tar.gz` over https, as GitHub's codeload serves one. */
+            archive: string;
+            /** @description Becomes the folder name: letters, digits, `-` and `_` only. */
+            id: string;
+            image?: string | null;
+            name: string;
+            /**
+             * @description The registry source it was listed by; its token and trust apply to the archive. An empty
+             *     `archive` with a repository source means the source's own repository.
+             */
+            registry?: string | null;
+            /** @description Skill folder names to keep; empty keeps every skill the archive holds. */
+            skills?: string[];
+            source?: string | null;
+            /** @description Folders inside the archive to keep (after its top-level folder); empty keeps everything. */
+            subdirs?: string[];
         };
         Instruction: {
             name: string;
@@ -1219,6 +1457,9 @@ export interface components {
         MessageStatus: "streaming" | "done" | "aborted" | "error" | "paused";
         MessageWithParts: components["schemas"]["Message"] & {
             parts: components["schemas"]["PartRow"][];
+        };
+        MetadataFile: string | {
+            [key: string]: unknown;
         };
         /** @enum {string} */
         Mode: "foreground" | "background";
@@ -1313,6 +1554,18 @@ export interface components {
             description?: string;
             label: string;
         };
+        /** @description An installed pack as the API reports it. */
+        Pack: {
+            archive: string;
+            id: string;
+            image?: string | null;
+            /** Format: int64 */
+            installedAt: number;
+            name: string;
+            /** @description The skills it brought, by folder name. */
+            skills: string[];
+            source?: string | null;
+        };
         Part: {
             text: string;
             /** @enum {string} */
@@ -1328,7 +1581,7 @@ export interface components {
             /** Format: int64 */
             finishedAt?: number | null;
             input: unknown;
-            metadata?: unknown;
+            metadata?: components["schemas"]["ToolMetadata"] | null;
             name: string;
             output?: string | null;
             /** Format: int64 */
@@ -1366,6 +1619,11 @@ export interface components {
             /** @enum {string} */
             type: "nudge";
         } | {
+            plugin: string;
+            text: string;
+            /** @enum {string} */
+            type: "context";
+        } | {
             auto: boolean;
             /** @description First message the model still sees verbatim after the summary; `None` keeps nothing. */
             tailFrom?: string | null;
@@ -1400,6 +1658,27 @@ export interface components {
             messageId: string;
             sessionId: string;
             tool: string;
+        };
+        PluginConfig: {
+            config: unknown;
+            path: string;
+        };
+        PluginEnabled: {
+            enabled: boolean;
+            /** @description The plugin's entry in drift.json. */
+            path: string;
+        };
+        /** @description A loaded plugin as the API reports it; `error` set means it is not running. */
+        PluginInfo: {
+            /** @description The host interfaces it imports: `store`, `files`, `process`, `http`. */
+            capabilities?: string[];
+            /** @description Its config object from drift.json, so Settings can show and edit it. */
+            config?: unknown;
+            /** @description Off in Settings: listed, not loaded. */
+            enabled: boolean;
+            error?: string | null;
+            name: string;
+            path: string;
         };
         Prompt: {
             /** @description The agent the session runs as from this prompt on; absent keeps the session's. Only a primary agent of the workspace. */
@@ -1474,6 +1753,28 @@ export interface components {
             message: components["schemas"]["Message"];
             session: components["schemas"]["Session"];
         };
+        /** @enum {string} */
+        RegistryKind: "plugins" | "mcp";
+        /** @description A registry the user added. Secrets are not here: a token lives in the credential store under the source's id. */
+        RegistrySource: {
+            /** @description Plain http is refused unless the user says so for this source. */
+            allowHttp?: boolean;
+            /** @description An extra root certificate (PEM) trusted for this source's hosts, for an internal CA. */
+            caPem?: string | null;
+            /** @description Whether a token is stored for it; the token itself is never returned. */
+            hasToken?: boolean;
+            /** @description Stable, so the token outlives a rename; the engine makes one when a new source has none. */
+            id: string;
+            kind: components["schemas"]["RegistryKind"];
+            name: string;
+            /** @description For a repository: the document's path inside it; `registry.json` when empty. */
+            path?: string;
+            /** @description For a repository: the branch, tag or commit; the default branch when empty. */
+            ref?: string;
+            source?: components["schemas"]["SourceKind"];
+            /** @description For `url`: the document. For `github` and `azure_devops`: the repository's web URL. For `folder`: the folder. */
+            url: string;
+        };
         RenameBody: {
             to: string;
         };
@@ -1492,11 +1793,14 @@ export interface components {
         };
         /** @description An undo in progress: the user message it went back to, hidden with everything after it. */
         Revert: {
+            files?: components["schemas"]["FilesAt"] | null;
             /** @description Files the last undo or redo left alone because someone changed them after the session did. */
             kept?: string[];
             messageId: string;
         };
         RevertBody: {
+            /** @description Move only the conversation: every file stays as it is now. */
+            keepFiles?: boolean;
             /** @description The prompt to go back to; it and everything after it are hidden. */
             messageId: string;
         };
@@ -1609,6 +1913,8 @@ export interface components {
             readOnlyTrusted: boolean;
             /** Format: int64 */
             updatedAt: number;
+            /** @description Workspaces where it is on though the switch is off, or off though the switch is on. */
+            workspaces: components["schemas"]["WorkspaceChoice"][];
         };
         Session: {
             agent: string;
@@ -1646,6 +1952,23 @@ export interface components {
             /** @description Directory holding SKILL.md and whatever it references. */
             path: string;
         };
+        SkillEnabled: {
+            enabled: boolean;
+            /** @description The skill's folder, as listed. */
+            path: string;
+            /** @description The workspace the skill belongs to, for one of its own. */
+            workspace?: string | null;
+        };
+        /** @description The `/settings` body's view of a source: the same, plus a token to store or clear. */
+        SourceInput: components["schemas"]["RegistrySource"] & {
+            /** @description A new token to keep; empty clears it; absent leaves it. */
+            token?: string | null;
+        };
+        /**
+         * @description How a source is reached.
+         * @enum {string}
+         */
+        SourceKind: "url" | "github" | "azure_devops" | "folder";
         SpawnBody: {
             /** @description What the new thread should do; it starts with a copy of this conversation and works out what it needs. */
             instruction: string;
@@ -1692,10 +2015,113 @@ export interface components {
         };
         /** @enum {string} */
         TodoStatus: "pending" | "in_progress" | "completed" | "cancelled";
+        ToolCheck: {
+            check: string;
+            output?: string | null;
+            status: components["schemas"]["CheckStatus"];
+        } & {
+            [key: string]: unknown;
+        };
+        ToolDiagnostic: {
+            /** Format: int32 */
+            column: number;
+            file: string;
+            /** Format: int32 */
+            line: number;
+            message: string;
+            server: string;
+        } & {
+            [key: string]: unknown;
+        };
+        ToolFileChange: {
+            additions: number;
+            deletions: number;
+            filePath: string;
+            patch: string;
+            relativePath: string;
+            type: string;
+        } & {
+            [key: string]: unknown;
+        };
+        ToolImage: {
+            data?: string | null;
+            hash?: string | null;
+            mime: string;
+        } & {
+            [key: string]: unknown;
+        };
         ToolInfo: {
             description: string;
             name: string;
             read_only: boolean;
+        };
+        ToolMetadata: {
+            agent?: string | null;
+            answers?: string[][] | null;
+            async?: boolean | null;
+            at?: string | null;
+            bytes?: number | null;
+            capped?: boolean | null;
+            changes?: components["schemas"]["HistoryChange"][] | null;
+            checkChanged?: string[] | null;
+            checkObserved?: string[] | null;
+            checks?: components["schemas"]["ToolCheck"][] | null;
+            commandModel?: string | null;
+            contentType?: string | null;
+            count?: number | null;
+            created?: boolean | null;
+            delivers?: string | null;
+            diagnostics?: components["schemas"]["ToolDiagnostic"][] | null;
+            diff?: string | null;
+            engineCommand?: string | null;
+            /** Format: int64 */
+            exit?: number | null;
+            fileChanges?: components["schemas"]["ToolFileChange"][] | null;
+            files?: components["schemas"]["MetadataFile"][] | null;
+            formatted?: string[] | null;
+            historyError?: string | null;
+            images?: components["schemas"]["ToolImage"][] | null;
+            large?: boolean | null;
+            lines?: number | null;
+            mode?: string | null;
+            notes?: string[] | null;
+            open?: number | null;
+            outcome?: string | null;
+            output?: string | null;
+            /** Format: int64 */
+            outputBytes?: number | null;
+            outputFile?: string | null;
+            owner?: string | null;
+            path?: string | null;
+            reason?: string | null;
+            redirect?: string | null;
+            replacements?: number | null;
+            requestId?: string | null;
+            restricted?: number | null;
+            resultFile?: string | null;
+            running?: boolean | null;
+            server?: string | null;
+            sessionId?: string | null;
+            /** Format: int64 */
+            shellTimeoutMs?: number | null;
+            shown?: number | null;
+            state?: string | null;
+            stopped?: boolean | null;
+            taskId?: string | null;
+            timedOut?: boolean | null;
+            total?: number | null;
+            truncated?: boolean | null;
+            unrecorded?: string[] | null;
+            uri?: string | null;
+            withheld?: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description A tool an agent's `tools` list can name, as Settings offers it. */
+        ToolName: {
+            name: string;
+            /** @description The MCP server it comes from; none for a built-in. */
+            server?: string | null;
         };
         /**
          * @description How a model edits files: what its training makes it good at, decided here and nowhere else.
@@ -1729,6 +2155,18 @@ export interface components {
             /** Format: int64 */
             output: number;
         };
+        /** @description One skill the user has, from a pack or their own folders. */
+        UserSkill: {
+            description: string;
+            enabled: boolean;
+            name: string;
+            /** @description The pack it came from, by id; none for the user's own. */
+            pack?: string | null;
+            /** @description Its folder, absolute. */
+            path: string;
+            /** @description In the workspace (or a parent up to its repository root) rather than the user's own folders. */
+            workspace?: boolean;
+        };
         Variant: components["schemas"]["Reasoning"] & {
             name: string;
         };
@@ -1741,6 +2179,11 @@ export interface components {
             lastUsed: number;
             name: string;
             path: string;
+        };
+        /** @description A workspace's own choice for a server: on there though off elsewhere, or the reverse. */
+        WorkspaceChoice: {
+            enabled: boolean;
+            workspaceId: string;
         };
     };
     responses: never;
@@ -1885,7 +2328,10 @@ export interface operations {
     connectMcpServer: {
         parameters: {
             query?: {
-                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                /**
+                 * @description The active workspace, where a stdio server connects (besides every workspace it already ran in).
+                 *     On connect and disconnect, the server is turned on or off there, and remembered for it.
+                 */
                 workspace?: string | null;
             };
             header?: never;
@@ -1920,7 +2366,13 @@ export interface operations {
     };
     disconnectMcpServer: {
         parameters: {
-            query?: never;
+            query?: {
+                /**
+                 * @description The active workspace, where a stdio server connects (besides every workspace it already ran in).
+                 *     On connect and disconnect, the server is turned on or off there, and remembered for it.
+                 */
+                workspace?: string | null;
+            };
             header?: never;
             path: {
                 name: string;
@@ -1948,7 +2400,10 @@ export interface operations {
     setMcpServerEnabled: {
         parameters: {
             query?: {
-                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                /**
+                 * @description The active workspace, where a stdio server connects (besides every workspace it already ran in).
+                 *     On connect and disconnect, the server is turned on or off there, and remembered for it.
+                 */
                 workspace?: string | null;
             };
             header?: never;
@@ -1982,7 +2437,10 @@ export interface operations {
     renameMcpServer: {
         parameters: {
             query?: {
-                /** @description The active workspace, where a stdio server connects (besides every workspace it already ran in). */
+                /**
+                 * @description The active workspace, where a stdio server connects (besides every workspace it already ran in).
+                 *     On connect and disconnect, the server is turned on or off there, and remembered for it.
+                 */
                 workspace?: string | null;
             };
             header?: never;
@@ -2172,6 +2630,135 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listPlugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    removePlugin: {
+        parameters: {
+            query: {
+                /** @description The plugin's entry in drift.json. */
+                path: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    configurePlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginConfig"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    setPluginEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginEnabled"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    installPlugin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Install"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
+            };
+        };
+    };
+    reloadPlugins: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginInfo"][];
+                };
             };
         };
     };
@@ -2473,6 +3060,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    fetchRegistry: {
+        parameters: {
+            query: {
+                /** @description The source's id. */
+                source: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
             };
         };
     };
@@ -3085,7 +3694,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["EngineSettings"];
+                "application/json": components["schemas"]["EngineSettingsInput"];
             };
         };
         responses: {
@@ -3095,6 +3704,114 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EngineSettings"];
+                };
+            };
+        };
+    };
+    listSkills: {
+        parameters: {
+            query?: {
+                /** @description The workspace whose own skills to include besides the user's. */
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSkill"][];
+                };
+            };
+        };
+    };
+    setSkillEnabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SkillEnabled"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSkill"][];
+                };
+            };
+        };
+    };
+    listSkillPacks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pack"][];
+                };
+            };
+        };
+    };
+    installSkillPack: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InstallPack"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pack"][];
+                };
+            };
+        };
+    };
+    removeSkillPack: {
+        parameters: {
+            query: {
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pack"][];
                 };
             };
         };
@@ -3150,6 +3867,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listTools: {
+        parameters: {
+            query?: {
+                /** @description The workspace whose MCP servers' tools to include besides the built-ins. */
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolName"][];
+                };
             };
         };
     };

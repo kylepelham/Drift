@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Last issued timestamp in the low 52 bits and a counter above it; never moves backwards.
+/// Last issued timestamp and counter; the timestamp occupies the high bits and never moves backwards.
 static LAST: AtomicU64 = AtomicU64::new(0);
 const COUNTER_BITS: u32 = 12;
 
@@ -14,6 +14,7 @@ pub fn new(prefix: &str) -> String {
 pub fn stamp() -> i64 {
     let now = (now_ms() as u64) << COUNTER_BITS;
     let mut last = LAST.load(Ordering::SeqCst);
+
     loop {
         let next = if now > last { now } else { last + 1 };
         match LAST.compare_exchange_weak(last, next, Ordering::SeqCst, Ordering::SeqCst) {
@@ -26,14 +27,14 @@ pub fn stamp() -> i64 {
 /// The point in id order an id was made at.
 pub fn stamp_of(id: &str) -> Option<i64> {
     let (_, rest) = id.split_once('_')?;
+
     u64::from_str_radix(rest.get(..16)?, 16).ok().map(|stamp| stamp as i64)
 }
 
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
+        .map_or(0, |duration| duration.as_millis() as i64)
 }
 
 #[cfg(test)]

@@ -6,13 +6,13 @@ use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 
 #[derive(Debug, PartialEq)]
-pub struct SseEvent {
+pub(crate) struct SseEvent {
     pub event: String,
     pub data: String,
 }
 
 #[derive(Default)]
-pub struct Parser {
+pub(crate) struct Parser {
     buffer: String,
     /// The start of a character whose remaining bytes are in the next network read.
     pending: Vec<u8>,
@@ -22,9 +22,10 @@ pub struct Parser {
 
 impl Parser {
     /// Feeds bytes and returns every event completed by them.
-    pub fn feed(&mut self, chunk: &[u8]) -> Vec<SseEvent> {
+    pub(crate) fn feed(&mut self, chunk: &[u8]) -> Vec<SseEvent> {
         self.decode(chunk);
         let mut events = Vec::new();
+
         while let Some(end) = self.buffer.find('\n') {
             let line = self.buffer[..end].trim_end_matches('\r').to_string();
             self.buffer.drain(..=end);
@@ -32,6 +33,7 @@ impl Parser {
                 events.push(event);
             }
         }
+
         events
     }
 
@@ -39,6 +41,7 @@ impl Parser {
     /// that can never form a character become U+FFFD.
     fn decode(&mut self, chunk: &[u8]) {
         self.pending.extend_from_slice(chunk);
+
         loop {
             let error = match std::str::from_utf8(&self.pending) {
                 Ok(text) => {
@@ -48,12 +51,15 @@ impl Parser {
                 }
                 Err(error) => error,
             };
+
             let valid = error.valid_up_to();
-            self.buffer.push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
+            self.buffer
+                .push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
             let Some(bad) = error.error_len() else {
                 self.pending.drain(..valid);
                 return;
             };
+
             self.buffer.push('\u{FFFD}');
             self.pending.drain(..valid + bad);
         }
@@ -63,6 +69,7 @@ impl Parser {
         if line.is_empty() {
             return self.flush();
         }
+
         let (field, value) = line.split_once(':').unwrap_or((line, ""));
         let value = value.strip_prefix(' ').unwrap_or(value);
         match field {
@@ -70,6 +77,7 @@ impl Parser {
             "data" => self.data.push(value.to_string()),
             _ => {}
         }
+
         None
     }
 
@@ -77,6 +85,7 @@ impl Parser {
         if self.data.is_empty() && self.event.is_empty() {
             return None;
         }
+
         let event = SseEvent {
             event: std::mem::take(&mut self.event),
             data: std::mem::take(&mut self.data).join("\n"),
@@ -87,22 +96,24 @@ impl Parser {
 
 /// Events from a byte stream. Nothing at all for `idle` (not even a comment or ping) means the
 /// connection has stalled: the stream ends with an error rather than waiting forever.
-pub fn events<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<SseEvent, String>>
+pub(crate) fn events<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<SseEvent, StreamError>>
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
     let mut parser = Parser::default();
+
     watched(bytes, idle).flat_map(move |chunk| {
-        let items: Vec<Result<SseEvent, String>> = match chunk {
+        let items: Vec<Result<SseEvent, StreamError>> = match chunk {
             Ok(bytes) => parser.feed(&bytes).into_iter().map(Ok).collect(),
             Err(error) => vec![Err(error)],
         };
+
         futures_util::stream::iter(items)
     })
 }
 
 /// A response body that ends with an error once nothing arrives for `idle`.
-pub fn watched<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<Bytes, String>>
+pub(crate) fn watched<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<Bytes, StreamError>>
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
@@ -110,11 +121,24 @@ where
         let mut bytes = state?;
         match tokio::time::timeout(idle, bytes.next()).await {
             Ok(Some(Ok(chunk))) => Some((Ok(chunk), Some(bytes))),
-            Ok(Some(Err(error))) => Some((Err(error.to_string()), None)),
+            Ok(Some(Err(error))) => Some((Err(StreamError::Transport(error)), None)),
             Ok(None) => None,
-            Err(_) => Some((Err(format!("the stream stalled: nothing for {} s", idle.as_secs())), None)),
+            Err(_) => Some((
+                Err(StreamError::Stalled {
+                    seconds: idle.as_secs(),
+                }),
+                None,
+            )),
         }
     })
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum StreamError {
+    #[error(transparent)]
+    Transport(reqwest::Error),
+    #[error("the stream stalled: nothing for {seconds} s")]
+    Stalled { seconds: u64 },
 }
 
 #[cfg(test)]
@@ -129,16 +153,25 @@ mod tests {
         assert_eq!(
             events,
             vec![
-                SseEvent { event: "message_start".into(), data: "{\"a\":1}".into() },
-                SseEvent { event: "ping".into(), data: "{}".into() },
+                SseEvent {
+                    event: "message_start".into(),
+                    data: "{\"a\":1}".into()
+                },
+                SseEvent {
+                    event: "ping".into(),
+                    data: "{}".into()
+                },
             ]
         );
     }
 
     #[test]
     fn characters_split_across_reads_arrive_whole_at_every_split() {
-        let frames = "event: content_block_delta\ndata: {\"delta\":{\"type\":\"text_delta\",\"text\":\"LEFT € RIGHT 日本 🎉\"}}\n\n\
-                      event: content_block_delta\ndata: {\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\": \\\"ü/café.rs\\\"}\"}}\n\n";
+        let frames = "event: content_block_delta\n\
+                      data: {\"delta\":{\"type\":\"text_delta\",\"text\":\"LEFT € RIGHT 日本 \u{1f389}\"}}\n\n\
+                      event: content_block_delta\n\
+                      data: {\"delta\":{\"type\":\"input_json_delta\",\
+                      \"partial_json\":\"{\\\"path\\\": \\\"ü/café.rs\\\"}\"}}\n\n";
         let bytes = frames.as_bytes();
         let whole = Parser::default().feed(bytes);
         for split in 1..bytes.len() {
@@ -149,10 +182,13 @@ mod tests {
         }
         let one_by_one: Vec<SseEvent> = {
             let mut parser = Parser::default();
-            bytes.iter().flat_map(|b| parser.feed(std::slice::from_ref(b))).collect()
+            bytes
+                .iter()
+                .flat_map(|byte| parser.feed(std::slice::from_ref(byte)))
+                .collect()
         };
         assert_eq!(one_by_one, whole, "one byte per read");
-        assert!(whole[0].data.contains("LEFT € RIGHT 日本 🎉") && whole[1].data.contains("café"));
+        assert!(whole[0].data.contains("LEFT € RIGHT 日本 \u{1f389}") && whole[1].data.contains("café"));
     }
 
     #[test]
@@ -168,8 +204,13 @@ mod tests {
         let stalled = futures_util::stream::iter([first]).chain(futures_util::stream::pending());
         let mut events = Box::pin(events(stalled, Duration::from_millis(100)));
         assert_eq!(events.next().await.unwrap().unwrap().data, "one");
-        let error = tokio::time::timeout(Duration::from_secs(2), events.next()).await.expect("the idle limit ends the wait").unwrap().unwrap_err();
-        assert!(error.contains("stalled"), "{error}");
+        let error = tokio::time::timeout(Duration::from_secs(2), events.next())
+            .await
+            .expect("the idle limit ends the wait")
+            .unwrap()
+            .unwrap_err();
+        assert!(matches!(error, StreamError::Stalled { seconds: 0 }), "{error}");
+        assert_eq!(error.to_string(), "the stream stalled: nothing for 0 s");
         assert!(events.next().await.is_none(), "and nothing follows");
     }
 
@@ -177,6 +218,12 @@ mod tests {
     fn joins_multiline_data_and_ignores_comments() {
         let mut parser = Parser::default();
         let events = parser.feed(b": keepalive\r\ndata: a\r\ndata: b\r\n\r\n");
-        assert_eq!(events, vec![SseEvent { event: String::new(), data: "a\nb".into() }]);
+        assert_eq!(
+            events,
+            vec![SseEvent {
+                event: String::new(),
+                data: "a\nb".into()
+            }]
+        );
     }
 }

@@ -1,2192 +1,292 @@
-import type { ProviderAuthMethod } from "../engine/shapes"
-import { createEffect, createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js"
-import { Portal } from "solid-js/web"
-import { useEngine } from "../engine"
-import type { AgentInfo } from "../engine/store"
-import { filePreviewTypes } from "../file-preview-types"
-import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs"
-import {
-  codeFontSize,
-  codeFontSizes,
-  codeTabWidth,
-  codeTabWidths,
-  codeWordWrap,
-  diffIndicator,
-  diffIndicators,
-  diffLineNumbers,
-  diffWordWrap,
-  setCodeFontSize,
-  setCodeTabWidth,
-  setCodeWordWrap,
-  setDiffIndicator,
-  setDiffLineNumbers,
-  setDiffWordWrap,
-  setSyntaxThemePreset,
-  syntaxThemePreset,
-  syntaxThemePresets,
-  type DiffIndicator,
-  type SyntaxThemePreset,
-} from "../state/code"
-import { t } from "../state/i18n"
-import { agentBehaviorModel, agentModelCapability, agentModelOptions, withAgentModel } from "../state/agent-models"
-import { comboFor, eventCombo, formatCombo, keybindDefs, setCombo, type KeybindAction } from "../state/keybinds"
-import { language, languages, setLanguage, type LanguageId } from "../state/language"
-import { formatModelContext, lmStudioMinimumContext, lmStudioModelReady } from "../state/lm-studio"
-import {
-  alertSounds,
-  animateResponses,
-  attentionKinds,
-  autoUpdate,
-  collapseCompaction,
-  compactionCollapsed,
-  customSound,
-  responseAnimationSpeed,
-  responseAnimationSpeedMax,
-  responseAnimationSpeedMin,
-  setAlertSound,
-  setAnimateResponses,
-  setAutoUpdate,
-  setCollapseCompaction,
-  setCompactionCollapsed,
-  setCustomSound,
-  setResponseAnimationSpeed,
-  setShowReasoning,
-  setShellTimeoutMs,
-  listenShellTimeoutError,
-  setSystemNotification,
-  setToolErrorsExpanded,
-  shellTimeoutMaxMs,
-  shellTimeoutMinMs,
-  shellTimeoutMs,
-  shellTimeoutPresets,
-  showReasoning,
-  systemNotifications,
-  toolErrorsExpanded,
-  type AttentionKind,
-} from "../state/prefs"
-import { openExternal, shellInvoke } from "../shell"
-import { isRemoteRuntime } from "../runtime"
-import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation"
-import {
-  setSplashDuration,
-  setSplashEnabled,
-  setSplashExitAnimation,
-  setSplashFont,
-  setSplashMascotAnimation,
-  splashDuration,
-  splashDurations,
-  splashEnabled,
-  splashExitAnimation,
-  splashExitAnimations,
-  splashFont,
-  splashMascotAnimation,
-  splashMascotAnimations,
-  type SplashExitAnimation,
-  type SplashMascotAnimation,
-} from "../state/startup"
-import {
-  agentBehaviorIssue,
-  agentOverrideValue,
-  applicableOverride,
-  loadPromptSnapshot,
-  resetPromptOverride,
-  savePromptOverride,
-  type PromptOverride,
-  type PromptSnapshot,
-} from "../state/prompts"
-import { requestNotificationPermission } from "./notifications"
-import {
-  codeFont,
-  customCss,
-  customTheme,
-  setCodeFont,
-  setCustomCss,
-  setCustomThemeColor,
-  setTheme,
-  setUiFont,
-  theme,
-  themes,
-  uiFont,
-  type CustomTheme,
-  type ThemeName,
-} from "../state/theme"
-import {
-  IconArchive,
-  IconBell,
-  IconCheck,
-  IconChip,
-  IconGauge,
-  IconCode,
-  IconInfo,
-  IconKeyboard,
-  IconMic,
-  IconPalette,
-  IconPlus,
-  IconSearch,
-  IconShieldCheck,
-  IconSliders,
-  IconX,
-} from "./icons"
-import { readDataUrl } from "./files"
-import { Jellyfish, preloadJellyfish } from "./jellyfish"
-import { SettingsGroup, SettingsRow } from "./settings-controls"
-import { RemoteAccessSection } from "./settings-remote-access"
-import { StorageSection } from "./settings-storage"
-import { UsageLimitsSection } from "./settings-usage"
-import { VoiceSection } from "./settings-voice"
-import { activateModal, closeOnBackdropPointerDown } from "./modal"
-import { McpManagement } from "./mcp"
-import { Toggle } from "./controls"
-import { ProviderIcon } from "./provider-icon"
-import { authorizationPrompt } from "../engine/provider-auth"
-import { Picker } from "./picker"
-import { BasePromptsSection } from "./settings-base-prompts"
-import { PermissionsSection } from "./settings-permissions"
-import { Chevron } from "./controls"
-import { playAlertSound, soundOptions } from "./sounds"
+import { sections, sectionLabels, sectionGroups, settingsSearchResults } from "./settings-search";
+import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import { parseNavigationHash, pushRemoteOverlay } from "../state/navigation";
+import { AboutSection, preloadUpdateSupport } from "./settings-about";
+import { activateModal, closeOnBackdropPointerDown } from "./modal";
+import { NotificationsSection } from "./settings-notifications";
+import { RemoteAccessSection } from "./settings-remote-access";
+import { PermissionsSection } from "./settings-permissions";
+import { AppearanceSection } from "./settings-appearance";
+import { ToolExecutionSection } from "./settings-tools";
+import { ProvidersSection } from "./settings-providers";
+import { KeybindsSection } from "./settings-shortcuts";
+import { UsageLimitsSection } from "./settings-usage";
+import { StorageSection } from "./settings-storage";
+import { PluginsSection } from "./settings-plugins";
+import { PromptsSection } from "./settings-prompts";
+import { GeneralSection } from "./settings-general";
+import { SkillsSection } from "./settings-skills";
+import { VoiceSection } from "./settings-voice";
+import { preloadJellyfish } from "./jellyfish";
+import { SectionIcon } from "./settings-icons";
+import { CodeSection } from "./settings-code";
+import { isRemoteRuntime } from "../runtime";
+import { IconSearch, IconX } from "./icons";
+import { Portal } from "solid-js/web";
+import { McpManagement } from "./mcp";
+import { t } from "../state/i18n";
 
-type ProviderNotice = { tone: "success" | "warning" | "error"; text: string }
+import type { Section, SettingsSearchItem } from "./settings-search";
+import type { ProviderAuthMethod } from "../engine/provider-auth";
 
-const themeMeta: Record<ThemeName, { label: string; swatch: [string, string, string] }> = {
-  "drift-dark": { label: "drift.theme.dark", swatch: ["#141517", "#212429", "#7ba3e8"] },
-  "drift-graphite": { label: "drift.theme.graphite", swatch: ["#101112", "#222326", "#b7b9c2"] },
-  "drift-midnight": { label: "drift.theme.midnight", swatch: ["#0c1020", "#19223a", "#8aa8ff"] },
-  "drift-slate": { label: "drift.theme.slate", swatch: ["#0f1419", "#1b232c", "#6cb2c9"] },
-  "drift-forest": { label: "drift.theme.forest", swatch: ["#0f1512", "#1d2922", "#82c99a"] },
-  "drift-aubergine": { label: "drift.theme.aubergine", swatch: ["#171119", "#2d2031", "#d29ad8"] },
-  "drift-light": { label: "drift.theme.light", swatch: ["#f4f4f5", "#ffffff", "#3a6fd8"] },
-  "drift-paper": { label: "drift.theme.paper", swatch: ["#eee9df", "#fffdf8", "#97643c"] },
-  "drift-custom": { label: "drift.theme.custom", swatch: ["#111318", "#1b1e25", "#a78bfa"] },
-}
+export type { ProviderAuthMethod };
 
-const sections = ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts", "Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions", "Storage", "Remote Access", "About"] as const
-type Section = (typeof sections)[number]
-const sectionLabels: Record<Section, string> = {
-  General: "settings.tab.general",
-  Appearance: "settings.general.section.appearance",
-  Code: "drift.settings.code",
-  Notifications: "drift.settings.notifications",
-  Voice: "drift.voice",
-  Shortcuts: "settings.tab.shortcuts",
-  Tools: "drift.settings.toolExecution",
-  Providers: "settings.providers.title",
-  Usage: "drift.usage.title",
-  MCP: "dialog.mcp.title",
-  Prompts: "drift.settings.prompts",
-  Agents: "settings.agents.title",
-  Permissions: "drift.settings.permissions",
-  Storage: "drift.storage",
-  "Remote Access": "drift.remote.title",
-  About: "drift.settings.about",
-}
-const sectionGroups: { label: string; items: Section[] }[] = [
-  { label: "settings.section.desktop", items: ["General", "Appearance", "Code", "Notifications", "Voice", "Shortcuts"] },
-  { label: "settings.section.server", items: ["Tools", "Providers", "Usage", "MCP", "Prompts", "Agents", "Permissions"] },
-  { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
-]
-
-const keybindLabels: Record<KeybindAction, string> = {
-  palette: "command.palette",
-  newThread: "command.session.new",
-  findInSession: "drift.shortcuts.findInSession",
-  autoAccept: "drift.shortcuts.autoAccept",
-  zoomIn: "drift.shortcuts.zoomIn",
-  zoomOut: "drift.shortcuts.zoomOut",
-  zoomReset: "drift.shortcuts.zoomReset",
-}
-
-type SettingsSearchDefinition = { title: string; description?: string }
-export type SettingsSearchItem = { section: Section; sectionLabel: string; title: string; description: string }
-
-const settingsSearchDefinitions = {
-  General: [
-    { title: "settings.general.row.language.title", description: "settings.general.row.language.description" },
-    { title: "drift.settings.responseAnimation.title", description: "drift.settings.responseAnimation.description" },
-    { title: "drift.settings.responseAnimation.speed.title", description: "drift.settings.responseAnimation.speed.description" },
-    { title: "drift.preview.settings.title", description: "drift.preview.settings.description" },
-    { title: "command.permissions.autoaccept.enable", description: "toast.permissions.autoaccept.on.description" },
-    { title: "settings.general.row.reasoningSummaries.title", description: "settings.general.row.reasoningSummaries.description" },
-    { title: "drift.settings.toolErrors.title", description: "drift.settings.toolErrors.description" },
-    { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
-    { title: "drift.settings.summaries.collapsible.title", description: "drift.settings.summaries.collapsible.description" },
-    { title: "drift.settings.summaries.collapsed.title", description: "drift.settings.summaries.collapsed.description" },
-    { title: "settings.updates.row.startup.title", description: "settings.updates.row.startup.description" },
-  ],
-  Appearance: [
-    { title: "settings.general.row.theme.title" },
-    ...Object.values(themeMeta).map((item) => ({ title: item.label })),
-    { title: "drift.settings.customPalette" },
-    { title: "settings.general.row.uiFont.title", description: "settings.general.row.uiFont.description" },
-    { title: "startup.settings.show.title", description: "startup.settings.show.description" },
-    { title: "startup.settings.mascot.title", description: "startup.settings.mascot.description" },
-    { title: "startup.settings.exit.title", description: "startup.settings.exit.description" },
-    { title: "startup.settings.duration.title", description: "startup.settings.duration.description" },
-    { title: "startup.settings.font.title", description: "startup.settings.font.description" },
-    { title: "drift.settings.customCss", description: "drift.settings.customCss.description" },
-  ],
-  Code: [
-    { title: "drift.code.syntaxTheme.title", description: "drift.code.syntaxTheme.description" },
-    { title: "settings.general.row.font.title", description: "settings.general.row.font.description" },
-    { title: "drift.code.fontSize.title", description: "drift.code.fontSize.description" },
-    { title: "drift.code.tabWidth.title", description: "drift.code.tabWidth.description" },
-    { title: "drift.code.wordWrap.title", description: "drift.code.wordWrap.description" },
-    { title: "drift.code.diffWordWrap.title", description: "drift.code.diffWordWrap.description" },
-    { title: "drift.code.lineNumbers.title", description: "drift.code.lineNumbers.description" },
-    { title: "drift.code.diffIndicator.title", description: "drift.code.diffIndicator.description" },
-  ],
-  Notifications: [
-    ...["agent", "permissions", "errors"].flatMap((kind) => [
-      { title: `settings.general.notifications.${kind}.title`, description: `settings.general.notifications.${kind}.description` },
-      { title: `settings.general.sounds.${kind}.title`, description: `settings.general.sounds.${kind}.description` },
-    ]),
-    { title: "drift.settings.sound.chooseCustom" },
-  ],
-  Voice: [
-    { title: "drift.voice.dictation.enabled.title", description: "drift.voice.dictation.enabled.description" },
-    { title: "drift.voice.input.title", description: "drift.voice.input.description" },
-    { title: "drift.voice.model.title", description: "drift.voice.model.description" },
-    { title: "drift.voice.model.storage.title", description: "drift.voice.model.storage.ready" },
-    { title: "drift.voice.acceleration.title", description: "drift.voice.acceleration.gpu" },
-    { title: "drift.voice.dictation.language.title", description: "drift.voice.dictation.language.description" },
-    { title: "drift.voice.dictation.keyterms.title", description: "drift.voice.dictation.keyterms.description" },
-  ],
-  Shortcuts: Object.values(keybindLabels).map((title) => ({ title })),
-  Tools: [
-    { title: "drift.settings.shellTimeout.title", description: "drift.settings.shellTimeout.description" },
-    { title: "drift.settings.shellTimeout.customMinutes", description: "drift.settings.shellTimeout.customDescription" },
-  ],
-  Providers: [
-    { title: "dialog.provider.search.placeholder" },
-    { title: "settings.providers.section.connected" },
-    { title: "provider.connect.method.apiKey" },
-    { title: "provider.connect.oauth.code.placeholder" },
-    { title: "drift.lmStudio.apiToken", description: "drift.lmStudio.description" },
-    { title: "drift.lmStudio.refresh" },
-  ],
-  Usage: [
-    { title: "drift.usage.title", description: "drift.usage.settingsDescription" },
-    { title: "drift.usage.session" },
-    { title: "drift.usage.weekly" },
-  ],
-  MCP: [
-    { title: "drift.mcp.servers" },
-    { title: "drift.mcp.registry" },
-    { title: "drift.mcp.add" },
-    { title: "drift.mcp.name" },
-    { title: "drift.mcp.form.command" },
-    { title: "drift.mcp.form.environment" },
-    { title: "drift.mcp.form.url" },
-    { title: "drift.mcp.form.headers" },
-  ],
-  Prompts: [
-    { title: "drift.settings.prompts.modelFamilies", description: "drift.settings.prompts.familyDescription" },
-    { title: "drift.settings.prompts.systemPrompt", description: "drift.settings.prompts.allDescription" },
-    { title: "drift.settings.prompts.sharedRules", description: "drift.settings.prompts.sharedDescription" },
-  ],
-  Agents: [
-    { title: "drift.settings.prompts.agents", description: "drift.settings.prompts.agentDescription" },
-    { title: "command.category.model" },
-    { title: "drift.settings.prompts.agentPrompt", description: "drift.settings.prompts.inheritsFamily" },
-    { title: "drift.settings.prompts.behavior" },
-  ],
-  Permissions: [
-    { title: "drift.permissions.rules", description: "drift.permissions.rulesDescription" },
-    { title: "drift.permissions.grants" },
-  ],
-  Storage: [
-    { title: "drift.storage.sessions.total", description: "drift.storage.sessions.total.description" },
-    { title: "drift.storage.sessions.subagent", description: "drift.storage.sessions.subagent.description" },
-    { title: "drift.storage.sessions.archived", description: "drift.storage.sessions.archived.description" },
-    { title: "drift.storage.auto", description: "drift.storage.auto.description" },
-    { title: "drift.storage.rule.superseded", description: "drift.storage.rule.superseded.description" },
-    { title: "drift.storage.rule.subagent", description: "drift.storage.rule.subagent.description" },
-    { title: "drift.storage.rule.archived", description: "drift.storage.rule.archived.description" },
-    { title: "drift.storage.rule.orphan", description: "drift.storage.rule.orphan.description" },
-    { title: "drift.storage.analyze", description: "drift.storage.analyze.description" },
-    { title: "drift.storage.prune", description: "drift.storage.prune.description" },
-    { title: "drift.storage.compact", description: "drift.storage.compact.description" },
-  ],
-  "Remote Access": [
-    { title: "drift.remote.enable", description: "drift.remote.enableDescription" },
-    { title: "drift.remote.connect.title", description: "drift.remote.connect.open" },
-    { title: "drift.remote.devices.title", description: "drift.remote.devices.revokeAll" },
-    { title: "drift.remote.password.title", description: "drift.remote.password.description" },
-    { title: "drift.remote.certificate.title", description: "drift.remote.certificate.description" },
-  ],
-  About: [
-    { title: "drift.about.row.app.title", description: "drift.about.row.app.description" },
-    { title: "drift.about.row.native.title", description: "drift.about.row.native.description" },
-    { title: "drift.about.row.updates.title", description: "drift.about.row.updates.installed" },
-    { title: "drift.about.row.website.title", description: "drift.about.row.website.description" },
-  ],
-} satisfies Record<Section, SettingsSearchDefinition[]>
-
-const normalizeSettingsSearch = (value: string) => value.trim().toLocaleLowerCase()
-
-export function settingsSearchResults(query: string): SettingsSearchItem[] {
-  const value = normalizeSettingsSearch(query)
-  if (!value) return []
-  const terms = value.split(/\s+/)
-  return sections
-    .flatMap((section) => {
-      const sectionLabel = t(sectionLabels[section])
-      const definitions: readonly SettingsSearchDefinition[] = settingsSearchDefinitions[section]
-      return definitions.map((definition) => ({
-        section,
-        sectionLabel,
-        title: t(definition.title),
-        description: definition.description ? t(definition.description) : "",
-      }))
-    })
-    .filter((item) => {
-      const text = normalizeSettingsSearch(`${item.section} ${item.sectionLabel} ${item.title} ${item.description}`)
-      return terms.every((term) => text.includes(term))
-    })
-    .sort((left, right) => {
-      const leftTitle = normalizeSettingsSearch(left.title)
-      const rightTitle = normalizeSettingsSearch(right.title)
-      const rank = (title: string) => title === value ? 0 : title.startsWith(value) ? 1 : title.includes(value) ? 2 : 3
-      return rank(leftTitle) - rank(rightTitle)
-    })
-    .slice(0, 40)
-}
-
-const [settingsOpen, setSettingsOpen] = createSignal(false)
-const [settingsSection, setSettingsSection] = createSignal<Section>("General")
-const [updateSupported, setUpdateSupported] = createSignal<boolean | undefined>()
-let updateSupportLoad: Promise<void> | undefined
-
-function preloadUpdateSupport() {
-  if (updateSupportLoad) return
-  const invoke = shellInvoke()
-  if (!invoke) return setUpdateSupported(false)
-  updateSupportLoad = invoke<boolean>("update_support")
-    .then((supported) => {
-      setUpdateSupported(supported === true)
-    })
-    .catch(() => {
-      setUpdateSupported(false)
-    })
-}
+const [settingsOpen, setSettingsOpen] = createSignal(false);
+const [settingsSection, setSettingsSection] = createSignal<Section>("General");
 
 export function openSettings(section?: Section) {
-  setSettingsSection(section && sections.includes(section) ? section : "General")
-  if (!settingsOpen()) pushRemoteOverlay("settings")
-  setSettingsOpen(true)
+    setSettingsSection(section && sections.includes(section) ? section : "General");
+    if (!settingsOpen()) pushRemoteOverlay("settings");
+
+    setSettingsOpen(true);
 }
 
 export function SettingsHost() {
-  onMount(preloadUpdateSupport)
-  onMount(() => {
-    const sync = () => {
-      if (isRemoteRuntime() && parseNavigationHash(window.location.hash).overlay !== "settings") setSettingsOpen(false)
-    }
-    window.addEventListener("popstate", sync)
-    onCleanup(() => window.removeEventListener("popstate", sync))
-  })
-  const close = () => {
-    setSettingsOpen(false)
-    if (isRemoteRuntime() && parseNavigationHash(window.location.hash).overlay === "settings") history.back()
-  }
-  return (
-    <Show when={settingsOpen()}>
-      <Portal>
-        <SettingsModal onClose={close} />
-      </Portal>
-    </Show>
-  )
+    onMount(preloadUpdateSupport);
+    onMount(() => {
+        const sync = () => {
+            if (isRemoteRuntime() && parseNavigationHash(window.location.hash).overlay !== "settings")
+                setSettingsOpen(false);
+        };
+
+        window.addEventListener("popstate", sync);
+        onCleanup(() => window.removeEventListener("popstate", sync));
+    });
+
+    const close = () => {
+        setSettingsOpen(false);
+        if (isRemoteRuntime() && parseNavigationHash(window.location.hash).overlay === "settings") history.back();
+    };
+
+    return (
+        <Show when={settingsOpen()}>
+            <Portal>
+                <SettingsModal onClose={close} />
+            </Portal>
+        </Show>
+    );
 }
 
 function SettingsModal(props: { onClose: () => void }) {
-  let dialog!: HTMLDivElement
-  let searchInput!: HTMLInputElement
-  const section = settingsSection
-  const [contentScrolled, setContentScrolled] = createSignal(false)
-  const [query, setQuery] = createSignal("")
-  const results = createMemo(() => settingsSearchResults(query()))
-  const selectSection = (next: Section) => {
-    setSettingsSection(next)
-    setQuery("")
-  }
-  onMount(() => onCleanup(activateModal(dialog, props.onClose)))
+    let dialog!: HTMLDivElement;
+    let searchInput!: HTMLInputElement;
+    const section = settingsSection;
+    const [contentScrolled, setContentScrolled] = createSignal(false);
+    const [query, setQuery] = createSignal("");
+    const results = createMemo(() => settingsSearchResults(query()));
 
-  return (
-    <div
-      data-modal-layer
-      class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
-      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
-    >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("sidebar.settings")}
-        tabIndex={-1}
-        class="fade-up flex h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(42rem,calc(100vh-3rem))] sm:w-[min(54rem,calc(100vw-3rem))]"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <nav class="flex w-13 shrink-0 flex-col overflow-y-auto border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3">
-          <For each={sectionGroups}>
-            {(group) => (
-              <div class="mb-3 last:mb-0">
-                <div class="hidden px-2 pb-1.5 text-[0.68rem] font-medium text-ink-faint sm:block">{t(group.label)}</div>
-                <div class="space-y-0.5">
-                  <For each={group.items}>
-                    {(name) => (
-                      <button
-                        aria-label={t(sectionLabels[name])}
-                        class="flex w-full items-center justify-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors sm:justify-start"
-                        classList={{
-                          "bg-raised text-ink": section() === name,
-                          "text-ink-muted hover:bg-raised/60 hover:text-ink": section() !== name,
-                        }}
-                        onClick={() => selectSection(name)}
-                        onPointerEnter={() => name === "About" && void preloadJellyfish()?.catch(() => undefined)}
-                        onFocus={() => name === "About" && void preloadJellyfish()?.catch(() => undefined)}
-                      >
-                        <SectionIcon section={name} />
-                        <span class="hidden min-w-0 truncate sm:inline" title={t(sectionLabels[name])}>
-                          {t(sectionLabels[name])}
+    const selectSection = (next: Section) => {
+        setSettingsSection(next);
+        setQuery("");
+    };
+    onMount(() => onCleanup(activateModal(dialog, props.onClose)));
+
+    return (
+        <div
+            data-modal-layer
+            class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
+            onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
+        >
+            <div
+                ref={dialog}
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("sidebar.settings")}
+                tabIndex={-1}
+                class="fade-up flex h-[calc((100vh-1rem)/var(--zoom-scale,1))] w-[calc((100vw-1rem)/var(--zoom-scale,1))] overflow-hidden rounded-xl border border-edge bg-overlay shadow-2xl shadow-black/40 sm:h-[min(48rem,calc((100vh-3rem)/var(--zoom-scale,1)))] sm:w-[min(64rem,calc((100vw-3rem)/var(--zoom-scale,1)))]"
+                onClick={(event) => event.stopPropagation()}
+            >
+                <nav class="flex w-13 shrink-0 flex-col overflow-y-auto border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3">
+                    <For each={sectionGroups}>
+                        {(group) => (
+                            <div class="mb-3 last:mb-0">
+                                <div class="hidden px-2 pb-1.5 text-[0.68rem] font-medium text-ink-faint sm:block">
+                                    {t(group.label)}
+                                </div>
+                                <div class="space-y-0.5">
+                                    <For each={group.items}>
+                                        {(name) => (
+                                            <button
+                                                aria-label={t(sectionLabels[name])}
+                                                class="flex w-full items-center justify-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors focus-visible:bg-raised/60 sm:justify-start"
+                                                classList={{
+                                                    "bg-raised text-ink": section() === name,
+                                                    "text-ink-muted hover:bg-raised/60 hover:text-ink":
+                                                        section() !== name,
+                                                }}
+                                                onClick={() => selectSection(name)}
+                                                onPointerEnter={() =>
+                                                    name === "About" && void preloadJellyfish()?.catch(() => undefined)
+                                                }
+                                                onFocus={() =>
+                                                    name === "About" && void preloadJellyfish()?.catch(() => undefined)
+                                                }
+                                            >
+                                                <SectionIcon section={name} />
+                                                <span
+                                                    class="hidden min-w-0 truncate sm:inline"
+                                                    title={t(sectionLabels[name])}
+                                                >
+                                                    {t(sectionLabels[name])}
+                                                </span>
+                                            </button>
+                                        )}
+                                    </For>
+                                </div>
+                            </div>
+                        )}
+                    </For>
+                </nav>
+                <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+                    <div
+                        class="settings-header z-10 flex items-center justify-between px-5 py-3.5"
+                        classList={{ "settings-header-scrolled": contentScrolled() }}
+                    >
+                        <span class="hidden min-w-0 flex-1 truncate text-sm font-semibold text-ink sm:block">
+                            {t(sectionLabels[section()])}
                         </span>
-                      </button>
-                    )}
-                  </For>
+                        <div class="mr-2 flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-edge bg-raised/45 px-2 transition-colors focus-within:border-accent sm:max-w-56">
+                            <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
+                            <input
+                                ref={searchInput}
+                                type="text"
+                                inputMode="search"
+                                autocomplete="off"
+                                autofocus
+                                class="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint"
+                                aria-label={t("drift.settings.search.placeholder")}
+                                placeholder={t("drift.settings.search.placeholder")}
+                                value={query()}
+                                onInput={(event) => setQuery(event.currentTarget.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter" && results()[0]) {
+                                        event.preventDefault();
+                                        selectSection(results()[0]!.section);
+                                    }
+                                }}
+                            />
+                            <Show when={query()}>
+                                <button
+                                    class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
+                                    title={t("drift.search.clear")}
+                                    onClick={() => {
+                                        setQuery("");
+                                        searchInput.focus();
+                                    }}
+                                >
+                                    <IconX class="size-3" />
+                                </button>
+                            </Show>
+                        </div>
+                        <button
+                            title={t("common.close")}
+                            class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                            onClick={() => props.onClose()}
+                        >
+                            <IconX />
+                        </button>
+                    </div>
+                    <div
+                        class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4"
+                        onScroll={(event) => setContentScrolled(event.currentTarget.scrollTop > 1)}
+                    >
+                        <Show
+                            when={query().trim()}
+                            fallback={
+                                <Switch>
+                                    <Match when={section() === "General"}>
+                                        <GeneralSection />
+                                    </Match>
+                                    <Match when={section() === "Appearance"}>
+                                        <AppearanceSection />
+                                    </Match>
+                                    <Match when={section() === "Code"}>
+                                        <CodeSection />
+                                    </Match>
+                                    <Match when={section() === "Notifications"}>
+                                        <NotificationsSection />
+                                    </Match>
+                                    <Match when={section() === "Voice"}>
+                                        <VoiceSection />
+                                    </Match>
+                                    <Match when={section() === "Tools"}>
+                                        <ToolExecutionSection />
+                                    </Match>
+                                    <Match when={section() === "Providers"}>
+                                        <ProvidersSection />
+                                    </Match>
+                                    <Match when={section() === "Usage"}>
+                                        <UsageLimitsSection />
+                                    </Match>
+                                    <Match when={section() === "MCP"}>
+                                        <McpManagement embedded />
+                                    </Match>
+                                    <Match when={section() === "Skills"}>
+                                        <SkillsSection />
+                                    </Match>
+                                    <Match when={section() === "Plugins"}>
+                                        <PluginsSection />
+                                    </Match>
+                                    <Match when={section() === "Shortcuts"}>
+                                        <KeybindsSection />
+                                    </Match>
+                                    <Match when={section() === "Prompts"}>
+                                        <PromptsSection />
+                                    </Match>
+                                    <Match when={section() === "Permissions"}>
+                                        <PermissionsSection />
+                                    </Match>
+                                    <Match when={section() === "Storage"}>
+                                        <StorageSection />
+                                    </Match>
+                                    <Match when={section() === "Remote Access"}>
+                                        <RemoteAccessSection />
+                                    </Match>
+                                    <Match when={section() === "About"}>
+                                        <AboutSection />
+                                    </Match>
+                                </Switch>
+                            }
+                        >
+                            <SettingsSearchResults items={results()} onSelect={selectSection} />
+                        </Show>
+                    </div>
                 </div>
-              </div>
-            )}
-          </For>
-        </nav>
-        <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div
-            class="settings-header z-10 flex items-center justify-between px-5 py-3.5"
-            classList={{ "settings-header-scrolled": contentScrolled() }}
-          >
-            <span class="hidden min-w-0 flex-1 truncate text-sm font-semibold text-ink sm:block">{t(sectionLabels[section()])}</span>
-            <div class="mr-2 flex min-w-0 flex-1 items-center gap-1.5 rounded-md border border-edge bg-raised/45 px-2 transition-colors focus-within:border-accent sm:max-w-56">
-              <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
-              <input
-                ref={searchInput}
-                type="text"
-                inputMode="search"
-                autocomplete="off"
-                autofocus
-                class="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint"
-                aria-label={t("drift.settings.search.placeholder")}
-                placeholder={t("drift.settings.search.placeholder")}
-                value={query()}
-                onInput={(event) => setQuery(event.currentTarget.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && results()[0]) {
-                    event.preventDefault()
-                    selectSection(results()[0]!.section)
-                  }
-                }}
-              />
-              <Show when={query()}>
-                <button
-                  class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:text-ink"
-                  title={t("drift.search.clear")}
-                  onClick={() => {
-                    setQuery("")
-                    searchInput.focus()
-                  }}
-                >
-                  <IconX class="size-3" />
-                </button>
-              </Show>
             </div>
-            <button
-              title={t("common.close")}
-              class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-              onClick={props.onClose}
-            >
-              <IconX />
-            </button>
-          </div>
-          <div
-            class="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4"
-            onScroll={(event) => setContentScrolled(event.currentTarget.scrollTop > 1)}
-          >
-            <Show
-              when={query().trim()}
-              fallback={
-                <Switch>
-                  <Match when={section() === "General"}>
-                    <GeneralSection />
-                  </Match>
-                  <Match when={section() === "Appearance"}>
-                    <AppearanceSection />
-                  </Match>
-                  <Match when={section() === "Code"}>
-                    <CodeSection />
-                  </Match>
-                  <Match when={section() === "Notifications"}>
-                    <NotificationsSection />
-                  </Match>
-                  <Match when={section() === "Voice"}>
-                    <VoiceSection />
-                  </Match>
-                  <Match when={section() === "Tools"}>
-                    <ToolExecutionSection />
-                  </Match>
-                  <Match when={section() === "Providers"}>
-                    <ProvidersSection />
-                  </Match>
-                  <Match when={section() === "Usage"}>
-                    <UsageLimitsSection />
-                  </Match>
-                  <Match when={section() === "MCP"}>
-                    <McpManagement embedded />
-                  </Match>
-                  <Match when={section() === "Shortcuts"}>
-                    <KeybindsSection />
-                  </Match>
-                  <Match when={section() === "Prompts"}>
-                    <BasePromptsSection />
-                  </Match>
-                  <Match when={section() === "Agents"}>
-                    <PromptEditorSection />
-                  </Match>
-                  <Match when={section() === "Permissions"}>
-                    <PermissionsSection />
-                  </Match>
-                  <Match when={section() === "Storage"}>
-                    <StorageSection />
-                  </Match>
-                  <Match when={section() === "Remote Access"}>
-                    <RemoteAccessSection />
-                  </Match>
-                  <Match when={section() === "About"}>
-                    <AboutSection />
-                  </Match>
-                </Switch>
-              }
-            >
-              <SettingsSearchResults items={results()} onSelect={selectSection} />
-            </Show>
-          </div>
         </div>
-      </div>
-    </div>
-  )
+    );
 }
 
 function SettingsSearchResults(props: { items: SettingsSearchItem[]; onSelect: (section: Section) => void }) {
-  return (
-    <Show
-      when={props.items.length}
-      fallback={<div class="px-2 py-8 text-center text-sm text-ink-faint">{t("drift.settings.search.empty")}</div>}
-    >
-      <div class="space-y-1">
-        <For each={props.items}>
-          {(item) => (
-            <button
-              type="button"
-              class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-raised/60 focus-visible:bg-raised/60 focus-visible:outline-none"
-              onClick={() => props.onSelect(item.section)}
-            >
-              <SectionIcon section={item.section} />
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-medium text-ink">{item.title}</span>
-                <Show when={item.description}>
-                  <span class="mt-0.5 block text-[0.72rem] leading-relaxed text-ink-faint">{item.description}</span>
-                </Show>
-              </span>
-              <span class="shrink-0 text-[0.68rem] text-ink-faint">{item.sectionLabel}</span>
-            </button>
-          )}
-        </For>
-      </div>
-    </Show>
-  )
-}
-
-function GeneralSection() {
-  const engine = useEngine()
-  // The engine owns this preference; null until it answers.
-  const [autoCompact, setAutoCompactShown] = createSignal<boolean | null>(null)
-  onMount(() => void engine.actions.engineSettings().then((settings) => setAutoCompactShown(settings.autoCompact ?? true)).catch(() => undefined))
-  function toggleAutoCompact() {
-    const next = !autoCompact()
-    setAutoCompactShown(next)
-    void engine.actions
-      .setAutoCompact(next)
-      .then((settings) => setAutoCompactShown(settings.autoCompact ?? next))
-      .catch(() => setAutoCompactShown(!next))
-  }
-  return (
-    <div class="space-y-5">
-      <SettingsGroup title={t("settings.general.section.display")}>
-        <SettingsRow
-          title={t("settings.general.row.language.title")}
-          description={t("settings.general.row.language.description")}
-        >
-          <Picker
-            label={t("settings.general.row.language.title")}
-            items={languages.map((item) => ({ id: item.id, label: item.label }))}
-            selected={language()}
-            floating
-            bordered
-            chevronAtEnd
-            placement="below"
-            width="12rem"
-            onPick={(value) => setLanguage(value as LanguageId)}
-          />
-        </SettingsRow>
-        <SettingsRow
-          title={t("drift.settings.responseAnimation.title")}
-          description={t("drift.settings.responseAnimation.description")}
-          onClick={() => setAnimateResponses(!animateResponses())}
-        >
-          <Toggle
-            label={t("drift.settings.responseAnimation.title")}
-            checked={animateResponses()}
-            onChange={() => setAnimateResponses(!animateResponses())}
-          />
-        </SettingsRow>
-        <Show when={animateResponses()}>
-          <SettingsRow
-            title={t("drift.settings.responseAnimation.speed.title")}
-            description={t("drift.settings.responseAnimation.speed.description")}
-          >
-            <div class="flex items-center gap-2.5">
-              <input
-                id="response-reveal-speed"
-                type="range"
-                class="response-speed-slider"
-                min={responseAnimationSpeedMin}
-                max={responseAnimationSpeedMax}
-                step="12"
-                value={responseAnimationSpeed()}
-                aria-label={t("drift.settings.responseAnimation.speed.title")}
-                aria-valuetext={t("drift.settings.responseAnimation.speed.value", { speed: responseAnimationSpeed() })}
-                onInput={(event) => setResponseAnimationSpeed(event.currentTarget.valueAsNumber)}
-              />
-              <output
-                for="response-reveal-speed"
-                class="w-7 text-right text-[0.68rem] tabular-nums text-ink-faint"
-                title={t("drift.settings.responseAnimation.speed.value", { speed: responseAnimationSpeed() })}
-              >
-                {responseAnimationSpeed()}
-              </output>
-            </div>
-          </SettingsRow>
-        </Show>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("drift.preview.settings.title")}>
-        <SettingsRow title={t("drift.preview.settings.mode")} description={t("drift.preview.settings.description")}>
-          <Picker
-            label={t("drift.preview.settings.mode")}
-            items={(["all", "none", "custom"] as const).map((mode) => ({ id: mode, label: t(`drift.preview.mode.${mode}`) }))}
-            selected={filePreviewPrefs().mode}
-            floating
-            bordered
-            chevronAtEnd
-            placement="below"
-            width="12rem"
-            onPick={(mode) => {
-              if (mode === "all" || mode === "none" || mode === "custom") setFilePreviewMode(mode)
-            }}
-          />
-        </SettingsRow>
-        <Show when={filePreviewPrefs().mode === "custom"}>
-          <For each={filePreviewTypes}>
-            {(type) => (
-              <SettingsRow
-                title={t(`drift.preview.type.${type}`)}
-                description=""
-                onClick={() => setFilePreviewType(type, !filePreviewPrefs().types[type])}
-              >
-                <Toggle
-                  label={t(`drift.preview.type.${type}`)}
-                  checked={filePreviewPrefs().types[type]}
-                  onChange={() => setFilePreviewType(type, !filePreviewPrefs().types[type])}
-                />
-              </SettingsRow>
-            )}
-          </For>
-        </Show>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("settings.agents.title")}>
-        <SettingsRow
-          title={t("command.permissions.autoaccept.enable")}
-          description={t("toast.permissions.autoaccept.on.description")}
-          onClick={() => void engine.actions.setAutoAcceptAll(!engine.state.autoAcceptAll)}
-        >
-          <Toggle
-            label={t("command.permissions.autoaccept.enable")}
-            checked={engine.state.autoAcceptAll}
-            onChange={() => void engine.actions.setAutoAcceptAll(!engine.state.autoAcceptAll)}
-          />
-        </SettingsRow>
-        <SettingsRow
-          title={t("settings.general.row.reasoningSummaries.title")}
-          description={t("settings.general.row.reasoningSummaries.description")}
-          onClick={() => setShowReasoning(!showReasoning())}
-        >
-          <Toggle
-            label={t("settings.general.row.reasoningSummaries.title")}
-            checked={showReasoning()}
-            onChange={() => setShowReasoning(!showReasoning())}
-          />
-        </SettingsRow>
-        <SettingsRow
-          title={t("drift.settings.toolErrors.title")}
-          description={t("drift.settings.toolErrors.description")}
-          onClick={() => setToolErrorsExpanded(!toolErrorsExpanded())}
-        >
-          <Toggle
-            label={t("drift.settings.toolErrors.title")}
-            checked={toolErrorsExpanded()}
-            onChange={() => setToolErrorsExpanded(!toolErrorsExpanded())}
-          />
-        </SettingsRow>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("drift.settings.summaries")}>
-        <SettingsRow
-          title={t("drift.settings.autoCompact.title")}
-          description={t("drift.settings.autoCompact.description")}
-          disabled={autoCompact() === null}
-          onClick={() => autoCompact() !== null && toggleAutoCompact()}
-        >
-          <Toggle
-            label={t("drift.settings.autoCompact.title")}
-            checked={autoCompact() ?? false}
-            disabled={autoCompact() === null}
-            onChange={toggleAutoCompact}
-          />
-        </SettingsRow>
-        <SettingsRow
-          title={t("drift.settings.summaries.collapsible.title")}
-          description={t("drift.settings.summaries.collapsible.description")}
-          onClick={() => setCollapseCompaction(!collapseCompaction())}
-        >
-          <Toggle
-            label={t("drift.settings.summaries.collapsible.title")}
-            checked={collapseCompaction()}
-            onChange={() => setCollapseCompaction(!collapseCompaction())}
-          />
-        </SettingsRow>
-        <SettingsRow
-          title={t("drift.settings.summaries.collapsed.title")}
-          description={t("drift.settings.summaries.collapsed.description")}
-          disabled={!collapseCompaction()}
-          onClick={() => collapseCompaction() && setCompactionCollapsed(!compactionCollapsed())}
-        >
-          <Toggle
-            label={t("drift.settings.summaries.collapsed.title")}
-            checked={compactionCollapsed()}
-            disabled={!collapseCompaction()}
-            onChange={() => setCompactionCollapsed(!compactionCollapsed())}
-          />
-        </SettingsRow>
-      </SettingsGroup>
-
-      <Show when={!isRemoteRuntime()}>
-        <SettingsGroup title={t("settings.general.section.updates")}>
-          <SettingsRow
-            title={t("settings.updates.row.startup.title")}
-            description={t("settings.updates.row.startup.description")}
-            onClick={() => setAutoUpdate(!autoUpdate())}
-          >
-            <Toggle
-              label={t("settings.updates.row.startup.title")}
-              checked={autoUpdate()}
-              onChange={() => setAutoUpdate(!autoUpdate())}
-            />
-          </SettingsRow>
-        </SettingsGroup>
-      </Show>
-    </div>
-  )
-}
-
-function ToolExecutionSection() {
-  const isPreset = (value: number | null) => value === null || (shellTimeoutPresets as readonly number[]).includes(value)
-  const [customOpen, setCustomOpen] = createSignal(!isPreset(shellTimeoutMs()))
-  const [customMinutes, setCustomMinutes] = createSignal(
-    String(isPreset(shellTimeoutMs()) ? 10 : shellTimeoutMs()! / 60_000),
-  )
-  const [error, setError] = createSignal("")
-  onMount(() => {
-    const stop = listenShellTimeoutError(setError)
-    onCleanup(stop)
-  })
-  const customValue = () => Number(customMinutes()) * 60_000
-  const customValid = () =>
-    Number.isInteger(Number(customMinutes())) &&
-    customValue() >= shellTimeoutMinMs &&
-    customValue() <= shellTimeoutMaxMs
-
-  async function applyTimeout(value: number | null) {
-    setError("")
-    await setShellTimeoutMs(value).catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
-  }
-
-  const selected = () => (customOpen() || !isPreset(shellTimeoutMs()) ? "custom" : String(shellTimeoutMs()))
-
-  return (
-    <div class="space-y-5">
-      <SettingsGroup title={t("drift.settings.toolExecution")}>
-        <SettingsRow
-          title={t("drift.settings.shellTimeout.title")}
-          description={t("drift.settings.shellTimeout.description")}
-        >
-          <Picker
-            label={t("drift.settings.shellTimeout.title")}
-            items={[
-              { id: "null", label: t("drift.settings.shellTimeout.noTimeout") },
-              ...shellTimeoutPresets.map((value) => ({
-                id: String(value),
-                label: t(`drift.settings.shellTimeout.preset${value / 60_000}`),
-              })),
-              { id: "custom", label: t("drift.settings.shellTimeout.custom") },
-            ]}
-            selected={selected()}
-            floating
-            bordered
-            chevronAtEnd
-            placement="below"
-            width="12rem"
-            onPick={(id) => {
-              if (id === "custom") return setCustomOpen(true)
-              setCustomOpen(false)
-              void applyTimeout(id === "null" ? null : Number(id))
-            }}
-          />
-        </SettingsRow>
-        <Show when={customOpen()}>
-          <SettingsRow
-            title={t("drift.settings.shellTimeout.customMinutes")}
-            description={customValid() ? t("drift.settings.shellTimeout.customDescription") : t("drift.settings.shellTimeout.invalid")}
-          >
-            <div class="flex items-center gap-2">
-                   <input
-                type="number"
-                min={shellTimeoutMinMs / 60_000}
-                max={shellTimeoutMaxMs / 60_000}
-                step="1"
-                aria-label={t("drift.settings.shellTimeout.customMinutes")}
-                aria-invalid={!customValid()}
-                class="w-24 rounded-md border border-edge bg-surface px-2.5 py-1.5 text-right font-mono text-xs text-ink outline-none focus:border-edge-strong"
-                value={customMinutes()}
-                onInput={(event) => {
-                  setCustomMinutes(event.currentTarget.value)
-                }}
-              />
-              <button
-                class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-                disabled={!customValid()}
-                onClick={() => void applyTimeout(customValue())}
-              >
-                {t("common.save")}
-              </button>
-            </div>
-          </SettingsRow>
-        </Show>
-      </SettingsGroup>
-      <Show when={error()}><div class="text-xs text-danger">{error()}</div></Show>
-    </div>
-  )
-}
-
-const notificationKeys: Record<AttentionKind, string> = {
-  agent: "agent",
-  permission: "permissions",
-  error: "errors",
-}
-
-function NotificationsSection() {
-  return (
-    <div class="space-y-5">
-      <SettingsGroup title={t("settings.general.section.notifications")}>
-        <For each={attentionKinds}>
-          {(kind) => {
-            const toggle = () => {
-              const next = !systemNotifications()[kind]
-              if (next) requestNotificationPermission()
-              setSystemNotification(kind, next)
-            }
-            return (
-              <SettingsRow
-                title={t(`settings.general.notifications.${notificationKeys[kind]}.title`)}
-                description={t(`settings.general.notifications.${notificationKeys[kind]}.description`)}
-                onClick={toggle}
-              >
-                <Toggle
-                  label={t(`settings.general.notifications.${notificationKeys[kind]}.title`)}
-                  checked={!!systemNotifications()[kind]}
-                  onChange={toggle}
-                />
-              </SettingsRow>
-            )
-          }}
-        </For>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("settings.general.section.sounds")}>
-        <For each={attentionKinds}>
-          {(kind) => (
-            <SettingsRow
-              title={t(`settings.general.sounds.${notificationKeys[kind]}.title`)}
-              description={t(`settings.general.sounds.${notificationKeys[kind]}.description`)}
-            >
-              <SoundPicker kind={kind} />
-            </SettingsRow>
-          )}
-        </For>
-      </SettingsGroup>
-    </div>
-  )
-}
-
-function SoundPicker(props: { kind: AttentionKind }) {
-  let picker!: HTMLInputElement
-  const [error, setError] = createSignal("")
-  const options = createMemo(() => [
-    { id: "none", label: t("sound.option.none") },
-    ...soundOptions.map((item) => ({
-      id: item.id,
-      label: item.label,
-      group: item.group,
-    })),
-    ...(customSound() ? [{ id: "custom", label: `${t("prompt.slash.badge.custom")}: ${customSound()!.name}` }] : []),
-  ])
-
-  async function upload(file: File | undefined) {
-    if (!file) return
-    if (!file.type.startsWith("audio/")) return setError(t("drift.settings.sound.audioFileRequired"))
-    if (file.size > 1024 * 1024) return setError(t("drift.settings.sound.maxSize"))
-    const dataUrl = await readDataUrl(file)
-    const sound = { name: file.name, dataUrl }
-    setCustomSound(sound)
-    setAlertSound(props.kind, "custom")
-    setError("")
-    void playAlertSound("custom", sound)
-  }
-
-  return (
-    <div class="flex min-w-0 items-center gap-1.5" title={error() || undefined}>
-      <Picker
-        label={`${t(`settings.general.sounds.${notificationKeys[props.kind]}.title`)} ${t("settings.general.section.sounds")}`}
-        items={options()}
-        selected={alertSounds()[props.kind] ?? "none"}
-        floating
-        bordered
-        chevronAtEnd
-        placement="below"
-        width="9.5rem"
-        onPick={(id) => {
-          setAlertSound(props.kind, id)
-          void playAlertSound(id, customSound())
-        }}
-      />
-      <input
-        ref={picker}
-        type="file"
-        accept="audio/*,.aac,.mp3,.wav,.ogg,.m4a"
-        class="hidden"
-        onChange={(event) => {
-          void upload(event.currentTarget.files?.[0])
-          event.currentTarget.value = ""
-        }}
-      />
-      <button
-        title={t("drift.settings.sound.chooseCustom")}
-        class="flex size-8 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-        onClick={() => picker.click()}
-      >
-        <IconPlus class="size-3.5" />
-      </button>
-    </div>
-  )
-}
-
-function ProvidersSection() {
-  const engine = useEngine()
-  const [methods, setMethods] = createSignal<Record<string, ProviderAuthMethod[]>>({})
-  const [expanded, setExpanded] = createSignal<string | null>(null)
-  const [query, setQuery] = createSignal("")
-  const [notice, setNotice] = createSignal<ProviderNotice | null>(null)
-  createEffect(() => {
-    // A fresh install can open this panel before any workspace exists: the engine answers health
-    // but the event pump is not running, so `connection` stays idle. Treat a known engine
-    // version as an equally valid readiness signal so auth methods load there too.
-    if (engine.state.connection !== "online" && !engine.state.version) return
-    void engine.actions
-      .providerAuthMethods()
-      .then((map) => setMethods({ ...map }))
-      .catch(() => {})
-  })
-
-  const groups = createMemo(() => {
-    const value = query().toLowerCase()
-    const matching = engine.state.providers
-      .filter((provider) => provider.name.toLowerCase().includes(value) || provider.id.toLowerCase().includes(value))
-      .sort((a, b) => a.name.localeCompare(b.name))
-    return {
-      connected: matching.filter((provider) => engine.state.connected.includes(provider.id)),
-      rest: matching.filter((provider) => !engine.state.connected.includes(provider.id)),
-    }
-  })
-
-  const row = (provider: (typeof engine.state.providers)[number]) => {
-    const connected = () => engine.state.connected.includes(provider.id)
-    const open = () => expanded() === provider.id
     return (
-      <div
-        class="overflow-hidden rounded-xl border transition-colors"
-        classList={{
-          "border-edge bg-raised/25": open(),
-          "border-transparent": !open(),
-        }}
-      >
-        <button
-          type="button"
-          class="group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-raised/60"
-          aria-expanded={open()}
-          onClick={() => setExpanded(open() ? null : provider.id)}
-        >
-          <span class="flex size-8 shrink-0 items-center justify-center rounded-lg border border-edge bg-surface text-ink-muted shadow-sm shadow-black/10">
-            <ProviderIcon id={provider.id} class="size-4.5" />
-          </span>
-          <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">{provider.name}</span>
-          {/* The section headers already say connected / not connected, so the row only needs a
-              quiet dot rather than a bordered pill repeating the group it sits in. */}
-          <Show when={connected()}>
-            <span
-              role="img"
-              aria-label={t("mcp.status.connected")}
-              title={t("mcp.status.connected")}
-              class="size-1.5 shrink-0 rounded-full bg-ok"
-            />
-          </Show>
-          <span class="text-ink-faint transition-colors group-hover:text-ink-muted">
-            <Chevron open={open()} />
-          </span>
-        </button>
-        <Show when={open()}>
-          {provider.id === "lmstudio" ? (
-            <LmStudioConnect providerName={provider.name} onNotice={setNotice} />
-          ) : (
-            <ProviderConnect
-              providerId={provider.id}
-              providerName={provider.name}
-              connected={connected()}
-              methods={methods()[provider.id] ?? [{ type: "api", label: t("provider.connect.method.apiKey") }]}
-              onNotice={setNotice}
-            />
-          )}
-        </Show>
-      </div>
-    )
-  }
-
-  return (
-    <div class="space-y-1">
-      <input
-        class="mb-2 h-9 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
-        placeholder={t("dialog.provider.search.placeholder")}
-        value={query()}
-        onInput={(event) => setQuery(event.currentTarget.value)}
-      />
-      <Show when={notice()}>
-        {(item) => (
-          <div
-            class="mb-2 rounded-md border px-3 py-2 text-xs"
-            classList={{
-              "border-ok/35 bg-ok/10 text-ok": item().tone === "success",
-              "border-warn/35 bg-warn/10 text-warn": item().tone === "warning",
-              "border-danger/35 bg-danger/10 text-danger": item().tone === "error",
-            }}
-          >
-            {item().text}
-          </div>
-        )}
-      </Show>
-      <Show when={groups().connected.length > 0}>
-        <div class="px-3 pt-1 pb-1 text-[0.68rem] tracking-wider text-ink-faint uppercase">
-          {t("settings.providers.section.connected")}
-        </div>
-        <For each={groups().connected}>{row}</For>
-      </Show>
-      <Show when={groups().rest.length > 0}>
-        <div class="px-3 pt-3 pb-1 text-[0.68rem] tracking-wider text-ink-faint uppercase">
-          {t("drift.settings.providers.notConnected")}
-        </div>
-        <For each={groups().rest}>{row}</For>
-      </Show>
-      <Show when={groups().connected.length === 0 && groups().rest.length === 0}>
-        <div class="px-3 py-4 text-sm text-ink-faint">{t("dialog.provider.empty")}</div>
-      </Show>
-    </div>
-  )
-}
-
-function LmStudioConnect(props: { providerName: string; onNotice: (notice: ProviderNotice) => void }) {
-  const engine = useEngine()
-  const [pending, setPending] = createSignal<"refresh" | "token" | null>(null)
-  const [key, setKey] = createSignal("")
-  const connected = () => engine.state.connected.includes("lmstudio")
-  const models = () => Object.values(engine.state.providers.find((item) => item.id === "lmstudio")?.models ?? {})
-  const ready = () => models().filter(lmStudioModelReady)
-
-  async function refresh() {
-    setPending("refresh")
-    const ok = await engine.actions.reloadProviders()
-    setPending(null)
-    if (!ok) {
-      props.onNotice({ tone: "error", text: t("drift.lmStudio.refreshFailed") })
-      return
-    }
-    props.onNotice({
-      tone: connected() ? "success" : "warning",
-      text: connected()
-        ? t("drift.lmStudio.refreshed", { count: ready().length })
-        : t("drift.lmStudio.unavailable"),
-    })
-  }
-
-  async function saveToken() {
-    if (!key().trim()) return
-    setPending("token")
-    const result = await engine.actions.setProviderKey("lmstudio", key().trim())
-    setPending(null)
-    if (!result.ok) {
-      props.onNotice({ tone: "error", text: t("drift.provider.connectFailed", { provider: props.providerName }) })
-      return
-    }
-    setKey("")
-    props.onNotice({
-      tone: result.connected ? "success" : "warning",
-      text: result.connected
-        ? t("drift.lmStudio.refreshed", { count: ready().length })
-        : t("drift.provider.savedUnavailable", { provider: props.providerName }),
-    })
-  }
-
-  return (
-    <div class="mx-3 mb-3 space-y-3 rounded-lg border border-edge bg-surface/55 p-3 shadow-sm shadow-black/5">
-      <div class="space-y-1 text-xs text-ink-muted">
-        <p>{t("drift.lmStudio.description")}</p>
-        <code class="block rounded-md border border-edge bg-overlay/50 px-2 py-1.5 text-[0.68rem] text-ink-faint">
-          http://127.0.0.1:1234
-        </code>
-      </div>
-      <Show
-        when={connected()}
-        fallback={<div class="rounded-md border border-warn/30 bg-warn/10 px-2.5 py-2 text-xs text-warn">{t("drift.lmStudio.unavailable")}</div>}
-      >
-        <div class="flex items-center justify-between text-xs">
-          <span class="text-ink-muted">{t("drift.lmStudio.discovered", { count: models().length })}</span>
-          <span class="rounded-full border border-ok/25 bg-ok/10 px-2 py-0.5 text-ok">
-            {t("drift.lmStudio.ready", { count: ready().length })}
-          </span>
-        </div>
-        <div class="max-h-52 space-y-1 overflow-y-auto">
-          <For each={models()}>
-            {(model) => {
-              const usable = () => lmStudioModelReady(model)
-              const lowContext = () => model.capabilities.toolcall && model.limit.context < lmStudioMinimumContext
-              return (
-                <div class="flex items-center gap-2 rounded-md border border-edge bg-overlay/35 px-2.5 py-2">
-                  <span class="min-w-0 flex-1">
-                    <span class="block truncate text-xs text-ink">{model.name}</span>
-                    <span class="block truncate text-[0.65rem] text-ink-faint">{model.id}</span>
-                  </span>
-                  <span class="shrink-0 text-[0.65rem] tabular-nums text-ink-faint">
-                    {formatModelContext(model.limit.context)}
-                  </span>
-                  <span
-                    class="shrink-0 rounded-full border px-1.5 py-0.5 text-[0.62rem]"
-                    classList={{
-                      "border-ok/25 bg-ok/10 text-ok": usable(),
-                      "border-warn/25 bg-warn/10 text-warn": lowContext(),
-                      "border-edge text-ink-faint": !usable() && !lowContext(),
-                    }}
-                  >
-                    {usable()
-                      ? t("drift.lmStudio.modelReady")
-                      : lowContext()
-                        ? t("drift.lmStudio.contextTooSmall")
-                        : t("drift.lmStudio.notLoaded")}
-                  </span>
-                </div>
-              )
-            }}
-          </For>
-        </div>
-        <Show when={ready().length === 0}>
-          <div class="rounded-md border border-warn/30 bg-warn/10 px-2.5 py-2 text-xs text-warn">
-            {t("drift.lmStudio.noReady")}
-          </div>
-        </Show>
-      </Show>
-      <div class="flex flex-wrap gap-2">
-        <button
-          class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
-          disabled={pending() !== null}
-          onClick={() => void refresh()}
-        >
-          {pending() === "refresh" ? t("common.loading") : t("drift.lmStudio.refresh")}
-        </button>
-        <input
-          type="password"
-          class="h-9 min-w-44 flex-1 rounded-md border border-edge bg-overlay/50 px-2.5 text-sm outline-none transition-colors focus:border-edge-strong"
-          placeholder={t("drift.lmStudio.apiToken")}
-          value={key()}
-          onInput={(event) => setKey(event.currentTarget.value)}
-          onKeyDown={(event) => event.key === "Enter" && void saveToken()}
-        />
-        <button
-          class="h-9 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-          disabled={pending() !== null || !key().trim()}
-          onClick={() => void saveToken()}
-        >
-          {pending() === "token" ? t("common.loading") : t("common.save")}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function ProviderConnect(props: {
-  providerId: string
-  providerName: string
-  connected: boolean
-  methods: ProviderAuthMethod[]
-  onNotice: (notice: ProviderNotice) => void
-}) {
-  const engine = useEngine()
-  const [methodIndex, setMethodIndex] = createSignal(0)
-  const [key, setKey] = createSignal("")
-  const [code, setCode] = createSignal("")
-  const [pending, setPending] = createSignal<"connect" | "disconnect" | null>(null)
-  const [error, setError] = createSignal("")
-  const [authorization, setAuthorization] = createSignal<{ url: string; method: string; instructions: string; code?: string } | null>(null)
-  const method = () => props.methods[methodIndex()] ?? props.methods[0]
-
-  function fail(message: string) {
-    setError(message)
-    setPending(null)
-    props.onNotice({ tone: "error", text: message })
-  }
-
-  async function finish(request: Promise<{ ok: boolean; connected: boolean }>) {
-    const result = await request.catch(() => ({ ok: false, connected: props.connected }))
-    if (!result.ok) {
-      fail(t("drift.provider.connectFailed", { provider: props.providerName }))
-      return
-    }
-    if (!result.connected) {
-      fail(t("drift.provider.savedUnavailable", { provider: props.providerName }))
-      return
-    }
-    setKey("")
-    setCode("")
-    setPending(null)
-    props.onNotice({ tone: "success", text: t("drift.provider.connected", { provider: props.providerName }) })
-  }
-
-  async function connectApi() {
-    if (!key().trim()) return
-    setPending("connect")
-    setError("")
-    await finish(engine.actions.setProviderKey(props.providerId, key().trim()))
-  }
-
-  async function startOauth() {
-    setPending("connect")
-    setError("")
-    const auth = await engine.actions.providerAuthorize(props.providerId, methodIndex()).catch(() => null)
-    if (!auth) {
-      setError(t("drift.provider.signInStartFailed"))
-      setPending(null)
-      props.onNotice({ tone: "error", text: t("drift.provider.signInStartFailedFor", { provider: props.providerName }) })
-      return
-    }
-    setAuthorization(auth)
-    openExternal(auth.url)
-    if (auth.method === "auto") {
-      await finish(engine.actions.providerCallback(props.providerId, methodIndex()))
-      setAuthorization(null)
-      return
-    }
-    setPending(null)
-  }
-
-  async function submitCode() {
-    if (!code().trim()) return
-    setPending("connect")
-    setError("")
-    await finish(engine.actions.providerCallback(props.providerId, methodIndex(), code().trim()))
-  }
-
-  function cancelAuthorization() {
-    setAuthorization(null)
-    setPending(null)
-  }
-
-  async function disconnect() {
-    setPending("disconnect")
-    setError("")
-    const result = await engine.actions.disconnectProvider(props.providerId)
-    setPending(null)
-    if (!result.ok) {
-      fail(t("drift.provider.disconnectFailed", { provider: props.providerName }))
-      return
-    }
-    if (result.connected) {
-      props.onNotice({
-        tone: "warning",
-        text: t("drift.provider.credentialRemovedStillConnected", { provider: props.providerName }),
-      })
-      return
-    }
-    props.onNotice({ tone: "success", text: t("drift.provider.disconnected", { provider: props.providerName }) })
-  }
-
-  return (
-    <div class="mx-3 mb-3 space-y-3 rounded-lg border border-edge bg-surface/55 p-3 shadow-sm shadow-black/5">
-      <Show when={props.methods.length > 1 || props.connected}>
-        <div class="flex items-center gap-2">
-          <Show when={props.methods.length > 1} fallback={<div class="flex-1" />}>
-            <div class="flex min-w-0 flex-1 flex-wrap gap-1.5">
-              <For each={props.methods}>
-                {(item, index) => (
-                  <button
-                    class="rounded-full border px-3 py-1 text-xs transition-colors"
-                    classList={{
-                      "border-accent/50 bg-accent/10 text-ink": index() === methodIndex(),
-                      "border-edge text-ink-faint hover:border-edge-strong hover:text-ink-muted": index() !== methodIndex(),
-                    }}
-                    onClick={() => {
-                      setMethodIndex(index())
-                      setAuthorization(null)
-                      setError("")
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                )}
-              </For>
-            </div>
-          </Show>
-          <Show when={props.connected}>
-            <button
-              class="h-8 shrink-0 rounded-md border border-danger/40 px-3 text-xs font-medium text-danger transition-colors hover:border-danger/60 hover:bg-danger/10 disabled:opacity-40"
-              disabled={pending() !== null}
-              onClick={() => void disconnect()}
-            >
-              {pending() === "disconnect" ? t("drift.provider.disconnecting") : t("common.disconnect")}
-            </button>
-          </Show>
-        </div>
-      </Show>
-      <Show when={method()?.type === "api"}>
-        <div class="flex gap-2">
-          <input
-            type="password"
-            class="h-9 min-w-0 flex-1 rounded-md border border-edge bg-overlay/50 px-2.5 text-sm outline-none transition-colors focus:border-edge-strong"
-            placeholder={t("provider.connect.apiKey.placeholder")}
-            value={key()}
-            onInput={(event) => setKey(event.currentTarget.value)}
-            onKeyDown={(event) => event.key === "Enter" && void connectApi()}
-          />
-          <button
-            class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
-            disabled={pending() !== null || !key().trim()}
-            onClick={() => void connectApi()}
-          >
-              {pending() === "connect" ? t("provider.connect.status.inProgress") : props.connected ? t("common.save") : t("common.connect")}
-          </button>
-        </div>
-      </Show>
-      <Show when={method()?.type === "oauth"}>
         <Show
-          when={authorization()}
+            when={props.items.length}
             fallback={
-              <button
-                class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
-              disabled={pending() !== null}
-              onClick={() => void startOauth()}
-            >
-              {pending() === "connect"
-                ? t("provider.connect.status.waiting")
-                : t("drift.provider.signInWith", { method: method()?.label ?? t("drift.provider.browser") })}
-            </button>
-          }
+                <div class="px-2 py-8 text-center text-sm text-ink-faint">{t("drift.settings.search.empty")}</div>
+            }
         >
-          {(auth) => (
-            <div class="space-y-2">
-              <AuthorizationHint auth={auth()} onCancel={cancelAuthorization} />
-              <Show when={auth().method === "code"}>
-                <div class="flex gap-2">
-                  <input
-                    class="h-9 min-w-0 flex-1 rounded-md border border-edge bg-overlay/50 px-2.5 text-sm outline-none transition-colors focus:border-edge-strong"
-                    placeholder={t("provider.connect.oauth.code.placeholder")}
-                    value={code()}
-                    onInput={(event) => setCode(event.currentTarget.value)}
-                    onKeyDown={(event) => event.key === "Enter" && void submitCode()}
-                  />
-                  <button
-                    class="h-9 rounded-md bg-accent px-3.5 text-xs font-medium text-accent-ink transition-colors hover:brightness-105 disabled:opacity-40"
-                    disabled={pending() !== null || !code().trim()}
-                    onClick={() => void submitCode()}
-                  >
-                    {pending() === "connect" ? t("provider.connect.status.inProgress") : t("common.submit")}
-                  </button>
-                </div>
-              </Show>
-              <Show when={auth().method === "auto" && pending() === "connect"}>
-                <div class="pulse-soft text-xs text-ink-faint">{t("provider.connect.status.waiting")}</div>
-              </Show>
+            <div class="space-y-1">
+                <For each={props.items}>
+                    {(item) => (
+                        <button
+                            type="button"
+                            class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-raised/60 focus-visible:bg-raised/60 focus-visible:outline-none"
+                            onClick={() => props.onSelect(item.section)}
+                        >
+                            <SectionIcon section={item.section} />
+                            <span class="min-w-0 flex-1">
+                                <span class="block text-sm font-medium text-ink">{item.title}</span>
+                                <Show when={item.description}>
+                                    <span class="mt-0.5 block text-[0.72rem] leading-relaxed text-ink-faint">
+                                        {item.description}
+                                    </span>
+                                </Show>
+                            </span>
+                            <span class="shrink-0 text-[0.68rem] text-ink-faint">{item.sectionLabel}</span>
+                        </button>
+                    )}
+                </For>
             </div>
-          )}
         </Show>
-      </Show>
-      <Show when={error()}>
-        <div class="rounded-md border border-danger/30 bg-danger/5 px-2.5 py-2 text-xs text-danger">{error()}</div>
-      </Show>
-    </div>
-  )
-}
-
-function AuthorizationHint(props: { auth: { url: string; method: string; instructions: string; code?: string }; onCancel: () => void }) {
-  const prompt = () => (props.auth.code ? { code: props.auth.code } : authorizationPrompt(props.auth.instructions))
-  const [copied, setCopied] = createSignal(false)
-  const fallback = () => (props.auth.method === "code" ? t("drift.provider.pasteCode") : t("drift.provider.finishInBrowser"))
-  const copyLink = () => {
-    void navigator.clipboard.writeText(props.auth.url).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1600)
-    })
-  }
-  const link = "text-xs text-ink-faint underline-offset-2 transition-colors hover:text-ink hover:underline"
-  return (
-    <div class="space-y-2">
-      <Show when={prompt().code} fallback={<div class="text-xs text-ink-muted">{prompt().text ?? fallback()}</div>}>
-        {(code) => (
-          <div class="flex items-center gap-3">
-            <span class="text-xs text-ink-muted">{t("drift.provider.enterCode")}</span>
-            <button
-              class="rounded-md border border-edge bg-overlay/60 px-2.5 py-1 font-mono text-sm tracking-widest text-ink select-text"
-              title={t("drift.provider.copyCode")}
-              onClick={() => void navigator.clipboard.writeText(code())}
-            >
-              {code()}
-            </button>
-          </div>
-        )}
-      </Show>
-      <div class="flex items-center gap-3">
-        <button class={link} onClick={() => openExternal(props.auth.url)}>{t("drift.provider.openAgain")}</button>
-        <button class={link} onClick={copyLink}>{copied() ? t("drift.provider.linkCopied") : t("drift.provider.copyLink")}</button>
-        <button class={link} onClick={props.onCancel}>{t("common.cancel")}</button>
-      </div>
-    </div>
-  )
-}
-
-function KeybindsSection() {
-  const [capturing, setCapturing] = createSignal<KeybindAction | null>(null)
-
-  createEffect(() => {
-    const action = capturing()
-    if (!action) return
-    const capture = (event: KeyboardEvent) => {
-      event.preventDefault()
-      event.stopPropagation()
-      if (event.key === "Escape") return setCapturing(null)
-      const combo = eventCombo(event)
-      if (!combo) return
-      setCombo(action, combo)
-      setCapturing(null)
-    }
-    document.addEventListener("keydown", capture, true)
-    onCleanup(() => document.removeEventListener("keydown", capture, true))
-  })
-
-  return (
-    <div class="space-y-1">
-      <For each={keybindDefs}>
-        {(def) => (
-          <div class="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-raised/60">
-            <span class="min-w-0 flex-1 truncate text-sm text-ink">{t(keybindLabels[def.action])}</span>
-            <button
-              class="rounded-md border px-2.5 py-1 font-mono text-xs transition-colors"
-              classList={{
-                "border-accent text-accent": capturing() === def.action,
-                "border-edge text-ink-muted hover:border-edge-strong hover:text-ink": capturing() !== def.action,
-              }}
-              onClick={() => setCapturing(capturing() === def.action ? null : def.action)}
-            >
-              {capturing() === def.action
-                ? `${t("settings.shortcuts.pressKeys")}...`
-                : comboFor(def.action)
-                  ? formatCombo(comboFor(def.action))
-                  : t("settings.shortcuts.unassigned")}
-            </button>
-            <button
-              title={t("settings.shortcuts.unassigned")}
-              class="flex size-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-              onClick={() => setCombo(def.action, null)}
-            >
-              <IconX class="size-3.5" />
-            </button>
-          </div>
-        )}
-      </For>
-    </div>
-  )
-}
-
-function PromptEditorSection() {
-  const engine = useEngine()
-  const [snapshot, setSnapshot] = createSignal<PromptSnapshot | null>(null)
-  const [agentName, setAgentName] = createSignal("build")
-  const [agentPrompt, setAgentPrompt] = createSignal("")
-  const [agentBehavior, setAgentBehavior] = createSignal("{}")
-  const [agentPromptBaseline, setAgentPromptBaseline] = createSignal("")
-  const [agentBehaviorBaseline, setAgentBehaviorBaseline] = createSignal("{}")
-  const [showSavedNotice, setShowSavedNotice] = createSignal(false)
-  const [error, setError] = createSignal("")
-  const [saving, setSaving] = createSignal(false)
-  const override = (key: string) => snapshot()?.overrides.find((item) => item.key === key)
-  const agentOverridden = () => !!override(`agent:${agentName()}`)
-  const agentDirty = () => agentPrompt() !== agentPromptBaseline() || agentBehavior() !== agentBehaviorBaseline()
-  const agentOverrideFields = () => {
-    const storedValue = override(`agent:${agentName()}`)?.value
-    if (!storedValue || typeof storedValue !== "object" || Array.isArray(storedValue)) return {}
-    return storedValue as Record<string, unknown>
-  }
-  const agentPromptModified = () => agentPrompt() !== agentPromptBaseline() || "prompt" in agentOverrideFields()
-  const agentBehaviorModified = () =>
-    agentBehavior() !== agentBehaviorBaseline() || Object.keys(agentOverrideFields()).some((key) => key !== "prompt")
-  const modelCapability = () => agentModelCapability(currentAgent())
-  const inheritedModelLabel = () =>
-    currentAgent()?.name === "title"
-      ? t("drift.settings.agents.automaticSmallModel")
-      : currentAgent()?.name === "compaction"
-        ? t("drift.settings.agents.currentSessionModel")
-        : t("drift.settings.agents.currentModel")
-  const agentModels = createMemo(() => [
-    { id: "", label: inheritedModelLabel() },
-    ...agentModelOptions(engine.state, modelCapability() ?? "tools"),
-  ])
-  const selectedAgentModel = () => agentBehaviorModel(agentBehavior())
-
-  function selectAgentModel(model: string) {
-    try {
-      setAgentBehavior(withAgentModel(agentBehavior(), model))
-      setError("")
-    } catch {
-      setError(t("drift.settings.prompts.invalidJson"))
-    }
-  }
-
-  async function load() {
-    const next = await loadPromptSnapshot().catch((cause) => {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      return null
-    })
-    setSnapshot(next)
-  }
-
-  onMount(() => void load())
-
-  // Splits a resolved agent config into the two editors: the prompt gets its own textarea, every
-  // other field is edited as raw JSON. Both editors reset their baseline so nothing reads as dirty.
-  function loadAgentEditors(config: ReturnType<typeof agentConfig>) {
-    const { prompt: promptField, ...behavior } = config
-    const prompt = typeof promptField === "string" ? promptField : ""
-    const serialized = JSON.stringify(behavior, null, 2)
-    setAgentPrompt(prompt)
-    setAgentPromptBaseline(prompt)
-    setAgentBehavior(serialized)
-    setAgentBehaviorBaseline(serialized)
-  }
-
-  function currentAgent() {
-    return engine.state.agents.find((item) => item.name === agentName())
-  }
-
-  createEffect(() => {
-    if (agentDirty()) return
-    const storedOverride = override(`agent:${agentName()}`)
-    loadAgentEditors(agentConfig(currentAgent(), storedOverride))
-  })
-
-  async function mutate(action: () => Promise<void>, clean: () => void) {
-    setSaving(true)
-    setError("")
-    setShowSavedNotice(false)
-    try {
-      await action()
-      await engine.actions.refreshAgents()
-      clean()
-      await load()
-      setShowSavedNotice(true)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  function saveAgent() {
-    let behavior: unknown
-    try {
-      behavior = JSON.parse(agentBehavior())
-    } catch {
-      setError(t("drift.settings.prompts.invalidJson"))
-      return
-    }
-    if (!behavior || typeof behavior !== "object" || Array.isArray(behavior)) {
-      setError(t("drift.settings.prompts.invalidJson"))
-      return
-    }
-    const issue = agentBehaviorIssue(behavior as Record<string, unknown>)
-    if (issue) {
-      setError(t("drift.settings.prompts.behaviorRefused", { field: issue }))
-      return
-    }
-    const key = `agent:${agentName()}`
-    const storedOverride = override(key)
-    const existing =
-      storedOverride?.value && typeof storedOverride.value === "object"
-        ? applicableOverride(storedOverride.value as Record<string, unknown>)
-        : {}
-    const baseline = JSON.parse(agentBehaviorBaseline()) as Record<string, unknown>
-    const value = agentOverrideValue(
-      { ...(behavior as object), prompt: agentPrompt() },
-      { ...baseline, prompt: agentPromptBaseline() },
-      existing,
-    )
-    // A baseline stored before the engine narrowed agent overrides still names retired fields, which the shell now refuses.
-    const recorded = storedOverride?.original
-    const original = recorded && typeof recorded === "object" ? applicableOverride(recorded as Record<string, unknown>) : agentConfig(currentAgent())
-    const action = Object.keys(value).length
-      ? () => savePromptOverride(key, value, original)
-      : () => resetPromptOverride(key)
-    void mutate(action, () => {
-      setAgentPromptBaseline(agentPrompt())
-      setAgentBehaviorBaseline(agentBehavior())
-    })
-  }
-
-  function resetAgent() {
-    const key = `agent:${agentName()}`
-    if (override(key)) {
-      return void mutate(() => resetPromptOverride(key), () => {
-        setAgentPromptBaseline(agentPrompt())
-        setAgentBehaviorBaseline(agentBehavior())
-      })
-    }
-    loadAgentEditors(agentConfig(currentAgent()))
-  }
-
-  return (
-    <div class="space-y-6">
-      <Show
-        when={snapshot()}
-        fallback={
-          <Show when={!error()}>
-            <div class="px-2 text-sm text-ink-faint">{t("common.loading")}</div>
-          </Show>
-        }
-      >
-              <SettingsGroup title={t("drift.settings.prompts.agents")}>
-              <div class="space-y-3 py-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="text-xs text-ink-faint">{t("drift.settings.prompts.agentDescription")}</div>
-                  <Picker
-                    label={t("drift.settings.prompts.agents")}
-                    items={engine.state.agents.map((agent) => ({ id: agent.name, label: agent.name, hint: agent.description }))}
-                    selected={agentName()}
-                    floating bordered chevronAtEnd placement="below" width="11rem"
-                    onPick={(value) => {
-                      if (agentDirty()) {
-                        setError(t("drift.settings.prompts.saveBeforeSwitch"))
-                        return
-                      }
-                      setAgentName(value)
-                    }}
-                  />
-                </div>
-                <Show when={modelCapability()}>
-                  <div class="flex items-center justify-between gap-3">
-                    <span class="text-xs text-ink-faint">{t("command.category.model")}</span>
-                    <Picker
-                      label={t("command.category.model")}
-                      items={agentModels()}
-                      selected={selectedAgentModel()}
-                      fallbackLabel={selectedAgentModel() || inheritedModelLabel()}
-                      floating bordered chevronAtEnd placement="below" width="11rem"
-                      onPick={selectAgentModel}
-                    />
-                  </div>
-                </Show>
-                <label class="block text-xs text-ink-faint">
-                  <span class="mb-1 block">{t("drift.settings.prompts.agentPrompt")}</span>
-                  <textarea
-                    class="h-48 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
-                    classList={{ "text-ink": agentPromptModified(), "text-ink-faint": !agentPromptModified() }}
-                    spellcheck={false}
-                    placeholder={t("drift.settings.prompts.inheritsFamily")}
-                    value={agentPrompt()}
-                    onInput={(event) => {
-                      const value = event.currentTarget.value
-                      setAgentPrompt(value)
-                    }}
-                  />
-                </label>
-                <label class="block text-xs text-ink-faint">
-                  <span class="mb-1 block">{t("drift.settings.prompts.behavior")}</span>
-                  <textarea
-                    class="h-40 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent"
-                    classList={{ "text-ink": agentBehaviorModified(), "text-ink-faint": !agentBehaviorModified() }}
-                    spellcheck={false}
-                    value={agentBehavior()}
-                    onInput={(event) => {
-                      const value = event.currentTarget.value
-                      setAgentBehavior(value)
-                    }}
-                  />
-                  <span class="mt-1 block">{t("drift.settings.prompts.behaviorFields")}</span>
-                </label>
-                <PromptActions
-                  disabled={saving()}
-                  dirty={agentDirty()}
-                  overridden={agentOverridden()}
-                  onSave={saveAgent}
-                  onReset={resetAgent}
-                />
-              </div>
-              </SettingsGroup>
-      </Show>
-      <Show when={showSavedNotice()}>
-        <div class="text-xs text-accent">{t("drift.settings.prompts.saved")}</div>
-      </Show>
-      <Show when={error()}>
-        <div class="text-xs text-danger">{error()}</div>
-      </Show>
-    </div>
-  )
-}
-
-function PromptActions(props: {
-  disabled: boolean
-  dirty: boolean
-  overridden: boolean
-  onSave: () => void
-  onReset: () => void
-}) {
-  return (
-    <div class="flex justify-end gap-2">
-      <button
-        class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
-        disabled={props.disabled || (!props.dirty && !props.overridden)}
-        onClick={props.onReset}
-      >
-        {t("common.reset")}
-      </button>
-      <button
-        class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
-        disabled={props.disabled || !props.dirty}
-        onClick={props.onSave}
-      >
-        {t("common.save")}
-      </button>
-    </div>
-  )
-}
-
-/** The agent as the engine runs it, in the fields Settings can change: nothing shown here goes unapplied. */
-function agentConfig(agent: AgentInfo | undefined, storedOverride?: PromptOverride) {
-  const restored =
-    storedOverride?.value && typeof storedOverride.value === "object"
-      ? applicableOverride(storedOverride.value as Record<string, unknown>)
-      : undefined
-  if (!agent) return restored ? { ...restored } : {}
-  return {
-    prompt: agent.prompt,
-    model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
-    steps: agent.steps,
-    permissions: agent.permissions?.length ? agent.permissions : undefined,
-    variant: agent.variant,
-    // An empty list is every tool; showing none keeps the editor from offering an override that would mean the same.
-    tools: agent.tools.length ? agent.tools : undefined,
-    ...restored,
-  }
-}
-
-const websiteUrl = "https://driftagent.dev"
-
-function AboutSection() {
-  const engine = useEngine()
-  const nativeVersion = () => {
-    if (!engine.state.nativeVersion) return engine.state.startupError ? t("drift.about.failed") : t("drift.about.starting")
-    const link = engine.state.nativeOnline ? t("drift.about.native.connected") : t("drift.about.native.offline")
-    return `${engine.state.nativeVersion} (${link})`
-  }
-
-  return (
-    <div class="space-y-6 select-text">
-      <div class="flex flex-col items-center gap-2 text-center">
-        <Jellyfish class="size-32" />
-        <div class="drift-wordmark text-base">drift</div>
-        <p class="max-w-xs text-[0.76rem] leading-relaxed text-ink-muted">{t("drift.about.description")}</p>
-      </div>
-
-      <SettingsGroup title={t("drift.about.group.build")}>
-        <SettingsRow title={t("drift.about.row.app.title")} description={t("drift.about.row.app.description")}>
-          <span class="font-mono text-[0.75rem] text-ink-muted">{__DRIFT_VERSION__}</span>
-        </SettingsRow>
-        <SettingsRow title={t("drift.about.row.native.title")} description={t("drift.about.row.native.description")}>
-          <span class="font-mono text-[0.75rem] text-ink-muted">{nativeVersion()}</span>
-        </SettingsRow>
-        <SettingsRow
-          title={t("drift.about.row.updates.title")}
-          description={
-            updateSupported() === undefined
-              ? t("drift.about.starting")
-              : updateSupported()
-                ? t("drift.about.row.updates.installed")
-                : t("drift.about.row.updates.local")
-          }
-        >
-          <span class="text-[0.75rem] text-ink-muted">
-            {updateSupported() === undefined
-              ? t("common.loading")
-              : updateSupported()
-                ? t("drift.about.updates.available")
-                : t("drift.about.updates.unavailable")}
-          </span>
-        </SettingsRow>
-        <Show when={engine.state.startupError}>
-          <div class="px-1 py-2.5 text-[0.72rem] leading-relaxed text-danger">{engine.state.startupError}</div>
-        </Show>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("drift.about.group.links")}>
-        <SettingsRow title={t("drift.about.row.website.title")} description={t("drift.about.row.website.description")}>
-          <button
-            class="rounded border border-edge px-2 py-1 text-[0.72rem] text-accent hover:bg-raised"
-            onClick={() => openExternal(websiteUrl)}
-          >
-            driftagent.dev
-          </button>
-        </SettingsRow>
-      </SettingsGroup>
-    </div>
-  )
-}
-
-const customColorMeta: { id: keyof CustomTheme; label: string }[] = [
-  { id: "background", label: "drift.color.background" },
-  { id: "surface", label: "drift.color.surface" },
-  { id: "text", label: "drift.color.text" },
-  { id: "accent", label: "drift.color.accent" },
-]
-const mascotAnimationLabels: Record<SplashMascotAnimation, string> = {
-  bounce: "startup.settings.mascot.bounce",
-  float: "startup.settings.mascot.float",
-  pulse: "startup.settings.mascot.pulse",
-  still: "startup.settings.mascot.still",
-}
-const exitAnimationLabels: Record<SplashExitAnimation, string> = {
-  wave: "startup.settings.exit.wave",
-  fade: "startup.settings.exit.fade",
-  lift: "startup.settings.exit.lift",
-}
-const durationLabels: Record<number, string> = {
-  1500: "startup.settings.duration.brief",
-  3200: "startup.settings.duration.balanced",
-  5000: "startup.settings.duration.extended",
-}
-
-function AppearanceSection() {
-  return (
-    <div class="space-y-6">
-      <SettingsGroup title={t("settings.general.row.theme.title")}>
-        <div class="space-y-0.5 py-1">
-          <For each={themes}>{(name) => <ThemeRow name={name} />}</For>
-        </div>
-      </SettingsGroup>
-
-      <Show when={theme() === "drift-custom"}>
-      <SettingsGroup title={t("drift.settings.customPalette")}>
-          <For each={customColorMeta}>
-            {(color) => (
-              <SettingsRow
-                title={t(color.label)}
-                description={t("drift.settings.customPalette.colorDescription", { color: t(color.label).toLowerCase() })}
-              >
-                <div class="flex items-center gap-2">
-                  <input
-                    type="color"
-                    aria-label={t("dialog.project.edit.color.select", { color: t(color.label) })}
-                    class="size-7 cursor-pointer rounded border border-edge bg-transparent p-0.5"
-                    value={customTheme()[color.id]}
-                    onInput={(event) => setCustomThemeColor(color.id, event.currentTarget.value)}
-                  />
-                  <input
-                    aria-label={t("drift.settings.customPalette.hexValue", { color: t(color.label) })}
-                     class="h-8 w-24 rounded-md border border-edge bg-raised/45 px-2 font-mono text-xs text-ink outline-none focus:border-accent"
-                     maxLength={7}
-                     pattern="#[0-9a-fA-F]{6}"
-                     value={customTheme()[color.id]}
-                     onChange={(event) => {
-                       if (/^#[\da-f]{6}$/i.test(event.currentTarget.value)) setCustomThemeColor(color.id, event.currentTarget.value)
-                     }}
-                  />
-                </div>
-              </SettingsRow>
-            )}
-          </For>
-        </SettingsGroup>
-      </Show>
-
-      <SettingsGroup title={t("drift.settings.typography")}>
-        <SettingsRow
-          title={t("settings.general.row.uiFont.title")}
-          description={t("settings.general.row.uiFont.description")}
-        >
-          <FontField label={t("settings.general.row.uiFont.title")} value={uiFont()} onInput={setUiFont} />
-        </SettingsRow>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("startup.settings.title")}>
-        <SettingsRow
-          title={t("startup.settings.show.title")}
-          description={t("startup.settings.show.description")}
-          onClick={() => setSplashEnabled(!splashEnabled())}
-        >
-          <Toggle
-            label={t("startup.settings.show.title")}
-            checked={splashEnabled()}
-            onChange={() => setSplashEnabled(!splashEnabled())}
-          />
-        </SettingsRow>
-        <Show when={splashEnabled()}>
-          <SettingsRow
-            title={t("startup.settings.mascot.title")}
-            description={t("startup.settings.mascot.description")}
-          >
-            <Picker
-              label={t("startup.settings.mascot.title")}
-              items={splashMascotAnimations.map((name) => ({ id: name, label: t(mascotAnimationLabels[name]) }))}
-              selected={splashMascotAnimation()}
-              floating bordered chevronAtEnd placement="below" width="10rem"
-              onPick={(value) => setSplashMascotAnimation(value as SplashMascotAnimation)}
-            />
-          </SettingsRow>
-          <SettingsRow
-            title={t("startup.settings.exit.title")}
-            description={t("startup.settings.exit.description")}
-          >
-            <Picker
-              label={t("startup.settings.exit.title")}
-              items={splashExitAnimations.map((name) => ({ id: name, label: t(exitAnimationLabels[name]) }))}
-              selected={splashExitAnimation()}
-              floating bordered chevronAtEnd placement="below" width="10rem"
-              onPick={(value) => setSplashExitAnimation(value as SplashExitAnimation)}
-            />
-          </SettingsRow>
-          <SettingsRow
-            title={t("startup.settings.duration.title")}
-            description={t("startup.settings.duration.description")}
-          >
-            <Picker
-              label={t("startup.settings.duration.title")}
-              items={splashDurations.map((duration) => ({ id: String(duration), label: t(durationLabels[duration]) }))}
-              selected={String(splashDuration())}
-              floating bordered chevronAtEnd placement="below" width="11rem"
-              onPick={(value) => setSplashDuration(Number(value))}
-            />
-          </SettingsRow>
-          <SettingsRow
-            title={t("startup.settings.font.title")}
-            description={t("startup.settings.font.description")}
-          >
-            <FontField label={t("startup.settings.font.title")} value={splashFont()} onInput={setSplashFont} />
-          </SettingsRow>
-        </Show>
-      </SettingsGroup>
-
-      <SettingsGroup title={t("drift.settings.customCss")}>
-        <div class="py-2">
-          <div class="mb-2 text-xs leading-relaxed text-ink-faint">{t("drift.settings.customCss.description")}</div>
-          <textarea
-            aria-label={t("drift.settings.customCss")}
-            class="h-32 w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed text-ink outline-none placeholder:text-ink-faint focus:border-accent"
-            placeholder=":root { --accent: #8aa8ff; }"
-            spellcheck={false}
-            value={customCss()}
-            onInput={(event) => setCustomCss(event.currentTarget.value)}
-          />
-        </div>
-      </SettingsGroup>
-    </div>
-  )
-}
-
-const syntaxThemeLabels: Record<SyntaxThemePreset, string> = {
-  automatic: "drift.code.theme.automatic",
-  github: "drift.code.theme.github",
-  vitesse: "drift.code.theme.vitesse",
-  one: "drift.code.theme.one",
-  dracula: "drift.code.theme.dracula",
-  nord: "drift.code.theme.nord",
-}
-const diffIndicatorLabels: Record<DiffIndicator, string> = {
-  symbols: "drift.code.diffIndicators.symbols",
-  bars: "drift.code.diffIndicators.bars",
-  background: "drift.code.diffIndicators.background",
-}
-
-export function codeSettingOptions() {
-  return {
-    themes: [...syntaxThemePresets],
-    fontSizes: [...codeFontSizes],
-    tabWidths: [...codeTabWidths],
-    indicators: [...diffIndicators],
-  }
-}
-
-function CodeSection() {
-  return (
-    <div class="space-y-6">
-      <SettingsGroup title={t("drift.code.syntax")}>
-        <SettingsRow title={t("drift.code.syntaxTheme.title")} description={t("drift.code.syntaxTheme.description")}>
-          <Picker
-            label={t("drift.code.syntaxTheme.title")}
-            items={syntaxThemePresets.map((name) => ({ id: name, label: t(syntaxThemeLabels[name]) }))}
-            selected={syntaxThemePreset()}
-            floating bordered chevronAtEnd placement="below" width="12rem"
-            onPick={(value) => setSyntaxThemePreset(value as SyntaxThemePreset)}
-          />
-        </SettingsRow>
-        <SettingsRow title={t("settings.general.row.font.title")} description={t("settings.general.row.font.description")}>
-          <FontField label={t("settings.general.row.font.title")} value={codeFont()} onInput={setCodeFont} mono />
-        </SettingsRow>
-      </SettingsGroup>
-      <SettingsGroup title={t("drift.code.layout")}>
-        <SettingsRow title={t("drift.code.fontSize.title")} description={t("drift.code.fontSize.description")}>
-          <Picker
-            label={t("drift.code.fontSize.title")}
-            items={codeFontSizes.map((size) => ({ id: String(size), label: `${size} px` }))}
-            selected={String(codeFontSize())}
-            floating bordered chevronAtEnd placement="below" width="8rem"
-            onPick={(value) => setCodeFontSize(Number(value))}
-          />
-        </SettingsRow>
-        <SettingsRow title={t("drift.code.tabWidth.title")} description={t("drift.code.tabWidth.description")}>
-          <Picker
-            label={t("drift.code.tabWidth.title")}
-            items={codeTabWidths.map((width) => ({ id: String(width), label: t("drift.code.spaces", { count: width }) }))}
-            selected={String(codeTabWidth())}
-            floating bordered chevronAtEnd placement="below" width="9rem"
-            onPick={(value) => setCodeTabWidth(Number(value))}
-          />
-        </SettingsRow>
-        <SettingsRow title={t("drift.code.wordWrap.title")} description={t("drift.code.wordWrap.description")} onClick={() => setCodeWordWrap(!codeWordWrap())}>
-          <Toggle label={t("drift.code.wordWrap.title")} checked={codeWordWrap()} onChange={() => setCodeWordWrap(!codeWordWrap())} />
-        </SettingsRow>
-      </SettingsGroup>
-      <SettingsGroup title={t("drift.code.diffs")}>
-        <SettingsRow title={t("drift.code.diffWordWrap.title")} description={t("drift.code.diffWordWrap.description")} onClick={() => setDiffWordWrap(!diffWordWrap())}>
-          <Toggle label={t("drift.code.diffWordWrap.title")} checked={diffWordWrap()} onChange={() => setDiffWordWrap(!diffWordWrap())} />
-        </SettingsRow>
-        <SettingsRow title={t("drift.code.lineNumbers.title")} description={t("drift.code.lineNumbers.description")} onClick={() => setDiffLineNumbers(!diffLineNumbers())}>
-          <Toggle label={t("drift.code.lineNumbers.title")} checked={diffLineNumbers()} onChange={() => setDiffLineNumbers(!diffLineNumbers())} />
-        </SettingsRow>
-        <SettingsRow title={t("drift.code.diffIndicator.title")} description={t("drift.code.diffIndicator.description")}>
-          <Picker
-            label={t("drift.code.diffIndicator.title")}
-            items={diffIndicators.map((name) => ({ id: name, label: t(diffIndicatorLabels[name]) }))}
-            selected={diffIndicator()}
-            floating bordered chevronAtEnd placement="below" width="10rem"
-            onPick={(value) => setDiffIndicator(value as DiffIndicator)}
-          />
-        </SettingsRow>
-      </SettingsGroup>
-    </div>
-  )
-}
-
-function FontField(props: { label: string; value: string; onInput: (value: string) => void; mono?: boolean }) {
-  return (
-    <input
-      aria-label={props.label}
-      class="h-8 w-full rounded-md border border-edge bg-raised/45 px-2.5 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent sm:w-56"
-      classList={{ "font-mono text-xs": props.mono }}
-      placeholder={props.mono ? '"Cascadia Code", monospace' : '"Segoe UI", sans-serif'}
-      maxLength={256}
-      value={props.value}
-      onInput={(event) => props.onInput(event.currentTarget.value)}
-    />
-  )
-}
-
-function SectionIcon(props: { section: Section }) {
-  const icon = () => {
-    if (props.section === "General") return <IconSliders />
-    if (props.section === "Appearance") return <IconPalette />
-    if (props.section === "Code") return <IconCode />
-    if (props.section === "Notifications") return <IconBell />
-    if (props.section === "Voice") return <IconMic />
-    if (props.section === "Shortcuts") return <IconKeyboard />
-    if (props.section === "Tools") return <IconSliders />
-    if (props.section === "Providers") return <IconChip />
-    if (props.section === "Usage") return <IconGauge />
-    if (props.section === "MCP") return <IconShieldCheck />
-    if (props.section === "Prompts") return <IconCode />
-    if (props.section === "Agents") return <IconSliders />
-    if (props.section === "Permissions") return <IconShieldCheck />
-    if (props.section === "Storage") return <IconArchive />
-    if (props.section === "Remote Access") return <IconShieldCheck />
-    return <IconInfo />
-  }
-  return <span class="flex size-5 shrink-0 items-center justify-center text-ink-faint">{icon()}</span>
-}
-
-function ThemeRow(props: { name: ThemeName }) {
-  const meta = themeMeta[props.name]
-  const active = () => theme() === props.name
-  const swatch = () =>
-    props.name === "drift-custom"
-      ? ([customTheme().background, customTheme().surface, customTheme().accent] as [string, string, string])
-      : meta.swatch
-  return (
-    <button
-      class="flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors"
-      classList={{
-        "border-edge-strong bg-raised": active(),
-        "border-transparent hover:bg-raised/60": !active(),
-      }}
-      onClick={() => setTheme(props.name)}
-    >
-      <span class="flex items-center">
-        <For each={swatch()}>
-          {(color, index) => (
-            <span
-              class="-ml-1.5 size-4 rounded-full border border-black/30 first:ml-0"
-              style={{ background: color, "z-index": 3 - index() }}
-            />
-          )}
-        </For>
-      </span>
-      <span class="min-w-0 flex-1 truncate text-sm" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
-        {t(meta.label)}
-      </span>
-      <Show when={active()}>
-        <IconCheck class="size-4 shrink-0 text-accent" />
-      </Show>
-    </button>
-  )
+    );
 }

@@ -1,7 +1,11 @@
 [package]
 name = "drift-migrate"
 version.workspace = true
-edition = "2021"
+license.workspace = true
+edition = "2024"
+
+[lints]
+workspace = true
 
 [dependencies]
 drift-engine = { path = "../drift-engine" }
@@ -9,6 +13,7 @@ drift-engine = { path = "../drift-engine" }
 rusqlite = { workspace = true, features = ["blob"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
 # Imported ids carry a short hash of the opencode id, so a rerun mints the same ones; already in the tree.
 sha2 = "0.10"
 # The engine's undo history is written through its async git calls; already in the tree.

@@ -1,6 +1,8 @@
 //! What a subscription-authenticated request must look like: the shape Claude Code itself sends.
 
-use serde_json::{json, Value};
+use std::fmt::Write as _;
+
+use serde_json::{Value, json};
 
 use super::oauth::sha256;
 
@@ -26,13 +28,19 @@ pub fn transform(body: &mut Value) {
         system.extend(existing.iter().cloned());
     }
     body["system"] = Value::Array(system);
+
     if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
         for tool in tools {
             rename(&mut tool["name"]);
         }
     }
+
     if let Some(messages) = body.get_mut("messages").and_then(Value::as_array_mut) {
-        for block in messages.iter_mut().filter_map(|m| m["content"].as_array_mut()).flatten() {
+        for block in messages
+            .iter_mut()
+            .filter_map(|message| message["content"].as_array_mut())
+            .flatten()
+        {
             if block["type"] == "tool_use" {
                 rename(&mut block["name"]);
             }
@@ -42,7 +50,10 @@ pub fn transform(body: &mut Value) {
 
 /// Undoes `rename` for names the model sends back.
 pub fn original_name(name: &str) -> String {
-    let Some(rest) = name.strip_prefix(TOOL_PREFIX) else { return name.to_string() };
+    let Some(rest) = name.strip_prefix(TOOL_PREFIX) else {
+        return name.to_string();
+    };
+
     let mut chars = rest.chars();
     match chars.next() {
         Some(first) => first.to_lowercase().chain(chars).collect(),
@@ -51,41 +62,64 @@ pub fn original_name(name: &str) -> String {
 }
 
 fn rename(name: &mut Value) {
-    let Some(text) = name.as_str().filter(|n| !n.is_empty()) else { return };
+    let Some(text) = name.as_str().filter(|name| !name.is_empty()) else {
+        return;
+    };
+
     let mut chars = text.chars();
-    let renamed: String = chars.next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default() + chars.as_str();
+    let renamed: String = chars
+        .next()
+        .map(|character| character.to_uppercase().collect::<String>())
+        .unwrap_or_default()
+        + chars.as_str();
+
     *name = Value::String(format!("{TOOL_PREFIX}{renamed}"));
 }
 
 fn first_user_text(body: &Value) -> Option<String> {
-    let message = body["messages"].as_array()?.iter().find(|m| m["role"] == "user")?;
+    let message = body["messages"]
+        .as_array()?
+        .iter()
+        .find(|message| message["role"] == "user")?;
     let text = match &message["content"] {
         Value::String(text) => text.clone(),
         Value::Array(blocks) => blocks
             .iter()
-            .find(|b| b["type"] == "text")
-            .and_then(|b| b["text"].as_str())
+            .find(|block| block["type"] == "text")
+            .and_then(|block| block["text"].as_str())
             .map(str::to_string)
             .unwrap_or_default(),
         _ => String::new(),
     };
+
     Some(text)
 }
 
 fn billing(text: &str) -> String {
     let hash = hex(&sha256(text.as_bytes()));
+
     let mut salted = SALT.to_string();
     let chars: Vec<char> = text.chars().collect();
     for position in SALT_POSITIONS {
         salted.push(chars.get(position).copied().unwrap_or('0'));
     }
     salted.push_str(VERSION);
-    let suffix = &hex(&sha256(salted.as_bytes()))[..3];
-    format!("x-anthropic-billing-header: cc_version={VERSION}.{suffix}; cc_entrypoint={ENTRYPOINT}; cch={};", &hash[..5])
+    let salted_hash = hex(&sha256(salted.as_bytes()));
+    let suffix = &salted_hash[..3];
+
+    format!(
+        "x-anthropic-billing-header: cc_version={VERSION}.{suffix}; cc_entrypoint={ENTRYPOINT}; cch={};",
+        &hash[..5]
+    )
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(encoded, "{byte:02x}").unwrap();
+    }
+
+    encoded
 }
 
 #[cfg(test)]
@@ -103,7 +137,10 @@ mod tests {
         let system = body["system"].as_array().unwrap();
         assert_eq!(system.len(), 3);
         let billing = system[0]["text"].as_str().unwrap();
-        assert!(billing.starts_with("x-anthropic-billing-header: cc_version=2.1.280."), "{billing}");
+        assert!(
+            billing.starts_with("x-anthropic-billing-header: cc_version=2.1.280."),
+            "{billing}"
+        );
         assert!(billing.contains("cc_entrypoint=sdk-cli; cch="));
         assert_eq!(system[1]["text"], IDENTITY);
         assert_eq!(system[2]["text"], "You are Drift.");

@@ -4,6 +4,7 @@ fn test_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("drift-{name}-test-{}", std::process::id()));
     std::fs::remove_dir_all(&dir).ok();
     std::fs::create_dir_all(&dir).unwrap();
+
     dir
 }
 
@@ -12,20 +13,32 @@ fn store_roundtrip() {
     let dir = test_dir("store");
     let store = open(&dir).unwrap();
 
+    dictation_roundtrip(&store);
+    workspace_roundtrip(&store);
+    archive_roundtrip(&store);
+    workspace_retention_roundtrip(&store);
+    prompt_roundtrip(&store);
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+fn dictation_roundtrip(store: &Store) {
     assert!(!store.dictation_enabled().unwrap());
     store.save_dictation_enabled(true).unwrap();
     assert!(store.dictation_enabled().unwrap());
     store.save_dictation_enabled(false).unwrap();
     assert!(!store.dictation_enabled().unwrap());
+}
 
+fn workspace_roundtrip(store: &Store) {
     let created = store.add_workspace("w1", "S:/proj", "Proj", "").unwrap();
     assert_eq!(created.id, "w1");
-    store
-        .save_workspace("w1", "S:/moved", "Renamed", "R")
-        .unwrap();
+    store.save_workspace("w1", "S:/moved", "Renamed", "R").unwrap();
     assert_eq!(store.workspaces().unwrap()[0].name, "Renamed");
     assert_eq!(store.workspaces().unwrap()[0].path, "S:/moved");
+}
 
+fn archive_roundtrip(store: &Store) {
     store.archive_session("s1", "w1").unwrap();
     store.archive_session("s2", "w1").unwrap();
     assert_eq!(store.archived().unwrap().len(), 2);
@@ -38,14 +51,14 @@ fn store_roundtrip() {
     assert!(store.expired_archived(now() - 1000).unwrap().is_empty());
     store.unarchive_session("s2").unwrap();
     assert!(store.archived().unwrap().is_empty());
+}
 
+fn workspace_retention_roundtrip(store: &Store) {
     store.remove_workspace("w1").unwrap();
     assert!(store.workspaces().unwrap().is_empty());
     assert_eq!(store.removed_workspaces().unwrap().len(), 1);
 
-    let restored = store
-        .add_workspace("w2", "S:/moved", "Ignored", "")
-        .unwrap();
+    let restored = store.add_workspace("w2", "S:/moved", "Ignored", "").unwrap();
     assert_eq!(restored.id, "w1");
     assert_eq!(restored.name, "Renamed");
     assert_eq!(store.workspaces().unwrap().len(), 1);
@@ -54,21 +67,15 @@ fn store_roundtrip() {
     let expired = store.expired_removed_workspaces(now() + 1000).unwrap();
     assert_eq!(expired.len(), 1);
     assert_eq!(expired[0].path, "S:/moved");
-    assert!(store
-        .expired_removed_workspaces(now() - 1000)
-        .unwrap()
-        .is_empty());
+    assert!(store.expired_removed_workspaces(now() - 1000).unwrap().is_empty());
     assert!(store.forget_workspace(&expired[0].id).unwrap(), "the row went");
     assert!(!store.forget_workspace(&expired[0].id).unwrap(), "already forgotten");
     assert!(store.workspaces().unwrap().is_empty());
     assert!(store.removed_workspaces().unwrap().is_empty());
-    assert!(
-        store
-            .add_workspace("w3", "S:/moved", "Fresh", "")
-            .unwrap()
-            .id
-            == "w3"
-    );
+    assert!(store.add_workspace("w3", "S:/moved", "Fresh", "").unwrap().id == "w3");
+}
+
+fn prompt_roundtrip(store: &Store) {
     let value = serde_json::json!({ "prompt": "Drift prompt" });
     let original = serde_json::json!({ "prompt": "Original prompt" });
     store
@@ -78,9 +85,9 @@ fn store_roundtrip() {
     assert_eq!(prompts.len(), 1);
     assert_eq!(prompts[0].value, value);
     assert_eq!(prompts[0].original, Some(original));
+
     store.reset_prompt_override("agent:build").unwrap();
     assert!(store.prompt_overrides().unwrap().is_empty());
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
@@ -114,13 +121,12 @@ fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
     let dir = test_dir("dup");
     let file = dir.join("drift.db");
     let store = open_at(&file).unwrap();
-    store
-        .add_workspace("active", "S:\\proj\\app", "App", "icon")
-        .unwrap();
+    store.add_workspace("active", "S:\\proj\\app", "App", "icon").unwrap();
     // Seed raw: add_workspace's canonical guard forbids creating a duplicate through the API.
     let raw = Connection::open(&file).unwrap();
     raw.execute(
-        "INSERT INTO workspace(id, path, name, icon, last_used, removed_at) VALUES('dup', 'S:/proj/APP', 'App', '', 1, 1)",
+        "INSERT INTO workspace(id, path, name, icon, last_used, removed_at) \
+         VALUES('dup', 'S:/proj/APP', 'App', '', 1, 1)",
         [],
     )
     .unwrap();
@@ -132,10 +138,7 @@ fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
     drop(raw);
 
     // The duplicate must never be offered for session deletion: its directory is on the sidebar.
-    assert!(store
-        .expired_removed_workspaces(now() + 1000)
-        .unwrap()
-        .is_empty());
+    assert!(store.expired_removed_workspaces(now() + 1000).unwrap().is_empty());
     assert_eq!(store.workspaces().unwrap().len(), 1);
     assert!(store.removed_workspaces().unwrap().is_empty());
     let archived = store.archived().unwrap();
@@ -165,9 +168,7 @@ fn open_collapses_duplicate_workspace_paths() {
     let file = dir.join("drift.db");
     {
         let store = open_at(&file).unwrap();
-        store
-            .add_workspace("user", "S:\\proj", "Proj", "icon")
-            .unwrap();
+        store.add_workspace("user", "S:\\proj", "Proj", "icon").unwrap();
         let raw = Connection::open(&file).unwrap();
         raw.execute(
             "INSERT INTO workspace(id, path, name, icon, last_used) VALUES('imported', 'S:/proj', 'Proj', '', 999)",
@@ -194,29 +195,29 @@ fn open_collapses_duplicate_workspace_paths() {
 fn imports_opencode_projects_without_overwriting_drift_metadata() {
     let dir = test_dir("import");
     let source = dir.join("opencode.db");
-    let conn = Connection::open(&source).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
+    let connection = Connection::open(&source).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
          CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
          INSERT INTO project VALUES('p1', 'S:/one', 'One', 10);
          INSERT INTO project VALUES('p2', '/tmp/project-directories', 'Temporary', 15);
          INSERT INTO project VALUES('p3', '/tmp/manual', 'Manual project', 16);
-         INSERT INTO project VALUES('p4', 'C:/Users/Example/AppData/Local/Temp/opencode-test-long', 'Windows temporary', 17);
+         INSERT INTO project VALUES('p4', \
+         'C:/Users/Example/AppData/Local/Temp/opencode-test-long', 'Windows temporary', 17);
          INSERT INTO project VALUES('global', '/', 'Global', 20);
          INSERT INTO session VALUES('s1', 'p1', 30);
          INSERT INTO session VALUES('s2', 'p2', 31);
          INSERT INTO session VALUES('s4', 'p4', 32);",
-    )
-    .unwrap();
-    drop(conn);
+        )
+        .unwrap();
+    drop(connection);
 
     let store = open_at(&dir.join("drift.db")).unwrap();
     store
         .add_workspace("p2", "/tmp/project-directories", "Temporary", "")
         .unwrap();
-    store
-        .add_workspace("manual", "/tmp/manual", "Manual", "")
-        .unwrap();
+    store.add_workspace("manual", "/tmp/manual", "Manual", "").unwrap();
     store
         .add_workspace(
             "p4",
@@ -228,18 +229,18 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
     assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 1);
     let workspaces = store.workspaces().unwrap();
     assert_eq!(workspaces.len(), 2);
-    assert!(workspaces
-        .iter()
-        .any(|workspace| workspace.path == "S:/one"));
-    assert!(workspaces
-        .iter()
-        .any(|workspace| workspace.path == "/tmp/manual"));
-    assert!(!workspaces
-        .iter()
-        .any(|workspace| workspace.path == "/tmp/project-directories"));
-    assert!(!workspaces
-        .iter()
-        .any(|workspace| workspace.path.contains("AppData/Local/Temp")));
+    assert!(workspaces.iter().any(|workspace| workspace.path == "S:/one"));
+    assert!(workspaces.iter().any(|workspace| workspace.path == "/tmp/manual"));
+    assert!(
+        !workspaces
+            .iter()
+            .any(|workspace| workspace.path == "/tmp/project-directories")
+    );
+    assert!(
+        !workspaces
+            .iter()
+            .any(|workspace| workspace.path.contains("AppData/Local/Temp"))
+    );
     store.save_workspace("p1", "S:/one", "Custom", "C").unwrap();
     assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
     assert_eq!(
@@ -253,26 +254,22 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
         "Custom"
     );
 
-    // A slash/case variant of an existing workspace directory must not import as a duplicate,
-    // and a removed workspace must stay removed instead of being resurrected by the import.
+    // Import must preserve removed rows and reject slash or case variants of existing directories.
     let variants = dir.join("opencode-variants.db");
-    let conn = Connection::open(&variants).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
+    let connection = Connection::open(&variants).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
          CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
          INSERT INTO project VALUES('p9', 'S:/ONE', 'Case variant', 40);
          INSERT INTO session VALUES('s9', 'p9', 41);",
-    )
-    .unwrap();
-    drop(conn);
+        )
+        .unwrap();
+    drop(connection);
     assert_eq!(store.import_opencode_workspaces(&variants).unwrap(), 0);
     store.remove_workspace("p1").unwrap();
     assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
-    assert!(store
-        .workspaces()
-        .unwrap()
-        .iter()
-        .all(|workspace| workspace.id != "p1"));
+    assert!(store.workspaces().unwrap().iter().all(|workspace| workspace.id != "p1"));
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -280,21 +277,27 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
 fn an_imported_project_without_a_name_is_named_by_its_folder_as_adding_one_does() {
     let dir = test_dir("import-names");
     let source = dir.join("opencode.db");
-    let conn = Connection::open(&source).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
+    let connection = Connection::open(&source).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
          CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
          INSERT INTO project VALUES('a', 'C:/Users/Kyle/Desktop/C++/Drift', NULL, 1);
          INSERT INTO project VALUES('b', 'D:\\Games\\AddOns\\', '', 1);
          INSERT INTO project VALUES('c', 'E:', NULL, 1);
          INSERT INTO project VALUES('d', 'S:/named', 'Given', 1);
          INSERT INTO session VALUES('s1', 'a', 2), ('s2', 'b', 2), ('s3', 'c', 2), ('s4', 'd', 2);",
-    )
-    .unwrap();
-    drop(conn);
+        )
+        .unwrap();
+    drop(connection);
     let store = open_at(&dir.join("drift.db")).unwrap();
     assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 4);
-    let mut names: Vec<String> = store.workspaces().unwrap().into_iter().map(|workspace| workspace.name).collect();
+    let mut names: Vec<String> = store
+        .workspaces()
+        .unwrap()
+        .into_iter()
+        .map(|workspace| workspace.name)
+        .collect();
     names.sort();
     assert_eq!(names, ["AddOns", "Drift", "E:", "Given"]);
     std::fs::remove_dir_all(&dir).ok();
@@ -304,18 +307,24 @@ fn an_imported_project_without_a_name_is_named_by_its_folder_as_adding_one_does(
 fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
     let dir = test_dir("remote-legacy");
     {
-        let conn = Connection::open(dir.join("drift.db")).unwrap();
-        conn.execute_batch(
-            "CREATE TABLE remote_access(id INTEGER PRIMARY KEY CHECK(id = 1), enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)), token TEXT NOT NULL) STRICT;
+        let connection = Connection::open(dir.join("drift.db")).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE remote_access(id INTEGER PRIMARY KEY CHECK(id = 1), \
+             enabled INTEGER NOT NULL CHECK(enabled IN (0, 1)), token TEXT NOT NULL) STRICT;
              INSERT INTO remote_access(id, enabled, token) VALUES(1, 1, 'old-shared-key');",
-        )
-        .unwrap();
+            )
+            .unwrap();
     }
     let store = open(&dir).unwrap();
     assert!(store.remote_access_enabled().unwrap());
     store.save_remote_access(false).unwrap();
     assert!(!store.remote_access_enabled().unwrap());
-    let kept: String = store.0.lock().query_row("SELECT token FROM remote_access", [], |row| row.get(0)).unwrap();
+    let kept: String = store
+        .0
+        .lock()
+        .query_row("SELECT token FROM remote_access", [], |row| row.get(0))
+        .unwrap();
     assert_eq!(kept, "old-shared-key");
     let device = RemoteDevice {
         id: "d1".into(),

@@ -18,6 +18,7 @@ pub fn bound(text: String, path: PathBuf) -> (String, Option<PathBuf>) {
     if text.len() <= MAX_RESULT_BYTES {
         return (text, None);
     }
+
     let mut spool = Spool::new(Some(path));
     spool.push(text.as_bytes());
     let kept = spool.finish();
@@ -46,7 +47,15 @@ pub struct Spooled {
 impl Spool {
     /// `path` is where the whole output goes once it no longer fits; `None` keeps only start and end.
     pub fn new(path: Option<PathBuf>) -> Self {
-        Self { small: Vec::new(), head: Vec::new(), tail: VecDeque::new(), total: 0, path, file: None, written: 0 }
+        Self {
+            small: Vec::new(),
+            head: Vec::new(),
+            tail: VecDeque::new(),
+            total: 0,
+            path,
+            file: None,
+            written: 0,
+        }
     }
 
     pub fn push(&mut self, bytes: &[u8]) {
@@ -55,6 +64,7 @@ impl Spool {
             self.small.extend_from_slice(bytes);
             return;
         }
+
         if self.head.is_empty() {
             let small = std::mem::take(&mut self.small);
             self.open_file();
@@ -75,19 +85,26 @@ impl Spool {
         self.tail.extend(&bytes[into_head..]);
         let excess = self.tail.len().saturating_sub(TAIL_BYTES);
         self.tail.drain(..excess);
+
         let room = MAX_SPOOLED_BYTES.saturating_sub(self.written).min(bytes.len() as u64) as usize;
-        if let Some(file) = &mut self.file {
-            if room > 0 && file.write_all(&bytes[..room]).is_ok() {
-                self.written += room as u64;
-            }
+        if let Some(file) = &mut self.file
+            && room > 0
+            && file.write_all(&bytes[..room]).is_ok()
+        {
+            self.written += room as u64;
         }
     }
 
     /// The last `max` bytes so far, for showing while the command still runs; cut text starts `...`.
     pub fn recent(&self, max: usize) -> String {
-        let end: Vec<u8> = if self.head.is_empty() { self.small.clone() } else { self.tail.iter().copied().collect() };
+        let end: Vec<u8> = if self.head.is_empty() {
+            self.small.clone()
+        } else {
+            self.tail.iter().copied().collect()
+        };
         let from = end.len().saturating_sub(max);
         let text = String::from_utf8_lossy(&end[from..]).into_owned();
+
         if from == 0 && self.head.is_empty() {
             text
         } else {
@@ -101,18 +118,36 @@ impl Spool {
 
     pub fn finish(mut self) -> Spooled {
         if self.head.is_empty() {
-            return Spooled { text: String::from_utf8_lossy(&self.small).into_owned(), total: self.total, file: None };
+            return Spooled {
+                text: String::from_utf8_lossy(&self.small).into_owned(),
+                total: self.total,
+                file: None,
+            };
         }
+
         let file = self.file.take().and_then(|_| self.path.clone());
         let omitted = self.total - (self.head.len() + self.tail.len()) as u64;
         let whole = match &file {
             Some(path) if self.written == self.total => format!("the whole output is in {}", path.display()),
-            Some(path) => format!("the first {} MB are in {}", MAX_SPOOLED_BYTES / 1024 / 1024, path.display()),
+            Some(path) => format!(
+                "the first {} MB are in {}",
+                MAX_SPOOLED_BYTES / 1024 / 1024,
+                path.display()
+            ),
             None => "it was not kept".into(),
         };
+
         let tail: Vec<u8> = self.tail.into_iter().collect();
-        let text = format!("{}\n\n... {omitted} bytes omitted; {whole} ...\n\n{}", String::from_utf8_lossy(&self.head), String::from_utf8_lossy(&tail));
-        Spooled { text, total: self.total, file }
+        let text = format!(
+            "{}\n\n... {omitted} bytes omitted; {whole} ...\n\n{}",
+            String::from_utf8_lossy(&self.head),
+            String::from_utf8_lossy(&tail)
+        );
+        Spooled {
+            text,
+            total: self.total,
+            file,
+        }
     }
 }
 
@@ -136,18 +171,25 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("drift-spool-{}", crate::random_hex(4)));
         let path = dir.join("out.log");
         let mut spool = Spool::new(Some(path.clone()));
-        let chunk: Vec<u8> = (0..4096u32).map(|i| b'a' + (i % 26) as u8).collect();
+        let chunk: Vec<u8> = (0..4096u32).map(|index| b'a' + (index % 26) as u8).collect();
         spool.push(b"FIRST LINE\n");
         for _ in 0..2_500 {
             spool.push(&chunk);
         }
         spool.push(b"\nLAST LINE");
-        assert!(spool.head.len() == HEAD_BYTES && spool.tail.len() == TAIL_BYTES && spool.small.is_empty(), "memory stays bounded");
+        assert!(
+            spool.head.len() == HEAD_BYTES && spool.tail.len() == TAIL_BYTES && spool.small.is_empty(),
+            "memory stays bounded"
+        );
         let kept = spool.finish();
         assert_eq!(kept.total, 11 + 2_500 * 4096 + 10);
         assert!(kept.text.starts_with("FIRST LINE") && kept.text.ends_with("LAST LINE"));
         assert!(kept.text.len() < HEAD_BYTES + TAIL_BYTES + 200);
-        assert!(kept.text.contains("the whole output is in"), "{}", &kept.text[HEAD_BYTES..HEAD_BYTES + 200]);
+        assert!(
+            kept.text.contains("the whole output is in"),
+            "{}",
+            &kept.text[HEAD_BYTES..HEAD_BYTES + 200]
+        );
         assert_eq!(std::fs::metadata(kept.file.unwrap()).unwrap().len(), kept.total);
         std::fs::remove_dir_all(dir).ok();
     }

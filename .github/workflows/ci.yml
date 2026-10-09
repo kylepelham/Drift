@@ -1,100 +1,130 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
-  pull_request:
-  workflow_dispatch:
+    push:
+        branches: [master, "next/**"]
+    pull_request:
+    workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  checks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    checks:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: latest
 
-      - name: Install dependencies
-        run: |
-          bun install --frozen-lockfile
+            - name: Install dependencies
+              run: |
+                  bun install --frozen-lockfile
 
-      - name: Typecheck
-        run: bun run typecheck
+            # rust-toolchain.toml pins the version, components and the plugin target.
+            - name: Rust toolchain
+              run: rustup toolchain install
 
-      # The generated-client check and the conformance tests need drift-engined.
-      - uses: dtolnay/rust-toolchain@stable
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: .
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .
+            - name: Format
+              run: bun run format:check
 
-      - name: Build engine
-        run: cargo build -p drift-engined
+            - name: Lint
+              run: bun run lint
 
-      - name: Generated client is current
-        run: bun scripts/gen-engine-client.ts --check
+            - name: Unused files and exports
+              run: bun run knip
 
-      - name: Test
-        run: bun run test
+            - name: Typecheck
+              run: bun run typecheck
 
-  full:
-    if: github.event_name != 'pull_request'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
+            - name: Spelling
+              uses: crate-ci/typos@v1
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
+            - name: Dependency audit
+              uses: EmbarkStudios/cargo-deny-action@v2
 
-      - name: Install dependencies
-        run: |
-          bun install --frozen-lockfile
+            - uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-machete
 
-      # The sidecars only change when the build script does, so a hit skips both the SDK and the build.
-      - name: Cache speech recognizer
-        id: whisper
-        uses: actions/cache@v4
-        with:
-          path: src-tauri/binaries/whisper-cli*.exe
-          key: whisper-${{ runner.os }}-${{ hashFiles('scripts/build-whisper.ts') }}
+            - name: Unused dependencies
+              run: cargo machete
 
-      - name: Install Vulkan SDK
-        if: steps.whisper.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          $version = "1.4.350.0"
-          $installer = "$env:RUNNER_TEMP\vulkan-sdk.exe"
-          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe" -OutFile $installer
-          $args = @("--root", "C:\VulkanSDK\$version", "--accept-licenses", "--default-answer", "--confirm-command", "install")
-          $process = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Vulkan SDK install failed with $($process.ExitCode)" }
-          "VULKAN_SDK=C:\VulkanSDK\$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+            # The generated-client check and the conformance tests need drift-engined.
+            - name: Build engine
+              run: cargo build -p drift-engined
 
-      - name: Build speech recognizer
-        if: steps.whisper.outputs.cache-hit != 'true'
-        run: bun run build:whisper
+            - name: Generated client is current
+              run: bun scripts/gen-engine-client.ts --check
 
-      - uses: dtolnay/rust-toolchain@stable
+            - name: Test
+              run: bun run test
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .
+    full:
+        runs-on: windows-latest
+        steps:
+            - uses: actions/checkout@v4
 
-      # A fresh runner scans node.exe on its first launch; doing that here keeps it out of the MCP tests' start limit.
-      - name: Warm node for the MCP and LSP fixtures
-        run: node -e 0
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: latest
 
-      - name: Native unit tests
-        # A hung test fails here with its log, instead of holding the runner until a cancel that keeps none.
-        timeout-minutes: 20
-        run: cargo test --workspace
+            - name: Install dependencies
+              run: |
+                  bun install --frozen-lockfile
 
-      - name: Native lint
-        run: cargo clippy --workspace --all-targets -- -D warnings
+            # The sidecars only change when the build script does, so a hit skips both the SDK and the build.
+            - name: Cache speech recognizer
+              id: whisper
+              uses: actions/cache@v4
+              with:
+                  path: src-tauri/binaries/whisper-cli*.exe
+                  key: whisper-${{ runner.os }}-${{ hashFiles('scripts/build-whisper.ts') }}
+
+            - name: Install Vulkan SDK
+              if: steps.whisper.outputs.cache-hit != 'true'
+              shell: pwsh
+              run: |
+                  $version = "1.4.350.0"
+                  $installer = "$env:RUNNER_TEMP\vulkan-sdk.exe"
+                  Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe" -OutFile $installer
+                  $args = @("--root", "C:\VulkanSDK\$version", "--accept-licenses", "--default-answer", "--confirm-command", "install")
+                  $process = Start-Process -FilePath $installer -ArgumentList $args -Wait -PassThru
+                  if ($process.ExitCode -ne 0) { throw "Vulkan SDK install failed with $($process.ExitCode)" }
+                  "VULKAN_SDK=C:\VulkanSDK\$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+            - name: Build speech recognizer
+              if: steps.whisper.outputs.cache-hit != 'true'
+              run: bun run build:whisper
+
+            # rust-toolchain.toml pins the version, components and the wasm32-wasip2 target the plugin tests build for.
+            - name: Rust toolchain
+              run: rustup toolchain install
+
+            # The example plugin builds into target/plugins, inside the workspace's own target, which this caches.
+            - uses: Swatinem/rust-cache@v2
+              with:
+                  workspaces: .
+
+            - uses: taiki-e/install-action@v2
+              with:
+                  tool: cargo-nextest
+
+            # A fresh runner scans node.exe on its first launch; doing that here keeps it out of the MCP tests' start limit.
+            - name: Warm node for the MCP and LSP fixtures
+              run: node -e 0
+
+            # nextest's slow timeout (.config/nextest.toml) names a hung test and kills it, so the run still reports.
+            - name: Native unit tests
+              timeout-minutes: 20
+              run: cargo nextest run --workspace --profile ci
+
+            - name: Native lint
+              run: cargo clippy --workspace --all-targets -- -D warnings

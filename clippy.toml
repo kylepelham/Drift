@@ -1,0 +1,4 @@
+# AGENTS.md: complexity over 15 is refactored; past five parameters a call wants a struct.
+cognitive-complexity-threshold = 15
+too-many-lines-threshold = 80
+too-many-arguments-threshold = 5

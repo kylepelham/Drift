@@ -1,75 +1,83 @@
 //! drift.json may carry comments and trailing commas, as opencode's JSONC config did.
 
-/// The text as strict JSON: comments become spaces and trailing commas go; strings are untouched.
+/// Removes comments and trailing commas while preserving JSON string literals.
 pub fn strip(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let mut out = String::with_capacity(text.len());
-    let mut i = 0;
-    while i < chars.len() {
-        match (chars[i], chars.get(i + 1)) {
-            ('"', _) => i = copy_string(&chars, i, &mut out),
+    let characters: Vec<char> = text.chars().collect();
+    let mut output = String::with_capacity(text.len());
+    let mut index = 0;
+
+    while index < characters.len() {
+        match (characters[index], characters.get(index + 1)) {
+            ('"', _) => index = copy_string(&characters, index, &mut output),
             ('/', Some('/')) => {
-                while i < chars.len() && chars[i] != '\n' {
-                    i += 1;
+                while index < characters.len() && characters[index] != '\n' {
+                    index += 1;
                 }
             }
             ('/', Some('*')) => {
-                i += 2;
-                while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
-                    out.push(if chars[i] == '\n' { '\n' } else { ' ' });
-                    i += 1;
+                index += 2;
+                while index < characters.len() && !(characters[index] == '*' && characters.get(index + 1) == Some(&'/'))
+                {
+                    output.push(if characters[index] == '\n' { '\n' } else { ' ' });
+                    index += 1;
                 }
-                i += 2;
+                index += 2;
             }
-            (',', _) if closes_next(&chars, i + 1) => i += 1,
-            (c, _) => {
-                out.push(c);
-                i += 1;
+            (',', _) if closes_next(&characters, index + 1) => index += 1,
+            (character, _) => {
+                output.push(character);
+                index += 1;
             }
         }
     }
-    out
+
+    output
 }
 
 /// Copies a string literal, escapes included, and returns the index after its closing quote.
-fn copy_string(chars: &[char], start: usize, out: &mut String) -> usize {
-    out.push('"');
-    let mut i = start + 1;
-    while i < chars.len() {
-        out.push(chars[i]);
-        match chars[i] {
-            '\\' if i + 1 < chars.len() => {
-                out.push(chars[i + 1]);
-                i += 2;
+fn copy_string(characters: &[char], start: usize, output: &mut String) -> usize {
+    output.push('"');
+    let mut index = start + 1;
+
+    while index < characters.len() {
+        output.push(characters[index]);
+        match characters[index] {
+            '\\' if index + 1 < characters.len() => {
+                output.push(characters[index + 1]);
+                index += 2;
             }
-            '"' => return i + 1,
-            _ => i += 1,
+            '"' => return index + 1,
+            _ => index += 1,
         }
     }
-    i
+
+    index
 }
 
 /// Whether only whitespace and comments stand between here and a closing bracket.
-fn closes_next(chars: &[char], from: usize) -> bool {
-    let mut i = from;
-    while i < chars.len() {
-        match (chars[i], chars.get(i + 1)) {
-            (c, _) if c.is_whitespace() => i += 1,
+fn closes_next(characters: &[char], from: usize) -> bool {
+    let mut index = from;
+
+    while index < characters.len() {
+        match (characters[index], characters.get(index + 1)) {
+            (character, _) if character.is_whitespace() => index += 1,
             ('/', Some('/')) => {
-                while i < chars.len() && chars[i] != '\n' {
-                    i += 1;
+                while index < characters.len() && characters[index] != '\n' {
+                    index += 1;
                 }
             }
             ('/', Some('*')) => {
-                i += 2;
-                while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
-                    i += 1;
+                index += 2;
+                while index < characters.len() && !(characters[index] == '*' && characters.get(index + 1) == Some(&'/'))
+                {
+                    index += 1;
                 }
-                i += 2;
+                index += 2;
             }
-            (c, _) => return matches!(c, '}' | ']'),
+            (character, _) => return matches!(character, '}' | ']'),
         }
     }
+
     false
 }
 
@@ -84,7 +92,10 @@ mod tests {
         assert_eq!(value["permissions"][0]["pattern"], "git push*");
         assert_eq!(value["permissions"][0]["note"], "a // in a string, and /* this */");
         let escaped = r#"{ "a": "quote \" then // not a comment", }"#;
-        assert_eq!(serde_json::from_str::<serde_json::Value>(&strip(escaped)).unwrap()["a"], "quote \" then // not a comment");
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&strip(escaped)).unwrap()["a"],
+            "quote \" then // not a comment"
+        );
         assert_eq!(strip(r#"[1, 2]"#), "[1, 2]", "a comma between values stays");
     }
 }

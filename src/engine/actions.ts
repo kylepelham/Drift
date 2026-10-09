@@ -1,728 +1,389 @@
-// Everything the UI asks the engine to do. Runs against the native engine; legacy shapes via adapt.
-import type { Permission, Session } from "./shapes"
-import { untrack } from "solid-js"
-import { produce, reconcile, type SetStoreFunction } from "solid-js/store"
-import { t } from "../state/i18n"
-import { handOverAutoAccept } from "../state/prefs"
-import { applyProviderCatalog } from "../state/provider-cache"
-import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events"
-import { adaptMessage, adaptPart, adaptPermission, adaptProvider, adaptQuestion, adaptSession, adaptTodos, type NativeMessageWithParts, type WorkspaceIndex } from "./native/adapt"
-import { EngineError, type Client, type PermissionGrant, type PermissionRule } from "./native/client"
-import type { components } from "./native/types"
+import { errorMessage, type ActionContext, type NoticeInput } from "./actions-context";
+import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
+import { EngineError, maxRequestBytes, type Client } from "./native/client";
+import { produce, type SetStoreFunction } from "solid-js/store";
+import { createProviderActions } from "./actions-providers";
+import { createSessionActions } from "./actions-sessions";
+import { formatAttachmentBytes } from "../attachments";
+import { createConfigActions } from "./actions-config";
+import { createAskActions } from "./actions-asks";
+import { sessionInWorkspace } from "./sessions";
+import { untrack } from "solid-js";
+import { t } from "../state/i18n";
 import {
-  captureRevisions,
-  compareMessages,
-  interruptStaleTools,
-  mergeTranscriptSnapshot,
-  putSession,
-  putTasks,
-  savedChoice,
-  type AgentInfo,
-  type CommandInfo,
-  type EngineState,
-  type McpServerConfig,
-  type McpServerStatus,
-  type MessageEntry,
-  type ModelRef,
-  type Notice,
-} from "./store"
+    captureRevisions,
+    compareMessages,
+    interruptStaleTools,
+    mergeTranscriptSnapshot,
+    putSession,
+    putTasks,
+    savedChoice,
+    type EngineState,
+    type MessageEntry,
+    type ModelRef,
+} from "./store";
 
-type NativeSession = components["schemas"]["Session"]
+// Engine actions own HTTP requests; message, part and catalog views still use the adapter.
+import type { Session, WorkspaceIndex } from "./sessions";
+import type { components } from "./native/types";
 
-export type PromptFile = {
-  filename?: string
-  mime: string
-  url: string
-  source?: { type: "file"; path: string; text: { value: string; start: number; end: number } }
-}
-/** `variant` null asks for the model's default level; left out, the session keeps its own (as for a level the model does not offer). */
-export type PromptOptions = { model: ModelRef | null; agent: string; variant?: string | null; files?: PromptFile[]; directory?: string }
-export type PromptSendResult = { ok: true } | { ok: false; error: string }
+type NativeMessageWithParts = components["schemas"]["MessageWithParts"];
+
+type PromptFile = {
+    filename?: string;
+    mime: string;
+    url: string;
+    source?: { type: "file"; path: string; text: { value: string; start: number; end: number } };
+};
+/**
+ * `variant` null asks for the model's default level; left out, the session keeps its own (as for a level the model does
+ * not offer).
+ */
+export type PromptOptions = {
+    model: ModelRef | null;
+    agent: string;
+    variant?: string | null;
+    files?: PromptFile[];
+    directory?: string;
+};
+export type PromptSendResult = { ok: true } | { ok: false; error: string };
 /** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
-export type ArchivePurge = "deleted" | "kept" | "failed"
+export type ArchivePurge = "deleted" | "kept" | "failed";
 /** `stop` refuses the call and ends the turn; `reject` refuses it and lets the turn go on. */
-export type PermissionResponse = "once" | "always" | "reject" | "stop"
-export type ProviderAuthResult = { ok: boolean; connected: boolean }
-export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string }
+export type PermissionResponse = "once" | "always" | "reject" | "stop";
+export type ProviderAuthResult = { ok: boolean; connected: boolean };
+export type SessionMoveResult = { ok: boolean; moved: string[]; error?: string };
 
-const pageSize = 100
-const sessionPageSize = 200
-/** Sign-in methods per provider, in the order the settings page lists them. */
-const authMethods: Record<string, { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" | "supergrok" }[]> = {
-  anthropic: [
-    { type: "oauth", label: "Claude Pro/Max", mode: "max" },
-    { type: "oauth", label: "Anthropic Console", mode: "console" },
-    { type: "api", label: "API key" },
-  ],
-  openai: [
-    { type: "oauth", label: "ChatGPT (Plus, Pro, Team)", mode: "chatgpt" },
-    { type: "api", label: "API key" },
-  ],
-  xai: [
-    { type: "oauth", label: "SuperGrok", mode: "supergrok" },
-    { type: "api", label: "API key" },
-  ],
-}
+const pageSize = 100;
+const sessionPageSize = 200;
 
 export function createActions(
-  requireClient: () => Client,
-  state: EngineState,
-  set: SetStoreFunction<EngineState>,
-  workspaces: () => WorkspaceIndex,
+    requireClient: () => Client,
+    state: EngineState,
+    set: SetStoreFunction<EngineState>,
+    workspaces: () => WorkspaceIndex,
 ) {
-  const transcriptRequests = new Map<string, Promise<boolean>>()
-  const reconciliations = new Map<string, Promise<void>>()
-  const reconciliationWanted = new Set<string>()
-  /** Submission ids of prompts whose fate is unknown, by session and exact prompt, until the engine answers for sure. */
-  const unsettled = new Map<string, string>()
-  let noticeSequence = 0
+    const transcriptRequests = new Map<string, Promise<boolean>>();
+    const reconciliations = new Map<string, Promise<void>>();
+    const reconciliationWanted = new Set<string>();
+    /**
+     * Submission ids of prompts whose fate is unknown, by session and exact prompt, until the engine answers for sure.
+     */
+    const unsettled = new Map<string, string>();
+    let noticeSequence = 0;
 
-  function notice(input: Omit<Notice, "id" | "created" | "duration"> & { id?: string; created?: number; duration?: number }) {
-    pushNotice(set, {
-      id: input.id ?? `notice-${Date.now()}-${noticeSequence++}`,
-      created: input.created ?? Date.now(),
-      duration: input.duration ?? 5000,
-      ...input,
-    })
-  }
-
-  function entries(messages: NativeMessageWithParts[], directory: string): MessageEntry[] {
-    return messages.map(({ parts, ...info }) => ({ info: adaptMessage(info, directory), parts: parts.map(adaptPart) }))
-  }
-
-  async function reloadSession(id: string) {
-    const captured = captureRevisions(state)
-    const existed = id in state.sessions
-    const messages = await requireClient().messages(id, { limit: pageSize })
-    const directory = state.sessions[id]?.directory ?? ""
-    const loaded = interruptStaleTools(entries(messages, directory).sort(compareMessages), state.liveTools, t("drift.message.interrupted"))
-    if (existed && !state.sessions[id]) return
-    set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], loaded, id, captured, state.revisions))
-    set("loaded", id, true)
-    set("cursors", id, messages.length === pageSize ? messages[0]!.id : null)
-    const [todos, tasks] = await Promise.all([requireClient().todos(id).catch(() => undefined), requireClient().tasks(id).catch(() => undefined)])
-    if (todos) set("todos", id, adaptTodos(todos))
-    if (tasks) putTasks(set, state, id, tasks)
-  }
-
-  // A gap during an existing reload needs a newer snapshot, not that reload's stale response.
-  function reconcileSession(id: string) {
-    reconciliationWanted.add(id)
-    const active = reconciliations.get(id)
-    if (active) return active
-    const request = (async () => {
-      await transcriptRequests.get(id)
-      while (reconciliationWanted.delete(id)) await reloadSession(id)
-    })()
-      .catch((cause) => {
-        notice({ id: `transcript-load-${id}`, title: "Transcript load failed", message: errorMessage(cause), variant: "error" })
-      })
-      .finally(() => {
-        reconciliations.delete(id)
-        reconciliationWanted.delete(id)
-      })
-    reconciliations.set(id, request)
-    return request
-  }
-
-  /** Stops one worker; the engine's `task.updated` reports how it ended. */
-  async function stopTask(taskId: string) {
-    try {
-      const task = await requireClient().stopTask(taskId)
-      putTasks(set, state, task.parentSessionId, [task])
-    } catch (cause) {
-      notice({ id: `task-stop-${taskId}`, title: t("drift.task.stopFailed"), message: errorMessage(cause), variant: "error" })
+    function notice(input: NoticeInput) {
+        pushNotice(set, {
+            id: input.id ?? `notice-${Date.now()}-${noticeSequence++}`,
+            created: input.created ?? Date.now(),
+            duration: input.duration ?? 5000,
+            ...input,
+        });
     }
-  }
 
-  function openSession(id: string) {
-    if (state.loaded[id]) return Promise.resolve(true)
-    const active = transcriptRequests.get(id)
-    if (active) return active
-    let request!: Promise<boolean>
-    request = reloadSession(id)
-      .then(() => true)
-      .catch((cause) => {
-        notice({ id: `transcript-load-${id}`, title: "Transcript load failed", message: errorMessage(cause), variant: "error" })
-        return false
-      })
-      .finally(() => {
-        if (transcriptRequests.get(id) === request) transcriptRequests.delete(id)
-      })
-    transcriptRequests.set(id, request)
-    return request
-  }
+    const context: ActionContext = { requireClient, state, set, workspaces, notice };
 
-  async function loadOlder(id: string) {
-    const cursor = state.cursors[id]
-    if (!cursor) return false
-    const older = await requireClient().messages(id, { before: cursor, limit: pageSize })
-    const directory = state.sessions[id]?.directory ?? ""
-    const sorted = interruptStaleTools(entries(older, directory).sort(compareMessages), state.liveTools, t("drift.message.interrupted"))
-    set(
-      produce((draft) => {
-        const existing = new Set((draft.transcripts[id] ?? []).map((entry) => entry.info.id))
-        draft.transcripts[id] = [...sorted.filter((entry) => !existing.has(entry.info.id)), ...(draft.transcripts[id] ?? [])]
-      }),
-    )
-    set("cursors", id, older.length === pageSize ? older[0]!.id : null)
-    return sorted.length > 0
-  }
-
-  /** Every page of a listing; a truncated snapshot would purge sessions it never saw. */
-  async function allPages(params: { workspace?: string; archived?: boolean }) {
-    const all: Session[] = []
-    const running: string[] = []
-    let before: string | undefined
-    for (;;) {
-      const page = await requireClient().sessions({ ...params, before, limit: sessionPageSize })
-      all.push(...page.map((s) => adaptSession(s, workspaces())))
-      running.push(...page.filter((s) => s.running).map((s) => s.id))
-      if (page.length < sessionPageSize) return { sessions: all, running }
-      before = page[page.length - 1]!.id
+    function entries(messages: NativeMessageWithParts[]): MessageEntry[] {
+        return messages.map(({ parts, ...info }) => ({
+            info,
+            parts,
+        }));
     }
-  }
 
-  /** The engine says which sessions have a turn in flight; everything else listed is idle. */
-  function reconcileStatus(sessions: Session[], running: Set<string>, captured: Record<string, number>) {
-    const statuses = Object.fromEntries(sessions.map((s) => [s.id, running.has(s.id) ? { type: "busy" as const } : { type: "idle" as const }]))
-    applyStatusSnapshot(set, { sessions, statuses, captured })
-  }
+    async function reloadSession(id: string) {
+        const captured = captureRevisions(state);
+        const existed = id in state.sessions;
+        const messages = await requireClient().messages(id, { limit: pageSize });
+        const loaded = interruptStaleTools(
+            entries(messages).sort(compareMessages),
+            state.liveTools,
+            t("drift.message.interrupted"),
+        );
 
-  // Loaders snapshot state untracked: effects call them, and they write what they read.
-  async function loadSessions(directory: string) {
-    const { workspace, captured, epoch } = untrack(() => ({ workspace: workspaces().id(directory), captured: captureRevisions(state), epoch: state.sessionSnapshotEpoch }))
-    if (!workspace) return
-    const { sessions, running } = await allPages({ workspace })
-    if (state.sessionSnapshotEpoch !== epoch) return
-    applySessionSnapshot(set, { sessions, captured, scope: { directory } })
-    reconcileStatus(sessions, new Set(running), captured)
-  }
+        if (existed && !state.sessions[id]) return;
 
-  async function loadAllSessions() {
-    const captured = untrack(() => captureRevisions(state))
-    const [live, archived] = await Promise.all([allPages({}), allPages({ archived: true })])
-    const sessions = [...live.sessions, ...archived.sessions]
-    applySessionSnapshot(set, { sessions, captured })
-    reconcileStatus(sessions, new Set(live.running), captured)
-    set("sessionSnapshotAll", true)
-  }
+        set("transcripts", id, mergeTranscriptSnapshot(state.transcripts[id], loaded, id, captured, state.revisions));
+        set("loaded", id, true);
+        set("cursors", id, messages.length === pageSize ? messages[0]!.id : null);
 
-  async function newSession(): Promise<(Session & { discard: () => Promise<void> }) | undefined> {
-    const workspaceId = workspaces().id(state.directory)
-    if (!workspaceId) return undefined
-    const created = await requireClient().createSession({ workspaceId })
-    const session = adaptSession(created, workspaces())
-    // A fresh session is known empty; mark it loaded so the first turn's events are not dropped.
-    set(
-      produce((draft) => {
-        draft.transcripts[session.id] ??= []
-        draft.loaded[session.id] = true
-        draft.cursors[session.id] ??= null
-      }),
-    )
-    putSession(set, session)
-    return { ...session, discard: () => purgeSession(session.id).then(() => undefined) }
-  }
-
-  async function send(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
-    set("errors", id, undefined!)
-    const parts = [
-      ...(text.trim() ? [{ type: "text" as const, text }] : []),
-      ...(options.files ?? []).map((file) => ({ type: "file" as const, mime: file.mime, name: file.filename ?? "file", url: file.url })),
-    ]
-    if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty")
-    // Named only when they change what the session runs as next; an unchanged follow-up steers into the running turn.
-    const saved = savedChoice(state, id)
-    const prompt = {
-      parts,
-      model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
-      ...(options.variant !== undefined && options.variant !== (saved.variant ?? null) ? { variant: options.variant } : {}),
-      ...(options.agent && options.agent !== saved.agent ? { agent: options.agent } : {}),
+        const [todos, tasks] = await Promise.all([
+            requireClient()
+                .todos(id)
+                .catch(() => undefined),
+            requireClient()
+                .tasks(id)
+                .catch(() => undefined),
+        ]);
+        if (todos) set("todos", id, todos);
+        if (tasks) putTasks(set, state, id, tasks);
     }
-    // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
-    const key = `${id}\n${JSON.stringify(prompt)}`
-    const submission = unsettled.get(key) ?? submissionId()
-    unsettled.set(key, submission)
-    try {
-      const receipt = await requireClient().submit(id, { submissionId: submission, ...prompt })
-      unsettled.delete(key)
-      putSession(set, adaptSession(receipt.session, workspaces()))
-      return { ok: true }
-    } catch (cause) {
-      if (definite(cause)) unsettled.delete(key)
-      return fail(id, `Prompt failed: ${errorMessage(cause)}`)
+
+    // A gap during an existing reload needs a newer snapshot, not that reload's stale response.
+    function reconcileSession(id: string) {
+        reconciliationWanted.add(id);
+
+        const active = reconciliations.get(id);
+        if (active) return active;
+
+        const request = (async () => {
+            await transcriptRequests.get(id);
+            while (reconciliationWanted.delete(id)) await reloadSession(id);
+        })()
+            .catch((cause) => {
+                notice({
+                    id: `transcript-load-${id}`,
+                    title: "Transcript load failed",
+                    message: errorMessage(cause),
+                    variant: "error",
+                });
+            })
+            .finally(() => {
+                reconciliations.delete(id);
+                reconciliationWanted.delete(id);
+            });
+        reconciliations.set(id, request);
+
+        return request;
     }
-  }
 
-  function fail(id: string, error: string): PromptSendResult {
-    set("errors", id, error)
-    return { ok: false, error }
-  }
-
-  async function abort(id: string) {
-    await requireClient().abort(id)
-  }
-
-  async function rename(id: string, title: string) {
-    const updated = await requireClient().updateSession(id, { title })
-    putSession(set, adaptSession(updated, workspaces()))
-  }
-
-  /** Archiving stops whatever the session is running, in the engine, before anything else hides it. */
-  async function setArchived(id: string, archived: boolean) {
-    const updated = await requireClient().updateSession(id, { archived })
-    putSession(set, adaptSession(updated, workspaces()))
-  }
-
-  /// Permanent deletion; true only once the engine confirms the row is gone.
-  async function purgeSession(id: string) {
-    try {
-      await requireClient().deleteSession(id)
-      set(produce((draft) => purge(draft, id)))
-      return true
-    } catch (cause) {
-      if (cause instanceof EngineError && cause.status === 404) return true
-      return false
-    }
-  }
-
-  /** The archive purge: the engine deletes only what is still archived, so a thread restored meanwhile is `kept`. */
-  async function purgeArchivedSession(id: string): Promise<ArchivePurge> {
-    try {
-      await requireClient().purgeArchivedSession(id)
-      set(produce((draft) => purge(draft, id)))
-      return "deleted"
-    } catch (cause) {
-      if (cause instanceof EngineError && cause.status === 404) return "deleted"
-      if (cause instanceof EngineError && cause.status === 409) return "kept"
-      return "failed"
-    }
-  }
-
-  /** A removed workspace's purge: true once the engine holds none of its conversations, so its record can go. */
-  async function removeAllSessions(workspaceId: string, eligible: () => boolean) {
-    if (!eligible()) return false
-    try {
-      await requireClient().purgeWorkspace(workspaceId)
-      return true
-    } catch (cause) {
-      // Unknown to the engine means nothing of it is left; in use or busy waits for the next sweep.
-      return cause instanceof EngineError && cause.status === 404
-    }
-  }
-
-  async function refreshProviders() {
-    const providers = await requireClient().providers().catch(() => undefined)
-    if (!providers) return false
-    applyProviderCatalog(set, {
-      all: providers.map(adaptProvider),
-      connected: providers.filter((p) => p.connected).map((p) => p.id),
-      default: {},
-    })
-    return true
-  }
-
-  /// Pending asks of both kinds; a single fetch each, applied together so the UI never sees a gap.
-  async function refreshPermissions(_directories: string[] = []) {
-    const [permissions, questions] = await Promise.all([requireClient().permissions(), requireClient().questions()])
-    set(
-      produce((draft) => {
-        draft.permissions = {}
-        draft.questions = {}
-        for (const request of permissions) {
-          const directory = draft.sessions[request.sessionId]?.directory ?? ""
-          const permission: Permission = adaptPermission(request, directory)
-          ;(draft.permissions[request.sessionId] ??= []).push(permission)
+    /** Stops one worker; the engine's `task.updated` reports how it ended. */
+    async function stopTask(taskId: string) {
+        try {
+            const task = await requireClient().stopTask(taskId);
+            putTasks(set, state, task.parentSessionId, [task]);
+        } catch (cause) {
+            notice({
+                id: `task-stop-${taskId}`,
+                title: t("drift.task.stopFailed"),
+                message: errorMessage(cause),
+                variant: "error",
+            });
         }
-        for (const request of questions) (draft.questions[request.sessionId] ??= []).push(adaptQuestion(request))
-      }),
-    )
-  }
-
-  async function answerQuestion(sessionID: string, requestID: string, answers: string[][] | null) {
-    try {
-      if (answers) await requireClient().answerQuestion(requestID, answers)
-      else await requireClient().rejectQuestion(requestID)
-    } catch (cause) {
-      if (!(cause instanceof EngineError && cause.status === 404)) throw cause
     }
-    set(produce((draft) => void (draft.questions[sessionID] = (draft.questions[sessionID] ?? []).filter((q) => q.id !== requestID))))
-  }
 
-  async function replyPermission(sessionID: string, permissionID: string, response: PermissionResponse) {
-    try {
-      await requireClient().replyPermission(permissionID, { reply: response === "reject" ? "deny" : response })
-    } catch (cause) {
-      if (cause instanceof EngineError && cause.status === 404) {
-        set(produce((draft) => void (draft.permissions[sessionID] = (draft.permissions[sessionID] ?? []).filter((p) => p.id !== permissionID))))
-        return
-      }
-      throw cause
+    function openSession(id: string) {
+        if (state.loaded[id]) return Promise.resolve(true);
+
+        const active = transcriptRequests.get(id);
+        if (active) return active;
+
+        let request!: Promise<boolean>;
+        request = reloadSession(id)
+            .then(() => true)
+            .catch((cause) => {
+                notice({
+                    id: `transcript-load-${id}`,
+                    title: "Transcript load failed",
+                    message: errorMessage(cause),
+                    variant: "error",
+                });
+                return false;
+            })
+            .finally(() => {
+                if (transcriptRequests.get(id) === request) transcriptRequests.delete(id);
+            });
+        transcriptRequests.set(id, request);
+
+        return request;
     }
-  }
 
-  async function setProviderKey(id: string, key: string): Promise<ProviderAuthResult> {
-    await requireClient().setProviderKey(id, key)
-    await refreshProviders()
-    return { ok: true, connected: state.connected.includes(id) }
-  }
+    async function loadOlder(id: string) {
+        const cursor = state.cursors[id];
+        if (!cursor) return false;
 
-  async function disconnectProvider(id: string): Promise<ProviderAuthResult> {
-    await requireClient().removeProviderCredentials(id)
-    await refreshProviders()
-    return { ok: true, connected: state.connected.includes(id) }
-  }
+        const older = await requireClient().messages(id, { before: cursor, limit: pageSize });
+        const sorted = interruptStaleTools(
+            entries(older).sort(compareMessages),
+            state.liveTools,
+            t("drift.message.interrupted"),
+        );
+        set(
+            produce((draft) => {
+                const existing = new Set((draft.transcripts[id] ?? []).map((entry) => entry.info.id));
+                draft.transcripts[id] = [
+                    ...sorted.filter((entry) => !existing.has(entry.info.id)),
+                    ...(draft.transcripts[id] ?? []),
+                ];
+            }),
+        );
+        set("cursors", id, older.length === pageSize ? older[0]!.id : null);
 
-  async function providerAuthMethods(): Promise<Record<string, { type: "oauth" | "api"; label: string }[]>> {
-    return Object.fromEntries(Object.entries(authMethods).map(([id, methods]) => [id, methods.map(({ type, label }) => ({ type, label }))]))
-  }
-
-  // The state from startOAuth, needed by the callback for flows the engine completes itself.
-  const oauthStates = new Map<string, string>()
-
-  async function providerAuthorize(id: string, method: number) {
-    const mode = authMethods[id]?.[method]?.mode
-    if (!mode) throw new Error("this method has no sign-in flow")
-    const started = await requireClient().startOAuth(id, mode)
-    oauthStates.set(id, started.state)
-    // No instructions text: the settings panel words each step in the user's language, and shows a device code itself.
-    return { url: started.url, method: (started.method === "auto" ? "auto" : "code") as "code" | "auto", instructions: "", code: started.userCode ?? undefined }
-  }
-
-  async function providerCallback(id: string, _method: number, code?: string): Promise<ProviderAuthResult> {
-    const oauthState = oauthStates.get(id)
-    if (!code && !oauthState) return { ok: false, connected: false }
-    try {
-      await requireClient().finishOAuth(id, code ?? "", oauthState)
-    } catch (cause) {
-      notice({ id: `oauth-${id}`, title: "Sign-in failed", message: errorMessage(cause), variant: "error", duration: 10_000 })
-      return { ok: false, connected: false }
-    } finally {
-      oauthStates.delete(id)
+        return sorted.length > 0;
     }
-    await refreshProviders()
-    return { ok: true, connected: state.connected.includes(id) }
-  }
 
-  /** Copies finished history into a new conversation, through `atMessage` or else everything finished. The copy keeps compaction markers, so it sees the same context. */
-  async function fork(id: string, atMessage?: string) {
-    try {
-      const session = adaptSession(await requireClient().forkSession(id, atMessage), workspaces())
-      putSession(set, session)
-      return session
-    } catch (cause) {
-      notice({ id: `fork-${id}`, title: "Couldn't fork", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    /** Every page of a listing; a truncated snapshot would purge sessions it never saw. */
+    async function allPages(params: { workspace?: string; archived?: boolean }) {
+        const all: Session[] = [];
+        const running: string[] = [];
+        let before: string | undefined;
+        for (;;) {
+            const page = await requireClient().sessions({ ...params, before, limit: sessionPageSize });
+            all.push(...page.map((s) => sessionInWorkspace(s, workspaces())));
+            running.push(...page.filter((s) => s.running).map((s) => s.id));
+            if (page.length < sessionPageSize) return { sessions: all, running };
+            before = page[page.length - 1]!.id;
+        }
     }
-  }
 
-  /** `/compact`: the engine summarises now with the compaction agent's model, so the composer's model does not apply. */
-  async function summarize(id: string, _model?: unknown) {
-    try {
-      await requireClient().compactSession(id)
-    } catch (cause) {
-      notice({ id: `compact-${id}`, title: "Couldn't compact", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    /** The engine says which sessions have a turn in flight; everything else listed is idle. */
+    function reconcileStatus(sessions: Session[], running: Set<string>, captured: Record<string, number>) {
+        const statuses = Object.fromEntries(
+            sessions.map((s) => [s.id, running.has(s.id) ? { type: "busy" as const } : { type: "idle" as const }]),
+        );
+        applyStatusSnapshot(set, { sessions, statuses, captured });
     }
-  }
 
-  /** Undoes back to a prompt, files included; the engine hides it and everything after it. */
-  async function revert(id: string, messageID: string) {
-    return applyUndo(id, () => requireClient().revertSession(id, messageID))
-  }
+    // Loaders snapshot state untracked: effects call them, and they write what they read.
+    async function loadSessions(directory: string) {
+        const { workspace, captured, epoch } = untrack(() => ({
+            workspace: workspaces().id(directory),
+            captured: captureRevisions(state),
+            epoch: state.sessionSnapshotEpoch,
+        }));
+        if (!workspace) return;
 
-  /** Redoes everything an undo hid, files included. */
-  async function unrevert(id: string) {
-    return applyUndo(id, () => requireClient().unrevertSession(id))
-  }
+        const { sessions, running } = await allPages({ workspace });
 
-  async function applyUndo(id: string, call: () => Promise<{ session: NativeSession; kept: string[]; unattributed: string[]; unrecorded: string[] }>) {
-    try {
-      const { session, kept, unattributed, unrecorded } = await call()
-      putSession(set, adaptSession(session, workspaces()))
-      // Files the user changed after the session did are never overwritten; say which.
-      if (kept.length) notice({ id: `revert-kept-${id}`, title: "Kept your changes", message: `Left as you changed them: ${kept.join(", ")}`, variant: "info", duration: 10_000 })
-      // A command's run shows what changed, not who changed it, so those files are never undone.
-      if (unattributed.length) notice({ id: `revert-unattributed-${id}`, title: "Left files changed during commands", message: `Changed while a command ran, so not undone: ${unattributed.join(", ")}`, variant: "info", duration: 10_000 })
-      // Imported from opencode without the versions undo needs (older edits, or files changed since).
-      if (unrecorded.length) notice({ id: `revert-unrecorded-${id}`, title: "Some imported edits were not undone", message: `No undo record, left as they are: ${unrecorded.join(", ")}`, variant: "info", duration: 10_000 })
-      return true
-    } catch (cause) {
-      notice({ id: `revert-${id}`, title: "Couldn't undo", message: errorMessage(cause), variant: "error", duration: 10_000 })
-      return false
+        if (state.sessionSnapshotEpoch !== epoch) return;
+
+        applySessionSnapshot(set, { sessions, captured, scope: { directory } });
+        reconcileStatus(sessions, new Set(running), captured);
     }
-  }
 
-  /** Moves a turn that is waiting to retry onto `model` at `variant` (the model's default when unset); it retries at once. */
-  async function switchRetryModel(id: string, _messageID: string, model: ModelRef, variant?: string): Promise<PromptSendResult> {
-    try {
-      await requireClient().switchRetryModel(id, { provider: model.providerID, model: model.modelID }, variant ?? null)
-      return { ok: true }
-    } catch (cause) {
-      return { ok: false, error: errorMessage(cause) }
+    async function loadAllSessions() {
+        const captured = untrack(() => captureRevisions(state));
+        const [live, archived] = await Promise.all([allPages({}), allPages({ archived: true })]);
+        const sessions = [...live.sessions, ...archived.sessions];
+        applySessionSnapshot(set, { sessions, captured });
+        reconcileStatus(sessions, new Set(live.running), captured);
+        set("sessionSnapshotAll", true);
     }
-  }
 
-  async function engineSettings() {
-    return requireClient().settings()
-  }
+    async function newSession(): Promise<(Session & { discard: () => Promise<void> }) | undefined> {
+        const workspaceId = workspaces().id(state.directory);
+        if (!workspaceId) return undefined;
 
-  async function setAutoCompact(autoCompact: boolean) {
-    return requireClient().putSettings({ autoCompact })
-  }
+        const created = await requireClient().createSession({ workspaceId });
+        const session = sessionInWorkspace(created, workspaces());
+        // A fresh session is known empty; mark it loaded so the first turn's events are not dropped.
+        set(
+            produce((draft) => {
+                draft.transcripts[session.id] ??= [];
+                draft.loaded[session.id] = true;
+                draft.cursors[session.id] ??= null;
+            }),
+        );
+        putSession(set, session);
 
-  /** The engine answers this session's asks, and its subagents', except secrets and anything outside the workspace. */
-  async function setAutoAccept(id: string, autoAccept: boolean) {
-    const updated = await requireClient().updateSession(id, { autoAccept })
-    putSession(set, adaptSession(updated, workspaces()))
-  }
-
-  async function setAutoAcceptAll(autoAcceptAll: boolean) {
-    const settings = await requireClient().putSettings({ autoAcceptAll })
-    set("autoAcceptAll", !!settings.autoAcceptAll)
-  }
-
-  /** Settings the UI shows from the engine; auto-accept the webview once kept is handed over the first time. */
-  async function refreshEngineSettings() {
-    const settings = await requireClient().settings()
-    set("autoAcceptAll", !!settings.autoAcceptAll)
-    await handOverAutoAccept(async (kept) => {
-      if (kept.all && !settings.autoAcceptAll) await setAutoAcceptAll(true)
-      const left: string[] = []
-      for (const id of kept.sessions) {
-        // A session the engine no longer has is let go; any other failure is offered again next time.
-        const settled = await setAutoAccept(id, true).then(() => true, (cause) => cause instanceof EngineError && cause.status === 404)
-        if (!settled) left.push(id)
-      }
-      return { all: false, sessions: left }
-    })
-  }
-
-  /** Moves a session with its subagents; the engine refuses while any of them is running. */
-  async function moveSession(id: string, destination: string): Promise<SessionMoveResult> {
-    const workspaceId = workspaces().id(destination)
-    if (!workspaceId) return { ok: false, moved: [], error: "That workspace is not registered with the engine" }
-    try {
-      return { ok: true, moved: (await requireClient().moveSession(id, workspaceId)).moved }
-    } catch (cause) {
-      return { ok: false, moved: [], error: errorMessage(cause) }
+        return { ...session, discard: () => sessions.purgeSession(session.id).then(() => undefined) };
     }
-  }
 
-  /** Sessions belong to the workspace, not its path, so re-pointing a folder moves nothing; a running turn must finish first. */
-  async function moveWorkspaceSessions(from: string, _to: string): Promise<SessionMoveResult> {
-    const workspace = workspaces().id(from)
-    if (!workspace) return { ok: true, moved: [] }
-    try {
-      const { running } = await allPages({ workspace })
-      if (running.length) return { ok: false, moved: [], error: "Stop the running threads in this workspace first; they keep the folder they started in." }
-      return { ok: true, moved: [] }
-    } catch (cause) {
-      return { ok: false, moved: [], error: errorMessage(cause) }
+    async function send(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
+        set("errors", id, undefined!);
+
+        const parts = [
+            ...(text.trim() ? [{ type: "text" as const, text }] : []),
+            ...(options.files ?? []).map((file) => ({
+                type: "file" as const,
+                mime: file.mime,
+                name: file.filename ?? "file",
+                url: file.url,
+            })),
+        ];
+        if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty");
+
+        // Named only when they change what runs next; an unchanged follow-up steers into the running turn.
+        const saved = savedChoice(state, id);
+        const prompt = {
+            parts,
+            model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
+            ...(options.variant !== undefined && options.variant !== (saved.variant ?? null)
+                ? { variant: options.variant }
+                : {}),
+            ...(options.agent && options.agent !== saved.agent ? { agent: options.agent } : {}),
+        };
+        // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
+        const key = `${id}\n${JSON.stringify(prompt)}`;
+        // Attachments are base64 text, so the request's length in characters is its size in bytes.
+        if (key.length > maxRequestBytes)
+            return fail(
+                id,
+                t("drift.prompt.tooLarge", {
+                    size: formatAttachmentBytes(key.length),
+                    limit: formatAttachmentBytes(maxRequestBytes),
+                }),
+            );
+
+        const submission = unsettled.get(key) ?? submissionId();
+        unsettled.set(key, submission);
+        try {
+            const receipt = await requireClient().submit(id, { submissionId: submission, ...prompt });
+            unsettled.delete(key);
+            putSession(set, sessionInWorkspace(receipt.session, workspaces()));
+            return { ok: true };
+        } catch (cause) {
+            if (definite(cause)) unsettled.delete(key);
+            return fail(id, `Prompt failed: ${errorMessage(cause)}`);
+        }
     }
-  }
 
-  /** `/spawn <instruction>`: a new linked thread that starts at once with this conversation and the instruction. */
-  async function spawn(id: string, instruction: string) {
-    try {
-      const session = adaptSession(await requireClient().spawnThread(id, instruction), workspaces())
-      putSession(set, session)
-      return session
-    } catch (cause) {
-      notice({ id: `spawn-${id}`, title: "Couldn't spawn the thread", message: errorMessage(cause), variant: "error", duration: 10_000 })
+    function fail(id: string, error: string): PromptSendResult {
+        set("errors", id, error);
+        return { ok: false, error };
     }
-  }
 
-  /** Paths in the current workspace for an @ mention; the engine ranks them and applies ignore rules. */
-  async function findFiles(text: string): Promise<string[]> {
-    const workspace = workspaces().id(state.directory)
-    return workspace ? requireClient().findFiles(workspace, text) : []
-  }
-
-  /** Agents and commands come from the workspace's drift.json and .drift/ directory. */
-  async function refreshAgents() {
-    const workspace = workspaces().id(state.directory)
-    if (!workspace) return
-    const config = await requireClient().workspaceConfig(workspace)
-    const agents: AgentInfo[] = config.agents.map((agent) => ({
-      name: agent.name,
-      description: agent.description,
-      mode: agent.kind === "subagent" || agent.kind === "all" ? agent.kind : "primary",
-      hidden: agent.kind === "action" || !!agent.hidden,
-      builtIn: agent.builtin,
-      tools: agent.tools ?? [],
-      permissions: agent.permissions ?? [],
-      ...(agent.variant ? { variant: agent.variant } : {}),
-      ...(agent.problem ? { problem: agent.problem } : {}),
-      ...(agent.prompt ? { prompt: agent.prompt } : {}),
-      ...(agent.steps ? { steps: agent.steps } : {}),
-      ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),
-    }))
-    // A skill's documented usage and choices fill the slash menu; an MCP prompt's arguments become its usage, filled word by word.
-    const commands: CommandInfo[] = config.commands.map((command) => {
-      const usage = command.usage ?? (command.arguments?.length ? command.arguments.map((argument) => `<${argument}>`).join(" ") : undefined)
-      return {
-        name: command.name,
-        description: command.description,
-        template: command.template,
-        ...(usage ? { usage } : {}),
-        ...(command.subcommands?.length ? { subcommands: command.subcommands.map((choice) => ({ name: choice.name, description: choice.description, ...(choice.usage ? { usage: choice.usage } : {}) })) } : {}),
-      }
-    })
-    // A config file that cannot be read stops every turn here until it is fixed; say so before the first send.
-    for (const problem of config.problems ?? []) notice({ id: `config-${workspace}`, title: "Couldn't read the workspace config", message: problem, variant: "error", duration: 15_000 })
-    for (const warning of config.warnings ?? []) notice({ id: `config-warning-${workspace}-${warning}`, title: "Part of the workspace config is ignored", message: warning, variant: "warning", duration: 10_000 })
-    // A broken agent refuses only its own turns; name it so the first refusal is no surprise.
-    for (const agent of agents.filter((agent) => agent.problem)) notice({ id: `agent-${workspace}-${agent.name}`, title: `The ${agent.name} agent can't run`, message: agent.problem!, variant: "warning", duration: 15_000 })
-    set("agents", agents)
-    set("commands", commands)
-  }
-
-  async function runCommand(id: string, command: string, args: string) {
-    set("errors", id, undefined!)
-    try {
-      await requireClient().runCommand(id, command, args)
-    } catch (cause) {
-      fail(id, `Command failed: ${errorMessage(cause)}`)
+    async function abort(id: string) {
+        await requireClient().abort(id);
     }
-  }
 
-  async function refreshMcp() {
-    const servers = await requireClient().mcpServers()
-    set("mcpServers", reconcile(Object.fromEntries(servers.map((server) => [server.name, server]))))
-  }
+    /** Paths in the current workspace for an @ mention; the engine ranks them and applies ignore rules. */
+    async function findFiles(text: string): Promise<string[]> {
+        const workspace = workspaces().id(state.directory);
+        return workspace ? requireClient().findFiles(workspace, text) : [];
+    }
 
-  /** Runs one MCP change on the engine and records the state it reports back. */
-  async function mcpChange(change: () => Promise<McpServerStatus>) {
-    const server = await change()
-    set("mcpServers", server.name, reconcile(server))
-    return server
-  }
+    async function runCommand(id: string, command: string, args: string) {
+        set("errors", id, undefined!);
+        try {
+            await requireClient().runCommand(id, command, args);
+        } catch (cause) {
+            fail(id, `Command failed: ${errorMessage(cause)}`);
+        }
+    }
 
-  /** A workspace folder's "always" grants; a folder the engine has no workspace for has none. */
-  async function workspaceGrants(directory: string): Promise<PermissionGrant[]> {
-    const id = workspaces().id(directory)
-    return id ? requireClient().permissionGrants(id) : []
-  }
+    const sessions = createSessionActions(context, allPages);
 
-  /** Takes back one grant, or every grant of the folder's workspace when `grant` is left out. */
-  async function revokeGrant(directory: string, grant?: PermissionGrant) {
-    const id = workspaces().id(directory)
-    if (!id) return
-    await (grant ? requireClient().revokePermissionGrant(id, grant) : requireClient().revokePermissionGrants(id))
-  }
-
-  /** `create`: adding a server, which the engine refuses rather than replace one of the same name; left out, `readOnlyTrusted` is the engine's default. */
-  function mcpSave(name: string, config: McpServerConfig, options: { create?: boolean; readOnlyTrusted?: boolean; directory?: string } = {}) {
-    const { directory, ...rest } = options
-    return mcpChange(() => requireClient().saveMcpServer(name, config, { ...rest, workspace: workspaceOf(directory) }))
-  }
-
-  /** The engine's id for the folder a stdio server should connect in, if it knows the folder. */
-  function workspaceOf(directory?: string) {
-    return directory ? workspaces().id(directory) : undefined
-  }
-
-  /** The engine renames in one step and refuses a name already taken, so no other server is ever replaced. */
-  async function mcpRename(from: string, to: string, directory?: string) {
-    const renamed = await requireClient().renameMcpServer(from, to, workspaceOf(directory))
-    set("mcpServers", produce((servers) => void delete servers[from]))
-    set("mcpServers", renamed.name, reconcile(renamed))
-    return renamed
-  }
-
-  async function mcpRemove(name: string) {
-    await requireClient().removeMcpServer(name)
-    set("mcpServers", produce((servers) => void delete servers[name]))
-  }
-
-  return {
-    openSession,
-    reconcileSession,
-    loadOlder,
-    loadSessions,
-    loadAllSessions,
-    newSession,
-    send,
-    abort,
-    stopTask,
-    rename,
-    setArchived,
-    purgeSession,
-    purgeArchivedSession,
-    refreshProviders,
-    reloadProviders: refreshProviders,
-    refreshPermissions,
-    replyPermission,
-    answerQuestion,
-    setProviderKey,
-    disconnectProvider,
-    providerAuthMethods,
-    providerAuthorize,
-    providerCallback,
-    notice,
-    refreshAgents,
-    findFiles,
-    steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
-    fork,
-    spawn,
-    moveSession,
-    moveWorkspaceSessions,
-    removeAllSessions,
-    switchRetryModel,
-    summarize,
-    engineSettings,
-    setAutoCompact,
-    setAutoAccept,
-    setAutoAcceptAll,
-    refreshEngineSettings,
-    basePrompts: () => requireClient().basePrompts(),
-    saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
-    resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),
-    permissionRules: () => requireClient().permissionRules(),
-    savePermissionRules: (rules: PermissionRule[]) => requireClient().savePermissionRules(rules),
-    workspaceGrants,
-    revokeGrant,
-    runCommand,
-    revert,
-    unrevert,
-    refreshMcp,
-    mcpSave,
-    mcpRename,
-    mcpRemove,
-    mcpSetEnabled: (name: string, enabled: boolean, directory?: string) => mcpChange(() => requireClient().setMcpServerEnabled(name, enabled, workspaceOf(directory))),
-    mcpConnect: (name: string, directory?: string) => mcpChange(() => requireClient().connectMcpServer(name, workspaceOf(directory))),
-    mcpDisconnect: (name: string) => mcpChange(() => requireClient().disconnectMcpServer(name)),
-    /** The page to open in the browser; the server connects by itself once the user comes back. */
-    mcpSignIn: async (name: string) => (await requireClient().signInMcpServer(name)).url,
-    mcpSignOut: (name: string) => mcpChange(() => requireClient().signOutMcpServer(name)),
-  }
+    return {
+        ...sessions,
+        ...createAskActions(context),
+        ...createProviderActions(context),
+        ...createConfigActions(context),
+        openSession,
+        reconcileSession,
+        loadOlder,
+        loadSessions,
+        loadAllSessions,
+        newSession,
+        send,
+        abort,
+        stopTask,
+        notice,
+        findFiles,
+        steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
+        runCommand,
+    };
 }
 
-export type EngineActions = ReturnType<typeof createActions>
+export type EngineActions = ReturnType<typeof createActions>;
 
 /** The engine answered and refused: the prompt was not admitted, so a resend may be a new submission. */
 function definite(cause: unknown) {
-  return cause instanceof EngineError && cause.status >= 400 && cause.status < 500
+    return cause instanceof EngineError && cause.status >= 400 && cause.status < 500;
 }
 
 /** A retried send with the same id gets the original receipt instead of a second turn. */
 function submissionId() {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`
-}
-
-function purge(draft: EngineState, id: string) {
-  delete draft.sessions[id]
-  delete draft.transcripts[id]
-  delete draft.loaded[id]
-  delete draft.permissions[id]
-  delete draft.status[id]
-  delete draft.errors[id]
-  delete draft.cursors[id]
-  delete draft.tasks[id]
-}
-
-export function errorMessage(cause: unknown) {
-  if (cause instanceof EngineError) return cause.message
-  if (cause instanceof Error) return cause.message
-  return String(cause)
+    return typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `sub_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }

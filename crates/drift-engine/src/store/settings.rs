@@ -1,8 +1,8 @@
 //! Engine-wide preferences, one JSON value per key.
 
-use rusqlite::{params, OptionalExtension};
-use serde::de::DeserializeOwned;
+use rusqlite::{OptionalExtension, params};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use super::Store;
 
@@ -14,18 +14,25 @@ impl Store {
             .prepare_cached("SELECT value_json FROM setting WHERE key = ?1")?
             .query_row([key], |row| row.get(0))
             .optional()?;
+
         Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
     }
 
     pub fn set_setting<T: Serialize>(&self, key: &str, value: &T) -> rusqlite::Result<()> {
         self.lock()
-            .prepare_cached("INSERT INTO setting(key, value_json) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value_json = ?2")?
+            .prepare_cached(
+                "INSERT INTO setting(key, value_json) VALUES(?1, ?2) ON CONFLICT(key) DO UPDATE SET value_json = ?2",
+            )?
             .execute(params![key, serde_json::to_string(value).unwrap()])?;
+
         Ok(())
     }
 
     pub fn remove_setting(&self, key: &str) -> rusqlite::Result<()> {
-        self.lock().prepare_cached("DELETE FROM setting WHERE key = ?1")?.execute([key])?;
+        self.lock()
+            .prepare_cached("DELETE FROM setting WHERE key = ?1")?
+            .execute([key])?;
+
         Ok(())
     }
 }

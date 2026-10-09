@@ -1,480 +1,392 @@
-import type { Event, Message, Part, Permission, Session, SessionStatus } from "./shapes"
-import type { SetStoreFunction } from "solid-js/store"
-import { produce } from "solid-js/store"
-import { clearQuestionDraft } from "../state/question-drafts"
-import { errorText } from "./error"
+import { clearQuestionDraft } from "../state/question-drafts";
+import { sessionInWorkspace } from "./sessions";
+import { questionForCard } from "./questions";
+import { produce } from "solid-js/store";
 import {
-  bumpAskRevision,
-  bumpRevision,
-  messageRevisionKey,
-  normalizeDir,
-  pruneSessionRevisions,
-  putSession,
-  recordLink,
-  removedPartKey,
-  revisionAdvanced,
-  sessionRevisionKey,
-  spawnLink,
-  statusRevisionKey,
-  type EngineState,
-  type ModelRef,
-  type Notice,
-  type QuestionRequest,
-} from "./store"
+    bumpRevision,
+    messageRevisionKey,
+    normalizeDir,
+    pruneSessionRevisions,
+    putSession,
+    recordLink,
+    revisionAdvanced,
+    sessionRevisionKey,
+    spawnLink,
+    statusRevisionKey,
+    type EngineState,
+    type ModelRef,
+    type Notice,
+    type Permission,
+    type QuestionRequest,
+    type SessionStatus,
+} from "./store";
 
-type SetEngineState = SetStoreFunction<EngineState>
+import type { Session, WorkspaceIndex } from "./sessions";
+import type { SetStoreFunction } from "solid-js/store";
+import type { components } from "./native/types";
+import type { Part, ToolPart } from "./parts";
+import type { Message } from "./messages";
 
-export function reduce(set: SetEngineState, event: Event, directory?: string, reconcile?: (sessionID: string) => void) {
-  // These events are newer than the generated v1 SDK's Event union.
-  const raw = event as { id?: string; type: string; properties: Record<string, unknown> }
-  if (raw.type === "question.v2.asked" || raw.type === "question.asked")
-    return addQuestion(set, { ...(raw.properties as unknown as QuestionRequest), directory })
-  if (
-    raw.type === "question.v2.replied" ||
-    raw.type === "question.v2.rejected" ||
-    raw.type === "question.replied" ||
-    raw.type === "question.rejected"
-  )
-    return dropQuestion(set, raw.properties.sessionID as string, raw.properties.requestID as string, directory)
-  if (raw.type === "permission.v2.replied" || raw.type === "permission.replied")
-    return dropPermission(
-      set,
-      raw.properties.sessionID as string,
-      (raw.properties.requestID ?? raw.properties.permissionID) as string,
-      directory,
-    )
-  if (raw.type === "tui.toast.show")
-    return pushNotice(set, {
-      id: raw.id ?? `notice-${Date.now()}-${noticeSequence++}`,
-      title: typeof raw.properties.title === "string" ? raw.properties.title : undefined,
-      message: String(raw.properties.message ?? ""),
-      variant: noticeVariant(raw.properties.variant),
-      created: Date.now(),
-      duration: typeof raw.properties.duration === "number" ? raw.properties.duration : 5000,
-    })
-  if (raw.type === "message.part.delta")
-    return appendPartDelta(set, raw.properties as PartDeltaRef, reconcile)
-  if (raw.type === "session.compacted") {
-    const sessionID = raw.properties.sessionID as string
-    clearError(set, sessionID)
-    return
-  }
-  if (raw.type === "session.next.moved")
-    return moveSession(
-      set,
-      raw.properties as {
-        sessionID: string
-        projectID?: string
-        location: { directory: string; workspaceID?: string }
-        subdirectory?: string
-        timestamp: number
-      },
-    )
-  switch (event.type) {
-    case "session.created":
-    case "session.updated":
-      return upsertSession(set, event.properties.info)
-    case "session.deleted":
-      return dropSession(set, event.properties.info)
-    case "session.status": {
-      const sessionID = event.properties.sessionID
-      set(
-        produce((draft) => {
-          draft.status[sessionID] = event.properties.status
-          bumpRevision(draft, statusRevisionKey(sessionID))
-          if (event.properties.status.type === "idle") clearLiveTools(draft, sessionID)
-        }),
-      )
-      if (event.properties.status.type !== "idle") {
-        clearError(set, event.properties.sessionID)
-      }
-      return
+type SetEngineState = SetStoreFunction<EngineState>;
+type Event = components["schemas"]["Event"];
+
+export function reduce(
+    set: SetEngineState,
+    event: Event,
+    directory?: string,
+    reconcile?: (sessionID: string) => void,
+    workspaces: WorkspaceIndex = { path: () => undefined, id: () => undefined },
+) {
+    if (reduceSessionEvent(set, event, workspaces)) return;
+
+    reduceContentEvent(set, event, directory, reconcile);
+}
+
+function reduceSessionEvent(set: SetEngineState, event: Event, workspaces: WorkspaceIndex) {
+    switch (event.type) {
+        case "session.created":
+        case "session.updated":
+            putSession(set, sessionInWorkspace(event.session, workspaces));
+            return true;
+        case "session.deleted":
+            set(produce((draft) => purgeSession(draft, event.sessionId)));
+            return true;
+        case "session.status":
+            updateStatus(set, event.sessionId, event.status === "running" ? { type: "busy" } : { type: "idle" });
+            return true;
+        case "session.retry":
+            updateStatus(set, event.sessionId, {
+                type: "retry",
+                attempt: event.attempt,
+                message: event.message,
+                next: event.nextAt,
+            });
+            return true;
+        default:
+            return false;
     }
-    case "session.idle":
-      return set(
+}
+
+function reduceContentEvent(
+    set: SetEngineState,
+    event: Event,
+    directory?: string,
+    reconcile?: (sessionID: string) => void,
+) {
+    switch (event.type) {
+        case "message.created":
+        case "message.updated":
+            return upsertMessage(set, event.message);
+        case "message.removed":
+            return dropMessage(set, event.sessionId, event.messageId);
+        case "part.created":
+        case "part.updated":
+            return upsertPart(set, event.part);
+        case "part.delta":
+            return appendPartDelta(set, event, reconcile);
+        case "permission.asked":
+            return addPermission(set, { ...event.request, directory: "" });
+        case "permission.replied":
+            return dropPermission(set, event.sessionId, event.requestId);
+        case "question.asked":
+            return addQuestion(set, { ...questionForCard(event.request), directory });
+        case "question.replied":
+            return dropQuestion(set, event.sessionId, event.requestId);
+        case "todo.updated":
+            return set("todos", event.sessionId, event.todos);
+        case "plugin.notice":
+            return pushNotice(set, {
+                id: `notice-${Date.now()}-${noticeSequence++}`,
+                title: `${event.plugin}: ${event.title}`,
+                message: event.body,
+                variant: noticeVariant(event.tone),
+                created: Date.now(),
+                duration: 8000,
+            });
+    }
+}
+
+function updateStatus(set: SetEngineState, sessionID: string, status: SessionStatus) {
+    set(
         produce((draft) => {
-          draft.status[event.properties.sessionID] = { type: "idle" }
-          bumpRevision(draft, statusRevisionKey(event.properties.sessionID))
-          clearLiveTools(draft, event.properties.sessionID)
+            draft.status[sessionID] = status;
+            bumpRevision(draft, statusRevisionKey(sessionID));
+            if (status.type === "idle") clearLiveTools(draft, sessionID);
         }),
-      )
-    case "session.error":
-      return recordError(set, event.properties.sessionID, event.properties.error)
-    case "message.updated":
-      return upsertMessage(set, event.properties.info)
-    case "message.removed":
-      return dropMessage(set, event.properties.sessionID, event.properties.messageID)
-    case "message.part.updated":
-      return upsertPart(set, event.properties.part)
-    case "message.part.removed":
-      return dropPart(set, event.properties)
-    case "permission.updated":
-      return addPermission(set, event.properties, directory)
-    case "permission.replied":
-      return dropPermission(set, event.properties.sessionID, event.properties.permissionID, directory)
-    case "todo.updated":
-      return set("todos", event.properties.sessionID, event.properties.todos)
-  }
+    );
+
+    if (status.type !== "idle") clearError(set, sessionID);
 }
 
-function upsertSession(set: SetEngineState, info: Session) {
-  putSession(set, info)
+// The revision bump outlives the purge, so a snapshot taken before deletion cannot resurrect it.
+function purgeSession(draft: EngineState, id: string) {
+    delete draft.sessions[id];
+    delete draft.transcripts[id];
+    delete draft.loaded[id];
+    delete draft.permissions[id];
+    delete draft.questions[id];
+    delete draft.todos[id];
+    delete draft.tasks[id];
+    delete draft.status[id];
+    delete draft.activity[id];
+    delete draft.errors[id];
+    delete draft.sessionModels[id];
+    delete draft.cursors[id];
+    clearLiveTools(draft, id);
+    pruneSessionRevisions(draft, id);
+    bumpRevision(draft, sessionRevisionKey(id));
 }
 
-// Full purge of every per-session slice, in response to the engine reporting a deleted session.
-function dropSession(set: SetEngineState, info: Session) {
-  set(produce((draft) => purgeSession(draft, info.id)))
-}
-
-// The session revision bump outlives the purge so an in-flight snapshot taken before the
-// deletion cannot resurrect the session.
-export function purgeSession(draft: EngineState, id: string) {
-  delete draft.sessions[id]
-  delete draft.transcripts[id]
-  delete draft.loaded[id]
-  delete draft.permissions[id]
-  delete draft.questions[id]
-  delete draft.todos[id]
-  delete draft.tasks[id]
-  delete draft.status[id]
-  delete draft.activity[id]
-  delete draft.errors[id]
-  delete draft.sessionModels[id]
-  delete draft.cursors[id]
-  clearLiveTools(draft, id)
-  pruneSessionRevisions(draft, id)
-  bumpRevision(draft, sessionRevisionKey(id))
-}
-
-// Applies a session-list snapshot. Sessions whose revision advanced while the request was in
-// flight keep their live state. When `scope` is present the snapshot is authoritative and
-// complete for that directory, so sessions absent from it are purged; partial or failed
-// snapshots must never pass a scope.
+/**
+ * Applies a session-list snapshot; sessions whose revision advanced in flight keep their live state.
+ * With `scope` it is complete for that directory and purges absent sessions, so partial ones pass none.
+ */
 export function applySessionSnapshot(
-  set: SetEngineState,
-  input: { sessions: Session[]; captured: Record<string, number>; scope?: { directory: string } | { all: true } },
+    set: SetEngineState,
+    input: { sessions: Session[]; captured: Record<string, number>; scope?: { directory: string } | { all: true } },
 ) {
-  const ids = new Set(input.sessions.map((info) => info.id))
-  const all = input.scope && "all" in input.scope
-  const dir = input.scope && "directory" in input.scope ? normalizeDir(input.scope.directory) : undefined
-  set(
-    produce((draft) => {
-      const advanced = (id: string) => revisionAdvanced(draft.revisions, input.captured, sessionRevisionKey(id))
-      for (const info of input.sessions) {
-        if (advanced(info.id)) continue
-        draft.sessions[info.id] = { revert: undefined, share: undefined, ...info }
-        // Applying a snapshot advances the session so an older overlapping snapshot (a reconnect
-        // flap fires two hydrates) can neither downgrade nor purge what this one established.
-        bumpRevision(draft, sessionRevisionKey(info.id))
-        const model = (info as Session & { model?: { id: string; providerID: string } }).model
-        if (model) draft.sessionModels[info.id] = { providerID: model.providerID, modelID: model.id }
-      }
-      if (!input.scope) return
-      for (const session of Object.values(draft.sessions)) {
-        if (ids.has(session.id) || advanced(session.id)) continue
-        if (!all && normalizeDir(session.directory) !== dir) continue
-        // Scoped listings exclude engine-archived sessions, so their absence is not a deletion.
-        // Purging them here would delete-and-reload archived transcripts on every hydration.
-        if (!all && (session.time as { archived?: number }).archived) continue
-        purgeSession(draft, session.id)
-      }
-    }),
-  )
+    const ids = new Set(input.sessions.map((info) => info.id));
+    const all = input.scope && "all" in input.scope;
+    const dir = input.scope && "directory" in input.scope ? normalizeDir(input.scope.directory) : undefined;
+    set(
+        produce((draft) => {
+            const advanced = (id: string) => revisionAdvanced(draft.revisions, input.captured, sessionRevisionKey(id));
+            for (const info of input.sessions) {
+                if (advanced(info.id)) continue;
+                draft.sessions[info.id] = { revert: undefined, ...info };
+                // Advancing the session stops an older overlapping snapshot (a reconnect flap) undoing this one.
+                bumpRevision(draft, sessionRevisionKey(info.id));
+                const model = info.model;
+                if (model) draft.sessionModels[info.id] = { providerID: model.provider, modelID: model.model };
+            }
+
+            if (!input.scope) return;
+
+            for (const session of Object.values(draft.sessions)) {
+                if (ids.has(session.id) || advanced(session.id)) continue;
+                if (!all && normalizeDir(session.directory) !== dir) continue;
+                // Scoped listings omit archived sessions; purging them would reload archived transcripts each hydrate.
+                if (!all && session.archivedAt) continue;
+                purgeSession(draft, session.id);
+            }
+        }),
+    );
 }
 
-// Applies a status snapshot for the given sessions, skipping any whose status a live event
-// already moved past the capture point.
+/** Applies a status snapshot, skipping sessions a live event already moved past the capture point. */
 export function applyStatusSnapshot(
-  set: SetEngineState,
-  input: { sessions: Session[]; statuses: Record<string, SessionStatus>; captured: Record<string, number> },
+    set: SetEngineState,
+    input: { sessions: Session[]; statuses: Record<string, SessionStatus>; captured: Record<string, number> },
 ) {
-  set(
-    produce((draft) => {
-      for (const session of input.sessions) {
-        if (!draft.sessions[session.id]) continue
-        if (revisionAdvanced(draft.revisions, input.captured, statusRevisionKey(session.id))) continue
-        const status = input.statuses[session.id] ?? { type: "idle" as const }
-        draft.status[session.id] = status
-        if (status.type === "idle") clearLiveTools(draft, session.id)
-      }
-    }),
-  )
+    set(
+        produce((draft) => {
+            for (const session of input.sessions) {
+                if (!draft.sessions[session.id]) continue;
+                if (revisionAdvanced(draft.revisions, input.captured, statusRevisionKey(session.id))) continue;
+                const status = input.statuses[session.id] ?? { type: "idle" as const };
+                draft.status[session.id] = status;
+                if (status.type === "idle") clearLiveTools(draft, session.id);
+            }
+        }),
+    );
 }
 
 function clearLiveTools(draft: EngineState, sessionID: string) {
-  for (const [partID, owner] of Object.entries(draft.liveTools)) if (owner === sessionID) delete draft.liveTools[partID]
-}
-
-function moveSession(
-  set: SetEngineState,
-  moved: {
-    sessionID: string
-    projectID?: string
-    location: { directory: string; workspaceID?: string }
-    subdirectory?: string
-    timestamp: number
-  },
-) {
-  set(
-    produce((draft) => {
-      const session = draft.sessions[moved.sessionID]
-      if (!session) return
-      session.directory = moved.location.directory
-      if (moved.projectID) session.projectID = moved.projectID
-      session.time.updated = moved.timestamp
-      bumpRevision(draft, sessionRevisionKey(moved.sessionID))
-    }),
-  )
-}
-
-function recordError(
-  set: SetEngineState,
-  sessionID?: string,
-  error?: { name: string; data?: unknown },
-) {
-  const message = errorText(error)
-  if (!sessionID) {
-    pushNotice(set, {
-      id: `session-error-${Date.now()}-${noticeSequence++}`,
-      title: "Drift error",
-      message,
-      variant: "error",
-      created: Date.now(),
-      duration: 8000,
-    })
-    return
-  }
-  set(
-    produce((draft) => {
-      draft.status[sessionID] = { type: "idle" }
-      bumpRevision(draft, statusRevisionKey(sessionID))
-      if (draft.activity[sessionID]) draft.activity[sessionID].current = undefined
-      clearLiveTools(draft, sessionID)
-      if (error?.name === "MessageAbortedError") return
-      draft.errors[sessionID] = message
-    }),
-  )
+    for (const [partID, owner] of Object.entries(draft.liveTools))
+        if (owner === sessionID) delete draft.liveTools[partID];
 }
 
 function clearError(set: SetEngineState, sessionID: string) {
-  set(
-    produce((draft) => {
-      delete draft.errors[sessionID]
-    }),
-  )
+    set(
+        produce((draft) => {
+            delete draft.errors[sessionID];
+        }),
+    );
 }
 
 function upsertMessage(set: SetEngineState, info: Message) {
-  set(
-    produce((draft) => {
-      if (info.role === "assistant")
-        draft.sessionModels[info.sessionID] = {
-          providerID: info.providerID,
-          modelID: info.modelID,
-          messageId: info.id,
-        }
-      const list = draft.loaded[info.sessionID] ? draft.transcripts[info.sessionID] : undefined
-      if (!list) return
-      bumpRevision(draft, messageRevisionKey(info.sessionID, info.id))
-      const index = list.findIndex((entry) => entry.info.id === info.id)
-      if (index >= 0) list[index].info = info
-      else list.push({ info, parts: [] })
-    }),
-  )
+    set(
+        produce((draft) => {
+            if (info.role === "assistant")
+                draft.sessionModels[info.sessionId] = {
+                    providerID: info.model?.provider ?? "",
+                    modelID: info.model?.model ?? "",
+                    messageId: info.id,
+                };
+
+            const list = draft.loaded[info.sessionId] ? draft.transcripts[info.sessionId] : undefined;
+            if (!list) return;
+
+            bumpRevision(draft, messageRevisionKey(info.sessionId, info.id));
+
+            const index = list.findIndex((entry) => entry.info.id === info.id);
+            if (index >= 0) list[index].info = info;
+            else list.push({ info, parts: [] });
+        }),
+    );
 }
 
 function dropMessage(set: SetEngineState, sessionID: string, messageID: string) {
-  set(
-    produce((draft) => {
-      const list = draft.transcripts[sessionID]
-      if (!list) return
-      bumpRevision(draft, messageRevisionKey(sessionID, messageID))
-      draft.transcripts[sessionID] = list.filter((entry) => entry.info.id !== messageID)
-    }),
-  )
+    set(
+        produce((draft) => {
+            const list = draft.transcripts[sessionID];
+            if (!list) return;
+
+            bumpRevision(draft, messageRevisionKey(sessionID, messageID));
+            draft.transcripts[sessionID] = list.filter((entry) => entry.info.id !== messageID);
+        }),
+    );
 }
 
 function upsertPart(set: SetEngineState, part: Part) {
-  const link = spawnLink(part)
-  if (link) recordLink(link)
-  set(
-    produce((draft) => {
-      delete draft.revisions[removedPartKey(part.sessionID, part.messageID, part.id)]
-      if (link) draft.links[link.child] = link.parent
-      if (link && part.type === "tool") {
-        const metadata = (("metadata" in part.state ? part.state.metadata : undefined) ?? part.metadata) as
-          | { model?: ModelRef }
-          | undefined
-        if (metadata?.model) draft.sessionModels[link.child] = metadata.model
-      }
-      if (part.type === "tool") {
-        trackActivity(draft, part)
-        if (part.state.status === "pending" || part.state.status === "running") draft.liveTools[part.id] = part.sessionID
-        else delete draft.liveTools[part.id]
-      }
-      const entry = draft.transcripts[part.sessionID]?.find((item) => item.info.id === part.messageID)
-      if (!entry) return
-      bumpRevision(draft, messageRevisionKey(part.sessionID, part.messageID))
-      const index = entry.parts.findIndex((existing) => existing.id === part.id)
-      if (index >= 0) entry.parts[index] = reconcilePart(entry.parts[index]!, part)
-      else entry.parts.push(part)
-    }),
-  )
+    const link = spawnLink(part);
+    if (link) recordLink(link);
+    set(
+        produce((draft) => {
+            if (link) draft.links[link.child] = link.parent;
+            if (link && part.type === "tool_call") {
+                const metadata = part.metadata as { model?: ModelRef } | undefined;
+                if (metadata?.model) draft.sessionModels[link.child] = metadata.model;
+            }
+            if (part.type === "tool_call") {
+                trackActivity(draft, part);
+                if (part.status === "pending" || part.status === "running") draft.liveTools[part.id] = part.sessionId;
+                else delete draft.liveTools[part.id];
+            }
+
+            const entry = draft.transcripts[part.sessionId]?.find((item) => item.info.id === part.messageId);
+            if (!entry) return;
+
+            bumpRevision(draft, messageRevisionKey(part.sessionId, part.messageId));
+
+            const index = entry.parts.findIndex((existing) => existing.id === part.id);
+            if (index >= 0) entry.parts[index] = reconcilePart(entry.parts[index]!, part);
+            else entry.parts.push(part);
+        }),
+    );
 }
 
 function reconcilePart(existing: Part, incoming: Part) {
-  if (existing.type !== incoming.type || (incoming.type !== "text" && incoming.type !== "reasoning")) return incoming
-  if (existing.type !== "text" && existing.type !== "reasoning") return incoming
-  // REST hydration can race an older initial part.updated frame whose text is still empty. Keep
-  // the hydrated prefix so following deltas append to it; completed/non-empty updates remain
-  // authoritative and can still replace the part normally. This relies on the engine allocating a
-  // fresh part ID per streamed attempt (PartID.ascending on every text-start): a same-ID reset to
-  // a shorter prefix is therefore always the stale frame, never a legitimate rewrite.
-  if (
-    incoming.time?.end === undefined &&
-    existing.text.length > incoming.text.length &&
-    existing.text.startsWith(incoming.text)
-  ) {
-    return { ...incoming, text: existing.text }
-  }
-  return incoming
+    if (existing.type !== incoming.type || (incoming.type !== "text" && incoming.type !== "reasoning")) return incoming;
+    if (existing.type !== "text" && existing.type !== "reasoning") return incoming;
+    // A shorter same-id prefix is a stale frame racing hydration (each attempt gets a fresh id); keep the text.
+    if (existing.text.length > incoming.text.length && existing.text.startsWith(incoming.text)) {
+        return { ...incoming, text: existing.text };
+    }
+
+    return incoming;
 }
 
-/** `offset`, when the engine sends it, is where in the field the delta starts (UTF-16 units). */
-type PartDeltaRef = { sessionID: string; messageID: string; partID: string; field: string; delta: string; offset?: number }
+type PartDeltaRef = Extract<Event, { type: "part.delta" }>;
 
 /** The field after a delta: a snapshot that already holds it is left alone, one cut short is completed. */
 export function withDelta(current: string, delta: string, offset?: number) {
-  if (offset === undefined) return current + delta
-  if (offset > current.length) return current
-  if (current.length >= offset + delta.length) return current
-  return current.slice(0, offset) + delta
+    if (offset === undefined) return current + delta;
+    if (offset > current.length) return current;
+    if (current.length >= offset + delta.length) return current;
+
+    return current.slice(0, offset) + delta;
 }
 
 function appendPartDelta(set: SetEngineState, ref: PartDeltaRef, reconcile?: (sessionID: string) => void) {
-  let gap = false
-  set(
-    produce((draft) => {
-      if (draft.revisions[removedPartKey(ref.sessionID, ref.messageID, ref.partID)]) return
-      const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
-      const index = entry?.parts.findIndex((item) => item.id === ref.partID) ?? -1
-      if (!entry) return
-      if (index < 0) {
-        gap = ref.offset !== undefined
-        return
-      }
-      const part = entry.parts[index]!
-      const record = part as unknown as Record<string, unknown>
-      const current = record[ref.field]
-      if (typeof current === "string") {
-        if (ref.offset !== undefined && ref.offset > current.length) {
-          gap = true
-          return
-        }
-        const next = withDelta(current, ref.delta, ref.offset)
-        if (next !== current) {
-          bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
-          entry.parts[index] = { ...part, [ref.field]: next } as Part
-        }
-      }
-    }),
-  )
-  if (gap) reconcile?.(ref.sessionID)
+    let gap = false;
+    set(
+        produce((draft) => {
+            const entry = draft.transcripts[ref.sessionId]?.find((item) => item.info.id === ref.messageId);
+            const index = entry?.parts.findIndex((item) => item.id === ref.partId) ?? -1;
+            if (!entry) return;
+            if (index < 0) {
+                gap = true;
+                return;
+            }
+            const part = entry.parts[index]!;
+            if (part.type !== "text" && part.type !== "reasoning") return;
+
+            if (ref.offset > part.text.length) {
+                gap = true;
+                return;
+            }
+
+            const next = withDelta(part.text, ref.delta, ref.offset);
+            if (next !== part.text) {
+                bumpRevision(draft, messageRevisionKey(ref.sessionId, ref.messageId));
+                entry.parts[index] = { ...part, text: next };
+            }
+        }),
+    );
+    if (gap) reconcile?.(ref.sessionId);
 }
 
-function trackActivity(draft: EngineState, part: Part & { type: "tool" }) {
-  const entry = draft.activity[part.sessionID] ?? { tools: 0, lastPartId: "" }
-  if (entry.lastPartId !== part.id) {
-    entry.tools += 1
-    entry.lastPartId = part.id
-  }
-  entry.current = part.state.status === "completed" || part.state.status === "error" ? undefined : part.tool
-  draft.activity[part.sessionID] = entry
-}
+function trackActivity(draft: EngineState, part: ToolPart) {
+    const entry = draft.activity[part.sessionId] ?? { tools: 0, lastPartId: "" };
+    if (entry.lastPartId !== part.id) {
+        entry.tools += 1;
+        entry.lastPartId = part.id;
+    }
 
-function dropPart(set: SetEngineState, ref: { sessionID: string; messageID: string; partID: string }) {
-  set(
-    produce((draft) => {
-      bumpRevision(draft, removedPartKey(ref.sessionID, ref.messageID, ref.partID))
-      const entry = draft.transcripts[ref.sessionID]?.find((item) => item.info.id === ref.messageID)
-      if (entry) {
-        bumpRevision(draft, messageRevisionKey(ref.sessionID, ref.messageID))
-        entry.parts = entry.parts.filter((part) => part.id !== ref.partID)
-      }
-      delete draft.liveTools[ref.partID]
-    }),
-  )
+    const active = part.status === "pending" || part.status === "running";
+    entry.current = active ? part.name : undefined;
+    draft.activity[part.sessionId] = entry;
 }
 
 function addQuestion(set: SetEngineState, question: QuestionRequest) {
-  set(
-    produce((draft) => {
-      bumpAskRevision(draft, "question", question.directory)
-      const list = draft.questions[question.sessionID] ?? []
-      if (!list.some((existing) => existing.id === question.id)) list.push(question)
-      draft.questions[question.sessionID] = list
-    }),
-  )
+    set(
+        produce((draft) => {
+            const list = draft.questions[question.sessionId] ?? [];
+            if (!list.some((existing) => existing.id === question.id)) list.push(question);
+            draft.questions[question.sessionId] = list;
+        }),
+    );
 }
 
-function dropQuestion(set: SetEngineState, sessionID: string, requestID: string, directory?: string) {
-  clearQuestionDraft(requestID)
-  set(
-    produce((draft) => {
-      const list = draft.questions[sessionID]
-      const current = list?.find((question) => question.id === requestID)
-      bumpAskRevision(draft, "question", current?.directory ?? directory)
-      if (list) draft.questions[sessionID] = list.filter((question) => question.id !== requestID)
-    }),
-  )
+function dropQuestion(set: SetEngineState, sessionID: string, requestID: string) {
+    clearQuestionDraft(requestID);
+    set(
+        produce((draft) => {
+            const list = draft.questions[sessionID];
+            if (list) draft.questions[sessionID] = list.filter((question) => question.id !== requestID);
+        }),
+    );
 }
 
-function addPermission(set: SetEngineState, permission: Permission, directory?: string) {
-  const resolvedDirectory =
-    typeof permission.metadata?.directory === "string" ? permission.metadata.directory : directory
-  const entry =
-    resolvedDirectory && !permission.metadata?.directory
-      ? { ...permission, metadata: { ...permission.metadata, directory: resolvedDirectory } }
-      : permission
-  set(
-    produce((draft) => {
-      bumpAskRevision(draft, "permission", resolvedDirectory)
-      const list = draft.permissions[entry.sessionID] ?? []
-      if (!list.some((existing) => existing.id === entry.id)) list.push(entry)
-      draft.permissions[entry.sessionID] = list
-    }),
-  )
+function addPermission(set: SetEngineState, permission: Permission) {
+    set(
+        produce((draft) => {
+            const list = draft.permissions[permission.sessionId] ?? [];
+            if (!list.some((existing) => existing.id === permission.id)) list.push(permission);
+            draft.permissions[permission.sessionId] = list;
+        }),
+    );
 }
 
-function dropPermission(set: SetEngineState, sessionID: string, permissionID: string, directory?: string) {
-  set(
-    produce((draft) => {
-      const list = draft.permissions[sessionID]
-      const current = list?.find((permission) => permission.id === permissionID)
-      const currentDirectory = current?.metadata?.directory
-      bumpAskRevision(draft, "permission", typeof currentDirectory === "string" ? currentDirectory : directory)
-      if (list) draft.permissions[sessionID] = list.filter((permission) => permission.id !== permissionID)
-    }),
-  )
+function dropPermission(set: SetEngineState, sessionID: string, permissionID: string) {
+    set(
+        produce((draft) => {
+            const list = draft.permissions[sessionID];
+            if (list) draft.permissions[sessionID] = list.filter((permission) => permission.id !== permissionID);
+        }),
+    );
 }
 
-let noticeSequence = 0
+let noticeSequence = 0;
 
 function noticeVariant(value: unknown): Notice["variant"] {
-  return value === "success" || value === "warning" || value === "error" ? value : "info"
+    return value === "success" || value === "warning" || value === "error" ? value : "info";
 }
 
 export function pushNotice(set: SetEngineState, notice: Notice) {
-  set(
-    produce((draft) => {
-      draft.notices = [
-        ...draft.notices.filter(
-          (item) =>
-            item.id !== notice.id &&
-            (item.title !== notice.title || item.message !== notice.message || item.variant !== notice.variant),
-        ),
-        notice,
-      ].slice(-6)
-    }),
-  )
+    set(
+        produce((draft) => {
+            draft.notices = [
+                ...draft.notices.filter(
+                    (item) =>
+                        item.id !== notice.id &&
+                        (item.title !== notice.title ||
+                            item.message !== notice.message ||
+                            item.variant !== notice.variant),
+                ),
+                notice,
+            ].slice(-6);
+        }),
+    );
 }

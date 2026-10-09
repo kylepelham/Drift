@@ -1,66 +1,57 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Drift",
-  "version": "2.0.1",
-  "identifier": "dev.drift.app",
-  "build": {
-    "devUrl": "http://localhost:5180",
-    "beforeBuildCommand": "bun run build:tauri",
-    "frontendDist": "../dist"
-  },
-  "app": {
-    "withGlobalTauri": true,
-    "windows": [
-      {
-        "title": "Drift",
-        "width": 1280,
-        "height": 820,
-        "minWidth": 900,
-        "minHeight": 600,
-        "decorations": false,
-        "dragDropEnabled": false,
-        "theme": "Dark",
-        "backgroundColor": "#141517",
-        "visible": false,
-        "center": true
-      }
-    ],
-    "security": {
-      "csp": null
-    }
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc4NEI0QTg2MUI5NTE4RkUKUldUK0dKVWJoa3BMZUFrZFg0bkNDenRiR1N2MWhCZGc5Rlh1ZkVsSEl6c0Fvd2h1OHN2dHZvM3gK",
-      "endpoints": [
-        "https://github.com/kylepelham/Drift/releases/latest/download/latest.json"
-      ],
-      "windows": {
-        "installMode": "passive"
-      }
-    }
-  },
-  "bundle": {
-    "active": true,
-    "targets": [
-      "nsis"
-    ],
-    "icon": [
-      "icons/icon.ico"
-    ],
-    "windows": {
-      "nsis": {
-        "compression": "zlib"
-      }
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Drift",
+    "version": "2.1.0",
+    "identifier": "dev.drift.app",
+    "build": {
+        "devUrl": "http://localhost:5180",
+        "beforeBuildCommand": "bun run build:tauri",
+        "frontendDist": "../dist"
     },
-    "externalBin": [
-      "binaries/whisper-cli",
-      "binaries/whisper-cli-vulkan"
-    ],
-    "resources": {
-      "../LICENSE": "licenses/drift-LICENSE.txt",
-      "../node_modules/pdfjs-dist/LICENSE": "licenses/pdfjs-LICENSE.txt",
-      "../licenses/opencode-LICENSE.txt": "licenses/opencode-LICENSE.txt"
+    "app": {
+        "withGlobalTauri": true,
+        "windows": [
+            {
+                "title": "Drift",
+                "width": 1280,
+                "height": 820,
+                "minWidth": 900,
+                "minHeight": 600,
+                "decorations": false,
+                "dragDropEnabled": false,
+                "theme": "Dark",
+                "backgroundColor": "#141517",
+                "visible": false,
+                "center": true
+            }
+        ],
+        "security": {
+            "csp": null
+        }
+    },
+    "plugins": {
+        "updater": {
+            "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc4NEI0QTg2MUI5NTE4RkUKUldUK0dKVWJoa3BMZUFrZFg0bkNDenRiR1N2MWhCZGc5Rlh1ZkVsSEl6c0Fvd2h1OHN2dHZvM3gK",
+            "endpoints": ["https://github.com/kylepelham/Drift/releases/latest/download/latest.json"],
+            "windows": {
+                "installMode": "passive"
+            }
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": ["nsis"],
+        "icon": ["icons/icon.ico"],
+        "windows": {
+            "nsis": {
+                "compression": "zlib"
+            }
+        },
+        "externalBin": ["binaries/whisper-cli", "binaries/whisper-cli-vulkan"],
+        "resources": {
+            "../LICENSE": "licenses/drift-LICENSE.txt",
+            "../node_modules/pdfjs-dist/LICENSE": "licenses/pdfjs-LICENSE.txt",
+            "../licenses/opencode-LICENSE.txt": "licenses/opencode-LICENSE.txt"
+        }
     }
-  }
 }

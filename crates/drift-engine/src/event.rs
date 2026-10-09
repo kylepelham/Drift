@@ -34,7 +34,12 @@ pub enum Event {
     SessionStatusChanged { session_id: String, status: SessionStatus },
     /// A turn is waiting to retry a failed request; `running` follows when it tries again.
     #[serde(rename = "session.retry", rename_all = "camelCase")]
-    SessionRetry { session_id: String, attempt: u32, message: String, next_at: i64 },
+    SessionRetry {
+        session_id: String,
+        attempt: u32,
+        message: String,
+        next_at: i64,
+    },
     #[serde(rename = "message.created")]
     MessageCreated { message: Message },
     #[serde(rename = "message.updated")]
@@ -48,13 +53,23 @@ pub enum Event {
     PartUpdated { part: PartRow },
     /// Text appended at `offset` UTF-16 units, allowing clients to skip deltas already in their snapshot.
     #[serde(rename = "part.delta", rename_all = "camelCase")]
-    PartDelta { session_id: String, message_id: String, part_id: String, delta: String, offset: usize },
+    PartDelta {
+        session_id: String,
+        message_id: String,
+        part_id: String,
+        delta: String,
+        offset: usize,
+    },
     #[serde(rename = "todo.updated", rename_all = "camelCase")]
     TodoUpdated { session_id: String, todos: Vec<Todo> },
     #[serde(rename = "permission.asked")]
     PermissionAsked { request: PermissionRequest },
     #[serde(rename = "permission.replied", rename_all = "camelCase")]
-    PermissionReplied { request_id: String, session_id: String, decision: Decision },
+    PermissionReplied {
+        request_id: String,
+        session_id: String,
+        decision: Decision,
+    },
     /// The model catalog was refreshed; clients reload `/providers`.
     #[serde(rename = "catalog.updated")]
     CatalogUpdated {},
@@ -69,6 +84,14 @@ pub enum Event {
     /// A worker was launched, started, ended, or its result reached its parent.
     #[serde(rename = "task.updated")]
     TaskUpdated { task: crate::session::tasks::TaskRecord },
+    /// A plugin has something to tell the user; `tone` is info, success, warning or error.
+    #[serde(rename = "plugin.notice")]
+    PluginNotice {
+        plugin: String,
+        title: String,
+        body: String,
+        tone: String,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -82,7 +105,7 @@ pub struct Hub {
     /// Random per process; sequence numbers only mean something within one instance.
     pub instance: String,
     ring: Mutex<Ring>,
-    tx: broadcast::Sender<Envelope>,
+    sender: broadcast::Sender<Envelope>,
 }
 
 struct Ring {
@@ -109,7 +132,8 @@ pub enum Replay {
 
 impl Hub {
     pub fn new(capacity: usize) -> Self {
-        let (tx, _) = broadcast::channel(capacity);
+        let (sender, _) = broadcast::channel(capacity);
+
         Self {
             instance: crate::random_hex(8),
             ring: Mutex::new(Ring {
@@ -118,7 +142,7 @@ impl Hub {
                 events: VecDeque::with_capacity(capacity),
                 evicted: 0,
             }),
-            tx,
+            sender,
         }
     }
 
@@ -127,13 +151,15 @@ impl Hub {
         let seq = ring.next_seq;
         ring.next_seq += 1;
         let envelope = Envelope { seq, event };
-        if ring.events.len() == ring.capacity {
-            if let Some(dropped) = ring.events.pop_front() {
-                ring.evicted = dropped.seq;
-            }
+
+        if ring.events.len() == ring.capacity
+            && let Some(dropped) = ring.events.pop_front()
+        {
+            ring.evicted = dropped.seq;
         }
         ring.events.push_back(envelope.clone());
-        let _ = self.tx.send(envelope);
+        let _ = self.sender.send(envelope);
+
         seq
     }
 
@@ -143,7 +169,8 @@ impl Hub {
         let mut ring = self.ring.lock().unwrap();
         let seq = ring.next_seq;
         ring.next_seq += 1;
-        let _ = self.tx.send(Envelope { seq, event });
+        let _ = self.sender.send(Envelope { seq, event });
+
         seq
     }
 
@@ -155,11 +182,12 @@ impl Hub {
     /// Subscribes and replays everything after `cursor` in one step so no event falls between.
     pub fn attach(&self, cursor: Option<u64>) -> Attached {
         let ring = self.ring.lock().unwrap();
-        let rx = self.tx.subscribe();
+        let rx = self.sender.subscribe();
         let replay = match cursor {
             None => Replay::Events(Vec::new()),
             Some(cursor) => ring.since(cursor),
         };
+
         Attached {
             seq: ring.next_seq - 1,
             replay,
@@ -182,7 +210,7 @@ impl Ring {
         if cursor < self.evicted {
             return Replay::Stale;
         }
-        Replay::Events(self.events.iter().filter(|e| e.seq > cursor).cloned().collect())
+        Replay::Events(self.events.iter().filter(|event| event.seq > cursor).cloned().collect())
     }
 }
 
@@ -227,7 +255,7 @@ mod tests {
         let Replay::Events(events) = hub.attach(Some(1)).replay else {
             panic!("expected replay");
         };
-        assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [2, 3]);
+        assert_eq!(events.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(), [2, 3]);
     }
 
     #[test]
@@ -253,17 +281,33 @@ mod tests {
         for _ in 0..6 {
             hub.publish_transient(workspace("live output"));
         }
-        assert!(matches!(slow.recv().await, Err(broadcast::error::RecvError::Lagged(_))), "more than the receiver holds went unread");
-        let Replay::Events(missed) = hub.attach(Some(0)).replay else { panic!("live output crowded the receiver, not the window") };
-        assert_eq!(missed.iter().map(|e| e.seq).collect::<Vec<_>>(), [1], "the durable event is replayed; live output is not, by design");
+        assert!(
+            matches!(slow.recv().await, Err(broadcast::error::RecvError::Lagged(_))),
+            "more than the receiver holds went unread"
+        );
+        let Replay::Events(missed) = hub.attach(Some(0)).replay else {
+            panic!("live output crowded the receiver, not the window")
+        };
+        assert_eq!(
+            missed.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(),
+            [1],
+            "the durable event is replayed; live output is not, by design"
+        );
 
         let mut stalled = hub.attach(None).rx;
         let last = hub.seq();
         for name in ["a", "b", "c", "d", "e", "f"] {
             hub.publish(workspace(name));
         }
-        assert!(matches!(stalled.recv().await, Err(broadcast::error::RecvError::Lagged(_))));
-        assert_eq!(hub.attach(Some(last)).replay, Replay::Stale, "the window moved past it: the client resyncs and hydrates");
+        assert!(matches!(
+            stalled.recv().await,
+            Err(broadcast::error::RecvError::Lagged(_))
+        ));
+        assert_eq!(
+            hub.attach(Some(last)).replay,
+            Replay::Stale,
+            "the window moved past it: the client resyncs and hydrates"
+        );
     }
 
     #[test]
@@ -276,7 +320,7 @@ mod tests {
         let Replay::Events(events) = hub.attach(Some(1)).replay else {
             panic!("cursor at the ring's edge must still replay");
         };
-        assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [2, 3]);
+        assert_eq!(events.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(), [2, 3]);
     }
 
     #[tokio::test]
@@ -295,11 +339,22 @@ mod tests {
         for _ in 0..10 {
             small.publish_transient(workspace("progress"));
         }
-        assert!(matches!(small.attach(Some(0)).replay, Replay::Events(ref kept) if kept.len() == 1), "progress never pushes a real event out");
-        let Replay::Events(events) = hub.attach(Some(0)).replay else { panic!("nothing real was evicted, so not stale") };
-        assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [1, 12], "only real events replay");
-        let Replay::Events(after) = hub.attach(Some(5)).replay else { panic!("a cursor on a transient event resumes") };
-        assert_eq!(after.iter().map(|e| e.seq).collect::<Vec<_>>(), [12]);
+        assert!(
+            matches!(small.attach(Some(0)).replay, Replay::Events(ref kept) if kept.len() == 1),
+            "progress never pushes a real event out"
+        );
+        let Replay::Events(events) = hub.attach(Some(0)).replay else {
+            panic!("nothing real was evicted, so not stale")
+        };
+        assert_eq!(
+            events.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(),
+            [1, 12],
+            "only real events replay"
+        );
+        let Replay::Events(after) = hub.attach(Some(5)).replay else {
+            panic!("a cursor on a transient event resumes")
+        };
+        assert_eq!(after.iter().map(|envelope| envelope.seq).collect::<Vec<_>>(), [12]);
     }
 
     #[test]
@@ -319,7 +374,10 @@ mod tests {
 
     #[test]
     fn envelope_serialises_flat_with_type_and_seq() {
-        let envelope = Envelope { seq: 7, event: workspace("a") };
+        let envelope = Envelope {
+            seq: 7,
+            event: workspace("a"),
+        };
         let json = serde_json::to_value(&envelope).unwrap();
         assert_eq!(json["seq"], 7);
         assert_eq!(json["type"], "workspace.created");

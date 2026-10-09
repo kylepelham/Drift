@@ -1,11 +1,6 @@
-//! Content search across engine transcripts in `drift.db`.
-//!
-//! Session titles are already in the frontend, so those are matched there. Message bodies are not:
-//! a workspace can hold far more of them than the transcript cache ever loads, so the query runs
-//! here, on a read-only connection of its own. A scan never holds the engine's one writer.
-//!
-//! The scan is bounded rather than exhaustive: only the newest conversations are read, through the
-//! message and part indexes, so a query matching nothing still returns promptly.
+//! Searches transcript bodies in drift.db on a separate read-only connection; titles are matched in the frontend.
+//! Bounds scans to the newest conversations and message/part indexes so a query with no match returns promptly.
+//! The scan never holds the engine's writer or relies on the frontend's limited transcript cache.
 
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
@@ -27,7 +22,7 @@ const MAX_QUERY_CHARS: usize = 200;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionMatch {
+pub(crate) struct SessionMatch {
     pub session_id: String,
     pub message_id: String,
     pub title: String,
@@ -37,12 +32,11 @@ pub struct SessionMatch {
     pub excerpt: String,
 }
 
-fn open(database: &Path) -> Result<Connection, String> {
-    let conn = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|error| error.to_string())?;
-    conn.busy_timeout(BUSY_TIMEOUT)
-        .map_err(|error| error.to_string())?;
-    Ok(conn)
+fn open(database: &Path) -> rusqlite::Result<Connection> {
+    let connection = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    connection.busy_timeout(BUSY_TIMEOUT)?;
+
+    Ok(connection)
 }
 
 /// Escapes the wildcards SQLite's `LIKE` would otherwise interpret, so a query is matched literally.
@@ -57,8 +51,7 @@ pub(crate) fn escape_like(query: &str) -> String {
     escaped
 }
 
-/// Slash direction and case both vary between what the engine stored and what Drift holds, so
-/// directories are compared in one normalized form.
+/// Normalizes directory casing and slash direction for comparisons between stored and user-selected paths.
 pub(crate) fn normalize_directory(directory: &str) -> String {
     directory.replace('\\', "/").trim_end_matches('/').to_lowercase()
 }
@@ -82,12 +75,17 @@ pub(crate) fn excerpt(text: &str, query: &str) -> String {
     let Some(found) = found else {
         return collapsed.chars().take(EXCERPT_RADIUS * 2).collect();
     };
+
     // Lowercasing can change UTF-8 widths or expand a character. Map the match back before cropping.
     let mut lowercase_end = 0;
-    let start_chars = collapsed.chars().position(|character| {
-        lowercase_end += character.to_lowercase().map(char::len_utf8).sum::<usize>();
-        lowercase_end > found
-    }).unwrap_or(0);
+    let start_chars = collapsed
+        .chars()
+        .position(|character| {
+            lowercase_end += character.to_lowercase().map(char::len_utf8).sum::<usize>();
+            lowercase_end > found
+        })
+        .unwrap_or(0);
+
     let begin = start_chars.saturating_sub(EXCERPT_RADIUS);
     let length = query.chars().count() + EXCERPT_RADIUS * 2;
     let mut window: String = collapsed.chars().skip(begin).take(length).collect();
@@ -97,33 +95,29 @@ pub(crate) fn excerpt(text: &str, query: &str) -> String {
     if start_chars + query.chars().count() + EXCERPT_RADIUS < collapsed.chars().count() {
         window.push('…');
     }
+
     window
 }
 
-/// Conversations in `directory` whose transcript contains `query`, newest first.
-///
-/// An empty `directory` searches every workspace on the sidebar. Subagent sessions are excluded:
-/// their work is reachable from the parent thread, and listing both would return it twice.
-pub fn search(database: &Path, query: &str, directory: &str) -> Result<Vec<SessionMatch>, String> {
+/// Conversations in directory whose transcript contains query, newest first.
+/// An empty directory searches every workspace on the sidebar; subagent sessions are excluded.
+/// Subagent work remains reachable through its parent thread rather than appearing twice in search results.
+pub(crate) fn search(database: &Path, query: &str, directory: &str) -> rusqlite::Result<Vec<SessionMatch>> {
     search_in(&open(database)?, query, directory)
 }
 
-pub(crate) fn search_in(
-    conn: &Connection,
-    query: &str,
-    directory: &str,
-) -> Result<Vec<SessionMatch>, String> {
+pub(crate) fn search_in(connection: &Connection, query: &str, directory: &str) -> rusqlite::Result<Vec<SessionMatch>> {
     let trimmed = query.trim();
     if trimmed.chars().count() < MIN_QUERY_CHARS {
         return Ok(Vec::new());
     }
+
     let needle = trimmed.chars().take(MAX_QUERY_CHARS).collect::<String>();
     let pattern = format!("%{}%", escape_like(&needle));
     let scope = normalize_directory(directory);
 
-    let mut statement = conn
-        .prepare(
-            "WITH recent AS (
+    let mut statement = connection.prepare(
+        "WITH recent AS (
                 SELECT session.id, session.title, workspace.path AS directory, session.updated_at
                 FROM session JOIN workspace ON workspace.id = session.workspace_id
                 WHERE session.visibility = 'sibling' AND workspace.removed_at IS NULL
@@ -139,34 +133,29 @@ pub(crate) fn search_in(
             WHERE part.json LIKE ?3 ESCAPE '\\'
             ORDER BY recent.updated_at DESC, part.id ASC
             LIMIT ?4",
-        )
-        .map_err(|error| error.to_string())?;
+    )?;
 
-    let rows = statement
-        .query_map(
-            rusqlite::params![scope, MAX_SESSIONS_SCANNED, pattern, MAX_ROWS_EXAMINED],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-                    row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    row.get::<_, Option<String>>(3)?.unwrap_or_default(),
-                    row.get::<_, Option<i64>>(4)?.unwrap_or_default(),
-                    row.get::<_, String>(5)?,
-                ))
-            },
-        )
-        .map_err(|error| error.to_string())?;
+    let rows = statement.query_map(
+        rusqlite::params![scope, MAX_SESSIONS_SCANNED, pattern, MAX_ROWS_EXAMINED],
+        |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                row.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                row.get::<_, Option<i64>>(4)?.unwrap_or_default(),
+                row.get::<_, String>(5)?,
+            ))
+        },
+    )?;
 
     let mut matches: Vec<SessionMatch> = Vec::new();
     for row in rows {
-        let (session_id, message_id, title, directory, updated_at, data) =
-            row.map_err(|error| error.to_string())?;
+        let (session_id, message_id, title, directory, updated_at, data) = row?;
         if matches.iter().any(|found| found.session_id == session_id) {
             continue;
         }
-        // The payload matched as raw JSON, which also hits tool arguments and encoded fields. Only
-        // a match in the readable text is worth showing, so anything else is skipped here.
+        // Raw JSON matches can hit tool arguments; only readable conversation text belongs in results.
         let Some(text) = part_text(&data) else { continue };
         if !text.to_lowercase().contains(&needle.to_lowercase()) {
             continue;
@@ -183,6 +172,7 @@ pub(crate) fn search_in(
             break;
         }
     }
+
     Ok(matches)
 }
 

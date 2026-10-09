@@ -12,8 +12,13 @@ pub fn problems(schema: &Value, input: &Value) -> Vec<String> {
 }
 
 fn check(schema: &Value, value: &Value, at: &str, found: &mut Vec<String>) {
-    let name = if at.is_empty() { "the arguments".to_string() } else { format!("`{at}`") };
-    if let Some(expected) = types(schema).filter(|types| !types.iter().any(|t| is(value, t))) {
+    let name = if at.is_empty() {
+        "the arguments".to_string()
+    } else {
+        format!("`{at}`")
+    };
+
+    if let Some(expected) = types(schema).filter(|types| !types.iter().any(|expected| is(value, expected))) {
         found.push(format!("{name} must be {}, not {}", expected.join(" or "), kind(value)));
         return;
     }
@@ -21,16 +26,27 @@ fn check(schema: &Value, value: &Value, at: &str, found: &mut Vec<String>) {
         let listed: Vec<String> = choices.iter().map(Value::to_string).collect();
         found.push(format!("{name} must be one of {}", listed.join(", ")));
     }
+
     if let Value::Object(fields) = value {
-        for missing in schema["required"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|key| !fields.contains_key(*key)) {
+        for missing in schema["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|key| !fields.contains_key(*key))
+        {
             found.push(format!("`{}` is required", path(at, missing)));
         }
         for (key, inner) in schema["properties"].as_object().into_iter().flatten() {
-            if let Some(given) = fields.get(key).filter(|given| !given.is_null() || !optional_null(inner)) {
+            if let Some(given) = fields
+                .get(key)
+                .filter(|given| !given.is_null() || !optional_null(inner))
+            {
                 check(inner, given, &path(at, key), found);
             }
         }
     }
+
     if let (Value::Array(items), Some(each)) = (value, schema.get("items").filter(|each| each.is_object())) {
         for (index, item) in items.iter().enumerate() {
             check(each, item, &format!("{at}[{index}]"), found);
@@ -54,7 +70,7 @@ fn types(schema: &Value) -> Option<Vec<&str>> {
 fn is(value: &Value, kind: &str) -> bool {
     match kind {
         "string" => value.is_string(),
-        "integer" => value.is_i64() || value.is_u64() || value.as_f64().is_some_and(|n| n.fract() == 0.0),
+        "integer" => value.is_i64() || value.is_u64() || value.as_f64().is_some_and(|number| number.fract() == 0.0),
         "number" => value.is_number(),
         "boolean" => value.is_boolean(),
         "object" => value.is_object(),
@@ -76,7 +92,11 @@ fn kind(value: &Value) -> &'static str {
 }
 
 fn path(at: &str, key: &str) -> String {
-    if at.is_empty() { key.to_string() } else { format!("{at}.{key}") }
+    if at.is_empty() {
+        key.to_string()
+    } else {
+        format!("{at}.{key}")
+    }
 }
 
 #[cfg(test)]
@@ -98,11 +118,36 @@ mod tests {
             "required": ["path"]
         });
         assert!(problems(&schema, &json!({ "path": "a", "limit": 20, "format": "text" })).is_empty());
-        assert!(problems(&schema, &json!({ "path": "a", "limit": 20.0 })).is_empty(), "a whole float is an integer");
-        assert!(problems(&schema, &json!({ "path": "a", "limit": null })).is_empty(), "a null is read as left out");
-        assert_eq!(problems(&schema, &json!({ "limit": "20" })), ["`path` is required", "`limit` must be integer, not a string"]);
-        assert_eq!(problems(&schema, &json!({ "path": "a", "format": "html" })), [r#"`format` must be one of "markdown", "text""#]);
-        assert_eq!(problems(&schema, &json!({ "path": "a", "todos": [{ "content": 1 }, {}] })), ["`todos[0].content` must be string, not a number", "`todos[1].content` is required"]);
-        assert!(problems(&json!({ "type": "object", "properties": { "x": { "anyOf": [] } } }), &json!({ "x": [1] })).is_empty(), "keywords it does not check pass");
+        assert!(
+            problems(&schema, &json!({ "path": "a", "limit": 20.0 })).is_empty(),
+            "a whole float is an integer"
+        );
+        assert!(
+            problems(&schema, &json!({ "path": "a", "limit": null })).is_empty(),
+            "a null is read as left out"
+        );
+        assert_eq!(
+            problems(&schema, &json!({ "limit": "20" })),
+            ["`path` is required", "`limit` must be integer, not a string"]
+        );
+        assert_eq!(
+            problems(&schema, &json!({ "path": "a", "format": "html" })),
+            [r#"`format` must be one of "markdown", "text""#]
+        );
+        assert_eq!(
+            problems(&schema, &json!({ "path": "a", "todos": [{ "content": 1 }, {}] })),
+            [
+                "`todos[0].content` must be string, not a number",
+                "`todos[1].content` is required"
+            ]
+        );
+        assert!(
+            problems(
+                &json!({ "type": "object", "properties": { "x": { "anyOf": [] } } }),
+                &json!({ "x": [1] })
+            )
+            .is_empty(),
+            "keywords it does not check pass"
+        );
     }
 }

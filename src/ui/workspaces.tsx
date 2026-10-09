@@ -1,610 +1,461 @@
-import { createEffect, createMemo, createSignal, Match, onCleanup, onMount, Show, Switch, For, type JSX } from "solid-js"
-import { useEngine, type Engine } from "../engine"
-import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache"
-import { TextShimmer } from "./text-shimmer"
-import { createDismissOnOutside } from "./dismiss"
-import { emitThreadArchived } from "../plugins"
-import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons"
-import { normalizeDir, sessionBusy, sessionsFor } from "../engine/store"
-import { selectedSession, selectSession } from "../state/selection"
-import type { Workspace } from "../state/store"
-import { fixedMenuPosition } from "../state/zoom"
-import { t } from "../state/i18n"
-import { Chevron } from "./controls"
-import { sidebarWorkers } from "../state/permission-attention"
-import { dragReorder } from "./drag-reorder"
-import { activateModal, closeOnBackdropPointerDown } from "./modal"
+import { normalizeDir, sessionBusy, sessionsFor, taskForWorker, workerQueued } from "../engine/store";
+import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache";
+import { ago, dayDividers, startOfDay, workspaceInitials } from "./workspace-presentation";
+import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons";
+import { selectedSession, selectSession } from "../state/selection";
+import { sidebarWorkers } from "../state/permission-attention";
+import { sidebarDayDividers } from "../state/prefs";
+import { useEngine, type Engine } from "../engine";
+import { emitThreadArchived } from "../plugins";
+import { TextShimmer } from "./text-shimmer";
+import { dragReorder } from "./drag-reorder";
+import { BackgroundTag } from "./task-dock";
+import { Chevron } from "./controls";
+import { t } from "../state/i18n";
 import {
-  activeWorkspaceId,
-  archivedIds,
-  archiveSession,
-  moveWorkspace,
-  removeWorkspace,
-  selectWorkspace,
-  toggleWorkspaceCollapsed,
-  updateWorkspace,
-  workspaceCollapsed,
-} from "../state/workspaces"
+    activeWorkspaceId,
+    archivedIds,
+    archiveSession,
+    moveWorkspace,
+    selectWorkspace,
+    toggleWorkspaceCollapsed,
+    workspaceCollapsed,
+} from "../state/workspaces";
+import {
+    createEffect,
+    createMemo,
+    createSignal,
+    Match,
+    onCleanup,
+    onMount,
+    Show,
+    Switch,
+    For,
+    type JSX,
+} from "solid-js";
 
-export type WorkspaceMenuState = { x: number; y: number; workspaceId: string }
-export type SessionMenuState = { x: number; y: number; sessionId: string; workspaceId: string }
+import type { WorkspaceMenuState, SessionMenuState } from "./workspace-dialogs";
+import type { Workspace } from "../state/store";
 
-const sessionPageSize = 5
+const sessionPageSize = 5;
 
-const threadRow = (session: { id: string; title: string; time: { updated: number } }): CachedSession => ({
-  id: session.id,
-  title: session.title,
-  updated: session.time.updated,
-})
+const threadRow = (session: { id: string; title: string; updatedAt: number }): CachedSession => ({
+    id: session.id,
+    title: session.title,
+    updated: session.updatedAt,
+});
 
 export function WorkspaceGroup(props: {
-  workspace: Workspace
-  onMenu: (state: WorkspaceMenuState) => void
-  onSessionMenu: (state: SessionMenuState) => void
+    workspace: Workspace;
+    onMenu: (state: WorkspaceMenuState) => void;
+    onSessionMenu: (state: SessionMenuState) => void;
 }) {
-  const engine = useEngine()
-  let root!: HTMLDivElement
-  let cancelDrag = () => {}
-  onCleanup(() => cancelDrag())
-  const collapsed = () => workspaceCollapsed(props.workspace.id)
-  const [visibleCount, setVisibleCount] = createSignal(sessionPageSize)
-  const active = () => activeWorkspaceId() === props.workspace.id
-  const online = () => engine.state.connection === "online"
-  const live = createMemo(() => sessionsFor(engine.state, props.workspace.path).map(threadRow))
-  const authoritative = () =>
-    online() &&
-    (engine.state.sessionSnapshotAll || normalizeDir(engine.state.sessionSnapshotDirectory) === normalizeDir(props.workspace.path))
-  // Non-empty live results are always safe to remember. Only a complete scoped snapshot may clear
-  // the cache, because the event stream reports online before initial hydration has finished.
-  createEffect(() => {
-    const current = live()
-    if (current.length || authoritative()) rememberSessions(props.workspace.path, current)
-  })
-  // Cold engine startup takes seconds; the last known threads stand in until it answers.
-  const all = createMemo(() => {
-    const current = live()
-    if (current.length || authoritative()) return current
-    return cachedSessions(props.workspace.path)
-  })
-  const children = (parentId: string) => sidebarWorkers(engine.state, parentId, selectedSession())
-  const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)))
-  const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()))
-  // Rows are keyed by id; row objects are rebuilt on every session update and would remount the DOM.
-  const visibleIds = createMemo(() => visibleSessions().map((session) => session.id), [], { equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]) })
-  const rowFor = (id: string) => visibleSessions().find((session) => session.id === id)
-  const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length))
-  const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id })
-  return (
-    <div ref={root} data-workspace={props.workspace.id}>
-      <div
-        class="group sticky top-0 z-[1] flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
-        classList={{ "bg-raised": active(), "bg-surface hover:bg-raised/60": !active() }}
-        onPointerDown={(event) => {
-          cancelDrag()
-          cancelDrag = dragReorder(event, root, {
-            selector: ":scope > [data-workspace]",
-            id: props.workspace.id,
-            itemID: (element) => element.dataset.workspace ?? "",
-            move: moveWorkspace,
-            dragged: markWorkspaceDragged,
-          })
-        }}
-        onClick={() => {
-          if (dragged) return
-          toggleWorkspaceCollapsed(props.workspace.id)
-        }}
-        onContextMenu={(event) => {
-          event.preventDefault()
-          openMenu(event.clientX, event.clientY)
-        }}
-      >
-        <button
-          title={collapsed() ? t("drift.workspace.showThreads") : t("drift.workspace.hideThreads")}
-          aria-expanded={!collapsed()}
-          class="-mr-1 -ml-1 flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation()
-            toggleWorkspaceCollapsed(props.workspace.id)
-          }}
-        >
-          <Chevron open={!collapsed()} />
-        </button>
-        <WorkspaceIcon workspace={props.workspace} />
-        <span class="min-w-0 flex-1 truncate text-sm" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
-          {props.workspace.name}
-        </span>
-        <div class="flex items-center" classList={{ "invisible group-hover:visible": !active() }}>
-          <RowButton
-            title={t("common.moreOptions")}
-            onClick={(event) => {
-              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-              openMenu(rect.left, rect.bottom + 4)
-            }}
-          >
-            <IconDots />
-          </RowButton>
-          <RowButton
-            title={t("drift.thread.new")}
-            navigation
-            onClick={() => {
-              selectWorkspace(props.workspace.id)
-              selectSession(null)
-            }}
-          >
-            <IconSquarePen />
-          </RowButton>
-        </div>
-      </div>
-      <Show when={!collapsed()}>
-        <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
-          <For each={visibleIds()}>
-            {(id) => (
-              <>
-                <ThreadItem
-                  sessionId={id}
-                  title={rowFor(id)?.title ?? ""}
-                  updated={rowFor(id)?.updated ?? 0}
-                  workspace={props.workspace}
-                  onMenu={props.onSessionMenu}
-                />
-                <For each={children(id)}>
-                  {(child) => (
-                    <ChildThreadItem
-                      sessionId={child.id}
-                      title={child.title}
-                      workspace={props.workspace}
-                      onMenu={props.onSessionMenu}
-                    />
-                  )}
-                </For>
-              </>
-            )}
-          </For>
-          <Show when={remaining() > 0}>
-            <button
-              class="flex h-7 w-full items-center rounded-md px-2 text-left text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
-              onClick={() => setVisibleCount((count) => Math.min(count + sessionPageSize, sessions().length))}
+    const engine = useEngine();
+    let root!: HTMLDivElement;
+    let cancelDrag = () => {};
+    onCleanup(() => cancelDrag());
+
+    const collapsed = () => workspaceCollapsed(props.workspace.id);
+    const [visibleCount, setVisibleCount] = createSignal(sessionPageSize);
+    const active = () => activeWorkspaceId() === props.workspace.id;
+    const online = () => engine.state.connection === "online";
+    const live = createMemo(() => sessionsFor(engine.state, props.workspace.path).map(threadRow));
+    const authoritative = () =>
+        online() &&
+        (engine.state.sessionSnapshotAll ||
+            normalizeDir(engine.state.sessionSnapshotDirectory) === normalizeDir(props.workspace.path));
+    // Only a complete scoped snapshot may clear the cache; online is reported before hydration ends.
+    createEffect(() => {
+        const current = live();
+        if (current.length || authoritative()) rememberSessions(props.workspace.path, current);
+    });
+
+    // Cold engine startup takes seconds; the last known threads stand in until it answers.
+    const all = createMemo(() => {
+        const current = live();
+        if (current.length || authoritative()) return current;
+        return cachedSessions(props.workspace.path);
+    });
+    const children = (parentId: string) => sidebarWorkers(engine.state, parentId, selectedSession());
+    const sessions = createMemo(() => all().filter((session) => !archivedIds().has(session.id)));
+    const visibleSessions = createMemo(() => sessions().slice(0, visibleCount()));
+    // Rows are keyed by id; row objects are rebuilt on every session update and would remount the DOM.
+    const visibleIds = createMemo(() => visibleSessions().map((session) => session.id), [], {
+        equals: (a, b) => a.length === b.length && a.every((id, i) => id === b[i]),
+    });
+    const rowFor = (id: string) => visibleSessions().find((session) => session.id === id);
+    const remaining = createMemo(() => Math.max(0, sessions().length - visibleSessions().length));
+    // Bumped at each local midnight, so yesterday's "Today" heading moves on without a restart.
+    const [day, setDay] = createSignal(Date.now());
+    let midnight: ReturnType<typeof setTimeout> | undefined;
+
+    const nextMidnight = () => {
+        midnight = setTimeout(
+            () => {
+                setDay(Date.now());
+                nextMidnight();
+            },
+            startOfDay(Date.now()) + 86_400_000 + 1_000 - Date.now(),
+        );
+    };
+
+    onMount(nextMidnight);
+    onCleanup(() => clearTimeout(midnight));
+
+    const dividers = createMemo(() =>
+        sidebarDayDividers() ? dayDividers(visibleSessions(), day()) : new Map<string, string>(),
+    );
+    const openMenu = (x: number, y: number) => props.onMenu({ x, y, workspaceId: props.workspace.id });
+
+    return (
+        <div ref={root} data-workspace={props.workspace.id}>
+            <div
+                class="group sticky top-0 z-[1] flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
+                classList={{ "bg-raised": active(), "bg-surface hover:bg-raised/60": !active() }}
+                onPointerDown={(event) => {
+                    cancelDrag();
+                    cancelDrag = dragReorder(event, root, {
+                        selector: ":scope > [data-workspace]",
+                        id: props.workspace.id,
+                        itemID: (element) => element.dataset.workspace ?? "",
+                        move: moveWorkspace,
+                        dragged: markWorkspaceDragged,
+                    });
+                }}
+                onClick={() => {
+                    if (dragged) return;
+                    toggleWorkspaceCollapsed(props.workspace.id);
+                }}
+                onContextMenu={(event) => {
+                    event.preventDefault();
+                    openMenu(event.clientX, event.clientY);
+                }}
             >
-              {t("drift.thread.loadMore", { count: Math.min(sessionPageSize, remaining()) })}
-            </button>
-          </Show>
-          <Show when={sessions().length === 0 && active() && !authoritative()}>
-            <div class="px-2 py-1.5 text-xs text-ink-faint" role="status" aria-live="polite">
-              <TextShimmer text={t("common.loading")} />
+                <button
+                    title={collapsed() ? t("drift.workspace.showThreads") : t("drift.workspace.hideThreads")}
+                    aria-expanded={!collapsed()}
+                    class="-mr-1 -ml-1 flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+                    onPointerDown={(event) => event.stopPropagation()}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        toggleWorkspaceCollapsed(props.workspace.id);
+                    }}
+                >
+                    <Chevron open={!collapsed()} />
+                </button>
+                <WorkspaceIcon workspace={props.workspace} />
+                <span
+                    class="min-w-0 flex-1 truncate text-sm"
+                    classList={{ "text-ink": active(), "text-ink-muted": !active() }}
+                >
+                    {props.workspace.name}
+                </span>
+                <div class="flex items-center" classList={{ "invisible group-hover:visible": !active() }}>
+                    <RowButton
+                        title={t("common.moreOptions")}
+                        onClick={(event) => {
+                            const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                            openMenu(rect.left, rect.bottom + 4);
+                        }}
+                    >
+                        <IconDots />
+                    </RowButton>
+                    <RowButton
+                        title={t("drift.thread.new")}
+                        navigation
+                        onClick={() => {
+                            selectWorkspace(props.workspace.id);
+                            selectSession(null);
+                        }}
+                    >
+                        <IconSquarePen />
+                    </RowButton>
+                </div>
             </div>
-          </Show>
-          <Show when={sessions().length === 0 && active() && authoritative()}>
-            <div class="px-2 py-1.5 text-xs text-ink-faint">{t("drift.thread.empty")}</div>
-          </Show>
+            <Show when={!collapsed()}>
+                <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
+                    <For each={visibleIds()}>
+                        {(id) => (
+                            <>
+                                <Show when={dividers().get(id)}>
+                                    {(label) => (
+                                        <div class="flex items-center gap-2 px-2 pt-2 pb-0.5 text-[0.65rem] font-medium text-ink-faint select-none first:pt-0.5">
+                                            <span class="shrink-0">{label()}</span>
+                                            <span class="h-px flex-1 bg-edge" />
+                                        </div>
+                                    )}
+                                </Show>
+                                <ThreadItem
+                                    sessionId={id}
+                                    title={rowFor(id)?.title ?? ""}
+                                    updated={rowFor(id)?.updated ?? 0}
+                                    workspace={props.workspace}
+                                    onMenu={props.onSessionMenu}
+                                />
+                                <For each={children(id)}>
+                                    {(child) => (
+                                        <ChildThreadItem
+                                            sessionId={child.id}
+                                            title={child.title}
+                                            workspace={props.workspace}
+                                            onMenu={props.onSessionMenu}
+                                        />
+                                    )}
+                                </For>
+                            </>
+                        )}
+                    </For>
+                    <Show when={remaining() > 0 || visibleCount() > sessionPageSize}>
+                        <div class="flex items-center">
+                            <Show when={remaining() > 0}>
+                                <button
+                                    class="flex h-7 min-w-0 flex-1 items-center rounded-md px-2 text-left text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
+                                    onClick={() =>
+                                        setVisibleCount((count) => Math.min(count + sessionPageSize, sessions().length))
+                                    }
+                                >
+                                    {t("drift.thread.loadMore", { count: Math.min(sessionPageSize, remaining()) })}
+                                </button>
+                            </Show>
+                            <Show when={visibleCount() > sessionPageSize}>
+                                <button
+                                    class="flex h-7 shrink-0 items-center rounded-md px-2 text-[0.72rem] text-ink-faint transition-colors hover:bg-raised/60 hover:text-ink-muted"
+                                    classList={{ "flex-1 text-left": remaining() === 0 }}
+                                    onClick={() => setVisibleCount(sessionPageSize)}
+                                >
+                                    {t("drift.thread.showLess")}
+                                </button>
+                            </Show>
+                        </div>
+                    </Show>
+                    <Show when={sessions().length === 0 && active() && !authoritative()}>
+                        <div class="px-2 py-1.5 text-xs text-ink-faint" role="status" aria-live="polite">
+                            <TextShimmer text={t("common.loading")} />
+                        </div>
+                    </Show>
+                    <Show when={sessions().length === 0 && active() && authoritative()}>
+                        <div class="px-2 py-1.5 text-xs text-ink-faint">{t("drift.thread.empty")}</div>
+                    </Show>
+                </div>
+            </Show>
         </div>
-      </Show>
-    </div>
-  )
+    );
 }
 
-let dragged = false
+let dragged = false;
 
 function markWorkspaceDragged() {
-  dragged = true
-  setTimeout(() => (dragged = false), 0)
+    dragged = true;
+    setTimeout(() => (dragged = false), 0);
 }
 
-function RowButton(props: { title: string; navigation?: boolean; disabled?: boolean; onClick: (event: MouseEvent) => void; children: JSX.Element }) {
-  return (
-    <button
-      title={props.title}
-      disabled={props.disabled}
-      data-sidebar-navigation={props.navigation ? "" : undefined}
-      class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:cursor-wait disabled:opacity-40"
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.stopPropagation()
-        props.onClick(event)
-      }}
-    >
-      {props.children}
-    </button>
-  )
+function RowButton(props: {
+    title: string;
+    navigation?: boolean;
+    disabled?: boolean;
+    onClick: (event: MouseEvent) => void;
+    children: JSX.Element;
+}) {
+    return (
+        <button
+            title={props.title}
+            disabled={props.disabled}
+            data-sidebar-navigation={props.navigation ? "" : undefined}
+            class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-overlay hover:text-ink disabled:cursor-wait disabled:opacity-40"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+                event.stopPropagation();
+                props.onClick(event);
+            }}
+        >
+            {props.children}
+        </button>
+    );
 }
 
 function ThreadItem(props: {
-  sessionId: string
-  title: string
-  updated: number
-  workspace: Workspace
-  onMenu: (state: SessionMenuState) => void
+    sessionId: string;
+    title: string;
+    updated: number;
+    workspace: Workspace;
+    onMenu: (state: SessionMenuState) => void;
 }) {
-  const engine = useEngine()
-  const active = () => selectedSession() === props.sessionId
-  const [forking, setForking] = createSignal(false)
-  return (
-    <div
-      data-sidebar-navigation
-      class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors"
-      classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
-      onClick={() => {
-        selectWorkspace(props.workspace.id)
-        selectSession(props.sessionId)
-      }}
-      onContextMenu={(event) => {
-        event.preventDefault()
-        props.onMenu({ x: event.clientX, y: event.clientY, sessionId: props.sessionId, workspaceId: props.workspace.id })
-      }}
-    >
-      <StatusDot sessionId={props.sessionId} />
-      <span class="min-w-0 flex-1 truncate text-[0.8rem]" classList={{ "text-ink": active(), "text-ink-muted": !active() }}>
-        {props.title || t("drift.thread.untitled")}
-      </span>
-      <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
-      <span class="hidden shrink-0 items-center group-hover:flex">
-        <RowButton
-          title={forking() ? t("common.loading") : t("drift.slash.fork.active.description")}
-          disabled={forking()}
-          onClick={() => {
-            if (forking()) return
-            setForking(true)
-            selectWorkspace(props.workspace.id)
-            const selection = selectedSession()
-            void engine.actions
-              .fork(props.sessionId)
-              .then(
-                (session) =>
-                  session &&
-                  activeWorkspaceId() === props.workspace.id &&
-                  selectedSession() === selection &&
-                  selectSession(session.id),
-              )
-              .finally(() => setForking(false))
-          }}
+    const engine = useEngine();
+    const active = () => selectedSession() === props.sessionId;
+    const [forking, setForking] = createSignal(false);
+
+    return (
+        <div
+            data-sidebar-navigation
+            class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors"
+            classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
+            onClick={() => {
+                selectWorkspace(props.workspace.id);
+                selectSession(props.sessionId);
+            }}
+            onContextMenu={(event) => {
+                event.preventDefault();
+                props.onMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    sessionId: props.sessionId,
+                    workspaceId: props.workspace.id,
+                });
+            }}
         >
-          <IconBranch />
-        </RowButton>
-        <RowButton
-          title={t("command.session.archive")}
-          onClick={() => {
-            if (selectedSession() === props.sessionId) selectSession(null)
-            void archiveSession(props.sessionId, props.workspace.id, engine.actions.setArchived)
-              .then(() => emitThreadArchived(props.sessionId))
-              .catch((cause: unknown) => archiveFailed(engine, cause))
-          }}
-        >
-          <IconArchive />
-        </RowButton>
-      </span>
-    </div>
-  )
+            <StatusDot sessionId={props.sessionId} />
+            <span
+                class="min-w-0 flex-1 truncate text-[0.8rem]"
+                classList={{ "text-ink": active(), "text-ink-muted": !active() }}
+            >
+                {props.title || t("drift.thread.untitled")}
+            </span>
+            <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
+            <span class="hidden shrink-0 items-center group-hover:flex">
+                <RowButton
+                    title={forking() ? t("common.loading") : t("drift.slash.fork.active.description")}
+                    disabled={forking()}
+                    onClick={() => {
+                        if (forking()) return;
+
+                        setForking(true);
+                        selectWorkspace(props.workspace.id);
+
+                        const selection = selectedSession();
+                        void engine.actions
+                            .fork(props.sessionId)
+                            .then(
+                                (session) =>
+                                    session &&
+                                    activeWorkspaceId() === props.workspace.id &&
+                                    selectedSession() === selection &&
+                                    selectSession(session.id),
+                            )
+                            .finally(() => setForking(false));
+                    }}
+                >
+                    <IconBranch />
+                </RowButton>
+                <RowButton
+                    title={t("command.session.archive")}
+                    onClick={() => {
+                        if (selectedSession() === props.sessionId) selectSession(null);
+                        void archiveSession(props.sessionId, props.workspace.id, engine.actions.setArchived)
+                            .then(() => emitThreadArchived(props.sessionId))
+                            .catch((cause: unknown) => archiveFailed(engine, cause));
+                    }}
+                >
+                    <IconArchive />
+                </RowButton>
+            </span>
+        </div>
+    );
 }
 
 /** The engine refused to archive or restore; the thread stays where it was. */
 export function archiveFailed(engine: Engine, cause: unknown) {
-  engine.actions.notice({ title: t("command.session.archive"), message: cause instanceof Error ? cause.message : String(cause), variant: "error" })
+    engine.actions.notice({
+        title: t("command.session.archive"),
+        message: cause instanceof Error ? cause.message : String(cause),
+        variant: "error",
+    });
 }
 
 function StatusDot(props: { sessionId: string }) {
-  const engine = useEngine()
-  const permissions = () => engine.state.permissions[props.sessionId] ?? []
-  const attention = () =>
-    permissions().length > 0 || (engine.state.questions[props.sessionId]?.length ?? 0) > 0
-  const attentionTitle = () =>
-    permissions().length > 0
-      ? t("drift.thread.waitingForPermission")
-      : t("drift.thread.waitingForAnswer")
-  return (
-    <Switch>
-      <Match when={attention()}>
-        <span class="size-1.5 shrink-0 rounded-full bg-warn" title={attentionTitle()} />
-      </Match>
-      <Match when={sessionBusy(engine.state, props.sessionId)}>
-        <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.thread.working")} />
-      </Match>
-      <Match when={engine.state.errors[props.sessionId]}>
-        <span class="size-1.5 shrink-0 rounded-full bg-danger" title={t("notification.session.error.title")} />
-      </Match>
-    </Switch>
-  )
+    const engine = useEngine();
+    const permissions = () => engine.state.permissions[props.sessionId] ?? [];
+    const attention = () => permissions().length > 0 || (engine.state.questions[props.sessionId]?.length ?? 0) > 0;
+    const attentionTitle = () =>
+        permissions().length > 0 ? t("drift.thread.waitingForPermission") : t("drift.thread.waitingForAnswer");
+
+    return (
+        <Switch>
+            <Match when={attention()}>
+                <span class="size-1.5 shrink-0 rounded-full bg-warn" title={attentionTitle()} />
+            </Match>
+            <Match when={sessionBusy(engine.state, props.sessionId)}>
+                <span class="pulse-soft size-1.5 shrink-0 rounded-full bg-accent" title={t("drift.thread.working")} />
+            </Match>
+            <Match when={workerQueued(engine.state, props.sessionId)}>
+                <span
+                    class="size-1.5 shrink-0 rounded-full border border-accent/70"
+                    title={t("drift.task.queued.description")}
+                />
+            </Match>
+            <Match when={engine.state.errors[props.sessionId]}>
+                <span class="size-1.5 shrink-0 rounded-full bg-danger" title={t("notification.session.error.title")} />
+            </Match>
+        </Switch>
+    );
 }
 
 function ChildThreadItem(props: {
-  sessionId: string
-  title: string
-  workspace: Workspace
-  onMenu: (state: SessionMenuState) => void
+    sessionId: string;
+    title: string;
+    workspace: Workspace;
+    onMenu: (state: SessionMenuState) => void;
 }) {
-  const active = () => selectedSession() === props.sessionId
-  return (
-    <div
-      data-sidebar-navigation
-      class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 pl-5 transition-colors"
-      classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
-      onClick={() => {
-        selectWorkspace(props.workspace.id)
-        selectSession(props.sessionId)
-      }}
-      onContextMenu={(event) => {
-        event.preventDefault()
-        props.onMenu({ x: event.clientX, y: event.clientY, sessionId: props.sessionId, workspaceId: props.workspace.id })
-      }}
-    >
-      <span class="text-[0.7rem] text-ink-faint">&#8627;</span>
-      <StatusDot sessionId={props.sessionId} />
-      <span class="min-w-0 flex-1 truncate text-[0.75rem]" classList={{ "text-ink": active(), "text-ink-faint": !active() }}>
-        {props.title || t("drift.thread.untitled")}
-      </span>
-    </div>
-  )
+    const engine = useEngine();
+    const active = () => selectedSession() === props.sessionId;
+    const background = () => taskForWorker(engine.state, props.sessionId)?.mode === "background";
+
+    return (
+        <div
+            data-sidebar-navigation
+            class="flex h-7 cursor-pointer items-center gap-1.5 rounded-md py-0.5 pr-2 pl-5 transition-colors"
+            classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
+            onClick={() => {
+                selectWorkspace(props.workspace.id);
+                selectSession(props.sessionId);
+            }}
+            onContextMenu={(event) => {
+                event.preventDefault();
+                props.onMenu({
+                    x: event.clientX,
+                    y: event.clientY,
+                    sessionId: props.sessionId,
+                    workspaceId: props.workspace.id,
+                });
+            }}
+        >
+            <span class="text-[0.7rem]" classList={{ "text-accent/70": background(), "text-ink-faint": !background() }}>
+                &#8627;
+            </span>
+            <StatusDot sessionId={props.sessionId} />
+            <span
+                class="min-w-0 flex-1 truncate text-[0.75rem]"
+                classList={{ "text-ink": active(), "text-ink-faint": !active() }}
+            >
+                {props.title || t("drift.thread.untitled")}
+            </span>
+            <Show when={background()}>
+                <BackgroundTag />
+            </Show>
+        </div>
+    );
 }
 
-const hues = [212, 262, 330, 24, 96, 168]
+const hues = [212, 262, 330, 24, 96, 168];
 
 export function WorkspaceIcon(props: { workspace: Workspace }) {
-  const hue = () => {
-    let hash = 0
-    for (const char of props.workspace.path) hash = (hash * 31 + char.charCodeAt(0)) | 0
-    return hues[Math.abs(hash) % hues.length]
-  }
-  return (
-    <Show
-      when={props.workspace.icon.startsWith("data:")}
-      fallback={
-        <span
-          class="flex size-6 shrink-0 items-center justify-center rounded-md text-[0.65rem] font-semibold text-white/90"
-          style={{ background: `hsl(${hue()} 40% 34%)` }}
-        >
-          {initials(props.workspace.name)}
-        </span>
-      }
-    >
-      <img src={props.workspace.icon} alt="" class="size-6 shrink-0 rounded-md object-cover" />
-    </Show>
-  )
-}
-
-function initials(name: string) {
-  const words = name.split(/[\s\-_.]+/).filter(Boolean)
-  const letters = words.slice(0, 2).map((word) => word.charAt(0))
-  return (letters.join("") || name.charAt(0)).toUpperCase()
-}
-
-export function WorkspaceMenu(props: {
-  state: WorkspaceMenuState
-  workspace: Workspace
-  onEdit: () => void
-  onMove: () => void
-  onClose: () => void
-}) {
-  let root!: HTMLDivElement
-  const [confirming, setConfirming] = createSignal(false)
-  const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, confirming() ? 176 : 144)
-
-  createDismissOnOutside({ inside: () => [root], onDismiss: () => props.onClose(), escape: true })
-
-  return (
-    <div
-      ref={root}
-      class="fade-up fixed z-40 w-52 rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
-      style={{
-        left: `${position().left}px`,
-        top: `${position().top}px`,
-      }}
-    >
-      <MenuItem
-        label={t("common.edit")}
-        onClick={() => {
-          props.onEdit()
-          props.onClose()
-        }}
-      />
-      <MenuItem
-        label={t("drift.workspace.move")}
-        onClick={() => {
-          props.onMove()
-          props.onClose()
-        }}
-      />
-      <MenuItem
-        label={confirming() ? t("drift.workspace.confirmRemove") : t("drift.workspace.remove")}
-        danger
-        onClick={() => {
-          if (!confirming()) return setConfirming(true)
-          void removeWorkspace(props.workspace.id)
-          props.onClose()
-        }}
-      />
-      <Show when={confirming()}>
-        <div class="px-2 pt-1 pb-0.5 text-[0.65rem] leading-snug text-ink-faint">{t("drift.workspace.removeHint")}</div>
-      </Show>
-    </div>
-  )
-}
-
-export function SessionMenu(props: {
-  state: SessionMenuState
-  workspaces: Workspace[]
-  onMove: (workspace: Workspace) => void
-  onClose: () => void
-}) {
-  let root!: HTMLDivElement
-  const [choosing, setChoosing] = createSignal(false)
-  const targets = () => {
-    const source = props.workspaces.find((workspace) => workspace.id === props.state.workspaceId)
-    return props.workspaces.filter(
-      (workspace) =>
-        workspace.id !== props.state.workspaceId && (!source || normalizeDir(workspace.path) !== normalizeDir(source.path)),
-    )
-  }
-  const height = () => (choosing() ? Math.min(320, 48 + Math.max(1, targets().length) * 36) : 48)
-  const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, height())
-
-  createDismissOnOutside({ inside: () => [root], onDismiss: () => props.onClose(), escape: true })
-
-  return (
-    <div
-      ref={root}
-      class="fade-up fixed z-40 max-h-80 w-52 overflow-y-auto rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
-      style={{ left: `${position().left}px`, top: `${position().top}px` }}
-    >
-      <MenuItem
-        label={choosing() ? t("drift.thread.moveToWorkspace") : t("drift.thread.move")}
-        onClick={() => setChoosing(true)}
-      />
-      <Show when={choosing()}>
-        <div class="my-1 border-t border-edge" />
-        <For each={targets()}>
-          {(workspace) => (
-            <MenuItem
-              label={workspace.name}
-              onClick={() => {
-                props.onMove(workspace)
-                props.onClose()
-              }}
-            />
-          )}
-        </For>
-        <Show when={targets().length === 0}>
-          <MenuItem label={t("drift.thread.noOtherWorkspaces")} disabled onClick={() => {}} />
-        </Show>
-      </Show>
-    </div>
-  )
-}
-
-export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () => void }) {
-  let dialog!: HTMLDivElement
-  const [name, setName] = createSignal(props.workspace.name)
-  const [icon, setIcon] = createSignal(props.workspace.icon)
-  onMount(() => onCleanup(activateModal(dialog, props.onClose)))
-
-  async function save() {
-    const next = name().trim()
-    await updateWorkspace(props.workspace.id, { name: next || props.workspace.name, icon: icon() })
-    props.onClose()
-  }
-
-  return (
-    <div
-      data-modal-layer
-      class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
-      onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
-    >
-      <div
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("dialog.project.edit.title")}
-        tabIndex={-1}
-        class="fade-up w-96 rounded-xl border border-edge bg-overlay p-4 shadow-2xl shadow-black/40"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div class="mb-4 text-sm font-semibold text-ink">{t("dialog.project.edit.title")}</div>
-        <div class="mb-4 flex items-center gap-3">
-          <Show
-            when={icon().startsWith("data:")}
+    const hue = () => {
+        let hash = 0;
+        for (const char of props.workspace.path) hash = (hash * 31 + char.charCodeAt(0)) | 0;
+        return hues[Math.abs(hash) % hues.length];
+    };
+    return (
+        <Show
+            when={props.workspace.icon.startsWith("data:")}
             fallback={
-              <span class="flex size-12 items-center justify-center rounded-lg bg-raised text-sm font-semibold text-ink-muted">
-                {initials(name() || props.workspace.name)}
-              </span>
+                <span
+                    class="flex size-6 shrink-0 items-center justify-center rounded-md text-[0.65rem] font-semibold text-white/90"
+                    style={{ background: `hsl(${hue()} 40% 34%)` }}
+                >
+                    {workspaceInitials(props.workspace.name)}
+                </span>
             }
-          >
-            <img src={icon()} alt="" class="size-12 rounded-lg object-cover" />
-          </Show>
-          <div class="flex flex-col gap-1.5">
-            <button
-              class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-              onClick={() => void pickIconImage().then((image) => image && setIcon(image))}
-            >
-              {t("drift.workspace.changeImage")}
-            </button>
-            <Show when={icon()}>
-              <button
-                class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-                onClick={() => setIcon("")}
-              >
-                {t("drift.workspace.useInitials")}
-              </button>
-            </Show>
-          </div>
-        </div>
-        <label class="mb-4 block">
-          <span class="mb-1 block text-[0.68rem] tracking-wide text-ink-faint uppercase">
-            {t("dialog.project.edit.name")}
-          </span>
-          <input
-            class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
-            value={name()}
-            onInput={(event) => setName(event.currentTarget.value)}
-            onKeyDown={(event) => event.key === "Enter" && void save()}
-          />
-        </label>
-        <div class="mb-3 text-[0.68rem] text-ink-faint">{props.workspace.path}</div>
-        <div class="flex justify-end gap-2">
-          <button
-            class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
-            onClick={props.onClose}
-          >
-            {t("common.cancel")}
-          </button>
-          <button
-            class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink"
-            onClick={() => void save()}
-          >
-            {t("common.save")}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function MenuItem(props: { label: string; danger?: boolean; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button
-      class="w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors"
-      classList={{
-        "text-ink-muted hover:bg-raised hover:text-ink": !props.danger && !props.disabled,
-        "text-danger hover:bg-danger/10": props.danger && !props.disabled,
-        "cursor-default text-ink-faint": props.disabled,
-      }}
-      disabled={props.disabled}
-      onClick={props.onClick}
-    >
-      {props.label}
-    </button>
-  )
-}
-
-async function pickIconImage(): Promise<string | null> {
-  const file = await pickFile("image/*")
-  if (!file) return null
-  const bitmap = await createImageBitmap(file)
-  const size = 64
-  const canvas = document.createElement("canvas")
-  canvas.width = size
-  canvas.height = size
-  const context = canvas.getContext("2d")!
-  const scale = Math.max(size / bitmap.width, size / bitmap.height)
-  const width = bitmap.width * scale
-  const height = bitmap.height * scale
-  context.drawImage(bitmap, (size - width) / 2, (size - height) / 2, width, height)
-  bitmap.close()
-  return canvas.toDataURL("image/webp", 0.85)
-}
-
-function pickFile(accept: string): Promise<File | null> {
-  return new Promise((resolve) => {
-    const input = document.createElement("input")
-    input.type = "file"
-    input.accept = accept
-    input.onchange = () => resolve(input.files?.[0] ?? null)
-    input.oncancel = () => resolve(null)
-    input.click()
-  })
-}
-
-function ago(timestamp: number) {
-  const seconds = Math.max(0, (Date.now() - timestamp) / 1000)
-  if (seconds < 60) return t("common.time.justNow")
-  if (seconds < 3600) return t("common.time.minutesAgo.short", { count: Math.floor(seconds / 60) })
-  if (seconds < 86400) return t("common.time.hoursAgo.short", { count: Math.floor(seconds / 3600) })
-  return t("common.time.daysAgo.short", { count: Math.floor(seconds / 86400) })
+        >
+            <img src={props.workspace.icon} alt="" class="size-6 shrink-0 rounded-md object-cover" />
+        </Show>
+    );
 }

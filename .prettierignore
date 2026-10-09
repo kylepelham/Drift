@@ -1,0 +1,15 @@
+# Written by tools: the generated engine client (`--check` compares it byte for byte), Tauri's schemas,
+# the bundled models.dev snapshot and the lockfiles.
+src/engine/native/types.ts
+src-tauri/gen/
+crates/drift-engine/data/models.json
+bun.lock
+Cargo.lock
+# Prose stays as written; reference repos and build output are not ours.
+*.md
+examples/
+dist/
+target/
+.build/
+.worktrees/
+node_modules/

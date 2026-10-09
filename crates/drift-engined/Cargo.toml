@@ -1,9 +1,14 @@
 [package]
 name = "drift-engined"
 version.workspace = true
-edition = "2021"
+license.workspace = true
+edition = "2024"
+
+[lints]
+workspace = true
 
 [dependencies]
 drift-engine = { path = "../drift-engine" }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 tokio = { workspace = true, features = ["signal"] }
+thiserror = { workspace = true }

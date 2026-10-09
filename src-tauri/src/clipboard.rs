@@ -1,5 +1,4 @@
-//! Clipboard writes. Windows goes through Win32 directly so the text can be marked
-//! non-sensitive for clipboard history; other platforms fall back to the webview.
+//! Windows clipboard writes mark text as non-sensitive for history; other platforms use the webview.
 
 /// Windows clipboard format for UTF-16 text.
 #[cfg(windows)]
@@ -12,18 +11,22 @@ pub(crate) fn clipboard_write_text(window: tauri::WebviewWindow, text: String) -
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
     };
-    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 
     if text.is_empty() {
         return Ok(());
     }
+
     let value = clipboard_utf16(&text);
     let hwnd = window.hwnd().map_err(|error| error.to_string())?.0;
+
+    // SAFETY: Each allocation is checked before access and ownership transfers only after SetClipboardData succeeds.
     unsafe {
         let memory = GlobalAlloc(GMEM_MOVEABLE, value.len() * std::mem::size_of::<u16>());
         if memory.is_null() {
             return Err(std::io::Error::last_os_error().to_string());
         }
+
         let target = GlobalLock(memory).cast::<u16>();
         if target.is_null() {
             GlobalFree(memory);
@@ -37,6 +40,7 @@ pub(crate) fn clipboard_write_text(window: tauri::WebviewWindow, text: String) -
             GlobalFree(memory);
             return Err(std::io::Error::last_os_error().to_string());
         }
+
         let history_target = GlobalLock(history_memory).cast::<u32>();
         if history_target.is_null() {
             GlobalFree(history_memory);
@@ -45,6 +49,7 @@ pub(crate) fn clipboard_write_text(window: tauri::WebviewWindow, text: String) -
         }
         history_target.write(1);
         GlobalUnlock(history_memory);
+
         let history_name = clipboard_utf16("CanIncludeInClipboardHistory");
         let history_format = RegisterClipboardFormatW(history_name.as_ptr());
         if history_format == 0 {
@@ -80,6 +85,7 @@ pub(crate) fn clipboard_write_text(window: tauri::WebviewWindow, text: String) -
         }
         CloseClipboard();
     }
+
     Ok(())
 }
 

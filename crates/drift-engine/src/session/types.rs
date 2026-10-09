@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
+mod metadata;
+
+pub use metadata::{
+    CheckStatus, HistoryChange, MetadataFile, ToolCheck, ToolDiagnostic, ToolFileChange, ToolImage, ToolMetadata,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]
 pub struct ModelRef {
     pub provider: String,
@@ -60,6 +66,19 @@ pub struct Revert {
     /// Files the last undo or redo left alone because someone changed them after the session did.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub kept: Vec<String>,
+    /// Where the files stand when an undo kept them; absent means put back to `message_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub files: Option<FilesAt>,
+}
+
+/// The files of an undo that did not put them back to its own point.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum FilesAt {
+    /// As the whole conversation left them.
+    Current,
+    /// Put back to before this prompt.
+    Before(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -87,16 +106,6 @@ pub struct Usage {
     pub output: u64,
     pub cache_read: u64,
     pub cache_write: u64,
-}
-
-impl Usage {
-    /// Providers report running totals, so a later report supersedes an earlier one field by field.
-    pub fn merge(&mut self, other: Usage) {
-        self.input = self.input.max(other.input);
-        self.output = self.output.max(other.output);
-        self.cache_read = self.cache_read.max(other.cache_read);
-        self.cache_write = self.cache_write.max(other.cache_write);
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -138,25 +147,6 @@ pub enum Ending {
     Limit,
 }
 
-impl Ending {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Length => "length",
-            Self::Refused => "refused",
-            Self::Limit => "limit",
-        }
-    }
-
-    pub fn parse(text: &str) -> Option<Self> {
-        match text {
-            "length" => Some(Self::Length),
-            "refused" => Some(Self::Refused),
-            "limit" => Some(Self::Limit),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolStatus {
@@ -192,7 +182,7 @@ pub enum Part {
         #[serde(skip_serializing_if = "Option::is_none")]
         output: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        metadata: Option<Value>,
+        metadata: Option<Box<ToolMetadata>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         started_at: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,6 +218,11 @@ pub enum Part {
     Nudge {
         text: String,
     },
+    /// What a plugin added for the model: context beside the user's prompt, or a prompt of its own that kept a turn going.
+    Context {
+        plugin: String,
+        text: String,
+    },
     /// The boundary of a compaction; its summary is the assistant message that follows.
     #[serde(rename_all = "camelCase")]
     Compaction {
@@ -248,6 +243,101 @@ pub struct Clarified {
     pub header: String,
     pub question: String,
     pub answers: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TodoStatus {
+    Pending,
+    InProgress,
+    Completed,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct Todo {
+    pub content: String,
+    pub status: TodoStatus,
+    #[serde(default = "default_priority")]
+    pub priority: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PartRow {
+    pub id: String,
+    pub message_id: String,
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_signature: Option<String>,
+    #[serde(flatten)]
+    pub part: Part,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageWithParts {
+    #[serde(flatten)]
+    pub info: Message,
+    pub parts: Vec<PartRow>,
+}
+
+fn default_priority() -> String {
+    "medium".into()
+}
+
+impl Revert {
+    pub fn new(message_id: &str, kept: Vec<String>, files_from: Option<&str>) -> Self {
+        let files = match files_from {
+            Some(from) if from == message_id => None,
+            Some(from) => Some(FilesAt::Before(from.into())),
+            None => Some(FilesAt::Current),
+        };
+
+        Self {
+            message_id: message_id.into(),
+            kept,
+            files,
+        }
+    }
+
+    /// The prompt whose turns and later ones are undone on disk; none when the files are as the conversation left them.
+    pub fn files_from(&self) -> Option<&str> {
+        match &self.files {
+            None => Some(&self.message_id),
+            Some(FilesAt::Current) => None,
+            Some(FilesAt::Before(from)) => Some(from),
+        }
+    }
+}
+
+impl Usage {
+    /// Providers report running totals, so a later report supersedes an earlier one field by field.
+    pub fn merge(&mut self, other: Usage) {
+        self.input = self.input.max(other.input);
+        self.output = self.output.max(other.output);
+        self.cache_read = self.cache_read.max(other.cache_read);
+        self.cache_write = self.cache_write.max(other.cache_write);
+    }
+}
+
+impl Ending {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Length => "length",
+            Self::Refused => "refused",
+            Self::Limit => "limit",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "length" => Some(Self::Length),
+            "refused" => Some(Self::Refused),
+            "limit" => Some(Self::Limit),
+            _ => None,
+        }
+    }
 }
 
 impl Part {
@@ -273,91 +363,5 @@ impl Part {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum TodoStatus {
-    Pending,
-    InProgress,
-    Completed,
-    Cancelled,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-pub struct Todo {
-    pub content: String,
-    pub status: TodoStatus,
-    #[serde(default = "default_priority")]
-    pub priority: String,
-}
-
-fn default_priority() -> String {
-    "medium".into()
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct PartRow {
-    pub id: String,
-    pub message_id: String,
-    pub session_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_signature: Option<String>,
-    #[serde(flatten)]
-    pub part: Part,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct MessageWithParts {
-    #[serde(flatten)]
-    pub info: Message,
-    pub parts: Vec<PartRow>,
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn part_serialises_tagged_and_flat_in_row() {
-        let row = PartRow {
-            id: "prt_1".into(),
-            message_id: "msg_1".into(),
-            session_id: "ses_1".into(),
-            provider_signature: None,
-            part: Part::ToolCall {
-                call_id: "toolu_1".into(),
-                name: "read".into(),
-                input: serde_json::json!({ "path": "a.rs" }),
-                status: ToolStatus::Pending,
-                title: None,
-                output: None,
-                metadata: None,
-                started_at: None,
-                finished_at: None,
-            },
-        };
-        let json = serde_json::to_value(&row).unwrap();
-        assert_eq!(json["type"], "tool_call");
-        assert_eq!(json["callId"], "toolu_1");
-        assert_eq!(json["messageId"], "msg_1");
-        assert!(json.get("output").is_none());
-        let back: PartRow = serde_json::from_value(json).unwrap();
-        assert_eq!(back, row);
-    }
-
-    #[test]
-    fn a_part_never_shadows_its_rows_own_fields() {
-        let row = PartRow {
-            id: "prt_1".into(),
-            message_id: "msg_1".into(),
-            session_id: "ses_parent".into(),
-            provider_signature: None,
-            part: Part::TaskResult { task_id: "task_1".into(), worker_session_id: "ses_worker".into(), description: "d".into(), outcome: "replied".into(), text: "t".into() },
-        };
-        let text = serde_json::to_string(&row).unwrap();
-        assert_eq!(text.matches("\"sessionId\"").count(), 1, "{text}");
-        let back: PartRow = serde_json::from_str(&text).unwrap();
-        assert_eq!(back, row);
-    }
-}
+mod tests;

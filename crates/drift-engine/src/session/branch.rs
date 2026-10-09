@@ -5,12 +5,13 @@ use std::sync::Arc;
 
 use super::turn::{Prompt, TurnError};
 use super::types::{Message, MessageWithParts, Part, PartRow, Role, Session, Visibility};
+use crate::Engine;
 use crate::event::Event;
 use crate::store::NewSession;
-use crate::Engine;
 
 const TITLE_WORDS: usize = 6;
-const FRAMING: &str = "This is a new thread spawned from the conversation above. Work only on what follows, using whatever of that conversation it needs.";
+const FRAMING: &str = "This is a new thread spawned from the conversation above. \
+    Work only on what follows, using whatever of that conversation it needs.";
 
 #[derive(Debug)]
 pub enum BranchError {
@@ -37,19 +38,47 @@ impl Engine {
         if instruction.is_empty() {
             return Err(BranchError::EmptyInstruction);
         }
+
         let source = self.store.session(source_id)?.ok_or(BranchError::NoSession)?;
         if source.visibility == Visibility::Hidden {
             return Err(BranchError::FromSubagent);
         }
-        let title = instruction.split_whitespace().take(TITLE_WORDS).collect::<Vec<_>>().join(" ");
-        let new = NewSession { workspace_id: &source.workspace_id, parent_id: Some(&source.id), visibility: Visibility::Sibling, title: &title, agent: &source.agent, model: source.model.as_ref() };
+
+        let title = instruction
+            .split_whitespace()
+            .take(TITLE_WORDS)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let new = NewSession {
+            workspace_id: &source.workspace_id,
+            parent_id: Some(&source.id),
+            visibility: Visibility::Sibling,
+            title: &title,
+            agent: &source.agent,
+            model: source.model.as_ref(),
+        };
         let session = match self.finished(&source)?.pop() {
-            Some(through) => self.store.fork_session(&source.id, new, &through, Some(&through))?.ok_or(BranchError::Changed)?,
+            Some(through) => self
+                .store
+                .fork_session(&source.id, new, &through, Some(&through))?
+                .ok_or(BranchError::Changed)?,
             None => self.store.create_branch(new, None)?,
         };
-        self.hub.publish(Event::SessionCreated { session: session.clone() });
-        let prompt = Prompt { parts: vec![Part::Text { text: instruction.into() }], model: source.model.clone(), variant: Some(source.variant.clone()), agent: None, submission_id: None };
+        self.hub.publish(Event::SessionCreated {
+            session: session.clone(),
+        });
+
+        let prompt = Prompt {
+            parts: vec![Part::Text {
+                text: instruction.into(),
+            }],
+            model: source.model.clone(),
+            variant: Some(source.variant.clone()),
+            agent: None,
+            submission_id: None,
+        };
         self.submit(&session.id, prompt).await.map_err(BranchError::Turn)?;
+
         Ok(session)
     }
 }
@@ -64,8 +93,21 @@ pub(super) fn frame_spawned(session: &Session, transcript: &mut [MessageWithPart
     if session.branch_cutoff.is_none() {
         return;
     }
-    let Some(first) = transcript.iter_mut().find(|m| m.info.role == Role::User && !is_copied(session, &m.info)) else { return };
-    let framing = PartRow { id: String::new(), message_id: first.info.id.clone(), session_id: session.id.clone(), provider_signature: None, part: Part::Text { text: FRAMING.into() } };
+
+    let Some(first) = transcript
+        .iter_mut()
+        .find(|message| message.info.role == Role::User && !is_copied(session, &message.info))
+    else {
+        return;
+    };
+
+    let framing = PartRow {
+        id: String::new(),
+        message_id: first.info.id.clone(),
+        session_id: session.id.clone(),
+        provider_signature: None,
+        part: Part::Text { text: FRAMING.into() },
+    };
     first.parts.insert(0, framing);
 }
 
