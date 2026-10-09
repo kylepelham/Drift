@@ -660,7 +660,10 @@ export const drift = {
     "drift.question.asyncHint":
         "Praca, która nie zależy od twojej odpowiedzi, może być kontynuowana, gdy podejmujesz decyzję.",
     "drift.question.blocking": "Oczekiwanie na odpowiedź",
-    "drift.question.pending": "Oczekujące prośby: {{count}}",
+    "drift.question.stack.position": "{{current}} z {{total}}",
+    "drift.question.stack.previous": "Poprzednia prośba",
+    "drift.question.stack.next": "Następna prośba",
+    "drift.question.stack.pick": "Oczekujące prośby",
     "drift.question.sendFailed":
         "Nie udało się wysłać odpowiedzi. Twoje odpowiedzi nadal tu są. Spróbuj wysłać je ponownie.",
     "drift.question.sending": "Wysyłanie...",

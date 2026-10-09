@@ -695,7 +695,10 @@ export const drift = {
     "drift.question.answerNow": "Responder ahora",
     "drift.question.asyncHint": "El trabajo que no depende de tu respuesta puede continuar mientras decides.",
     "drift.question.blocking": "Esperando respuesta",
-    "drift.question.pending": "Solicitudes pendientes: {{count}}",
+    "drift.question.stack.position": "{{current}} de {{total}}",
+    "drift.question.stack.previous": "Solicitud anterior",
+    "drift.question.stack.next": "Solicitud siguiente",
+    "drift.question.stack.pick": "Solicitudes en espera",
     "drift.question.sendFailed":
         "No se pudo enviar tu respuesta. Tus respuestas siguen aquí. Intenta enviarlas de nuevo.",
     "drift.question.sending": "Enviando...",

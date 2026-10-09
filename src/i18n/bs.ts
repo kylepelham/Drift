@@ -692,7 +692,10 @@ export const drift = {
     "drift.question.answerNow": "Odgovori sada",
     "drift.question.asyncHint": "Rad koji ne zavisi od vašeg odgovora može se nastaviti dok odlučujete.",
     "drift.question.blocking": "Čeka se odgovor",
-    "drift.question.pending": "Zahtjevi na čekanju: {{count}}",
+    "drift.question.stack.position": "{{current}} od {{total}}",
+    "drift.question.stack.previous": "Prethodni zahtjev",
+    "drift.question.stack.next": "Sljedeći zahtjev",
+    "drift.question.stack.pick": "Zahtjevi na čekanju",
     "drift.question.sendFailed":
         "Nije moguće poslati vaš odgovor. Vaši odgovori su još uvijek ovdje. Pokušajte ih ponovo poslati.",
     "drift.question.sending": "Slanje...",

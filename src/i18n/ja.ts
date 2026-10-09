@@ -658,7 +658,10 @@ export const drift = {
     "drift.question.answerNow": "今すぐ回答",
     "drift.question.asyncHint": "回答を検討している間も、回答に依存しない作業は続行できます。",
     "drift.question.blocking": "回答待ち",
-    "drift.question.pending": "保留中のリクエスト: {{count}}件",
+    "drift.question.stack.position": "{{current}} / {{total}}",
+    "drift.question.stack.previous": "前のリクエスト",
+    "drift.question.stack.next": "次のリクエスト",
+    "drift.question.stack.pick": "待機中のリクエスト",
     "drift.question.sendFailed":
         "回答を送信できませんでした。入力した回答はそのまま残っています。もう一度送信してください。",
     "drift.question.sending": "送信中...",

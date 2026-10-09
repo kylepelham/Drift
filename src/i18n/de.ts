@@ -667,7 +667,10 @@ export const drift = {
     "drift.question.asyncHint":
         "Arbeiten, die nicht von Ihrer Antwort abhängen, können fortgesetzt werden, während Sie sich entscheiden.",
     "drift.question.blocking": "Warten auf Antwort",
-    "drift.question.pending": "Ausstehende Anfragen: {{count}}",
+    "drift.question.stack.position": "{{current}} von {{total}}",
+    "drift.question.stack.previous": "Vorherige Anfrage",
+    "drift.question.stack.next": "Nächste Anfrage",
+    "drift.question.stack.pick": "Wartende Anfragen",
     "drift.question.sendFailed":
         "Ihre Antwort konnte nicht gesendet werden. Ihre Antworten sind noch vorhanden. Bitte erneut absenden.",
     "drift.question.sending": "Wird gesendet...",

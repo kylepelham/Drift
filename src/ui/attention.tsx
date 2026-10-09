@@ -1,3 +1,4 @@
+import { RequestStackLayers, RequestStackStrip } from "./request-stack";
 import { selectedSession } from "../state/selection";
 import { grantLabel } from "./settings-permissions";
 import { DiffPanel, parseDiff } from "./diff-panel";
@@ -20,6 +21,7 @@ import {
 import type { Permission, QuestionInfo } from "../engine/store";
 import type { PermissionResponse } from "../engine/actions";
 import type { components } from "../engine/native/types";
+import type { RequestStack } from "./request-stack";
 
 export function AttentionStrip() {
     return (
@@ -209,6 +211,7 @@ export function QuestionCard(props: {
     async?: boolean;
     questions: QuestionInfo[];
     thread?: ThreadLink;
+    stack?: RequestStack;
     onAnswer: (answers: string[][] | null) => boolean | void | Promise<boolean | void>;
 }) {
     const [collapsed, setCollapsed] = createSignal(false);
@@ -257,214 +260,232 @@ export function QuestionCard(props: {
     return (
         <Show when={current()}>
             {(question) => (
-                <div
-                    class="composer-layer-card fade-up overflow-hidden rounded-xl border border-edge-strong bg-surface shadow-xl shadow-black/15"
-                    aria-busy={sending()}
-                    onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                            event.stopPropagation();
-                            if (props.async) setCollapsed(true);
-                            else void answer(null);
-                        }
-                        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                            event.preventDefault();
-                            advance();
-                        }
-                    }}
-                >
-                    <div class="border-b border-edge px-4 py-3.5">
-                        <div class="flex items-center justify-between gap-3 text-xs font-medium">
-                            <div class="flex min-w-0 items-center gap-2">
-                                <span class="shrink-0 text-ink-muted">
-                                    {t("session.question.progress", {
-                                        current: step() + 1,
-                                        total: props.questions.length,
-                                    })}
-                                </span>
-                                <ThreadAttribution thread={props.thread} />
-                            </div>
-                            <span class="truncate text-accent">{question().header}</span>
-                        </div>
-                        <Show when={props.async}>
-                            <div class="mt-2 flex items-center justify-between gap-3 text-xs">
-                                <span class="text-ink-faint">{t("drift.question.asyncHint")}</span>
-                                <button
-                                    class="shrink-0 rounded px-1 py-0.5 text-accent hover:bg-accent/10"
-                                    aria-expanded={!hidden()}
-                                    aria-controls={`question-body-${props.requestID}`}
-                                    onClick={() => setCollapsed(!hidden())}
-                                >
-                                    {hidden() ? t("drift.question.answerNow") : t("drift.question.answerLater")}
-                                </button>
-                            </div>
-                        </Show>
-                        <Show when={!hidden() && props.questions.length > 1}>
-                            <div class="mt-3 flex gap-1.5">
-                                <For each={props.questions}>
-                                    {(_, index) => (
-                                        <button
-                                            class="h-1 flex-1 rounded-full transition-colors"
-                                            classList={{
-                                                "bg-accent": index() === step(),
-                                                "bg-accent/35":
-                                                    index() !== step() && questionAnswer(drafts()[index()]).length > 0,
-                                                "bg-edge":
-                                                    index() !== step() &&
-                                                    questionAnswer(drafts()[index()]).length === 0,
-                                            }}
-                                            title={t("drift.question.number", { number: index() + 1 })}
-                                            disabled={sending()}
-                                            onClick={() => setStep(index())}
-                                        />
-                                    )}
-                                </For>
-                            </div>
-                        </Show>
-                    </div>
-                    <fieldset
-                        id={`question-body-${props.requestID}`}
-                        class="min-w-0"
-                        hidden={hidden()}
-                        disabled={sending()}
+                <RequestStackLayers stack={props.stack}>
+                    <div
+                        class="composer-layer-card fade-up overflow-hidden rounded-xl border border-edge-strong bg-surface shadow-xl shadow-black/15"
+                        aria-busy={sending()}
+                        onKeyDown={(event) => {
+                            if (event.key === "Escape") {
+                                event.stopPropagation();
+                                if (props.async) setCollapsed(true);
+                                else void answer(null);
+                            }
+                            if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                                event.preventDefault();
+                                advance();
+                            }
+                        }}
                     >
-                        <fieldset class="min-w-0 px-4 pt-3.5 pb-4" disabled={editingDisabled()}>
-                            <div class="text-sm font-medium text-ink">{question().question}</div>
-                            <div class="mt-1 text-xs text-ink-faint">
-                                {question().multiple
-                                    ? t("drift.question.selectMultiple")
-                                    : t("drift.question.selectOne")}
+                        <RequestStackStrip stack={props.stack} />
+                        <div class="border-b border-edge px-4 py-3.5">
+                            <div class="flex items-center justify-between gap-3 text-xs font-medium">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <Show when={props.questions.length > 1}>
+                                        <span class="shrink-0 text-ink-muted">
+                                            {t("session.question.progress", {
+                                                current: step() + 1,
+                                                total: props.questions.length,
+                                            })}
+                                        </span>
+                                    </Show>
+                                    <ThreadAttribution thread={props.thread} />
+                                </div>
+                                <span class="truncate text-accent">{question().header}</span>
                             </div>
-                            <div class="question-options mt-3 max-h-[min(26rem,52vh)] space-y-2 overflow-y-auto pr-1">
-                                <For each={question().options}>
-                                    {(option) => {
-                                        const selected = () => draft().selected.includes(option.label);
-                                        return (
-                                            <button
-                                                class="flex w-full items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors"
-                                                classList={{
-                                                    "border-accent/70 bg-accent/8": selected(),
-                                                    "border-edge bg-raised/30 hover:border-edge-strong hover:bg-raised/60":
-                                                        !selected(),
-                                                }}
-                                                role={question().multiple ? "checkbox" : "radio"}
-                                                aria-checked={selected()}
-                                                onClick={() =>
-                                                    update(
-                                                        selectQuestionOption(
-                                                            draft(),
-                                                            option.label,
-                                                            !!question().multiple,
-                                                        ),
-                                                    )
-                                                }
-                                            >
-                                                <ChoiceMark checked={selected()} multiple={!!question().multiple} />
-                                                <span class="min-w-0">
-                                                    <span class="block text-sm font-medium text-ink">
-                                                        {option.label}
-                                                    </span>
-                                                    <Show when={option.description}>
-                                                        <span class="mt-0.5 block text-xs leading-relaxed text-ink-muted">
-                                                            {option.description}
-                                                        </span>
-                                                    </Show>
-                                                </span>
-                                            </button>
-                                        );
-                                    }}
-                                </For>
-                                <Show when={question().custom !== false}>
-                                    <div
-                                        class="flex w-full cursor-pointer items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors"
-                                        classList={{
-                                            "border-accent/70 bg-accent/8": draft().customSelected,
-                                            "border-edge bg-raised/30 hover:border-edge-strong hover:bg-raised/60":
-                                                !draft().customSelected,
-                                        }}
-                                        role={question().multiple ? "checkbox" : "radio"}
-                                        aria-checked={draft().customSelected}
-                                        aria-disabled={editingDisabled()}
-                                        tabIndex={editingDisabled() ? -1 : 0}
-                                        onClick={(event) => {
-                                            if (editingDisabled() || event.target instanceof HTMLInputElement) return;
-
-                                            const row = event.currentTarget;
-
-                                            update(selectQuestionCustom(draft(), !!question().multiple));
-                                            queueMicrotask(() => row.querySelector("input")?.focus());
-                                        }}
-                                        onKeyDown={(event) => {
-                                            if (event.key === "Enter" || event.key === " ") {
-                                                event.preventDefault();
-                                                update(selectQuestionCustom(draft(), !!question().multiple));
-                                            }
-                                        }}
+                            <Show when={props.async}>
+                                <div class="mt-2 flex items-center justify-between gap-3 text-xs">
+                                    <span class="text-ink-faint">{t("drift.question.asyncHint")}</span>
+                                    <button
+                                        class="shrink-0 rounded px-1 py-0.5 text-accent hover:bg-accent/10"
+                                        aria-expanded={!hidden()}
+                                        aria-controls={`question-body-${props.requestID}`}
+                                        onClick={() => setCollapsed(!hidden())}
                                     >
-                                        <ChoiceMark checked={draft().customSelected} multiple={!!question().multiple} />
-                                        <div class="min-w-0 flex-1">
-                                            <div class="text-sm font-medium text-ink">{t("drift.question.custom")}</div>
-                                            <Show
-                                                when={draft().customSelected}
-                                                fallback={
-                                                    <div class="mt-0.5 text-xs text-ink-muted">
-                                                        {t("drift.question.customHint")}
-                                                    </div>
-                                                }
-                                            >
-                                                <input
-                                                    class="mt-2 w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent/70"
-                                                    placeholder={t("drift.question.customPlaceholder")}
-                                                    value={draft().custom}
-                                                    onClick={(event) => event.stopPropagation()}
-                                                    onInput={(event) =>
-                                                        update({
-                                                            ...draft(),
-                                                            custom: event.currentTarget.value,
-                                                            customSelected: true,
-                                                        })
-                                                    }
-                                                    onKeyDown={(event) => {
-                                                        if (event.key === "Escape") return;
-                                                        event.stopPropagation();
-                                                        if (event.key === "Enter" && !event.shiftKey) {
-                                                            event.preventDefault();
-                                                            advance();
-                                                        }
+                                        {hidden() ? t("drift.question.answerNow") : t("drift.question.answerLater")}
+                                    </button>
+                                </div>
+                            </Show>
+                            <Show when={!hidden() && props.questions.length > 1}>
+                                <div class="mt-3 flex gap-1.5">
+                                    <For each={props.questions}>
+                                        {(_, index) => (
+                                            <button
+                                                class="h-1 flex-1 rounded-full transition-colors"
+                                                classList={{
+                                                    "bg-accent": index() === step(),
+                                                    "bg-accent/35":
+                                                        index() !== step() &&
+                                                        questionAnswer(drafts()[index()]).length > 0,
+                                                    "bg-edge":
+                                                        index() !== step() &&
+                                                        questionAnswer(drafts()[index()]).length === 0,
+                                                }}
+                                                title={t("drift.question.number", { number: index() + 1 })}
+                                                disabled={sending()}
+                                                onClick={() => setStep(index())}
+                                            />
+                                        )}
+                                    </For>
+                                </div>
+                            </Show>
+                        </div>
+                        <fieldset
+                            id={`question-body-${props.requestID}`}
+                            class="min-w-0"
+                            hidden={hidden()}
+                            disabled={sending()}
+                        >
+                            <fieldset class="min-w-0 px-4 pt-3.5 pb-4" disabled={editingDisabled()}>
+                                <div class="text-sm font-medium text-ink">{question().question}</div>
+                                <div class="mt-1 text-xs text-ink-faint">
+                                    {question().multiple
+                                        ? t("drift.question.selectMultiple")
+                                        : t("drift.question.selectOne")}
+                                </div>
+                                <div class="question-options mt-3 max-h-[min(26rem,52vh)] space-y-2 overflow-y-auto pr-1">
+                                    <For each={question().options}>
+                                        {(option) => {
+                                            const selected = () => draft().selected.includes(option.label);
+                                            return (
+                                                <button
+                                                    class="flex w-full items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors"
+                                                    classList={{
+                                                        "border-accent/70 bg-accent/8": selected(),
+                                                        "border-edge bg-raised/30 hover:border-edge-strong hover:bg-raised/60":
+                                                            !selected(),
                                                     }}
-                                                />
-                                            </Show>
+                                                    role={question().multiple ? "checkbox" : "radio"}
+                                                    aria-checked={selected()}
+                                                    onClick={() =>
+                                                        update(
+                                                            selectQuestionOption(
+                                                                draft(),
+                                                                option.label,
+                                                                !!question().multiple,
+                                                            ),
+                                                        )
+                                                    }
+                                                >
+                                                    <ChoiceMark checked={selected()} multiple={!!question().multiple} />
+                                                    <span class="min-w-0">
+                                                        <span class="block text-sm font-medium text-ink">
+                                                            {option.label}
+                                                        </span>
+                                                        <Show when={option.description}>
+                                                            <span class="mt-0.5 block text-xs leading-relaxed text-ink-muted">
+                                                                {option.description}
+                                                            </span>
+                                                        </Show>
+                                                    </span>
+                                                </button>
+                                            );
+                                        }}
+                                    </For>
+                                    <Show when={question().custom !== false}>
+                                        <div
+                                            class="flex w-full cursor-pointer items-start gap-3 rounded-lg border px-3.5 py-3 text-left transition-colors"
+                                            classList={{
+                                                "border-accent/70 bg-accent/8": draft().customSelected,
+                                                "border-edge bg-raised/30 hover:border-edge-strong hover:bg-raised/60":
+                                                    !draft().customSelected,
+                                            }}
+                                            role={question().multiple ? "checkbox" : "radio"}
+                                            aria-checked={draft().customSelected}
+                                            aria-disabled={editingDisabled()}
+                                            tabIndex={editingDisabled() ? -1 : 0}
+                                            onClick={(event) => {
+                                                if (editingDisabled() || event.target instanceof HTMLInputElement)
+                                                    return;
+
+                                                const row = event.currentTarget;
+
+                                                update(selectQuestionCustom(draft(), !!question().multiple));
+                                                queueMicrotask(() => row.querySelector("input")?.focus());
+                                            }}
+                                            onKeyDown={(event) => {
+                                                if (event.key === "Enter" || event.key === " ") {
+                                                    event.preventDefault();
+                                                    update(selectQuestionCustom(draft(), !!question().multiple));
+                                                }
+                                            }}
+                                        >
+                                            <ChoiceMark
+                                                checked={draft().customSelected}
+                                                multiple={!!question().multiple}
+                                            />
+                                            <div class="min-w-0 flex-1">
+                                                <div class="text-sm font-medium text-ink">
+                                                    {t("drift.question.custom")}
+                                                </div>
+                                                <Show
+                                                    when={draft().customSelected}
+                                                    fallback={
+                                                        <div class="mt-0.5 text-xs text-ink-muted">
+                                                            {t("drift.question.customHint")}
+                                                        </div>
+                                                    }
+                                                >
+                                                    <input
+                                                        class="mt-2 w-full rounded-md border border-edge bg-surface px-2.5 py-2 text-sm text-ink outline-none placeholder:text-ink-faint focus:border-accent/70"
+                                                        placeholder={t("drift.question.customPlaceholder")}
+                                                        value={draft().custom}
+                                                        onClick={(event) => event.stopPropagation()}
+                                                        onInput={(event) =>
+                                                            update({
+                                                                ...draft(),
+                                                                custom: event.currentTarget.value,
+                                                                customSelected: true,
+                                                            })
+                                                        }
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === "Escape") return;
+                                                            event.stopPropagation();
+                                                            if (event.key === "Enter" && !event.shiftKey) {
+                                                                event.preventDefault();
+                                                                advance();
+                                                            }
+                                                        }}
+                                                    />
+                                                </Show>
+                                            </div>
                                         </div>
-                                    </div>
-                                </Show>
+                                    </Show>
+                                </div>
+                            </fieldset>
+                            <Show when={locked()}>
+                                <div role={failed() ? "alert" : "status"} class="px-4 pb-3 text-xs text-ink-muted">
+                                    {t("session.question.deliveryUnconfirmed")}
+                                </div>
+                            </Show>
+                            <Show when={failed() && !locked()}>
+                                <div role="alert" class="px-4 pb-3 text-xs text-danger">
+                                    {t("drift.question.sendFailed")}
+                                </div>
+                            </Show>
+                            <div class="flex flex-wrap items-center justify-between gap-2 border-t border-edge bg-raised/20 px-4 py-3">
+                                <ActionButton label={t("common.dismiss")} danger onClick={() => void answer(null)} />
+                                <div class="flex flex-wrap gap-2">
+                                    <Show when={step() > 0}>
+                                        <ActionButton label={t("common.goBack")} onClick={() => setStep(step() - 1)} />
+                                    </Show>
+                                    <button
+                                        class="rounded-md border border-accent/60 bg-accent/15 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-accent/25 disabled:opacity-50"
+                                        disabled={sending() || (!locked() && !questionAnswer(draft()).length)}
+                                        onClick={advance}
+                                    >
+                                        {t(
+                                            questionSubmitLabel(
+                                                sending(),
+                                                locked(),
+                                                step() + 1 < props.questions.length,
+                                            ),
+                                        )}
+                                    </button>
+                                </div>
                             </div>
                         </fieldset>
-                        <Show when={locked()}>
-                            <div role={failed() ? "alert" : "status"} class="px-4 pb-3 text-xs text-ink-muted">
-                                {t("session.question.deliveryUnconfirmed")}
-                            </div>
-                        </Show>
-                        <Show when={failed() && !locked()}>
-                            <div role="alert" class="px-4 pb-3 text-xs text-danger">
-                                {t("drift.question.sendFailed")}
-                            </div>
-                        </Show>
-                        <div class="flex flex-wrap items-center justify-between gap-2 border-t border-edge bg-raised/20 px-4 py-3">
-                            <ActionButton label={t("common.dismiss")} danger onClick={() => void answer(null)} />
-                            <div class="flex flex-wrap gap-2">
-                                <Show when={step() > 0}>
-                                    <ActionButton label={t("common.goBack")} onClick={() => setStep(step() - 1)} />
-                                </Show>
-                                <button
-                                    class="rounded-md border border-accent/60 bg-accent/15 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:bg-accent/25 disabled:opacity-50"
-                                    disabled={sending() || (!locked() && !questionAnswer(draft()).length)}
-                                    onClick={advance}
-                                >
-                                    {t(questionSubmitLabel(sending(), locked(), step() + 1 < props.questions.length))}
-                                </button>
-                            </div>
-                        </div>
-                    </fieldset>
-                </div>
+                    </div>
+                </RequestStackLayers>
             )}
         </Show>
     );

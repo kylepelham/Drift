@@ -666,7 +666,10 @@ export const drift = {
     "drift.question.asyncHint":
         "Le travail qui ne dépend pas de votre réponse peut continuer pendant que vous décidez.",
     "drift.question.blocking": "En attente de réponse",
-    "drift.question.pending": "Demandes en attente : {{count}}",
+    "drift.question.stack.position": "{{current}} sur {{total}}",
+    "drift.question.stack.previous": "Demande précédente",
+    "drift.question.stack.next": "Demande suivante",
+    "drift.question.stack.pick": "Demandes en attente",
     "drift.question.sendFailed":
         "Impossible d'envoyer votre réponse. Vos réponses sont toujours ici. Essayez de les envoyer à nouveau.",
     "drift.question.sending": "Envoi...",

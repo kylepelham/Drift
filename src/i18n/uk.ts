@@ -689,7 +689,10 @@ export const drift = {
     "drift.question.answerNow": "Відповісти зараз",
     "drift.question.asyncHint": "Робота, що не залежить від вашої відповіді, може тривати, поки ви приймаєте рішення.",
     "drift.question.blocking": "Очікування відповіді",
-    "drift.question.pending": "Запити в очікуванні: {{count}}",
+    "drift.question.stack.position": "{{current}} з {{total}}",
+    "drift.question.stack.previous": "Попередній запит",
+    "drift.question.stack.next": "Наступний запит",
+    "drift.question.stack.pick": "Запити, що очікують",
     "drift.question.sendFailed":
         "Не вдалося надіслати відповідь. Ваші відповіді досі тут. Спробуйте надіслати їх ще раз.",
     "drift.question.sending": "Надсилання...",

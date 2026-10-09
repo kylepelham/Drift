@@ -205,6 +205,14 @@ export function IconArrowUpRight(props: IconProps) {
     );
 }
 
+export function IconChevronLeft(props: IconProps) {
+    return frame(props, <path d="m15 18-6-6 6-6" />);
+}
+
+export function IconChevronRight(props: IconProps) {
+    return frame(props, <path d="m9 18 6-6-6-6" />);
+}
+
 export function IconArrowUp(props: IconProps) {
     return frame(
         props,

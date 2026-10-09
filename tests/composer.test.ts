@@ -640,10 +640,10 @@ test("queued question UI routes answers by owner without conditionally mounting 
     const attention = await Bun.file("src/ui/composer-attention.tsx").text();
     expect(attention).toContainCode("const questions = () => Object.values(engine.state.questions).flat()");
     expect(attention).toContainCode("const pendingQuestion = () => focusedQuestion(questions(), focusedQuestionID())");
-    expect(attention).toMatch(
-        /<Show when=\{questions\(\)\.length > 1\}>\s*<label[^>]*>[\s\S]*?<select[\s\S]*?value=\{pendingQuestion\(\)\?\.id \?\? ""\}[\s\S]*?onChange=\{\(event\) => setFocusedQuestionID\(event\.currentTarget\.value\)\}[\s\S]*?<\/select>\s*<\/label>/,
-    );
-    expect(attention).toContainCode('request.async ? "" : `${t("drift.question.blocking")}: `');
+    // Waiting questions switch inside the front card's stack, never in a separate select above it.
+    expect(attention).not.toContain("<select");
+    expect(attention).toContainCode("stack={questionStack()}");
+    expect(attention).toContainCode("onSelect: setFocusedQuestionID");
     expect(attention).toContainCode("async={request().async}");
     expect(attention).toContainCode(
         "onAnswer={(answers) => engine.actions.answerQuestion(request().sessionId, questionID, answers)}",
@@ -720,4 +720,30 @@ test("one reference is one mention: a path never matches inside a longer one", a
     const sent = mentionFiles(text, ["src/database", "src/database/database.ts", "README.md"], "C:/repo");
 
     expect(sent.map((file) => file.filename)).toEqual(["database.ts", "README.md"]);
+});
+
+test("waiting questions stack in the front card: each names its thread and whether a turn waits on it", async () => {
+    const { questionStackItems } = await import("../src/ui/composer-attention");
+    const { neighbour, stackDepth } = await import("../src/ui/request-stack");
+    const asked = (id: string, sessionId: string, header: string, async: boolean) =>
+        ({ id, sessionId, async, questions: [{ question: "Which?", header, options: [] }] }) as never;
+    const titles: Record<string, string> = { s1: "Release notes" };
+
+    const items = questionStackItems(
+        [asked("q1", "s1", "Pick a branch", false), asked("q2", "s2", "", true)],
+        (sessionId) => titles[sessionId],
+    );
+    expect(items).toEqual([
+        { id: "q1", title: "Pick a branch", thread: "Release notes", blocking: true },
+        { id: "q2", title: "Question 1", thread: "another thread", blocking: false },
+    ]);
+
+    // Stepping stops at either end, and at most two ghost cards are drawn behind the front one.
+    const stack = { items, current: "q1", onSelect: () => undefined };
+    expect(neighbour(stack, 1)).toBe("q2");
+    expect(neighbour(stack, -1)).toBeUndefined();
+    expect(stackDepth(undefined)).toBe(0);
+    expect(stackDepth({ ...stack, items: items.slice(0, 1) })).toBe(0);
+    expect(stackDepth(stack)).toBe(1);
+    expect(stackDepth({ ...stack, items: [...items, ...items] })).toBe(2);
 });

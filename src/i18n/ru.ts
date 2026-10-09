@@ -692,7 +692,10 @@ export const drift = {
     "drift.question.asyncHint":
         "Работа, не зависящая от вашего ответа, может продолжаться, пока вы принимаете решение.",
     "drift.question.blocking": "Ожидание ответа",
-    "drift.question.pending": "Ожидающие запросы: {{count}}",
+    "drift.question.stack.position": "{{current}} из {{total}}",
+    "drift.question.stack.previous": "Предыдущий запрос",
+    "drift.question.stack.next": "Следующий запрос",
+    "drift.question.stack.pick": "Ожидающие запросы",
     "drift.question.sendFailed":
         "Не удалось отправить ответ. Ваши ответы по-прежнему здесь. Попробуйте отправить их ещё раз.",
     "drift.question.sending": "Отправка...",
