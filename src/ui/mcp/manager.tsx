@@ -372,7 +372,9 @@ function ServerRow(props: {
                 <div class="min-w-0 flex-1">
                     <div class="truncate text-sm font-medium text-ink">{props.server.name}</div>
                     <div class="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs">
-                        <span class={status().tone}>{status().text}</span>
+                        <span class={`line-clamp-2 break-all ${status().tone}`} title={status().text}>
+                            {status().text}
+                        </span>
                         <Show when={scope()}>{(text) => <span class="text-ink-muted">{text()}</span>}</Show>
                         <span class="text-ink-faint">{mcpProtocolLabel(props.server)}</span>
                     </div>

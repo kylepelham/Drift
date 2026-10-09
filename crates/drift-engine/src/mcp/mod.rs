@@ -367,7 +367,7 @@ impl From<&str> for Failure {
 
 impl From<Error> for Failure {
     fn from(error: Error) -> Self {
-        Self::from(error.to_string())
+        Self::from(readable(&error.to_string()))
     }
 }
 
@@ -375,9 +375,33 @@ impl From<rmcp::service::ClientInitializeError> for Failure {
     fn from(error: rmcp::service::ClientInitializeError) -> Self {
         Self {
             needs_sign_in: error.is_authorization_required(),
-            message: error.to_string(),
+            message: readable(&error.to_string()),
         }
     }
+}
+
+/// A transport error as a person reads it: an unreachable server says so, and rmcp's Rust type names are dropped.
+fn readable(message: &str) -> String {
+    const UNREACHABLE: &str = "error sending request for url (";
+    if let Some(url) = message
+        .find(UNREACHABLE)
+        .and_then(|at| message[at + UNREACHABLE.len()..].split(')').next())
+    {
+        return format!("could not reach {url}; is the server running?");
+    }
+
+    let mut out = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(open) = rest.find('[') {
+        let close = rest[open..].find(']').map_or(rest.len(), |at| open + at + 1);
+        out.push_str(&rest[..open]);
+        if !rest[open..close].contains("::") {
+            out.push_str(&rest[open..close]);
+        }
+        rest = &rest[close..];
+    }
+    out.push_str(rest);
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// What a server not connected is doing, as its status shows it.

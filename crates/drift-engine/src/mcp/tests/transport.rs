@@ -87,3 +87,20 @@ pub(super) fn legacy_sse_routes() -> axum::Router {
 
     axum::Router::new().route("/sse", stream).route("/messages", messages)
 }
+
+#[test]
+fn transport_errors_read_as_sentences_without_rust_type_names() {
+    let unreachable = "Send message error Transport [rmcp::transport::worker::WorkerTransport<rmcp::transport::streamable_http_client::StreamableHttpClientWorker<reqwest::async_impl::client::Client>>] error: Client error: error sending request for url (http://127.0.0.1:13337/mcp), when send discover request";
+    assert_eq!(
+        readable(unreachable),
+        "could not reach http://127.0.0.1:13337/mcp; is the server running?"
+    );
+
+    let typed = "Send message error Transport [rmcp::transport::worker::WorkerTransport<X>] error: connection reset";
+    assert_eq!(readable(typed), "Send message error Transport error: connection reset");
+    assert_eq!(
+        readable("Auth required [see docs]"),
+        "Auth required [see docs]",
+        "brackets without a type path stay"
+    );
+}
