@@ -445,6 +445,7 @@ impl Fetcher {
         let cert = reqwest::Certificate::from_pem(pem.as_bytes()).map_err(SourceError::Certificate)?;
 
         reqwest::Client::builder()
+            .user_agent(crate::llm::http::USER_AGENT)
             .add_root_certificate(cert)
             .connect_timeout(std::time::Duration::from_secs(15))
             .build()

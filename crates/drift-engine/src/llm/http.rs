@@ -45,6 +45,9 @@ impl Timeouts {
 
 const CONNECT: Duration = Duration::from_secs(15);
 
+/// Sent with every request that does not name its own; GitHub's API refuses a request without one.
+pub const USER_AGENT: &str = concat!("Drift/", env!("CARGO_PKG_VERSION"));
+
 /// The shared client. Cloning it shares its connection pool.
 pub fn client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -55,6 +58,7 @@ pub fn client() -> reqwest::Client {
             let _ = rustls::crypto::ring::default_provider().install_default();
 
             reqwest::Client::builder()
+                .user_agent(USER_AGENT)
                 .connect_timeout(CONNECT)
                 .tcp_keepalive(Duration::from_secs(30))
                 .build()
@@ -97,5 +101,34 @@ pub async fn send(request: reqwest::RequestBuilder, timeouts: &Timeouts) -> Resu
             "no response within {} s",
             timeouts.headers.as_secs()
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn every_request_names_drift_as_its_user_agent_as_githubs_api_requires() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![0; 4096];
+            let read = socket.read(&mut request).await.unwrap();
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            String::from_utf8_lossy(&request[..read]).to_lowercase()
+        });
+
+        super::client().get(&url).send().await.unwrap();
+
+        let request = server.await.unwrap();
+        assert!(
+            request.contains(&format!("user-agent: {}", super::USER_AGENT.to_lowercase())),
+            "{request}"
+        );
     }
 }
