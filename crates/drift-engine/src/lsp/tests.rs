@@ -29,10 +29,17 @@ async fn errors_come_back_after_each_change_and_warnings_and_other_files_stay_ou
     let config = fake(&[]);
     let mut found = servers.report(&dir, &[file.clone(), other.clone()], &config).await;
     for _ in 0..10 {
-        if !found.is_empty() {
+        let unconfigured = found.iter().any(|report| {
+            report
+                .errors
+                .iter()
+                .any(|error| error.message == "configuration request unanswered")
+        });
+        if !found.is_empty() && !unconfigured {
             break;
         }
-        // The first write may land before the server has initialized; the next one hears it.
+        // The first write may reach the server before it has initialized, or before Drift's answer to its
+        // configuration request does; the next write hears the configured server.
         found = servers.report(&dir, std::slice::from_ref(&file), &config).await;
     }
     assert_eq!(found.len(), 1, "{found:?}");
