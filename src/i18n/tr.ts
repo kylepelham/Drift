@@ -657,6 +657,7 @@ export const drift = {
     "drift.task.title": "Arka plan görevleri",
     "drift.task.background": "arka plan",
     "drift.task.progress": "{{total}} görevin {{done}} tanesi bitti",
+    "drift.task.finished": "Biten görevler",
     "drift.task.state.queued": "yer bekliyor",
     "drift.task.state.running": "çalışıyor",
     "drift.task.state.replied": "bitti",

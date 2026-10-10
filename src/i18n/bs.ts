@@ -654,6 +654,7 @@ export const drift = {
     "drift.task.title": "Zadaci u pozadini",
     "drift.task.background": "u pozadini",
     "drift.task.progress": "{{done}} od {{total}} završeno",
+    "drift.task.finished": "Završeni zadaci",
     "drift.task.state.queued": "čeka na mjesto",
     "drift.task.state.running": "radi",
     "drift.task.state.replied": "gotovo",

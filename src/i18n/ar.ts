@@ -606,6 +606,7 @@ export const drift = {
     "drift.task.title": "مهام الخلفية",
     "drift.task.background": "في الخلفية",
     "drift.task.progress": "انتهى {{done}} من {{total}}",
+    "drift.task.finished": "المهام المنتهية",
     "drift.task.state.queued": "بانتظار مكان",
     "drift.task.state.running": "قيد التشغيل",
     "drift.task.state.replied": "تمت",

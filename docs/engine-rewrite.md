@@ -846,6 +846,10 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   stopped or was interrupted. Above the composer, a Background tasks dock lists the conversation's
   background workers while any is queued, running or not yet delivered, each with its state, the
   running worker's current tool, Stop (`POST /tasks/{id}/abort`) and a link to its transcript.
+  Running workers come first, then queued workers and undelivered results. Delivered history is
+  newest first under a separate "Finished tasks" disclosure, closed by default. The two lists
+  scroll independently within viewport-relative height limits, so a long history never pushes
+  active workers or the composer off screen. Switching conversations closes both disclosures.
   Foreground workers are not listed there; their row in the transcript already waits for them.
   A background worker keeps the subagent look but is marked in both places: its transcript row's
   accent edge is dashed and its sidebar row's arrow is accent, each with a dashed "background"

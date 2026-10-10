@@ -628,6 +628,7 @@ export const drift = {
     "drift.task.title": "Hintergrundaufgaben",
     "drift.task.background": "Hintergrund",
     "drift.task.progress": "{{done}} von {{total}} beendet",
+    "drift.task.finished": "Beendete Aufgaben",
     "drift.task.state.queued": "wartet auf einen Platz",
     "drift.task.state.running": "läuft",
     "drift.task.state.replied": "fertig",

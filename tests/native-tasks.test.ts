@@ -168,12 +168,51 @@ test("the dock lists background workers while any is going or owed, and never fo
 
     const done = task("a", { state: "replied", delivered: true });
     const going = task("b", { state: "running" });
-    expect(dockTasks([foreground, done, going]).map((t) => t.id)).toEqual(["a", "b"]);
+    expect(dockTasks([foreground, done, going]).map((t) => t.id)).toEqual(["b", "a"]);
     // Finished but not yet handed to the conversation still counts as outstanding.
-    expect(dockTasks([done, task("c", { state: "failed", delivered: false })]).map((t) => t.id)).toEqual(["a", "c"]);
+    expect(dockTasks([done, task("c", { state: "failed", delivered: false })]).map((t) => t.id)).toEqual(["c", "a"]);
     expect(dockTasks([done, task("c", { state: "stopped", delivered: true })])).toEqual([]);
     // A result held back by Stop stays listed until a prompt carries it.
-    expect(dockTasks([done, task("c", { state: "replied", held: true })]).map((t) => t.id)).toEqual(["a", "c"]);
+    expect(dockTasks([done, task("c", { state: "replied", held: true })]).map((t) => t.id)).toEqual(["c", "a"]);
+});
+
+test("a crowded dock puts live workers and owed results before newest-first finished history", async () => {
+    const { dockTasks } = await import("../src/ui/task-dock");
+    const history = Array.from({ length: 91 }, (_, index) =>
+        task(`done_${index}`, {
+            state: "replied",
+            delivered: true,
+            createdAt: index,
+        }),
+    );
+    const input = [
+        ...history,
+        task("queued", { state: "queued", createdAt: 91 }),
+        task("running", { createdAt: 92 }),
+        task("owed", { state: "failed", deliveryError: "waiting for parent", createdAt: 93 }),
+        task("foreground", { mode: "foreground", createdAt: 94 }),
+    ];
+    const ordered = dockTasks(input);
+    expect(ordered).toHaveLength(94);
+    expect(ordered.slice(0, 4).map((item) => item.id)).toEqual(["running", "queued", "owed", "done_90"]);
+    expect(ordered.at(-1)?.id).toBe("done_0");
+    expect(input[0]?.id).toBe("done_0");
+});
+
+test("new workers stay ahead of history as tasks finish, are held and get delivered", async () => {
+    const { dockTasks } = await import("../src/ui/task-dock");
+    const done = task("done", { state: "stopped", delivered: true });
+    const held = task("held", { state: "replied", held: true, createdAt: 2 });
+    const active = task("active", { createdAt: 3 });
+    expect(dockTasks([done, held, active]).map((item) => item.id)).toEqual(["active", "held", "done"]);
+    expect(dockTasks([done, { ...held, delivered: true }, active]).map((item) => item.id)).toEqual([
+        "active",
+        "held",
+        "done",
+    ]);
+    expect(dockTasks([done, { ...held, delivered: true }, { ...active, state: "replied", delivered: true }])).toEqual(
+        [],
+    );
 });
 
 function harness(overrides: Partial<Client>) {

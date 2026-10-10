@@ -616,6 +616,7 @@ export const drift = {
     "drift.task.title": "백그라운드 작업",
     "drift.task.background": "백그라운드",
     "drift.task.progress": "{{total}}개 중 {{done}}개 완료",
+    "drift.task.finished": "완료된 작업",
     "drift.task.state.queued": "빈자리 대기 중",
     "drift.task.state.running": "실행 중",
     "drift.task.state.replied": "완료",

@@ -621,6 +621,7 @@ export const drift = {
     "drift.task.title": "バックグラウンドタスク",
     "drift.task.background": "バックグラウンド",
     "drift.task.progress": "{{total}} 件中 {{done}} 件完了",
+    "drift.task.finished": "終了したタスク",
     "drift.task.state.queued": "空き待ち",
     "drift.task.state.running": "実行中",
     "drift.task.state.replied": "完了",

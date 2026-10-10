@@ -656,6 +656,7 @@ export const drift = {
     "drift.task.title": "Bakgrunnsoppgaver",
     "drift.task.background": "bakgrunn",
     "drift.task.progress": "{{done}} av {{total}} ferdige",
+    "drift.task.finished": "Avsluttede oppgaver",
     "drift.task.state.queued": "venter på en plass",
     "drift.task.state.running": "kjører",
     "drift.task.state.replied": "ferdig",

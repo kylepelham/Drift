@@ -645,6 +645,7 @@ export const drift = {
     "drift.task.title": "งานเบื้องหลัง",
     "drift.task.background": "เบื้องหลัง",
     "drift.task.progress": "เสร็จ {{done}} จาก {{total}}",
+    "drift.task.finished": "งานที่เสร็จแล้ว",
     "drift.task.state.queued": "รอคิว",
     "drift.task.state.running": "กำลังทำงาน",
     "drift.task.state.replied": "เสร็จแล้ว",

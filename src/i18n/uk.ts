@@ -652,6 +652,7 @@ export const drift = {
     "drift.task.title": "Фонові завдання",
     "drift.task.background": "фонова",
     "drift.task.progress": "Завершено {{done}} з {{total}}",
+    "drift.task.finished": "Завершені завдання",
     "drift.task.state.queued": "чекає на вільне місце",
     "drift.task.state.running": "виконується",
     "drift.task.state.replied": "готово",
