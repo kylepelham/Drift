@@ -65,23 +65,15 @@ impl Engine {
         Ok(crate::tool::image::Stored { mime: image.mime, hash })
     }
 
-    /// After a provider could not read an image: among the newest images calls returned, removes those
-    /// that fail a strict decode, else all of them, each leaving a note in its call's result, so the
-    /// conversation can go on. Then the refused reply goes. False when no call image was there to remove.
+    /// After a provider could not read an image: takes the newest images calls returned out of the
+    /// conversation, only the corrupt ones when any are, so the next request can go. Each call's result
+    /// says what it lost, and the refused reply goes. False when there was no image to take.
     pub(super) fn drop_unreadable_images(&self, session_id: &str, reply: String) -> bool {
         let Some(window) = self.request_window(session_id) else {
             return false;
         };
-        let newest = newest_images(&window);
-        let corrupt: HashSet<String> = newest
-            .iter()
-            .filter(|hash| {
-                let bytes = self.store.blob(hash).ok().flatten();
-                bytes.is_some_and(|bytes| crate::tool::image::check(&bytes).is_err())
-            })
-            .cloned()
-            .collect();
-        let dropped = if corrupt.is_empty() { newest } else { corrupt };
+
+        let dropped = self.culprits(newest_images(&window));
         if dropped.is_empty() {
             return false;
         }
@@ -91,9 +83,23 @@ impl Engine {
                 self.hub.publish(Event::PartUpdated { part: row });
             }
         }
-        self.discard_refused_reply(session_id, reply);
 
+        self.discard_refused_reply(session_id, reply);
         true
+    }
+
+    /// The images that fail a strict decode; all of `images` when none does, since the provider named none.
+    fn culprits(&self, images: HashSet<String>) -> HashSet<String> {
+        let corrupt: HashSet<String> = images
+            .iter()
+            .filter(|hash| {
+                let bytes = self.store.blob(hash).ok().flatten();
+                bytes.is_some_and(|bytes| crate::tool::image::check(&bytes).is_err())
+            })
+            .cloned()
+            .collect();
+
+        if corrupt.is_empty() { images } else { corrupt }
     }
 }
 
@@ -123,6 +129,7 @@ fn without_images(part: &mut Part, dropped: &HashSet<String>) -> bool {
     else {
         return false;
     };
+
     let (gone, kept): (Vec<_>, Vec<_>) = crate::tool::image::stored(Some(metadata))
         .into_iter()
         .partition(|image| dropped.contains(&image.hash));
@@ -131,6 +138,7 @@ fn without_images(part: &mut Part, dropped: &HashSet<String>) -> bool {
     }
 
     metadata.images = Some(crate::tool::image::stored_metadata(&kept));
+
     let text = output.get_or_insert_default();
     for image in gone {
         let _ = write!(

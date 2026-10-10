@@ -3,8 +3,8 @@
 
 use crate::llm::catalog::{Limit, ProviderInfo};
 
-mod daybreak;
-pub(crate) use daybreak::Daybreak;
+mod offers;
+pub(crate) use offers::Offers;
 
 /// Accepted although their version alone would not be.
 const ALLOWED: [&str; 6] = [

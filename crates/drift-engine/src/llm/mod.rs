@@ -388,9 +388,10 @@ impl Error {
 
     /// The provider could not read an image the request carried; dropping it can recover where retrying cannot.
     pub fn is_unreadable_image(&self) -> bool {
+        let refused = matches!(self, Self::Api { status: 400, .. });
         let text = self.to_string().to_ascii_lowercase();
-        matches!(self, Self::Api { status: 400, .. })
-            && UNREADABLE_IMAGE_PHRASES.iter().any(|phrase| text.contains(phrase))
+
+        refused && UNREADABLE_IMAGE_PHRASES.iter().any(|phrase| text.contains(phrase))
     }
 }
 

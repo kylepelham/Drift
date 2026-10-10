@@ -1218,18 +1218,26 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
   out publishes `catalog.updated` so the picker reloads. Nothing is priced to choose a small
   model by, so titles run on `gpt-5.4-mini` when the backend offers it (`codex::small_model`),
   never an API-only model.
-- Daybreak entries come from the signed-in account's Codex model list, fetched with Drift's
-  `client_version`. Startup and sign-in discover access asynchronously; a single-flight cache
-  lasts 15 minutes, retries failures after a minute, and never crosses users or ChatGPT accounts.
-  Logout discards it. Each offered Blue or Red program adds `<id>-daybreak`, named `<Name> Daybreak`,
-  retaining the base entry's limits, prices, reasoning, tools and any speed-mode settings.
-  Requests send the base model id with `access_programs.cyber` set to the offered program.
-  Unknown programs and models without Daybreak are left alone. API-key discovery is not supported.
-  The regular entries and their requests are unchanged. OpenAI still owns authorization.
-  Live comparison on 2026-10-09 found the installed Codex 0.155.0-alpha.9.2 client sending the
-  same `daybreak_blue` selection and receiving the same `standard` response echo as Drift's
-  direct HTTP and WebSocket probes. No extra Daybreak proof header appeared. Request selection
-  is verified; the backend echo does not establish that reduced-refusal treatment was applied.
+- A ChatGPT sign-in's catalog follows its account's Codex model list (`codex::offers`), fetched with
+  Drift's `client_version` (the backend refuses the list without one). Startup and sign-in fetch it
+  in the background; a single-flight cache lasts 15 minutes, retries a failed fetch after a minute,
+  and never crosses users or ChatGPT accounts. Sign-out discards it. Until a list is cached, nothing
+  changes. API keys have no such list.
+  - Speed modes: a mode whose `service_tier` the list does not offer for its model is removed. The
+    list names `priority` ("Fast") for the GPT-6 models of the account checked on 2026-10-10 and no
+    Ultrafast; sending `service_tier: ultrafast` there is accepted but served at standard speed
+    (about 80 tok/s, the same as no tier, against about 105 for `priority`). Ultrafast from
+    models.dev describes the API, so it only appears for a sign-in whose list offers it. Models the
+    list does not name keep every mode.
+  - Daybreak: each offered Blue or Red program adds `<id>-daybreak`, named `<Name> Daybreak`,
+    keeping the base entry's limits, prices, reasoning, tools and any speed-mode settings. Requests
+    send the base model id with `access_programs.cyber` set to the offered program. Unknown programs
+    and models without Daybreak are left alone; the regular entries are unchanged, and OpenAI still
+    owns authorization. Live comparison on 2026-10-09 found the installed Codex 0.155.0-alpha.9.2
+    client sending the same `daybreak_blue` selection and receiving the same `standard` response
+    echo as Drift's direct HTTP and WebSocket probes, with no extra Daybreak proof header. Request
+    selection is verified; the backend echo does not establish that reduced-refusal treatment was
+    applied.
 - Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
   completed reply. The engine measures each response with a monotonic clock, from its first
   generated text, reasoning or tool-call block to its last content event. Initial request waits,

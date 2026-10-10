@@ -412,11 +412,14 @@ export function generationMs(entry: MessageEntry) {
     return entry.info.generationMs ?? 0;
 }
 
+/** Output tokens over the measured generation time; null when there is no usable measurement. */
 export function tokensPerSecond(entry: MessageEntry) {
-    const info = entry.info;
     const elapsed = generationMs(entry);
-    const tokens = info.usage.output;
-    if (!Number.isFinite(elapsed) || !Number.isFinite(tokens) || elapsed <= 0 || tokens <= 0) return null;
+    const tokens = entry.info.usage.output;
+
+    const measured = Number.isFinite(elapsed) && elapsed > 0;
+    const produced = Number.isFinite(tokens) && tokens > 0;
+    if (!measured || !produced) return null;
 
     return (tokens / (elapsed / 1000)).toFixed(1);
 }

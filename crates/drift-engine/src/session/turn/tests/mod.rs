@@ -35,6 +35,7 @@ mod subagents;
 mod tool_catalog;
 mod tool_order;
 mod tool_validation;
+mod unreadable_images;
 mod variants;
 
 pub(crate) struct Harness {

@@ -33,6 +33,7 @@ change the plan there when a decision changes.
 
 - [x] OpenAI Responses, Codex OAuth, `apply_patch` profile
 - [x] Account-specific Daybreak model entries and request selection for ChatGPT sign-ins; backend treatment unverified
+- [x] A ChatGPT sign-in offers only the speed modes its account's Codex model list names (no Ultrafast where it is not served)
 - [x] Gemini (adapter only; not yet exercised against the live API)
 - [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter, LM Studio and Ollama presets
 - [x] MCP through rmcp: stdio, HTTP, approval (reconnect and reload: M3)

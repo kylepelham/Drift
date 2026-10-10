@@ -179,11 +179,7 @@ test("the dock lists background workers while any is going or owed, and never fo
 test("a crowded dock puts live workers and owed results before newest-first finished history", async () => {
     const { dockTasks } = await import("../src/ui/task-dock");
     const history = Array.from({ length: 91 }, (_, index) =>
-        task(`done_${index}`, {
-            state: "replied",
-            delivered: true,
-            createdAt: index,
-        }),
+        task(`done_${index}`, { state: "replied", delivered: true, createdAt: index }),
     );
     const input = [
         ...history,
@@ -192,10 +188,13 @@ test("a crowded dock puts live workers and owed results before newest-first fini
         task("owed", { state: "failed", deliveryError: "waiting for parent", createdAt: 93 }),
         task("foreground", { mode: "foreground", createdAt: 94 }),
     ];
+
     const ordered = dockTasks(input);
+
     expect(ordered).toHaveLength(94);
     expect(ordered.slice(0, 4).map((item) => item.id)).toEqual(["running", "queued", "owed", "done_90"]);
     expect(ordered.at(-1)?.id).toBe("done_0");
+    // The engine store's own list keeps its order.
     expect(input[0]?.id).toBe("done_0");
 });
 
@@ -204,15 +203,13 @@ test("new workers stay ahead of history as tasks finish, are held and get delive
     const done = task("done", { state: "stopped", delivered: true });
     const held = task("held", { state: "replied", held: true, createdAt: 2 });
     const active = task("active", { createdAt: 3 });
-    expect(dockTasks([done, held, active]).map((item) => item.id)).toEqual(["active", "held", "done"]);
-    expect(dockTasks([done, { ...held, delivered: true }, active]).map((item) => item.id)).toEqual([
-        "active",
-        "held",
-        "done",
-    ]);
-    expect(dockTasks([done, { ...held, delivered: true }, { ...active, state: "replied", delivered: true }])).toEqual(
-        [],
-    );
+    const order = (tasks: TaskRecord[]) => dockTasks(tasks).map((item) => item.id);
+
+    expect(order([done, held, active])).toEqual(["active", "held", "done"]);
+    expect(order([done, { ...held, delivered: true }, active])).toEqual(["active", "held", "done"]);
+
+    // With nothing going or owed, the dock goes away.
+    expect(order([done, { ...held, delivered: true }, { ...active, state: "replied", delivered: true }])).toEqual([]);
 });
 
 function harness(overrides: Partial<Client>) {

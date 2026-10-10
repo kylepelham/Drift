@@ -1,5 +1,10 @@
-use crate::llm::Chunk;
+//! How long a model spent generating one response, on a monotonic clock: from its first content block to
+//! its last content event. Waiting for the request to start, usage and stop frames, and anything that
+//! happens after the response (tools, retries) are not counted.
+
 use tokio::time::Instant;
+
+use crate::llm::Chunk;
 
 #[derive(Default)]
 pub(super) struct Generation {
@@ -9,20 +14,13 @@ pub(super) struct Generation {
 
 impl Generation {
     pub(super) fn observe(&mut self, chunk: &Chunk) {
-        let content = match chunk {
-            Chunk::TextStart | Chunk::ReasoningStart | Chunk::ToolUseStart { .. } => true,
-            Chunk::TextDelta(text)
-            | Chunk::ReasoningDelta(text)
-            | Chunk::ToolInputDelta(text)
-            | Chunk::ReasoningRedacted(text) => !text.is_empty(),
-            Chunk::ReasoningSignature(_) => self.first.is_some(),
-            _ => false,
-        };
-        if content {
-            let now = Instant::now();
-            self.first.get_or_insert(now);
-            self.last = Some(now);
+        if !generated(chunk, self.first.is_some()) {
+            return;
         }
+
+        let now = Instant::now();
+        self.first.get_or_insert(now);
+        self.last = Some(now);
     }
 
     pub(super) fn milliseconds(&self) -> Option<u64> {
@@ -31,21 +29,38 @@ impl Generation {
     }
 }
 
+/// Whether the chunk is something the model generated; a signature only extends a response already going.
+fn generated(chunk: &Chunk, started: bool) -> bool {
+    match chunk {
+        Chunk::TextStart | Chunk::ReasoningStart | Chunk::ToolUseStart { .. } => true,
+        Chunk::TextDelta(text)
+        | Chunk::ReasoningDelta(text)
+        | Chunk::ToolInputDelta(text)
+        | Chunk::ReasoningRedacted(text) => !text.is_empty(),
+        Chunk::ReasoningSignature(_) => started,
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
     use crate::llm::StopReason;
     use crate::session::types::Usage;
-    use std::time::Duration;
 
     #[tokio::test(start_paused = true)]
-    async fn request_waits_and_trailing_usage_do_not_count_as_generation() {
+    async fn waiting_for_the_response_and_its_trailing_frames_are_not_generation() {
         let mut generation = Generation::default();
+
         tokio::time::advance(Duration::from_secs(90)).await;
         generation.observe(&Chunk::Usage(Usage::default()));
         generation.observe(&Chunk::TextStart);
+
         tokio::time::advance(Duration::from_secs(3)).await;
         generation.observe(&Chunk::TextDelta("answer".into()));
+
         tokio::time::advance(Duration::from_secs(120)).await;
         generation.observe(&Chunk::BlockStop);
         generation.observe(&Chunk::Usage(Usage {
@@ -53,16 +68,19 @@ mod tests {
             ..Usage::default()
         }));
         generation.observe(&Chunk::Stop(StopReason::EndTurn));
+
         assert_eq!(generation.milliseconds(), Some(3_000));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn reasoning_and_tool_arguments_share_one_response_clock_but_tool_waits_do_not() {
+    async fn reasoning_and_tool_arguments_count_but_the_tool_run_after_does_not() {
         let mut generation = Generation::default();
+
         generation.observe(&Chunk::ReasoningStart);
         tokio::time::advance(Duration::from_secs(2)).await;
         generation.observe(&Chunk::ReasoningDelta("thinking".into()));
         generation.observe(&Chunk::BlockStop);
+
         generation.observe(&Chunk::ToolUseStart {
             id: "call".into(),
             name: "bash".into(),
@@ -70,23 +88,22 @@ mod tests {
         tokio::time::advance(Duration::from_secs(1)).await;
         generation.observe(&Chunk::ToolInputDelta("{}".into()));
         generation.observe(&Chunk::Stop(StopReason::ToolUse));
-        tokio::time::advance(Duration::from_secs(600)).await;
-        assert_eq!(generation.milliseconds(), Some(3_000));
 
-        let mut next = Generation::default();
-        next.observe(&Chunk::TextStart);
-        tokio::time::advance(Duration::from_secs(2)).await;
-        next.observe(&Chunk::TextDelta("done".into()));
-        assert_eq!(next.milliseconds(), Some(2_000));
+        // The shell command runs here, outside the response.
+        tokio::time::advance(Duration::from_secs(600)).await;
+
+        assert_eq!(generation.milliseconds(), Some(3_000));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn metadata_and_empty_deltas_do_not_invent_a_generation_window() {
+    async fn metadata_and_empty_deltas_alone_are_not_a_response() {
         let mut generation = Generation::default();
+
         generation.observe(&Chunk::TextDelta(String::new()));
         generation.observe(&Chunk::ReasoningSignature("signature".into()));
         generation.observe(&Chunk::PartSignature("signature".into()));
         generation.observe(&Chunk::Usage(Usage::default()));
+
         assert_eq!(generation.milliseconds(), None);
     }
 }
