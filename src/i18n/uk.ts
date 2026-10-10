@@ -696,6 +696,7 @@ export const drift = {
     "drift.provider.accounts.removed": "Виконано вихід з {{account}}.",
     "drift.provider.accounts.failed": "Не вдалося оновити облікові записи {{provider}}. Спробуйте ще раз.",
     "drift.provider.accounts.add": "Додати ще один обліковий запис",
+    "drift.provider.accounts.spent": "Ліміт вичерпано. {{reset}}",
     "drift.question.custom": "Введіть власну відповідь",
     "drift.question.answered": "Відповідь надано",
     "drift.question.unanswered": "Немає відповіді",

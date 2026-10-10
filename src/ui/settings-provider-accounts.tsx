@@ -1,9 +1,12 @@
 import { IconArrowDown, IconArrowUp, IconCheck, IconSquarePen, IconTrash } from "./icons";
+import { resetLabel, resetTitle } from "../state/usage-limits";
 import { createSignal, For, Show } from "solid-js";
+import { LimitRow } from "./context-meter";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 
 import type { ProviderNotice } from "./settings-providers";
+import type { UsageWindow } from "../state/usage-limits";
 import type { ProviderAccount } from "../engine/store";
 
 const iconButton =
@@ -62,8 +65,8 @@ export function ProviderAccounts(props: {
             });
     }
 
-    const row = (account: ProviderAccount, index: () => number) => (
-        <div class="flex items-center gap-2 rounded-md border border-edge bg-overlay/35 px-2.5 py-1.5">
+    const header = (account: ProviderAccount, index: () => number) => (
+        <div class="flex items-center gap-2">
             <Show
                 when={editing() === account.id}
                 fallback={<span class="min-w-0 flex-1 truncate text-sm text-ink">{name(account, index())}</span>}
@@ -151,6 +154,13 @@ export function ProviderAccounts(props: {
         </div>
     );
 
+    const row = (account: ProviderAccount, index: () => number) => (
+        <div class="space-y-2 rounded-md border border-edge bg-overlay/35 px-2.5 py-1.5">
+            {header(account, index)}
+            <AccountUsage limits={account.limits} />
+        </div>
+    );
+
     return (
         <div class="space-y-1.5">
             <div class="text-[0.68rem] tracking-wider text-ink-faint uppercase">
@@ -159,5 +169,40 @@ export function ProviderAccounts(props: {
             <For each={props.accounts}>{row}</For>
             <div class="text-xs text-ink-faint">{t("drift.provider.accounts.hint")}</div>
         </div>
+    );
+}
+
+/** The usage windows an account last reported, and whether it is at its limit; nothing until it has answered. */
+function AccountUsage(props: { limits: ProviderAccount["limits"] }) {
+    const windows = (): UsageWindow[] => {
+        const limits = props.limits;
+        if (!limits) return [];
+
+        const shown: [UsageWindow["kind"], typeof limits.fiveHour][] = [
+            ["session", limits.fiveHour],
+            ["weekly", limits.weekly],
+        ];
+        return shown.flatMap(([kind, window]) =>
+            window ? [{ kind, label: null, usedPercent: window.usedPercent, resetsAt: window.resetsAt ?? null }] : [],
+        );
+    };
+    const spentUntil = () => {
+        const until = props.limits?.spentUntil;
+        return until && until > Date.now() ? until : null;
+    };
+
+    return (
+        <Show when={windows().length || spentUntil()}>
+            <div class="space-y-1.5 text-xs">
+                <Show when={spentUntil()}>
+                    {(until) => (
+                        <div class="text-warn" title={resetTitle(until())}>
+                            {t("drift.provider.accounts.spent", { reset: resetLabel(until()) })}
+                        </div>
+                    )}
+                </Show>
+                <For each={windows()}>{(window) => <LimitRow window={window} />}</For>
+            </div>
+        </Show>
     );
 }

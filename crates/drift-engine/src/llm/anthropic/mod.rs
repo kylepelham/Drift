@@ -106,8 +106,9 @@ pub(super) async fn stream_from(
         return Err(api_error(status.as_u16(), &text).with_headers(&headers));
     }
 
+    let limits = super::limits::Limits::from_headers(response.headers()).map(|limits| Ok(Chunk::Limits(limits)));
     let events = sse::events(response.bytes_stream(), timeouts.idle);
-    Ok(Box::pin(events.flat_map(move |event| {
+    let chunks = events.flat_map(move |event| {
         let items: Vec<Result<Chunk, Error>> = match event {
             Err(error) => vec![Err(Error::Transport(error.to_string()))],
             Ok(event) => match chunks(&event.event, &event.data) {
@@ -116,7 +117,9 @@ pub(super) async fn stream_from(
             },
         };
         futures_util::stream::iter(items)
-    })))
+    });
+
+    Ok(Box::pin(futures_util::stream::iter(limits).chain(chunks)))
 }
 
 /// The Messages body for a cloud route: the model goes in the URL and the API version in the body.

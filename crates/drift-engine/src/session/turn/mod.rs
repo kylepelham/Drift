@@ -33,6 +33,7 @@ use crate::session::types::{
 use crate::store::{Admit, Admitted, Handover, Pick};
 use crate::tool::{Context, SessionFiles};
 
+mod accounts;
 mod admission;
 mod approval;
 mod calls;

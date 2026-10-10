@@ -702,6 +702,7 @@ export const drift = {
     "drift.provider.accounts.removed": "Sesión cerrada en {{account}}.",
     "drift.provider.accounts.failed": "No se pudieron actualizar las cuentas de {{provider}}. Inténtalo de nuevo.",
     "drift.provider.accounts.add": "Añadir otra cuenta",
+    "drift.provider.accounts.spent": "Límite alcanzado. {{reset}}",
     "drift.question.custom": "Escribe tu propia respuesta",
     "drift.question.answered": "Respondido",
     "drift.question.unanswered": "Sin respuesta",

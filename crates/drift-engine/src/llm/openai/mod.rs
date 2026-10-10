@@ -127,9 +127,10 @@ impl OpenAi {
             return Err(api_error(status.as_u16(), &text).with_headers(&headers));
         }
 
+        let limits = super::limits::Limits::from_headers(response.headers()).map(|limits| Ok(Chunk::Limits(limits)));
         let mut state = StreamState::default();
         let events = sse::events(response.bytes_stream(), self.timeouts.idle);
-        Ok(Box::pin(events.flat_map(move |event| {
+        let chunks = events.flat_map(move |event| {
             let items: Vec<Result<Chunk, Error>> = match event {
                 Err(error) => vec![Err(Error::Transport(error.to_string()))],
                 Ok(event) => match state.chunks(&event.data) {
@@ -138,7 +139,9 @@ impl OpenAi {
                 },
             };
             futures_util::stream::iter(items)
-        })))
+        });
+
+        Ok(Box::pin(futures_util::stream::iter(limits).chain(chunks)))
     }
 }
 

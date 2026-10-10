@@ -87,6 +87,8 @@ pub struct Engine {
     local_shown: llm::local::Shown,
     /// What the signed-in ChatGPT account's Codex model list offers: Daybreak and speed tiers.
     codex_offers: llm::openai::codex::Offers,
+    /// What each account last reported of its subscription's usage, so picking one never waits on the network.
+    pub limits: llm::limits::Ledger,
     /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
     /// The user's plugins, loaded at start and on request.
@@ -156,6 +158,7 @@ impl Engine {
             local_models: Default::default(),
             local_shown: Default::default(),
             codex_offers: Default::default(),
+            limits: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
         }))

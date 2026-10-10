@@ -83,7 +83,7 @@ async fn response(socket: &mut Socket, job: &Job, previous: &mut Option<cache::P
         }
 
         let chunks = decode(&mut state, &event)?;
-        forwarded |= !chunks.is_empty();
+        forwarded |= chunks.iter().any(|chunk| !matches!(chunk, Chunk::Limits(_)));
         for chunk in chunks {
             job.send
                 .send(Ok(chunk))

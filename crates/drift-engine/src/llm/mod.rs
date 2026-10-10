@@ -13,6 +13,7 @@ pub use files::prepare_files;
 pub mod gemini;
 pub mod google;
 pub mod http;
+pub mod limits;
 pub mod local;
 mod oauth_error;
 pub mod openai;
@@ -239,10 +240,15 @@ pub enum Chunk {
     ReasoningSignature(String),
     PartSignature(String),
     ReasoningRedacted(String),
-    ToolUseStart { id: String, name: String },
+    ToolUseStart {
+        id: String,
+        name: String,
+    },
     ToolInputDelta(String),
     BlockStop,
     Usage(Usage),
+    /// What the account that sent the request has spent of its subscription, from the response's headers or events.
+    Limits(limits::Limits),
     Stop(StopReason),
 }
 
@@ -313,8 +319,10 @@ impl Error {
 
     /// Takes what the response headers say about retrying: the wait the provider asks for, and its
     /// explicit `x-should-retry` verdict, which cannot make a permanent fault retryable.
+    /// A refusal for spent subscription usage becomes `LIMIT_REACHED`, waiting until the usage frees.
     pub fn with_headers(mut self, headers: &::http::HeaderMap) -> Self {
         if let Self::Api {
+            status,
             kind,
             retryable,
             retry_after,
@@ -327,10 +335,46 @@ impl Error {
                 Some("false") => *retryable = false,
                 _ => {}
             }
+
+            let spent = limits::Limits::from_headers(headers).and_then(|limits| limits.spent_until);
+            if *status == 429 && (spent.is_some() || kind == limits::LIMIT_REACHED) {
+                *kind = limits::LIMIT_REACHED.into();
+                *retry_after = spent.map(wait_until).or(*retry_after);
+            }
         }
 
         self
     }
+
+    /// The headers a WebSocket error event carries in its body, taken as `with_headers` takes a response's.
+    pub fn with_header_object(self, headers: &Value) -> Self {
+        let Some(object) = headers.as_object() else {
+            return self;
+        };
+
+        let map = object
+            .iter()
+            .filter_map(|(name, value)| {
+                let name = ::http::HeaderName::from_bytes(name.as_bytes()).ok()?;
+                let value =
+                    ::http::HeaderValue::from_str(&value.as_str().map_or_else(|| value.to_string(), str::to_string))
+                        .ok()?;
+                Some((name, value))
+            })
+            .collect();
+
+        self.with_headers(&map)
+    }
+
+    /// The account's usage is spent: switching accounts, not waiting, is the remedy.
+    pub fn limit_reached(&self) -> bool {
+        matches!(self, Self::Api { kind, .. } if kind == limits::LIMIT_REACHED)
+    }
+}
+
+/// The wait from now until `at`, in ms since the epoch.
+fn wait_until(at: i64) -> std::time::Duration {
+    std::time::Duration::from_millis(u64::try_from(at - crate::id::now_ms()).unwrap_or(0))
 }
 
 /// `retry-after-ms`, else `retry-after` as seconds or as an HTTP date. A wait too long to represent
@@ -502,7 +546,7 @@ impl Provider {
             Self::Gemini(provider) => provider.stream(request, credential).await,
             Self::Bedrock(provider) => provider.stream(request, credential).await,
             Self::Vertex(provider) => provider.stream(request, credential).await,
-            Self::Scripted(provider) => provider.stream(request),
+            Self::Scripted(provider) => provider.stream(request, credential),
         }
     }
 }

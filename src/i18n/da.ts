@@ -700,6 +700,7 @@ export const drift = {
     "drift.provider.accounts.removed": "Logget ud af {{account}}.",
     "drift.provider.accounts.failed": "Kunne ikke opdatere {{provider}}-konti. Prøv igen.",
     "drift.provider.accounts.add": "Tilføj en konto mere",
+    "drift.provider.accounts.spent": "Grænsen er nået. {{reset}}",
     "drift.question.custom": "Skriv dit eget svar",
     "drift.question.answered": "Besvaret",
     "drift.question.unanswered": "Intet svar",

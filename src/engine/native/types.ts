@@ -1312,6 +1312,12 @@ export interface components {
             /** @enum {string} */
             type: "catalog.updated";
         } | {
+            account: string;
+            limits: components["schemas"]["Limits"];
+            provider: string;
+            /** @enum {string} */
+            type: "provider.limits";
+        } | {
             server: components["schemas"]["ServerStatus"];
             /** @enum {string} */
             type: "mcp.updated";
@@ -1446,23 +1452,14 @@ export interface components {
             /** Format: int64 */
             output: number;
         };
-        /** @description When a turn pauses for the user rather than carrying on by itself. */
         Limits: {
+            fiveHour?: components["schemas"]["Window"] | null;
             /**
-             * Format: int32
-             * @description The same for steps whose shell commands deliberately wait, as polling does.
+             * Format: int64
+             * @description The plan's usage is spent until then, in ms; requests before it are refused or paid for with credits.
              */
-            polls: number;
-            /**
-             * Format: int32
-             * @description Steps in a row whose calls and results are all identical: no progress, so likely a loop.
-             */
-            repeats: number;
-            /**
-             * Format: int32
-             * @description Model steps (requests) one turn may take.
-             */
-            steps: number;
+            spentUntil?: number | null;
+            weekly?: components["schemas"]["Window"] | null;
         };
         /**
          * @description A language server Drift starts to hear the errors an edit left: `false` turns a built-in off; a
@@ -1748,6 +1745,7 @@ export interface components {
             id: string;
             /** @description What the user named it, else the email it signed in with. */
             label?: string | null;
+            limits?: components["schemas"]["Limits"] | null;
             /** @description A subscription sign-in, which takes turns with the provider's others; else an API key. */
             signedIn: boolean;
         };
@@ -2227,6 +2225,15 @@ export interface components {
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";
+        Window: {
+            /**
+             * Format: int64
+             * @description In ms.
+             */
+            resetsAt?: number | null;
+            /** Format: double */
+            usedPercent: number;
+        };
         Workspace: {
             icon: string;
             id: string;

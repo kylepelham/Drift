@@ -699,6 +699,7 @@ export const drift = {
     "drift.provider.accounts.removed": "Odjavljeni ste s {{account}}.",
     "drift.provider.accounts.failed": "Nije moguće ažurirati {{provider}} račune. Pokušajte ponovo.",
     "drift.provider.accounts.add": "Dodaj još jedan račun",
+    "drift.provider.accounts.spent": "Ograničenje dostignuto. {{reset}}",
     "drift.question.custom": "Unesite vlastiti odgovor",
     "drift.question.answered": "Odgovoreno",
     "drift.question.unanswered": "Nema odgovora",

@@ -117,6 +117,14 @@ export function EngineProvider(props: ParentProps) {
                         "mcpServers",
                         produce((servers) => void delete servers[envelope.name]),
                     );
+                if (envelope.type === "provider.limits" && state.providerAccounts[envelope.provider])
+                    set(
+                        "providerAccounts",
+                        envelope.provider,
+                        (account) => account.id === envelope.account,
+                        "limits",
+                        envelope.limits,
+                    );
                 reduce(
                     set,
                     envelope,

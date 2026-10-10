@@ -650,6 +650,7 @@ export const drift = {
     "drift.provider.accounts.removed": "تم تسجيل الخروج من {{account}}.",
     "drift.provider.accounts.failed": "تعذر تحديث حسابات {{provider}}. حاول مرة أخرى.",
     "drift.provider.accounts.add": "إضافة حساب آخر",
+    "drift.provider.accounts.spent": "تم بلوغ الحد. {{reset}}",
     "drift.question.custom": "اكتب إجابتك الخاصة",
     "drift.question.answered": "تمت الإجابة",
     "drift.question.unanswered": "لا إجابة",

@@ -660,6 +660,7 @@ export const drift = {
     "drift.provider.accounts.removed": "{{account}}에서 로그아웃했습니다.",
     "drift.provider.accounts.failed": "{{provider}} 계정을 업데이트하지 못했습니다. 다시 시도하세요.",
     "drift.provider.accounts.add": "다른 계정 추가",
+    "drift.provider.accounts.spent": "한도에 도달했습니다. {{reset}}",
     "drift.question.custom": "직접 답변 입력",
     "drift.question.answered": "답변 완료",
     "drift.question.unanswered": "답변 없음",

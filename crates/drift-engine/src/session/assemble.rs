@@ -95,6 +95,8 @@ impl<'a> Assembler<'a> {
                 self.usage.merge(usage);
                 Ok(())
             }
+            // The turn records an account's limits before the reply is assembled.
+            Chunk::Limits(_) => Ok(()),
             Chunk::Stop(reason) => {
                 self.stop = Some(reason);
                 Ok(())

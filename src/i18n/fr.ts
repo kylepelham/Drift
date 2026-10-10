@@ -672,6 +672,7 @@ export const drift = {
     "drift.provider.accounts.removed": "Déconnecté de {{account}}.",
     "drift.provider.accounts.failed": "Impossible de mettre à jour les comptes {{provider}}. Réessayez.",
     "drift.provider.accounts.add": "Ajouter un autre compte",
+    "drift.provider.accounts.spent": "Limite atteinte. {{reset}}",
     "drift.question.custom": "Saisissez votre propre réponse",
     "drift.question.answered": "Répondu",
     "drift.question.unanswered": "Aucune réponse",

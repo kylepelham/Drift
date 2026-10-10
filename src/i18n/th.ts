@@ -689,6 +689,7 @@ export const drift = {
     "drift.provider.accounts.removed": "ออกจากระบบ {{account}} แล้ว",
     "drift.provider.accounts.failed": "ไม่สามารถอัปเดตบัญชี {{provider}} ได้ ลองอีกครั้ง",
     "drift.provider.accounts.add": "เพิ่มบัญชีอื่น",
+    "drift.provider.accounts.spent": "ถึงขีดจำกัดแล้ว {{reset}}",
     "drift.question.custom": "พิมพ์คำตอบของคุณเอง",
     "drift.question.answered": "ตอบแล้ว",
     "drift.question.unanswered": "ไม่มีคำตอบ",

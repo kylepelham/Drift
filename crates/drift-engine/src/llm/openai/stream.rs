@@ -1,3 +1,4 @@
+use crate::llm::limits::Limits;
 use crate::llm::{Chunk, Error, STREAMED, StopReason};
 use crate::session::types::Usage;
 use serde_json::Value;
@@ -43,12 +44,14 @@ impl StreamState {
                 self.finished(&value["response"], kind == "response.incomplete")
             }
             "response.failed" => return Err(api_error(STREAMED, &value["response"].to_string())),
+            "codex.rate_limits" => Limits::from_codex_event(value).map(Chunk::Limits).into_iter().collect(),
             "error" => {
                 let status = value["status"]
                     .as_u64()
+                    .or_else(|| value["status_code"].as_u64())
                     .and_then(|status| u16::try_from(status).ok())
                     .unwrap_or(STREAMED);
-                return Err(api_error(status, &value.to_string()));
+                return Err(api_error(status, &value.to_string()).with_header_object(&value["headers"]));
             }
             _ => Vec::new(),
         })

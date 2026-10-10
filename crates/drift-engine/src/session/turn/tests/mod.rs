@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use super::*;
 
+mod accounts;
 mod admission_receipts;
 mod agents;
 mod attachments;

@@ -13,6 +13,7 @@ use super::providers::{credentials_changed, credentials_error};
 use crate::Engine;
 use crate::llm::Credential;
 use crate::llm::credentials::Account;
+use crate::llm::limits::Limits;
 
 /// One stored credential of a provider, in the order the engine uses them.
 #[derive(Serialize, ToSchema)]
@@ -24,6 +25,9 @@ pub(super) struct ProviderAccount {
     pub label: Option<String>,
     /// A subscription sign-in, which takes turns with the provider's others; else an API key.
     pub signed_in: bool,
+    /// What it last reported of its subscription's usage; absent until it has answered a request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limits: Option<Limits>,
 }
 
 impl ProviderAccount {
@@ -31,6 +35,7 @@ impl ProviderAccount {
         let signed_in = matches!(engine.credentials.account(&account.key), Some(Credential::OAuth { .. }));
 
         Self {
+            limits: engine.limits.get(&account.key),
             id: account.key,
             label: account.label,
             signed_in,

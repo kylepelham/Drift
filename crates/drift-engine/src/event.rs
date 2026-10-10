@@ -73,6 +73,13 @@ pub enum Event {
     /// The model catalog was refreshed; clients reload `/providers`.
     #[serde(rename = "catalog.updated")]
     CatalogUpdated {},
+    /// An account reported how much of its subscription's usage it has spent.
+    #[serde(rename = "provider.limits")]
+    ProviderLimits {
+        provider: String,
+        account: String,
+        limits: crate::llm::limits::Limits,
+    },
     #[serde(rename = "mcp.updated")]
     McpUpdated { server: crate::mcp::ServerStatus },
     #[serde(rename = "mcp.removed")]

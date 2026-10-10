@@ -373,6 +373,7 @@ impl Engine {
                 }
             };
             match next {
+                Some(Ok(llm::Chunk::Limits(limits))) => self.record_limits(scope.plan, limits),
                 Some(Ok(chunk)) => assembler
                     .apply(chunk)
                     .map_err(|error| StreamError::Provider(llm::Error::Transport(error.to_string())))?,
