@@ -1,9 +1,10 @@
-//! OpenAI Responses API over SSE, for API keys and for ChatGPT subscriptions through the Codex backend.
+//! OpenAI Responses over reusable WebSockets, with SSE fallback, for API keys and ChatGPT subscriptions.
 
 pub mod codex;
 pub mod oauth;
 mod request;
 mod stream;
+mod websocket;
 
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -33,6 +34,7 @@ pub struct OpenAi {
     base_url: Option<String>,
     client: reqwest::Client,
     pub timeouts: super::http::Timeouts,
+    websockets: std::sync::Arc<websocket::Pool>,
 }
 
 impl Default for OpenAi {
@@ -41,6 +43,7 @@ impl Default for OpenAi {
             base_url: None,
             client: super::http::client(),
             timeouts: super::http::Timeouts::default(),
+            websockets: websocket::Pool::shared(),
         }
     }
 }
@@ -53,7 +56,34 @@ impl OpenAi {
         }
     }
 
+    /// Streams over the conversation's WebSocket, or over SSE where the endpoint does not take one.
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
+        let subscription = matches!(credential, Credential::OAuth { .. });
+        let http = self.http_request(request, credential)?;
+
+        // The SSE request's URL and headers also authenticate the WebSocket upgrade.
+        let handshake = http
+            .try_clone()
+            .ok_or_else(|| Error::Transport("could not prepare the WebSocket handshake".into()))?
+            .build()?;
+        let prepared = websocket::Prepared {
+            handshake,
+            body: body(request, subscription),
+            session: request.cache_key.clone(),
+            timeouts: self.timeouts,
+            subscription,
+        };
+
+        let client = super::http::websocket_client();
+        if let Some(stream) = self.websockets.stream(&client, &prepared).await? {
+            return Ok(stream);
+        }
+
+        self.stream_http(http.json(&prepared.body)).await
+    }
+
+    /// The authenticated `POST /responses`, with the mode's headers, before its body.
+    fn http_request(&self, request: &Request, credential: &Credential) -> Result<reqwest::RequestBuilder, Error> {
         let subscription = matches!(credential, Credential::OAuth { .. });
         let default_base = if subscription { CODEX_BASE_URL } else { API_BASE_URL };
         let base = self.base_url.as_deref().unwrap_or(default_base);
@@ -84,11 +114,11 @@ impl OpenAi {
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
 
-        let response = super::http::send(
-            super::mode_headers(http, request, Vec::new()).json(&body(request, subscription)),
-            &self.timeouts,
-        )
-        .await?;
+        Ok(super::mode_headers(http, request, Vec::new()))
+    }
+
+    async fn stream_http(&self, http: reqwest::RequestBuilder) -> Result<ChunkStream, Error> {
+        let response = super::http::send(http, &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
             let headers = response.headers().clone();

@@ -44,6 +44,8 @@ sha2 = "0.10"
 similar = "2"
 tokio = { workspace = true, features = ["process", "fs"] }
 tokio-util = "0.7"
+# Responses WebSocket framing; the shared reqwest client performs its authenticated TLS upgrade.
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 tower-http = { version = "0.6", features = ["cors"] }
 utoipa = { version = "6", features = ["axum_extras"] }
 utoipa-axum = "0.3"

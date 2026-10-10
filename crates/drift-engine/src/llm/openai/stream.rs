@@ -17,6 +17,10 @@ pub(super) struct StreamState {
 impl StreamState {
     pub(super) fn chunks(&mut self, data: &str) -> Result<Vec<Chunk>, Error> {
         let value: Value = serde_json::from_str(data).map_err(|error| Error::Malformed(error.to_string()))?;
+        self.chunks_value(&value)
+    }
+
+    pub(super) fn chunks_value(&mut self, value: &Value) -> Result<Vec<Chunk>, Error> {
         let kind = value["type"].as_str().unwrap_or_default();
         let item_id = value["item_id"].as_str().unwrap_or_default();
         let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
@@ -39,7 +43,13 @@ impl StreamState {
                 self.finished(&value["response"], kind == "response.incomplete")
             }
             "response.failed" => return Err(api_error(STREAMED, &value["response"].to_string())),
-            "error" => return Err(api_error(STREAMED, data)),
+            "error" => {
+                let status = value["status"]
+                    .as_u64()
+                    .and_then(|status| u16::try_from(status).ok())
+                    .unwrap_or(STREAMED);
+                return Err(api_error(status, &value.to_string()));
+            }
             _ => Vec::new(),
         })
     }

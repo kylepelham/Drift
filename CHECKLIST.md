@@ -32,6 +32,7 @@ change the plan there when a decision changes.
 ## M2: breadth
 
 - [x] OpenAI Responses, Codex OAuth, `apply_patch` profile
+- [x] Responses over a reusable per-conversation WebSocket with incremental continuation; SSE where the endpoint has none
 - [x] Account-specific Daybreak model entries and request selection for ChatGPT sign-ins; backend treatment unverified
 - [x] A ChatGPT sign-in offers only the speed modes its account's Codex model list names (no Ultrafast where it is not served)
 - [x] Gemini (adapter only; not yet exercised against the live API)

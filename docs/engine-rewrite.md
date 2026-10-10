@@ -1209,7 +1209,31 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
 - A Codex (ChatGPT sign-in) request also carries `session-id` (the session, so the backend keeps a
   conversation's requests together) and, when the access token's claims bind the account to a
   region (`chatgpt_compute_residency` other than `no_constraint`), `x-openai-internal-codex-residency`,
-  as upstream's Codex plugin sends them. The websocket transport is not used.
+  as upstream's Codex plugin sends them.
+- OpenAI Responses (API keys and the Codex backend alike) go over a WebSocket (`openai::websocket`).
+  Each conversation keeps one connection, keyed by its session, endpoint and every request header,
+  so credentials, accounts and modes never share one; a request without a session gets its own.
+  The connection's task runs the conversation's requests in order and keeps the last completed
+  response. A request whose settings match it and whose input starts with everything it saw and
+  said sends only the new items with `previous_response_id`; a tool result is then one item, not
+  the whole history. Changed settings, edited or compacted history, a new socket, or the server
+  answering `previous_response_not_found` (it replays the whole input once, on the same socket)
+  start a new chain. Ultrafast, Fast and Daybreak ride in the body, so they survive the short
+  request.
+  - The upgrade goes through an HTTP/1.1-only client (the Codex backend answers an HTTP/2 attempt
+    with 405) with the SSE request's URL and headers, plus `openai-beta:
+    responses_websockets=2026-02-06` for a ChatGPT sign-in. A 101 must carry the right
+    `sec-websocket-accept`. An endpoint answering 404, 405, 426, 501 or a 2xx does not take
+    WebSockets: that request and the next ten minutes of that endpoint's requests use SSE. Any
+    other refusal (credentials, limits) is the request's own error and is not retried over SSE.
+  - A connection closes after five idle minutes and is replaced after 55 (the server ends one at
+    60). While a turn runs its tools, the idle task answers the server's pings. At most 32
+    conversations hold a connection; the least recently used idle one makes room.
+  - A response that fails after it began is never re-sent over SSE: the failure goes to the turn,
+    whose retry policy decides. Stopping a turn drops its stream, which closes that socket, so a
+    half-read response never serves the next request.
+  - Verified live on 2026-10-10 against the Codex backend: two requests completed over one socket,
+    the second sent as a continuation, with no SSE fallback.
 - A ChatGPT sign-in sees the catalog as the Codex backend takes it (`Engine::catalog_view`,
   `openai::codex::shape`), in the picker, planning, steering and retries alike: GPT models after
   5.4 plus the ones Codex names (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`, ...), never a
