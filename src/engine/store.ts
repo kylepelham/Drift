@@ -3,7 +3,7 @@ import { hiddenParent } from "./sessions";
 import { messageModel } from "./messages";
 import { promptPartText } from "./parts";
 
-import type { ModelInfo, ProviderInfo } from "./catalog";
+import type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
 import type { Session } from "./sessions";
@@ -22,7 +22,7 @@ export type Permission = components["schemas"]["PermissionRequest"] & { director
 type Todo = components["schemas"]["Todo"];
 export type Connection = "idle" | "connecting" | "online" | "offline";
 
-export type { ModelInfo, ProviderInfo } from "./catalog";
+export type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
 export type ModelRef = { providerID: string; modelID: string };
 /** An agent as the engine resolved it for the workspace, Settings overrides applied. */
 export type AgentInfo = {
@@ -144,6 +144,8 @@ export type EngineState = {
     /** The engine's MCP servers by name: the only place their definition and state live. */
     mcpServers: Record<string, McpServerStatus>;
     connected: string[];
+    /** Each provider's stored accounts, first used first. */
+    providerAccounts: Record<string, ProviderAccount[]>;
     defaultModels: Record<string, string>;
     agents: AgentInfo[];
     commands: CommandInfo[];
@@ -209,6 +211,7 @@ export function createEngineState() {
         providers: [],
         mcpServers: {},
         connected: [],
+        providerAccounts: {},
         defaultModels: {},
         agents: [],
         commands: [],

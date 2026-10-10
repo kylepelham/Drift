@@ -198,6 +198,8 @@ pub(crate) struct Plan {
     pub(super) model: Model,
     pub(super) provider: Provider,
     pub(super) credential: Credential,
+    /// The stored account the credential is, renewed in place; none for a key from the environment.
+    pub(super) account: Option<String>,
     /// The reasoning variant by name, looked up on each request so a switched model reads it as its own.
     variant: Option<String>,
     offer: Offer,

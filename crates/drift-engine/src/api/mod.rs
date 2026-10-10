@@ -9,6 +9,7 @@ mod health;
 mod mcp;
 mod permissions;
 mod prompts;
+mod provider_accounts;
 mod providers;
 mod questions;
 mod sessions;
@@ -115,6 +116,8 @@ fn provider_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::remove))
         .routes(routes!(providers::oauth_start))
         .routes(routes!(providers::oauth_finish))
+        .routes(routes!(provider_accounts::reorder))
+        .routes(routes!(provider_accounts::rename, provider_accounts::remove))
 }
 
 fn permission_routes() -> OpenApiRouter<Arc<Engine>> {

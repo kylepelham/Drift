@@ -143,6 +143,52 @@ async fn concurrent_turns_refresh_an_expired_token_once() {
 }
 
 #[tokio::test]
+async fn a_renewed_sign_in_is_stored_on_its_own_account_only() {
+    let (_held, hits) = token_endpoint(
+        200,
+        json!({ "access_token": "fresh", "refresh_token": "r2", "expires_in": 3600 }),
+    )
+    .await;
+    let h = harness().await;
+    let person = |name: &str| crate::llm::credentials::Profile {
+        identity: Some(name.into()),
+        email: None,
+    };
+    let live = |access: &str| Credential::OAuth {
+        access: access.into(),
+        refresh: "r1".into(),
+        expires_at: id::now_ms() + 3_600_000,
+        account: None,
+    };
+    let credentials = &h.engine.credentials;
+    let first = credentials
+        .add_account("anthropic", &live("first"), &person("ann"))
+        .unwrap();
+    let second = credentials
+        .add_account("anthropic", &live("revoked"), &person("bob"))
+        .unwrap();
+    credentials
+        .reorder_accounts("anthropic", &[second.clone(), first.clone()])
+        .unwrap();
+    h.provider
+        .push_error(llm::Error::Unauthenticated("OAuth token has expired.".into()))
+        .push(text("a"));
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert!(transcript(&h).iter().all(|message| message.info.error.is_none()));
+    assert!(
+        matches!(credentials.account(&second), Some(Credential::OAuth { access, refresh, .. }) if access == "fresh" && refresh == "r2"),
+        "the account in use is renewed"
+    );
+    assert!(
+        matches!(credentials.account(&first), Some(Credential::OAuth { access, .. }) if access == "first"),
+        "the other account keeps its own token"
+    );
+}
+
+#[tokio::test]
 async fn a_subscription_sign_in_is_never_sent_to_a_route_the_user_re_pointed() {
     let h = harness().await;
     let live = Credential::OAuth {

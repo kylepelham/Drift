@@ -8,10 +8,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::error::ApiError;
+use super::provider_accounts::ProviderAccount;
 use crate::Engine;
 use crate::llm::Credential;
 use crate::llm::anthropic::oauth;
 use crate::llm::catalog::{Model, ProviderInfo};
+use crate::llm::credentials::Profile;
 use crate::llm::openai::oauth as codex;
 
 /// A catalog provider plus whether the engine can currently talk to it.
@@ -24,6 +26,8 @@ pub(super) struct ProviderStatus {
     /// `keychain`, `env` or absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credential: Option<String>,
+    /// Stored credentials in the order they are used; sign-ins take turns as each reaches its limit.
+    pub accounts: Vec<ProviderAccount>,
     pub models: BTreeMap<String, Model>,
 }
 
@@ -47,7 +51,12 @@ pub(super) async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<Provider
 }
 
 fn status(engine: &Engine, info: &ProviderInfo, stored: &[String]) -> ProviderStatus {
-    let credential = if stored.iter().any(|id| id == &info.id) {
+    let accounts = if stored.iter().any(|id| id == &info.id) {
+        engine.credentials.accounts(&info.id)
+    } else {
+        Vec::new()
+    };
+    let credential = if !accounts.is_empty() {
         Some("keychain".to_string())
     } else if engine.credentials.resolve(&info.id, &info.env).is_some() {
         Some("env".to_string())
@@ -60,6 +69,10 @@ fn status(engine: &Engine, info: &ProviderInfo, stored: &[String]) -> ProviderSt
         name: info.name.clone(),
         connected: credential.is_some(),
         credential,
+        accounts: accounts
+            .into_iter()
+            .map(|account| ProviderAccount::of(engine, account))
+            .collect(),
         models: info.models.clone(),
     }
 }
@@ -200,7 +213,7 @@ pub(super) async fn oauth_finish(
     Path(id): Path<String>,
     Json(body): Json<OAuthFinishBody>,
 ) -> Result<StatusCode, ApiError> {
-    let credential = match id.as_str() {
+    let signed_in = match id.as_str() {
         "anthropic" => {
             let (code, state) = oauth::parse_callback(&body.input)
                 .ok_or_else(|| invalid("paste the code#state value or the callback URL"))?;
@@ -213,22 +226,36 @@ pub(super) async fn oauth_finish(
             let code = codex::wait_for_callback(&state)
                 .await
                 .map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", error.to_string()))?;
-            codex::exchange(&engine.http, &code, &verifier).await
+            codex::exchange(&engine.http, &code, &verifier).await.map(with_profile)
         }
         "xai" => {
             let state = body.state.ok_or_else(|| invalid("state is required"))?;
             let started = pending(&engine, &state)?;
             let device: crate::llm::xai::Device =
                 serde_json::from_str(&started).map_err(|_| invalid("unknown or expired sign-in state"))?;
-            crate::llm::xai::wait(&engine.http, &device).await
+            crate::llm::xai::wait(&engine.http, &device).await.map(with_profile)
         }
         _ => return Err(ApiError::not_found("oauth provider")),
     };
-    let credential = credential.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", error.to_string()))?;
+    let (credential, profile) =
+        signed_in.map_err(|error| ApiError::new(StatusCode::BAD_GATEWAY, "oauth", error.to_string()))?;
 
-    engine.credentials.set(&id, &credential).map_err(credentials_error)?;
+    engine
+        .credentials
+        .add_account(&id, &credential, &profile)
+        .map_err(credentials_error)?;
     credentials_changed(&engine, &id);
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Who a JWT sign-in belongs to, read from its own token.
+fn with_profile(credential: Credential) -> (Credential, Profile) {
+    let profile = match &credential {
+        Credential::OAuth { access, .. } => Profile::from_jwt(access),
+        _ => Profile::default(),
+    };
+
+    (credential, profile)
 }
 
 /// What `startOAuth` kept for `state`, taken so a sign-in finishes once.
@@ -245,12 +272,12 @@ fn invalid(message: &str) -> ApiError {
     ApiError::new(StatusCode::BAD_REQUEST, "invalid", message)
 }
 
-fn credentials_error(error: impl std::fmt::Display) -> ApiError {
+pub(super) fn credentials_error(error: impl std::fmt::Display) -> ApiError {
     ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "credentials", error.to_string())
 }
 
 /// A sign-in changes which models a provider offers (a ChatGPT one only what Codex takes), so the picker reloads.
-fn credentials_changed(engine: &Arc<Engine>, id: &str) {
+pub(super) fn credentials_changed(engine: &Arc<Engine>, id: &str) {
     if id == "openai" {
         engine.codex_credentials_changed();
     }

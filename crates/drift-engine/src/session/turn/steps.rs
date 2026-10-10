@@ -321,7 +321,14 @@ impl Engine {
             Err(llm::Error::Unauthenticated(words)) if matches!(plan.credential, Credential::OAuth { .. }) => words,
             opened => return opened,
         };
-        match self.renew(&plan.model_ref.provider, plan.credential.clone()).await {
+        match self
+            .renew(
+                &plan.model_ref.provider,
+                plan.account.as_deref(),
+                plan.credential.clone(),
+            )
+            .await
+        {
             Ok(fresh) => plan.credential = fresh,
             Err(error) => return Err(llm::Error::Unauthenticated(format!("{refused} ({error})"))),
         }

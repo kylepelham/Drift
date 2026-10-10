@@ -1,6 +1,8 @@
 //! Provider secrets in the OS keychain or an authenticated encrypted fallback.
 
-use std::collections::BTreeSet;
+mod accounts;
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 #[cfg(test)]
 use std::path::PathBuf;
@@ -10,6 +12,7 @@ use serde_json::Value;
 
 use super::Credential;
 pub use super::credential_file::FileError;
+pub use accounts::{Account, Profile};
 
 #[derive(Debug, thiserror::Error)]
 pub enum CredentialError {
@@ -38,6 +41,8 @@ pub struct Credentials {
     write_lock: Mutex<()>,
     /// Providers with a stored credential; keychains cannot enumerate, so we keep our own list.
     index: Mutex<BTreeSet<String>>,
+    /// Each provider's accounts in the order they are used, for providers signed in more than the old single way.
+    accounts: Mutex<BTreeMap<String, Vec<Account>>>,
     /// Providers that take no key: a local server that answered, a user's server with no key variable.
     keyless: Mutex<BTreeSet<String>>,
 }
@@ -65,20 +70,7 @@ impl Credentials {
             },
         };
 
-        let this = Self {
-            backend,
-            write_lock: Mutex::default(),
-            index: Mutex::default(),
-            keyless: Mutex::default(),
-        };
-
-        let index = this
-            .read(INDEX)
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default();
-        *this.index.lock().unwrap() = index;
-
-        this
+        Self::loaded(backend)
     }
 
     #[cfg(test)]
@@ -88,18 +80,29 @@ impl Credentials {
 
     #[cfg(test)]
     fn open_test_file(path: PathBuf) -> Self {
+        Self::loaded(Backend::File(path))
+    }
+
+    /// Reads the provider index and account lists the backend keeps.
+    fn loaded(backend: Backend) -> Self {
         let this = Self {
-            backend: Backend::File(path),
+            backend,
             write_lock: Mutex::default(),
             index: Mutex::default(),
+            accounts: Mutex::default(),
             keyless: Mutex::default(),
         };
-        *this.index.lock().unwrap() = this
-            .read(INDEX)
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default();
+
+        *this.index.lock().unwrap() = this.stored(INDEX);
+        *this.accounts.lock().unwrap() = this.stored(accounts::ACCOUNTS);
 
         this
+    }
+
+    fn stored<T: serde::de::DeserializeOwned + Default>(&self, key: &str) -> T {
+        self.read(key)
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default()
     }
 
     /// Marks a provider as taking no key (`on`), or as needing one again.
@@ -112,17 +115,30 @@ impl Credentials {
         }
     }
 
+    /// The credential of the provider's first account.
     pub fn get(&self, provider: &str) -> Option<Credential> {
-        self.read(provider).and_then(|json| serde_json::from_str(&json).ok())
+        let first = self.accounts(provider).into_iter().next()?;
+        self.account(&first.key)
     }
 
     /// A stored credential, else what a cloud route finds for itself, else the provider's environment
     /// variable as an API key, else, for a provider that takes none, a placeholder its server ignores.
     pub fn resolve(&self, provider: &str, env: &[String]) -> Option<Credential> {
-        if let Some(stored) = self.get(provider) {
-            return Some(stored);
+        self.resolve_account(provider, env).map(|(_, credential)| credential)
+    }
+
+    /// As `resolve`, with the key of the account the credential is stored under; none for one found elsewhere.
+    pub fn resolve_account(&self, provider: &str, env: &[String]) -> Option<(Option<String>, Credential)> {
+        if let Some(first) = self.accounts(provider).into_iter().next()
+            && let Some(stored) = self.account(&first.key)
+        {
+            return Some((Some(first.key), stored));
         }
 
+        self.unstored(provider, env).map(|credential| (None, credential))
+    }
+
+    fn unstored(&self, provider: &str, env: &[String]) -> Option<Credential> {
         // A cloud route's variables are keys to sign with or files to read, never an API key.
         if let Some(found) = super::ambient(provider) {
             return found.map(|source| Credential::Ambient { source });
@@ -143,45 +159,37 @@ impl Credentials {
         from_env.or_else(keyless).map(|key| Credential::ApiKey { key })
     }
 
+    /// Makes `credential` the provider's only one, replacing every account it had.
     pub fn set(&self, provider: &str, credential: &Credential) -> Result<(), CredentialError> {
         let _held = self.write_lock.lock().unwrap();
-        self.set_locked(provider, credential)
+        self.replace_all(provider, credential, Account::at(provider))
     }
 
-    fn set_locked(&self, provider: &str, credential: &Credential) -> Result<(), CredentialError> {
-        self.write(provider, &serde_json::to_string(credential).unwrap())?;
-
-        let mut index = self.index.lock().unwrap();
-        index.insert(provider.into());
-
-        self.write(INDEX, &serde_json::to_string(&*index).unwrap())
-    }
-
-    /// Writes only if the stored credential is still expected; a login or logout in between wins.
+    /// Writes only if the account still holds `expected`; a login or logout in between wins.
     pub fn replace_if(
         &self,
-        provider: &str,
+        key: &str,
         expected: &Credential,
         credential: &Credential,
     ) -> Result<bool, CredentialError> {
         let _held = self.write_lock.lock().unwrap();
-        if self.get(provider).as_ref() != Some(expected) {
+        if self.account(key).as_ref() != Some(expected) {
             return Ok(false);
         }
 
-        self.set_locked(provider, credential)?;
+        self.write(key, &serde_json::to_string(credential).unwrap())?;
 
         Ok(true)
     }
 
+    /// Signs the provider out of every account.
     pub fn remove(&self, provider: &str) -> Result<(), CredentialError> {
         let _held = self.write_lock.lock().unwrap();
-        self.delete(provider)?;
+        for account in self.accounts(provider) {
+            self.delete(&account.key)?;
+        }
 
-        let mut index = self.index.lock().unwrap();
-        index.remove(provider);
-
-        self.write(INDEX, &serde_json::to_string(&*index).unwrap())
+        self.save_accounts(provider, Vec::new())
     }
 
     /// A secret that is not a provider's (an MCP server's sign-in), kept out of the provider index.
@@ -477,10 +485,12 @@ mod keyring_tests {
             return;
         }
 
+        // The real keychain holds the user's own index and accounts, so only the probe's key is touched.
         let store = Credentials {
             backend: Backend::Keyring,
             write_lock: Mutex::default(),
             index: Mutex::default(),
+            accounts: Mutex::default(),
             keyless: Mutex::default(),
         };
         let key = format!("probe-{}", crate::random_hex(3));
@@ -491,10 +501,10 @@ mod keyring_tests {
             account: Some("acc".into()),
         };
 
-        store.set(&key, &long).unwrap();
-        assert_eq!(store.get(&key), Some(long));
-        store.remove(&key).unwrap();
-        assert!(store.get(&key).is_none());
+        store.write(&key, &serde_json::to_string(&long).unwrap()).unwrap();
+        assert_eq!(store.account(&key), Some(long));
+        store.delete(&key).unwrap();
+        assert!(store.account(&key).is_none());
         assert!(
             keyring::Entry::new(SERVICE, &format!("{key}#0"))
                 .unwrap()
@@ -502,7 +512,5 @@ mod keyring_tests {
                 .is_err(),
             "chunks are removed too"
         );
-
-        store.remove(INDEX).ok();
     }
 }

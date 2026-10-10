@@ -38,9 +38,27 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
             connected: providers.filter((p) => p.connected).map((p) => p.id),
             default: {},
         });
+        set("providerAccounts", Object.fromEntries(providers.map((p) => [p.id, p.accounts])));
 
         return true;
     }
+
+    /** Runs one account change and reloads the list; false when the engine refused it. */
+    async function changeAccounts(change: Promise<void>) {
+        const done = await change.then(() => true).catch(() => false);
+        await refreshProviders();
+
+        return done;
+    }
+
+    const reorderProviderAccounts = (id: string, order: string[]) =>
+        changeAccounts(requireClient().reorderProviderAccounts(id, order));
+
+    const renameProviderAccount = (id: string, account: string, label: string) =>
+        changeAccounts(requireClient().renameProviderAccount(id, account, label));
+
+    const removeProviderAccount = (id: string, account: string) =>
+        changeAccounts(requireClient().removeProviderAccount(id, account));
 
     async function setProviderKey(id: string, key: string): Promise<ProviderAuthResult> {
         await requireClient().setProviderKey(id, key);
@@ -113,5 +131,8 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         providerAuthMethods,
         providerAuthorize,
         providerCallback,
+        reorderProviderAccounts,
+        renameProviderAccount,
+        removeProviderAccount,
     };
 }

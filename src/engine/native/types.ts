@@ -339,6 +339,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers/{id}/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["reorderProviderAccounts"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/accounts/{account}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["removeProviderAccount"];
+        options?: never;
+        head?: never;
+        patch: operations["renameProviderAccount"];
+        trace?: never;
+    };
     "/providers/{id}/credentials": {
         parameters: {
             query?: never;
@@ -959,6 +991,14 @@ export interface components {
     schemas: {
         Aborted: {
             aborted: boolean;
+        };
+        AccountLabelBody: {
+            /** @description Empty clears the name. */
+            label: string;
+        };
+        AccountOrderBody: {
+            /** @description Every account id, first used first. */
+            order: string[];
         };
         Agent: {
             /** @description Front matter `background: true|false`: how a `task` for this agent runs when the call does not say. */
@@ -1703,8 +1743,18 @@ export interface components {
          * @enum {string}
          */
         PromptFamily: "codex" | "claude" | "gemini" | "default";
+        /** @description One stored credential of a provider, in the order the engine uses them. */
+        ProviderAccount: {
+            id: string;
+            /** @description What the user named it, else the email it signed in with. */
+            label?: string | null;
+            /** @description A subscription sign-in, which takes turns with the provider's others; else an API key. */
+            signedIn: boolean;
+        };
         /** @description A catalog provider plus whether the engine can currently talk to it. */
         ProviderStatus: {
+            /** @description Stored credentials in the order they are used; sign-ins take turns as each reaches its limit. */
+            accounts: components["schemas"]["ProviderAccount"][];
             connected: boolean;
             /** @description `keychain`, `env` or absent. */
             credential?: string | null;
@@ -2866,6 +2916,91 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProviderStatus"][];
                 };
+            };
+        };
+    };
+    reorderProviderAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountOrderBody"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    removeProviderAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    renameProviderAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountLabelBody"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

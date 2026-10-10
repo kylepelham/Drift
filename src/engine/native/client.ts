@@ -164,6 +164,12 @@ export function createClient(target: Target) {
             request<Json<"startOAuth", 200>>("POST", `/providers/${id}/oauth`, { mode }),
         finishOAuth: (id: string, input: string, state?: string) =>
             request<void>("POST", `/providers/${id}/oauth/callback`, { input, state }),
+        reorderProviderAccounts: (id: string, order: string[]) =>
+            request<void>("PUT", `/providers/${id}/accounts`, { order }),
+        renameProviderAccount: (id: string, account: string, label: string) =>
+            request<void>("PATCH", `/providers/${id}/accounts/${encodeURIComponent(account)}`, { label }),
+        removeProviderAccount: (id: string, account: string) =>
+            request<void>("DELETE", `/providers/${id}/accounts/${encodeURIComponent(account)}`),
         permissions: () => request<Json<"listPermissions", 200>>("GET", "/permissions"),
         replyPermission: (id: string, body: ReplyBody) => request<void>("POST", `/permissions/${id}/reply`, body),
         permissionRules: () => request<Json<"listPermissionRules", 200>>("GET", "/permission-rules"),
