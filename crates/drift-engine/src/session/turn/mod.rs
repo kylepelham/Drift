@@ -340,6 +340,7 @@ struct StepWrites {
 
 struct Streamed {
     usage: Usage,
+    generation_ms: Option<u64>,
     stop: StopReason,
     calls: Vec<PartRow>,
     /// Calls already started while the reply streamed.

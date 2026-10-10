@@ -148,7 +148,7 @@ test("timeline pitch keeps turn, compaction, and error breaks without trailing s
     expect(timelinePitch(regular)).toBe("none");
 });
 
-test("native message rates preserve the reasoning fallback when parts carry no generation timestamps", async () => {
+test("message rates use measured generation time instead of wall time or reasoning timestamps", async () => {
     const { generationMs, tokensPerSecond } = await import("../src/ui/message");
     const entry = {
         info: {
@@ -157,6 +157,7 @@ test("native message rates preserve the reasoning fallback when parts carry no g
             role: "assistant",
             createdAt: 0,
             finishedAt: 600_000,
+            generationMs: 12_000,
             usage: { input: 10, output: 600, cacheRead: 0, cacheWrite: 0 },
             cost: 0,
             modelID: "m",
@@ -192,8 +193,8 @@ test("native message rates preserve the reasoning fallback when parts carry no g
             },
         ],
     } as never;
-    expect(generationMs(entry)).toBe(600_000);
-    expect(tokensPerSecond(entry)).toBe("1.0");
+    expect(generationMs(entry)).toBe(12_000);
+    expect(tokensPerSecond(entry)).toBe("50.0");
 
     const openEnded = {
         info: {
@@ -206,9 +207,34 @@ test("native message rates preserve the reasoning fallback when parts carry no g
         },
         parts: [{ id: "p1", messageID: "a2", sessionID: "s1", type: "text", text: "t", time: { start: 10_000 } }],
     } as never;
-    // An unterminated part falls back to the message completion time.
+    // No reliable sample means no rate, rather than guessing from wall-clock timestamps.
     expect(generationMs(openEnded)).toBe(0);
-    expect(tokensPerSecond(openEnded)).toBe("5.0");
+    expect(tokensPerSecond(openEnded)).toBeNull();
+});
+
+test("token rates do not depend on epoch dates, tool duration or duplicate reasoning parts", async () => {
+    const { tokensPerSecond } = await import("../src/ui/message");
+    const entry = {
+        info: {
+            id: "reply",
+            sessionId: "session",
+            role: "assistant",
+            status: "done",
+            createdAt: 1_791_507_000_000,
+            finishedAt: 1_791_507_600_000,
+            generationMs: 2_000,
+            usage: { output: 100 },
+        },
+        parts: [
+            { type: "reasoning", text: "think" },
+            { type: "reasoning", text: "more thinking" },
+            { type: "tool_call", startedAt: 1, finishedAt: 600_000 },
+        ],
+    };
+    expect(tokensPerSecond(entry as never)).toBe("50.0");
+    for (const generationMs of [undefined, 0, -1, NaN, Infinity]) {
+        expect(tokensPerSecond({ ...entry, info: { ...entry.info, generationMs } } as never)).toBeNull();
+    }
 });
 
 test("the code view paints its background on the scroller, not on the inner block", async () => {

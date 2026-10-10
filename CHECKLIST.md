@@ -55,6 +55,7 @@ change the plan there when a decision changes.
 - [x] Async-worker conformance: engine-level gates (concurrent progress, out-of-order results, bounded slots, Stop while idle, single-worker stop, attributed asks, restart) and HTTP/WS conformance against the fake provider (progress events, parent carries on, single delivery, cursor replay, idle Stop wakes nothing)
 - [x] UI task views: engine store `tasks` from `GET /sessions/{id}/tasks` and `task.updated`; transcript task rows follow the worker, not the launch receipt; Background tasks dock with state, current tool, Stop and open
 - [x] Crowded task dock: live and undelivered tasks first, delivered history collapsed, independently bounded scrolling
+- [x] Reply throughput uses persisted monotonic generation timing, excluding tool and request waits; no fabricated rate for old replies
 - Agent-loop review at b93cbc9 (`docs/research/agent-loop-review-b93cbc9.md`):
   - [x] Undo/redo keep a path whose change chain another edit broke
   - [x] `apply_patch`: read-before-write for every existing target and move destination, an ask per path, whole patch checked before any write, rollback on a failed write

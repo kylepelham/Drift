@@ -33,6 +33,7 @@ fn used(input: u64) -> Vec<MessageWithParts> {
             error: None,
             created_at: 0,
             finished_at: None,
+            generation_ms: None,
             summary: false,
             ending: None,
         },

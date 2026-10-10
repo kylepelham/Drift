@@ -164,6 +164,7 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
             data["time"]["completed"].as_i64()
         },
         summary: data["summary"] == true,
+        generation_ms: None,
         ending,
     }
 }

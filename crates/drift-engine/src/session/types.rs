@@ -127,6 +127,9 @@ pub struct Message {
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<i64>,
+    /// Monotonic time from the first generated block to its last content event, excluding request and tool waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_ms: Option<u64>,
     /// A compaction summary: from here on the model sees this instead of the history before it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub summary: bool,

@@ -181,8 +181,8 @@ fn insert_session(conn: &Connection, session: &Session, archived_at: Option<i64>
 
 fn insert_message(conn: &Connection, message: &Message) -> rusqlite::Result<()> {
     conn.prepare_cached(
-        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
     )?
     .execute(params![
         message.id,
@@ -198,7 +198,8 @@ fn insert_message(conn: &Connection, message: &Message) -> rusqlite::Result<()> 
         message.finished_at,
         message.summary,
         message.agent,
-        message.ending.map(crate::session::types::Ending::as_str)
+        message.ending.map(crate::session::types::Ending::as_str),
+        message.generation_ms
     ])?;
 
     Ok(())
@@ -245,6 +246,7 @@ mod tests {
             error: None,
             created_at: 10,
             finished_at: Some(10),
+            generation_ms: None,
             summary: false,
             ending: None,
         };

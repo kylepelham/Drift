@@ -167,8 +167,10 @@ fn assistant_messages_stream_then_save() {
         ..Usage::default()
     };
     message.finished_at = Some(1);
+    message.generation_ms = Some(2_500);
     store.save_message(&message).unwrap();
     assert_eq!(store.message(&message.id).unwrap().unwrap(), message);
+    assert_eq!(serde_json::to_value(&message).unwrap()["generationMs"], 2_500);
 
     for ending in [
         crate::session::types::Ending::Length,
@@ -193,6 +195,24 @@ fn streaming_messages_are_abandoned_on_open() {
 
     assert_eq!(store.abandon_streaming_messages().unwrap(), 1);
     assert_eq!(store.abandon_streaming_messages().unwrap(), 0);
+}
+
+#[test]
+fn measured_generation_survives_forks_and_old_replies_stay_unmeasured() {
+    let store = store();
+    let session = store.create_session(new("w")).unwrap();
+    let old = store.create_message(&session.id, Role::Assistant, None).unwrap();
+    assert_eq!(old.generation_ms, None);
+    let mut reply = store.create_message(&session.id, Role::Assistant, None).unwrap();
+    reply.status = MessageStatus::Done;
+    reply.generation_ms = Some(3_000);
+    store.save_message(&reply).unwrap();
+    let fork = store
+        .fork_session(&session.id, new("w"), &reply.id, None)
+        .unwrap()
+        .unwrap();
+    let copied = store.transcript(&fork.id).unwrap();
+    assert_eq!(copied.last().unwrap().info.generation_ms, Some(3_000));
 }
 
 #[test]

@@ -407,24 +407,16 @@ function formatDuration(ms: number) {
     return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
-/** Time spent generating text or reasoning; wall time would count tool runs and subagent waits. */
+/** Measured by the engine's response clock; old replies have no reliable generation duration. */
 export function generationMs(entry: MessageEntry) {
-    const info = entry.info;
-    let total = 0;
-    for (const part of entry.parts) {
-        if (part.type !== "text" && part.type !== "reasoning") continue;
-        // Native reasoning has no timestamps; its previous display used a zero start.
-        if (part.type === "reasoning" && info.finishedAt) total += Math.max(0, info.finishedAt);
-    }
-
-    return total;
+    return entry.info.generationMs ?? 0;
 }
 
 export function tokensPerSecond(entry: MessageEntry) {
     const info = entry.info;
-    const elapsed = generationMs(entry) || (info.finishedAt ?? 0) - info.createdAt;
+    const elapsed = generationMs(entry);
     const tokens = info.usage.output;
-    if (elapsed <= 0 || tokens <= 0) return null;
+    if (!Number.isFinite(elapsed) || !Number.isFinite(tokens) || elapsed <= 0 || tokens <= 0) return null;
 
     return (tokens / (elapsed / 1000)).toFixed(1);
 }

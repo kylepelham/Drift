@@ -1,6 +1,36 @@
 use super::*;
 
 #[tokio::test]
+async fn a_response_records_its_generation_duration_with_its_usage() {
+    let h = harness().await;
+    h.provider.push_paused(
+        vec![Chunk::TextStart, Chunk::TextDelta("first".into())],
+        Duration::from_millis(30),
+        vec![
+            Chunk::TextDelta(" last".into()),
+            Chunk::BlockStop,
+            Chunk::Usage(Usage {
+                output: 20,
+                ..Usage::default()
+            }),
+            Chunk::Stop(StopReason::EndTurn),
+        ],
+    );
+    h.engine.submit(&h.session.id, prompt("answer")).await.await_ok();
+    until_idle(&h).await;
+    let reply = transcript(&h).pop().unwrap().info;
+    let measured = reply
+        .generation_ms
+        .expect("the completed response carries its generation duration");
+    assert!(measured >= 30);
+    assert_eq!(reply.usage.output, 20);
+    assert_eq!(
+        h.engine.store.message(&reply.id).unwrap().unwrap().generation_ms,
+        Some(measured)
+    );
+}
+
+#[tokio::test]
 async fn a_read_starts_while_the_reply_still_streams() {
     let h = harness().await;
     let file = h._dir.join("ws/a.txt");

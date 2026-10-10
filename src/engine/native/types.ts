@@ -1444,6 +1444,11 @@ export interface components {
             error?: string | null;
             /** Format: int64 */
             finishedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Monotonic time from the first generated block to its last content event, excluding request and tool waits.
+             */
+            generationMs?: number | null;
             id: string;
             model?: components["schemas"]["ModelRef"] | null;
             role: components["schemas"]["Role"];

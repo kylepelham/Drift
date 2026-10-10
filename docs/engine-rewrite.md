@@ -1230,6 +1230,14 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
   same `daybreak_blue` selection and receiving the same `standard` response echo as Drift's
   direct HTTP and WebSocket probes. No extra Daybreak proof header appeared. Request selection
   is verified; the backend echo does not establish that reduced-refusal treatment was applied.
+- Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
+  completed reply. The engine measures each response with a monotonic clock, from its first
+  generated text, reasoning or tool-call block to its last content event. Initial request waits,
+  trailing usage and stop frames, retry backoff, tool runs and subagent waits do not extend it.
+  The footer divides that reply's reported output tokens by the measured duration, not its wall
+  time or a reasoning part's absolute timestamp. Old replies and zero-duration samples show no
+  rate. This is observed stream throughput, not a provider-side benchmark; buffered delivery can
+  still distort it.
 - One-shot requests (titles, summaries) on a reasoning model run at its weakest level with
   4096 tokens of thinking room on top of the answer's own (a budget level adds its budget),
   within the model's output limit; a budget that cannot fit is dropped.

@@ -222,6 +222,7 @@ impl Engine {
             Err(error) => return self.failed_step(&mut message, error),
         };
         message.usage = streamed.usage;
+        message.generation_ms = streamed.generation_ms;
         message.cost = cost(&plan.model, streamed.usage);
         message.status = MessageStatus::Done;
 
@@ -385,6 +386,7 @@ impl Engine {
 
         Ok(Streamed {
             usage: assembler.usage,
+            generation_ms: assembler.generation_ms(),
             stop,
             calls: assembler.calls,
             early,

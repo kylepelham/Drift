@@ -15,6 +15,7 @@ pub(crate) struct Assembler<'a> {
     pub usage: Usage,
     pub stop: Option<StopReason>,
     pub calls: Vec<PartRow>,
+    generation: super::generation::Generation,
 }
 
 /// How often a streaming part is written to disk as it stands, so a crash loses little of it.
@@ -39,10 +40,12 @@ impl<'a> Assembler<'a> {
             usage: Usage::default(),
             stop: None,
             calls: Vec::new(),
+            generation: Default::default(),
         }
     }
 
     pub(crate) fn apply(&mut self, chunk: Chunk) -> rusqlite::Result<()> {
+        self.generation.observe(&chunk);
         match chunk {
             Chunk::TextStart => self.start(Part::Text { text: String::new() }),
             Chunk::ReasoningStart => self.start(Part::Reasoning {
@@ -97,6 +100,10 @@ impl<'a> Assembler<'a> {
                 Ok(())
             }
         }
+    }
+
+    pub(crate) fn generation_ms(&self) -> Option<u64> {
+        self.generation.milliseconds()
     }
 
     fn start(&mut self, part: Part) -> rusqlite::Result<()> {

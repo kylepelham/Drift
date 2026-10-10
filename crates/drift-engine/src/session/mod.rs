@@ -10,6 +10,7 @@ pub mod compaction;
 mod convert;
 pub mod drive;
 mod early;
+mod generation;
 mod oneshot;
 pub mod prompt;
 pub mod revert;
