@@ -150,6 +150,11 @@ impl Credentials {
         self.unstored(provider, env).map(|credential| (None, credential))
     }
 
+    /// A credential the provider has without one stored: a cloud route's own, an environment key, or none needed.
+    pub fn found_elsewhere(&self, provider: &str, env: &[String]) -> bool {
+        self.unstored(provider, env).is_some()
+    }
+
     fn unstored(&self, provider: &str, env: &[String]) -> Option<Credential> {
         // A cloud route's variables are keys to sign with or files to read, never an API key.
         if let Some(found) = super::ambient(provider) {
@@ -219,6 +224,7 @@ impl Credentials {
         self.delete(key)
     }
 
+    #[cfg(test)]
     pub fn providers(&self) -> Vec<String> {
         self.index.lock().unwrap().iter().cloned().collect()
     }

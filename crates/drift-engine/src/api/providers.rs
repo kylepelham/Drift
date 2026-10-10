@@ -40,25 +40,16 @@ pub(super) struct ApiKeyBody {
 #[utoipa::path(get, path = "/providers", operation_id = "listProviders", responses((status = 200, body = Vec<ProviderStatus>)))]
 pub(super) async fn list(State(engine): State<Arc<Engine>>) -> Json<Vec<ProviderStatus>> {
     let catalog = engine.catalog_view();
-    let stored = engine.credentials.providers();
-    let statuses = catalog
-        .providers
-        .values()
-        .map(|info| status(&engine, info, &stored))
-        .collect();
+    let statuses = catalog.providers.values().map(|info| status(&engine, info)).collect();
 
     Json(statuses)
 }
 
-fn status(engine: &Engine, info: &ProviderInfo, stored: &[String]) -> ProviderStatus {
-    let accounts = if stored.iter().any(|id| id == &info.id) {
-        engine.credentials.accounts(&info.id)
-    } else {
-        Vec::new()
-    };
+fn status(engine: &Engine, info: &ProviderInfo) -> ProviderStatus {
+    let accounts = engine.credentials.accounts(&info.id);
     let credential = if !accounts.is_empty() {
         Some("keychain".to_string())
-    } else if engine.credentials.resolve(&info.id, &info.env).is_some() {
+    } else if engine.credentials.found_elsewhere(&info.id, &info.env) {
         Some("env".to_string())
     } else {
         None
