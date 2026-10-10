@@ -700,6 +700,8 @@ export const drift = {
     "drift.provider.accounts.failed": "Nije moguće ažurirati {{provider}} račune. Pokušajte ponovo.",
     "drift.provider.accounts.add": "Dodaj još jedan račun",
     "drift.provider.accounts.spent": "Ograničenje dostignuto. {{reset}}",
+    "drift.provider.accounts.switched": "Jedan račun je dostigao ograničenje korištenja. Nastavlja se na {{account}}.",
+    "drift.provider.accounts.returned": "Ponovo na {{account}} jer je njegovo ograničenje korištenja resetovano.",
     "drift.question.custom": "Unesite vlastiti odgovor",
     "drift.question.answered": "Odgovoreno",
     "drift.question.unanswered": "Nema odgovora",

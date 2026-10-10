@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 37] = [
+pub(super) const MIGRATIONS: [&str; 38] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -185,6 +185,7 @@ pub(super) const MIGRATIONS: [&str; 37] = [
         PRIMARY KEY(server, workspace_id)
     ) STRICT, WITHOUT ROWID;",
     "ALTER TABLE message ADD COLUMN generation_ms INTEGER CHECK(generation_ms >= 0);",
+    "ALTER TABLE message ADD COLUMN account TEXT;",
 ];
 
 #[cfg(test)]

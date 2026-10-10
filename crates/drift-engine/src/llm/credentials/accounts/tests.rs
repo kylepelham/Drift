@@ -102,7 +102,10 @@ fn a_credential_saved_before_accounts_is_the_first_account_and_is_recognised() {
         .unwrap();
 
     assert_eq!(keys(&store, "xai"), ["xai"]);
-    assert_eq!(store.resolve_account("xai", &[]).unwrap().0.as_deref(), Some("xai"));
+    assert_eq!(
+        store.resolve_account("xai", &[], |_| true).unwrap().0.as_deref(),
+        Some("xai")
+    );
 
     let profile = Profile::from_jwt(match &token("ann") {
         Credential::OAuth { access, .. } => access,
@@ -146,6 +149,25 @@ fn accounts_reorder_rename_and_sign_out_one_at_a_time() {
     assert!(store.accounts("anthropic").is_empty());
     assert!(store.account(&ann).is_none());
     assert!(store.providers().is_empty());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn the_first_usable_account_is_resolved_else_the_first() {
+    let (store, path) = store();
+    let ann = store.add_account("openai", &signed_in("a"), &person("ann")).unwrap();
+    let bob = store.add_account("openai", &signed_in("b"), &person("bob")).unwrap();
+
+    let resolved = |usable: &dyn Fn(&str) -> bool| store.resolve_account("openai", &[], usable).unwrap();
+
+    assert_eq!(resolved(&|_| true), (Some(ann.clone()), signed_in("a")));
+    assert_eq!(resolved(&|key| key != ann), (Some(bob), signed_in("b")));
+    assert_eq!(
+        resolved(&|_| false),
+        (Some(ann), signed_in("a")),
+        "every account spent: the first says why"
+    );
 
     std::fs::remove_file(path).ok();
 }

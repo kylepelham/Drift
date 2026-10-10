@@ -4,27 +4,31 @@ use crate::llm::catalog::Catalog;
 use crate::llm::{Block, ChatMessage, Role as LlmRole};
 use crate::session::types::{MessageStatus, MessageWithParts, ModelRef, Part, Role, ToolStatus};
 
-/// The model a request's history is for: reasoning signatures validate only with the model that made them.
+/// The model a request's history is for: reasoning signatures validate only with the model and account that made them.
 pub(crate) trait Target {
-    fn wrote(&self, model: &ModelRef) -> bool;
+    fn wrote(&self, model: &ModelRef, account: Option<&str>) -> bool;
 }
 
-/// This entry or any that runs the same model, a mode and its base (`Catalog::same_model`).
+/// This entry or any that runs the same model, a mode and its base (`Catalog::same_model`), sent by the same account.
 pub(crate) struct OnCatalog<'a> {
     pub model: &'a ModelRef,
     pub catalog: &'a Catalog,
+    pub account: Option<&'a str>,
 }
 
 /// Exactly this entry.
 impl Target for ModelRef {
-    fn wrote(&self, model: &ModelRef) -> bool {
+    fn wrote(&self, model: &ModelRef, _account: Option<&str>) -> bool {
         self == model
     }
 }
 
 impl Target for OnCatalog<'_> {
-    fn wrote(&self, model: &ModelRef) -> bool {
-        self.catalog.same_model(self.model, model)
+    fn wrote(&self, model: &ModelRef, account: Option<&str>) -> bool {
+        // A reply from before accounts were recorded came from the provider's only account, stored under its name.
+        let signer = |model: &ModelRef, account: Option<&str>| account.unwrap_or(&model.provider).to_string();
+
+        self.catalog.same_model(self.model, model) && signer(model, account) == signer(self.model, self.account)
     }
 }
 
@@ -45,7 +49,8 @@ pub(crate) fn append<'a>(
         match message.info.role {
             Role::User => push(out, LlmRole::User, user_blocks(message)),
             Role::Assistant => {
-                let same_model = message.info.model.as_ref().is_some_and(|model| target.wrote(model));
+                let account = message.info.account.as_deref();
+                let same_model = message.info.model.as_ref().is_some_and(|model| target.wrote(model, account));
                 let mut calls = assistant_blocks(message, same_model);
                 let mut results = result_blocks(message);
                 unique_ids(&mut used, &mut calls, &mut results);

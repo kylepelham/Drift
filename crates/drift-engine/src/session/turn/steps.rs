@@ -88,6 +88,7 @@ impl Engine {
                 self.pause(plan, reason.to_string());
                 break;
             }
+            self.follow_account(plan).await;
 
             let limits = plan.config.limits_for(&plan.session.agent);
             if wrapping.is_none() && steps + 1 >= limits.steps {
@@ -137,6 +138,8 @@ impl Engine {
                     }
                 }
                 Step::Retry(_) => break,
+                // The next pass sends the same request again from the next account, at once.
+                Step::Switch => self.discard_refused_reply(&plan.session.id, reply),
                 refused @ (Step::Overflow | Step::UnreadableImage) => {
                     let first = recovered.first(&refused);
                     if !first || !self.recover(&plan.session.id, &refused, reply, abort).await {
@@ -219,10 +222,15 @@ impl Engine {
     ) -> Step {
         let streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
+            Err(StreamError::Provider(error)) if self.leave_spent_account(plan, &error) => {
+                self.failed_step(&mut message, StreamError::Provider(error));
+                return Step::Switch;
+            }
             Err(error) => return self.failed_step(&mut message, error),
         };
         message.usage = streamed.usage;
         message.generation_ms = streamed.generation_ms;
+        message.account = plan.account.clone();
         message.cost = cost(&plan.model, streamed.usage);
         message.status = MessageStatus::Done;
 

@@ -515,6 +515,7 @@ impl Engine {
         let target = convert::OnCatalog {
             model: &input.action.resolved.model_ref,
             catalog: &catalog,
+            account: input.action.resolved.account.as_deref(),
         };
         convert::append(&mut messages, input.head[from..].iter().copied(), &target);
 

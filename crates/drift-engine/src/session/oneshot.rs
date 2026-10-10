@@ -187,7 +187,7 @@ impl Engine {
 
         let (account, credential) = self
             .credentials
-            .resolve_account(&model_ref.provider, &env)
+            .resolve_account(&model_ref.provider, &env, |key| self.usable_account(key))
             .ok_or(TurnError::NoCredentials)?;
         refuse_signin_elsewhere(&model_ref.provider, &credential, api.as_deref())?;
         let credential = self

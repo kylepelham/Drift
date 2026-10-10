@@ -165,6 +165,7 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
         },
         summary: data["summary"] == true,
         generation_ms: None,
+        account: None,
         ending,
     }
 }

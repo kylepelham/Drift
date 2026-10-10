@@ -1318,6 +1318,17 @@ export interface components {
             /** @enum {string} */
             type: "provider.limits";
         } | {
+            from: string;
+            /** @description The new account's name, if it has one; else `position`, counted from 1, names it. */
+            label?: string | null;
+            limited: boolean;
+            position: number;
+            provider: string;
+            sessionId: string;
+            to: string;
+            /** @enum {string} */
+            type: "provider.switched";
+        } | {
             server: components["schemas"]["ServerStatus"];
             /** @enum {string} */
             type: "mcp.updated";
@@ -1471,6 +1482,8 @@ export interface components {
             language?: string | null;
         };
         Message: {
+            /** @description The stored account that sent the request, whose reasoning signatures only it can send back. */
+            account?: string | null;
             /** @description The agent the session ran as when this was written. */
             agent?: string | null;
             /** Format: double */

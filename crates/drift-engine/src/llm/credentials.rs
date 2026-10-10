@@ -124,15 +124,27 @@ impl Credentials {
     /// A stored credential, else what a cloud route finds for itself, else the provider's environment
     /// variable as an API key, else, for a provider that takes none, a placeholder its server ignores.
     pub fn resolve(&self, provider: &str, env: &[String]) -> Option<Credential> {
-        self.resolve_account(provider, env).map(|(_, credential)| credential)
+        self.resolve_account(provider, env, |_| true)
+            .map(|(_, credential)| credential)
     }
 
     /// As `resolve`, with the key of the account the credential is stored under; none for one found elsewhere.
-    pub fn resolve_account(&self, provider: &str, env: &[String]) -> Option<(Option<String>, Credential)> {
-        if let Some(first) = self.accounts(provider).into_iter().next()
-            && let Some(stored) = self.account(&first.key)
+    /// The first account `usable` accepts is taken, else the first, so a refusal still says why.
+    pub fn resolve_account(
+        &self,
+        provider: &str,
+        env: &[String],
+        usable: impl Fn(&str) -> bool,
+    ) -> Option<(Option<String>, Credential)> {
+        let accounts = self.accounts(provider);
+        let preferred = accounts
+            .iter()
+            .find(|account| usable(&account.key))
+            .or(accounts.first());
+        if let Some(account) = preferred
+            && let Some(stored) = self.account(&account.key)
         {
-            return Some((Some(first.key), stored));
+            return Some((Some(account.key.clone()), stored));
         }
 
         self.unstored(provider, env).map(|credential| (None, credential))

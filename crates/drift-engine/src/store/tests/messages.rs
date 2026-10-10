@@ -216,6 +216,26 @@ fn measured_generation_survives_forks_and_old_replies_stay_unmeasured() {
 }
 
 #[test]
+fn the_account_that_sent_a_reply_is_kept_and_copied_into_forks() {
+    let store = store();
+    let session = store.create_session(new("w")).unwrap();
+    let mut reply = store.create_message(&session.id, Role::Assistant, None).unwrap();
+    assert_eq!(reply.account, None);
+
+    reply.status = MessageStatus::Done;
+    reply.account = Some("openai~a1b2c3".into());
+    store.save_message(&reply).unwrap();
+    assert_eq!(store.message(&reply.id).unwrap().unwrap().account, reply.account);
+
+    let fork = store
+        .fork_session(&session.id, new("w"), &reply.id, None)
+        .unwrap()
+        .unwrap();
+    let copied = store.transcript(&fork.id).unwrap();
+    assert_eq!(copied.last().unwrap().info.account, reply.account);
+}
+
+#[test]
 fn parts_round_trip_through_json() {
     let store = store();
     let session = store.create_session(new("w")).unwrap();

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 #[path = "tests/messages.rs"]
 mod tests;
 
-const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms";
+const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account";
 
 pub(super) struct NewMessage<'a> {
     session_id: &'a str,
@@ -250,6 +250,7 @@ fn map_message(row: &Row) -> rusqlite::Result<Message> {
         created_at: row.get(9)?,
         finished_at: row.get(10)?,
         generation_ms: row.get(14)?,
+        account: row.get(15)?,
         summary: row.get(11)?,
         ending: row
             .get::<_, Option<String>>(13)?
@@ -322,9 +323,9 @@ fn parse_status(status: &str) -> MessageStatus {
 }
 
 fn save_message_in(connection: &Connection, message: &Message) -> rusqlite::Result<()> {
-    connection.prepare_cached("UPDATE message SET status = ?2, usage_json = ?3, cost = ?4, error = ?5, finished_at = ?6, ending = ?7, generation_ms = ?8 WHERE id = ?1")?
+    connection.prepare_cached("UPDATE message SET status = ?2, usage_json = ?3, cost = ?4, error = ?5, finished_at = ?6, ending = ?7, generation_ms = ?8, account = ?9 WHERE id = ?1")?
         .execute(params![message.id, status_str(message.status), serde_json::to_string(&message.usage).unwrap(),
-            message.cost, message.error, message.finished_at, message.ending.map(crate::session::types::Ending::as_str), message.generation_ms])?;
+            message.cost, message.error, message.finished_at, message.ending.map(crate::session::types::Ending::as_str), message.generation_ms, message.account])?;
     Ok(())
 }
 
@@ -361,6 +362,7 @@ pub(super) fn insert_message(connection: &Connection, new: NewMessage<'_>) -> ru
         created_at: id::now_ms(),
         finished_at: None,
         generation_ms: None,
+        account: None,
         summary,
         ending: None,
     };

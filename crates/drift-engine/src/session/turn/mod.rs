@@ -252,6 +252,8 @@ enum Step {
     Continue,
     /// A failure worth trying again.
     Retry(Retry),
+    /// The account's usage is spent and another of the provider's can take the request now.
+    Switch,
     /// The request no longer fit the model's context.
     Overflow,
     /// The provider could not read an image the request carried.

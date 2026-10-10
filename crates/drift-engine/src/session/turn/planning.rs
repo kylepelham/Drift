@@ -148,7 +148,7 @@ impl Engine {
             .unwrap_or_default();
         let (account, stored) = self
             .credentials
-            .resolve_account(&provider, &environment)
+            .resolve_account(&provider, &environment, |key| self.usable_account(key))
             .ok_or(TurnError::NoCredentials)?;
         oneshot::refuse_signin_elsewhere(&provider, &stored, api.as_deref())?;
 

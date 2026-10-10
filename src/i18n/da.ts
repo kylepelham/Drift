@@ -701,6 +701,8 @@ export const drift = {
     "drift.provider.accounts.failed": "Kunne ikke opdatere {{provider}}-konti. Prøv igen.",
     "drift.provider.accounts.add": "Tilføj en konto mere",
     "drift.provider.accounts.spent": "Grænsen er nået. {{reset}}",
+    "drift.provider.accounts.switched": "En konto nåede sin forbrugsgrænse. Fortsætter på {{account}}.",
+    "drift.provider.accounts.returned": "Tilbage på {{account}}, nu hvor forbrugsgrænsen er nulstillet.",
     "drift.question.custom": "Skriv dit eget svar",
     "drift.question.answered": "Besvaret",
     "drift.question.unanswered": "Intet svar",

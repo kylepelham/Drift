@@ -1,9 +1,13 @@
 import { applyProviderCatalog } from "../state/provider-cache";
 import { errorMessage } from "./actions-context";
+import { t } from "../state/i18n";
 
 import type { ProviderAuthMethod } from "./provider-auth";
 import type { ActionContext } from "./actions-context";
 import type { ProviderAuthResult } from "./actions";
+import type { components } from "./native/types";
+
+type Event = components["schemas"]["Event"];
 
 /** Sign-in methods per provider, in the order the settings page lists them. */
 const authMethods: Record<
@@ -59,6 +63,25 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
 
     const removeProviderAccount = (id: string, account: string) =>
         changeAccounts(requireClient().removeProviderAccount(id, account));
+
+    /** Keeps the usage an account reports, and tells the user when a turn moved to another account. */
+    function applyProviderEvent(event: Event) {
+        if (event.type === "provider.limits" && state.providerAccounts[event.provider])
+            set("providerAccounts", event.provider, (account) => account.id === event.account, "limits", event.limits);
+        if (event.type !== "provider.switched") return;
+
+        const provider = state.providers.find((entry) => entry.id === event.provider)?.name ?? event.provider;
+        const account = event.label ?? t("drift.provider.accounts.unnamed", { number: event.position });
+        notice({
+            title: provider,
+            message: t(event.limited ? "drift.provider.accounts.switched" : "drift.provider.accounts.returned", {
+                account,
+                provider,
+            }),
+            variant: "info",
+            duration: 8000,
+        });
+    }
 
     async function setProviderKey(id: string, key: string): Promise<ProviderAuthResult> {
         await requireClient().setProviderKey(id, key);
@@ -134,5 +157,6 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         reorderProviderAccounts,
         renameProviderAccount,
         removeProviderAccount,
+        applyProviderEvent,
     };
 }

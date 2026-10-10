@@ -35,6 +35,7 @@ fn message_with(role: Role, status: MessageStatus, parts: Vec<Part>) -> MessageW
             created_at: 0,
             finished_at: None,
             generation_ms: None,
+            account: None,
             summary: false,
             ending: None,
         },

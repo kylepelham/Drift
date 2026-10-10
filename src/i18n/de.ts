@@ -674,6 +674,8 @@ export const drift = {
     "drift.provider.accounts.failed": "Die {{provider}}-Konten konnten nicht aktualisiert werden. Versuche es erneut.",
     "drift.provider.accounts.add": "Weiteres Konto hinzufügen",
     "drift.provider.accounts.spent": "Limit erreicht. {{reset}}",
+    "drift.provider.accounts.switched": "Ein Konto hat sein Nutzungslimit erreicht. Weiter mit {{account}}.",
+    "drift.provider.accounts.returned": "Wieder auf {{account}}, da sein Nutzungslimit zurückgesetzt wurde.",
     "drift.question.custom": "Eigene Antwort eingeben",
     "drift.question.answered": "Beantwortet",
     "drift.question.unanswered": "Keine Antwort",

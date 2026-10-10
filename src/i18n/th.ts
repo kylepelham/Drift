@@ -690,6 +690,8 @@ export const drift = {
     "drift.provider.accounts.failed": "ไม่สามารถอัปเดตบัญชี {{provider}} ได้ ลองอีกครั้ง",
     "drift.provider.accounts.add": "เพิ่มบัญชีอื่น",
     "drift.provider.accounts.spent": "ถึงขีดจำกัดแล้ว {{reset}}",
+    "drift.provider.accounts.switched": "บัญชีหนึ่งถึงขีดจำกัดการใช้งานแล้ว ดำเนินการต่อด้วย {{account}}",
+    "drift.provider.accounts.returned": "กลับมาใช้ {{account}} เนื่องจากขีดจำกัดการใช้งานรีเซ็ตแล้ว",
     "drift.question.custom": "พิมพ์คำตอบของคุณเอง",
     "drift.question.answered": "ตอบแล้ว",
     "drift.question.unanswered": "ไม่มีคำตอบ",

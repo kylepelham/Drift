@@ -80,6 +80,20 @@ pub enum Event {
         account: String,
         limits: crate::llm::limits::Limits,
     },
+    /// A turn moved to another of the provider's accounts: the one it used reached its usage limit
+    /// (`limited`), or one earlier in the order can be used again.
+    #[serde(rename = "provider.switched", rename_all = "camelCase")]
+    ProviderSwitched {
+        session_id: String,
+        provider: String,
+        from: String,
+        to: String,
+        /// The new account's name, if it has one; else `position`, counted from 1, names it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        position: usize,
+        limited: bool,
+    },
     #[serde(rename = "mcp.updated")]
     McpUpdated { server: crate::mcp::ServerStatus },
     #[serde(rename = "mcp.removed")]

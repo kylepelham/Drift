@@ -702,6 +702,8 @@ export const drift = {
     "drift.provider.accounts.failed": "{{provider}} hesapları güncellenemedi. Tekrar deneyin.",
     "drift.provider.accounts.add": "Başka bir hesap ekle",
     "drift.provider.accounts.spent": "Sınıra ulaşıldı. {{reset}}",
+    "drift.provider.accounts.switched": "Bir hesap kullanım sınırına ulaştı. {{account}} ile devam ediliyor.",
+    "drift.provider.accounts.returned": "Kullanım sınırı sıfırlandığı için yeniden {{account}} kullanılıyor.",
     "drift.question.custom": "Kendi yanıtınızı yazın",
     "drift.question.answered": "Yanıtlandı",
     "drift.question.unanswered": "Yanıt yok",

@@ -666,6 +666,8 @@ export const drift = {
     "drift.provider.accounts.failed": "{{provider}} のアカウントを更新できませんでした。もう一度お試しください。",
     "drift.provider.accounts.add": "別のアカウントを追加",
     "drift.provider.accounts.spent": "上限に達しました。{{reset}}",
+    "drift.provider.accounts.switched": "アカウントが使用上限に達しました。{{account}} で続行します。",
+    "drift.provider.accounts.returned": "使用上限がリセットされたため {{account}} に戻りました。",
     "drift.question.custom": "独自の回答を入力",
     "drift.question.answered": "回答済み",
     "drift.question.unanswered": "回答なし",

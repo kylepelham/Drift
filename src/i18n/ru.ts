@@ -699,6 +699,8 @@ export const drift = {
     "drift.provider.accounts.failed": "Не удалось обновить аккаунты {{provider}}. Попробуйте ещё раз.",
     "drift.provider.accounts.add": "Добавить ещё аккаунт",
     "drift.provider.accounts.spent": "Лимит исчерпан. {{reset}}",
+    "drift.provider.accounts.switched": "Аккаунт исчерпал лимит использования. Продолжаем на {{account}}.",
+    "drift.provider.accounts.returned": "Снова на {{account}}: его лимит использования сброшен.",
     "drift.question.custom": "Введите свой ответ",
     "drift.question.answered": "Ответ дан",
     "drift.question.unanswered": "Нет ответа",

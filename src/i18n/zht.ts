@@ -675,6 +675,8 @@ export const drift = {
     "drift.provider.accounts.failed": "無法更新 {{provider}} 帳戶，請再試一次。",
     "drift.provider.accounts.add": "新增另一個帳戶",
     "drift.provider.accounts.spent": "已達到限額。{{reset}}",
+    "drift.provider.accounts.switched": "某個帳戶已達到使用限額，繼續使用 {{account}}。",
+    "drift.provider.accounts.returned": "{{account}} 的使用限額已重置，已切換回該帳戶。",
     "drift.question.custom": "輸入自訂答案",
     "drift.question.answered": "已回答",
     "drift.question.unanswered": "無回答",

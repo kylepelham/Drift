@@ -661,6 +661,8 @@ export const drift = {
     "drift.provider.accounts.failed": "{{provider}} 계정을 업데이트하지 못했습니다. 다시 시도하세요.",
     "drift.provider.accounts.add": "다른 계정 추가",
     "drift.provider.accounts.spent": "한도에 도달했습니다. {{reset}}",
+    "drift.provider.accounts.switched": "계정이 사용 한도에 도달했습니다. {{account}}(으)로 계속합니다.",
+    "drift.provider.accounts.returned": "사용 한도가 초기화되어 {{account}}(으)로 돌아왔습니다.",
     "drift.question.custom": "직접 답변 입력",
     "drift.question.answered": "답변 완료",
     "drift.question.unanswered": "답변 없음",
