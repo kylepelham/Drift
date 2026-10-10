@@ -50,7 +50,11 @@ pub(crate) fn append<'a>(
             Role::User => push(out, LlmRole::User, user_blocks(message)),
             Role::Assistant => {
                 let account = message.info.account.as_deref();
-                let same_model = message.info.model.as_ref().is_some_and(|model| target.wrote(model, account));
+                let same_model = message
+                    .info
+                    .model
+                    .as_ref()
+                    .is_some_and(|model| target.wrote(model, account));
                 let mut calls = assistant_blocks(message, same_model);
                 let mut results = result_blocks(message);
                 unique_ids(&mut used, &mut calls, &mut results);

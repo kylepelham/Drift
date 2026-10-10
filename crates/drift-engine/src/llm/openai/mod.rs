@@ -179,8 +179,26 @@ fn api_error(status: u16, text: &str) -> Error {
 
     match status {
         401 | 403 => Error::Unauthenticated(message),
-        _ => Error::api(status, kind, message),
+        _ => with_named_reset(Error::api(status, kind, message), error),
     }
+}
+
+/// Codex says in a usage-limit refusal's body when the usage frees, as seconds from now or an epoch time.
+fn with_named_reset(mut refused: Error, body: &Value) -> Error {
+    if let Error::Api { kind, retry_after, .. } = &mut refused
+        && kind == crate::llm::limits::LIMIT_REACHED
+    {
+        let at = body["resets_at"]
+            .as_f64()
+            .map(|at| at - crate::id::now_ms() as f64 / 1000.0);
+        let seconds = body["resets_in_seconds"]
+            .as_f64()
+            .or(at)
+            .filter(|seconds| *seconds > 0.0);
+        *retry_after = seconds.and_then(|seconds| std::time::Duration::try_from_secs_f64(seconds).ok());
+    }
+
+    refused
 }
 
 #[cfg(test)]
@@ -621,6 +639,32 @@ mod tests {
             assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
             let expired = api_error(401, r#"{"error":{"message":"token expired"}}"#);
             assert!(matches!(expired, Error::Unauthenticated(ref m) if m == "token expired"));
+        }
+
+        #[test]
+        fn a_usage_limit_refusal_says_when_it_frees_and_the_socket_sends_limits_first() {
+            let refused = api_error(
+                429,
+                r#"{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_in_seconds":7200}}"#,
+            );
+            assert!(refused.limit_reached());
+            assert!(matches!(refused, Error::Api { retry_after: Some(wait), .. } if wait.as_secs() == 7200));
+
+            let event = json!({
+                "type": "error",
+                "status_code": 429,
+                "error": { "type": "usage_limit_reached", "message": "The usage limit has been reached" },
+                "headers": { "x-codex-primary-used-percent": "100.0", "x-codex-primary-window-minutes": "300" }
+            });
+            let streamed = StreamState::default().chunks(&event.to_string());
+            assert!(matches!(&streamed, Err(error) if error.limit_reached()), "{streamed:?}");
+
+            let limits = json!({
+                "type": "codex.rate_limits",
+                "rate_limits": { "primary": { "used_percent": 40, "window_minutes": 10080, "reset_at": 1791996130 } }
+            });
+            let chunks = StreamState::default().chunks(&limits.to_string()).unwrap();
+            assert!(matches!(&chunks[..], [Chunk::Limits(reported)] if reported.weekly.is_some()));
         }
     }
 }

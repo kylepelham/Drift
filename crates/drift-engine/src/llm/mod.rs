@@ -329,7 +329,7 @@ impl Error {
             ..
         } = &mut self
         {
-            *retry_after = requested_wait(headers);
+            *retry_after = requested_wait(headers).or(*retry_after);
             match headers.get("x-should-retry").and_then(|v| v.to_str().ok()) {
                 Some("true") => *retryable = !permanent(kind),
                 Some("false") => *retryable = false,

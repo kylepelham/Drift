@@ -23,7 +23,9 @@ uses it.
 
 - One `drift.db`, one writer: the engine's tables beside the shell's own (workspaces,
   archives, preferences, remote devices). See [store.md](store.md).
-- Sign-ins and API keys live in the operating system's credential store.
+- Sign-ins and API keys live in the operating system's credential store. A provider can hold
+  several sign-ins, used in order: a turn moves to the next the moment one reaches its
+  five-hour or weekly limit ("A provider can hold several sign-ins" in engine-rewrite.md).
 - The user's own config is `~/.config/drift`: `drift.json` (model, permission rules,
   providers, formatters, checks, language servers, skill paths), `AGENTS.md`, and `agents/`,
   `commands/` and `skills/`. A project adds its own `drift.json`, `.drift/{agents,commands,skills}`
@@ -69,11 +71,12 @@ current model, in the style of the Codex and Claude Code desktop apps. Each wind
 bar that turns amber at 70% and red at 90%. The ring in the header uses the same colors
 for context usage.
 
-`provider_usage` (`src-tauri/src/usage_limits.rs`) takes the credential from Drift's own
-engine (`Engine::current_credential`, the keyring), calls the provider's usage endpoint, and
+`provider_usage` (`src-tauri/src/usage_limits.rs`) takes the credential of the provider's first
+account from Drift's own engine (`Engine::current_credential`, the keyring), calls the provider's
+usage endpoint, and
 returns normalized windows (kind, optional label, percent used, and reset time in epoch
 milliseconds). Tokens never reach the webview or a remote device. An expired sign-in is
-renewed through the engine's own refresh, behind the same per-provider lock a turn uses, so
+renewed through the engine's own refresh, behind the same per-account lock a turn uses, so
 a rotating refresh token is never spent twice; when renewal fails the popover says the
 sign-in has expired.
 The frontend asks at most once a minute per provider, when the popover opens or a

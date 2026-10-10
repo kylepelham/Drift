@@ -1262,6 +1262,43 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
     echo as Drift's direct HTTP and WebSocket probes, with no extra Daybreak proof header. Request
     selection is verified; the backend echo does not establish that reduced-refusal treatment was
     applied.
+- A provider can hold several sign-ins, used in the order Settings lists them (`credentials::accounts`).
+  Each account's secret has its own keychain entry: the first keeps the provider's own key, so a
+  credential saved before accounts needs no migration, and the rest are `<provider>~<hex>`. The
+  order, names and identities live in one `__accounts` entry beside the provider index. Signing in
+  as someone already listed (the ChatGPT account and user in the token, Anthropic's account uuid
+  from the token response) replaces that account in place; anyone else joins the end. Only
+  sign-ins take turns: an API key, or a sign-in beside one, replaces them all. Refreshing a token
+  is single-flight per account and compare-and-sets that account only (`Plan::account`).
+  - Choosing an account adds no request latency: it is a lookup in `Engine::limits`, an in-memory
+    ledger fed by what responses already carry. Codex sends `x-codex-primary-*` and
+    `x-codex-secondary-*` headers on every response (window minutes, used percent, reset time;
+    10080 minutes is the weekly window, 300 the five-hour one, 0 absent) and a `codex.rate_limits`
+    event before each WebSocket response, with `limit_reached` and credits; both verified live on
+    2026-10-10. Anthropic's `anthropic-ratelimit-unified-{5h,7d}-{utilization,reset}` and `-status`
+    are read as Claude Code reads them (utilization a fraction); their names are not yet verified
+    against a live subscription. The adapters pass them on as `Chunk::Limits`, which the turn
+    records against its account and publishes as `provider.limits`.
+  - An account is spent until its window resets once a window reports 100%, the socket says
+    `limit_reached`, or the provider refuses it for usage: a 429 whose kind is `usage_limit_reached`
+    or whose limit headers show a full window or a `rejected` status (`Error::limit_reached`, with
+    the wait until the reset, from the headers or Codex's `resets_in_seconds`). A full window with
+    credits left counts too, so purchased credits are spent only when every account is out.
+  - Admission, one-shots and each step take the first account in order with usage left
+    (`follow_account`); with every account spent, admission sends the first and a running turn stays
+    where it is, so the refusal says why. A
+    refusal for spent usage marks the account, drops the empty reply and sends the step again from
+    the next account at once, without a retry or backoff (`Step::Switch`); an ordinary rate limit
+    still waits. Once the first account's window resets, the next step returns to it. Each move
+    publishes `provider.switched`, shown as a notice.
+  - Reasoning signatures and encrypted reasoning validate only for the account that made them, so
+    each reply records its account (`message.account`, migration 38) and history signed by another
+    account is sent as text, as another model's is. A reply from before accounts counts as the
+    account stored under the provider's name. The WebSocket pool keys connections by their
+    headers, so a new account opens its own socket and sends the full history once.
+  - Settings lists a provider's sign-ins with their five-hour and weekly use; each can be renamed,
+    moved up or down, or signed out, and signing in again adds another. Usage limits in the
+    composer still show the first account (the shell's `provider_usage`).
 - Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
   completed reply. The engine measures each response with a monotonic clock, from its first
   generated text, reasoning or tool-call block to its last content event. Initial request waits,
