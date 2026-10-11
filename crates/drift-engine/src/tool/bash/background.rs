@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::Started;
 use super::output::without_blank_ends;
-use crate::background::{Exit, Handle, Start, Waited};
+use crate::background::{Exit, Handle, Start, Watching};
 use crate::session::types::Visibility;
 use crate::tool::spool::Spooled;
 use crate::tool::{Context, Output, ToolMetadata, add_note};
@@ -15,8 +15,9 @@ const SETTLE: Duration = Duration::from_secs(1);
 /// Hands the command to the background and reports how its first second went.
 pub(super) async fn start(context: &Context, started: Started, seen: Vec<u8>) -> Output {
     let title = started.title.clone();
+    // Watched until the result is written, so an exit within the first second is said here and not also later.
     let handle = hand_over(context, started, seen);
-    let settled = handle.wait(None, SETTLE, &context.abort).await;
+    handle.wait(None, SETTLE, &context.abort).await;
 
     let unread = handle.unread();
     let mut output = Output {
@@ -26,7 +27,7 @@ pub(super) async fn start(context: &Context, started: Started, seen: Vec<u8>) ->
     };
 
     match handle.exit() {
-        Some(Exit::Code(code)) if settled == Waited::Ended && handle.claim_report() => {
+        Some(Exit::Code(code)) if handle.claim_report() => {
             output.metadata.exit = Some(code.into());
             note(&mut output, &format!("It exited at once, with code {code}."));
         }
@@ -64,7 +65,7 @@ pub(super) async fn moved(context: &Context, started: Started, spooled: Spooled,
     output
 }
 
-fn hand_over(context: &Context, started: Started, seen: Vec<u8>) -> std::sync::Arc<Handle> {
+fn hand_over(context: &Context, started: Started, seen: Vec<u8>) -> Watching {
     let Started {
         command,
         title,

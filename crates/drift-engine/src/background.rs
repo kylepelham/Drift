@@ -8,7 +8,7 @@ mod plain;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -123,6 +123,33 @@ pub struct Handle {
     pid: Option<u32>,
     /// Its ending reached the model, from a call or as a prompt; it is said once.
     reported: AtomicBool,
+    /// Calls looking at it now; its end is told to the conversation only once none is, and only if none said it.
+    watchers: AtomicUsize,
+    released: tokio::sync::Notify,
+}
+
+/// A call looking at a process, from before it reads the process until its result is written.
+pub struct Watching(Arc<Handle>);
+
+impl Watching {
+    pub fn handle(&self) -> &Arc<Handle> {
+        &self.0
+    }
+}
+
+impl std::ops::Deref for Watching {
+    type Target = Handle;
+
+    fn deref(&self) -> &Handle {
+        &self.0
+    }
+}
+
+impl Drop for Watching {
+    fn drop(&mut self) {
+        self.0.watchers.fetch_sub(1, Ordering::SeqCst);
+        self.0.released.notify_waiters();
+    }
 }
 
 struct State {
@@ -140,7 +167,8 @@ pub struct Processes {
 impl Processes {
     /// Registers a started process and watches it until it ends; `ended` is told once it has.
     /// `generation` is the owner's Stop count now; a Stop since keeps the exit from waking it.
-    pub(crate) fn start(&self, mut start: Start, generation: i64, log_dir: PathBuf, watcher: Watcher) -> Arc<Handle> {
+    /// The starting call watches it from the first instant, so an exit it sees is not told again.
+    pub(crate) fn start(&self, mut start: Start, generation: i64, log_dir: PathBuf, watcher: Watcher) -> Watching {
         let id = crate::id::new("proc");
         let mut buffer = Buffer::new(log_dir.join(format!("{id}.log")));
         let seen = buffer.seen(&start.seen);
@@ -165,14 +193,17 @@ impl Processes {
             #[cfg(unix)]
             pid: start.child.id(),
             reported: AtomicBool::new(false),
+            watchers: AtomicUsize::new(0),
+            released: tokio::sync::Notify::new(),
         });
         handle.note_url(&seen);
 
         self.forget_old(&handle.session_id);
         self.all.lock().unwrap().insert(id, handle.clone());
+        let watching = handle.watch();
         tokio::spawn(monitor::watch(handle.clone(), start.child, start.pipes, watcher));
 
-        handle
+        watching
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<Handle>> {
@@ -306,6 +337,24 @@ impl Handle {
     /// Takes the right to tell the model how it ended; `true` once, for whoever asks first.
     pub fn claim_report(&self) -> bool {
         !self.reported.swap(true, Ordering::SeqCst)
+    }
+
+    /// Marks a call as looking at the process until the guard drops; a call that sees it ended says so itself.
+    pub fn watch(self: &Arc<Self>) -> Watching {
+        self.watchers.fetch_add(1, Ordering::SeqCst);
+        Watching(self.clone())
+    }
+
+    /// Returns once no call is looking at the process.
+    pub async fn unwatched(&self) {
+        loop {
+            // Registered before the check, so a release in between is not missed.
+            let released = self.released.notified();
+            if self.watchers.load(Ordering::SeqCst) == 0 {
+                return;
+            }
+            released.await;
+        }
     }
 
     /// Waits until unread output has a line `until` accepts, the process ends, `limit` passes or `abort` fires.

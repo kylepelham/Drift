@@ -7,7 +7,7 @@ use std::time::Duration;
 use super::turn::{Admission, Prompt, TurnError};
 use super::types::{Part, Visibility};
 use crate::Engine;
-use crate::background::{Exit, HANDOFF_KEY, Handle, PROCESSES_KEY, Start, Watcher};
+use crate::background::{Exit, HANDOFF_KEY, Handle, PROCESSES_KEY, Start, Watcher, Watching};
 use crate::event::Event;
 
 /// How much of the end of a process's output its exit prompt carries.
@@ -29,7 +29,7 @@ impl Engine {
     }
 
     /// Hands a started command to the background; it belongs to `start.session_id` from now on.
-    pub(crate) fn start_process(self: &Arc<Self>, start: Start) -> Arc<Handle> {
+    pub(crate) fn start_process(self: &Arc<Self>, start: Start) -> Watching {
         let (_, generation) = self.worker_scope(&start.session_id);
         let log_dir = self.data_dir.join("tool-output").join(&start.session_id);
 
@@ -54,6 +54,8 @@ impl Engine {
     /// Tells the conversation a process exited, unless the model already saw it end, someone stopped it,
     /// the user pressed Stop since it started, or it belongs to a subagent.
     async fn process_ended(self: Arc<Self>, handle: Arc<Handle>) {
+        // A call waiting on it or reading it reports the end in its own result; only then is it known whether it did.
+        handle.unwatched().await;
         if handle.exit() == Some(Exit::Stopped) || !self.wakes_for(&handle) || !handle.claim_report() {
             return;
         }

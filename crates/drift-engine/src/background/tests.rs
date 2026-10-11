@@ -107,7 +107,10 @@ fn started(processes: &Processes, line: &str) -> (Arc<Handle>, Arc<Mutex<Vec<Pro
     };
 
     (
-        processes.start(start, 0, log().parent().unwrap().into(), watcher),
+        processes
+            .start(start, 0, log().parent().unwrap().into(), watcher)
+            .handle()
+            .clone(),
         heard,
     )
 }
@@ -172,4 +175,31 @@ async fn input_reaches_a_process_reading_it() {
         .await;
 
     assert!(handle.unread().text.contains("hello drift"), "{:?}", handle.tail(200));
+}
+
+#[tokio::test]
+async fn an_exit_is_told_only_after_the_calls_watching_it_are_done() {
+    let processes = Processes::default();
+    let (handle, _) = started(&processes, "echo done");
+    let watching = handle.watch();
+    handle
+        .wait(None, Duration::from_secs(10), &CancellationToken::new())
+        .await;
+    assert!(handle.exit().is_some());
+
+    // What tells the conversation waits while a call that may say it ended is still writing its result.
+    let told = tokio::spawn({
+        let handle = handle.clone();
+        async move { handle.unwatched().await }
+    });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!told.is_finished(), "a call is still watching");
+
+    assert!(watching.claim_report(), "the watching call says it ended");
+    drop(watching);
+    tokio::time::timeout(Duration::from_secs(5), told)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!handle.claim_report(), "so it is not told again");
 }

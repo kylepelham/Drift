@@ -79,6 +79,7 @@ impl Tool for Process {
             }
 
             let handle = owned(context, required_str(&input, "id")?)?;
+            let _watching = handle.watch();
             match action {
                 "output" => output(&handle, input["search"].as_str()),
                 "wait" => wait(context, &handle, &input).await,

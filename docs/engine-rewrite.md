@@ -1143,7 +1143,7 @@ goal retires them.
     Drift). A subagent's processes end with its run.
   - When a process exits, its conversation is told as a `process_exit` prompt with the exit code,
     the end of its output and the log path, starting a turn or steering into the running one, as
-    background subagent results do. Nothing is said when the model already saw it end in a call,
+    background subagent results do. Nothing is said when the model already saw it end in a call (a call reading or waiting on a process holds a watch, and the notice waits until no call holds one, so the two never race),
     when it was stopped, or when the user pressed Stop since it started; it then shows only in the
     dock. A conversation busy with another job is offered it every 30 s, ten times.
   - Processes show in the Background tasks dock beside background subagents while any runs, with a
