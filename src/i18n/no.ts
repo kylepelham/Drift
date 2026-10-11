@@ -675,6 +675,8 @@ export const drift = {
     "drift.process.open": "Åpne",
     "drift.process.stopHint": "Stopper denne prosessen og alt den har startet.",
     "drift.process.stopFailed": "Prosessen kunne ikke stoppes",
+    "drift.process.title": "Bakgrunnsprosess",
+    "drift.process.gone": "Kjørte i bakgrunnen; Drift er startet på nytt siden.",
     "drift.message.revertHere": "Tilbakestill hit",
     "drift.message.revertKeepFiles": "Shift-klikk for å beholde filene som de er",
     "drift.message.tokenCounts": "{{input}} inn / {{output}} ut",

@@ -677,6 +677,8 @@ export const drift = {
     "drift.process.open": "Abrir",
     "drift.process.stopHint": "Detiene este proceso y todo lo que inició.",
     "drift.process.stopFailed": "No se pudo detener el proceso",
+    "drift.process.title": "Proceso en segundo plano",
+    "drift.process.gone": "Se ejecutó en segundo plano; Drift se reinició desde entonces.",
     "drift.message.revertHere": "Revertir hasta aquí",
     "drift.message.revertKeepFiles": "Mayús+clic para dejar los archivos como están",
     "drift.message.tokenCounts": "{{input}} entrada / {{output}} salida",

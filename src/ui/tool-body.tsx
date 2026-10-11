@@ -6,6 +6,7 @@ import { Markdown, ProgressiveCodeView } from "./markdown";
 import { citationFileGroups } from "./citation-files";
 import { DiffPanel, PatchPanel } from "./diff-panel";
 import { delegatedChildId } from "./tool-delegation";
+import { ShellProcessStatus } from "./process-row";
 import { toolDisplay } from "./tool-presentation";
 import { useEngine } from "../engine";
 import { IconInfo } from "./icons";
@@ -30,6 +31,7 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
     };
 
     const shell = createMemo(() => splitNotes(shellOutput() ?? "", toolMeta(props.part)?.notes));
+    const backgrounded = () => toolMeta(props.part)?.processId as string | undefined;
 
     const written = () => {
         if (props.part.name !== "write") return null;
@@ -94,14 +96,22 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
                         file={toolMeta(props.part)?.outputFile as string | undefined}
                         running={state().status === "pending" || state().status === "running"}
                     />
-                    <For each={shell().notes}>
-                        {(note) => (
-                            <div class="mt-1 flex items-start gap-1.5 px-1 text-xs text-ink-faint">
-                                <IconInfo class="mt-0.5 size-3 shrink-0" />
-                                <span class="min-w-0 whitespace-pre-wrap">{note}</span>
-                            </div>
-                        )}
-                    </For>
+                    {/* A call that went on in the background shows how that process is, not the notes written for the model. */}
+                    <Show
+                        when={backgrounded()}
+                        fallback={
+                            <For each={shell().notes}>
+                                {(note) => (
+                                    <div class="mt-1 flex items-start gap-1.5 px-1 text-xs text-ink-faint">
+                                        <IconInfo class="mt-0.5 size-3 shrink-0" />
+                                        <span class="min-w-0 whitespace-pre-wrap">{note}</span>
+                                    </div>
+                                )}
+                            </For>
+                        }
+                    >
+                        {(id) => <ShellProcessStatus sessionId={props.part.sessionId} processId={id()} />}
+                    </Show>
                 </Match>
                 <Match when={written()}>
                     {(file) => <ProgressiveCodeView code={file().content} filename={file().name ?? ""} />}

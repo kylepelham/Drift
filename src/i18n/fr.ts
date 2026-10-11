@@ -647,6 +647,8 @@ export const drift = {
     "drift.process.open": "Ouvrir",
     "drift.process.stopHint": "Arrête ce processus et tout ce qu'il a lancé.",
     "drift.process.stopFailed": "Impossible d'arrêter le processus",
+    "drift.process.title": "Processus en arrière-plan",
+    "drift.process.gone": "Exécuté en arrière-plan ; Drift a redémarré depuis.",
     "drift.message.revertHere": "Revenir ici",
     "drift.message.revertKeepFiles": "Maj+clic pour garder les fichiers tels quels",
     "drift.message.tokenCounts": "{{input}} en entrée / {{output}} en sortie",

@@ -93,6 +93,7 @@ fn started(processes: &Processes, line: &str) -> (Arc<Handle>, Arc<Mutex<Vec<Pro
         tree,
         pipes,
         seen: Vec::new(),
+        started_at: crate::id::now_ms(),
     };
 
     (

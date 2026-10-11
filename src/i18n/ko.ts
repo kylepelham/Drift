@@ -635,6 +635,8 @@ export const drift = {
     "drift.process.open": "열기",
     "drift.process.stopHint": "이 프로세스와 그것이 시작한 모든 것을 중지합니다.",
     "drift.process.stopFailed": "프로세스를 중지하지 못했습니다",
+    "drift.process.title": "백그라운드 프로세스",
+    "drift.process.gone": "백그라운드에서 실행되었습니다. 이후 Drift가 다시 시작되었습니다.",
     "drift.message.revertHere": "여기로 되돌리기",
     "drift.message.revertKeepFiles": "Shift+클릭하면 파일은 그대로 둡니다",
     "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",

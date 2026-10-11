@@ -651,6 +651,8 @@ export const drift = {
     "drift.process.open": "開啟",
     "drift.process.stopHint": "停止此程序及其啟動的所有內容。",
     "drift.process.stopFailed": "無法停止程序",
+    "drift.process.title": "背景程序",
+    "drift.process.gone": "曾在背景執行；此後 Drift 已重新啟動。",
     "drift.message.revertHere": "還原到此處",
     "drift.message.revertKeepFiles": "按住 Shift 點擊可保持檔案不變",
     "drift.message.tokenCounts": "輸入 {{input}} / 輸出 {{output}}",

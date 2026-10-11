@@ -676,6 +676,8 @@ export const drift = {
     "drift.process.open": "Aç",
     "drift.process.stopHint": "Bu işlemi ve başlattığı her şeyi durdurur.",
     "drift.process.stopFailed": "İşlem durdurulamadı",
+    "drift.process.title": "Arka plan işlemi",
+    "drift.process.gone": "Arka planda çalıştı; Drift o zamandan beri yeniden başlatıldı.",
     "drift.message.revertHere": "Buraya geri dön",
     "drift.message.revertKeepFiles": "Dosyaları olduğu gibi bırakmak için Shift ile tıklayın",
     "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",

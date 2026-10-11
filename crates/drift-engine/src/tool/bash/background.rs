@@ -78,6 +78,7 @@ fn hand_over(context: &Context, started: Started, seen: Vec<u8>) -> std::sync::A
         tree: running.tree,
         pipes: running.pipes,
         seen,
+        started_at: running.started_at,
     })
 }
 

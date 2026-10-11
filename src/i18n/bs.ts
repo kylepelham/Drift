@@ -673,6 +673,8 @@ export const drift = {
     "drift.process.open": "Otvori",
     "drift.process.stopHint": "Zaustavlja ovaj proces i sve što je pokrenuo.",
     "drift.process.stopFailed": "Proces nije moguće zaustaviti",
+    "drift.process.title": "Proces u pozadini",
+    "drift.process.gone": "Radio je u pozadini; Drift je od tada ponovo pokrenut.",
     "drift.message.revertHere": "Vrati do ovdje",
     "drift.message.revertKeepFiles": "Shift+klik da datoteke ostanu kakve jesu",
     "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",

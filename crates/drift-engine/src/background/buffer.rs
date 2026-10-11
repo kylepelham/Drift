@@ -4,6 +4,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
+use super::plain::Plain;
 use crate::tool::spool::MAX_SPOOLED_BYTES;
 
 /// How much of the newest output stays in memory.
@@ -20,6 +21,8 @@ pub(super) struct Buffer {
     log: Option<std::fs::File>,
     pub(super) path: PathBuf,
     written: u64,
+    /// Colors and cursor moves are taken out before anything is kept or logged.
+    plain: Plain,
 }
 
 /// New output since the model last looked.
@@ -41,16 +44,22 @@ impl Buffer {
             log,
             path,
             written: 0,
+            plain: Plain::default(),
         }
     }
 
     /// Output the model already saw, as the command's result before it moved to the background.
-    pub(super) fn seen(&mut self, bytes: &[u8]) {
-        self.push(bytes);
+    pub(super) fn seen(&mut self, bytes: &[u8]) -> String {
+        let text = self.push(bytes);
         self.read_to = self.total();
+
+        text
     }
 
-    pub(super) fn push(&mut self, bytes: &[u8]) {
+    /// Keeps and logs what a process printed, without escape sequences; returns it as text.
+    pub(super) fn push(&mut self, bytes: &[u8]) -> String {
+        let bytes = self.plain.strip(bytes);
+
         if let Some(log) = self.log.as_mut().filter(|_| self.written < MAX_SPOOLED_BYTES) {
             let room = usize::try_from(MAX_SPOOLED_BYTES - self.written).unwrap_or(usize::MAX);
             let part = &bytes[..bytes.len().min(room)];
@@ -59,12 +68,14 @@ impl Buffer {
             }
         }
 
-        self.kept.extend_from_slice(bytes);
+        self.kept.extend_from_slice(&bytes);
         let over = self.kept.len().saturating_sub(KEPT_BYTES);
         if over > 0 {
             self.kept.drain(..over);
             self.start += over as u64;
         }
+
+        String::from_utf8_lossy(&bytes).into_owned()
     }
 
     pub(super) fn total(&self) -> u64 {

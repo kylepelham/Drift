@@ -4,6 +4,7 @@
 
 mod buffer;
 mod monitor;
+mod plain;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -79,6 +80,8 @@ pub struct Start {
     pub pipes: Pipes,
     /// Output the call already returned, so the next read starts after it.
     pub seen: Vec<u8>,
+    /// When the shell started, in ms; a command moved here at its limit started before the move.
+    pub started_at: i64,
 }
 
 /// How a process ended.
@@ -136,14 +139,14 @@ impl Processes {
     pub(crate) fn start(&self, mut start: Start, generation: i64, log_dir: PathBuf, watcher: Watcher) -> Arc<Handle> {
         let id = crate::id::new("proc");
         let mut buffer = Buffer::new(log_dir.join(format!("{id}.log")));
-        buffer.seen(&start.seen);
+        let seen = buffer.seen(&start.seen);
 
         let handle = Arc::new(Handle {
             id: id.clone(),
             session_id: start.session_id,
             command: start.command,
             description: start.description,
-            started_at: crate::id::now_ms(),
+            started_at: start.started_at,
             generation,
             state: Mutex::new(State {
                 buffer,
@@ -159,7 +162,7 @@ impl Processes {
             pid: start.child.id(),
             reported: AtomicBool::new(false),
         });
-        handle.note_url(&String::from_utf8_lossy(&start.seen));
+        handle.note_url(&seen);
 
         self.forget_old(&handle.session_id);
         self.all.lock().unwrap().insert(id, handle.clone());
@@ -330,8 +333,7 @@ impl Handle {
     }
 
     fn push(&self, bytes: &[u8]) {
-        let text = String::from_utf8_lossy(bytes).into_owned();
-        self.state.lock().unwrap().buffer.push(bytes);
+        let text = self.state.lock().unwrap().buffer.push(bytes);
         self.note_url(&text);
         self.changed.send_replace(());
     }

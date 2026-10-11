@@ -73,3 +73,12 @@ test("opening a conversation loads its processes, and stopping one records what 
     putProcesses(set, state, "session", [processRecord("a")]);
     expect(state.processes.session?.[0]?.state).toBe("stopped");
 });
+
+test("a process's running time reads as a person would say it", async () => {
+    const { processSpan } = await import("../src/ui/process-row");
+
+    expect(processSpan(6_400)).toBe("6 s");
+    expect(processSpan(125_000)).toBe("2 min 5 s");
+    expect(processSpan(3_725_000)).toBe("1 h 2 min");
+    expect(processSpan(-5)).toBe("0 s");
+});

@@ -651,6 +651,8 @@ export const drift = {
     "drift.process.open": "打开",
     "drift.process.stopHint": "停止此进程及其启动的所有内容。",
     "drift.process.stopFailed": "无法停止进程",
+    "drift.process.title": "后台进程",
+    "drift.process.gone": "曾在后台运行；此后 Drift 已重启。",
     "drift.message.revertHere": "还原到此处",
     "drift.message.revertKeepFiles": "按住 Shift 点击可保持文件不变",
     "drift.message.tokenCounts": "输入 {{input}} / 输出 {{output}}",

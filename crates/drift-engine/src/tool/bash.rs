@@ -198,6 +198,7 @@ pub(crate) struct Running {
     pub child: tokio::process::Child,
     pub tree: Option<crate::platform::process::Tree>,
     pub pipes: Pipes,
+    pub started_at: i64,
 }
 
 /// A command the call started, with what the user is shown it does.
@@ -233,7 +234,12 @@ fn spawn(shell: &Shell, line: &str, directory: &Path, background: bool) -> Resul
     resume_main_thread(&child);
     let pipes = Pipes::take(&mut child);
 
-    Ok(Running { child, tree, pipes })
+    Ok(Running {
+        child,
+        tree,
+        pipes,
+        started_at: crate::id::now_ms(),
+    })
 }
 
 fn shell_command(shell: &Shell, line: &str) -> tokio::process::Command {

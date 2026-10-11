@@ -625,6 +625,8 @@ export const drift = {
     "drift.process.open": "فتح",
     "drift.process.stopHint": "يوقف هذه العملية وكل ما بدأته.",
     "drift.process.stopFailed": "تعذر إيقاف العملية",
+    "drift.process.title": "عملية في الخلفية",
+    "drift.process.gone": "عملت في الخلفية؛ أُعيد تشغيل Drift منذ ذلك الحين.",
     "drift.message.revertHere": "التراجع إلى هنا",
     "drift.message.revertKeepFiles": "انقر مع Shift لإبقاء الملفات كما هي",
     "drift.message.tokenCounts": "{{input}} إدخال / {{output}} إخراج",

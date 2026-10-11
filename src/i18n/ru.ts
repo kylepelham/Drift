@@ -673,6 +673,8 @@ export const drift = {
     "drift.process.open": "Открыть",
     "drift.process.stopHint": "Останавливает этот процесс и всё, что он запустил.",
     "drift.process.stopFailed": "Не удалось остановить процесс",
+    "drift.process.title": "Фоновый процесс",
+    "drift.process.gone": "Выполнялся в фоне; с тех пор Drift перезапускался.",
     "drift.message.revertHere": "Вернуться сюда",
     "drift.message.revertKeepFiles": "Shift+щелчок оставляет файлы как есть",
     "drift.message.tokenCounts": "{{input}} вх. / {{output}} вых.",
