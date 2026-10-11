@@ -101,11 +101,8 @@ pub(super) fn report(title: String, spooled: Spooled, ended: Ended, limit: Optio
         Ended::Exited { code, lingering } => {
             metadata.exit = Some(code.into());
             let lingered = lingering.then(|| {
-                concat!(
-                    "Background processes still held the output open when the command finished; ",
-                    "they were stopped. Run a server or watcher with `background: true` instead."
-                )
-                .to_string()
+                "Background processes still held the output open when the command finished; they were stopped."
+                    .to_string()
             });
             lingered
                 .into_iter()

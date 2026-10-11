@@ -3,10 +3,10 @@ import { groupParts, updatePartGroupSlots, type PartGroup, type PartGroupSlot } 
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store";
 import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
+import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
 import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator";
 import { collapseCompaction, compactionCollapsed } from "../state/prefs";
 import { selectedSession, selectSession } from "../state/selection";
-import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
 import { messageModel, messageProblem } from "../engine/messages";
 import { PartView, partVisible, PluginRow } from "./parts";
 import { citationFileGroups } from "./citation-files";
@@ -18,6 +18,7 @@ import { ExploredGroup } from "./tool-view";
 import { FilePartView } from "./file-part";
 import { useEngine } from "../engine";
 import { Markdown } from "./markdown";
+import { NoteBox } from "./note-box";
 import { Chevron } from "./controls";
 
 import type { ContextPart, ProcessExitPart } from "../engine/parts";
@@ -128,9 +129,12 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     const engine = useEngine();
     const info = () => props.entry.info;
     const answered = createMemo(() => clarificationAnswer(props.entry));
-    // A spawned thread's instruction folds like an answer: a label, a preview, the full text on open.
+    // A spawned thread's instruction and an orchestrator nudge fold like an answer: a label, a preview, the full text on open.
     const clarification = createMemo(
-        () => answered() ?? (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined),
+        () =>
+            answered() ??
+            (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined) ??
+            orchestratorNudge(props.entry),
     );
     const text = () => clarification()?.text ?? messageText(props.entry);
     // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
@@ -219,52 +223,30 @@ ${t("drift.message.revertKeepFiles")}`}
         >
             {(answer) => (
                 <div class="group flex min-w-0 items-start justify-end gap-1.5">
-                    <details class="group/answer min-w-0 max-w-[85%] text-xs">
-                        <summary
-                            data-find-ignore
-                            class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden"
+                    <NoteBox icon={noteIcon(answer())} label={noteLabel(answer())} preview={answer().preview}>
+                        <Show
+                            when={answer().items.length}
+                            fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
                         >
-                            <Show
-                                when={answer().spawned}
-                                fallback={<IconCheck class="size-3.5 shrink-0 text-ink-faint" />}
-                            >
-                                <IconBranch class="size-3.5 shrink-0 text-ink-faint" />
-                            </Show>
-                            <span class="shrink-0">
-                                {answer().spawned ? t("drift.chat.spawned.instruction") : t("drift.question.answered")}
-                            </span>
-                            <Show when={answer().preview}>
-                                <span class="min-w-0 truncate text-ink">{answer().preview}</span>
-                            </Show>
-                            <span class="shrink-0 transition-transform group-open/answer:rotate-90">
-                                <Chevron open={false} />
-                            </span>
-                        </summary>
-                        <div class="mt-1 mb-2 space-y-3 border-l border-edge px-3 py-1 text-sm">
-                            <Show
-                                when={answer().items.length}
-                                fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
-                            >
-                                <For each={answer().items}>
-                                    {(item) => (
-                                        <div class="space-y-1">
-                                            <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
-                                                {item.question}
-                                            </div>
-                                            <div
-                                                data-find-ignore={item.answers.length ? undefined : ""}
-                                                class="whitespace-pre-wrap break-words text-ink"
-                                            >
-                                                {item.answers.length
-                                                    ? item.answers.join(", ")
-                                                    : t("drift.question.unanswered")}
-                                            </div>
+                            <For each={answer().items}>
+                                {(item) => (
+                                    <div class="space-y-1">
+                                        <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
+                                            {item.question}
                                         </div>
-                                    )}
-                                </For>
-                            </Show>
-                        </div>
-                    </details>
+                                        <div
+                                            data-find-ignore={item.answers.length ? undefined : ""}
+                                            class="whitespace-pre-wrap break-words text-ink"
+                                        >
+                                            {item.answers.length
+                                                ? item.answers.join(", ")
+                                                : t("drift.question.unanswered")}
+                                        </div>
+                                    </div>
+                                )}
+                            </For>
+                        </Show>
+                    </NoteBox>
                     <div class="flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                         <button
                             title={`${t("drift.message.revertHere")}
@@ -286,6 +268,29 @@ ${t("drift.message.revertKeepFiles")}`}
             )}
         </Show>
     );
+}
+
+function noteIcon(answer: ClarificationAnswer) {
+    if (answer.spawned) return <IconBranch class="size-3.5" />;
+    if (answer.nudge) return <IconArrowUpRight class="size-3.5" />;
+
+    return <IconCheck class="size-3.5" />;
+}
+
+function noteLabel(answer: ClarificationAnswer) {
+    if (answer.spawned) return t("drift.chat.spawned.instruction");
+    if (answer.nudge) return t("drift.orchestrator.nudge");
+
+    return t("drift.question.answered");
+}
+
+/** A prompt made only of the engine's nudges, which keep an orchestrator working; not the user's words. */
+function orchestratorNudge(entry: MessageEntry): ClarificationAnswer | undefined {
+    if (entry.info.role !== "user" || !entry.parts.length) return;
+    if (!entry.parts.every((part) => part.type === "nudge")) return;
+
+    const text = messageText(entry);
+    return { text, preview: text.replace(/\s+/g, " ").trim(), items: [], nudge: true };
 }
 
 function spawnedInstruction(text: string): ClarificationAnswer {

@@ -246,6 +246,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Minutes personnalisées",
     "drift.settings.shellTimeout.customDescription": "Saisissez un nombre entier de 1 à 1 440 minutes.",
     "drift.settings.shellTimeout.invalid": "Saisissez un nombre entier de 1 à 1 440.",
+    "drift.settings.backgroundProcesses.title": "Processus en arrière-plan",
+    "drift.settings.backgroundProcesses.description":
+        "Les agents peuvent lancer des commandes en arrière-plan, les suivre avec l'outil de processus et sont prévenus quand elles se terminent.",
+    "drift.settings.shellHandoff.title": "Passer les commandes longues en arrière-plan",
+    "drift.settings.shellHandoff.description":
+        "Une commande encore en cours à la limite de temps continue en arrière-plan au lieu d'être arrêtée.",
+    "drift.settings.shellHandoff.limitTitle": "Passer en arrière-plan après",
+    "drift.settings.shellHandoff.limitDescription":
+        "Durée d'exécution d'une commande au premier plan avant son passage en arrière-plan. S'applique aux nouveaux appels.",
     "drift.shell.timeout.limit": "Limite {{duration}}",
     "drift.shell.timeout.expired": "Délai dépassé après {{duration}}",
     "drift.agent.build": "Construction",
@@ -649,6 +658,8 @@ export const drift = {
     "drift.process.stopFailed": "Impossible d'arrêter le processus",
     "drift.process.title": "Processus en arrière-plan",
     "drift.process.gone": "Exécuté en arrière-plan ; Drift a redémarré depuis.",
+    "drift.process.ended": "Processus en arrière-plan terminé avec le code {{code}}",
+    "drift.process.endedStopped": "Processus en arrière-plan arrêté",
     "drift.message.revertHere": "Revenir ici",
     "drift.message.revertKeepFiles": "Maj+clic pour garder les fichiers tels quels",
     "drift.message.tokenCounts": "{{input}} en entrée / {{output}} en sortie",
@@ -768,6 +779,7 @@ export const drift = {
     "drift.orchestrator.state.working": "En cours",
     "drift.orchestrator.state.done": "Terminé",
     "drift.orchestrator.state.blocked": "Bloqué",
+    "drift.orchestrator.nudge": "Poursuivi",
     "drift.tool.spawn": "Créer",
     "drift.tool.subtask": "Sous-tâche",
     "drift.tool.task": "Tâche",

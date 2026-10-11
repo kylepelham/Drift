@@ -57,25 +57,19 @@ impl Tool for Bash {
         &["bash"]
     }
 
+    /// Every option, so a call made under either setting validates; a turn is offered [`Bash::spec_with`] its settings.
     fn spec(&self) -> ToolSpec {
-        ToolSpec {
-            name: "bash".into(),
-            description: include_str!("prompts/bash.txt")
-                .trim()
-                .replace("{shell}", shell_note(&self.shell, cfg!(windows)))
-                .replace("{chain}", chain_note(&self.shell)),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "command": { "type": "string", "description": "The command to run." },
-                    "timeout": { "type": "integer", "description": "Milliseconds before the command moves to the background. Default: the user's setting. Max 86400000." },
-                    "background": { "type": "boolean", "description": "Start it in the background and return its process id at once, for servers, watchers and long builds. Default false." },
-                    "description": { "type": "string", "description": "Five to ten words saying what the command does, shown to the user." },
-                    "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of changing directory first. Default: the workspace root." }
-                },
-                "required": ["command"]
-            }),
-        }
+        self.spec_with(Limits {
+            background: true,
+            handoff: true,
+        })
+    }
+
+    fn spec_for(&self, engine: &crate::Engine) -> ToolSpec {
+        self.spec_with(Limits {
+            background: engine.background_processes(),
+            handoff: engine.shell_handoff(),
+        })
     }
 
     fn ask(&self, context: &Context, input: &Value) -> Option<Ask> {
@@ -111,6 +105,11 @@ impl Tool for Bash {
             let command = required_str(&input, "command")?;
             let directory = workdir(context, &input)?;
             let background = input["background"].as_bool() == Some(true);
+            if background && !context.engine.background_processes() {
+                return Err(ToolError(
+                    "background commands are turned off in Settings; run it in the foreground with a `timeout`".into(),
+                ));
+            }
             let started = Started {
                 command: command.to_string(),
                 title: input["description"].as_str().unwrap_or(command).to_string(),
@@ -144,7 +143,38 @@ impl Tool for Bash {
     }
 }
 
+/// What the user's settings let a command do past its call.
+#[derive(Clone, Copy)]
+struct Limits {
+    /// It may be started in the background, and seen there with `process`.
+    background: bool,
+    /// At its time limit it moves to the background rather than being stopped.
+    handoff: bool,
+}
+
 impl Bash {
+    fn spec_with(&self, limits: Limits) -> ToolSpec {
+        let mut properties = json!({
+            "command": { "type": "string", "description": "The command to run." },
+            "timeout": { "type": "integer", "description": timeout_note(limits) },
+            "description": { "type": "string", "description": "Five to ten words saying what the command does, shown to the user." },
+            "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of changing directory first. Default: the workspace root." }
+        });
+        if limits.background {
+            properties["background"] = json!({ "type": "boolean", "description": "Start it in the background and return its process id at once, for servers, watchers and long builds. Default false." });
+        }
+
+        ToolSpec {
+            name: "bash".into(),
+            description: include_str!("prompts/bash.txt")
+                .trim()
+                .replace("{shell}", shell_note(&self.shell, cfg!(windows)))
+                .replace("{chain}", chain_note(&self.shell))
+                .replace("{limits}", limits_note(limits)),
+            input_schema: json!({ "type": "object", "properties": properties, "required": ["command"] }),
+        }
+    }
+
     /// Runs the command until it exits, is stopped, or reaches its limit, where it moves to the background.
     async fn foreground(&self, context: &Context, input: &Value, mut started: Started, directory: &Path) -> Output {
         let limit = limit_for(context, input);
@@ -168,7 +198,7 @@ impl Bash {
             }
         };
 
-        if matches!(ended, Ended::TimedOut) {
+        if matches!(ended, Ended::TimedOut) && context.engine.shell_handoff() {
             return background::moved(context, started, spool.finish(), limit).await;
         }
         if !matches!(ended, Ended::Exited { lingering: false, .. }) {
@@ -190,6 +220,36 @@ impl Bash {
         {
             context.files.mark_read(&file);
         }
+    }
+}
+
+fn timeout_note(limits: Limits) -> &'static str {
+    if limits.handoff {
+        "Milliseconds before the command moves to the background. Default: the user's setting. Max 86400000."
+    } else {
+        "Milliseconds before the command is stopped. Default: the user's setting. Max 86400000."
+    }
+}
+
+/// What the description says happens at the time limit, and how to run something long.
+fn limits_note(limits: Limits) -> &'static str {
+    match (limits.background, limits.handoff) {
+        (true, true) => concat!(
+            "- A command still running after the user's time limit, or after `timeout` milliseconds when you pass one, ",
+            "moves to the background and keeps running; the result says its process id. Start servers, watchers and ",
+            "builds you expect to be long with `background: true`, then use `process` to wait for them, read their ",
+            "output or stop them."
+        ),
+        (true, false) => concat!(
+            "- Commands and their child processes are stopped after the user's time limit, or after `timeout` ",
+            "milliseconds when you pass one. Start servers, watchers and builds you expect to be long with ",
+            "`background: true`, then use `process` to wait for them, read their output or stop them."
+        ),
+        (false, _) => concat!(
+            "- Commands and their child processes are stopped after the user's time limit, or after `timeout` ",
+            "milliseconds when you pass one. Pass a larger `timeout` for a build or test run you expect to be long. ",
+            "Never start long-lived servers or watchers here."
+        ),
     }
 }
 

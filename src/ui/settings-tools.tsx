@@ -1,3 +1,4 @@
+import { BackgroundRows, createShellSettings } from "./settings-background";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { useEngine } from "../engine";
@@ -20,6 +21,7 @@ export function ToolExecutionSection() {
         String(isPreset(shellTimeoutMs()) ? 10 : shellTimeoutMs()! / 60_000),
     );
     const [error, setError] = createSignal("");
+    const shell = createShellSettings();
 
     onMount(() => {
         const stop = listenShellTimeoutError(setError);
@@ -43,9 +45,19 @@ export function ToolExecutionSection() {
     return (
         <div class="space-y-5">
             <SettingsGroup title={t("drift.settings.execution.shell")}>
+                <BackgroundRows settings={shell} />
+                {/* With hand-off on, the limit is when a command moves to the background rather than when it stops. */}
                 <SettingsRow
-                    title={t("drift.settings.shellTimeout.title")}
-                    description={t("drift.settings.shellTimeout.description")}
+                    title={
+                        shell.handsOff()
+                            ? t("drift.settings.shellHandoff.limitTitle")
+                            : t("drift.settings.shellTimeout.title")
+                    }
+                    description={
+                        shell.handsOff()
+                            ? t("drift.settings.shellHandoff.limitDescription")
+                            : t("drift.settings.shellTimeout.description")
+                    }
                 >
                     <Picker
                         label={t("drift.settings.shellTimeout.title")}

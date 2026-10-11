@@ -243,6 +243,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "カスタム分数",
     "drift.settings.shellTimeout.customDescription": "1から1,440までの整数を入力してください。",
     "drift.settings.shellTimeout.invalid": "1から1,440までの整数を入力してください。",
+    "drift.settings.backgroundProcesses.title": "バックグラウンドプロセス",
+    "drift.settings.backgroundProcesses.description":
+        "エージェントはコマンドをバックグラウンドで開始し、プロセスツールで確認でき、終了時に通知を受けます。",
+    "drift.settings.shellHandoff.title": "長いコマンドをバックグラウンドへ移す",
+    "drift.settings.shellHandoff.description":
+        "制限時間に達してもまだ実行中のコマンドは、停止されずにバックグラウンドで続行します。",
+    "drift.settings.shellHandoff.limitTitle": "バックグラウンドへ移すまでの時間",
+    "drift.settings.shellHandoff.limitDescription":
+        "コマンドがバックグラウンドへ移るまでフォアグラウンドで実行される時間。新しい呼び出しに適用されます。",
     "drift.shell.timeout.limit": "制限 {{duration}}",
     "drift.shell.timeout.expired": "{{duration}}後にタイムアウト",
     "drift.agent.build": "ビルド",
@@ -642,6 +651,8 @@ export const drift = {
     "drift.process.stopFailed": "プロセスを停止できませんでした",
     "drift.process.title": "バックグラウンドプロセス",
     "drift.process.gone": "バックグラウンドで実行されました。その後 Drift は再起動されています。",
+    "drift.process.ended": "バックグラウンドプロセスがコード {{code}} で終了",
+    "drift.process.endedStopped": "バックグラウンドプロセスを停止",
     "drift.message.revertHere": "ここまで戻す",
     "drift.message.revertKeepFiles": "Shift+クリックでファイルはそのまま残します",
     "drift.message.tokenCounts": "入力 {{input}} / 出力 {{output}}",
@@ -758,6 +769,7 @@ export const drift = {
     "drift.orchestrator.state.working": "作業中",
     "drift.orchestrator.state.done": "完了",
     "drift.orchestrator.state.blocked": "ブロック中",
+    "drift.orchestrator.nudge": "続行",
     "drift.tool.spawn": "作成",
     "drift.tool.subtask": "サブタスク",
     "drift.tool.task": "タスク",

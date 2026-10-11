@@ -276,6 +276,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Власна кількість хвилин",
     "drift.settings.shellTimeout.customDescription": "Введіть ціле число від 1 до 1440 хвилин.",
     "drift.settings.shellTimeout.invalid": "Введіть ціле число від 1 до 1440.",
+    "drift.settings.backgroundProcesses.title": "Фонові процеси",
+    "drift.settings.backgroundProcesses.description":
+        "Агенти можуть запускати команди у фоні, перевіряти їх інструментом процесів і дізнаються, коли вони завершуються.",
+    "drift.settings.shellHandoff.title": "Переводити довгі команди у фон",
+    "drift.settings.shellHandoff.description":
+        "Команда, що ще працює після ліміту часу, продовжує роботу у фоні замість зупинки.",
+    "drift.settings.shellHandoff.limitTitle": "Переводити у фон через",
+    "drift.settings.shellHandoff.limitDescription":
+        "Скільки команда працює на передньому плані, перш ніж перейти у фон. Застосовується до нових викликів.",
     "drift.shell.timeout.limit": "Ліміт {{duration}}",
     "drift.shell.timeout.expired": "Час вичерпано через {{duration}}",
     "drift.agent.build": "Збірка",
@@ -673,6 +682,8 @@ export const drift = {
     "drift.process.stopFailed": "Не вдалося зупинити процес",
     "drift.process.title": "Фоновий процес",
     "drift.process.gone": "Виконувався у фоні; відтоді Drift перезапускався.",
+    "drift.process.ended": "Фоновий процес завершено з кодом {{code}}",
+    "drift.process.endedStopped": "Фоновий процес зупинено",
     "drift.message.revertHere": "Повернутися сюди",
     "drift.message.revertKeepFiles": "Shift+клік залишає файли як є",
     "drift.message.tokenCounts": "{{input}} вх. / {{output}} вих.",
@@ -789,6 +800,7 @@ export const drift = {
     "drift.orchestrator.state.working": "У роботі",
     "drift.orchestrator.state.done": "Готово",
     "drift.orchestrator.state.blocked": "Заблоковано",
+    "drift.orchestrator.nudge": "Продовжено",
     "drift.tool.spawn": "Створити",
     "drift.tool.subtask": "Підзавдання",
     "drift.tool.task": "Завдання",

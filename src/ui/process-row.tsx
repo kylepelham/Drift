@@ -1,6 +1,9 @@
 import { createSignal, onCleanup, Show } from "solid-js";
+import { openFile } from "../tool-actions";
 import { openExternal } from "../shell";
 import { useEngine } from "../engine";
+import { NoteBox } from "./note-box";
+import { IconCode } from "./icons";
 import { t } from "../state/i18n";
 
 import type { ProcessRecord } from "../engine/processes";
@@ -72,21 +75,32 @@ export function ProcessRow(props: { process: ProcessRecord }) {
     );
 }
 
-/** Why a turn started by itself: a background process ended, said as a row like a tool's. */
+/** Why a turn started by itself: a background process ended. Folded like an answer; open for its output. */
 export function ProcessExitRow(props: { part: ProcessExitPart }) {
-    const ended = () =>
+    const label = () =>
         props.part.exitCode === undefined || props.part.exitCode === null
-            ? t("drift.process.stopped")
-            : t("drift.process.exited", { code: props.part.exitCode });
+            ? t("drift.process.endedStopped")
+            : t("drift.process.ended", { code: props.part.exitCode });
 
     return (
-        <div
-            class="flex min-h-8 w-full min-w-0 items-center justify-end gap-2 px-1.5 text-sm"
-            title={props.part.output}
-        >
-            <span class={`size-2 shrink-0 rounded-full ${props.part.exitCode === 0 ? "bg-ok" : "bg-danger"}`} />
-            <span class="shrink-0 font-medium text-ink-muted">{props.part.description}</span>
-            <span class="min-w-0 truncate text-[0.85rem] text-ink-faint">{ended()}</span>
+        <div class="flex min-w-0 justify-end">
+            <NoteBox icon={<IconCode class="size-3.5" />} label={label()} preview={props.part.description}>
+                <div class="font-mono text-xs text-ink-faint">$ {props.part.command}</div>
+                <Show when={props.part.output.trim()}>
+                    {(output) => (
+                        <pre class="max-h-60 overflow-auto font-mono text-xs whitespace-pre-wrap break-words text-ink-muted">
+                            {output()}
+                        </pre>
+                    )}
+                </Show>
+                <button
+                    class="text-xs text-accent/80 underline-offset-2 hover:underline"
+                    title={props.part.log}
+                    onClick={() => void openFile(props.part.log).catch(() => undefined)}
+                >
+                    {t("drift.shell.openFull")}
+                </button>
+            </NoteBox>
         </div>
     );
 }

@@ -277,6 +277,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Свое число минут",
     "drift.settings.shellTimeout.customDescription": "Введите целое число от 1 до 1440 минут.",
     "drift.settings.shellTimeout.invalid": "Введите целое число от 1 до 1440.",
+    "drift.settings.backgroundProcesses.title": "Фоновые процессы",
+    "drift.settings.backgroundProcesses.description":
+        "Агенты могут запускать команды в фоне, проверять их инструментом процессов и узнают, когда они завершаются.",
+    "drift.settings.shellHandoff.title": "Переводить долгие команды в фон",
+    "drift.settings.shellHandoff.description":
+        "Команда, которая всё ещё работает по истечении лимита, продолжает работу в фоне, а не останавливается.",
+    "drift.settings.shellHandoff.limitTitle": "Переводить в фон через",
+    "drift.settings.shellHandoff.limitDescription":
+        "Сколько команда работает на переднем плане, прежде чем уйти в фон. Применяется к новым вызовам.",
     "drift.shell.timeout.limit": "Лимит {{duration}}",
     "drift.shell.timeout.expired": "Тайм-аут через {{duration}}",
     "drift.agent.build": "Сборка",
@@ -675,6 +684,8 @@ export const drift = {
     "drift.process.stopFailed": "Не удалось остановить процесс",
     "drift.process.title": "Фоновый процесс",
     "drift.process.gone": "Выполнялся в фоне; с тех пор Drift перезапускался.",
+    "drift.process.ended": "Фоновый процесс завершён с кодом {{code}}",
+    "drift.process.endedStopped": "Фоновый процесс остановлен",
     "drift.message.revertHere": "Вернуться сюда",
     "drift.message.revertKeepFiles": "Shift+щелчок оставляет файлы как есть",
     "drift.message.tokenCounts": "{{input}} вх. / {{output}} вых.",
@@ -792,6 +803,7 @@ export const drift = {
     "drift.orchestrator.state.working": "В работе",
     "drift.orchestrator.state.done": "Готово",
     "drift.orchestrator.state.blocked": "Заблокировано",
+    "drift.orchestrator.nudge": "Продолжено",
     "drift.tool.spawn": "Создание",
     "drift.tool.subtask": "Подзадача",
     "drift.tool.task": "Задача",

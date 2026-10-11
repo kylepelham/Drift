@@ -277,6 +277,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Özel dakika",
     "drift.settings.shellTimeout.customDescription": "1 ile 1.440 arasında bir tam sayı girin.",
     "drift.settings.shellTimeout.invalid": "1 ile 1.440 arasında bir tam sayı girin.",
+    "drift.settings.backgroundProcesses.title": "Arka plan işlemleri",
+    "drift.settings.backgroundProcesses.description":
+        "Ajanlar komutları arka planda başlatabilir, işlem aracıyla izleyebilir ve bittiklerinde haberdar olur.",
+    "drift.settings.shellHandoff.title": "Uzun komutları arka plana taşı",
+    "drift.settings.shellHandoff.description":
+        "Süre sınırında hâlâ çalışan bir komut durdurulmak yerine arka planda çalışmaya devam eder.",
+    "drift.settings.shellHandoff.limitTitle": "Şu süreden sonra arka plana taşı",
+    "drift.settings.shellHandoff.limitDescription":
+        "Bir komutun arka plana geçmeden önce ön planda ne kadar çalışacağı. Yeni çağrılara uygulanır.",
     "drift.shell.timeout.limit": "Sınır {{duration}}",
     "drift.shell.timeout.expired": "{{duration}} sonra zaman aşımı",
     "drift.agent.build": "Derleme",
@@ -678,6 +687,8 @@ export const drift = {
     "drift.process.stopFailed": "İşlem durdurulamadı",
     "drift.process.title": "Arka plan işlemi",
     "drift.process.gone": "Arka planda çalıştı; Drift o zamandan beri yeniden başlatıldı.",
+    "drift.process.ended": "Arka plan işlemi {{code}} koduyla çıktı",
+    "drift.process.endedStopped": "Arka plan işlemi durduruldu",
     "drift.message.revertHere": "Buraya geri dön",
     "drift.message.revertKeepFiles": "Dosyaları olduğu gibi bırakmak için Shift ile tıklayın",
     "drift.message.tokenCounts": "{{input}} giriş / {{output}} çıkış",
@@ -793,6 +804,7 @@ export const drift = {
     "drift.orchestrator.state.working": "Çalışıyor",
     "drift.orchestrator.state.done": "Bitti",
     "drift.orchestrator.state.blocked": "Engellendi",
+    "drift.orchestrator.nudge": "Devam edildi",
     "drift.tool.spawn": "Oluştur",
     "drift.tool.subtask": "Alt görev",
     "drift.tool.task": "Görev",

@@ -276,6 +276,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "จำนวนนาทีที่กำหนดเอง",
     "drift.settings.shellTimeout.customDescription": "ป้อนจำนวนเต็มตั้งแต่ 1 ถึง 1,440 นาที",
     "drift.settings.shellTimeout.invalid": "ป้อนจำนวนเต็มตั้งแต่ 1 ถึง 1,440",
+    "drift.settings.backgroundProcesses.title": "โปรเซสเบื้องหลัง",
+    "drift.settings.backgroundProcesses.description":
+        "เอเจนต์เริ่มคำสั่งในเบื้องหลัง ตรวจสอบด้วยเครื่องมือโปรเซส และได้รับแจ้งเมื่อจบได้",
+    "drift.settings.shellHandoff.title": "ย้ายคำสั่งที่ใช้เวลานานไปเบื้องหลัง",
+    "drift.settings.shellHandoff.description":
+        "คำสั่งที่ยังทำงานเมื่อถึงเวลาที่กำหนดจะทำงานต่อในเบื้องหลังแทนการถูกหยุด",
+    "drift.settings.shellHandoff.limitTitle": "ย้ายไปเบื้องหลังหลังจาก",
+    "drift.settings.shellHandoff.limitDescription":
+        "ระยะเวลาที่คำสั่งทำงานอยู่เบื้องหน้าก่อนย้ายไปเบื้องหลัง ใช้กับการเรียกใหม่",
     "drift.shell.timeout.limit": "ขีดจำกัด {{duration}}",
     "drift.shell.timeout.expired": "หมดเวลาหลัง {{duration}}",
     "drift.agent.build": "สร้าง",
@@ -666,6 +675,8 @@ export const drift = {
     "drift.process.stopFailed": "ไม่สามารถหยุดโปรเซสได้",
     "drift.process.title": "โปรเซสเบื้องหลัง",
     "drift.process.gone": "ทำงานอยู่เบื้องหลัง Drift ถูกเริ่มใหม่ตั้งแต่นั้น",
+    "drift.process.ended": "โปรเซสเบื้องหลังจบด้วยรหัส {{code}}",
+    "drift.process.endedStopped": "หยุดโปรเซสเบื้องหลังแล้ว",
     "drift.message.revertHere": "ย้อนกลับมาที่นี่",
     "drift.message.revertKeepFiles": "กด Shift ค้างแล้วคลิกเพื่อคงไฟล์ไว้ตามเดิม",
     "drift.message.tokenCounts": "เข้า {{input}} / ออก {{output}}",
@@ -781,6 +792,7 @@ export const drift = {
     "drift.orchestrator.state.working": "กำลังทำงาน",
     "drift.orchestrator.state.done": "เสร็จแล้ว",
     "drift.orchestrator.state.blocked": "ติดขัด",
+    "drift.orchestrator.nudge": "ทำต่อ",
     "drift.tool.spawn": "สร้าง",
     "drift.tool.subtask": "งานย่อย",
     "drift.tool.task": "งาน",

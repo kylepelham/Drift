@@ -276,6 +276,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Prilagođene minute",
     "drift.settings.shellTimeout.customDescription": "Unesite cijeli broj od 1 do 1.440 minuta.",
     "drift.settings.shellTimeout.invalid": "Unesite cijeli broj od 1 do 1.440.",
+    "drift.settings.backgroundProcesses.title": "Procesi u pozadini",
+    "drift.settings.backgroundProcesses.description":
+        "Agenti mogu pokretati naredbe u pozadini, pratiti ih alatom za procese i dobiti obavijest kada završe.",
+    "drift.settings.shellHandoff.title": "Premjesti duge naredbe u pozadinu",
+    "drift.settings.shellHandoff.description":
+        "Naredba koja još radi na isteku vremena nastavlja u pozadini umjesto da bude zaustavljena.",
+    "drift.settings.shellHandoff.limitTitle": "Premjesti u pozadinu nakon",
+    "drift.settings.shellHandoff.limitDescription":
+        "Koliko dugo naredba radi u prvom planu prije prelaska u pozadinu. Primjenjuje se na nove pozive.",
     "drift.shell.timeout.limit": "Ograničenje {{duration}}",
     "drift.shell.timeout.expired": "Vrijeme isteklo nakon {{duration}}",
     "drift.agent.build": "Izrada",
@@ -675,6 +684,8 @@ export const drift = {
     "drift.process.stopFailed": "Proces nije moguće zaustaviti",
     "drift.process.title": "Proces u pozadini",
     "drift.process.gone": "Radio je u pozadini; Drift je od tada ponovo pokrenut.",
+    "drift.process.ended": "Proces u pozadini završen s kodom {{code}}",
+    "drift.process.endedStopped": "Proces u pozadini zaustavljen",
     "drift.message.revertHere": "Vrati do ovdje",
     "drift.message.revertKeepFiles": "Shift+klik da datoteke ostanu kakve jesu",
     "drift.message.tokenCounts": "{{input}} ulaz / {{output}} izlaz",
@@ -792,6 +803,7 @@ export const drift = {
     "drift.orchestrator.state.working": "U toku",
     "drift.orchestrator.state.done": "Gotovo",
     "drift.orchestrator.state.blocked": "Blokirano",
+    "drift.orchestrator.nudge": "Nastavljeno",
     "drift.tool.spawn": "Pokreni",
     "drift.tool.subtask": "Podzadatak",
     "drift.tool.task": "Zadatak",

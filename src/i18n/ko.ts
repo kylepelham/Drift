@@ -243,6 +243,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "사용자 지정 분",
     "drift.settings.shellTimeout.customDescription": "1에서 1,440 사이의 정수를 입력하세요.",
     "drift.settings.shellTimeout.invalid": "1에서 1,440 사이의 정수를 입력하세요.",
+    "drift.settings.backgroundProcesses.title": "백그라운드 프로세스",
+    "drift.settings.backgroundProcesses.description":
+        "에이전트가 명령을 백그라운드에서 시작하고, 프로세스 도구로 확인하며, 종료되면 알림을 받습니다.",
+    "drift.settings.shellHandoff.title": "긴 명령을 백그라운드로 이동",
+    "drift.settings.shellHandoff.description":
+        "시간 제한에 도달해도 실행 중인 명령은 중지되지 않고 백그라운드에서 계속 실행됩니다.",
+    "drift.settings.shellHandoff.limitTitle": "다음 시간 후 백그라운드로 이동",
+    "drift.settings.shellHandoff.limitDescription":
+        "명령이 백그라운드로 이동하기 전에 포그라운드에서 실행되는 시간입니다. 새 호출에 적용됩니다.",
     "drift.shell.timeout.limit": "제한 {{duration}}",
     "drift.shell.timeout.expired": "{{duration}} 후 시간 초과",
     "drift.agent.build": "빌드",
@@ -637,6 +646,8 @@ export const drift = {
     "drift.process.stopFailed": "프로세스를 중지하지 못했습니다",
     "drift.process.title": "백그라운드 프로세스",
     "drift.process.gone": "백그라운드에서 실행되었습니다. 이후 Drift가 다시 시작되었습니다.",
+    "drift.process.ended": "백그라운드 프로세스가 코드 {{code}}(으)로 종료됨",
+    "drift.process.endedStopped": "백그라운드 프로세스 중지됨",
     "drift.message.revertHere": "여기로 되돌리기",
     "drift.message.revertKeepFiles": "Shift+클릭하면 파일은 그대로 둡니다",
     "drift.message.tokenCounts": "입력 {{input}} / 출력 {{output}}",
@@ -752,6 +763,7 @@ export const drift = {
     "drift.orchestrator.state.working": "진행 중",
     "drift.orchestrator.state.done": "완료",
     "drift.orchestrator.state.blocked": "막힘",
+    "drift.orchestrator.nudge": "계속 진행",
     "drift.tool.spawn": "생성",
     "drift.tool.subtask": "하위 작업",
     "drift.tool.task": "작업",

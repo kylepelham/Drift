@@ -278,6 +278,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Minutos personalizados",
     "drift.settings.shellTimeout.customDescription": "Introduce un número entero entre 1 y 1.440 minutos.",
     "drift.settings.shellTimeout.invalid": "Introduce un número entero entre 1 y 1.440.",
+    "drift.settings.backgroundProcesses.title": "Procesos en segundo plano",
+    "drift.settings.backgroundProcesses.description":
+        "Los agentes pueden iniciar comandos en segundo plano, revisarlos con la herramienta de procesos y saber cuándo terminan.",
+    "drift.settings.shellHandoff.title": "Pasar comandos largos a segundo plano",
+    "drift.settings.shellHandoff.description":
+        "Un comando que sigue en ejecución al llegar al límite continúa en segundo plano en lugar de detenerse.",
+    "drift.settings.shellHandoff.limitTitle": "Pasar a segundo plano después de",
+    "drift.settings.shellHandoff.limitDescription":
+        "Cuánto tiempo se ejecuta un comando en primer plano antes de pasar a segundo plano. Se aplica a llamadas nuevas.",
     "drift.shell.timeout.limit": "Límite {{duration}}",
     "drift.shell.timeout.expired": "Tiempo agotado tras {{duration}}",
     "drift.agent.build": "Construcción",
@@ -679,6 +688,8 @@ export const drift = {
     "drift.process.stopFailed": "No se pudo detener el proceso",
     "drift.process.title": "Proceso en segundo plano",
     "drift.process.gone": "Se ejecutó en segundo plano; Drift se reinició desde entonces.",
+    "drift.process.ended": "Proceso en segundo plano terminó con código {{code}}",
+    "drift.process.endedStopped": "Proceso en segundo plano detenido",
     "drift.message.revertHere": "Revertir hasta aquí",
     "drift.message.revertKeepFiles": "Mayús+clic para dejar los archivos como están",
     "drift.message.tokenCounts": "{{input}} entrada / {{output}} salida",
@@ -795,6 +806,7 @@ export const drift = {
     "drift.orchestrator.state.working": "En curso",
     "drift.orchestrator.state.done": "Hecho",
     "drift.orchestrator.state.blocked": "Bloqueado",
+    "drift.orchestrator.nudge": "Continuó",
     "drift.tool.spawn": "Crear",
     "drift.tool.subtask": "Subtarea",
     "drift.tool.task": "Tarea",

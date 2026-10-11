@@ -319,3 +319,65 @@ async fn large_output_is_bounded_in_the_result_and_whole_on_disk() {
         Some(std::fs::metadata(file).unwrap().len())
     );
 }
+
+#[tokio::test]
+async fn with_hand_off_off_a_command_at_its_limit_is_stopped_as_before() {
+    let sandbox = Sandbox::new("bash-no-handoff");
+    sandbox
+        .ctx
+        .engine
+        .store
+        .set_setting(crate::background::HANDOFF_KEY, &false)
+        .unwrap();
+    let bash = Bash::detect();
+    let line = match bash.shell {
+        Shell::Bash(_) => "echo early; sleep 5",
+        Shell::PowerShell(_) => "Write-Output early; Start-Sleep 5",
+    };
+
+    let stopped = bash
+        .run(&sandbox.ctx, json!({ "command": line, "timeout": 1000 }))
+        .await
+        .unwrap();
+
+    assert!(bash.failed(&stopped), "a command stopped by its limit is a failed call");
+    assert_eq!(stopped.metadata.timed_out, Some(true));
+    assert!(stopped.metadata.process_id.is_none());
+    assert!(stopped.output.contains("stopped after"), "{}", stopped.output);
+    assert!(
+        bash.spec_for(&sandbox.ctx.engine)
+            .description
+            .contains("are stopped after")
+    );
+}
+
+#[tokio::test]
+async fn with_background_processes_off_bash_offers_no_background_and_refuses_one() {
+    let sandbox = Sandbox::new("bash-no-background");
+    let bash = Bash::detect();
+    let offered = |sandbox: &Sandbox| bash.spec_for(&sandbox.ctx.engine);
+    assert!(offered(&sandbox).input_schema["properties"]["background"].is_object());
+
+    sandbox
+        .ctx
+        .engine
+        .store
+        .set_setting(crate::background::PROCESSES_KEY, &false)
+        .unwrap();
+    let spec = offered(&sandbox);
+    assert!(spec.input_schema["properties"]["background"].is_null());
+    assert!(
+        spec.description.contains("Never start long-lived servers"),
+        "{}",
+        spec.description
+    );
+    assert!(
+        !sandbox.ctx.engine.shell_handoff(),
+        "hand-off needs background processes"
+    );
+
+    let refused = bash
+        .run(&sandbox.ctx, json!({ "command": "echo hi", "background": true }))
+        .await;
+    assert!(refused.is_err());
+}

@@ -323,7 +323,8 @@ impl Engine {
             .tools
             .offered(plan.model.profile)
             .into_iter()
-            .map(|tool| (tool.spec(), tool))
+            .map(|tool| (tool.spec_for(self), tool))
+            .filter(|(spec, _)| spec.name != "process" || self.background_processes())
             .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))

@@ -451,6 +451,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Custom minutes",
     "drift.settings.shellTimeout.customDescription": "Enter a whole number from 1 to 1,440 minutes.",
     "drift.settings.shellTimeout.invalid": "Enter a whole number from 1 to 1,440.",
+    "drift.settings.backgroundProcesses.title": "Background processes",
+    "drift.settings.backgroundProcesses.description":
+        "Agents can start commands in the background, check on them with the process tool, and are told when they end.",
+    "drift.settings.shellHandoff.title": "Move long commands to the background",
+    "drift.settings.shellHandoff.description":
+        "A command still running at the time limit keeps going in the background instead of being stopped.",
+    "drift.settings.shellHandoff.limitTitle": "Move to the background after",
+    "drift.settings.shellHandoff.limitDescription":
+        "How long a shell command runs in the foreground before it moves to the background. Changes apply to new calls.",
     "drift.shell.timeout.limit": "Limit {{duration}}",
     "drift.shell.timeout.expired": "Timed out after {{duration}}",
     "drift.agent.build": "Build",
@@ -826,6 +835,8 @@ export const drift = {
     "drift.process.stopFailed": "Could not stop the process",
     "drift.process.title": "Background process",
     "drift.process.gone": "Ran in the background; Drift has restarted since.",
+    "drift.process.ended": "Background process exited with code {{code}}",
+    "drift.process.endedStopped": "Background process stopped",
     "drift.message.revertHere": "Revert to here",
     "drift.message.revertKeepFiles": "Shift-click to keep the files as they are",
     "drift.message.tokenCounts": "{{input}} in / {{output}} out",
@@ -1075,6 +1086,7 @@ export const drift = {
     "drift.orchestrator.state.working": "Working",
     "drift.orchestrator.state.done": "Done",
     "drift.orchestrator.state.blocked": "Blocked",
+    "drift.orchestrator.nudge": "Kept going",
     "drift.tool.spawn": "Spawn",
     "drift.tool.readThread": "Checked thread",
     "drift.tool.subtask": "Subtask",

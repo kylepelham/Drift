@@ -246,6 +246,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Benutzerdefinierte Minuten",
     "drift.settings.shellTimeout.customDescription": "Gib eine ganze Zahl von 1 bis 1.440 Minuten ein.",
     "drift.settings.shellTimeout.invalid": "Gib eine ganze Zahl von 1 bis 1.440 ein.",
+    "drift.settings.backgroundProcesses.title": "Hintergrundprozesse",
+    "drift.settings.backgroundProcesses.description":
+        "Agents können Befehle im Hintergrund starten, sie mit dem Prozess-Tool prüfen und erfahren, wenn sie enden.",
+    "drift.settings.shellHandoff.title": "Lange Befehle in den Hintergrund verschieben",
+    "drift.settings.shellHandoff.description":
+        "Ein Befehl, der beim Zeitlimit noch läuft, läuft im Hintergrund weiter, statt gestoppt zu werden.",
+    "drift.settings.shellHandoff.limitTitle": "In den Hintergrund verschieben nach",
+    "drift.settings.shellHandoff.limitDescription":
+        "Wie lange ein Shell-Befehl im Vordergrund läuft, bevor er in den Hintergrund wechselt. Gilt für neue Aufrufe.",
     "drift.shell.timeout.limit": "Limit {{duration}}",
     "drift.shell.timeout.expired": "Zeitlimit nach {{duration}} erreicht",
     "drift.agent.build": "Erstellen",
@@ -649,6 +658,8 @@ export const drift = {
     "drift.process.stopFailed": "Der Prozess konnte nicht gestoppt werden",
     "drift.process.title": "Hintergrundprozess",
     "drift.process.gone": "Lief im Hintergrund; Drift wurde seitdem neu gestartet.",
+    "drift.process.ended": "Hintergrundprozess beendet mit Code {{code}}",
+    "drift.process.endedStopped": "Hintergrundprozess gestoppt",
     "drift.message.revertHere": "Bis hierher zurücksetzen",
     "drift.message.revertKeepFiles": "Mit Umschalt-Klick bleiben die Dateien, wie sie sind",
     "drift.message.tokenCounts": "{{input}} ein / {{output}} aus",
@@ -768,6 +779,7 @@ export const drift = {
     "drift.orchestrator.state.working": "In Arbeit",
     "drift.orchestrator.state.done": "Fertig",
     "drift.orchestrator.state.blocked": "Blockiert",
+    "drift.orchestrator.nudge": "Weitergemacht",
     "drift.tool.spawn": "Starten",
     "drift.tool.subtask": "Teilaufgabe",
     "drift.tool.task": "Aufgabe",

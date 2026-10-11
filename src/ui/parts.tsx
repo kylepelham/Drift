@@ -1,16 +1,18 @@
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins";
 import { splitOrchestratorStatus, type OrchestratorStatus } from "../state/orchestrator";
 import { createMemo, createSignal, Match, Show, Switch, type JSX } from "solid-js";
-import { IconArrowUpRight, IconCheck, IconPlug } from "./icons";
+import { IconArrowUpRight, IconCheck, IconInfo, IconPlug } from "./icons";
 import { openToolContextMenu } from "./tool-context-menu";
 import { citationFileGroups } from "./citation-files";
 import { promptPartText } from "../engine/parts";
 import { showReasoning } from "../state/prefs";
 import { TextShimmer } from "./text-shimmer";
 import { FilePartView } from "./file-part";
+import { Dynamic } from "solid-js/web";
 import { ToolView } from "./tool-view";
 import { Markdown } from "./markdown";
 import { useEngine } from "../engine";
+import { NoteBox } from "./note-box";
 import { Chevron } from "./controls";
 import { t } from "../state/i18n";
 
@@ -131,28 +133,26 @@ const statusLabels = {
     blocked: "drift.orchestrator.state.blocked",
 } as const;
 
-/** The orchestrator's end-of-reply status, as a row like a tool's rather than the JSON it wrote; on the
- * user's side, since while it says Working the engine prompts again on the user's behalf. */
+const statusIcons = {
+    working: IconArrowUpRight,
+    done: IconCheck,
+    blocked: IconInfo,
+} as const;
+
+/** The orchestrator's end-of-reply status, folded like an answer rather than the JSON it wrote; on the user's
+ * side, since while it says Working the engine prompts again on the user's behalf. */
 function OrchestratorStatusRow(props: { status: OrchestratorStatus }) {
     return (
-        <div class="flex min-h-8 min-w-0 items-center justify-end gap-2 px-1.5 text-sm">
-            <Switch>
-                <Match when={props.status.state === "done"}>
-                    <IconCheck class="size-3.5 shrink-0 text-ok" />
-                </Match>
-                <Match when={props.status.state === "blocked"}>
-                    <span class="size-1.5 shrink-0 rounded-full bg-warn" />
-                </Match>
-                <Match when={props.status.state === "working"}>
-                    <IconArrowUpRight class="size-3.5 shrink-0 text-accent/70" />
-                </Match>
-            </Switch>
-            <span class="shrink-0 font-semibold text-ink">{t(statusLabels[props.status.state])}</span>
-            <Show when={props.status.headline}>
-                <span class="min-w-0 truncate text-[0.85rem] text-ink-faint" title={props.status.headline}>
-                    {props.status.headline}
-                </span>
-            </Show>
+        <div class="flex min-w-0 justify-end">
+            <NoteBox
+                icon={<Dynamic component={statusIcons[props.status.state]} class="size-3.5" />}
+                label={t(statusLabels[props.status.state])}
+                preview={props.status.headline}
+            >
+                {props.status.headline && (
+                    <div class="whitespace-pre-wrap break-words text-ink">{props.status.headline}</div>
+                )}
+            </NoteBox>
         </div>
     );
 }

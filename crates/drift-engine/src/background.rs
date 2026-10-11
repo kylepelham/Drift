@@ -21,6 +21,10 @@ pub use buffer::Unread;
 use buffer::{Buffer, url_in};
 pub(crate) use monitor::Watcher;
 
+/// Settings: agents may run commands in the background, and a command at its time limit moves there.
+pub const PROCESSES_KEY: &str = "backgroundProcesses";
+pub const HANDOFF_KEY: &str = "shellHandoff";
+
 /// Ended processes a conversation keeps listed; older ones are forgotten.
 const ENDED_KEPT: usize = 20;
 

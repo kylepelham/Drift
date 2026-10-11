@@ -245,6 +245,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Minutos personalizados",
     "drift.settings.shellTimeout.customDescription": "Digite um número inteiro de 1 a 1.440 minutos.",
     "drift.settings.shellTimeout.invalid": "Digite um número inteiro de 1 a 1.440.",
+    "drift.settings.backgroundProcesses.title": "Processos em segundo plano",
+    "drift.settings.backgroundProcesses.description":
+        "Agentes podem iniciar comandos em segundo plano, acompanhá-los com a ferramenta de processos e são avisados quando terminam.",
+    "drift.settings.shellHandoff.title": "Mover comandos longos para segundo plano",
+    "drift.settings.shellHandoff.description":
+        "Um comando ainda em execução no limite de tempo continua em segundo plano em vez de ser parado.",
+    "drift.settings.shellHandoff.limitTitle": "Mover para segundo plano após",
+    "drift.settings.shellHandoff.limitDescription":
+        "Quanto tempo um comando roda em primeiro plano antes de ir para segundo plano. Vale para novas chamadas.",
     "drift.shell.timeout.limit": "Limite {{duration}}",
     "drift.shell.timeout.expired": "Tempo esgotado após {{duration}}",
     "drift.agent.build": "Construção",
@@ -647,6 +656,8 @@ export const drift = {
     "drift.process.stopFailed": "Não foi possível parar o processo",
     "drift.process.title": "Processo em segundo plano",
     "drift.process.gone": "Rodou em segundo plano; o Drift foi reiniciado desde então.",
+    "drift.process.ended": "Processo em segundo plano terminou com código {{code}}",
+    "drift.process.endedStopped": "Processo em segundo plano parado",
     "drift.message.revertHere": "Reverter até aqui",
     "drift.message.revertKeepFiles": "Shift+clique para manter os arquivos como estão",
     "drift.message.tokenCounts": "{{input}} entrada / {{output}} saída",
@@ -763,6 +774,7 @@ export const drift = {
     "drift.orchestrator.state.working": "Em andamento",
     "drift.orchestrator.state.done": "Concluído",
     "drift.orchestrator.state.blocked": "Bloqueado",
+    "drift.orchestrator.nudge": "Continuou",
     "drift.tool.spawn": "Criar",
     "drift.tool.subtask": "Subtarefa",
     "drift.tool.task": "Tarefa",

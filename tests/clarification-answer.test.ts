@@ -307,38 +307,31 @@ test("clarification UI uses a closed native disclosure with full QAs, copy/rever
     expect(fallback.getText(parsed)).toContain("bg-surface");
     expect(fallback.getText(parsed)).toContain("model()");
 
+    // The answer folds in the shared NoteBox, labelled and previewed from the answer.
     elements.length = 0;
     branch.children.forEach(visit);
-    const details = elements.filter((node) => node.openingElement.tagName.getText(parsed) === "details");
-    expect(details).toHaveLength(1);
-    expect(
-        details[0].openingElement.attributes.properties.some(
-            (attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "open",
-        ),
-    ).toBe(false);
-    const summary = elements.find((node) => node.openingElement.tagName.getText(parsed) === "summary")!;
-    expect(summary).toBeDefined();
-    expect(summary.parent).toBe(details[0]);
-    expect(summary.getText(parsed)).toContain('t("drift.question.answered")');
-    expect(summary.getText(parsed)).toContain("answer().preview");
-    expect(
-        summary.openingElement.attributes.properties.some(
-            (attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "data-find-ignore",
-        ),
-    ).toBe(true);
+    const boxes = elements.filter((node) => node.openingElement.tagName.getText(parsed) === "NoteBox");
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].openingElement.getText(parsed)).toContain("label={noteLabel(answer())}");
+    expect(boxes[0].openingElement.getText(parsed)).toContain("preview={answer().preview}");
+    expect(source).toContain('return t("drift.question.answered")');
+
+    // Only an unanswered question is left out of find; the box's own line is ignored inside NoteBox.
     const ignored = elements
         .flatMap((node) => [...node.openingElement.attributes.properties])
         .filter((attr) => ts.isJsxAttribute(attr) && attr.name.getText(parsed) === "data-find-ignore");
     expect(ignored.map((attr) => attr.getText(parsed))).toEqual([
-        "data-find-ignore",
         'data-find-ignore={item.answers.length ? undefined : ""}',
     ]);
     expect(fallback.getText(parsed)).not.toContain("data-find-ignore");
 
-    const expanded = details[0].children
-        .filter((node) => node !== summary)
-        .map((node) => node.getText(parsed))
-        .join("\n");
+    // NoteBox is a closed native disclosure whose summary find skips.
+    const box = await Bun.file("src/ui/note-box.tsx").text();
+    expect(box).toContain("<details");
+    expect(box).not.toMatch(/<details[^>]*\sopen\b/);
+    expect(box).toMatch(/<summary\s+data-find-ignore/);
+
+    const expanded = boxes[0].children.map((node) => node.getText(parsed)).join("\n");
     expect(expanded).toContain("<For each={answer().items}>");
     expect(expanded).toContain("{item.question}");
     expect(expanded).toContain('item.answers.join(", ")');

@@ -120,3 +120,25 @@ async fn archiving_a_conversation_stops_its_processes() {
 
     assert_eq!(process.record().state, crate::background::ProcessState::Stopped);
 }
+
+#[tokio::test]
+async fn with_background_processes_off_agents_are_not_offered_the_process_tool() {
+    let h = harness().await;
+    h.provider.push(text("a")).push(text("b"));
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    h.engine
+        .store
+        .set_setting(crate::background::PROCESSES_KEY, &false)
+        .unwrap();
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap();
+    let offers = |index: usize| requests[index].tools.iter().any(|tool| tool.name == "process");
+    assert!(offers(0));
+    assert!(!offers(1));
+    let bash = requests[1].tools.iter().find(|tool| tool.name == "bash").unwrap();
+    assert!(bash.input_schema["properties"]["background"].is_null());
+}

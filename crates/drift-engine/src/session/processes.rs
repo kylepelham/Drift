@@ -7,7 +7,7 @@ use std::time::Duration;
 use super::turn::{Admission, Prompt, TurnError};
 use super::types::{Part, Visibility};
 use crate::Engine;
-use crate::background::{Exit, Handle, Start, Watcher};
+use crate::background::{Exit, HANDOFF_KEY, Handle, PROCESSES_KEY, Start, Watcher};
 use crate::event::Event;
 
 /// How much of the end of a process's output its exit prompt carries.
@@ -17,6 +17,17 @@ const BUSY_RETRY: Duration = Duration::from_secs(30);
 const BUSY_TRIES: usize = 10;
 
 impl Engine {
+    /// Whether agents may run commands in the background and see them with `process` (Settings; on by default).
+    pub fn background_processes(&self) -> bool {
+        self.store.setting(PROCESSES_KEY).ok().flatten().unwrap_or(true)
+    }
+
+    /// Whether a command still running at its time limit moves to the background rather than being stopped.
+    /// Only while background processes are on, since the model could not see it otherwise.
+    pub fn shell_handoff(&self) -> bool {
+        self.background_processes() && self.store.setting(HANDOFF_KEY).ok().flatten().unwrap_or(true)
+    }
+
     /// Hands a started command to the background; it belongs to `start.session_id` from now on.
     pub(crate) fn start_process(self: &Arc<Self>, start: Start) -> Arc<Handle> {
         let (_, generation) = self.worker_scope(&start.session_id);

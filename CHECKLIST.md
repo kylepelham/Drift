@@ -300,6 +300,7 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
   - [x] A process outlives the turn and Stop; the dock's Stop, archiving the conversation and quitting Drift end it; a subagent's end with its run
   - [x] Processes in the Background tasks dock with a live last line, an Open link for a printed URL, and Stop
   - [x] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
+  - [x] Settings > Execution switches background processes (the `process` tool and bash `background`) and the hand-off at the time limit; off restores stopping at the limit
   - [x] A process that exits after the turn wakes its conversation with its exit code and the end of its output, unless the model saw it end, it was stopped, or the user pressed Stop since it started
 - [ ] Worktrees: per-thread toggle at start; branch `drift/<name>` from the current commit under Drift's data; uncommitted changes not copied (said so); spawned threads inherit; never merged by Drift; purged with the thread when merged, asked otherwise
 - [ ] `/watch-pr`: poll through `gh` about once a minute, wake the thread on CI failure or a review comment, stop at merge, close or the fifth wake

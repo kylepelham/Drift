@@ -1146,7 +1146,16 @@ goal retires them.
     dock. A conversation busy with another job is offered it every 30 s, ten times.
   - Processes show in the Background tasks dock beside background subagents while any runs, with a
     live last line, an Open link for a printed URL, and Stop. Ended ones join the finished history.
-    The prompt a process's end adds shows as a row naming it and how it ended.
+    The prompt a process's end adds folds like an answered question (`NoteBox`): how it ended and
+    its description, opening to its command, the end of its output and the full log. The
+    orchestrator's status and its nudges fold the same way.
+  - Settings > Execution > Shell has both switches, on by default and kept by the engine
+    (`backgroundProcesses`, `shellHandoff` in `/settings`). Background processes off: turns are not
+    offered `process`, bash's schema has no `background`, its description says to pass a larger
+    `timeout` and never start servers, and a `background: true` call is refused. Hand-off off, or
+    background processes off: a command at its time limit is stopped and the call fails, as before.
+    The time limit is the shell timeout; while hand-off is on its row reads "Move to the background
+    after".
   - A URL a process prints is handed back to the model. With the chrome-devtools MCP that is the
     whole browser check: start the dev server, wait for its URL, look at the page, stop it.
   - Processes live in memory: a restart of Drift ends them and forgets them. Undo cannot capture

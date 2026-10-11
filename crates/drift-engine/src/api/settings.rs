@@ -8,6 +8,7 @@ use utoipa::ToSchema;
 
 use super::error::ApiError;
 use crate::Engine;
+use crate::background::{HANDOFF_KEY, PROCESSES_KEY};
 use crate::session::compaction::AUTO_COMPACT_KEY;
 use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
 
@@ -24,6 +25,13 @@ pub(super) struct EngineSettings {
     /// How many background subagents run at once, 1 to 16; more wait for a slot. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_task_limit: Option<usize>,
+    /// Let agents run shell commands in the background and see them with `process`. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background_processes: Option<bool>,
+    /// A shell command still running at its time limit moves to the background instead of being stopped; only while
+    /// background processes are on. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shell_handoff: Option<bool>,
     /// Every session answers its own asks; only a deny rule still refuses. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_accept_all: Option<bool>,
@@ -45,6 +53,10 @@ pub(super) struct EngineSettingsInput {
     #[serde(default)]
     pub background_task_limit: Option<usize>,
     #[serde(default)]
+    pub background_processes: Option<bool>,
+    #[serde(default)]
+    pub shell_handoff: Option<bool>,
+    #[serde(default)]
     pub auto_accept_all: Option<bool>,
     #[serde(default)]
     pub registry_sources: Option<Vec<SourceInput>>,
@@ -55,6 +67,9 @@ fn current(engine: &Engine) -> EngineSettings {
         auto_compact: Some(engine.auto_compact()),
         background_tasks: Some(engine.background_enabled()),
         background_task_limit: Some(engine.background_limit()),
+        background_processes: Some(engine.background_processes()),
+        // The stored choice, so turning background processes back on restores it.
+        shell_handoff: Some(engine.store.setting(HANDOFF_KEY).ok().flatten().unwrap_or(true)),
         auto_accept_all: Some(engine.auto_accept_all()),
         registry_sources: Some(engine.registry_sources()),
     }
@@ -83,6 +98,12 @@ pub(super) async fn put(
             }
             LimitError::Store(error) => error.into(),
         })?;
+    }
+    if let Some(on) = body.background_processes {
+        engine.store.set_setting(PROCESSES_KEY, &on)?;
+    }
+    if let Some(on) = body.shell_handoff {
+        engine.store.set_setting(HANDOFF_KEY, &on)?;
     }
     if let Some(on) = body.auto_accept_all {
         engine.set_auto_accept_all(on)?;

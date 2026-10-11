@@ -25,6 +25,16 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         return requireClient().putSettings({ backgroundTaskLimit });
     }
 
+    /** Whether agents may run commands in the background and see them with `process`. */
+    async function setBackgroundProcesses(backgroundProcesses: boolean) {
+        return requireClient().putSettings({ backgroundProcesses });
+    }
+
+    /** Whether a command still running at its time limit moves to the background rather than being stopped. */
+    async function setShellHandoff(shellHandoff: boolean) {
+        return requireClient().putSettings({ shellHandoff });
+    }
+
     /**
      * The engine answers this session's asks, and its subagents', except secrets and anything outside the workspace.
      */
@@ -202,6 +212,8 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
     return {
         engineSettings,
         setBackgroundTaskLimit,
+        setBackgroundProcesses,
+        setShellHandoff,
         putEngineSettings: (body: Parameters<Client["putSettings"]>[0]) => requireClient().putSettings(body),
         fetchRegistry: (source: string) => requireClient().fetchRegistry(source),
         setAutoCompact,

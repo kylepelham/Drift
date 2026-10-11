@@ -276,6 +276,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Brugerdefinerede minutter",
     "drift.settings.shellTimeout.customDescription": "Indtast et helt tal fra 1 til 1.440 minutter.",
     "drift.settings.shellTimeout.invalid": "Indtast et helt tal fra 1 til 1.440.",
+    "drift.settings.backgroundProcesses.title": "Baggrundsprocesser",
+    "drift.settings.backgroundProcesses.description":
+        "Agenter kan starte kommandoer i baggrunden, følge dem med procesværktøjet og får besked, når de slutter.",
+    "drift.settings.shellHandoff.title": "Flyt lange kommandoer til baggrunden",
+    "drift.settings.shellHandoff.description":
+        "En kommando, der stadig kører ved tidsgrænsen, fortsætter i baggrunden i stedet for at blive stoppet.",
+    "drift.settings.shellHandoff.limitTitle": "Flyt til baggrunden efter",
+    "drift.settings.shellHandoff.limitDescription":
+        "Hvor længe en kommando kører i forgrunden, før den flyttes til baggrunden. Gælder nye kald.",
     "drift.shell.timeout.limit": "Grænse {{duration}}",
     "drift.shell.timeout.expired": "Timeout efter {{duration}}",
     "drift.agent.build": "Byg",
@@ -675,6 +684,8 @@ export const drift = {
     "drift.process.stopFailed": "Processen kunne ikke stoppes",
     "drift.process.title": "Baggrundsproces",
     "drift.process.gone": "Kørte i baggrunden; Drift er genstartet siden.",
+    "drift.process.ended": "Baggrundsproces afsluttet med kode {{code}}",
+    "drift.process.endedStopped": "Baggrundsproces stoppet",
     "drift.message.revertHere": "Rul tilbage hertil",
     "drift.message.revertKeepFiles": "Shift-klik for at beholde filerne, som de er",
     "drift.message.tokenCounts": "{{input}} ind / {{output}} ud",
@@ -792,6 +803,7 @@ export const drift = {
     "drift.orchestrator.state.working": "I gang",
     "drift.orchestrator.state.done": "Færdig",
     "drift.orchestrator.state.blocked": "Blokeret",
+    "drift.orchestrator.nudge": "Fortsatte",
     "drift.tool.spawn": "Start",
     "drift.tool.subtask": "Underopgave",
     "drift.tool.task": "Opgave",

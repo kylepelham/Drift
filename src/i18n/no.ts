@@ -277,6 +277,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Egendefinerte minutter",
     "drift.settings.shellTimeout.customDescription": "Skriv inn et heltall fra 1 til 1 440 minutter.",
     "drift.settings.shellTimeout.invalid": "Skriv inn et heltall fra 1 til 1 440.",
+    "drift.settings.backgroundProcesses.title": "Bakgrunnsprosesser",
+    "drift.settings.backgroundProcesses.description":
+        "Agenter kan starte kommandoer i bakgrunnen, følge dem med prosessverktøyet og får beskjed når de avslutter.",
+    "drift.settings.shellHandoff.title": "Flytt lange kommandoer til bakgrunnen",
+    "drift.settings.shellHandoff.description":
+        "En kommando som fortsatt kjører ved tidsgrensen, fortsetter i bakgrunnen i stedet for å bli stoppet.",
+    "drift.settings.shellHandoff.limitTitle": "Flytt til bakgrunnen etter",
+    "drift.settings.shellHandoff.limitDescription":
+        "Hvor lenge en kommando kjører i forgrunnen før den flyttes til bakgrunnen. Gjelder nye kall.",
     "drift.shell.timeout.limit": "Grense {{duration}}",
     "drift.shell.timeout.expired": "Tidsavbrudd etter {{duration}}",
     "drift.agent.build": "Bygg",
@@ -677,6 +686,8 @@ export const drift = {
     "drift.process.stopFailed": "Prosessen kunne ikke stoppes",
     "drift.process.title": "Bakgrunnsprosess",
     "drift.process.gone": "Kjørte i bakgrunnen; Drift er startet på nytt siden.",
+    "drift.process.ended": "Bakgrunnsprosess avsluttet med kode {{code}}",
+    "drift.process.endedStopped": "Bakgrunnsprosess stoppet",
     "drift.message.revertHere": "Tilbakestill hit",
     "drift.message.revertKeepFiles": "Shift-klikk for å beholde filene som de er",
     "drift.message.tokenCounts": "{{input}} inn / {{output}} ut",
@@ -792,6 +803,7 @@ export const drift = {
     "drift.orchestrator.state.working": "Pågår",
     "drift.orchestrator.state.done": "Ferdig",
     "drift.orchestrator.state.blocked": "Blokkert",
+    "drift.orchestrator.nudge": "Fortsatte",
     "drift.tool.spawn": "Opprett",
     "drift.tool.subtask": "Deloppgave",
     "drift.tool.task": "Oppgave",

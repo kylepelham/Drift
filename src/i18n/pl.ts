@@ -244,6 +244,15 @@ export const drift = {
     "drift.settings.shellTimeout.customMinutes": "Niestandardowa liczba minut",
     "drift.settings.shellTimeout.customDescription": "Wpisz liczbę całkowitą od 1 do 1440 minut.",
     "drift.settings.shellTimeout.invalid": "Wpisz liczbę całkowitą od 1 do 1440.",
+    "drift.settings.backgroundProcesses.title": "Procesy w tle",
+    "drift.settings.backgroundProcesses.description":
+        "Agenci mogą uruchamiać polecenia w tle, sprawdzać je narzędziem procesów i dostają informację o ich zakończeniu.",
+    "drift.settings.shellHandoff.title": "Przenoś długie polecenia do tła",
+    "drift.settings.shellHandoff.description":
+        "Polecenie wciąż działające po limicie czasu działa dalej w tle zamiast zostać zatrzymane.",
+    "drift.settings.shellHandoff.limitTitle": "Przenieś do tła po",
+    "drift.settings.shellHandoff.limitDescription":
+        "Jak długo polecenie działa na pierwszym planie, zanim przejdzie do tła. Dotyczy nowych wywołań.",
     "drift.shell.timeout.limit": "Limit {{duration}}",
     "drift.shell.timeout.expired": "Przekroczono czas po {{duration}}",
     "drift.agent.build": "Budowanie",
@@ -643,6 +652,8 @@ export const drift = {
     "drift.process.stopFailed": "Nie udało się zatrzymać procesu",
     "drift.process.title": "Proces w tle",
     "drift.process.gone": "Działał w tle; Drift został od tego czasu uruchomiony ponownie.",
+    "drift.process.ended": "Proces w tle zakończony z kodem {{code}}",
+    "drift.process.endedStopped": "Proces w tle zatrzymany",
     "drift.message.revertHere": "Cofnij do tego miejsca",
     "drift.message.revertKeepFiles": "Shift+klik, aby zostawić pliki bez zmian",
     "drift.message.tokenCounts": "{{input}} wej. / {{output}} wyj.",
@@ -760,6 +771,7 @@ export const drift = {
     "drift.orchestrator.state.working": "W toku",
     "drift.orchestrator.state.done": "Gotowe",
     "drift.orchestrator.state.blocked": "Zablokowane",
+    "drift.orchestrator.nudge": "Kontynuowano",
     "drift.tool.spawn": "Utwórz",
     "drift.tool.subtask": "Podzadanie",
     "drift.tool.task": "Zadanie",
