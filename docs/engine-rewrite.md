@@ -1157,7 +1157,19 @@ goal retires them.
     The time limit is the shell timeout; while hand-off is on its row reads "Move to the background
     after".
   - A URL a process prints is handed back to the model. With the chrome-devtools MCP that is the
-    whole browser check: start the dev server, wait for its URL, look at the page, stop it.
+    whole browser check: start the dev server, wait for its URL, look at the page, stop it. Only a
+    local server's address counts (localhost, 127.0.0.1, 0.0.0.0 or [::1] with port 80 or 1024 and
+    up), and only while the process runs; addresses tests merely print are ignored.
+  - Shell commands get `PYTHONUNBUFFERED=1` unless the environment sets it, so a Python script's
+    output arrives as it is printed rather than when it exits.
+  - Usage review, 2026-10-11 (325 background processes, 214 background subagents over 15 hours):
+    70% of background commands finished within two minutes and two thirds were started alone and
+    then waited on, so bash's description now says to run commands in the foreground, since the
+    hand-off covers long ones, and to use `background: true` only for servers, watchers and work
+    done meanwhile. A subagent's start note says it is not told when the process ends and that the
+    process stops with its run, so it waits before reporting. `task_output` waits up to ten minutes
+    (it was 120 s; 133 calls had timed out at it) and takes `task_ids` to return when the first of
+    several finishes.
   - Processes live in memory: a restart of Drift ends them and forgets them. Undo cannot capture
     what a background process changes after its call returned.
 - Worktrees: a toggle when a thread starts, never mid-turn. Drift makes branch `drift/<name>` from

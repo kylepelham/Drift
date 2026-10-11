@@ -244,7 +244,8 @@ impl Handle {
             started_at: self.started_at,
             ended_at: state.ended_at,
             last_line: state.buffer.last_line(),
-            url: state.url.clone(),
+            // An address is worth opening only while the server that printed it still runs.
+            url: state.url.clone().filter(|_| state.exit.is_none()),
             log: state.buffer.path.to_string_lossy().into_owned(),
         }
     }

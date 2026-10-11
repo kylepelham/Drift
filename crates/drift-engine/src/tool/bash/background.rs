@@ -5,6 +5,7 @@ use std::time::Duration;
 use super::Started;
 use super::output::without_blank_ends;
 use crate::background::{Exit, Handle, Start, Waited};
+use crate::session::types::Visibility;
 use crate::tool::spool::Spooled;
 use crate::tool::{Context, Output, ToolMetadata, add_note};
 
@@ -29,7 +30,7 @@ pub(super) async fn start(context: &Context, started: Started, seen: Vec<u8>) ->
             output.metadata.exit = Some(code.into());
             note(&mut output, &format!("It exited at once, with code {code}."));
         }
-        _ => note(&mut output, &running_note(&handle)),
+        _ => note(&mut output, &running_note(context, &handle)),
     }
 
     output
@@ -56,7 +57,7 @@ pub(super) async fn moved(context: &Context, started: Started, spooled: Spooled,
         &mut output,
         &format!(
             "It was still running after {seconds} s, so it moved to the background. {}",
-            running_note(&handle)
+            running_note(context, &handle)
         ),
     );
 
@@ -90,7 +91,7 @@ fn metadata(handle: &Handle) -> ToolMetadata {
     }
 }
 
-fn running_note(handle: &Handle) -> String {
+fn running_note(context: &Context, handle: &Handle) -> String {
     let url = handle
         .record()
         .url
@@ -98,10 +99,30 @@ fn running_note(handle: &Handle) -> String {
         .unwrap_or_default();
 
     format!(
-        "It runs in the background as {}.{url} This conversation is told when it ends, so carry on or end your turn; \
-         use `process` to read its output, wait for a line, type into it or stop it.",
-        handle.id
+        "It runs in the background as {}.{url} {} Use `process` to read its output, wait for a line, type into it \
+         or stop it.",
+        handle.id,
+        after_turn(context)
     )
+}
+
+/// What happens once the call returns: a conversation the user sees is told when the process ends, while a
+/// subagent's processes stop with its run and nothing wakes it.
+fn after_turn(context: &Context) -> &'static str {
+    let subagent = context
+        .engine
+        .store
+        .session(&context.session_id)
+        .ok()
+        .flatten()
+        .is_some_and(|session| session.visibility == Visibility::Hidden);
+
+    if subagent {
+        "You are a subagent: you are not told when it ends, and it is stopped when your run ends, so wait for it \
+         with `process` before you report."
+    } else {
+        "This conversation is told when it ends, so keep working or end your turn rather than waiting."
+    }
 }
 
 fn note(output: &mut Output, text: &str) {

@@ -161,7 +161,7 @@ impl Bash {
             "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of changing directory first. Default: the workspace root." }
         });
         if limits.background {
-            properties["background"] = json!({ "type": "boolean", "description": "Start it in the background and return its process id at once, for servers, watchers and long builds. Default false." });
+            properties["background"] = json!({ "type": "boolean", "description": "Start it in the background and return its process id at once. Only for servers, watchers, or work you will do something else during; never for a command you would only wait for. Default false." });
         }
 
         ToolSpec {
@@ -235,15 +235,17 @@ fn timeout_note(limits: Limits) -> &'static str {
 fn limits_note(limits: Limits) -> &'static str {
     match (limits.background, limits.handoff) {
         (true, true) => concat!(
-            "- A command still running after the user's time limit, or after `timeout` milliseconds when you pass one, ",
-            "moves to the background and keeps running; the result says its process id. Start servers, watchers and ",
-            "builds you expect to be long with `background: true`, then use `process` to wait for them, read their ",
-            "output or stop them."
+            "- Run commands in the foreground, even long builds and tests: one still running after the user's time ",
+            "limit, or after `timeout` milliseconds when you pass one, moves to the background by itself and the ",
+            "result says its process id. Use `background: true` only for servers and watchers, or to run several ",
+            "commands at once or keep working while one runs; a command you would only wait for costs an extra call ",
+            "in the background. Use `process` to wait for a background command, read its output or stop it."
         ),
         (true, false) => concat!(
             "- Commands and their child processes are stopped after the user's time limit, or after `timeout` ",
-            "milliseconds when you pass one. Start servers, watchers and builds you expect to be long with ",
-            "`background: true`, then use `process` to wait for them, read their output or stop them."
+            "milliseconds when you pass one; pass a larger `timeout` for a long build or test run. Use ",
+            "`background: true` only for servers and watchers, or to run several commands at once or keep working ",
+            "while one runs, then use `process` to wait for it, read its output or stop it."
         ),
         (false, _) => concat!(
             "- Commands and their child processes are stopped after the user's time limit, or after `timeout` ",
@@ -279,6 +281,10 @@ fn spawn(shell: &Shell, line: &str, directory: &Path, background: bool) -> Resul
         .stderr(Stdio::piped())
         .kill_on_drop(true);
     crate::platform::process::use_current_path(&mut process, &Default::default());
+    // Python holds its output back when it is not writing to a terminal, so a running script would look silent.
+    if std::env::var_os("PYTHONUNBUFFERED").is_none() {
+        process.env("PYTHONUNBUFFERED", "1");
+    }
     #[cfg(windows)]
     process.creation_flags(0x0800_0000 | 0x0000_0004);
     crate::platform::process::prepare(&mut process);

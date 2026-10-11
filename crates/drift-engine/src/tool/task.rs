@@ -1,6 +1,8 @@
 //! Delegation: `task` runs a subagent, waiting for it or leaving it in the background; `task_output`
 //! and `task_stop` look after background ones; `read_thread` checks on a conversation branched from this one.
 
+use std::fmt::Write as _;
+
 use serde_json::{Value, json};
 
 use super::ToolMetadata;
@@ -279,7 +281,10 @@ fn receipt(task: &TaskRecord) -> Output {
 
 /// A task this conversation launched, or a refusal naming why not.
 fn owned(ctx: &Context, input: &Value) -> Result<TaskRecord, ToolError> {
-    let id = required_str(input, "task_id")?;
+    owned_id(ctx, required_str(input, "task_id")?)
+}
+
+fn owned_id(ctx: &Context, id: &str) -> Result<TaskRecord, ToolError> {
     let task = ctx
         .engine
         .store
@@ -292,8 +297,8 @@ fn owned(ctx: &Context, input: &Value) -> Result<TaskRecord, ToolError> {
 }
 
 /// A background task of this conversation; a foreground result belongs to the call that launched it.
-fn owned_background(ctx: &Context, input: &Value) -> Result<TaskRecord, ToolError> {
-    let task = owned(ctx, input)?;
+fn owned_background(ctx: &Context, id: &str) -> Result<TaskRecord, ToolError> {
+    let task = owned_id(ctx, id)?;
     if task.mode == Mode::Foreground {
         return Err(ToolError(format!(
             "{} ran in the foreground; its result is the result of the task call that launched it",
@@ -301,6 +306,22 @@ fn owned_background(ctx: &Context, input: &Value) -> Result<TaskRecord, ToolErro
         )));
     }
     Ok(task)
+}
+
+/// The tasks a `task_output` call asks about: `task_ids`, else `task_id`.
+fn asked_ids(input: &Value) -> Result<Vec<String>, ToolError> {
+    let listed: Vec<String> = input["task_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_string)
+        .collect();
+    if !listed.is_empty() {
+        return Ok(listed);
+    }
+
+    Ok(vec![required_str(input, "task_id")?.to_string()])
 }
 
 /// The task's state, and its result only when this call is the one handing it over.
@@ -326,14 +347,14 @@ impl Tool for TaskOutput {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
             name: "task_output".into(),
-            description: "Checks on a background task this conversation started: whether it is still running, and its result once it has one. Results arrive by themselves when a task finishes, so use this only when you cannot go on without the result; do not poll it in a loop.".into(),
+            description: "Checks on background tasks this conversation started: whether they are still running, and a result once one has it. Results arrive by themselves when a task finishes, even after your turn ends, so if you have nothing else to do, end your turn instead of waiting. When you cannot go on without a result, wait once with a long `wait_seconds`; to wait for the first of several tasks, pass their ids as `task_ids`. Never poll in a loop.".into(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "task_id": { "type": "string", "description": "The id the task call returned." },
-                    "wait_seconds": { "type": "integer", "description": "Wait up to this long for it to finish, at most 120. Default 0: answer at once." }
-                },
-                "required": ["task_id"]
+                    "task_ids": { "type": "array", "items": { "type": "string" }, "description": "Several task ids; the call returns when the first of them finishes. Use instead of task_id." },
+                    "wait_seconds": { "type": "integer", "description": "Wait up to this long for a task to finish, at most 600. Default 0: answer at once." }
+                }
             }),
         }
     }
@@ -344,35 +365,66 @@ impl Tool for TaskOutput {
 
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
-            let mut task = owned_background(ctx, &input)?;
+            let mut tasks = asked_ids(&input)?
+                .iter()
+                .map(|id| owned_background(ctx, id))
+                .collect::<Result<Vec<_>, _>>()?;
+
             // Claimed while it waits, so a result finishing meanwhile comes here and not also as a message.
-            let claimed = !task.delivered
-                && ctx
-                    .engine
-                    .workers
-                    .claim(&task.id, Claimant::call(&ctx.session_id, &ctx.call_id));
+            let claimant = Claimant::call(&ctx.session_id, &ctx.call_id);
+            let claimed: Vec<String> = tasks
+                .iter()
+                .filter(|task| !task.delivered && ctx.engine.workers.claim(&task.id, claimant.clone()))
+                .map(|task| task.id.clone())
+                .collect();
+
             let wait = std::time::Duration::from_secs(input["wait_seconds"].as_u64().unwrap_or(0)).min(MAX_WAIT);
             let until = tokio::time::Instant::now() + wait;
-            while !task.state.is_terminal() && tokio::time::Instant::now() < until && !ctx.abort.is_cancelled() {
+            while !tasks.iter().any(|task| task.state.is_terminal())
+                && tokio::time::Instant::now() < until
+                && !ctx.abort.is_cancelled()
+            {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                task = owned(ctx, &input)?;
+                tasks = tasks
+                    .iter()
+                    .map(|task| owned_id(ctx, &task.id))
+                    .collect::<Result<_, _>>()?;
             }
-            let hands_over = claimed && task.state.is_terminal() && !task.delivered;
-            let mut metadata = ToolMetadata {
-                task_id: Some(task.id.clone()),
-                state: Some(task.state.as_str().into()),
-                session_id: Some(task.session_id.clone()),
-                ..Default::default()
-            };
-            if hands_over {
-                metadata.delivers = Some(task.id.clone());
-            }
-            Ok(Output {
-                title: task.description.clone(),
-                output: describe(&task, hands_over),
-                metadata,
-            })
+
+            Ok(answer(&tasks, &claimed))
         })
+    }
+}
+
+/// The first finished task, its result when this call hands it over, and how the others stand.
+fn answer(tasks: &[TaskRecord], claimed: &[String]) -> Output {
+    let task = tasks.iter().find(|task| task.state.is_terminal()).unwrap_or(&tasks[0]);
+    let hands_over = claimed.contains(&task.id) && task.state.is_terminal() && !task.delivered;
+
+    let mut text = describe(task, hands_over);
+    let others: Vec<String> = tasks
+        .iter()
+        .filter(|other| other.id != task.id)
+        .map(|other| format!("{} ({}): {}", other.id, other.description, other.state.as_str()))
+        .collect();
+    if !others.is_empty() {
+        let _ = write!(text, "\n\nThe others:\n{}", others.join("\n"));
+    }
+
+    let mut metadata = ToolMetadata {
+        task_id: Some(task.id.clone()),
+        state: Some(task.state.as_str().into()),
+        session_id: Some(task.session_id.clone()),
+        ..Default::default()
+    };
+    if hands_over {
+        metadata.delivers = Some(task.id.clone());
+    }
+
+    Output {
+        title: task.description.clone(),
+        output: text,
+        metadata,
     }
 }
 

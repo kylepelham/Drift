@@ -56,6 +56,16 @@ fn a_dev_servers_address_is_found_in_its_line() {
         Some("https://127.0.0.1:8443")
     );
     assert_eq!(url_in("no address here"), None);
+    assert_eq!(url_in("fetched http://example.com:8080/x"), None, "not this machine");
+    assert_eq!(
+        url_in("refused http://127.0.0.1:1 as expected"),
+        None,
+        "not a server's port"
+    );
+    assert_eq!(
+        url_in("see https://github.com then http://localhost:3000").as_deref(),
+        Some("http://localhost:3000")
+    );
 }
 
 /// A shell line run as a background process, with what its watcher heard.

@@ -135,14 +135,36 @@ impl Buffer {
     }
 }
 
-/// The first web address in a line, such as the one a dev server prints when it is ready.
+/// Hosts a dev server on this machine announces itself on.
+const LOCAL_HOSTS: [&str; 4] = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"];
+
+/// The address a local server prints when it is ready: a local host and a real port. Addresses a test or a log
+/// merely mentions (example.com, a deliberately refused port) are not one.
 pub(super) fn url_in(line: &str) -> Option<String> {
-    let start = line.find("http://").or_else(|| line.find("https://"))?;
-    let url: String = line[start..]
+    line.match_indices("http")
+        .filter_map(|(start, _)| address_at(&line[start..]))
+        .find(|url| is_local_server(url))
+}
+
+fn address_at(text: &str) -> Option<String> {
+    if !text.starts_with("http://") && !text.starts_with("https://") {
+        return None;
+    }
+    let url: String = text
         .chars()
         .take_while(|character| !character.is_whitespace() && !matches!(character, '"' | '\'' | '<' | '>' | ')'))
         .collect();
-    let url = url.trim_end_matches(['.', ',', ';']).to_string();
 
-    (url.len() > "http://".len()).then_some(url)
+    Some(url.trim_end_matches(['.', ',', ';']).to_string())
+}
+
+fn is_local_server(url: &str) -> bool {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let authority = rest.split('/').next().unwrap_or_default();
+    let Some((host, port)) = authority.rsplit_once(':') else {
+        return false;
+    };
+
+    let port: u16 = port.parse().unwrap_or(0);
+    LOCAL_HOSTS.contains(&host) && (port == 80 || port >= 1024)
 }

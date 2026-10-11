@@ -381,3 +381,47 @@ async fn with_background_processes_off_bash_offers_no_background_and_refuses_one
         .await;
     assert!(refused.is_err());
 }
+
+#[tokio::test]
+async fn python_prints_as_it_goes_and_a_subagent_is_told_to_wait_for_its_process() {
+    let sandbox = Sandbox::new("bash-python");
+    let bash = Bash::detect();
+    let show = match bash.shell {
+        Shell::Bash(_) => "echo $PYTHONUNBUFFERED",
+        Shell::PowerShell(_) => "Write-Output $env:PYTHONUNBUFFERED",
+    };
+    let shown = bash.run(&sandbox.ctx, json!({ "command": show })).await.unwrap();
+    assert_eq!(shown.output.trim(), "1");
+
+    // A subagent's process is never announced to it, so the note says to wait for it.
+    let engine = &sandbox.ctx.engine;
+    let workspace = engine
+        .store
+        .add_workspace(&sandbox.ctx.workspace.to_string_lossy(), "ws", "")
+        .unwrap();
+    let hidden = engine
+        .store
+        .create_session(crate::store::NewSession {
+            workspace_id: &workspace.id,
+            parent_id: None,
+            visibility: crate::session::types::Visibility::Hidden,
+            title: "Worker",
+            agent: "general",
+            model: None,
+        })
+        .unwrap();
+    let mut worker = sandbox.ctx_clone();
+    worker.session_id = hidden.id.clone();
+    let sleep = match bash.shell {
+        Shell::Bash(_) => "sleep 30",
+        Shell::PowerShell(_) => "Start-Sleep 30",
+    };
+
+    let started = bash
+        .run(&worker, json!({ "command": sleep, "background": true }))
+        .await
+        .unwrap();
+
+    assert!(started.output.contains("You are a subagent"), "{}", started.output);
+    engine.processes.stop_session(&hidden.id);
+}
