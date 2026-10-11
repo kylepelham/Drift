@@ -248,11 +248,13 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   Every failure after creation, including the final read-record copy or publication transaction,
   attempts to delete the partial copy. If cleanup fails too, the original error is returned and
   the cleanup failure is logged; the copy stays archived for later purging.
-  Which messages count is decided from message rows
-  alone, without parts. Without `atMessage` it copies through the last stable message: if a turn
-  is running, everything from the prompt it began at is left out (recorded when it starts, so a
-  prompt steered in later does not move it). With `atMessage` it stops at that message, which must be
-  finished and outside a running turn. A fork has no parent link; it is a copy, not a worker or
+  Which messages count is decided from message rows plus which of them still has a tool call
+  pending or running. Without `atMessage` it copies through the last stable message: if a turn is
+  running, its finished steps come along and the copy stops before the first reply still streaming
+  or with a call still running, and before any prompt the turn has not answered yet, so a fork never
+  ends on a question or holds a call that will never get its result. A long turn can be forked while
+  it works, steered or not. With `atMessage` it stops at that message, which must be within that
+  stable part. Spawning a thread cuts the same way. A fork has no parent link; it is a copy, not a worker or
   a branch. The copy keeps compaction markers, so the fork sees the same context as its source;
   `/fork active` and `/fork all` are one operation. Boundaries are remapped to the copied ids.
 - `POST /sessions/{id}/move {workspaceId}` moves the session and its subagents (hidden
