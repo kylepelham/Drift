@@ -216,6 +216,7 @@ function harness(overrides: Partial<Client>) {
     const client = {
         messages: () => Promise.resolve([]),
         todos: () => Promise.resolve([]),
+        processes: () => Promise.resolve([]),
         ...overrides,
     } as unknown as Client;
     const [state, set] = createEngineState();

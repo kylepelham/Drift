@@ -11,6 +11,7 @@ import { messageModel, messageProblem } from "../engine/messages";
 import { PartView, partVisible, PluginRow } from "./parts";
 import { citationFileGroups } from "./citation-files";
 import { emitMessageRendered } from "../plugins";
+import { ProcessExitRow } from "./process-row";
 import { agentLabel, t } from "../state/i18n";
 import { TextShimmer } from "./text-shimmer";
 import { ExploredGroup } from "./tool-view";
@@ -19,8 +20,8 @@ import { useEngine } from "../engine";
 import { Markdown } from "./markdown";
 import { Chevron } from "./controls";
 
+import type { ContextPart, ProcessExitPart } from "../engine/parts";
 import type { Message, MessageProblem } from "../engine/messages";
-import type { ContextPart } from "../engine/parts";
 
 /**
  * `hideError`: the reply's failure is no longer news (it is being retried, or the session went on), so its error box is
@@ -74,7 +75,7 @@ export function messageVisible(entry: MessageEntry) {
     if (entry.info.role === "user")
         return (
             !!messageText(entry) ||
-            entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "context")
+            entry.parts.some((part) => ["file", "compaction", "context", "process_exit"].includes(part.type))
         );
 
     const info = entry.info;
@@ -136,6 +137,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     const generated = () => props.entry.parts.some((part) => part.type === "nudge");
     const files = () => props.entry.parts.filter((part) => part.type === "file");
     const plugins = () => props.entry.parts.filter((part): part is ContextPart => part.type === "context");
+    const exits = () => props.entry.parts.filter((part): part is ProcessExitPart => part.type === "process_exit");
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
     const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
     const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -154,6 +156,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
             fallback={
                 <>
                     <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
+                    <For each={exits()}>{(part) => <ProcessExitRow part={part} />}</For>
                     <Show when={text() || files().length > 0}>
                         <div class="group flex flex-col items-end gap-1.5">
                             <Show when={files().length > 0}>

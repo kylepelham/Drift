@@ -12,6 +12,7 @@ pub mod image;
 pub(crate) mod lock;
 pub mod patch;
 mod paths;
+pub mod process;
 pub mod question;
 pub mod read;
 mod registry;

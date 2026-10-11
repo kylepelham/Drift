@@ -214,6 +214,20 @@ pub enum Part {
         outcome: String,
         text: String,
     },
+    /// How a background process ended, put into its conversation by the engine so the model can carry on.
+    #[serde(rename_all = "camelCase")]
+    ProcessExit {
+        process_id: String,
+        command: String,
+        description: String,
+        /// `None` when it was stopped rather than exiting.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        /// The end of what it printed.
+        output: String,
+        /// Where everything it printed is.
+        log: String,
+    },
     /// The user's answer to a question the model asked without waiting, delivered as its own prompt.
     #[serde(rename_all = "camelCase")]
     Clarification {

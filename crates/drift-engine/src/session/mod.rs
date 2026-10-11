@@ -12,6 +12,7 @@ pub mod drive;
 mod early;
 mod generation;
 mod oneshot;
+mod processes;
 pub mod prompt;
 pub mod revert;
 pub mod snapshot;

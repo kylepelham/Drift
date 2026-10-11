@@ -8,6 +8,7 @@ import { formatAttachmentBytes } from "../attachments";
 import { createConfigActions } from "./actions-config";
 import { createAskActions } from "./actions-asks";
 import { sessionInWorkspace } from "./sessions";
+import { putProcesses } from "./processes";
 import { untrack } from "solid-js";
 import { t } from "../state/i18n";
 import {
@@ -106,16 +107,20 @@ export function createActions(
         set("loaded", id, true);
         set("cursors", id, messages.length === pageSize ? messages[0]!.id : null);
 
-        const [todos, tasks] = await Promise.all([
+        const [todos, tasks, processes] = await Promise.all([
             requireClient()
                 .todos(id)
                 .catch(() => undefined),
             requireClient()
                 .tasks(id)
                 .catch(() => undefined),
+            requireClient()
+                .processes(id)
+                .catch(() => undefined),
         ]);
         if (todos) set("todos", id, todos);
         if (tasks) putTasks(set, state, id, tasks);
+        if (processes) putProcesses(set, state, id, processes);
     }
 
     // A gap during an existing reload needs a newer snapshot, not that reload's stale response.
@@ -144,6 +149,21 @@ export function createActions(
         reconciliations.set(id, request);
 
         return request;
+    }
+
+    /** Stops one background process and what it started; `process.updated` reports it ended. */
+    async function stopProcess(processId: string) {
+        try {
+            const record = await requireClient().stopProcess(processId);
+            putProcesses(set, state, record.sessionId, [record]);
+        } catch (cause) {
+            notice({
+                id: `process-stop-${processId}`,
+                title: t("drift.process.stopFailed"),
+                message: errorMessage(cause),
+                variant: "error",
+            });
+        }
     }
 
     /** Stops one worker; the engine's `task.updated` reports how it ended. */
@@ -367,6 +387,7 @@ export function createActions(
         send,
         abort,
         stopTask,
+        stopProcess,
         notice,
         findFiles,
         steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),

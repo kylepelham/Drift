@@ -102,6 +102,9 @@ pub enum Event {
     QuestionAsked { request: QuestionRequest },
     #[serde(rename = "question.replied", rename_all = "camelCase")]
     QuestionReplied { request_id: String, session_id: String },
+    /// A background process started, printed a new last line, or ended.
+    #[serde(rename = "process.updated")]
+    ProcessUpdated { process: crate::background::ProcessRecord },
     /// A worker was launched, started, ended, or its result reached its parent.
     #[serde(rename = "task.updated")]
     TaskUpdated { task: crate::session::tasks::TaskRecord },

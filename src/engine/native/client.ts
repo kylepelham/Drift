@@ -216,6 +216,8 @@ export function createClient(target: Target) {
         todos: (id: string) => request<Json<"listTodos", 200>>("GET", `/sessions/${id}/todos`),
         tasks: (id: string) => request<Json<"listTasks", 200>>("GET", `/sessions/${id}/tasks`),
         stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
+        processes: (id: string) => request<Json<"listProcesses", 200>>("GET", `/sessions/${id}/processes`),
+        stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
     };
 }
 

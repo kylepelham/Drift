@@ -479,6 +479,8 @@ impl Engine {
                 "failed",
             ),
         };
+        // A subagent's background processes are its own tools; they end with its run.
+        self.processes.stop_session(&task.session_id);
         self.end_task(&task.id, state, &text);
         self.workers.forget(&task.id);
 

@@ -1,11 +1,14 @@
 use super::spool::Spool;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, command, required_str};
+use crate::background::Pipes;
 use crate::llm::ToolSpec;
 use serde_json::{Value, json};
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
 mod approval;
+mod background;
 mod output;
 mod shell;
 
@@ -36,6 +39,11 @@ impl Bash {
         Self { shell }
     }
 
+    #[cfg(test)]
+    pub(crate) fn shell(&self) -> &Shell {
+        &self.shell
+    }
+
     pub(crate) fn dialect(&self) -> command::Dialect {
         match self.shell {
             Shell::Bash(_) => command::Dialect::Bash,
@@ -60,7 +68,8 @@ impl Tool for Bash {
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "The command to run." },
-                    "timeout": { "type": "integer", "description": "Milliseconds before the command is stopped. Default: the user's setting. Max 86400000." },
+                    "timeout": { "type": "integer", "description": "Milliseconds before the command moves to the background. Default: the user's setting. Max 86400000." },
+                    "background": { "type": "boolean", "description": "Start it in the background and return its process id at once, for servers, watchers and long builds. Default false." },
                     "description": { "type": "string", "description": "Five to ten words saying what the command does, shown to the user." },
                     "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of changing directory first. Default: the workspace root." }
                 },
@@ -101,59 +110,18 @@ impl Tool for Bash {
         Box::pin(async move {
             let command = required_str(&input, "command")?;
             let directory = workdir(context, &input)?;
-            let limit = limit_for(context, &input);
-            let mut process = shell_command(&self.shell, command);
-            process
-                .current_dir(&directory)
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true);
-            crate::platform::process::use_current_path(&mut process, &Default::default());
-            #[cfg(windows)]
-            process.creation_flags(0x0800_0000 | 0x0000_0004);
-            crate::platform::process::prepare(&mut process);
-
-            let mut child = process
-                .spawn()
-                .map_err(|error| ToolError(format!("could not start shell: {error}")))?;
-            // Keeping the tree handle alive makes a dropped run future kill every descendant.
-            let tree = child
-                .id()
-                .and_then(|pid| crate::platform::process::Tree::adopt(pid).ok());
-            #[cfg(windows)]
-            resume_main_thread(&child);
-
-            let path = context
-                .engine
-                .data_dir
-                .join("tool-output")
-                .join(&context.session_id)
-                .join(format!("{}.log", context.call_id));
-            let mut spool = Spool::new(Some(path));
-            let ended = {
-                let collecting = bounded(limit, collect(&mut child, &mut spool, &context.progress));
-                tokio::select! {
-                    ended = collecting => ended.unwrap_or(Ended::TimedOut),
-                    () = context.abort.cancelled() => Ended::Stopped,
-                }
+            let background = input["background"].as_bool() == Some(true);
+            let started = Started {
+                command: command.to_string(),
+                title: input["description"].as_str().unwrap_or(command).to_string(),
+                running: spawn(&self.shell, command, &directory, background)?,
             };
 
-            if !matches!(ended, Ended::Exited { lingering: false, .. }) {
-                kill_tree(&tree, &mut child).await;
-            }
-            if matches!(ended, Ended::Exited { code: 0, .. }) {
-                for file in command::files_read(self.dialect(), command)
-                    .iter()
-                    .map(|file| super::canonical(&directory.join(file)))
-                    .filter(|file| file.is_file())
-                {
-                    context.files.mark_read(&file);
-                }
+            if background {
+                return Ok(background::start(context, started, Vec::new()).await);
             }
 
-            let title = input["description"].as_str().unwrap_or(command).to_string();
-            Ok(report(title, spool.finish(), ended, limit))
+            Ok(self.foreground(context, &input, started, &directory).await)
         })
     }
 
@@ -174,6 +142,98 @@ impl Tool for Bash {
     fn failed(&self, output: &Output) -> bool {
         output.metadata.timed_out == Some(true) || output.metadata.stopped == Some(true)
     }
+}
+
+impl Bash {
+    /// Runs the command until it exits, is stopped, or reaches its limit, where it moves to the background.
+    async fn foreground(&self, context: &Context, input: &Value, mut started: Started, directory: &Path) -> Output {
+        let limit = limit_for(context, input);
+        let path = context
+            .engine
+            .data_dir
+            .join("tool-output")
+            .join(&context.session_id)
+            .join(format!("{}.log", context.call_id));
+        let mut spool = Spool::new(Some(path));
+
+        let running = &mut started.running;
+        let ended = {
+            let collecting = bounded(
+                limit,
+                collect(&mut running.child, &mut running.pipes, &mut spool, &context.progress),
+            );
+            tokio::select! {
+                ended = collecting => ended.unwrap_or(Ended::TimedOut),
+                () = context.abort.cancelled() => Ended::Stopped,
+            }
+        };
+
+        if matches!(ended, Ended::TimedOut) {
+            return background::moved(context, started, spool.finish(), limit).await;
+        }
+        if !matches!(ended, Ended::Exited { lingering: false, .. }) {
+            kill_tree(&running.tree, &mut running.child).await;
+        }
+        if matches!(ended, Ended::Exited { code: 0, .. }) {
+            self.mark_files_read(context, &started.command, directory);
+        }
+
+        report(started.title, spool.finish(), ended, limit)
+    }
+
+    /// Files a command that succeeded showed in full count as read, so an edit after `cat` is not blind.
+    fn mark_files_read(&self, context: &Context, command: &str, directory: &Path) {
+        for file in command::files_read(self.dialect(), command)
+            .iter()
+            .map(|file| super::canonical(&directory.join(file)))
+            .filter(|file| file.is_file())
+        {
+            context.files.mark_read(&file);
+        }
+    }
+}
+
+/// A spawned shell: the process, the job holding everything it starts, and its output pipes.
+pub(crate) struct Running {
+    pub child: tokio::process::Child,
+    pub tree: Option<crate::platform::process::Tree>,
+    pub pipes: Pipes,
+}
+
+/// A command the call started, with what the user is shown it does.
+pub(crate) struct Started {
+    pub command: String,
+    pub title: String,
+    pub running: Running,
+}
+
+/// Starts the shell; a background command gets an input pipe so the model can type into it.
+fn spawn(shell: &Shell, line: &str, directory: &Path, background: bool) -> Result<Running, ToolError> {
+    let mut process = shell_command(shell, line);
+    let stdin = if background { Stdio::piped() } else { Stdio::null() };
+    process
+        .current_dir(directory)
+        .stdin(stdin)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    crate::platform::process::use_current_path(&mut process, &Default::default());
+    #[cfg(windows)]
+    process.creation_flags(0x0800_0000 | 0x0000_0004);
+    crate::platform::process::prepare(&mut process);
+
+    let mut child = process
+        .spawn()
+        .map_err(|error| ToolError(format!("could not start shell: {error}")))?;
+    // Keeping the tree handle alive makes a dropped run future kill every descendant.
+    let tree = child
+        .id()
+        .and_then(|pid| crate::platform::process::Tree::adopt(pid).ok());
+    #[cfg(windows)]
+    resume_main_thread(&child);
+    let pipes = Pipes::take(&mut child);
+
+    Ok(Running { child, tree, pipes })
 }
 
 fn shell_command(shell: &Shell, line: &str) -> tokio::process::Command {

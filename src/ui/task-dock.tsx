@@ -1,10 +1,13 @@
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
 import { selectedSession, selectSession } from "../state/selection";
 import { taskActive, type TaskRecord } from "../engine/store";
+import { ProcessRow, dockProcesses } from "./process-row";
 import { IconArrowUpRight } from "./icons";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
 import { t } from "../state/i18n";
+
+import type { ProcessRecord } from "../engine/processes";
 
 /** Marks a subagent that runs in the background; the dashed edge matches its row in the chat. */
 export function BackgroundTag() {
@@ -61,14 +64,24 @@ export function TaskDock() {
     const tasks = createMemo(() => dockTasks(engine.state.tasks[selectedSession() ?? ""]));
     const outstanding = createMemo(() => tasks().filter((task) => taskActive(task) || !task.delivered));
     const history = createMemo(() => tasks().filter((task) => !taskActive(task) && task.delivered));
-    const finished = () => tasks().filter((task) => !taskActive(task)).length;
-    const current = () => tasks().find((task) => task.state === "running") ?? tasks().find(taskActive);
+
+    // Background processes share the dock: running ones beside live work, ended ones with history.
+    const processes = createMemo(() => dockProcesses(engine.state.processes[selectedSession() ?? ""]));
+    const running = createMemo(() => processes().filter((process) => process.state === "running"));
+    const ended = createMemo(() => processes().filter((process) => process.state !== "running"));
+
+    const total = () => tasks().length + processes().length;
+    const finished = () => tasks().filter((task) => !taskActive(task)).length + ended().length;
+    const current = () =>
+        tasks().find((task) => task.state === "running")?.description ??
+        running()[0]?.description ??
+        tasks().find(taskActive)?.description;
 
     // Another conversation's dock starts closed.
     createEffect(on(selectedSession, () => setOpen(false)));
 
     return (
-        <Show when={tasks().length > 0}>
+        <Show when={total() > 0}>
             <div class="composer-layer-card dock-card min-w-0 rounded-lg border border-edge bg-surface text-sm">
                 <button
                     class="flex w-full min-w-0 items-center gap-2 overflow-hidden whitespace-nowrap px-3 py-1.5 text-ink-muted"
@@ -78,11 +91,10 @@ export function TaskDock() {
                 >
                     <Chevron open={open()} />
                     <span class="min-w-0 truncate text-left">
-                        {t("drift.task.title")} ·{" "}
-                        {t("drift.task.progress", { done: finished(), total: tasks().length })}
+                        {t("drift.task.title")} · {t("drift.task.progress", { done: finished(), total: total() })}
                     </span>
                     <Show when={!open()}>
-                        <span class="min-w-0 flex-1 truncate text-left text-ink-faint">{current()?.description}</span>
+                        <span class="min-w-0 flex-1 truncate text-left text-ink-faint">{current()}</span>
                     </Show>
                 </button>
 
@@ -93,11 +105,12 @@ export function TaskDock() {
                             tabIndex={0}
                             aria-label={t("drift.task.title")}
                         >
+                            <For each={running()}>{(process) => <ProcessRow process={process} />}</For>
                             <For each={outstanding()}>{(task) => <TaskRow task={task} />}</For>
                         </ul>
 
-                        <Show when={history().length > 0}>
-                            <FinishedTasks tasks={history()} id={`${bodyID}-history`} />
+                        <Show when={history().length + ended().length > 0}>
+                            <FinishedTasks tasks={history()} processes={ended()} id={`${bodyID}-history`} />
                         </Show>
                     </div>
                 </Show>
@@ -107,7 +120,7 @@ export function TaskDock() {
 }
 
 /** Delivered results, folded away by default and scrolled separately so they never push live work out of view. */
-function FinishedTasks(props: { tasks: TaskRecord[]; id: string }) {
+function FinishedTasks(props: { tasks: TaskRecord[]; processes: ProcessRecord[]; id: string }) {
     const [open, setOpen] = createSignal(false);
 
     // Another conversation's history starts folded.
@@ -123,7 +136,7 @@ function FinishedTasks(props: { tasks: TaskRecord[]; id: string }) {
             >
                 <Chevron open={open()} />
                 <span class="min-w-0 truncate">
-                    {t("drift.task.finished")} · {props.tasks.length}
+                    {t("drift.task.finished")} · {props.tasks.length + props.processes.length}
                 </span>
             </button>
 
@@ -134,6 +147,7 @@ function FinishedTasks(props: { tasks: TaskRecord[]; id: string }) {
                     tabIndex={0}
                     aria-label={t("drift.task.finished")}
                 >
+                    <For each={props.processes}>{(process) => <ProcessRow process={process} />}</For>
                     <For each={props.tasks}>{(task) => <TaskRow task={task} />}</For>
                 </ul>
             </Show>

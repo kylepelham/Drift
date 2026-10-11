@@ -289,6 +289,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/processes/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stops a process and everything it started; its conversation is not told, since the user chose it. */
+        post: operations["stopProcess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/prompts": {
         parameters: {
             query?: never;
@@ -629,6 +646,23 @@ export interface paths {
         put?: never;
         /** Moves a session and its subagents to another workspace. 409 while any of them is running. */
         post: operations["moveSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The conversation's background processes, oldest first, recently ended ones included. */
+        get: operations["listProcesses"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1346,6 +1380,10 @@ export interface components {
             /** @enum {string} */
             type: "question.replied";
         } | {
+            process: components["schemas"]["ProcessRecord"];
+            /** @enum {string} */
+            type: "process.updated";
+        } | {
             task: components["schemas"]["TaskRecord"];
             /** @enum {string} */
             type: "task.updated";
@@ -1665,6 +1703,21 @@ export interface components {
             /** @description The worker's own transcript; not `session_id`, which the part row already carries. */
             workerSessionId: string;
         } | {
+            command: string;
+            description: string;
+            /**
+             * Format: int32
+             * @description `None` when it was stopped rather than exiting.
+             */
+            exitCode?: number | null;
+            /** @description Where everything it printed is. */
+            log: string;
+            /** @description The end of what it printed. */
+            output: string;
+            processId: string;
+            /** @enum {string} */
+            type: "process_exit";
+        } | {
             items: components["schemas"]["Clarified"][];
             requestId: string;
             /** @enum {string} */
@@ -1735,6 +1788,27 @@ export interface components {
             name: string;
             path: string;
         };
+        /** @description A background process as the dock and the API show it. */
+        ProcessRecord: {
+            command: string;
+            description: string;
+            /** Format: int64 */
+            endedAt?: number | null;
+            /** Format: int32 */
+            exitCode?: number | null;
+            id: string;
+            lastLine?: string | null;
+            /** @description Everything it printed, up to 64 MB. */
+            log: string;
+            sessionId: string;
+            /** Format: int64 */
+            startedAt: number;
+            state: components["schemas"]["ProcessState"];
+            /** @description The first web address it printed, such as a dev server's. */
+            url?: string | null;
+        };
+        /** @enum {string} */
+        ProcessState: "running" | "exited" | "stopped";
         Prompt: {
             /** @description The agent the session runs as from this prompt on; absent keeps the session's. Only a primary agent of the workspace. */
             agent?: string | null;
@@ -2159,6 +2233,7 @@ export interface components {
             outputFile?: string | null;
             owner?: string | null;
             path?: string | null;
+            processId?: string | null;
             reason?: string | null;
             redirect?: string | null;
             replacements?: number | null;
@@ -2834,6 +2909,33 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PluginInfo"][];
                 };
+            };
+        };
+    };
+    stopProcess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessRecord"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -3578,6 +3680,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    listProcesses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessRecord"][];
+                };
             };
         };
     };

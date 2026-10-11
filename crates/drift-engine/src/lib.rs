@@ -1,6 +1,7 @@
 //! The Drift engine: sessions, providers, tools and the API that serves them.
 
 pub mod api;
+pub mod background;
 pub mod config;
 pub mod edit;
 pub mod event;
@@ -89,6 +90,8 @@ pub struct Engine {
     codex_offers: llm::openai::codex::Offers,
     /// What each account last reported of its subscription's usage, so picking one never waits on the network.
     pub limits: llm::limits::Ledger,
+    /// Shell commands running in the background, by the conversation that started them.
+    pub processes: background::Processes,
     /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
     /// The user's plugins, loaded at start and on request.
@@ -159,6 +162,7 @@ impl Engine {
             local_shown: Default::default(),
             codex_offers: Default::default(),
             limits: Default::default(),
+            processes: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
         }))

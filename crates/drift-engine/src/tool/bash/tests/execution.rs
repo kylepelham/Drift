@@ -108,8 +108,9 @@ async fn shows_for(script: &str) -> Vec<std::time::Instant> {
     let record = shown.clone();
     let progress = Progress::new(move |_| record.lock().unwrap().push(std::time::Instant::now()));
     let mut spool = Spool::new(None);
+    let mut pipes = crate::background::Pipes::take(&mut child);
 
-    collect(&mut child, &mut spool, &progress).await;
+    collect(&mut child, &mut pipes, &mut spool, &progress).await;
     shown.lock().unwrap().clone()
 }
 
@@ -141,7 +142,7 @@ async fn a_noisy_command_shows_its_output_at_most_every_show_every_and_a_quiet_o
 }
 
 #[tokio::test]
-async fn times_out_and_aborts() {
+async fn a_command_at_its_limit_moves_to_the_background() {
     let sandbox = Sandbox::new("bash-timeout");
     let bash = Bash::detect();
     let sleep = match bash.shell {
@@ -149,25 +150,31 @@ async fn times_out_and_aborts() {
         Shell::PowerShell(_) => "Start-Sleep 5",
     };
     let early_then_sleep = match bash.shell {
-        Shell::Bash(_) => "echo early; sleep 5",
-        Shell::PowerShell(_) => "Write-Output early; Start-Sleep 5",
+        Shell::Bash(_) => "echo early; sleep 2; echo late",
+        Shell::PowerShell(_) => "Write-Output early; Start-Sleep 2; Write-Output late",
     };
 
-    let stopped = bash
-        .run(&sandbox.ctx, json!({ "command": early_then_sleep, "timeout": 1500 }))
+    let moved = bash
+        .run(&sandbox.ctx, json!({ "command": early_then_sleep, "timeout": 1000 }))
         .await
         .unwrap();
-    assert!(bash.failed(&stopped), "a command stopped by its limit is a failed call");
-    assert_eq!(
-        (stopped.metadata.timed_out, stopped.metadata.shell_timeout_ms.flatten()),
-        (Some(true), Some(1500))
-    );
-    assert!(stopped.output.contains("stopped after"), "{}", stopped.output);
+    assert!(!bash.failed(&moved), "a command that goes on is not a failed call");
+    assert_eq!(moved.metadata.shell_timeout_ms.flatten(), Some(1000));
     assert!(
-        stopped.output.starts_with("early"),
+        moved.output.starts_with("early"),
         "what it printed before the limit is kept: {}",
-        stopped.output
+        moved.output
     );
+    assert!(moved.output.contains("moved to the background"), "{}", moved.output);
+
+    // It goes on where it was, and the next read starts after what the call returned.
+    let id = moved.metadata.process_id.clone().unwrap();
+    let handle = sandbox.ctx.engine.processes.get(&id).unwrap();
+    let never = tokio_util::sync::CancellationToken::new();
+    handle.wait(None, Duration::from_secs(20), &never).await;
+    assert_eq!(handle.exit(), Some(crate::background::Exit::Code(0)));
+    let rest = handle.unread().text;
+    assert!(rest.contains("late") && !rest.contains("early"), "{rest}");
 
     sandbox.ctx.engine.set_shell_timeout(Some(Duration::from_millis(300)));
     assert_eq!(
@@ -177,11 +184,11 @@ async fn times_out_and_aborts() {
         Some(Some(300))
     );
     let by_setting = bash.run(&sandbox.ctx, json!({ "command": sleep })).await.unwrap();
-    assert_eq!(
-        by_setting.metadata.timed_out,
-        Some(true),
+    assert!(
+        by_setting.metadata.process_id.is_some(),
         "without a `timeout` the Settings limit applies"
     );
+    sandbox.ctx.engine.processes.stop_session(&sandbox.ctx.session_id);
 
     sandbox.ctx.engine.set_shell_timeout(None);
     let quick = match bash.shell {
@@ -193,6 +200,37 @@ async fn times_out_and_aborts() {
         !bash.failed(&unlimited) && unlimited.metadata.shell_timeout_ms == Some(None),
         "no limit lets it finish"
     );
+}
+
+#[tokio::test]
+async fn a_background_command_returns_at_once_and_one_that_fails_at_once_says_so() {
+    let sandbox = Sandbox::new("bash-background");
+    let bash = Bash::detect();
+    let (server, broken) = match bash.shell {
+        Shell::Bash(_) => ("echo listening on http://localhost:4321; sleep 30", "echo nope; exit 2"),
+        Shell::PowerShell(_) => (
+            "Write-Output 'listening on http://localhost:4321'; Start-Sleep 30",
+            "Write-Output nope; exit 2",
+        ),
+    };
+
+    let started = std::time::Instant::now();
+    let running = bash
+        .run(&sandbox.ctx, json!({ "command": server, "background": true }))
+        .await
+        .unwrap();
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(running.metadata.process_id.is_some());
+    assert!(running.output.contains("runs in the background"), "{}", running.output);
+
+    let failed = bash
+        .run(&sandbox.ctx, json!({ "command": broken, "background": true }))
+        .await
+        .unwrap();
+    assert_eq!(failed.metadata.exit, Some(2), "{}", failed.output);
+    assert!(failed.output.starts_with("nope"), "{}", failed.output);
+
+    sandbox.ctx.engine.processes.stop_session(&sandbox.ctx.session_id);
 }
 
 #[tokio::test]

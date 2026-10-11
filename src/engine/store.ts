@@ -6,6 +6,7 @@ import { promptPartText } from "./parts";
 import type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
+import type { ProcessRecord } from "./processes";
 import type { Session } from "./sessions";
 import type { Message } from "./messages";
 import type { Part } from "./parts";
@@ -140,6 +141,8 @@ export type EngineState = {
     todos: Record<string, Todo[]>;
     /** Workers each session launched, keyed by the launching session, oldest first. */
     tasks: Record<string, TaskRecord[]>;
+    /** Background processes each session started, oldest first. */
+    processes: Record<string, ProcessRecord[]>;
     providers: ProviderInfo[];
     /** The engine's MCP servers by name: the only place their definition and state live. */
     mcpServers: Record<string, McpServerStatus>;
@@ -208,6 +211,7 @@ export function createEngineState() {
         questions: {},
         todos: {},
         tasks: {},
+        processes: {},
         providers: [],
         mcpServers: {},
         connected: [],

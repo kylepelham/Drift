@@ -1120,18 +1120,37 @@ goal retires them.
   settings. New capabilities are off by default, and with them off a session is exactly what it
   is today. Background processes are the one exception, on by default. `/watch-pr` needs no
   switch, since it starts only when the user runs it.
-- Background processes, first:
-  - `bash` takes `background: true` and returns a process id at once. A command still running at
-    its time limit moves to the background with its output so far, instead of being killed.
-  - A `process` tool lists, reads output (new lines, or a search), types input, interrupts,
-    stops, and waits until a line appears or the process exits. Background processes get an input
-    pipe; foreground commands keep a closed one. Typing input asks like `bash` does.
-  - A process outlives the turn and Stop. The dock's Stop, archiving its conversation and quitting
-    Drift end it.
-  - Processes show in the Background tasks dock beside background subagents, with the dashed
-    background tag, a live last line and Stop.
+- Background processes, first (built; `crate::background`, `tool::process`, `session::processes`):
+  - `bash` takes `background: true` and returns a process id after at most a second, so a command
+    that fails at once says so in its own result. A command still running at its time limit moves
+    to the background with its output so far, instead of being killed: the call returns that
+    output and the process id, and is not a failed call.
+  - The engine owns each process: a watcher task reads its output into a 256 KB tail in memory
+    and a log under `tool-output/<session>/<id>.log` (64 MB at most), and publishes
+    `process.updated` when it starts, at most once a second when its last line changes, and when
+    it ends. A process ends when its shell has exited and nothing still holds its output open, so
+    a server a wrapper script started counts as running.
+  - A `process` tool lists, reads output (only what is new since the model last read, its newest
+    32 KB, or the lines matching a regex), types input, interrupts, stops, and waits up to ten
+    minutes until a new line matches or the process exits. Background processes get an input
+    pipe; a command moved there at its limit keeps its closed one. Typing input asks like `bash`
+    does. Interrupt is SIGINT to the process group on unix; Windows has no console to send Ctrl+C
+    through, so there it stops the process and says so. A conversation sees only its own processes.
+  - A process outlives the turn and Stop. The dock's Stop, archiving or deleting its conversation
+    and quitting Drift end it (unix process groups are ended at exit; on Windows the job ends with
+    Drift). A subagent's processes end with its run.
+  - When a process exits, its conversation is told as a `process_exit` prompt with the exit code,
+    the end of its output and the log path, starting a turn or steering into the running one, as
+    background subagent results do. Nothing is said when the model already saw it end in a call,
+    when it was stopped, or when the user pressed Stop since it started; it then shows only in the
+    dock. A conversation busy with another job is offered it every 30 s, ten times.
+  - Processes show in the Background tasks dock beside background subagents while any runs, with a
+    live last line, an Open link for a printed URL, and Stop. Ended ones join the finished history.
+    The prompt a process's end adds shows as a row naming it and how it ended.
   - A URL a process prints is handed back to the model. With the chrome-devtools MCP that is the
     whole browser check: start the dev server, wait for its URL, look at the page, stop it.
+  - Processes live in memory: a restart of Drift ends them and forgets them. Undo cannot capture
+    what a background process changes after its call returned.
 - Worktrees: a toggle when a thread starts, never mid-turn. Drift makes branch `drift/<name>` from
   the current commit in a folder under its data directory and says that uncommitted changes were
   not copied. Spawned threads inherit the toggle and branch from the parent's worktree. Drift never
@@ -1747,9 +1766,10 @@ Settled after the first external review of M1; each has a regression test.
   The folders of the skills the session's config offers (`~/.agents/skills/...`, which `skill`
   names by absolute path) read and glob without asking too, as opencode allows skill directories;
   their secret files still ask, and nothing there is writable without asking.
-- Background processes do not outlive the call. Once the shell exits, output still in flight gets
-  500 ms; a pipe still open after that is held by a background descendant, so the call finishes
-  with the shell's exit code, the descendants are stopped, and the result says so. A command with
+- Processes a foreground command leaves behind (`cmd &`) do not outlive the call. Once the shell
+  exits, output still in flight gets 500 ms; a pipe still open after that is held by a background
+  descendant, so the call finishes with the shell's exit code, the descendants are stopped, and the
+  result says to use `background: true`. A command with
   no time limit therefore cannot wait forever on a background process's inherited output.
 - Prompt admission is one transaction (`Store::admit_prompt`). If it fails, the session's
   busy reservation is released and nothing half-written remains. The UI keeps a prompt's

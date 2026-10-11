@@ -4,6 +4,7 @@ export type Part = components["schemas"]["PartRow"];
 export type ToolPart = Extract<Part, { type: "tool_call" }>;
 export type FilePart = Extract<Part, { type: "file" }>;
 export type ContextPart = Extract<Part, { type: "context" }>;
+export type ProcessExitPart = Extract<Part, { type: "process_exit" }>;
 export type ReasoningPart = Extract<Part, { type: "reasoning" }>;
 
 /** Text shown or restored as the user's words, excluding delivered worker results. */

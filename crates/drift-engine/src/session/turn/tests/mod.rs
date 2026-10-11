@@ -26,6 +26,7 @@ mod orchestrator;
 mod permissions;
 mod plugin_hooks;
 mod pricing;
+mod processes;
 mod project_commands;
 mod retry_waits;
 mod routes;

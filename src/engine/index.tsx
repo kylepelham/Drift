@@ -8,6 +8,7 @@ import { produce, reconcile } from "solid-js/store";
 import { errorMessage } from "./actions-context";
 import { workspaces } from "../state/workspaces";
 import { resolveTarget } from "./native/target";
+import { putProcesses } from "./processes";
 import { reduce } from "./events";
 
 import type { WorkspaceIndex } from "./sessions";
@@ -110,6 +111,8 @@ export function EngineProvider(props: ParentProps) {
                 if (envelope.type === "catalog.updated") void actions.refreshProviders().catch(() => undefined);
                 if (envelope.type === "task.updated")
                     putTasks(set, state, envelope.task.parentSessionId, [envelope.task]);
+                if (envelope.type === "process.updated")
+                    putProcesses(set, state, envelope.process.sessionId, [envelope.process]);
                 if (envelope.type === "mcp.updated")
                     set("mcpServers", envelope.server.name, reconcile(envelope.server));
                 if (envelope.type === "mcp.removed")

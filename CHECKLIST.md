@@ -294,12 +294,13 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 ## M6: capabilities
 
 - [ ] One settings mechanism decides the tools, instruction sections and settings a session is offered; new capabilities off by default, and a session with them off is unchanged
-- [ ] Background processes, on by default:
-  - [ ] `bash` `background: true` returns a process id; a command at its time limit moves to the background instead of being killed
-  - [ ] `process` tool: list, output (new lines or search), input (asks like `bash`), interrupt, stop, wait for a line or exit; background processes get an input pipe
-  - [ ] A process outlives the turn and Stop; the dock's Stop, archiving the conversation and quitting Drift end it
-  - [ ] Processes in the Background tasks dock with the background tag, live last line and Stop
-  - [ ] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
+- [x] Background processes, on by default:
+  - [x] `bash` `background: true` returns a process id; a command at its time limit moves to the background instead of being killed
+  - [x] `process` tool: list, output (new lines or search), input (asks like `bash`), interrupt (stops instead on Windows), stop, wait for a line or exit; background processes get an input pipe
+  - [x] A process outlives the turn and Stop; the dock's Stop, archiving the conversation and quitting Drift end it; a subagent's end with its run
+  - [x] Processes in the Background tasks dock with a live last line, an Open link for a printed URL, and Stop
+  - [x] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
+  - [x] A process that exits after the turn wakes its conversation with its exit code and the end of its output, unless the model saw it end, it was stopped, or the user pressed Stop since it started
 - [ ] Worktrees: per-thread toggle at start; branch `drift/<name>` from the current commit under Drift's data; uncommitted changes not copied (said so); spawned threads inherit; never merged by Drift; purged with the thread when merged, asked otherwise
 - [ ] `/watch-pr`: poll through `gh` about once a minute, wake the thread on CI failure or a review comment, stop at merge, close or the fifth wake
 

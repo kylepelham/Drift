@@ -8,6 +8,7 @@ pub use events::Lease;
 mod health;
 mod mcp;
 mod permissions;
+mod processes;
 mod prompts;
 mod provider_accounts;
 mod providers;
@@ -142,6 +143,8 @@ fn task_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::tasks))
         .routes(routes!(sessions::task))
         .routes(routes!(sessions::abort_task))
+        .routes(routes!(processes::list))
+        .routes(routes!(processes::stop))
 }
 
 fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {

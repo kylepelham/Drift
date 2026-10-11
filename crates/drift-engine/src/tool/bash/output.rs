@@ -1,3 +1,4 @@
+use crate::background::Pipes;
 use crate::tool::spool::{Spool, Spooled};
 use crate::tool::{Output, Progress, ToolMetadata, add_note};
 use std::time::Duration;
@@ -23,8 +24,14 @@ pub(super) enum Ended {
 }
 
 /// Reads stdout and stderr into one spool in arrival order until both close and the shell exits.
-pub(super) async fn collect(child: &mut tokio::process::Child, spool: &mut Spool, progress: &Progress) -> Ended {
-    let (Some(mut stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
+/// The pipes stay the caller's, so a command at its time limit can go on in the background unharmed.
+pub(super) async fn collect(
+    child: &mut tokio::process::Child,
+    pipes: &mut Pipes,
+    spool: &mut Spool,
+    progress: &Progress,
+) -> Ended {
+    let (Some(stdout), Some(stderr)) = (pipes.stdout.as_mut(), pipes.stderr.as_mut()) else {
         return Ended::Failed("the shell's output was not captured".into());
     };
     let (mut stdout_buffer, mut stderr_buffer) = ([0u8; 8192], [0u8; 8192]);
@@ -96,7 +103,7 @@ pub(super) fn report(title: String, spooled: Spooled, ended: Ended, limit: Optio
             let lingered = lingering.then(|| {
                 concat!(
                     "Background processes still held the output open when the command finished; ",
-                    "they were stopped. Run long-lived processes outside Drift."
+                    "they were stopped. Run a server or watcher with `background: true` instead."
                 )
                 .to_string()
             });

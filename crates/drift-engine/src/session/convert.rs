@@ -137,6 +137,7 @@ fn user_blocks(message: &MessageWithParts) -> Vec<Block> {
             "<task-result id=\"{task_id}\" description=\"{description}\" outcome=\"{outcome}\">\n{text}\n</task-result>"
         ))),
         Part::Clarification { request_id, items } => Some(Block::Text(clarification_text(request_id, items))),
+        Part::ProcessExit { .. } => Some(Block::Text(super::processes::exit_text(&row.part))),
         _ => None,
     }).collect()
 }
