@@ -98,6 +98,60 @@ fn credentials_come_from_the_engines_store() {
 }
 
 #[test]
+fn each_account_is_asked_for_its_usage_said_to_be_expired_or_left_out() {
+    use drift_engine::llm::Credential as Engine;
+    let signed_in = Engine::OAuth {
+        access: "a".into(),
+        refresh: "r".into(),
+        expires_at: 5,
+        account: None,
+    };
+
+    assert!(matches!(
+        lookup(Source::Anthropic, Some(signed_in)),
+        Some(Lookup::Fetch(Request { url, .. })) if url.ends_with("/api/oauth/usage")
+    ));
+    assert_eq!(
+        lookup(Source::Anthropic, None),
+        Some(Lookup::Expired),
+        "a sign-in that could not be renewed"
+    );
+    assert_eq!(
+        lookup(Source::Anthropic, Some(Engine::ApiKey { key: "k".into() })),
+        None,
+        "an API key has no plan"
+    );
+}
+
+#[test]
+fn accounts_reach_the_webview_in_camel_case_with_a_failed_request_as_null() {
+    let accounts = vec![
+        AccountUsage {
+            key: "anthropic".into(),
+            label: Some("ann@example.com".into()),
+            usage: Some(signed_out(UsageStatus::Expired)),
+        },
+        AccountUsage {
+            key: "anthropic~a1b2c3".into(),
+            label: None,
+            usage: None,
+        },
+    ];
+
+    assert_eq!(
+        serde_json::to_value(accounts).unwrap(),
+        json!([
+            {
+                "key": "anthropic",
+                "label": "ann@example.com",
+                "usage": { "status": "expired", "plan": null, "windows": [] }
+            },
+            { "key": "anthropic~a1b2c3", "label": null, "usage": null }
+        ])
+    );
+}
+
+#[test]
 fn anthropic_prefers_the_limits_list_and_keeps_only_active_model_caps() {
     let body = json!({
         "five_hour": { "utilization": 4.0, "resets_at": "2026-09-28T21:10:00.009134+00:00" },

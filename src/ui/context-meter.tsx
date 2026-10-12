@@ -7,6 +7,7 @@ import { prefsFor } from "../state/prefs";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import {
+    activeAccount,
     planLabel,
     refreshUsage,
     resetLabel,
@@ -14,6 +15,7 @@ import {
     usageFor,
     usageTone,
     windowLabel,
+    type AccountUsage,
     type UsageEntry,
     type UsageTone,
     type UsageWindow,
@@ -193,25 +195,41 @@ function BreakdownBar(props: { segments: BreakdownSegment[]; context: number }) 
     );
 }
 
-export function usageMessage(entry: UsageEntry | undefined) {
-    if (!entry || (entry.loading && !entry.usage)) return t("drift.usage.loading");
-    if (entry.usage?.status === "expired") return t("drift.usage.expired");
-    if (entry.usage?.status === "unsubscribed") return t("drift.usage.unsubscribed");
-    if (entry.failed && !entry.usage) return t("drift.usage.failed");
-    if (!entry.usage?.windows.length) return t("drift.usage.empty");
+function usageMessage(entry: UsageEntry | undefined, account: AccountUsage | undefined) {
+    const usage = account?.usage;
+
+    if (!entry || (entry.loading && !usage)) return t("drift.usage.loading");
+    if (!usage) return t(account?.failed ? "drift.usage.failed" : "drift.usage.empty");
+    if (usage.status === "expired") return t("drift.usage.expired");
+    if (usage.status === "unsubscribed") return t("drift.usage.unsubscribed");
+    if (!usage.windows.length) return t("drift.usage.empty");
 
     return "";
 }
 
+/** One account's windows, or what to say instead while they load or when there are none. */
+export function AccountLimits(props: { entry: UsageEntry | undefined; account: AccountUsage | undefined }) {
+    return (
+        <Show
+            when={usageMessage(props.entry, props.account)}
+            fallback={<For each={props.account?.usage?.windows}>{(window) => <LimitRow window={window} />}</For>}
+        >
+            {(message) => <div class="text-ink-faint">{message()}</div>}
+        </Show>
+    );
+}
+
+/** The provider's usage as a turn would meet it: the account in use, which is the first with usage left. */
 export function UsageSection(props: { provider: string }) {
     const engine = useEngine();
     const entry = () => usageFor(props.provider);
+    const account = () => activeAccount(entry());
     const providerName = () =>
         engine.state.providers.find((provider) => provider.id === props.provider)?.name ?? props.provider;
-    const plan = () => entry()?.usage?.plan;
+    const plan = () => account()?.usage?.plan;
 
     return (
-        <Show when={entry()?.usage !== null}>
+        <Show when={entry()?.accounts !== null}>
             <div class="space-y-2 border-t border-edge px-3 py-2 text-xs" data-usage-limits>
                 <div class="flex items-center justify-between gap-2 text-ink-muted">
                     <span>
@@ -223,12 +241,7 @@ export function UsageSection(props: { provider: string }) {
                         <span class="truncate">{providerName()}</span>
                     </span>
                 </div>
-                <Show
-                    when={usageMessage(entry())}
-                    fallback={<For each={entry()?.usage?.windows}>{(window) => <LimitRow window={window} />}</For>}
-                >
-                    {(message) => <div class="text-ink-faint">{message()}</div>}
-                </Show>
+                <AccountLimits entry={entry()} account={account()} />
             </div>
         </Show>
     );

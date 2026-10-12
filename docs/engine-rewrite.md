@@ -1349,8 +1349,9 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
     account stored under the provider's name. The WebSocket pool keys connections by their
     headers, so a new account opens its own socket and sends the full history once.
   - Settings lists a provider's sign-ins with their five-hour and weekly use; each can be renamed,
-    moved up or down, or signed out, and signing in again adds another. Usage limits in the
-    composer still show the first account (the shell's `provider_usage`).
+    moved up or down, or signed out, and signing in again adds another. Settings > Usage shows each
+    account's plan usage (the shell's `provider_usage`, through `Engine::account_credentials`), and
+    the composer's usage popover shows the first account with usage left.
 - Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
   completed reply. The engine measures each response with a monotonic clock, from its first
   generated text, reasoning or tool-call block to its last content event. Initial request waits,

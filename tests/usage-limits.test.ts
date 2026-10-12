@@ -1,7 +1,16 @@
-import { refreshUsage, resetLabel, resetTitle, usageFor, usageTone, windowLabel } from "../src/state/usage-limits";
 import { estimateContextBreakdown } from "../src/engine/context-breakdown";
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import {
+    activeAccount,
+    refreshUsage,
+    resetLabel,
+    resetTitle,
+    usageFor,
+    usageTone,
+    windowLabel,
+} from "../src/state/usage-limits";
 
+import type { AccountUsage, ProviderUsage, UsageEntry } from "../src/state/usage-limits";
 import type { MessageEntry } from "../src/engine/store";
 
 const minute = 60_000;
@@ -11,11 +20,17 @@ let original: PropertyDescriptor | undefined;
 
 beforeEach(() => {
     original = Object.getOwnPropertyDescriptor(globalThis, "__TAURI__");
-    invoke = mock(async () => ({
-        status: "ok",
-        plan: "max",
-        windows: [{ kind: "session", label: null, usedPercent: 91, resetsAt: now + 49 * minute }],
-    }));
+    invoke = mock(async () => [
+        {
+            key: "anthropic",
+            label: null,
+            usage: {
+                status: "ok",
+                plan: "max",
+                windows: [{ kind: "session", label: null, usedPercent: 91, resetsAt: now + 49 * minute }],
+            },
+        },
+    ]);
     Object.defineProperty(globalThis, "__TAURI__", { configurable: true, writable: true, value: { core: { invoke } } });
 });
 
@@ -56,20 +71,84 @@ test("window labels follow the window kind and any model scope", () => {
 test("usage is fetched once per minute per provider and keeps the last value on failure", async () => {
     await refreshUsage("anthropic");
     expect(invoke.mock.calls).toEqual([["provider_usage", { provider: "anthropic" }]]);
-    expect(usageFor("anthropic")?.usage?.plan).toBe("max");
+    expect(usageFor("anthropic")?.accounts?.[0]?.usage?.plan).toBe("max");
     await refreshUsage("anthropic");
     expect(invoke).toHaveBeenCalledTimes(1);
 
-    invoke.mockRejectedValue(new Error("usage request failed (429)"));
+    invoke.mockRejectedValue(new Error("no engine"));
     await refreshUsage("anthropic", Date.now() + 2 * minute);
     expect(invoke).toHaveBeenCalledTimes(2);
-    expect(usageFor("anthropic")).toMatchObject({ failed: true, loading: false, usage: { plan: "max" } });
+    expect(usageFor("anthropic")).toMatchObject({
+        failed: true,
+        loading: false,
+        accounts: [{ key: "anthropic", usage: { plan: "max" } }],
+    });
 });
 
 test("providers without plan windows resolve to null, which hides the section", async () => {
     invoke.mockResolvedValue(null);
     await refreshUsage("openrouter");
-    expect(usageFor("openrouter")).toMatchObject({ usage: null, failed: false });
+    expect(usageFor("openrouter")).toMatchObject({ accounts: null, failed: false });
+});
+
+test("every account comes back in order, and one whose request failed keeps what it showed before", async () => {
+    const plan = (name: string, usedPercent: number): ProviderUsage => ({
+        status: "ok",
+        plan: name,
+        windows: [{ kind: "weekly", label: null, usedPercent, resetsAt: null }],
+    });
+    invoke.mockResolvedValue([
+        { key: "openai", label: "ann@example.com", usage: plan("pro", 40) },
+        { key: "openai~b0b", label: null, usage: plan("plus", 12) },
+    ]);
+    await refreshUsage("openai");
+    expect(usageFor("openai")?.accounts).toEqual([
+        { key: "openai", label: "ann@example.com", usage: plan("pro", 40), failed: false },
+        { key: "openai~b0b", label: null, usage: plan("plus", 12), failed: false },
+    ]);
+
+    invoke.mockResolvedValue([
+        { key: "openai", label: "ann@example.com", usage: plan("pro", 55) },
+        { key: "openai~b0b", label: null, usage: null },
+    ]);
+    await refreshUsage("openai", Date.now(), true);
+    expect(usageFor("openai")).toMatchObject({
+        failed: false,
+        accounts: [
+            { key: "openai", usage: { plan: "pro", windows: [{ usedPercent: 55 }] }, failed: false },
+            { key: "openai~b0b", usage: { plan: "plus", windows: [{ usedPercent: 12 }] }, failed: true },
+        ],
+    });
+});
+
+test("the meter shows the first account with usage left, else the first", () => {
+    const account = (key: string, usage: ProviderUsage | null): AccountUsage => ({
+        key,
+        label: null,
+        usage,
+        failed: false,
+    });
+    const used = (...percents: number[]): ProviderUsage => ({
+        status: "ok",
+        plan: null,
+        windows: percents.map((usedPercent) => ({ kind: "session", label: null, usedPercent, resetsAt: null })),
+    });
+    const entry = (...accounts: AccountUsage[]): UsageEntry => ({
+        accounts,
+        failed: false,
+        fetchedAt: now,
+        loading: false,
+    });
+    const expired: ProviderUsage = { status: "expired", plan: null, windows: [] };
+
+    const spent = account("a", used(100, 20));
+    const free = account("b", used(99, 99));
+    expect(activeAccount(entry(spent, free))).toBe(free);
+    expect(activeAccount(entry(account("c", expired), account("d", null), free))).toBe(free);
+    expect(activeAccount(entry(spent, account("e", used(100))))).toBe(spent);
+    expect(activeAccount(entry(account("f", used())))?.key).toBe("f");
+    expect(activeAccount(entry())).toBeUndefined();
+    expect(activeAccount(undefined)).toBeUndefined();
 });
 
 function entry(role: "user" | "assistant", parts: unknown[], extra: Record<string, unknown> = {}): MessageEntry {
@@ -120,6 +199,8 @@ test("the context meter shows usage limits and the breakdown, and remote access 
     expect(keys.length).toBeGreaterThan(5);
     expect(keys.filter((key) => !(key in english))).toEqual([]);
     expect(meter).toContain("<UsageSection provider=");
+    expect(meter).toContainCode("const account = () => activeAccount(entry());");
+    expect(meter).toContainCode("<AccountLimits entry={entry()} account={account()} />");
     expect(meter).toContain("<ProviderIcon id={props.provider}");
     expect(meter).not.toContain("detailedBreakdown");
     expect(meter).toContain("onMouseEnter={refresh}");
@@ -147,5 +228,10 @@ test("settings lists usage for every linked provider and forced refresh skips th
     expect(settings).toContainCode("<UsageLimitsSection />");
     const section = await Bun.file("src/ui/settings-usage.tsx").text();
     expect(section).toContain("engine.state.connected.includes(provider.id)");
-    expect(section).toContain("usageFor(provider.id)?.usage !== null");
+    expect(section).toContain("usageFor(provider.id)?.accounts !== null");
+    expect(section).toContainCode("const several = () => accounts().length > 1;");
+    expect(section).toContainCode('account.label ?? t("drift.provider.accounts.unnamed", { number: index + 1 })');
+    expect(section).toContainCode(
+        "<Show when={several()} fallback={<AccountLimits entry={entry()} account={accounts()[0]} />}>",
+    );
 });

@@ -1,3 +1,4 @@
+use drift_engine::llm::credentials::Account;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::OnceLock;
@@ -43,6 +44,15 @@ pub(crate) struct ProviderUsage {
     windows: Vec<UsageWindow>,
 }
 
+/// One account's plan usage; `usage` is `None` when its request failed, so the UI keeps what it last showed.
+#[derive(Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AccountUsage {
+    key: String,
+    label: Option<String>,
+    usage: Option<ProviderUsage>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Source {
     Anthropic,
@@ -71,6 +81,14 @@ enum Credential {
 struct Request {
     url: &'static str,
     headers: Vec<(&'static str, String)>,
+}
+
+/// How one account's usage is found.
+#[derive(Debug, PartialEq)]
+enum Lookup {
+    Fetch(Request),
+    /// Its sign-in could not be renewed.
+    Expired,
 }
 
 fn source(provider: &str) -> Option<Source> {
@@ -104,6 +122,16 @@ fn from_engine(credential: drift_engine::llm::Credential) -> Option<Credential> 
         drift_engine::llm::Credential::ApiKey { key } => Some(Credential::Api { key }),
         drift_engine::llm::Credential::Ambient { .. } => None,
     }
+}
+
+/// An account with no credential left is expired; `None` when its sign-in has no plan to report.
+fn lookup(source: Source, credential: Option<drift_engine::llm::Credential>) -> Option<Lookup> {
+    let Some(credential) = credential else {
+        return Some(Lookup::Expired);
+    };
+
+    let credential = from_engine(credential)?;
+    request(source, &credential).map(Lookup::Fetch)
 }
 
 /// Subscription windows exist only for subscription sign-ins; plain API keys have none to report.
@@ -447,30 +475,55 @@ fn failure_status(code: u16, body: &str) -> Option<UsageStatus> {
     }
 }
 
-/// Plan usage for the provider behind the current model, with the sign-in the engine holds (renewed
-/// first when it has expired). Credentials stay on this side of the bridge.
+/// Plan usage for the provider behind the current model, one entry per account in the user's order, with the
+/// sign-ins the engine holds (renewed first when expired). Credentials stay on this side of the bridge.
 #[tauri::command]
 pub(crate) async fn provider_usage(
     native: tauri::State<'_, crate::native::Native>,
     provider: String,
-) -> Result<Option<ProviderUsage>, String> {
+) -> Result<Option<Vec<AccountUsage>>, String> {
     let Some(source) = source(&provider) else {
         return Ok(None);
     };
 
     let engine = native.engine().clone();
-    if engine.credentials.get(&provider).is_none() {
-        return Ok(None);
-    }
-    let Some(credential) = engine.current_credential(&provider).await.and_then(from_engine) else {
-        return Ok(Some(signed_out(UsageStatus::Expired)));
-    };
-    let Some(request) = request(source, &credential) else {
-        return Ok(None);
+    let client = client().map_err(|error| error.to_string())?;
+    let accounts = engine.account_credentials(&provider).await;
+
+    let fetches = accounts
+        .into_iter()
+        .map(|(account, credential)| account_usage(client, source, account, credential));
+    let reported: Vec<AccountUsage> = futures_util::future::join_all(fetches)
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
+
+    // No account, or none whose sign-in has a plan, means the provider has nothing to report.
+    Ok((!reported.is_empty()).then_some(reported))
+}
+
+/// One account's usage, or `None` when its sign-in has no plan to report.
+async fn account_usage(
+    client: &reqwest::Client,
+    source: Source,
+    account: Account,
+    credential: Option<drift_engine::llm::Credential>,
+) -> Option<AccountUsage> {
+    let usage = match lookup(source, credential)? {
+        Lookup::Expired => Some(signed_out(UsageStatus::Expired)),
+        Lookup::Fetch(request) => fetch(client, source, request).await.ok(),
     };
 
-    let mut builder = client()
-        .map_err(|error| error.to_string())?
+    Some(AccountUsage {
+        key: account.key,
+        label: account.label,
+        usage,
+    })
+}
+
+async fn fetch(client: &reqwest::Client, source: Source, request: Request) -> Result<ProviderUsage, String> {
+    let mut builder = client
         .get(request.url)
         .header("User-Agent", concat!("drift/", env!("CARGO_PKG_VERSION")));
     for (name, value) in request.headers {
@@ -484,12 +537,12 @@ pub(crate) async fn provider_usage(
     if !(200..300).contains(&code) {
         let text = String::from_utf8_lossy(&body);
         return failure_status(code, &text)
-            .map(|status| Some(signed_out(status)))
+            .map(signed_out)
             .ok_or(format!("usage request failed ({code})"));
     }
 
     let parsed: Value = serde_json::from_slice(&body).map_err(|error| error.to_string())?;
-    Ok(Some(parse(source, &parsed, now_ms())))
+    Ok(parse(source, &parsed, now_ms()))
 }
 
 #[cfg(test)]

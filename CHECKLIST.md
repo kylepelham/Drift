@@ -198,6 +198,7 @@ change the plan there when a decision changes.
 - [x] Before cutover: pending V2 `session_input` work checked (only test fixtures here); the import names any conversation holding queued prompts instead of running them
 - [x] Import summary shown once in a dialog after a run that brought anything in or left anything out (`opencode_import_summary` hands it out once), left-out items grouped and worded in every locale
 - [x] Usage limits read Drift's own credential (`Engine::current_credential`), renewing an expired sign-in through the engine's refresh lock
+- [x] Usage limits list every account of a provider (`Engine::account_credentials`, fetched in parallel); the composer popover shows the first account with usage left
 - [x] xAI SuperGrok sign-in (device code, renewed like the others); opencode's xAI sign-in imported
 - [x] Model modes back in the catalog (fast, ultrafast, flex, pro from models.dev `experimental.modes`, as opencode listed them): own entries and prices, the base model on the wire with the mode's body fields and headers
 - [x] A mode and its base take each other's signed reasoning (one model on the wire); another model reads earlier finished thoughts as plain text, as opencode sends them
