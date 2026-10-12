@@ -4,6 +4,8 @@ use axum::extract::Request;
 use axum::http::HeaderMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use serde_json::json;
+
 use super::*;
 use crate::tls::tests::Authority;
 
@@ -88,6 +90,11 @@ async fn only_the_webview_holding_this_launchs_cookie_gets_through() {
 /// A stand-in gateway answering `/engine/echo` with what it was sent, and `/engine/events` as an upgrade.
 fn gateway() -> Router {
     Router::new()
+        .route(
+            "/auth/options",
+            get(|| async { axum::Json(json!({ "api": 1, "version": "test", "computer": "PC" })) }),
+        )
+        .route("/auth/me", get(|| async { "{}" }))
         .route(
             "/engine/echo",
             axum::routing::post(|headers: HeaderMap, body: String| async move {
@@ -188,6 +195,40 @@ async fn the_event_socket_passes_through_as_an_upgrade() {
     let mut echoed = [0u8; 4];
     stream.read_exact(&mut echoed).await.unwrap();
     assert_eq!(&echoed, b"ping");
+}
+
+#[tokio::test]
+async fn an_open_page_gets_its_pc_back_after_the_connection_dropped() {
+    let (proxy, address, client) = proxy().await;
+    let authority = Authority::new();
+    let pc_address = authority.serve(gateway()).await;
+    let id = pc::hex(&authority.fingerprint());
+    let computer = Computer {
+        id: id.clone(),
+        name: "PC".into(),
+        addresses: vec![pc_address.ip()],
+        port: pc_address.port(),
+        mac: None,
+        token: "phone-session".into(),
+    };
+    {
+        let mut computers = proxy.computers.lock().unwrap();
+        computers.upsert(computer).unwrap();
+        computers.set_active(Some(&id)).unwrap();
+    }
+
+    let echoed = client
+        .post(format!("http://{address}/engine/echo"))
+        .header("cookie", signed_in())
+        .body("prompt")
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+
+    assert_eq!(echoed, "Bearer phone-session - - prompt");
 }
 
 #[tokio::test]

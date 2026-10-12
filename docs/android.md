@@ -98,16 +98,22 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
 - Linked PCs are `computers.json` in the app's private storage: the authority fingerprint, every
   known address (the last that answered first), the port, the MAC and the device token. Opening the
   app reconnects to the last PC used, trying its addresses in order; when none answers, or the PC
-  signed the phone out, the computers page says why. Moving the token into the Android Keystore
-  comes with the biometric lock (phase 3).
+  signed the phone out, the computers page says why. A request that cannot reach the PC drops the
+  connection, and the next one looks for the PC again, so a page left open while the phone slept or
+  changed networks recovers by itself. Moving the token into the Android Keystore comes with the
+  biometric lock (phase 3).
 - `MainActivity.kt` draws edge to edge with light bar icons over drift-dark's background, and pads
   the WebView by the status bar, navigation bar, cutout and keyboard insets, so the page, its
   drawers and dialogs, and the composer while typing all sit in the space left; `env(safe-area-*)`
   is then 0 inside the page.
-- On a phone the composer's pickers take a row of their own above its buttons, the sidebar drawer
-  closes with a leftward swipe (a third of its width, or a flick), and any question card folds to
-  its header like the Todos dock, in the desktop app too. There is no swipe to open the drawer:
-  the left edge is Android's back gesture.
+- On a phone the composer's pickers take a row of their own above its buttons, and any question
+  card folds to its header like the Todos dock, in the desktop app too. The drawer follows a finger
+  anywhere on the page: rightward opens it, leftward over it or the page beside it closes it, and a
+  third of its width or a flick finishes the move. A rightward drag is left alone in a text field, a
+  dialog or menu, or content that can scroll back. A drag from the very left edge is still Android's
+  back gesture.
+- Settings rows keep a toggle beside its text and wrap only wider controls under it, and the
+  settings search takes focus on open only with a mouse, so a phone's keyboard does not cover it.
 - `DriftPlugin.kt` is the only other Kotlin: Google's code scanner (`play-services-code-scanner`), which
   shows its own camera screen and needs no camera permission, and the phone's name for the PC's
   device list. Cleartext is allowed only to 127.0.0.1 (`network_security_config.xml`).

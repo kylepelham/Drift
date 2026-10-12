@@ -389,6 +389,10 @@ textarea {
         flex-shrink: 0;
     }
 
+    .picker-trigger .picker-label {
+        text-align: start;
+    }
+
     .question-options {
         max-height: min(16rem, 32dvh);
     }

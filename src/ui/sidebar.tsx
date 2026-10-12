@@ -1,12 +1,12 @@
 import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces";
-import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen } from "../state/navigation";
+import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen, openMobileDrawer } from "../state/navigation";
 import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
 import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
 import { normalizeDir } from "../engine/store";
 import { WorkspaceGroup } from "./workspaces";
-import { swipeToClose } from "./drawer-swipe";
+import { drawerSwipe } from "./drawer-swipe";
 import { pickFolder } from "../state/dialog";
 import { persisted } from "../state/persist";
 import { openSettings } from "./settings";
@@ -136,7 +136,16 @@ export function Sidebar() {
 
     return (
         <aside
-            ref={(drawer) => onCleanup(swipeToClose(drawer, mobileDrawerOpen, () => closeMobileDrawer()))}
+            ref={(drawer) =>
+                onCleanup(
+                    drawerSwipe(drawer, {
+                        open: mobileDrawerOpen,
+                        show: openMobileDrawer,
+                        hide: () => closeMobileDrawer(),
+                        narrow: () => isNarrowWidth(window.innerWidth),
+                    }),
+                )
+            }
             class="app-sidebar relative flex shrink-0 flex-col border-r border-edge bg-surface"
             classList={{ "mobile-sidebar-open": mobileDrawerOpen() }}
             style={{ width: `${width()}px` }}

@@ -40,11 +40,19 @@ pub(crate) struct Shared {
     pub route: Mutex<Option<Route>>,
     pub links: Mutex<HashMap<String, Linking>>,
     pub native: Arc<Native>,
+    /// Held while looking for the chosen PC again, so a burst of requests looks once.
+    reaching: tokio::sync::Mutex<()>,
     secret: String,
     port: u16,
 }
 
 pub(crate) type Proxy = Arc<Shared>;
+
+/// Why a request could not be passed on.
+pub(crate) enum Unrouted {
+    NoneChosen,
+    Unreachable,
+}
 
 impl Shared {
     pub(crate) fn new(computers: Computers, native: Arc<Native>, secret: String, port: u16) -> Proxy {
@@ -53,9 +61,27 @@ impl Shared {
             route: Mutex::new(None),
             links: Mutex::new(HashMap::new()),
             native,
+            reaching: tokio::sync::Mutex::new(()),
             secret,
             port,
         })
+    }
+
+    /// Where requests go now; after a dropped connection the chosen PC is looked for again, so an open page recovers.
+    pub(crate) async fn destination(&self) -> Result<Route, Unrouted> {
+        if let Some(route) = self.route.lock().unwrap().clone() {
+            return Ok(route);
+        }
+
+        let _one_search = self.reaching.lock().await;
+        if let Some(route) = self.route.lock().unwrap().clone() {
+            return Ok(route);
+        }
+        let active = self.computers.lock().unwrap().active().cloned();
+        let computer = active.ok_or(Unrouted::NoneChosen)?;
+        self.connect(&computer).await.map_err(|_| Unrouted::Unreachable)?;
+
+        self.route.lock().unwrap().clone().ok_or(Unrouted::Unreachable)
     }
 
     /// Reaches a linked PC, makes it the one requests go to, and remembers it for the next launch.

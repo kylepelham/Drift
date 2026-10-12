@@ -8,7 +8,7 @@ use futures_util::TryStreamExt;
 use hyper_util::rt::TokioIo;
 use serde_json::json;
 
-use super::{Proxy, Route};
+use super::{Proxy, Route, Unrouted};
 
 /// Headers that describe one hop, not the request: never passed on, either way.
 const HOP: [&str; 8] = [
@@ -23,14 +23,16 @@ const HOP: [&str; 8] = [
 ];
 /// What the WebView sends that is this proxy's, not the PC's: the PC gets the phone's session instead.
 const LOCAL: [&str; 5] = ["host", "cookie", "origin", "authorization", "content-length"];
+const UNREACHABLE: &str = "the computer could not be reached";
 
 pub(super) async fn forward(State(proxy): State<Proxy>, request: Request) -> Response {
-    let route = proxy.route.lock().unwrap().clone();
-    let Some(route) = route else {
-        return refuse(StatusCode::SERVICE_UNAVAILABLE, "no computer is selected");
+    let route = match proxy.destination().await {
+        Ok(route) => route,
+        Err(Unrouted::NoneChosen) => return refuse(StatusCode::SERVICE_UNAVAILABLE, "no computer is selected"),
+        Err(Unrouted::Unreachable) => return refuse(StatusCode::BAD_GATEWAY, UNREACHABLE),
     };
     if is_upgrade(request.headers()) {
-        return upgrade(route, request).await;
+        return upgrade(&proxy, route, request).await;
     }
 
     let path = request
@@ -50,9 +52,9 @@ pub(super) async fn forward(State(proxy): State<Proxy>, request: Request) -> Res
     }
 
     let Ok(response) = outgoing.send().await else {
-        // The next page load looks for the PC again, at any of its addresses.
+        // The next request looks for the PC again, at any of its addresses.
         proxy.route.lock().unwrap().take();
-        return refuse(StatusCode::BAD_GATEWAY, "the computer could not be reached");
+        return refuse(StatusCode::BAD_GATEWAY, UNREACHABLE);
     };
 
     if path == "/auth/logout" && response.status().is_success() {
@@ -68,7 +70,7 @@ fn forget(proxy: &Proxy, id: &str) {
 }
 
 /// The event socket: the PC answers the WebView's own handshake, then bytes flow both ways untouched.
-async fn upgrade(route: Route, mut request: Request) -> Response {
+async fn upgrade(proxy: &Proxy, route: Route, mut request: Request) -> Response {
     let path = request
         .uri()
         .path_and_query()
@@ -86,7 +88,8 @@ async fn upgrade(route: Route, mut request: Request) -> Response {
     }
 
     let Ok(response) = outgoing.send().await else {
-        return refuse(StatusCode::BAD_GATEWAY, "the computer could not be reached");
+        proxy.route.lock().unwrap().take();
+        return refuse(StatusCode::BAD_GATEWAY, UNREACHABLE);
     };
     if response.status() != StatusCode::SWITCHING_PROTOCOLS {
         return relay(response);
