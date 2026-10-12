@@ -219,6 +219,18 @@ export const drift = {
     "drift.preview.pdfPassword": "암호로 보호된 PDF는 미리볼 수 없습니다.",
     "drift.remote.statusStarting": "시작 중",
     "drift.remote.statusError": "오류",
+    "drift.remote.app.title": "Android용 Drift",
+    "drift.remote.app.description":
+        "휴대폰의 Drift 앱으로 코드를 스캔하면 연결됩니다. 코드에 이 PC의 주소와 인증서가 들어 있어 앱에서 인증서 경고가 표시되지 않으며, 한 번만 쓸 수 있습니다.",
+    "drift.remote.app.qr": "Drift 앱 페어링 코드",
+    "drift.remote.app.show": "페어링 코드 표시",
+    "drift.remote.app.again": "새 코드 표시",
+    "drift.remote.app.expires": "한 번만 사용 가능, {{minutes}}분 남음",
+    "drift.remote.app.expired": "이 코드는 만료되었습니다.",
+    "drift.remote.app.linked": "{{name}}이(가) 연결되었습니다.",
+    "drift.remote.devices.app": "Drift 앱",
+    "drift.remote.link.words":
+        "Drift 앱을 연결하나요? 연결을 누르기 전에 앱에 다음 단어가 표시되는지 확인하세요: {{words}}",
     "drift.remote.clipboardError": "복사할 수 없음",
     "drift.settings.shellTimeout.scope":
         "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",

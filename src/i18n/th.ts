@@ -252,6 +252,17 @@ export const drift = {
     "drift.preview.pdfPassword": "ไม่สามารถแสดงตัวอย่าง PDF ที่ป้องกันด้วยรหัสผ่านได้",
     "drift.remote.statusStarting": "กำลังเริ่ม",
     "drift.remote.statusError": "ข้อผิดพลาด",
+    "drift.remote.app.title": "Drift สำหรับ Android",
+    "drift.remote.app.description":
+        "สแกนรหัสด้วยแอป Drift บนโทรศัพท์เพื่อเชื่อม รหัสมีที่อยู่และใบรับรองของพีซีนี้ แอปจึงไม่แสดงคำเตือนใบรับรอง และใช้ได้ครั้งเดียว",
+    "drift.remote.app.qr": "รหัสจับคู่สำหรับแอป Drift",
+    "drift.remote.app.show": "แสดงรหัสจับคู่",
+    "drift.remote.app.again": "แสดงรหัสใหม่",
+    "drift.remote.app.expires": "ใช้ได้ครั้งเดียว อีก {{minutes}} นาที",
+    "drift.remote.app.expired": "รหัสนี้หมดอายุแล้ว",
+    "drift.remote.app.linked": "เชื่อม {{name}} แล้ว",
+    "drift.remote.devices.app": "แอป Drift",
+    "drift.remote.link.words": "กำลังเชื่อมแอป Drift ใช่ไหม ก่อนกดเชื่อม ตรวจสอบว่าแอปแสดง: {{words}}",
     "drift.remote.clipboardError": "คัดลอกไม่ได้",
     "drift.settings.shellTimeout.scope":
         "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",

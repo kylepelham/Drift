@@ -1421,10 +1421,12 @@ dependencies = [
  "base64 0.22.1",
  "drift-engine",
  "drift-migrate",
+ "drift-pairing",
  "futures-util",
  "getrandom 0.3.4",
  "hyper",
  "hyper-util",
+ "libc",
  "mime_guess",
  "pbkdf2",
  "qrcode",
@@ -1524,6 +1526,14 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.19",
  "tokio",
+]
+
+[[package]]
+name = "drift-pairing"
+version = "2.1.0"
+dependencies = [
+ "thiserror 2.0.19",
+ "url",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 mod routes;
 
-pub(crate) use routes::{certificate, login, logout, me, options, poll_link, start_link};
+pub(crate) use routes::{certificate, login, logout, me, options, pair, poll_link, start_link};
 
 use crate::remote::constant_time_eq;
 use crate::store::{RemoteDevice, Store};
@@ -18,6 +18,8 @@ pub(crate) const COOKIE_NAME: &str = "drift_remote";
 pub(crate) const SIGN_IN_PAGE: &str = include_str!("remote_sign_in.html");
 const COOKIE_MAX_AGE_SECS: u64 = 400 * 24 * 60 * 60;
 const LINK_TTL: Duration = Duration::from_secs(600);
+/// How long a pairing code shown on the desktop works; it works once.
+pub(crate) const TICKET_TTL: Duration = Duration::from_secs(600);
 const MAX_LINKS: usize = 32;
 const MAX_LINKS_PER_ADDRESS: usize = 3;
 const CODE_ALPHABET: &[u8] = b"ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -34,6 +36,8 @@ pub(crate) enum AuthError {
     TooManyLinks,
     #[error("No device is waiting with that code. Codes expire after 10 minutes.")]
     UnknownCode,
+    #[error("That pairing code has expired or was already used. Show a new one on the PC.")]
+    UnknownTicket,
     #[error("Username must be 1 to 64 characters.")]
     InvalidUsername,
     #[error("Password must be 8 to 256 characters.")]
@@ -68,6 +72,12 @@ pub(crate) struct PendingLink {
     requested_at: i64,
 }
 
+/// The secret in the pairing code the desktop shows the Drift app.
+struct Ticket {
+    secret: String,
+    expires: Instant,
+}
+
 struct Failure {
     count: u32,
     locked_until: Option<Instant>,
@@ -84,6 +94,7 @@ pub(crate) struct Auth {
     devices: HashMap<String, RemoteDevice>,
     links: Vec<Link>,
     password: Option<Password>,
+    ticket: Option<Ticket>,
     failures: HashMap<IpAddr, Failure>,
 }
 
@@ -101,6 +112,7 @@ impl Auth {
                 .collect(),
             links: Vec::new(),
             password,
+            ticket: None,
             failures: HashMap::new(),
         })
     }
@@ -190,6 +202,32 @@ impl Auth {
         Ok(link.name.clone())
     }
 
+    /// A new pairing secret for the desktop to show; it replaces any earlier one.
+    pub(crate) fn new_ticket(&mut self) -> String {
+        let secret = random_hex(32);
+        self.ticket = Some(Ticket {
+            secret: secret.clone(),
+            expires: Instant::now() + TICKET_TTL,
+        });
+
+        secret
+    }
+
+    /// Signs in the app that scanned the current pairing code, once; returns its session token.
+    fn redeem(&mut self, supplied: &str, name: String, store: &Store) -> Result<String, AuthError> {
+        self.prune(Instant::now());
+        let matches = self
+            .ticket
+            .as_ref()
+            .is_some_and(|ticket| constant_time_eq(supplied.as_bytes(), ticket.secret.as_bytes()));
+        if !matches {
+            return Err(AuthError::UnknownTicket);
+        }
+
+        self.ticket = None;
+        self.create_device(name, "app", store)
+    }
+
     fn poll(&mut self, handle: &str, store: &Store) -> Result<Poll, AuthError> {
         self.prune(Instant::now());
         let Some(index) = self.links.iter().position(|link| link.handle == handle) else {
@@ -267,6 +305,9 @@ impl Auth {
 
     fn prune(&mut self, now: Instant) {
         self.links.retain(|link| link.expires > now);
+        if self.ticket.as_ref().is_some_and(|ticket| ticket.expires <= now) {
+            self.ticket = None;
+        }
     }
 }
 
@@ -407,7 +448,7 @@ fn with_cookie(mut response: Response, cookie: HeaderValue) -> Response {
     response
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_millis() as i64)

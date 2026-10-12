@@ -222,6 +222,18 @@ export const drift = {
     "drift.preview.pdfPassword": "Les PDF protégés par un mot de passe ne peuvent pas être prévisualisés.",
     "drift.remote.statusStarting": "Démarrage",
     "drift.remote.statusError": "Erreur",
+    "drift.remote.app.title": "Drift pour Android",
+    "drift.remote.app.description":
+        "Scannez le code avec l'app Drift sur votre téléphone pour l'associer. Le code contient les adresses et le certificat de ce PC : l'app n'affiche jamais d'avertissement de certificat. Il ne sert qu'une fois.",
+    "drift.remote.app.qr": "Code d'association pour l'app Drift",
+    "drift.remote.app.show": "Afficher le code d'association",
+    "drift.remote.app.again": "Afficher un nouveau code",
+    "drift.remote.app.expires": "Valable une fois, encore {{minutes}} min",
+    "drift.remote.app.expired": "Ce code a expiré.",
+    "drift.remote.app.linked": "{{name}} est associé.",
+    "drift.remote.devices.app": "App Drift",
+    "drift.remote.link.words":
+        "Vous associez l'app Drift ? Avant d'appuyer sur Associer, vérifiez qu'elle affiche : {{words}}",
     "drift.remote.clipboardError": "Copie impossible",
     "drift.settings.shellTimeout.scope":
         "Les délais du shell arrêtent les arborescences de processus. Ils n’affectent pas les modèles, MCP ou appels réseau.",

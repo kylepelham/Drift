@@ -252,6 +252,18 @@ export const drift = {
     "drift.preview.pdfPassword": "PDF datoteke zaštićene lozinkom nije moguće pregledati.",
     "drift.remote.statusStarting": "Pokretanje",
     "drift.remote.statusError": "Greška",
+    "drift.remote.app.title": "Drift za Android",
+    "drift.remote.app.description":
+        "Skeniraj kod Drift aplikacijom na telefonu da ga povežeš. Kod sadrži adrese i certifikat ovog računara, pa aplikacija nikad ne prikazuje upozorenje o certifikatu; radi jednom.",
+    "drift.remote.app.qr": "Kod za uparivanje Drift aplikacije",
+    "drift.remote.app.show": "Prikaži kod za uparivanje",
+    "drift.remote.app.again": "Prikaži novi kod",
+    "drift.remote.app.expires": "Radi jednom, još {{minutes}} min",
+    "drift.remote.app.expired": "Ovaj kod je istekao.",
+    "drift.remote.app.linked": "{{name}} je povezan.",
+    "drift.remote.devices.app": "Drift aplikacija",
+    "drift.remote.link.words":
+        "Povezuješ Drift aplikaciju? Prije nego pritisneš Poveži, provjeri da prikazuje: {{words}}",
     "drift.remote.clipboardError": "Kopiranje nije uspjelo",
     "drift.settings.shellTimeout.scope":
         "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",

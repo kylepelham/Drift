@@ -254,6 +254,17 @@ export const drift = {
     "drift.preview.pdfPassword": "No se pueden previsualizar los PDF protegidos con contraseña.",
     "drift.remote.statusStarting": "Iniciando",
     "drift.remote.statusError": "Error",
+    "drift.remote.app.title": "Drift para Android",
+    "drift.remote.app.description":
+        "Escanea el código con la app Drift de tu teléfono para vincularlo. El código contiene las direcciones y el certificado de este PC, así que la app nunca muestra un aviso de certificado, y sirve una vez.",
+    "drift.remote.app.qr": "Código de vinculación para la app Drift",
+    "drift.remote.app.show": "Mostrar código de vinculación",
+    "drift.remote.app.again": "Mostrar un código nuevo",
+    "drift.remote.app.expires": "Sirve una vez, durante {{minutes}} min más",
+    "drift.remote.app.expired": "Este código ha caducado.",
+    "drift.remote.app.linked": "{{name}} está vinculado.",
+    "drift.remote.devices.app": "App Drift",
+    "drift.remote.link.words": "¿Vinculas la app Drift? Antes de pulsar Vincular, comprueba que muestra: {{words}}",
     "drift.remote.clipboardError": "No se pudo copiar",
     "drift.settings.shellTimeout.scope":
         "Los límites del shell terminan árboles de procesos. No afectan a modelos, servidores MCP ni llamadas de red.",

@@ -253,6 +253,18 @@ export const drift = {
     "drift.preview.pdfPassword": "Parola korumalı PDF dosyaları önizlenemez.",
     "drift.remote.statusStarting": "Başlatılıyor",
     "drift.remote.statusError": "Hata",
+    "drift.remote.app.title": "Android için Drift",
+    "drift.remote.app.description":
+        "Telefonunuzu bağlamak için kodu Drift uygulamasıyla tarayın. Kod bu bilgisayarın adreslerini ve sertifikasını içerir; bu yüzden uygulama asla sertifika uyarısı göstermez. Kod bir kez çalışır.",
+    "drift.remote.app.qr": "Drift uygulaması için eşleme kodu",
+    "drift.remote.app.show": "Eşleme kodunu göster",
+    "drift.remote.app.again": "Yeni kod göster",
+    "drift.remote.app.expires": "Bir kez geçerli, {{minutes}} dk daha",
+    "drift.remote.app.expired": "Bu kodun süresi doldu.",
+    "drift.remote.app.linked": "{{name}} bağlandı.",
+    "drift.remote.devices.app": "Drift uygulaması",
+    "drift.remote.link.words":
+        "Drift uygulamasını mı bağlıyorsunuz? Bağla'ya basmadan önce şunu gösterdiğini kontrol edin: {{words}}",
     "drift.remote.clipboardError": "Kopyalanamadı",
     "drift.settings.shellTimeout.scope":
         "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",

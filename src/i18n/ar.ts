@@ -217,6 +217,17 @@ export const drift = {
     "drift.preview.pdfPassword": "لا يمكن معاينة ملفات PDF المحمية بكلمة مرور.",
     "drift.remote.statusStarting": "جارٍ البدء",
     "drift.remote.statusError": "خطأ",
+    "drift.remote.app.title": "Drift لنظام Android",
+    "drift.remote.app.description":
+        "امسح الرمز بتطبيق Drift على هاتفك لربطه. يحتوي الرمز على عناوين هذا الحاسوب وشهادته، لذا لا يعرض التطبيق أي تحذير بشأن الشهادة، ويعمل مرة واحدة.",
+    "drift.remote.app.qr": "رمز الإقران لتطبيق Drift",
+    "drift.remote.app.show": "عرض رمز الإقران",
+    "drift.remote.app.again": "عرض رمز جديد",
+    "drift.remote.app.expires": "يعمل مرة واحدة، لمدة {{minutes}} دقيقة أخرى",
+    "drift.remote.app.expired": "انتهت صلاحية هذا الرمز.",
+    "drift.remote.app.linked": "تم ربط {{name}}.",
+    "drift.remote.devices.app": "تطبيق Drift",
+    "drift.remote.link.words": "هل تربط تطبيق Drift؟ قبل الضغط على ربط، تحقق من أنه يعرض: {{words}}",
     "drift.remote.clipboardError": "تعذر النسخ",
     "drift.settings.shellTimeout.scope":
         "تنهي مهل الصدفة أشجار العمليات. ولا تؤثر على النماذج أو خوادم MCP أو اتصالات الشبكة.",

@@ -13,6 +13,21 @@ Remote Access is off by default. Traffic is always encrypted with HTTPS, and onl
 
 Codes expire after 10 minutes and approve exactly one device. The code is only ever typed into the desktop, never into the gateway, so it cannot be guessed over the network. Each address may hold three waiting codes, and the gateway holds at most 32.
 
+### Drift for Android
+
+Under **Drift for Android**, **Show pairing code** shows a QR code for the Drift app
+(`docs/android.md`). It holds this PC's name, every private and Tailscale address it has (the LAN
+address first), the certificate authority's fingerprint, the LAN adapter's MAC for Wake-on-LAN, and
+a one-time ticket. The app trusts only that authority, so it never shows a certificate warning, and
+redeems the ticket with `POST /auth/pair {"ticket", "name"}` for a session token it sends as
+`Authorization: Bearer`. A ticket works once, for 10 minutes; showing a new code replaces it, and
+wrong tickets count toward the same lockout as wrong passwords. The device is listed as
+**Drift app**.
+
+The app can also link with the typed code above. Discovery replies are unauthenticated, so while a
+device waits for its code the desktop shows the authority's fingerprint as six words (66 bits),
+which the app shows too: compare them before pressing **Link**.
+
 ### Password sign-in (optional)
 
 Under **Password sign-in**, choose **Set up** and enter a username and password (8 to 256 characters). The device's sign-in page then also offers a username and password form, which is useful when you are away from the desktop. Changing or turning off the password signs out every device that signed in with it; devices linked with a code stay signed in.
@@ -51,7 +66,7 @@ While Remote Access is enabled, Drift listens for the existing UDP probe on port
 OPENCODE_COMPANION_DISCOVERY
 ```
 
-It replies with `kind: "drift-companion"`, `brand: "Drift"`, `name: "Drift"`, `protocol: "drift-remote"`, `version: 2`, the reachable `https://` URL, and `certificateSha256`, the authority fingerprint. Version 2 marks the move to HTTPS; companion apps should pin `certificateSha256` instead of accepting any certificate. Discovery never includes session tokens, passwords, or engine credentials.
+It replies with `kind: "drift-companion"`, `brand: "Drift"`, `name: "Drift"`, `protocol: "drift-remote"`, `version: 2`, `api` (the remote API version the Drift app checks), `computer` (this PC's name), the reachable `https://` URL, and `certificateSha256`, the authority fingerprint. Version 2 marks the move to HTTPS; companion apps should pin `certificateSha256` instead of accepting any certificate. Discovery never includes session tokens, passwords, or engine credentials.
 
 ## Architecture
 
@@ -60,7 +75,7 @@ phone browser / WebView
         | TLS :41718 (plain HTTP there is redirected)
         v
 Tauri-owned Remote Access gateway
-        |-- /auth/*                 sign-in page API, device codes, password, certificate
+        |-- /auth/*                 sign-in page API, device codes, app pairing, password, certificate
         |-- /companion + /assets/*  embedded Vite dist (sign-in page when signed out)
         |-- /engine/*               the engine's own router, in process, with its token added
         |-- /api/invoke             explicit host-command allowlist
@@ -81,7 +96,7 @@ the Drift engine (also on loopback for the desktop window)
 Remote Access is for your own network. It is not an Internet-facing service.
 
 - The engine never listens beyond `127.0.0.1`. The gateway serves its router in process (`native_engine`): after the device is signed in, it removes the device's cookies, adds the engine's random token itself, so no device ever holds it, and strips the `/engine` prefix. The event WebSocket carries a `Lease` the gateway cancels when the device's credentials change, so a signed-out device's socket closes at once, and an HTTP response still streaming is cut the same way.
-- Everything except the sign-in routes (`/auth/options`, `/auth/link`, `/auth/link/{id}`, `/auth/login`, `/auth/certificate`) requires a device session. Signed-out navigations to `/` or `/companion` get the sign-in page; other requests get 401.
+- Everything except the sign-in routes (`/auth/options`, `/auth/link`, `/auth/link/{id}`, `/auth/login`, `/auth/pair`, `/auth/certificate`) requires a device session. `/auth/options` also reports the remote API version, the app version and the computer's name. Signed-out navigations to `/` or `/companion` get the sign-in page; other requests get 401.
 - Management commands (enable, link, revoke, password) are desktop-only Tauri commands and are not in the remote RPC allowlist.
 - A request to the engine carries at most 64 MB (`drift_engine::api::MAX_REQUEST_BYTES`, the same limit the desktop window has; attachments ride in prompts as base64); other routes at most 10 MB. Same-origin `https` requests are expected.
 - Host/Origin checks run before authentication. The host comes from HTTP/2's `:authority` or HTTP/1.1's `Host` header; browsers negotiate HTTP/2, so checking `Host` alone rejects every browser request.

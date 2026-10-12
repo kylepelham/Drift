@@ -219,6 +219,18 @@ export const drift = {
     "drift.preview.pdfPassword": "パスワードで保護されたPDFはプレビューできません。",
     "drift.remote.statusStarting": "起動中",
     "drift.remote.statusError": "エラー",
+    "drift.remote.app.title": "Android 版 Drift",
+    "drift.remote.app.description":
+        "スマートフォンの Drift アプリでこのコードを読み取るとリンクされます。コードにはこの PC のアドレスと証明書が含まれるため、アプリで証明書の警告は表示されません。使えるのは一度だけです。",
+    "drift.remote.app.qr": "Drift アプリのペアリングコード",
+    "drift.remote.app.show": "ペアリングコードを表示",
+    "drift.remote.app.again": "新しいコードを表示",
+    "drift.remote.app.expires": "一度だけ有効、残り {{minutes}} 分",
+    "drift.remote.app.expired": "このコードは期限切れです。",
+    "drift.remote.app.linked": "{{name}} をリンクしました。",
+    "drift.remote.devices.app": "Drift アプリ",
+    "drift.remote.link.words":
+        "Drift アプリをリンクしますか？リンクを押す前に、アプリに次の語が表示されているか確認してください: {{words}}",
     "drift.remote.clipboardError": "コピーできませんでした",
     "drift.settings.shellTimeout.scope":
         "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",

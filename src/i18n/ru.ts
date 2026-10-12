@@ -253,6 +253,18 @@ export const drift = {
     "drift.preview.pdfPassword": "Предпросмотр PDF, защищённых паролем, недоступен.",
     "drift.remote.statusStarting": "Запуск",
     "drift.remote.statusError": "Ошибка",
+    "drift.remote.app.title": "Drift для Android",
+    "drift.remote.app.description":
+        "Отсканируйте код приложением Drift на телефоне, чтобы привязать его. Код содержит адреса и сертификат этого ПК, поэтому приложение никогда не показывает предупреждение о сертификате; он действует один раз.",
+    "drift.remote.app.qr": "Код сопряжения для приложения Drift",
+    "drift.remote.app.show": "Показать код сопряжения",
+    "drift.remote.app.again": "Показать новый код",
+    "drift.remote.app.expires": "Действует один раз, ещё {{minutes}} мин",
+    "drift.remote.app.expired": "Срок действия кода истёк.",
+    "drift.remote.app.linked": "{{name}} привязан.",
+    "drift.remote.devices.app": "Приложение Drift",
+    "drift.remote.link.words":
+        "Привязываете приложение Drift? Перед нажатием «Привязать» убедитесь, что оно показывает: {{words}}",
     "drift.remote.clipboardError": "Не удалось скопировать",
     "drift.settings.shellTimeout.scope":
         "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",

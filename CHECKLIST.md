@@ -315,7 +315,7 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 
 ## Drift for Android (`docs/android.md`)
 
-- [ ] Desktop side: one-time pairing tickets and QR, remote API version and computer name, fingerprint words, all reachable addresses and the LAN MAC
+- [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, fingerprint words, all reachable addresses and the LAN MAC
 - [ ] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, discovery, QR and typed-code linking
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
 - [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN

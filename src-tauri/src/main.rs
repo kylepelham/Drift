@@ -80,12 +80,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
-                return;
-            }
-            if let Some(window) = app.webview_windows().values().next() {
-                reveal_main_window(window);
-            }
+            reveal_running(app);
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -139,6 +134,7 @@ fn main() {
             remote::access_commands::remote_access_enable,
             remote::access_commands::remote_access_disable,
             remote::access_commands::remote_access_link,
+            remote::access_commands::remote_access_pairing,
             remote::access_commands::remote_access_revoke,
             remote::access_commands::remote_access_set_password,
             ui_state::ui_state_initialize,
@@ -151,12 +147,24 @@ fn main() {
         .setup(setup)
         .build(tauri::generate_context!())
         .expect("failed to build drift")
-        .run(|app, event| {
-            if let RunEvent::Exit = event {
-                app.state::<remote::RemoteAccess>().stop_on_exit();
-                native::stop(app);
-            }
-        });
+        .run(on_run_event);
+}
+
+/// A second launch shows the window already running, once it has been revealed.
+fn reveal_running(app: &tauri::AppHandle) {
+    if !WINDOW_REVEALED.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    if let Some(window) = app.webview_windows().values().next() {
+        reveal_main_window(window);
+    }
+}
+
+fn on_run_event(app: &tauri::AppHandle, event: RunEvent) {
+    if let RunEvent::Exit = event {
+        app.state::<remote::RemoteAccess>().stop_on_exit();
+        native::stop(app);
+    }
 }
 
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {

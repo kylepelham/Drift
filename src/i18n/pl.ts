@@ -220,6 +220,17 @@ export const drift = {
     "drift.preview.pdfPassword": "Nie można wyświetlić podglądu plików PDF chronionych hasłem.",
     "drift.remote.statusStarting": "Uruchamianie",
     "drift.remote.statusError": "Błąd",
+    "drift.remote.app.title": "Drift na Androida",
+    "drift.remote.app.description":
+        "Zeskanuj kod aplikacją Drift na telefonie, aby go połączyć. Kod zawiera adresy i certyfikat tego komputera, więc aplikacja nigdy nie pokazuje ostrzeżenia o certyfikacie; działa raz.",
+    "drift.remote.app.qr": "Kod parowania aplikacji Drift",
+    "drift.remote.app.show": "Pokaż kod parowania",
+    "drift.remote.app.again": "Pokaż nowy kod",
+    "drift.remote.app.expires": "Działa raz, jeszcze {{minutes}} min",
+    "drift.remote.app.expired": "Ten kod wygasł.",
+    "drift.remote.app.linked": "{{name}} jest połączony.",
+    "drift.remote.devices.app": "Aplikacja Drift",
+    "drift.remote.link.words": "Łączysz aplikację Drift? Zanim naciśniesz Połącz, sprawdź, czy pokazuje: {{words}}",
     "drift.remote.clipboardError": "Nie udało się skopiować",
     "drift.settings.shellTimeout.scope":
         "Limity powłoki kończą drzewa procesów. Nie wpływają na modele, serwery MCP ani wywołania sieciowe.",

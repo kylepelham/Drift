@@ -252,6 +252,18 @@ export const drift = {
     "drift.preview.pdfPassword": "Попередній перегляд PDF, захищених паролем, недоступний.",
     "drift.remote.statusStarting": "Запуск",
     "drift.remote.statusError": "Помилка",
+    "drift.remote.app.title": "Drift для Android",
+    "drift.remote.app.description":
+        "Відскануйте код застосунком Drift на телефоні, щоб прив'язати його. Код містить адреси та сертифікат цього ПК, тож застосунок ніколи не показує попередження про сертифікат; він діє один раз.",
+    "drift.remote.app.qr": "Код сполучення для застосунку Drift",
+    "drift.remote.app.show": "Показати код сполучення",
+    "drift.remote.app.again": "Показати новий код",
+    "drift.remote.app.expires": "Діє один раз, ще {{minutes}} хв",
+    "drift.remote.app.expired": "Термін дії коду минув.",
+    "drift.remote.app.linked": "{{name}} прив'язано.",
+    "drift.remote.devices.app": "Застосунок Drift",
+    "drift.remote.link.words":
+        "Прив'язуєте застосунок Drift? Перед натисканням «Прив'язати» перевірте, що він показує: {{words}}",
     "drift.remote.clipboardError": "Не вдалося скопіювати",
     "drift.settings.shellTimeout.scope":
         "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",

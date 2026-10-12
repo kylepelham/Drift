@@ -5,6 +5,7 @@ import { backendInvoke, backendRoute } from "../src/backend";
 import {
     nextRemoteAccessEnabled,
     normalizeLinkCode,
+    pairedDevice,
     remoteStatusTone,
     type RemoteAccessStatus,
 } from "../src/state/remote-access";
@@ -154,6 +155,7 @@ test("remote settings state distinguishes online, offline, and error", () => {
         devices: [],
         pendingLinks: [],
         certificateFingerprint: "AB:CD",
+        certificateWords: [],
     };
     expect(remoteStatusTone(base)).toBe("online");
     expect(remoteStatusTone({ ...base, listening: false })).toBe("offline");
@@ -167,6 +169,31 @@ test("remote access toggle has one state transition helper", async () => {
     expect(section).toContainCode("onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}");
     expect(section).not.toContainCode("onClick={() => void setRemoteAccess");
     expect(section).not.toContainCode("remote-access-card");
+});
+
+test("the pairing code counts as used once an app device signs in after it was shown", () => {
+    const device = (method: "link" | "password" | "app", createdAt: number) => ({
+        id: `${method}${createdAt}`,
+        name: `${method} device`,
+        method,
+        createdAt,
+        lastSeenAt: createdAt,
+    });
+    const status = (devices: ReturnType<typeof device>[]): RemoteAccessStatus => ({
+        enabled: true,
+        listening: true,
+        port: 41718,
+        discoveryPort: 41717,
+        urls: [],
+        devices,
+        pendingLinks: [],
+        certificateFingerprint: "AB:CD",
+        certificateWords: [],
+    });
+
+    expect(pairedDevice(status([device("app", 5), device("link", 20)]), 10)).toBeUndefined();
+    expect(pairedDevice(status([device("app", 5), device("app", 12)]), 10)?.id).toBe("app12");
+    expect(pairedDevice(null, 10)).toBeUndefined();
 });
 
 test("typed link codes ignore case, spaces, and the separator", () => {

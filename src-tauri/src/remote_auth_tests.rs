@@ -114,6 +114,41 @@ fn a_device_links_only_after_its_code_is_entered_on_the_desktop() {
     let _ = std::fs::remove_dir_all(directory);
 }
 
+#[test]
+fn a_pairing_code_signs_in_one_app_once_and_a_new_code_replaces_the_last() {
+    let (store, directory) = store();
+    let mut auth = Auth::load(&store).unwrap();
+    let replaced = auth.new_ticket();
+    let ticket = auth.new_ticket();
+
+    assert!(matches!(
+        auth.redeem(&replaced, "Pixel".into(), &store),
+        Err(AuthError::UnknownTicket)
+    ));
+    let token = auth.redeem(&ticket, "Pixel".into(), &store).unwrap();
+    assert!(
+        matches!(
+            auth.redeem(&ticket, "Pixel".into(), &store),
+            Err(AuthError::UnknownTicket)
+        ),
+        "a code works once"
+    );
+
+    let device = auth.device(&token, &store).unwrap();
+    assert_eq!((device.name.as_str(), device.method.as_str()), ("Pixel", "app"));
+    assert_device_persisted_without_token(&store, &device);
+
+    let expired = auth.new_ticket();
+    auth.ticket.as_mut().unwrap().expires = Instant::now() - Duration::from_secs(1);
+    assert!(matches!(
+        auth.redeem(&expired, "Pixel".into(), &store),
+        Err(AuthError::UnknownTicket)
+    ));
+
+    drop(store);
+    let _ = std::fs::remove_dir_all(directory);
+}
+
 fn assert_device_persisted_without_token(store: &Store, device: &RemoteDevice) {
     let reloaded = Auth::load(store).unwrap().devices();
     assert_eq!(reloaded, vec![device.clone()]);
@@ -261,6 +296,7 @@ fn only_sign_in_routes_are_public() {
         "/auth/link",
         "/auth/link/abc",
         "/auth/login",
+        "/auth/pair",
         "/auth/certificate",
     ] {
         assert!(public_path(path), "{path}");

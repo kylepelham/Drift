@@ -7,6 +7,8 @@ extend-exclude = [
   "docs/research/",
   "examples/",
   "licenses/",
+  # The BIP39 word list, kept byte for byte as published.
+  "crates/drift-pairing/src/words.txt",
 ]
 
 [default.extend-words]

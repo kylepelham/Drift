@@ -1,5 +1,6 @@
 pub(crate) mod access_commands;
 mod gateway;
+mod interfaces;
 mod transport;
 
 use gateway::router;
@@ -82,7 +83,18 @@ pub(crate) struct RemoteStatus {
     pending_links: Vec<PendingLink>,
     password_username: Option<String>,
     certificate_fingerprint: String,
+    /// The fingerprint as six words, to compare with what the Drift app shows before linking it by code.
+    certificate_words: Vec<String>,
     error: Option<String>,
+}
+
+/// The pairing code for the Drift app: what it holds, and as a scannable SVG.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RemotePairing {
+    uri: String,
+    qr: String,
+    expires_at: i64,
 }
 
 impl RemoteAccess {
@@ -179,8 +191,49 @@ impl RemoteAccess {
         status.pending_links = auth.pending();
         status.password_username = auth.password_username();
         status.certificate_fingerprint = self.tls.fingerprint().to_string();
+        status.certificate_words = self.fingerprint_words();
 
         status
+    }
+
+    fn fingerprint_words(&self) -> Vec<String> {
+        drift_pairing::parse_fingerprint(self.tls.fingerprint())
+            .map(|fingerprint| {
+                drift_pairing::words(&fingerprint)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// A fresh one-time pairing code, replacing any shown before; `None` while the gateway is not listening.
+    async fn pairing(&self) -> Option<RemotePairing> {
+        if self.running.lock().await.is_none() {
+            return None;
+        }
+        let fingerprint = drift_pairing::parse_fingerprint(self.tls.fingerprint())?;
+        let (addresses, mac) = interfaces::reachable(local_ipv4());
+        if addresses.is_empty() {
+            return None;
+        }
+
+        let pairing = drift_pairing::Pairing {
+            name: computer_name(),
+            fingerprint,
+            addresses: addresses.into_iter().map(Into::into).collect(),
+            port: HTTP_PORT,
+            mac,
+            ticket: self.auth().new_ticket(),
+        };
+        let uri = pairing.to_uri();
+        let expires_at = remote_auth::now_ms() + remote_auth::TICKET_TTL.as_millis() as i64;
+
+        Some(RemotePairing {
+            qr: qr_svg(&uri, 200)?,
+            uri,
+            expires_at,
+        })
     }
 
     pub(crate) fn certificate(&self) -> Vec<u8> {
@@ -238,18 +291,47 @@ fn status_for(config: &RemoteConfig, listening: bool) -> RemoteStatus {
         pending_links: Vec::new(),
         password_username: None,
         certificate_fingerprint: String::new(),
+        certificate_words: Vec::new(),
         error: config.error.clone(),
     }
 }
 
 /// The address carries no credential, so it is safe to show as a scannable code.
 fn address_qr(url: &str) -> Option<String> {
-    let code = qrcode::QrCode::new(url.as_bytes()).ok()?;
+    qr_svg(url, 168)
+}
+
+fn qr_svg(text: &str, size: u32) -> Option<String> {
+    let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
     Some(
         code.render::<qrcode::render::svg::Color<'_>>()
-            .min_dimensions(168, 168)
+            .min_dimensions(size, size)
             .build(),
     )
+}
+
+/// This computer's name, so the Drift app can label it among several.
+pub(crate) fn computer_name() -> String {
+    let named = ["COMPUTERNAME", "HOSTNAME"]
+        .iter()
+        .find_map(|key| std::env::var(key).ok().filter(|name| !name.trim().is_empty()));
+
+    named.or_else(host_name).unwrap_or_else(|| "Drift".into())
+}
+
+#[cfg(unix)]
+fn host_name() -> Option<String> {
+    let mut buffer = [0u8; 256];
+    // SAFETY: the buffer's length is passed, and gethostname writes at most that many bytes.
+    let result = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
+    let end = buffer.iter().position(|byte| *byte == 0)?;
+
+    (result == 0 && end > 0).then(|| String::from_utf8_lossy(&buffer[..end]).into_owned())
+}
+
+#[cfg(not(unix))]
+fn host_name() -> Option<String> {
+    None
 }
 
 #[derive(Deserialize)]

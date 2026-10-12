@@ -358,6 +358,17 @@ export const drift = {
     "drift.remote.title": "Remote Access",
     "drift.remote.statusStarting": "Starting",
     "drift.remote.statusError": "Error",
+    "drift.remote.app.title": "Drift for Android",
+    "drift.remote.app.description":
+        "Scan the code with the Drift app on your phone to link it. The code holds this PC's addresses and certificate, so the app never shows a certificate warning, and it works once.",
+    "drift.remote.app.qr": "Pairing code for the Drift app",
+    "drift.remote.app.show": "Show pairing code",
+    "drift.remote.app.again": "Show a new code",
+    "drift.remote.app.expires": "Works once, for {{minutes}} more min",
+    "drift.remote.app.expired": "This code has expired.",
+    "drift.remote.app.linked": "{{name}} is linked.",
+    "drift.remote.devices.app": "Drift app",
+    "drift.remote.link.words": "Linking the Drift app? Before you press Link, check it shows: {{words}}",
     "drift.remote.clipboardError": "Could not copy",
     "drift.settings.shellTimeout.scope":
         "Shell timeouts terminate process trees. They do not affect models, MCP servers, or network calls.",

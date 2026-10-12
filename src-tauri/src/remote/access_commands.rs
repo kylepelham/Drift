@@ -1,7 +1,7 @@
 use crate::remote_auth;
 use crate::store::Store;
 
-use super::{RemoteAccess, RemoteStatus};
+use super::{RemoteAccess, RemotePairing, RemoteStatus};
 
 #[tauri::command]
 pub(crate) async fn remote_access_status(access: tauri::State<'_, RemoteAccess>) -> Result<RemoteStatus, String> {
@@ -53,6 +53,15 @@ pub(crate) async fn remote_access_disable(
     access.stop().await;
 
     Ok(access.status().await)
+}
+
+/// A one-time pairing code for the Drift app; showing it again replaces the last one.
+#[tauri::command]
+pub(crate) async fn remote_access_pairing(access: tauri::State<'_, RemoteAccess>) -> Result<RemotePairing, String> {
+    access
+        .pairing()
+        .await
+        .ok_or_else(|| "Turn on Remote Access and connect this PC to a network first.".into())
 }
 
 /// Approves the device showing code and returns that device's name.

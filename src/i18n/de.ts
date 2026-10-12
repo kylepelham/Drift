@@ -222,6 +222,17 @@ export const drift = {
     "drift.preview.pdfPassword": "Passwortgeschützte PDFs können nicht in der Vorschau angezeigt werden.",
     "drift.remote.statusStarting": "Wird gestartet",
     "drift.remote.statusError": "Fehler",
+    "drift.remote.app.title": "Drift für Android",
+    "drift.remote.app.description":
+        "Scanne den Code mit der Drift-App auf deinem Handy, um es zu verknüpfen. Der Code enthält die Adressen und das Zertifikat dieses PCs, daher zeigt die App nie eine Zertifikatswarnung; er funktioniert einmal.",
+    "drift.remote.app.qr": "Kopplungscode für die Drift-App",
+    "drift.remote.app.show": "Kopplungscode anzeigen",
+    "drift.remote.app.again": "Neuen Code anzeigen",
+    "drift.remote.app.expires": "Einmal gültig, noch {{minutes}} Min.",
+    "drift.remote.app.expired": "Dieser Code ist abgelaufen.",
+    "drift.remote.app.linked": "{{name}} ist verknüpft.",
+    "drift.remote.devices.app": "Drift-App",
+    "drift.remote.link.words": "Verknüpfst du die Drift-App? Prüfe vor „Verknüpfen“, dass sie zeigt: {{words}}",
     "drift.remote.clipboardError": "Kopieren fehlgeschlagen",
     "drift.settings.shellTimeout.scope":
         "Shell-Zeitlimits beenden Prozessbäume. Modelle, MCP-Server und Netzwerkaufrufe sind nicht betroffen.",

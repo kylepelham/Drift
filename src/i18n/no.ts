@@ -253,6 +253,17 @@ export const drift = {
     "drift.preview.pdfPassword": "Passordbeskyttede PDF-filer kan ikke forhåndsvises.",
     "drift.remote.statusStarting": "Starter",
     "drift.remote.statusError": "Feil",
+    "drift.remote.app.title": "Drift for Android",
+    "drift.remote.app.description":
+        "Skann koden med Drift-appen på telefonen for å koble den til. Koden inneholder denne PC-ens adresser og sertifikat, så appen viser aldri en sertifikatadvarsel, og den virker én gang.",
+    "drift.remote.app.qr": "Paringskode for Drift-appen",
+    "drift.remote.app.show": "Vis paringskode",
+    "drift.remote.app.again": "Vis en ny kode",
+    "drift.remote.app.expires": "Virker én gang, {{minutes}} min til",
+    "drift.remote.app.expired": "Koden har utløpt.",
+    "drift.remote.app.linked": "{{name}} er koblet til.",
+    "drift.remote.devices.app": "Drift-app",
+    "drift.remote.link.words": "Kobler du til Drift-appen? Sjekk før du trykker Koble til at den viser: {{words}}",
     "drift.remote.clipboardError": "Kunne ikke kopiere",
     "drift.settings.shellTimeout.scope":
         "Shell-tidsavbrudd avslutter prosesstrær. De påvirker ikke modeller, MCP-servere eller nettverkskall.",

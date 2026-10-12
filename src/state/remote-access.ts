@@ -4,7 +4,7 @@ import { createSignal } from "solid-js";
 export type RemoteDevice = {
     id: string;
     name: string;
-    method: "link" | "password";
+    method: "link" | "password" | "app";
     createdAt: number;
     lastSeenAt: number;
 };
@@ -22,8 +22,13 @@ export type RemoteAccessStatus = {
     pendingLinks: PendingLink[];
     passwordUsername?: string;
     certificateFingerprint: string;
+    /** The fingerprint as six words, which the Drift app shows while it links by code. */
+    certificateWords: string[];
     error?: string;
 };
+
+/** A one-time code the Drift app scans to link this PC. */
+export type RemotePairing = { uri: string; qr: string; expiresAt: number };
 
 export function remoteStatusTone(status: RemoteAccessStatus | null) {
     if (!status) return "idle";
@@ -91,6 +96,18 @@ export async function linkRemoteDevice(code: string) {
     const name = await invoke<string>("remote_access_link", { code: normalizeLinkCode(code) });
     void refreshRemoteAccess();
     return name;
+}
+
+/** A fresh pairing code for the Drift app; it replaces any shown before. */
+export async function showRemotePairing() {
+    const invoke = shellInvoke();
+    if (!invoke) throw new Error("Pairing requires the Drift desktop app");
+    return invoke<RemotePairing>("remote_access_pairing");
+}
+
+/** The app device that signed in with the code shown at `since`, once it has. */
+export function pairedDevice(status: RemoteAccessStatus | null, since: number) {
+    return status?.devices.find((device) => device.method === "app" && device.createdAt >= since);
 }
 
 export function revokeRemoteDevice(id?: string) {
