@@ -22,7 +22,16 @@ async fn one_fetch_serves_concurrent_refreshes_and_the_cache_serves_the_next() {
     assert!(!again, "a current list is not fetched again");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
-    let cached = offers.state.read().unwrap().cached.as_ref().unwrap().offers.clone();
+    let cached = offers
+        .state
+        .read()
+        .unwrap()
+        .cached
+        .values()
+        .next()
+        .unwrap()
+        .offers
+        .clone();
     assert_eq!(cached["gpt-6-sol"].program.as_deref(), Some("daybreak_blue"));
     assert_eq!(cached["gpt-6-sol"].tiers, ["priority"]);
     assert_eq!(cached["unknown"].program, None, "an unknown program is ignored");
@@ -39,7 +48,7 @@ async fn a_failed_or_unreadable_list_changes_nothing_and_waits_before_trying_aga
         let (base, task) = server(body, status, calls.clone()).await;
         let credential = credential("user", "account");
         let offers = cached(&credential);
-        offers.state.write().unwrap().cached.as_mut().unwrap().until = Instant::now() - RETRY;
+        offers.state.write().unwrap().cached.values_mut().next().unwrap().until = Instant::now() - RETRY;
         let client = crate::llm::http::client();
 
         assert!(
@@ -52,7 +61,7 @@ async fn a_failed_or_unreadable_list_changes_nothing_and_waits_before_trying_aga
         );
 
         let mut provider = provider();
-        offers.apply(&mut provider, &credential);
+        offers.apply(&mut provider, std::slice::from_ref(&credential));
         assert_eq!(provider, self::provider());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         task.abort();
@@ -109,6 +118,6 @@ async fn a_sign_out_during_a_fetch_leaves_the_cache_empty() {
     });
 
     assert!(!changed);
-    assert!(offers.state.read().unwrap().cached.is_none());
+    assert!(offers.state.read().unwrap().cached.is_empty());
     task.abort();
 }

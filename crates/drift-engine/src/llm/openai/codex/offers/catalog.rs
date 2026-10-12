@@ -1,4 +1,4 @@
-//! The account's offers applied to the catalog: speed modes it cannot use go, Daybreak entries come.
+//! The accounts' offers applied to the catalog: speed modes none can use go, Daybreak entries come.
 
 use std::collections::BTreeMap;
 
@@ -7,7 +7,7 @@ use serde_json::json;
 use super::Offer;
 use crate::llm::catalog::{Model, ModelMode, ProviderInfo};
 
-const DAYBREAK: &str = "daybreak";
+pub(super) const DAYBREAK: &str = "daybreak";
 
 /// Removes modes whose `service_tier` the account's list does not offer for their model; Ultrafast from
 /// models.dev describes the API, and the Codex backend quietly serves it at standard speed. Models the

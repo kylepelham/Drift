@@ -196,3 +196,74 @@ async fn an_ordinary_rate_limit_does_not_switch_accounts() {
 
     assert_eq!(sent_with(&h), ["first", "first"]);
 }
+
+fn plan_lacks_model() -> llm::Error {
+    llm::Error::api(429, "rate_limit_error", "Usage credits are required for this model.")
+}
+
+#[tokio::test]
+async fn an_account_whose_plan_lacks_the_model_hands_the_request_to_one_that_has_it() {
+    let h = harness().await;
+    let (first, second) = two_accounts(&h);
+    let mut events = h.engine.hub.attach(None).rx;
+    h.provider
+        .push_error(plan_lacks_model())
+        .push(text("answered by bob"))
+        .push(text("bob again"));
+
+    // The refusal moves the request on at once, with no backoff and no failed reply left behind.
+    let started = std::time::Instant::now();
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first", "second"]);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "no backoff before the next account"
+    );
+    let messages = transcript(&h);
+    assert_eq!(messages.len(), 2, "the refused reply leaves nothing behind");
+    assert!(messages.iter().all(|message| message.info.error.is_none()));
+    assert_eq!(messages[1].info.account.as_deref(), Some(second.as_str()));
+
+    // The first account is passed over for this model only; its usage is not marked spent.
+    let model = model().model;
+    assert!(h.engine.unserved.refused(&first, &model, id::now_ms()));
+    assert!(h.engine.limits.spent(&first, id::now_ms()).is_none());
+
+    // The next turn on the same model starts on the account that has it.
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["first", "second", "second"]);
+
+    let mut retried = false;
+    let mut limited = None;
+    while let Ok(envelope) = events.try_recv() {
+        match envelope.event {
+            Event::SessionRetry { .. } => retried = true,
+            Event::ProviderSwitched { limited: was, .. } => limited = Some(was),
+            _ => {}
+        }
+    }
+    assert!(!retried, "a switch is not a retry");
+    assert_eq!(limited, Some(false), "the switch is not for spent usage");
+}
+
+#[tokio::test]
+async fn when_no_account_has_the_model_the_refusal_is_shown_without_waiting() {
+    let h = harness().await;
+    two_accounts(&h);
+    h.provider.push_error(plan_lacks_model()).push_error(plan_lacks_model());
+
+    let started = std::time::Instant::now();
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first", "second"]);
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "no backoff on a refusal waiting cannot fix"
+    );
+    let error = transcript(&h).last().unwrap().info.error.clone().unwrap();
+    assert!(error.contains("Usage credits are required"), "{error}");
+}

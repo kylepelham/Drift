@@ -1326,13 +1326,23 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
     or whose limit headers show a full window or a `rejected` status (`Error::limit_reached`, with
     the wait until the reset, from the headers or Codex's `resets_in_seconds`). A full window with
     credits left counts too, so purchased credits are spent only when every account is out.
-  - Admission, one-shots and each step take the first account in order with usage left
-    (`follow_account`); with every account spent, admission sends the first and a running turn stays
-    where it is, so the refusal says why. A
+  - Admission, one-shots and each step take the first account in order that can serve the model
+    (`follow_account`, `Engine::account_serves`): it has usage left, was not refused that model, and,
+    for a ChatGPT sign-in, its own Codex list offers the model's Daybreak program and speed tier. With
+    no account able to, admission sends the first and a running turn stays where it is, so the refusal
+    says why. A
     refusal for spent usage marks the account, drops the empty reply and sends the step again from
     the next account at once, without a retry or backoff (`Step::Switch`); an ordinary rate limit
     still waits. Once the first account's window resets, the next step returns to it. Each move
     publishes `provider.switched`, shown as a notice.
+  - Accounts on different plans see different models. A refusal saying the plan lacks the model
+    (Anthropic's 429 "Usage credits are required for this model", Codex's "not supported when using
+    Codex with a ChatGPT account"; `Error::plan_lacks_model`) is never retried with backoff: the
+    account is passed over for that model for six hours (`Engine::unserved`) and the step goes to the
+    next account at once, as for spent usage, while the account stays in use for every other model.
+    Codex lists are fetched for every ChatGPT account and the catalog shows what any of them offers;
+    the first account in order to offer a Daybreak program names the entry, and each request carries
+    the program of the account it is sent from (`Offers::fit`).
   - Reasoning signatures and encrypted reasoning validate only for the account that made them, so
     each reply records its account (`message.account`, migration 38) and history signed by another
     account is sent as text, as another model's is. A reply from before accounts counts as the

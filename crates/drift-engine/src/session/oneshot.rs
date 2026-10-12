@@ -170,7 +170,7 @@ impl Engine {
         model_ref: &ModelRef,
         catalog: &crate::llm::catalog::Catalog,
     ) -> Result<Resolved, TurnError> {
-        let (model, env, api) = {
+        let (mut model, env, api) = {
             let info = catalog
                 .providers
                 .get(&model_ref.provider)
@@ -187,12 +187,13 @@ impl Engine {
 
         let (account, credential) = self
             .credentials
-            .resolve_account(&model_ref.provider, &env, |key| self.usable_account(key))
+            .resolve_account(&model_ref.provider, &env, |key| self.account_serves(key, &model))
             .ok_or(TurnError::NoCredentials)?;
         refuse_signin_elsewhere(&model_ref.provider, &credential, api.as_deref())?;
         let credential = self
             .fresh_credential(&model_ref.provider, account.as_deref(), credential)
             .await?;
+        self.codex_offers.fit(&mut model, &credential);
         let provider = self
             .provider_for(&model_ref.provider, api.as_deref())
             .ok_or(TurnError::UnknownModel)?;

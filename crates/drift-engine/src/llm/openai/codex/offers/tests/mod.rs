@@ -79,11 +79,13 @@ fn list() -> Value {
 /// Offers already cached for `credential`, as a fetch of `list()` leaves them.
 fn cached(credential: &Credential) -> Offers {
     let offers = Offers::default();
-    offers.state.write().unwrap().cached = Some(Cached {
-        identity: identity(credential).unwrap(),
-        until: Instant::now() + TTL,
-        offers: list::read(list()),
-    });
+    offers.state.write().unwrap().cached.insert(
+        identity(credential).unwrap(),
+        Cached {
+            until: Instant::now() + TTL,
+            offers: list::read(list()),
+        },
+    );
 
     offers
 }

@@ -7,7 +7,7 @@ fn speed_modes_the_account_does_not_offer_are_removed_and_offered_ones_stay() {
     let credential = credential("user", "account");
     let mut provider = provider();
 
-    cached(&credential).apply(&mut provider, &credential);
+    cached(&credential).apply(&mut provider, std::slice::from_ref(&credential));
 
     assert!(
         provider.models.contains_key("gpt-6-sol-fast"),
@@ -24,14 +24,16 @@ fn speed_modes_the_account_does_not_offer_are_removed_and_offered_ones_stay() {
 fn models_the_list_does_not_name_keep_every_speed_mode() {
     let credential = credential("user", "account");
     let offers = Offers::default();
-    offers.state.write().unwrap().cached = Some(Cached {
-        identity: identity(&credential).unwrap(),
-        until: Instant::now() + TTL,
-        offers: list::read(json!({ "models": [{ "slug": "gpt-6-astra" }] })),
-    });
+    offers.state.write().unwrap().cached.insert(
+        identity(&credential).unwrap(),
+        Cached {
+            until: Instant::now() + TTL,
+            offers: list::read(json!({ "models": [{ "slug": "gpt-6-astra" }] })),
+        },
+    );
     let mut provider = provider();
 
-    offers.apply(&mut provider, &credential);
+    offers.apply(&mut provider, std::slice::from_ref(&credential));
 
     assert!(provider.models.contains_key("gpt-6-sol-ultrafast"));
 }
@@ -43,7 +45,7 @@ fn daybreak_entries_copy_their_model_and_select_only_an_offered_program() {
     let mut provider = provider();
     let ordinary = provider.models.clone();
 
-    offers.apply(&mut provider, &credential);
+    offers.apply(&mut provider, std::slice::from_ref(&credential));
 
     assert!(
         !provider.models.contains_key("gpt-6-astra-daybreak"),
@@ -65,7 +67,7 @@ fn daybreak_entries_copy_their_model_and_select_only_an_offered_program() {
 
     // Applying again adds nothing: a Daybreak entry is never copied.
     let once = provider.clone();
-    offers.apply(&mut provider, &credential);
+    offers.apply(&mut provider, std::slice::from_ref(&credential));
     assert_eq!(provider, once);
 }
 
@@ -74,7 +76,7 @@ fn a_daybreak_copy_of_a_speed_mode_keeps_its_tier_and_headers() {
     let credential = credential("user", "account");
     let mut provider = provider();
 
-    cached(&credential).apply(&mut provider, &credential);
+    cached(&credential).apply(&mut provider, std::slice::from_ref(&credential));
 
     let copy = &provider.models["gpt-6-sol-fast-daybreak"];
     let mode = copy.mode.as_ref().unwrap();
@@ -98,17 +100,17 @@ fn offers_never_cross_users_accounts_api_keys_or_their_expiry() {
         Credential::ApiKey { key: "key".into() },
     ] {
         let mut provider = provider();
-        offers.apply(&mut provider, &other);
+        offers.apply(&mut provider, std::slice::from_ref(&other));
         assert_eq!(provider, self::provider());
     }
 
-    offers.state.write().unwrap().cached.as_mut().unwrap().until = Instant::now() - RETRY;
+    offers.state.write().unwrap().cached.values_mut().next().unwrap().until = Instant::now() - RETRY;
     let mut provider = provider();
-    offers.apply(&mut provider, &owner);
+    offers.apply(&mut provider, std::slice::from_ref(&owner));
     assert_eq!(provider, self::provider(), "an expired list changes nothing");
 
     assert!(offers.clear());
-    assert!(offers.state.read().unwrap().cached.is_none());
+    assert!(offers.state.read().unwrap().cached.is_empty());
 }
 
 #[test]
@@ -121,4 +123,46 @@ fn a_refreshed_token_keeps_the_same_account_identity() {
     }
 
     assert_eq!(identity(&before), identity(&after));
+}
+
+#[test]
+fn models_any_account_offers_are_listed_and_each_account_answers_for_its_own() {
+    let (ann, bob) = (credential("ann", "account-a"), credential("bob", "account-b"));
+    let offers = Offers::default();
+    let without_programs = json!({ "models": [
+        { "slug": "gpt-6-sol", "available_access_programs": { "cyber": ["standard"] } }
+    ] });
+    for (credential, listed) in [(&ann, without_programs), (&bob, list())] {
+        offers.state.write().unwrap().cached.insert(
+            identity(credential).unwrap(),
+            Cached {
+                until: Instant::now() + TTL,
+                offers: list::read(listed),
+            },
+        );
+    }
+
+    // Ann's account has no Daybreak, Bob's does: the catalog lists it either way.
+    let mut provider = provider();
+    offers.apply(&mut provider, &[ann.clone(), bob.clone()]);
+    let daybreak = provider.models["gpt-6-sol-daybreak"].clone();
+    assert_eq!(
+        daybreak.mode.as_ref().unwrap().body["access_programs"]["cyber"],
+        "daybreak_blue"
+    );
+
+    // Only Bob can be sent the Daybreak entry; the plain model is not a question of offers.
+    assert_eq!(offers.serves(&ann, &daybreak), Some(false));
+    assert_eq!(offers.serves(&bob, &daybreak), Some(true));
+    assert_eq!(offers.serves(&ann, &provider.models["gpt-6-sol"]), None);
+
+    // A request carries the program of the account it goes to.
+    let mut sent = daybreak.clone();
+    sent.mode
+        .as_mut()
+        .unwrap()
+        .body
+        .insert("access_programs".into(), json!({ "cyber": "daybreak_red" }));
+    offers.fit(&mut sent, &bob);
+    assert_eq!(sent.mode.unwrap().body["access_programs"]["cyber"], "daybreak_blue");
 }

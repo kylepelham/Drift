@@ -90,6 +90,8 @@ pub struct Engine {
     codex_offers: llm::openai::codex::Offers,
     /// What each account last reported of its subscription's usage, so picking one never waits on the network.
     pub limits: llm::limits::Ledger,
+    /// Models each account's plan was found not to include.
+    pub unserved: llm::limits::Unserved,
     /// Shell commands running in the background, by the conversation that started them.
     pub processes: background::Processes,
     /// Language servers per project root, started when a file one handles is read or written.
@@ -162,6 +164,7 @@ impl Engine {
             local_shown: Default::default(),
             codex_offers: Default::default(),
             limits: Default::default(),
+            unserved: Default::default(),
             processes: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
@@ -368,18 +371,29 @@ impl Engine {
         }
     }
 
-    /// The catalog as the current credentials see it: a ChatGPT sign-in offers only what the Codex backend takes,
-    /// and only what its account's model list offers.
+    /// The catalog as the current credentials see it: ChatGPT sign-ins offer only what the Codex backend takes,
+    /// and what any of their accounts' model lists offers.
     pub fn catalog_view(&self) -> Catalog {
         let mut catalog = self.catalog.read().unwrap().clone();
+        let sign_ins = self.codex_sign_ins();
         if let Some(openai) = catalog.providers.get_mut("openai")
-            && let Some(credential @ llm::Credential::OAuth { .. }) = self.credentials.resolve("openai", &openai.env)
+            && !sign_ins.is_empty()
         {
             llm::openai::codex::shape(openai);
-            self.codex_offers.apply(openai, &credential);
+            self.codex_offers.apply(openai, &sign_ins);
         }
 
         catalog
+    }
+
+    /// The ChatGPT sign-ins among OpenAI's accounts, in the user's order, as stored.
+    fn codex_sign_ins(&self) -> Vec<llm::Credential> {
+        self.credentials
+            .accounts("openai")
+            .into_iter()
+            .filter_map(|account| self.credentials.account(&account.key))
+            .filter(|credential| matches!(credential, llm::Credential::OAuth { .. }))
+            .collect()
     }
 
     /// Pulls a fresh catalog from models.dev when the cached one is stale; the bundled snapshot covers failure.
@@ -406,17 +420,27 @@ impl Engine {
         tokio::spawn(async move { engine.refresh_codex_offers().await });
     }
 
-    /// Fetches the account's offers when the cached ones are stale, and tells clients when the catalog changed.
+    /// Fetches each ChatGPT account's offers when its cached ones are stale, and tells clients when the catalog changed.
     async fn refresh_codex_offers(&self) {
-        let signed_in = self.current_credential("openai").await;
-        let changed = match signed_in {
-            Some(credential @ llm::Credential::OAuth { .. }) => {
-                self.codex_offers
-                    .refresh(&self.http, llm::openai::CODEX_BASE_URL, &credential)
-                    .await
-            }
-            _ => self.codex_offers.clear(),
-        };
+        let accounts = self.credentials.accounts("openai");
+        let mut changed = false;
+        let mut signed_in = false;
+
+        for account in accounts {
+            let credential = self.account_credential("openai", &account.key).await;
+            let Some(credential @ llm::Credential::OAuth { .. }) = credential else {
+                continue;
+            };
+
+            signed_in = true;
+            changed |= self
+                .codex_offers
+                .refresh(&self.http, llm::openai::CODEX_BASE_URL, &credential)
+                .await;
+        }
+        if !signed_in {
+            changed = self.codex_offers.clear();
+        }
 
         if changed {
             self.hub.publish(event::Event::CatalogUpdated {});

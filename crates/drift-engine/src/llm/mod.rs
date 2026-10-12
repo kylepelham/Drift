@@ -299,19 +299,35 @@ fn permanent(kind: &str) -> bool {
     PERMANENT_KINDS.contains(&kind.to_ascii_lowercase().as_str())
 }
 
+/// What providers say, lowercased, when the signed-in account's plan does not include the model, whatever
+/// status and kind come with it: Anthropic answers 429 `rate_limit_error`, Codex 400.
+const PLAN_LACKS_MODEL: [&str; 3] = [
+    "usage credits are required",
+    "not supported when using codex with a chatgpt account",
+    "not available on your plan",
+];
+
+fn plan_lacks_model(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+
+    PLAN_LACKS_MODEL.iter().any(|phrase| message.contains(phrase))
+}
+
 impl Error {
     /// A provider error, retryable by its status or, inside a stream, by what the provider calls it.
     /// A permanent fault is never retryable.
     pub fn api(status: u16, kind: impl Into<String>, message: impl Into<String>) -> Self {
         let kind = kind.into();
+        let message = message.into();
         let transient = RETRY_STATUSES.contains(&status)
             || (status == STREAMED && RETRY_KINDS.contains(&kind.to_ascii_lowercase().as_str()));
-        let retryable = transient && !permanent(&kind);
+        // Waiting never adds a model to the account's plan; another account may have it.
+        let retryable = transient && !permanent(&kind) && !plan_lacks_model(&message);
 
         Self::Api {
             status,
             kind,
-            message: message.into(),
+            message,
             retryable,
             retry_after: None,
         }
@@ -324,14 +340,14 @@ impl Error {
         if let Self::Api {
             status,
             kind,
+            message,
             retryable,
             retry_after,
-            ..
         } = &mut self
         {
             *retry_after = requested_wait(headers).or(*retry_after);
             match headers.get("x-should-retry").and_then(|v| v.to_str().ok()) {
-                Some("true") => *retryable = !permanent(kind),
+                Some("true") => *retryable = !permanent(kind) && !plan_lacks_model(message),
                 Some("false") => *retryable = false,
                 _ => {}
             }
@@ -369,6 +385,11 @@ impl Error {
     /// The account's usage is spent: switching accounts, not waiting, is the remedy.
     pub fn limit_reached(&self) -> bool {
         matches!(self, Self::Api { kind, .. } if kind == limits::LIMIT_REACHED)
+    }
+
+    /// The account's plan does not include the model; another account's may.
+    pub fn plan_lacks_model(&self) -> bool {
+        matches!(self, Self::Api { message, .. } if plan_lacks_model(message))
     }
 }
 

@@ -202,5 +202,22 @@ impl Ledger {
     }
 }
 
+/// Models an account was refused because its plan does not include them, by account and model, until when.
+#[derive(Default)]
+pub struct Unserved(Mutex<HashMap<(String, String), i64>>);
+
+impl Unserved {
+    pub fn refuse(&self, account: &str, model: &str, until: i64) {
+        self.0.lock().unwrap().insert((account.into(), model.into()), until);
+    }
+
+    /// Whether `account` was refused `model` and that still holds at `now`.
+    pub fn refused(&self, account: &str, model: &str, now: i64) -> bool {
+        let key = (account.to_string(), model.to_string());
+
+        self.0.lock().unwrap().get(&key).is_some_and(|until| *until > now)
+    }
+}
+
 #[cfg(test)]
 mod tests;

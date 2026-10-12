@@ -193,3 +193,24 @@ fn a_socket_error_event_carries_its_headers_in_the_body() {
     assert!(error.limit_reached());
     assert!(wait(&error).unwrap() <= Duration::from_secs(60));
 }
+
+#[test]
+fn a_plan_that_lacks_the_model_is_never_waited_on_and_is_told_apart_from_a_rate_limit() {
+    let lacks = Error::api(429, "rate_limit_error", "Usage credits are required for this model.");
+    let codex = Error::api(
+        400,
+        "invalid_request_error",
+        "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.",
+    );
+    let busy = Error::api(429, "rate_limit_error", "slow down");
+
+    let retryable = |error: &Error| matches!(error, Error::Api { retryable: true, .. });
+
+    assert!(lacks.plan_lacks_model() && !retryable(&lacks));
+    assert!(codex.plan_lacks_model() && !retryable(&codex));
+    assert!(!busy.plan_lacks_model() && retryable(&busy));
+
+    // A provider asking for a retry cannot make waiting add the model to the plan.
+    let told = lacks.with_headers(&headers(&[("x-should-retry", "true".into())]));
+    assert!(!retryable(&told));
+}
