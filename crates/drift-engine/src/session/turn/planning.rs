@@ -175,12 +175,20 @@ impl Engine {
     /// An expired sign-in is renewed first; `None` when there is no credential or renewal fails.
     pub async fn current_credential(&self, provider: &str) -> Option<Credential> {
         let first = self.credentials.accounts(provider).into_iter().next()?;
-        let stored = self.credentials.account(&first.key)?;
-        if !stored.is_expired() {
-            return Some(stored);
-        }
 
-        self.renew(provider, Some(&first.key), stored).await.ok()
+        self.account_credential(provider, &first.key).await
+    }
+
+    /// Each of the provider's accounts in the user's order with its credential, renewed first when expired, for
+    /// callers outside a turn. The credential is `None` when the account has none or its renewal failed.
+    pub async fn account_credentials(&self, provider: &str) -> Vec<(llm::credentials::Account, Option<Credential>)> {
+        let accounts = self.credentials.accounts(provider);
+        let renewals = accounts
+            .iter()
+            .map(|account| self.account_credential(provider, &account.key));
+        let credentials = futures_util::future::join_all(renewals).await;
+
+        accounts.into_iter().zip(credentials).collect()
     }
 
     /// A new token for a sign-in that expired or was refused, refreshed once however many turns ask at the same time.
