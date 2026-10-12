@@ -754,6 +754,8 @@ export const drift = {
     "drift.question.answered": "Odgovoreno",
     "drift.question.unanswered": "Nema odgovora",
     "drift.question.answerLater": "Odgovori kasnije",
+    "drift.question.collapse": "Skupi; pitanje i dalje čeka odgovor",
+    "drift.question.expand": "Prikaži pitanje",
     "drift.question.answerNow": "Odgovori sada",
     "drift.question.asyncHint": "Rad koji ne zavisi od vašeg odgovora može se nastaviti dok odlučujete.",
     "drift.question.blocking": "Čeka se odgovor",

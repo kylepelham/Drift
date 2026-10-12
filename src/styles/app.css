@@ -358,6 +358,16 @@ textarea {
         padding-left: max(0.65rem, env(safe-area-inset-left));
     }
 
+    /* The pickers get a row of their own, at full size, and the buttons the row under it. */
+    .composer-actions {
+        flex-wrap: wrap;
+        row-gap: 0.25rem;
+    }
+
+    .composer-options {
+        flex: 1 0 100%;
+    }
+
     .composer-options > .picker-control {
         position: static;
         min-width: 0;

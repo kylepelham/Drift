@@ -753,6 +753,8 @@ export const drift = {
     "drift.question.answered": "Ответ дан",
     "drift.question.unanswered": "Нет ответа",
     "drift.question.answerLater": "Ответить позже",
+    "drift.question.collapse": "Свернуть; вопрос по-прежнему ждёт ответа",
+    "drift.question.expand": "Показать вопрос",
     "drift.question.answerNow": "Ответить сейчас",
     "drift.question.asyncHint":
         "Работа, не зависящая от вашего ответа, может продолжаться, пока вы принимаете решение.",

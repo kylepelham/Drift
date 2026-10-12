@@ -720,6 +720,8 @@ export const drift = {
     "drift.question.answered": "回答済み",
     "drift.question.unanswered": "回答なし",
     "drift.question.answerLater": "後で回答",
+    "drift.question.collapse": "折りたたむ (質問は回答を待ち続けます)",
+    "drift.question.expand": "質問を表示",
     "drift.question.answerNow": "今すぐ回答",
     "drift.question.asyncHint": "回答を検討している間も、回答に依存しない作業は続行できます。",
     "drift.question.blocking": "回答待ち",

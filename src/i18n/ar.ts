@@ -703,6 +703,8 @@ export const drift = {
     "drift.question.answered": "تمت الإجابة",
     "drift.question.unanswered": "لا إجابة",
     "drift.question.answerLater": "الإجابة لاحقًا",
+    "drift.question.collapse": "طيّ؛ لا يزال السؤال ينتظر إجابة",
+    "drift.question.expand": "عرض السؤال",
     "drift.question.answerNow": "الإجابة الآن",
     "drift.question.asyncHint": "يمكن متابعة العمل الذي لا يعتمد على إجابتك بينما تتخذ قرارك.",
     "drift.question.blocking": "بانتظار الإجابة",

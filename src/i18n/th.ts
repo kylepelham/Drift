@@ -743,6 +743,8 @@ export const drift = {
     "drift.question.answered": "ตอบแล้ว",
     "drift.question.unanswered": "ไม่มีคำตอบ",
     "drift.question.answerLater": "ตอบภายหลัง",
+    "drift.question.collapse": "ย่อ คำถามยังรอคำตอบอยู่",
+    "drift.question.expand": "แสดงคำถาม",
     "drift.question.answerNow": "ตอบตอนนี้",
     "drift.question.asyncHint": "งานที่ไม่ขึ้นอยู่กับคำตอบของคุณสามารถดำเนินต่อได้ในระหว่างที่คุณตัดสินใจ",
     "drift.question.blocking": "กำลังรอคำตอบ",

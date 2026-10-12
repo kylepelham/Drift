@@ -951,6 +951,8 @@ export const drift = {
     "drift.question.answered": "Answered",
     "drift.question.unanswered": "No answer",
     "drift.question.answerLater": "Answer later",
+    "drift.question.collapse": "Fold away; it still waits for an answer",
+    "drift.question.expand": "Show the question",
     "drift.question.answerNow": "Answer now",
     "drift.question.asyncHint": "Independent work can continue while you decide.",
     "drift.question.blocking": "Waiting for answer",

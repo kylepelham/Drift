@@ -757,6 +757,8 @@ export const drift = {
     "drift.question.answered": "Yanıtlandı",
     "drift.question.unanswered": "Yanıt yok",
     "drift.question.answerLater": "Daha sonra yanıtla",
+    "drift.question.collapse": "Daralt; soru yine de yanıt bekler",
+    "drift.question.expand": "Soruyu göster",
     "drift.question.answerNow": "Şimdi yanıtla",
     "drift.question.asyncHint": "Siz karar verirken yanıtınıza bağlı olmayan çalışmalar devam edebilir.",
     "drift.question.blocking": "Yanıt bekleniyor",

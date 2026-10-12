@@ -531,13 +531,16 @@ test("question.replied clears the matching draft and submission before a late fa
     expect(questionSubmissionState("q-event")).toBeUndefined();
 });
 
-test("only async question cards collapse and their controls expose the controlled body", async () => {
+test("every question card folds from its header and its controls expose the controlled body", async () => {
     const source = await Bun.file("src/ui/attention.tsx").text();
     const card = source.slice(
         source.indexOf("export function QuestionCard"),
         source.indexOf("export function selectQuestionOption"),
     );
-    expect(card).toContainCode("const hidden = () => !!props.async && collapsed()");
+    expect(card).toContainCode("const hidden = () => collapsed()");
+    expect(card).toMatch(
+        /aria-expanded=\{!hidden\(\)\}[\s\S]*?onClick=\{\(\) => setCollapsed\(!hidden\(\)\)\}[\s\S]*?\{question\(\)\.header\}[\s\S]*?<Chevron open=\{!hidden\(\)\} \/>/,
+    );
     expect(card).toContainCode(
         'if (event.key === "Escape") { event.stopPropagation(); if (props.async) setCollapsed(true); else void answer(null)',
     );

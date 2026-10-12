@@ -754,6 +754,8 @@ export const drift = {
     "drift.question.answered": "Besvart",
     "drift.question.unanswered": "Ingen svar",
     "drift.question.answerLater": "Svar senere",
+    "drift.question.collapse": "Fold sammen; spørsmålet venter fortsatt på svar",
+    "drift.question.expand": "Vis spørsmålet",
     "drift.question.answerNow": "Svar nå",
     "drift.question.asyncHint": "Arbeid som ikke avhenger av svaret ditt, kan fortsette mens du bestemmer deg.",
     "drift.question.blocking": "Venter på svar",

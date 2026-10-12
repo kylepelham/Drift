@@ -726,6 +726,8 @@ export const drift = {
     "drift.question.answered": "已回答",
     "drift.question.unanswered": "无回答",
     "drift.question.answerLater": "稍后回答",
+    "drift.question.collapse": "折叠；问题仍在等待回答",
+    "drift.question.expand": "显示问题",
     "drift.question.answerNow": "立即回答",
     "drift.question.asyncHint": "在你做决定时，不依赖此回答的工作可以继续进行。",
     "drift.question.blocking": "等待回答",

@@ -715,6 +715,8 @@ export const drift = {
     "drift.question.answered": "답변 완료",
     "drift.question.unanswered": "답변 없음",
     "drift.question.answerLater": "나중에 답변",
+    "drift.question.collapse": "접기 (질문은 계속 답을 기다립니다)",
+    "drift.question.expand": "질문 표시",
     "drift.question.answerNow": "지금 답변",
     "drift.question.asyncHint": "결정하는 동안 답변에 의존하지 않는 작업은 계속 진행할 수 있습니다.",
     "drift.question.blocking": "답변 대기 중",

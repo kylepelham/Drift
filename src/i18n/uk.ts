@@ -751,6 +751,8 @@ export const drift = {
     "drift.question.answered": "Відповідь надано",
     "drift.question.unanswered": "Немає відповіді",
     "drift.question.answerLater": "Відповісти пізніше",
+    "drift.question.collapse": "Згорнути; питання й далі чекає на відповідь",
+    "drift.question.expand": "Показати питання",
     "drift.question.answerNow": "Відповісти зараз",
     "drift.question.asyncHint": "Робота, що не залежить від вашої відповіді, може тривати, поки ви приймаєте рішення.",
     "drift.question.blocking": "Очікування відповіді",

@@ -6,6 +6,7 @@ import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
 import { normalizeDir } from "../engine/store";
 import { WorkspaceGroup } from "./workspaces";
+import { swipeToClose } from "./drawer-swipe";
 import { pickFolder } from "../state/dialog";
 import { persisted } from "../state/persist";
 import { openSettings } from "./settings";
@@ -135,6 +136,7 @@ export function Sidebar() {
 
     return (
         <aside
+            ref={(drawer) => onCleanup(swipeToClose(drawer, mobileDrawerOpen, () => closeMobileDrawer()))}
             class="app-sidebar relative flex shrink-0 flex-col border-r border-edge bg-surface"
             classList={{ "mobile-sidebar-open": mobileDrawerOpen() }}
             style={{ width: `${width()}px` }}

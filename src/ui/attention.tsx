@@ -220,7 +220,8 @@ export function QuestionCard(props: {
     const failed = () => !!submission()?.failed;
     const locked = () => submission()?.answers !== undefined;
     const editingDisabled = () => sending() || locked();
-    const hidden = () => !!props.async && collapsed();
+    // Any question folds to its header; a folded one still waits for its answer.
+    const hidden = () => collapsed();
     const state = () => questionDraftState(props.requestID, props.questions.length);
     const step = () => state().step;
     const drafts = () => state().drafts;
@@ -289,8 +290,20 @@ export function QuestionCard(props: {
                                 </Show>
                                 <ThreadAttribution thread={props.thread} />
                             </div>
-                            <span class="truncate text-accent">{question().header}</span>
+                            <button
+                                class="flex min-w-0 items-center gap-1.5 text-accent"
+                                title={hidden() ? t("drift.question.expand") : t("drift.question.collapse")}
+                                aria-expanded={!hidden()}
+                                aria-controls={`question-body-${props.requestID}`}
+                                onClick={() => setCollapsed(!hidden())}
+                            >
+                                <span class="truncate">{question().header}</span>
+                                <Chevron open={!hidden()} />
+                            </button>
                         </div>
+                        <Show when={hidden()}>
+                            <div class="mt-1.5 truncate text-sm text-ink-muted">{question().question}</div>
+                        </Show>
                         <Show when={props.async}>
                             <div class="mt-2 flex items-center justify-between gap-3 text-xs">
                                 <span class="text-ink-faint">{t("drift.question.asyncHint")}</span>

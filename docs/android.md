@@ -100,7 +100,15 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   app reconnects to the last PC used, trying its addresses in order; when none answers, or the PC
   signed the phone out, the computers page says why. Moving the token into the Android Keystore
   comes with the biometric lock (phase 3).
-- `DriftPlugin.kt` is the only Kotlin: Google's code scanner (`play-services-code-scanner`), which
+- `MainActivity.kt` draws edge to edge with light bar icons over drift-dark's background, and pads
+  the WebView by the status bar, navigation bar, cutout and keyboard insets, so the page, its
+  drawers and dialogs, and the composer while typing all sit in the space left; `env(safe-area-*)`
+  is then 0 inside the page.
+- On a phone the composer's pickers take a row of their own above its buttons, the sidebar drawer
+  closes with a leftward swipe (a third of its width, or a flick), and any question card folds to
+  its header like the Todos dock, in the desktop app too. There is no swipe to open the drawer:
+  the left edge is Android's back gesture.
+- `DriftPlugin.kt` is the only other Kotlin: Google's code scanner (`play-services-code-scanner`), which
   shows its own camera screen and needs no camera permission, and the phone's name for the PC's
   device list. Cleartext is allowed only to 127.0.0.1 (`network_security_config.xml`).
 
