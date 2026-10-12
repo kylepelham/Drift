@@ -1,0 +1,24 @@
+{
+    "$schema": "https://schema.tauri.app/config/2",
+    "productName": "Drift",
+    "version": "2.1.0",
+    "identifier": "dev.drift.remote",
+    "build": {
+        "frontendDist": "./web",
+        "beforeBuildCommand": "bun run build"
+    },
+    "app": {
+        "withGlobalTauri": false,
+        "windows": [],
+        "security": {
+            "csp": null
+        }
+    },
+    "bundle": {
+        "active": true,
+        "icon": ["../src-tauri/icons/32x32.png", "../src-tauri/icons/128x128.png", "../src-tauri/icons/icon.ico"],
+        "android": {
+            "minSdkVersion": 26
+        }
+    }
+}

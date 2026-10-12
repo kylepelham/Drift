@@ -122,7 +122,8 @@ pub fn parse_fingerprint(text: &str) -> Option<[u8; 32]> {
     unhex(&text.replace(':', ""))
 }
 
-fn hex(bytes: &[u8]) -> String {
+/// Bytes as lowercase hex, as fingerprints and hardware addresses are written in the pairing code.
+pub fn hex(bytes: &[u8]) -> String {
     bytes
         .iter()
         .fold(String::with_capacity(bytes.len() * 2), |mut text, byte| {

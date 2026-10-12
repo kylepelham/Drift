@@ -1,6 +1,6 @@
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
-import { isRemoteRuntime } from "../runtime";
+import { isAppRuntime, isRemoteRuntime } from "../runtime";
 import { Toggle } from "./controls";
 import DOMPurify from "dompurify";
 import { t } from "../state/i18n";
@@ -66,9 +66,16 @@ function ThisDevice() {
                 }
                 description={t("drift.remote.manageOnDesktop")}
             >
-                <button class={button} onClick={() => void signOutRemoteDevice()}>
-                    {t("drift.remote.device.signOut")}
-                </button>
+                <div class="flex gap-2">
+                    <Show when={isAppRuntime()}>
+                        <a class={button} href="/app/computers">
+                            {t("drift.remote.device.switch")}
+                        </a>
+                    </Show>
+                    <button class={button} onClick={() => void signOutRemoteDevice()}>
+                        {t("drift.remote.device.signOut")}
+                    </button>
+                </div>
             </SettingsRow>
         </SettingsGroup>
     );

@@ -1,5 +1,5 @@
+import { appRuntimeFrom, remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime";
 import { isNarrowWidth, navigationHash, parseNavigationHash } from "../src/state/navigation";
-import { remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime";
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { backendInvoke, backendRoute } from "../src/backend";
 import {
@@ -17,6 +17,18 @@ test("remote runtime uses the same-origin engine gateway", () => {
     expect(remoteRuntimeFrom(desktop)).toBe(false);
     expect(remoteEngineBase(remote)).toBe("https://192.168.1.8:41718/engine");
     expect(remoteEngineBase(desktop)).toBeUndefined();
+});
+
+test("the Drift app's proxy serves the UI as a remote one under /app, with the engine beside it", () => {
+    const app = { pathname: "/app", origin: "http://127.0.0.1:32999" };
+
+    expect(appRuntimeFrom(app)).toBeTrue();
+    expect(appRuntimeFrom({ ...app, pathname: "/app/computers" })).toBeTrue();
+    expect(appRuntimeFrom({ ...app, pathname: "/application" })).toBeFalse();
+    expect(remoteRuntimeFrom(app)).toBeTrue();
+    expect(runtimeNameFrom(app)).toBe("remote");
+    expect(remoteEngineBase(app)).toBe("http://127.0.0.1:32999/engine");
+    expect(appRuntimeFrom({ ...app, pathname: "/companion" })).toBeFalse();
 });
 
 test("dynamic viewport sizing is limited to the remote runtime", () => {
@@ -211,7 +223,7 @@ test("the shared access-key flow is gone and management stays desktop-only", asy
     }
     expect(section).toContainCode("<Show when={!isRemoteRuntime()} fallback={<ThisDevice />}>");
     expect(await Bun.file("src/backend.ts").text()).toContainCode(
-        'if (response.status === 401 && (await remoteSessionExpired())) window.location.replace("/companion")',
+        "if (response.status === 401 && (await remoteSessionExpired())) window.location.replace(signInPath())",
     );
 });
 

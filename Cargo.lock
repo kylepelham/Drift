@@ -1458,6 +1458,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "drift-android"
+version = "2.1.0"
+dependencies = [
+ "axum",
+ "drift-pairing",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hyper",
+ "hyper-util",
+ "mime_guess",
+ "rcgen",
+ "reqwest",
+ "rust-embed",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tauri",
+ "tauri-build",
+ "thiserror 2.0.19",
+ "tokio",
+ "tokio-rustls",
+ "url",
+]
+
+[[package]]
 name = "drift-engine"
 version = "2.1.0"
 dependencies = [

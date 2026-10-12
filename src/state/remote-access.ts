@@ -1,4 +1,5 @@
 import { shellEvents, shellInvoke } from "../shell";
+import { signInPath } from "../runtime";
 import { createSignal } from "solid-js";
 
 export type RemoteDevice = {
@@ -130,5 +131,5 @@ export async function loadRemoteSession() {
 
 export async function signOutRemoteDevice() {
     await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
-    window.location.replace("/companion");
+    window.location.replace(signInPath());
 }
