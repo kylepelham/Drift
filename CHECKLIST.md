@@ -313,6 +313,14 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [ ] Deferred MCP tool schemas, only if a workspace still sends more than about 30 KB of them (`docs/research/claude-agent-quality-2.0.2.md`)
 - [ ] Pin the user's own corrections through compaction, once there is a rule for when a new goal retires them (same report)
 
+## Drift for Android (`docs/android.md`)
+
+- [ ] Desktop side: one-time pairing tickets and QR, remote API version and computer name, fingerprint words, all reachable addresses and the LAN MAC
+- [ ] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, discovery, QR and typed-code linking
+- [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
+- [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN
+- [ ] Background notification service, CI signing, release APKs, update prompt
+
 ## Parity with Claude Code, Codex and opencode
 
 - [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API
