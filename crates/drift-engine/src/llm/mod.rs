@@ -34,7 +34,7 @@ use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::session::types::Usage;
+use crate::session::types::{Refusal, Usage};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -249,6 +249,8 @@ pub enum Chunk {
     Usage(Usage),
     /// What the account that sent the request has spent of its subscription, from the response's headers or events.
     Limits(limits::Limits),
+    /// What the provider said about a safety refusal, ahead of its `Stop(Refused)`.
+    Refusal(Refusal),
     Stop(StopReason),
 }
 

@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::event::{Event, Hub};
 use crate::llm::{Chunk, StopReason};
-use crate::session::types::{Message, Part, PartRow, ToolStatus, Usage};
+use crate::session::types::{Message, Part, PartRow, Refusal, ToolStatus, Usage};
 use crate::store::Store;
 
 pub(crate) struct Assembler<'a> {
@@ -14,6 +14,7 @@ pub(crate) struct Assembler<'a> {
     open: Option<Open>,
     pub usage: Usage,
     pub stop: Option<StopReason>,
+    pub refusal: Option<Refusal>,
     pub calls: Vec<PartRow>,
     generation: super::generation::Generation,
 }
@@ -39,6 +40,7 @@ impl<'a> Assembler<'a> {
             open: None,
             usage: Usage::default(),
             stop: None,
+            refusal: None,
             calls: Vec::new(),
             generation: Default::default(),
         }
@@ -97,6 +99,10 @@ impl<'a> Assembler<'a> {
             }
             // The turn records an account's limits before the reply is assembled.
             Chunk::Limits(_) => Ok(()),
+            Chunk::Refusal(refusal) => {
+                self.refusal = Some(refusal);
+                Ok(())
+            }
             Chunk::Stop(reason) => {
                 self.stop = Some(reason);
                 Ok(())

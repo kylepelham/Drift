@@ -596,6 +596,7 @@ mod tests {
                 account: None,
                 summary: false,
                 ending: None,
+                refusal: None,
             },
             parts: Vec::new(),
         }

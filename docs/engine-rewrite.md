@@ -1492,6 +1492,15 @@ Settled after the first external review of M1; each has a regression test.
 - How a `done` reply ended when not by itself is typed: `message.ending` is `length` or `refused`
   (migration 25, which also marks earlier replies by their wording). The UI decides by it, never by
   `error`'s words, which are only for reading.
+- A refusal keeps what the provider said about it in `message.refusal` (migration 39,
+  `refusal_json`): Anthropic's `stop_details` category (`cyber`, `bio`, `frontier_llm`,
+  `reasoning_extraction`, `general_harms`), explanation and `recommended_model`. No provider names
+  the text that set it off, and Drift does not probe for it by resending trimmed requests: that is
+  testing the provider's safeguards, against its usage policy. Instead the UI lists what was new in
+  the refused request (`engine/refusal.ts`): the user's messages since the last reply that went
+  through, with their attachments, or the calls whose results that reply had just read. When the
+  suggested model is in the catalog it offers a retry on it, which sends "carry on" on that model;
+  Drift never moves to it by itself. OpenAI and Gemini give no details, so only the list shows.
 - An Anthropic content block or delta of a type the adapter does not know (server tools,
   citations, kinds added later) is skipped, not an error: nothing opens for it, so its deltas and
   stop fall on nothing and the reply goes on. Bedrock shares this.

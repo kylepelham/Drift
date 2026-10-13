@@ -16,6 +16,7 @@ import { agentLabel, t } from "../state/i18n";
 import { TextShimmer } from "./text-shimmer";
 import { ExploredGroup } from "./tool-view";
 import { FilePartView } from "./file-part";
+import { RefusalNotice } from "./refusal";
 import { useEngine } from "../engine";
 import { Markdown } from "./markdown";
 import { NoteBox } from "./note-box";
@@ -360,12 +361,19 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                                 </div>
                             }
                         >
-                            <div
-                                class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger"
-                                role="alert"
+                            <Show
+                                when={info().ending === "refused"}
+                                fallback={
+                                    <div
+                                        class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger"
+                                        role="alert"
+                                    >
+                                        {error().text}
+                                    </div>
+                                }
                             >
-                                {error().text}
-                            </div>
+                                <RefusalNotice entry={props.entry} text={error().text} />
+                            </Show>
                         </Show>
                     )}
                 </Show>

@@ -250,6 +250,7 @@ impl Engine {
         if let Some((error, _)) = &ending {
             message.error = Some(error.clone());
         }
+        message.refusal = streamed.refusal.filter(|_| streamed.stop == StopReason::Refused);
         message.ending = match streamed.stop {
             StopReason::MaxTokens => Some(types::Ending::Length),
             StopReason::Refused => Some(types::Ending::Refused),
@@ -398,6 +399,7 @@ impl Engine {
             usage: assembler.usage,
             generation_ms: assembler.generation_ms(),
             stop,
+            refusal: assembler.refusal,
             calls: assembler.calls,
             early,
         })

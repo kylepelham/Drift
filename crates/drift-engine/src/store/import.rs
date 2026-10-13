@@ -251,6 +251,7 @@ mod tests {
             account: None,
             summary: false,
             ending: None,
+            refusal: None,
         };
         let part = PartRow {
             id: format!("prt_{n:016x}aaaaaaaa"),

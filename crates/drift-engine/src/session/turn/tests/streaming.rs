@@ -132,6 +132,12 @@ async fn a_refused_reply_says_so_and_runs_nothing() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
     let mut refused = call_block("t1", "read", r#"{"path": "a.txt"}"#);
+    let said = crate::session::types::Refusal {
+        category: Some("cyber".into()),
+        explanation: None,
+        model: Some("claude-opus-4-8".into()),
+    };
+    refused.push(Chunk::Refusal(said.clone()));
     refused.push(Chunk::Stop(StopReason::Refused));
     h.provider.push(refused);
     h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
@@ -149,6 +155,11 @@ async fn a_refused_reply_says_so_and_runs_nothing() {
         "typed, so the UI never reads the wording"
     );
     assert_eq!(tool(&last.parts[0]).status, ToolStatus::Error);
+    assert_eq!(
+        last.info.refusal,
+        Some(said),
+        "what the provider said is kept, read back from the store"
+    );
 }
 
 #[tokio::test]

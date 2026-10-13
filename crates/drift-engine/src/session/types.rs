@@ -139,6 +139,23 @@ pub struct Message {
     /// How a `done` reply ended when not on its own; `error` then says it in words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ending: Option<Ending>,
+    /// What the provider said about a safety refusal, when it said anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<Refusal>,
+}
+
+/// The provider's account of a safety refusal. None of it names the text that triggered it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Refusal {
+    /// The policy area, as the provider names it (Anthropic: `cyber`, `bio`, `general_harms`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
+    /// A model the provider suggests retrying on; Drift only offers it, never switches by itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// A finished reply that did not end by itself.

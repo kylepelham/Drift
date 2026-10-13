@@ -1543,6 +1543,7 @@ export interface components {
             generationMs?: number | null;
             id: string;
             model?: components["schemas"]["ModelRef"] | null;
+            refusal?: components["schemas"]["Refusal"] | null;
             role: components["schemas"]["Role"];
             sessionId: string;
             status: components["schemas"]["MessageStatus"];
@@ -1896,6 +1897,14 @@ export interface components {
         Receipt: {
             message: components["schemas"]["Message"];
             session: components["schemas"]["Session"];
+        };
+        /** @description The provider's account of a safety refusal. None of it names the text that triggered it. */
+        Refusal: {
+            /** @description The policy area, as the provider names it (Anthropic: `cyber`, `bio`, `general_harms`, ...). */
+            category?: string | null;
+            explanation?: string | null;
+            /** @description A model the provider suggests retrying on; Drift only offers it, never switches by itself. */
+            model?: string | null;
         };
         /** @enum {string} */
         RegistryKind: "plugins" | "mcp";

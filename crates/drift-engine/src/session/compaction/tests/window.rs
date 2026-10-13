@@ -37,6 +37,7 @@ fn used(input: u64) -> Vec<MessageWithParts> {
             account: None,
             summary: false,
             ending: None,
+            refusal: None,
         },
         parts: Vec::new(),
     }]

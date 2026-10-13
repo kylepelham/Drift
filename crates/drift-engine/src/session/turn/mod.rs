@@ -345,6 +345,7 @@ struct Streamed {
     usage: Usage,
     generation_ms: Option<u64>,
     stop: StopReason,
+    refusal: Option<types::Refusal>,
     calls: Vec<PartRow>,
     /// Calls already started while the reply streamed.
     early: early::Early,
