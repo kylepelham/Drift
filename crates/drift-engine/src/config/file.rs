@@ -70,7 +70,6 @@ pub struct RouteTimeouts {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LimitsFile {
-    pub steps: Option<u32>,
     pub repeats: Option<u32>,
     pub polls: Option<u32>,
 }
@@ -79,8 +78,6 @@ pub struct LimitsFile {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Limits {
-    /// Model steps (requests) one turn may take.
-    pub steps: u32,
     /// Steps in a row whose calls and results are all identical: no progress, so likely a loop.
     pub repeats: u32,
     /// The same for steps whose shell commands deliberately wait, as polling does.
@@ -124,10 +121,6 @@ pub enum LspConfig {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self {
-            steps: 200,
-            repeats: 3,
-            polls: 30,
-        }
+        Self { repeats: 3, polls: 30 }
     }
 }

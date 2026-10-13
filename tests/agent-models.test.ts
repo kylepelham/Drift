@@ -71,7 +71,6 @@ test("picking a model changes only the model and keeps every other field", async
     const baseline = {
         prompt: "Review carefully",
         permissions: [{ kind: "edit", pattern: "*", decision: "deny" }],
-        steps: 12,
     };
     const draft = { ...draftOf(baseline), model: "provider/vendor/reviewer" };
     const config = configOf(draft, baseline) as Record<string, unknown>;
@@ -115,10 +114,8 @@ test("tools read as all, only these, or all except these, and go back the same w
 
 test("the form refuses what the engine would not apply and drops rules left blank", async () => {
     const { configOf, draftOf } = await import("../src/ui/settings-agent-drafts");
-    expect(configOf({ ...draftOf({}), steps: "0" }, {}), "steps must be positive").toBeString();
-    expect(configOf({ ...draftOf({}), steps: "50", variant: "high" }, {})).toEqual({
+    expect(configOf({ ...draftOf({}), variant: "high" }, {})).toEqual({
         prompt: "",
-        steps: 50,
         variant: "high",
     });
     const rules = [
@@ -168,15 +165,14 @@ test("agents are listed as picked in the composer, delegated to, then run by Dri
 });
 
 test("the behavior editor refuses what the engine would not apply, naming the field", () => {
-    expect(agentBehaviorIssue({ model: "provider/model", steps: 8, tools: ["read"] })).toBeUndefined();
+    expect(agentBehaviorIssue({ model: "provider/model", tools: ["read"] })).toBeUndefined();
     expect(agentBehaviorIssue({ model: "" })).toBeUndefined();
     for (const [behavior, field] of [
         [{ temperature: 0.2 }, "temperature"],
         [{ permission: { edit: "deny" } }, "permission"],
         [{ variant: 3 }, "variant"],
         [{ permissions: [{ kind: "read", pattern: "*", decision: "invalid" }] }, "permissions"],
-        [{ steps: 0 }, "steps"],
-        [{ steps: 1.5 }, "steps"],
+        [{ steps: 8 }, "steps"],
         [{ tools: [] }, "tools"],
         [{ tools: { bash: false } }, "tools"],
     ] as const) {
@@ -190,7 +186,6 @@ test("a stored override keeps only fields the engine still applies", () => {
     ).toEqual({
         prompt: "p",
         model: "a/b",
-        steps: 3,
         tools: ["read"],
     });
 });

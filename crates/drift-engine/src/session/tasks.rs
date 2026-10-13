@@ -509,7 +509,7 @@ impl Engine {
             }
             Attempt::Limited(write_up) => {
                 let text = format!(
-                    "The subagent reached its step or repeat limit before finishing; \
+                    "The subagent kept repeating the same calls with the same results; \
                      this is its account of where it got to, not a complete answer:\n\n{}",
                     clip(&write_up, RESULT_CHARS)
                 );
@@ -764,7 +764,7 @@ pub(crate) enum Attempt {
     Replied(String),
     /// It finished writing only because it hit the output limit; the text is partial.
     Incomplete(String),
-    /// The turn's step or repeat limit stopped it; the text is its write-up of unfinished work.
+    /// The repeat check stopped it; the text is its write-up of unfinished work.
     Limited(String),
     /// The provider's safety filter ended it; the text is whatever came before.
     Refused(String),

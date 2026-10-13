@@ -37,8 +37,6 @@ export type AgentInfo = {
     model?: ModelRef;
     /** Tool names it may use; empty means every tool. */
     tools: string[];
-    /** Its own step limit, in place of the workspace's. */
-    steps?: number;
     permissions?: PermissionRule[];
     variant?: string;
     /** Why the engine refuses to run it (a broken file or override); other agents are unaffected. */

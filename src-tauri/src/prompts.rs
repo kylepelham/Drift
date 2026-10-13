@@ -11,7 +11,7 @@ const MAX_OVERRIDES: usize = 128;
 const MAX_OVERRIDE_BYTES: usize = 256 * 1024;
 const MAX_AGENT_NAME_CHARS: usize = 128;
 /// Fields applied by AgentOverride; fields the engine would ignore are rejected instead of stored.
-const AGENT_FIELDS: [&str; 6] = ["prompt", "model", "steps", "tools", "permissions", "variant"];
+const AGENT_FIELDS: [&str; 5] = ["prompt", "model", "tools", "permissions", "variant"];
 
 #[derive(Debug, thiserror::Error)]
 enum PromptError {
@@ -21,12 +21,10 @@ enum PromptError {
     TooLarge,
     #[error("Agent overrides must be JSON objects")]
     NotObject,
-    #[error("Agent {0} is not applied by the engine; use prompt, model, steps, tools, permissions or variant")]
+    #[error("Agent {0} is not applied by the engine; use prompt, model, tools, permissions or variant")]
     UnknownField(String),
     #[error("Agent {0} must be text")]
     NotText(&'static str),
-    #[error("Agent steps must be a positive integer")]
-    InvalidSteps,
     #[error("Agent tools must list one or more tool names")]
     InvalidTools,
     #[error("Agent permissions must list kind/pattern/decision rules")]
@@ -114,13 +112,6 @@ fn fields(agent: &Map<String, Value>) -> Result<(), PromptError> {
         return Err(PromptError::NotText(field));
     }
 
-    if agent
-        .get("steps")
-        .is_some_and(|value| !matches!(value.as_u64(), Some(steps) if steps > 0 && steps <= u64::from(u32::MAX)))
-    {
-        return Err(PromptError::InvalidSteps);
-    }
-
     if agent.get("tools").is_some_and(|tools| {
         tools
             .as_array()
@@ -146,7 +137,6 @@ mod tests {
     fn only_what_the_engine_applies_to_one_named_agent_is_kept() {
         let valid = json!({
             "prompt": "Be brief.",
-            "steps": 20,
             "tools": ["read"],
             "permissions": [{ "kind": "bash", "pattern": "*", "decision": "ask" }]
         });
@@ -157,7 +147,7 @@ mod tests {
         for value in [
             json!("text"),
             json!({ "temperature": 0.2 }),
-            json!({ "steps": 0 }),
+            json!({ "steps": 20 }),
             json!({ "tools": [] }),
             json!({ "model": 4 }),
             json!({ "permissions": [{ "kind": "bash" }] }),

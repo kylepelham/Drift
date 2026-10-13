@@ -149,7 +149,7 @@ pub enum Ending {
     Length,
     /// The provider's safety filter ended it.
     Refused,
-    /// The turn's step or repeat limit stopped it; the reply is a write-up with tools off.
+    /// The repeat check stopped it; the reply is a write-up with tools off.
     Limit,
 }
 

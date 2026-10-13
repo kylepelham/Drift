@@ -386,3 +386,22 @@ fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
     drop(store);
     std::fs::remove_dir_all(dir).ok();
 }
+
+#[test]
+fn a_saved_agent_step_limit_is_dropped_on_open() {
+    let dir = test_dir("steps");
+    let original = serde_json::json!({ "prompt": "Base.", "steps": 50 });
+    let saved = serde_json::json!({ "prompt": "Mine.", "steps": 20, "tools": ["read"] });
+    open(&dir)
+        .unwrap()
+        .save_prompt_override("agent:build", &saved, Some(&original))
+        .unwrap();
+
+    let overrides = open(&dir).unwrap().prompt_overrides().unwrap();
+    assert_eq!(
+        overrides[0].value,
+        serde_json::json!({ "prompt": "Mine.", "tools": ["read"] })
+    );
+    assert_eq!(overrides[0].original, Some(serde_json::json!({ "prompt": "Base." })));
+    std::fs::remove_dir_all(&dir).ok();
+}

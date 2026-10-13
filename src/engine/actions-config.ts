@@ -86,7 +86,6 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
             ...(agent.variant ? { variant: agent.variant } : {}),
             ...(agent.problem ? { problem: agent.problem } : {}),
             ...(agent.prompt ? { prompt: agent.prompt } : {}),
-            ...(agent.steps ? { steps: agent.steps } : {}),
             ...(agent.model ? { model: { providerID: agent.model.provider, modelID: agent.model.model } } : {}),
         }));
         // Skill usage and choices fill the slash menu; an MCP prompt's arguments become its usage, word by word.

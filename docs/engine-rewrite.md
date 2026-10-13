@@ -429,7 +429,7 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - A prompt may switch the model, agent or level mid-turn, as in opencode. It is admitted like any
   steered prompt, and admission writes its choice onto the session. Before every request the turn
   reads the session (`follow_session`) and, if the choice changed, rebuilds what it runs on: the
-  model, provider and credential, the agent's tools, system prompt and step limit, and the level.
+  model, provider and credential, the agent's tools and system prompt, and the level.
   The conversation carries on as the new choice from that request; the prompt cache is lost. A
   model is checked when the prompt is sent (unknown model, no credentials: the sender gets the
   error); one that fails later pauses the turn with the reason. The prompt's files are judged
@@ -438,19 +438,21 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   newest prompt always decides; the composer's own unsent pick changes nothing until it is sent.
   (A durable queue that gave such prompts a turn of their own was removed; migration 19 drops its
   table.)
-- Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
-  override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
-  - `steps` (default 200): model steps that ran tools in one turn. The last allowed step, like the
-    step after `repeats` trips, is a wrap-up (`WrapUp`): tools are off for it (`no_tool_calls`) and a
-    reminder asks the model to say the turn stops, summarise what it found and did, and list what
-    is undone, as opencode's max-steps prompt does. Early reads do not start on that reply, and a
-    call the model makes anyway (a local server may ignore `tool_choice: none`) is closed unrun.
-    The reply ends `limit` (`Ending::Limit`; migration 32 swaps the `ending` column to widen its
-    CHECK, keeping every stored value). A conversation then pauses with the reason; a subagent
-    ends on that reply, and its parent gets the write-up as an `incomplete` result (the task
-    fails, saying it reached its limit), never as a finished answer.
+- A turn has no step limit: long-running agents carry on until they finish, are stopped, or loop.
+  (A `steps` limit, default 200, was removed because it cut long agent runs short; an old
+  `limits.steps` in drift.json or `steps:` in agent front matter is ignored, and the shell drops a
+  `steps` field from stored agent overrides when it opens the store.)
+- Loop limits (`config::Limits`, drift.json `limits: { repeats, polls }`, later files override
+  field by field):
   - `repeats` (default 3): steps in a row whose calls, inputs and results are all identical. A
-    different result is progress, so a poll whose answer changes never counts.
+    different result is progress, so a poll whose answer changes never counts. The step after it
+    trips is a wrap-up (`WrapUp`): tools are off for it (`no_tool_calls`) and a reminder asks the
+    model to say the turn stops, summarise what it found and did, and list what is undone. Early
+    reads do not start on that reply, and a call the model makes anyway (a local server may ignore
+    `tool_choice: none`) is closed unrun. The reply ends `limit` (`Ending::Limit`; migration 32
+    swaps the `ending` column to widen its CHECK, keeping every stored value). A conversation then
+    pauses with the reason; a subagent ends on that reply, and its parent gets the write-up as an
+    `incomplete` result (the task fails, saying it kept repeating), never as a finished answer.
   - `polls` (default 30): the same for repeated steps whose shell commands wait on purpose
     (`sleep`, `Start-Sleep`, `timeout`, `wait`, `watch`), so deliberate polling is not taken for a
     loop.
@@ -717,7 +719,7 @@ Drift uses the explicit contract below rather than copying hidden feature gates.
    for completion. Receipt means queued/running, never completed. Repeated delivery
    of the originating admitted call resolves to the same job.
 3. **Supervise in the engine.** Use the same runner/adapters with a bounded Tokio
-   worker queue/semaphore, step limits, usage and cancellation. Workers outlive the
+   worker queue/semaphore, loop limits, usage and cancellation. Workers outlive the
    launching tool future and UI view. Main and several independent workers can
    make progress concurrently; no second model runtime or external engine process.
 4. **Deliver results at safe boundaries.** Commit completed/failed/cancelled result
@@ -2106,8 +2108,7 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   subagent list, so the model is never offered it. A broken global agent or override never stops
   other agents or workspaces.
 - Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,
-  `model` (`provider/model`, or empty to inherit), `steps` (its own step limit), `tools` (the
-  tool names it may use), `permissions` and `variant`. The shell refuses to store any other field, naming it, and the editor
+  `model` (`provider/model`, or empty to inherit), `tools` (the tool names it may use), `permissions` and `variant`. The shell refuses to store any other field, naming it, and the editor
   shows the agent as the engine resolved it, in those fields only. An override's tool list is
   never empty, because on an agent an empty list means every tool: that would quietly lift
   `plan`'s read-only set. Reset restores the definition's own tools. Stored overrides from

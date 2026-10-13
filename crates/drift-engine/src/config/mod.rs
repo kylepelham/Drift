@@ -111,16 +111,6 @@ impl Config {
         timeouts
     }
 
-    /// The limits a turn run by `agent` works under.
-    pub fn limits_for(&self, agent: &str) -> Limits {
-        let steps = self
-            .agent(agent)
-            .and_then(|agent| agent.steps)
-            .unwrap_or(self.limits.steps);
-
-        Limits { steps, ..self.limits }
-    }
-
     pub fn load(workspace: &Path) -> Self {
         Self::load_with_home(workspace, home().as_deref())
     }
@@ -278,7 +268,6 @@ impl Config {
         self.checks.extend(file.checks);
         self.apply_lsp(file.lsp, project);
         self.timeouts.extend(file.timeouts);
-        self.limits.steps = file.limits.steps.unwrap_or(self.limits.steps).max(1);
         self.limits.repeats = file.limits.repeats.unwrap_or(self.limits.repeats).max(2);
         self.limits.polls = file.limits.polls.unwrap_or(self.limits.polls).max(2);
 
@@ -388,10 +377,6 @@ impl Config {
             tools: agent_tools(&document),
             builtin: false,
             kind: self.workspace_kind(&name, document.field("mode").as_deref()),
-            steps: document
-                .field("steps")
-                .and_then(|steps| steps.trim().parse().ok())
-                .filter(|steps: &u32| *steps > 0),
             background: document.field("background").and_then(|value| value.trim().parse().ok()),
             read_only: document.field("read_only").is_some_and(|value| value.trim() == "true"),
             name: name.clone(),
@@ -492,7 +477,6 @@ fn builtin_agents() -> Vec<Agent> {
         tools: tools.iter().map(ToString::to_string).collect(),
         builtin: true,
         kind,
-        steps: None,
         background: None,
         read_only: false,
         permissions: Vec::new(),

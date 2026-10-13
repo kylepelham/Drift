@@ -22,7 +22,7 @@ export async function resetPromptOverride(key: string) {
 }
 
 /** What the engine applies from the behavior editor; the prompt has its own editor. Anything else is refused. */
-const agentBehaviorFields = ["model", "steps", "tools", "permissions", "variant"] as const;
+const agentBehaviorFields = ["model", "tools", "permissions", "variant"] as const;
 
 /** The first field the engine would not apply as written, or nothing when every one is valid. */
 export function agentBehaviorIssue(behavior: Record<string, unknown>): string | undefined {
@@ -30,8 +30,6 @@ export function agentBehaviorIssue(behavior: Record<string, unknown>): string | 
     if (unknown) return unknown;
     if ("model" in behavior && typeof behavior.model !== "string") return "model";
     if ("variant" in behavior && typeof behavior.variant !== "string") return "variant";
-    const steps = behavior.steps;
-    if (steps !== undefined && !(typeof steps === "number" && Number.isInteger(steps) && steps > 0)) return "steps";
     const tools = behavior.tools;
     if (tools !== undefined && !validTools(tools)) return "tools";
     const permissions = behavior.permissions;

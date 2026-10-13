@@ -20,9 +20,6 @@ pub struct Agent {
     pub builtin: bool,
     #[serde(default)]
     pub kind: AgentKind,
-    /// Front matter `steps:`: this agent's own step limit, in place of the workspace's.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub steps: Option<u32>,
     /// Front matter `background: true|false`: how a `task` for this agent runs when the call does not say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,

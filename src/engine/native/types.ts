@@ -1057,11 +1057,6 @@ export interface components {
              *     something (a writing tool, a shell line that is not only reads, a task to a writing subagent) is refused.
              */
             readOnly?: boolean;
-            /**
-             * Format: int32
-             * @description Front matter `steps:`: this agent's own step limit, in place of the workspace's.
-             */
-            steps?: number | null;
             /** @description Tool names this agent may use, any case; `!name` takes one away. Empty, or only `!` entries, means every other tool. */
             tools?: string[];
             variant?: string | null;

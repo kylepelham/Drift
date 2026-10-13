@@ -144,6 +144,13 @@ pub(crate) fn attach(engine: Arc<drift_engine::store::Store>) -> rusqlite::Resul
     // The removed model-recovery workflow used this table.
     connection.execute("DROP TABLE IF EXISTS recoverable_interruption", [])?;
     allow_app_devices(&connection)?;
+    // Agents no longer have a step limit; an override that set one would otherwise be refused.
+    connection.execute(
+        "UPDATE prompt_override SET value_json = json_remove(value_json, '$.steps'),
+            original_json = json_remove(original_json, '$.steps')
+         WHERE json_type(value_json, '$.steps') IS NOT NULL OR json_type(original_json, '$.steps') IS NOT NULL",
+        [],
+    )?;
     collapse_duplicate_workspaces(&connection)?;
     drop(connection);
 

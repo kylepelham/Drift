@@ -78,7 +78,6 @@ impl Engine {
     ) -> Option<String> {
         let mut attempts = 0;
         let mut recovered = Recovered::default();
-        let mut steps = 0;
         let mut repeats = Repeats::default();
         let mut answered = None;
         let mut wrapping = None;
@@ -90,10 +89,6 @@ impl Engine {
             }
             self.follow_account(plan).await;
 
-            let limits = plan.config.limits_for(&plan.session.agent);
-            if wrapping.is_none() && steps + 1 >= limits.steps {
-                wrapping = Some(WrapUp::Steps(limits.steps));
-            }
             let Some(transcript) = self.transcript_for_step(plan, abort).await else {
                 break;
             };
@@ -121,10 +116,9 @@ impl Engine {
                 Step::Done => break,
                 Step::Continue => {
                     attempts = 0;
-                    steps += 1;
                     wrapping = repeats
-                        .record(self.last_calls(&plan.session.id), &limits)
-                        .map(WrapUp::Repeats);
+                        .record(self.last_calls(&plan.session.id), &plan.config.limits)
+                        .map(WrapUp);
                 }
                 Step::Retry(retry) if retry.allowed(attempts) => {
                     attempts += 1;

@@ -288,12 +288,10 @@ struct CallTrace {
     output: String,
 }
 
-/// Why a turn makes one last request with tools off before it stops, as opencode does at its step limit.
+/// A turn whose last steps repeated the same calls with the same results, this many times in a row,
+/// makes one last request with tools off before it stops.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum WrapUp {
-    Steps(u32),
-    Repeats(u32),
-}
+struct WrapUp(u32);
 
 /// Consecutive steps whose calls and results were all the same.
 /// Changing results are progress, and a deliberate wait gets the larger `polls` allowance.

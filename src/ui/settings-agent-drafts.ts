@@ -13,7 +13,6 @@ export type AgentDraft = {
     prompt: string;
     model: string;
     variant: string;
-    steps: string;
     toolMode: ToolMode;
     tools: string[];
     permissions: PermissionRule[];
@@ -66,7 +65,6 @@ export function agentConfig(agent: AgentInfo | undefined, stored?: PromptOverrid
     return {
         prompt: agent.prompt,
         model: agent.model ? `${agent.model.providerID}/${agent.model.modelID}` : undefined,
-        steps: agent.steps,
         permissions: agent.permissions?.length ? agent.permissions : undefined,
         variant: agent.variant,
         // An empty engine list means every tool, not an explicit selection of none.
@@ -88,7 +86,6 @@ export function draftOf(config: Record<string, unknown>): AgentDraft {
         prompt: text(config.prompt),
         model: text(config.model),
         variant: text(config.variant),
-        steps: typeof config.steps === "number" ? String(config.steps) : "",
         toolMode,
         tools: excluding ? listed.map((tool) => tool.slice(1)) : listed.filter((tool) => !tool.startsWith("!")),
         permissions: Array.isArray(config.permissions) ? (config.permissions as PermissionRule[]) : [],
@@ -100,7 +97,6 @@ export function configOf(draft: AgentDraft, baseline: Record<string, unknown>): 
     const config: Record<string, unknown> = { prompt: draft.prompt };
     if (draft.model || baseline.model !== undefined) config.model = draft.model;
     if (draft.variant || baseline.variant !== undefined) config.variant = draft.variant;
-    if (draft.steps) config.steps = Number(draft.steps);
 
     if (draft.toolMode !== "all" && !draft.tools.length) return t("drift.settings.prompts.tools.none");
     if (draft.toolMode === "only") config.tools = draft.tools;
@@ -123,7 +119,6 @@ export function sameDraft(left: AgentDraft, right: AgentDraft) {
         left.prompt === right.prompt &&
         left.model === right.model &&
         left.variant === right.variant &&
-        left.steps === right.steps &&
         left.toolMode === right.toolMode &&
         same(left.tools, right.tools) &&
         same(left.permissions, right.permissions)

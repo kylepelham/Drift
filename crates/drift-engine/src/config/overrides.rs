@@ -12,8 +12,6 @@ use crate::session::types::ModelRef;
 pub struct AgentOverride {
     pub model: Option<ModelPin>,
     pub prompt: Option<String>,
-    /// Its own step limit, in place of the workspace's.
-    pub steps: Option<u32>,
     /// The tool names it may use. Never empty: on an agent an empty list means every tool, so an override names them.
     pub tools: Option<Vec<String>>,
     pub permissions: Option<Vec<crate::permission::Rule>>,
@@ -34,9 +32,8 @@ impl AgentOverride {
         let mut problem = value
             .as_object()
             .and_then(|map| {
-                map.keys().find(|key| {
-                    !["model", "prompt", "steps", "tools", "permissions", "variant"].contains(&key.as_str())
-                })
+                map.keys()
+                    .find(|key| !["model", "prompt", "tools", "permissions", "variant"].contains(&key.as_str()))
             })
             .map(|key| format!("unsupported agent control {key}"));
 
@@ -48,11 +45,6 @@ impl AgentOverride {
                 None => ModelPin::Inherit,
             });
         let prompt = value.get("prompt").and_then(Value::as_str).map(str::to_string);
-        let steps = value
-            .get("steps")
-            .and_then(Value::as_u64)
-            .and_then(|steps| u32::try_from(steps).ok())
-            .filter(|steps| *steps > 0);
         let tools = value
             .get("tools")
             .and_then(Value::as_array)
@@ -81,7 +73,6 @@ impl AgentOverride {
         Self {
             model,
             prompt,
-            steps,
             tools,
             permissions,
             variant,
@@ -110,9 +101,6 @@ impl Config {
             }
             if let Some(prompt) = &chosen.prompt {
                 agent.prompt = prompt.clone();
-            }
-            if let Some(steps) = chosen.steps {
-                agent.steps = Some(steps);
             }
             if let Some(tools) = &chosen.tools {
                 agent.tools = tools.clone();
@@ -190,27 +178,22 @@ mod tests {
     }
 
     #[test]
-    fn settings_set_an_agents_step_limit_and_tools() {
+    fn settings_set_an_agents_tools() {
         let mut config = Config::load(&std::env::temp_dir().join("drift-no-such-workspace"));
         let overrides = HashMap::from([
             (
                 "general".to_string(),
-                AgentOverride::from_json(&json!({ "steps": 7, "tools": ["read", "grep"] })),
+                AgentOverride::from_json(&json!({ "tools": ["read", "grep"] })),
             ),
-            (
-                "plan".to_string(),
-                AgentOverride::from_json(&json!({ "steps": 0, "tools": [] })),
-            ),
+            ("plan".to_string(), AgentOverride::from_json(&json!({ "tools": [] }))),
         ]);
         let plan_before = config.agent("plan").unwrap().clone();
         config.apply_overrides(&overrides);
-        let general = config.agent("general").unwrap();
         assert_eq!(
-            (general.steps, general.tools.clone()),
-            (Some(7), vec!["read".to_string(), "grep".to_string()])
+            config.agent("general").unwrap().tools,
+            vec!["read".to_string(), "grep".to_string()]
         );
         let plan = config.agent("plan").unwrap();
-        assert_eq!(plan.steps, plan_before.steps, "zero is no limit to set");
         assert_eq!(plan.tools, plan_before.tools, "an empty list changes nothing");
         assert!(plan.read_only, "and plan still only reads");
     }

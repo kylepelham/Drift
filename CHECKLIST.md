@@ -116,7 +116,7 @@ change the plan there when a decision changes.
     - [x] `.envrc`, `cd` chains, opaque-construct docs, periodic prune (OpenRouter caching checked, left open above)
   - [x] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [x] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
-  - [x] Configurable step limits and repeated-call intervention
+  - [x] Repeated-call intervention (the per-turn step limit was removed: it cut long agent runs short)
   - [x] Shared tool-output limits with full-output artifacts (read, list, MCP, shell)
   - [x] Engine-owned steering and queueing at safe boundaries
   - [x] File discovery and @ expansion, every read through `tool::read_ask`

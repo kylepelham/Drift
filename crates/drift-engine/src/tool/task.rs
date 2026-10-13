@@ -531,7 +531,7 @@ impl Tool for ReadThread {
                     clip(&partial, SUMMARY_CHARS)
                 )),
                 Attempt::Limited(write_up) => lines.push(format!(
-                    "It reached its step or repeat limit and wrote up where it got to:\n{}",
+                    "It kept repeating the same calls with the same results and wrote up where it got to:\n{}",
                     clip(&write_up, SUMMARY_CHARS)
                 )),
                 Attempt::Refused(_) => lines.push("Its latest reply was ended by the provider's safety filter.".into()),
