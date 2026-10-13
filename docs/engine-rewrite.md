@@ -1276,6 +1276,11 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
   - A response that fails after it began is never re-sent over SSE: the failure goes to the turn,
     whose retry policy decides. Stopping a turn drops its stream, which closes that socket, so a
     half-read response never serves the next request.
+  - A conversation whose socket failed (it dropped, went silent, or would not open) sends its next
+    requests over SSE for two minutes (`websocket::dropped`), then tries a socket again. So the
+    turn's retry does not wait on a socket opened straight after the one that dropped, which was
+    seen to stay silent until the user stopped the turn. An API error is the request's own and
+    changes nothing; other conversations keep their sockets.
   - Verified live on 2026-10-10 against the Codex backend: two requests completed over one socket,
     the second sent as a continuation, with no SSE fallback.
 - A ChatGPT sign-in sees the catalog as the Codex backend takes it (`Engine::catalog_view`,

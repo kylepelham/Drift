@@ -91,7 +91,7 @@ async fn an_expired_connection_is_replaced_and_the_new_one_gets_the_whole_histor
     let h = fixture(Server::default(), None).await;
 
     collect(&h.provider, &request(), &key()).await;
-    h.slot().lock().await.as_mut().unwrap().opened = Instant::now() - LIFETIME;
+    h.slot().lock().await.as_mut().unwrap().expires = Instant::now();
     collect(&h.provider, &continued(request()), &key()).await;
 
     assert_eq!(h.server.connections(), 2);
@@ -173,17 +173,7 @@ fn the_pool_holds_at_most_its_limit_however_many_conversations_run() {
     let pool = Pool::default();
 
     for index in 0..100 {
-        let prepared = Prepared {
-            handshake: crate::llm::http::client()
-                .post("http://127.0.0.1/responses")
-                .build()
-                .unwrap(),
-            body: json!({}),
-            session: Some(format!("session_{index}")),
-            timeouts: Timeouts::default(),
-            subscription: false,
-        };
-        drop(pool.slot(&prepared));
+        drop(pool.slot(Some(&format!("session_{index}"))));
     }
 
     assert_eq!(pool.entries.lock().unwrap().len(), MAX_CONNECTIONS);

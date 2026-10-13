@@ -56,6 +56,36 @@ async fn a_reply_cut_off_midway_fails_without_being_sent_again_over_sse() {
 }
 
 #[tokio::test]
+async fn after_its_socket_drops_a_conversation_retries_over_sse_and_others_keep_their_sockets() {
+    let h = fixture(
+        Server {
+            partial: true,
+            ..Server::default()
+        },
+        None,
+    )
+    .await;
+    collect(&h.provider, &request(), &key()).await;
+
+    let retried = collect(&h.provider, &request(), &key()).await;
+    assert!(retried.iter().all(Result::is_ok), "{retried:?}");
+    assert_eq!(
+        (h.server.requests(), h.server.posts()),
+        (1, 1),
+        "the retry went over SSE"
+    );
+
+    let mut other = request();
+    other.cache_key = Some("other".into());
+    collect(&h.provider, &other, &key()).await;
+    assert_eq!(
+        (h.server.requests(), h.server.posts()),
+        (2, 1),
+        "another conversation still uses its socket"
+    );
+}
+
+#[tokio::test]
 async fn a_silent_server_times_out_without_switching_transport() {
     let mut h = fixture(
         Server {

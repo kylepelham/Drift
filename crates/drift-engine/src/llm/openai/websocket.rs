@@ -14,6 +14,7 @@ use crate::llm::{ChunkStream, Error};
 
 mod cache;
 mod connection;
+mod dropped;
 mod handshake;
 mod socket;
 
@@ -45,6 +46,8 @@ pub(super) struct Pool {
     entries: Mutex<HashMap<String, Entry>>,
     /// Endpoints that refused the upgrade, and when to try them again.
     unsupported: Mutex<HashMap<String, Instant>>,
+    /// Conversations whose WebSocket just failed, on SSE for now.
+    dropped: dropped::Dropped,
     /// How long a connection waits for its next request before closing.
     idle: Duration,
 }
@@ -54,6 +57,7 @@ impl Default for Pool {
         Self {
             entries: Mutex::default(),
             unsupported: Mutex::default(),
+            dropped: dropped::Dropped::default(),
             idle: IDLE,
         }
     }
@@ -69,12 +73,13 @@ type Slot = Arc<tokio::sync::Mutex<Option<Connection>>>;
 
 struct Connection {
     jobs: mpsc::Sender<connection::Job>,
-    opened: Instant,
+    /// When it is replaced, ahead of the server's own limit.
+    expires: Instant,
 }
 
 impl Connection {
     fn expired(&self) -> bool {
-        self.jobs.is_closed() || self.opened.elapsed() >= LIFETIME
+        self.jobs.is_closed() || Instant::now() >= self.expires
     }
 }
 
@@ -101,11 +106,17 @@ impl Pool {
         prepared: &Prepared,
     ) -> Result<Option<ChunkStream>, Error> {
         let endpoint = prepared.handshake.url().as_str();
-        if self.unsupported(endpoint) {
+        let key = prepared
+            .session
+            .as_ref()
+            .map(|session| identity(&prepared.handshake, session));
+        if self.unsupported(endpoint) || key.as_deref().is_some_and(|key| self.dropped.resting(key)) {
             return Ok(None);
         }
 
-        let Some(jobs) = self.sender(client, prepared).await? else {
+        let opened = self.sender(client, prepared, key.as_deref()).await;
+        let opened = opened.inspect_err(|error| self.dropped.note(key.as_deref(), error));
+        let Some(jobs) = opened? else {
             self.disable(endpoint);
             return Ok(None);
         };
@@ -120,13 +131,14 @@ impl Pool {
         tokio::time::timeout(prepared.timeouts.headers, jobs.send(job))
             .await
             .map_err(|_| Error::Transport("waiting for the Responses WebSocket timed out".into()))?
-            .map_err(|_| Error::Transport("the Responses WebSocket closed before the request began".into()))?;
+            .map_err(|_| Error::Transport("the Responses WebSocket closed before the request began".into()))
+            .inspect_err(|error| self.dropped.note(key.as_deref(), error))?;
 
         let stream = futures_util::stream::unfold(receive, |mut receive| async move {
             receive.recv().await.map(|chunk| (chunk, receive))
         });
 
-        Ok(Some(Box::pin(stream)))
+        Ok(Some(self.dropped.watch(key, Box::pin(stream))))
     }
 
     /// The conversation's live connection, opened if it has none; `None` when the endpoint refused it.
@@ -134,8 +146,9 @@ impl Pool {
         &self,
         client: &reqwest::Client,
         prepared: &Prepared,
+        key: Option<&str>,
     ) -> Result<Option<mpsc::Sender<connection::Job>>, Error> {
-        let slot = self.slot(prepared);
+        let slot = self.slot(key);
         let mut connection = slot.lock().await;
 
         if connection.as_ref().is_some_and(Connection::expired) {
@@ -151,7 +164,7 @@ impl Pool {
             tokio::spawn(connection::run(socket, receive, self.idle));
             *connection = Some(Connection {
                 jobs,
-                opened: Instant::now(),
+                expires: Instant::now() + LIFETIME,
             });
         }
 
@@ -159,11 +172,10 @@ impl Pool {
     }
 
     /// The conversation's slot; a request without a conversation gets a connection of its own.
-    fn slot(&self, prepared: &Prepared) -> Slot {
-        let Some(session) = &prepared.session else {
+    fn slot(&self, key: Option<&str>) -> Slot {
+        let Some(key) = key else {
             return Arc::default();
         };
-        let key = identity(&prepared.handshake, session);
         let now = Instant::now();
 
         // Forget idle slots nobody holds.
@@ -171,14 +183,14 @@ impl Pool {
         entries.retain(|_, entry| entry.touched.elapsed() < self.idle || Arc::strong_count(&entry.slot) > 1);
 
         // At the limit, the least recently used free slot makes room; if every slot is busy, this request goes alone.
-        if !entries.contains_key(&key) && entries.len() >= MAX_CONNECTIONS {
+        if !entries.contains_key(key) && entries.len() >= MAX_CONNECTIONS {
             let Some(oldest) = least_recent_free(&entries) else {
                 return Arc::default();
             };
             entries.remove(&oldest);
         }
 
-        let entry = entries.entry(key).or_insert_with(|| Entry {
+        let entry = entries.entry(key.into()).or_insert_with(|| Entry {
             slot: Arc::default(),
             touched: now,
         });
