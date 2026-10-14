@@ -713,6 +713,10 @@ export const drift = {
     "drift.provider.accounts.spent": "上限に達しました。{{reset}}",
     "drift.provider.accounts.switched": "アカウントが使用上限に達しました。{{account}} で続行します。",
     "drift.provider.accounts.returned": "使用上限がリセットされたため {{account}} に戻りました。",
+    "drift.provider.accounts.switchedForModel":
+        "そのアカウントのプランにはこのモデルが含まれていません。{{account}} で続行します。",
+    "drift.provider.accounts.switchedForRefusal":
+        "そのアカウントの安全フィルターがリクエストを拒否しました。{{account}} で試します。",
     "drift.question.custom": "独自の回答を入力",
     "drift.question.answered": "回答済み",
     "drift.question.unanswered": "回答なし",

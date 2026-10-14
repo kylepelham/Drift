@@ -7,6 +7,18 @@ import type { ActionContext } from "./actions-context";
 import type { ProviderAuthResult } from "./actions";
 import type { components } from "./native/types";
 
+const switchMessages: Record<components["schemas"]["SwitchReason"], string> = {
+    limit: "drift.provider.accounts.switched",
+    reset: "drift.provider.accounts.returned",
+    model: "drift.provider.accounts.switchedForModel",
+    refusal: "drift.provider.accounts.switchedForRefusal",
+};
+
+/** The notice key for why a turn moved to another account. */
+export function switchMessage(reason: components["schemas"]["SwitchReason"]) {
+    return switchMessages[reason];
+}
+
 type Event = components["schemas"]["Event"];
 
 /** Sign-in methods per provider, in the order the settings page lists them. */
@@ -74,10 +86,7 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         const account = event.label ?? t("drift.provider.accounts.unnamed", { number: event.position });
         notice({
             title: provider,
-            message: t(event.limited ? "drift.provider.accounts.switched" : "drift.provider.accounts.returned", {
-                account,
-                provider,
-            }),
+            message: t(switchMessage(event.reason), { account, provider }),
             variant: "info",
             duration: 8000,
         });

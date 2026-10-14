@@ -744,6 +744,10 @@ export const drift = {
     "drift.provider.accounts.spent": "Ліміт вичерпано. {{reset}}",
     "drift.provider.accounts.switched": "Обліковий запис вичерпав ліміт використання. Продовжуємо на {{account}}.",
     "drift.provider.accounts.returned": "Знову на {{account}}: його ліміт використання скинуто.",
+    "drift.provider.accounts.switchedForModel":
+        "Тариф цього облікового запису не включає цю модель. Продовжуємо на {{account}}.",
+    "drift.provider.accounts.switchedForRefusal":
+        "Фільтр безпеки цього облікового запису відхилив запит. Пробуємо {{account}}.",
     "drift.question.custom": "Введіть власну відповідь",
     "drift.question.answered": "Відповідь надано",
     "drift.question.unanswered": "Немає відповіді",

@@ -736,6 +736,8 @@ export const drift = {
     "drift.provider.accounts.spent": "ถึงขีดจำกัดแล้ว {{reset}}",
     "drift.provider.accounts.switched": "บัญชีหนึ่งถึงขีดจำกัดการใช้งานแล้ว ดำเนินการต่อด้วย {{account}}",
     "drift.provider.accounts.returned": "กลับมาใช้ {{account}} เนื่องจากขีดจำกัดการใช้งานรีเซ็ตแล้ว",
+    "drift.provider.accounts.switchedForModel": "แผนของบัญชีนั้นไม่รวมโมเดลนี้ ดำเนินการต่อบน {{account}}",
+    "drift.provider.accounts.switchedForRefusal": "ตัวกรองความปลอดภัยของบัญชีนั้นปฏิเสธคำขอ กำลังลอง {{account}}",
     "drift.question.custom": "พิมพ์คำตอบของคุณเอง",
     "drift.question.answered": "ตอบแล้ว",
     "drift.question.unanswered": "ไม่มีคำตอบ",

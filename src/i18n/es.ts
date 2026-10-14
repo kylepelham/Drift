@@ -750,6 +750,10 @@ export const drift = {
     "drift.provider.accounts.spent": "Límite alcanzado. {{reset}}",
     "drift.provider.accounts.switched": "Una cuenta alcanzó su límite de uso. Se continúa con {{account}}.",
     "drift.provider.accounts.returned": "De vuelta en {{account}} ahora que su límite de uso se restableció.",
+    "drift.provider.accounts.switchedForModel":
+        "El plan de esa cuenta no incluye este modelo. Continuando en {{account}}.",
+    "drift.provider.accounts.switchedForRefusal":
+        "El filtro de seguridad de esa cuenta rechazó la solicitud. Probando {{account}}.",
     "drift.question.custom": "Escribe tu propia respuesta",
     "drift.question.answered": "Respondido",
     "drift.question.unanswered": "Sin respuesta",

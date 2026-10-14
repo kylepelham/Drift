@@ -750,6 +750,8 @@ export const drift = {
     "drift.provider.accounts.spent": "Sınıra ulaşıldı. {{reset}}",
     "drift.provider.accounts.switched": "Bir hesap kullanım sınırına ulaştı. {{account}} ile devam ediliyor.",
     "drift.provider.accounts.returned": "Kullanım sınırı sıfırlandığı için yeniden {{account}} kullanılıyor.",
+    "drift.provider.accounts.switchedForModel": "O hesabın planı bu modeli içermiyor. {{account}} ile devam ediliyor.",
+    "drift.provider.accounts.switchedForRefusal": "O hesabın güvenlik filtresi isteği reddetti. {{account}} deneniyor.",
     "drift.question.custom": "Kendi yanıtınızı yazın",
     "drift.question.answered": "Yanıtlandı",
     "drift.question.unanswered": "Yanıt yok",

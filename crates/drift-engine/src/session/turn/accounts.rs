@@ -1,10 +1,12 @@
-//! The account a turn sends with. What each response reports of its usage, and which models each account was
-//! refused, is kept in memory, so choosing the next account is a lookup: the first in the user's order that has
-//! usage left and can serve the turn's model.
+//! The account a turn sends with. What each response reports of its usage, which models each account was
+//! refused, and which conversations its safety filter refused, is kept in memory, so choosing the next account
+//! is a lookup: the first in the user's order that has usage left and can serve the turn's model and conversation.
 
 use super::*;
+use crate::event::SwitchReason;
 use crate::llm::catalog::Model;
 use crate::llm::limits::Limits;
+use crate::session::types::Refusal;
 
 /// How long an account refused for usage, without saying until when, is passed over.
 const UNNAMED_RESET: std::time::Duration = std::time::Duration::from_secs(5 * 60 * 60);
@@ -57,12 +59,17 @@ impl Engine {
         self.renew(provider, Some(account), stored).await.ok()
     }
 
-    /// The account requests for `model` should go to now: the first in order that can serve it.
-    fn preferred_account(&self, provider: &str, model: &Model) -> Option<String> {
+    /// [`Engine::account_serves`], and the account has not refused this conversation under its safety filter.
+    pub(in crate::session) fn account_suits(&self, account: &str, session: &str, model: &Model) -> bool {
+        self.account_serves(account, model) && !self.unserved.refused_conversation(account, session)
+    }
+
+    /// The account this conversation's requests for `model` should go to now: the first in order that suits it.
+    fn preferred_account(&self, provider: &str, session: &str, model: &Model) -> Option<String> {
         self.credentials
             .accounts(provider)
             .into_iter()
-            .find(|account| self.account_serves(&account.key, model))
+            .find(|account| self.account_suits(&account.key, session, model))
             .map(|account| account.key)
     }
 
@@ -80,7 +87,7 @@ impl Engine {
         };
         let provider = plan.model_ref.provider.clone();
         let Some(preferred) = self
-            .preferred_account(&provider, &plan.model)
+            .preferred_account(&provider, &plan.session.id, &plan.model)
             .filter(|preferred| *preferred != current)
         else {
             return;
@@ -118,8 +125,47 @@ impl Engine {
             return false;
         }
 
-        self.preferred_account(&plan.model_ref.provider, &plan.model)
-            .is_some_and(|preferred| preferred != *account)
+        self.another_account(plan, account)
+    }
+
+    /// After the safety filter refused the reply, passes the account over for this conversation when another
+    /// account may judge it differently; `true` when one can take the request. Accounts differ on cybersecurity
+    /// (Anthropic's Cyber Verification, OpenAI's Daybreak), so a cyber refusal, or one naming no policy area, moves
+    /// on; a refusal in any other area stands.
+    pub(super) fn leave_refusing_account(&self, plan: &Plan, refusal: Option<&Refusal>) -> bool {
+        let Some(account) = &plan.account else {
+            return false;
+        };
+        let category = refusal.and_then(|refusal| refusal.category.as_deref());
+        let accounts_differ = category.is_none_or(|category| category.to_ascii_lowercase().contains("cyber"));
+        if !accounts_differ {
+            return false;
+        }
+
+        self.unserved.refuse_conversation(account, &plan.session.id);
+
+        self.another_account(plan, account)
+    }
+
+    /// Whether an account other than `account` suits the turn now.
+    fn another_account(&self, plan: &Plan, account: &str) -> bool {
+        self.preferred_account(&plan.model_ref.provider, &plan.session.id, &plan.model)
+            .is_some_and(|preferred| preferred != account)
+    }
+
+    /// Why the turn is leaving `from`: whatever now keeps it from suiting the turn, else an earlier account's reset.
+    fn switch_reason(&self, plan: &Plan, from: &str) -> SwitchReason {
+        if !self.usable_account(from) {
+            return SwitchReason::Limit;
+        }
+        if self.unserved.refused_conversation(from, &plan.session.id) {
+            return SwitchReason::Refusal;
+        }
+        if !self.account_serves(from, &plan.model) {
+            return SwitchReason::Model;
+        }
+
+        SwitchReason::Reset
     }
 
     fn announce_switch(&self, plan: &Plan, from: String, to: String) {
@@ -129,7 +175,7 @@ impl Engine {
         self.hub.publish(Event::ProviderSwitched {
             session_id: plan.session.id.clone(),
             provider: plan.model_ref.provider.clone(),
-            limited: !self.usable_account(&from),
+            reason: self.switch_reason(plan, &from),
             from,
             to,
             label: accounts.get(position).and_then(|account| account.label.clone()),

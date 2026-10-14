@@ -72,6 +72,16 @@ impl Store {
         Ok(deleted > 0)
     }
 
+    /// Deletes a reply and whatever it streamed, for a request sent again from another account; its parts go with it.
+    pub fn discard_reply(&self, id: &str) -> rusqlite::Result<bool> {
+        let deleted = self
+            .lock()
+            .prepare_cached("DELETE FROM message WHERE id = ?1 AND role = 'assistant'")?
+            .execute([id])?;
+
+        Ok(deleted > 0)
+    }
+
     /// Stores a summary's text and its finished state as one write: a summary is never done without its text.
     pub fn complete_summary(&self, message: &Message, text: &str) -> rusqlite::Result<PartRow> {
         transaction(&self.lock(), |connection| {

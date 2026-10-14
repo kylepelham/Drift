@@ -721,6 +721,10 @@ export const drift = {
     "drift.provider.accounts.spent": "Limit erreicht. {{reset}}",
     "drift.provider.accounts.switched": "Ein Konto hat sein Nutzungslimit erreicht. Weiter mit {{account}}.",
     "drift.provider.accounts.returned": "Wieder auf {{account}}, da sein Nutzungslimit zurückgesetzt wurde.",
+    "drift.provider.accounts.switchedForModel":
+        "Der Tarif dieses Kontos umfasst dieses Modell nicht. Weiter mit {{account}}.",
+    "drift.provider.accounts.switchedForRefusal":
+        "Der Sicherheitsfilter dieses Kontos hat die Anfrage abgelehnt. Versuch mit {{account}}.",
     "drift.question.custom": "Eigene Antwort eingeben",
     "drift.question.answered": "Beantwortet",
     "drift.question.unanswered": "Keine Antwort",

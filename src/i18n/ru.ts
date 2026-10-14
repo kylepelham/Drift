@@ -746,6 +746,10 @@ export const drift = {
     "drift.provider.accounts.spent": "Лимит исчерпан. {{reset}}",
     "drift.provider.accounts.switched": "Аккаунт исчерпал лимит использования. Продолжаем на {{account}}.",
     "drift.provider.accounts.returned": "Снова на {{account}}: его лимит использования сброшен.",
+    "drift.provider.accounts.switchedForModel":
+        "Тариф этого аккаунта не включает эту модель. Продолжаем на {{account}}.",
+    "drift.provider.accounts.switchedForRefusal":
+        "Фильтр безопасности этого аккаунта отклонил запрос. Пробуем {{account}}.",
     "drift.question.custom": "Введите свой ответ",
     "drift.question.answered": "Ответ дан",
     "drift.question.unanswered": "Нет ответа",

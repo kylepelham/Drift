@@ -719,6 +719,8 @@ export const drift = {
     "drift.provider.accounts.spent": "已達到限額。{{reset}}",
     "drift.provider.accounts.switched": "某個帳戶已達到使用限額，繼續使用 {{account}}。",
     "drift.provider.accounts.returned": "{{account}} 的使用限額已重置，已切換回該帳戶。",
+    "drift.provider.accounts.switchedForModel": "該帳戶的方案不包含此模型。改用 {{account}} 繼續。",
+    "drift.provider.accounts.switchedForRefusal": "該帳戶的安全過濾器拒絕了請求。正在嘗試 {{account}}。",
     "drift.question.custom": "輸入自訂答案",
     "drift.question.answered": "已回答",
     "drift.question.unanswered": "無回答",

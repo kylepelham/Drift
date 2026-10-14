@@ -1,7 +1,7 @@
 //! How much of a subscription's usage windows an account has spent, read from what every response already
 //! carries, and kept in memory so choosing an account never waits on the network.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use ::http::HeaderMap;
@@ -202,20 +202,41 @@ impl Ledger {
     }
 }
 
-/// Models an account was refused because its plan does not include them, by account and model, until when.
+/// What each account was refused: models its plan does not include, until when, and conversations its safety
+/// filter refused, for as long as the engine runs.
 #[derive(Default)]
-pub struct Unserved(Mutex<HashMap<(String, String), i64>>);
+pub struct Unserved {
+    models: Mutex<HashMap<(String, String), i64>>,
+    conversations: Mutex<HashSet<(String, String)>>,
+}
 
 impl Unserved {
     pub fn refuse(&self, account: &str, model: &str, until: i64) {
-        self.0.lock().unwrap().insert((account.into(), model.into()), until);
+        self.models
+            .lock()
+            .unwrap()
+            .insert((account.into(), model.into()), until);
     }
 
     /// Whether `account` was refused `model` and that still holds at `now`.
     pub fn refused(&self, account: &str, model: &str, now: i64) -> bool {
         let key = (account.to_string(), model.to_string());
 
-        self.0.lock().unwrap().get(&key).is_some_and(|until| *until > now)
+        self.models.lock().unwrap().get(&key).is_some_and(|until| *until > now)
+    }
+
+    /// The account's safety filter refused the conversation; its content stays, so the account would again.
+    pub fn refuse_conversation(&self, account: &str, session: &str) {
+        self.conversations
+            .lock()
+            .unwrap()
+            .insert((account.into(), session.into()));
+    }
+
+    pub fn refused_conversation(&self, account: &str, session: &str) -> bool {
+        let key = (account.to_string(), session.to_string());
+
+        self.conversations.lock().unwrap().contains(&key)
     }
 }
 

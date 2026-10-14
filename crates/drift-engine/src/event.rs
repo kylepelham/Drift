@@ -19,6 +19,20 @@ pub enum SessionStatus {
     Running,
 }
 
+/// Why a turn moved to another of the provider's accounts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SwitchReason {
+    /// The account it left reached its usage limit.
+    Limit,
+    /// An earlier account's usage limit reset, so the turn went back to it.
+    Reset,
+    /// The account it left has no access to the model on its plan.
+    Model,
+    /// The account it left refused the conversation under its safety filter.
+    Refusal,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Event {
@@ -92,7 +106,7 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         label: Option<String>,
         position: usize,
-        limited: bool,
+        reason: SwitchReason,
     },
     #[serde(rename = "mcp.updated")]
     McpUpdated { server: crate::mcp::ServerStatus },

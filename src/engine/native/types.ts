@@ -1402,9 +1402,9 @@ export interface components {
             from: string;
             /** @description The new account's name, if it has one; else `position`, counted from 1, names it. */
             label?: string | null;
-            limited: boolean;
             position: number;
             provider: string;
+            reason: components["schemas"]["SwitchReason"];
             sessionId: string;
             to: string;
             /** @enum {string} */
@@ -2193,6 +2193,11 @@ export interface components {
             name: string;
             usage?: string | null;
         };
+        /**
+         * @description Why a turn moved to another of the provider's accounts.
+         * @enum {string}
+         */
+        SwitchReason: "limit" | "reset" | "model" | "refusal";
         /** @description One worker: who launched it, how it runs and why, how it ended, and whether its parent has it. */
         TaskRecord: {
             agent: string;

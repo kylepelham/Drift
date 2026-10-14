@@ -708,6 +708,10 @@ export const drift = {
     "drift.provider.accounts.spent": "한도에 도달했습니다. {{reset}}",
     "drift.provider.accounts.switched": "계정이 사용 한도에 도달했습니다. {{account}}(으)로 계속합니다.",
     "drift.provider.accounts.returned": "사용 한도가 초기화되어 {{account}}(으)로 돌아왔습니다.",
+    "drift.provider.accounts.switchedForModel":
+        "해당 계정의 요금제에는 이 모델이 포함되지 않습니다. {{account}}에서 계속합니다.",
+    "drift.provider.accounts.switchedForRefusal":
+        "해당 계정의 안전 필터가 요청을 거부했습니다. {{account}}(으)로 시도합니다.",
     "drift.question.custom": "직접 답변 입력",
     "drift.question.answered": "답변 완료",
     "drift.question.unanswered": "답변 없음",

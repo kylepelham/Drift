@@ -176,6 +176,16 @@ impl Engine {
         true
     }
 
+    /// A reply sent again from another account goes with whatever it streamed.
+    fn discard_reply(&self, session_id: &str, reply: String) {
+        if self.store.discard_reply(&reply).unwrap_or(false) {
+            self.hub.publish(Event::MessageRemoved {
+                session_id: session_id.into(),
+                message_id: reply,
+            });
+        }
+    }
+
     /// A refused request leaves an empty reply; once recovered, it goes, so no error stays in the transcript.
     pub(super) fn discard_refused_reply(&self, session_id: &str, reply: String) {
         if self.store.discard_empty_reply(&reply).unwrap_or(false) {
@@ -222,6 +232,12 @@ impl Engine {
             }
             Err(error) => return self.failed_step(&mut message, error),
         };
+        // A safety refusal another account may not make sends the request again from it; the refused reply goes.
+        if streamed.stop == StopReason::Refused && self.leave_refusing_account(plan, streamed.refusal.as_ref()) {
+            self.discard_reply(&plan.session.id, message.id);
+            return Step::Switch;
+        }
+
         message.usage = streamed.usage;
         message.generation_ms = streamed.generation_ms;
         message.account = plan.account.clone();

@@ -747,6 +747,10 @@ export const drift = {
     "drift.provider.accounts.spent": "Grensen er nådd. {{reset}}",
     "drift.provider.accounts.switched": "En konto nådde bruksgrensen. Fortsetter på {{account}}.",
     "drift.provider.accounts.returned": "Tilbake på {{account}} nå som bruksgrensen er tilbakestilt.",
+    "drift.provider.accounts.switchedForModel":
+        "Den kontoens abonnement omfatter ikke denne modellen. Fortsetter på {{account}}.",
+    "drift.provider.accounts.switchedForRefusal":
+        "Den kontoens sikkerhetsfilter avviste forespørselen. Prøver {{account}}.",
     "drift.question.custom": "Skriv ditt eget svar",
     "drift.question.answered": "Besvart",
     "drift.question.unanswered": "Ingen svar",

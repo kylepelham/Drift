@@ -1,6 +1,8 @@
 use super::*;
+use crate::event::SwitchReason;
 use crate::llm::credentials::Profile;
 use crate::llm::limits::{Limits, Window};
+use crate::session::types::Refusal;
 
 /// Two Claude sign-ins in use order; returns their account keys.
 fn two_accounts(h: &Harness) -> (String, String) {
@@ -107,13 +109,13 @@ async fn a_spent_account_hands_the_request_to_the_next_at_once() {
     while let Ok(envelope) = events.try_recv() {
         match envelope.event {
             Event::ProviderSwitched {
-                to, limited, position, ..
-            } => switched = Some((to, limited, position)),
+                to, reason, position, ..
+            } => switched = Some((to, reason, position)),
             Event::SessionRetry { .. } => retried = true,
             _ => {}
         }
     }
-    assert_eq!(switched, Some((second, true, 2)));
+    assert_eq!(switched, Some((second, SwitchReason::Limit, 2)));
     assert!(!retried, "a switch is not a retry");
 }
 
@@ -237,16 +239,20 @@ async fn an_account_whose_plan_lacks_the_model_hands_the_request_to_one_that_has
     assert_eq!(sent_with(&h), ["first", "second", "second"]);
 
     let mut retried = false;
-    let mut limited = None;
+    let mut reason = None;
     while let Ok(envelope) = events.try_recv() {
         match envelope.event {
             Event::SessionRetry { .. } => retried = true,
-            Event::ProviderSwitched { limited: was, .. } => limited = Some(was),
+            Event::ProviderSwitched { reason: why, .. } => reason = Some(why),
             _ => {}
         }
     }
     assert!(!retried, "a switch is not a retry");
-    assert_eq!(limited, Some(false), "the switch is not for spent usage");
+    assert_eq!(
+        reason,
+        Some(SwitchReason::Model),
+        "the switch says the plan lacks the model"
+    );
 }
 
 #[tokio::test]
@@ -266,4 +272,104 @@ async fn when_no_account_has_the_model_the_refusal_is_shown_without_waiting() {
     );
     let error = transcript(&h).last().unwrap().info.error.clone().unwrap();
     assert!(error.contains("Usage credits are required"), "{error}");
+}
+
+/// A reply the safety filter ended after some text, with the policy area the provider named.
+fn refused(category: Option<&str>) -> Vec<Chunk> {
+    vec![
+        Chunk::TextStart,
+        Chunk::TextDelta("Sure, here is".into()),
+        Chunk::BlockStop,
+        Chunk::Refusal(Refusal {
+            category: category.map(String::from),
+            explanation: Some("This request triggered restrictions on violative cyber content.".into()),
+            model: None,
+        }),
+        Chunk::Stop(StopReason::Refused),
+    ]
+}
+
+#[tokio::test]
+async fn a_cyber_refusal_sends_the_request_again_from_the_next_account_and_the_conversation_stays_there() {
+    let h = harness().await;
+    let (first, second) = two_accounts(&h);
+    let mut events = h.engine.hub.attach(None).rx;
+    h.provider
+        .push(refused(Some("cyber")))
+        .push(text("answered by bob"))
+        .push(text("bob again"));
+
+    // The refused reply and its partial text go, and the next account answers at once.
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first", "second"]);
+    let messages = transcript(&h);
+    assert_eq!(messages.len(), 2, "the refused reply leaves nothing behind");
+    assert!(
+        messages
+            .iter()
+            .all(|message| message.info.error.is_none() && message.info.refusal.is_none())
+    );
+    assert_eq!(messages[1].info.account.as_deref(), Some(second.as_str()));
+
+    // The first account still serves other conversations, but not this one.
+    assert!(h.engine.unserved.refused_conversation(&first, &h.session.id));
+    assert!(h.engine.usable_account(&first));
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["first", "second", "second"]);
+
+    let mut reason = None;
+    while let Ok(envelope) = events.try_recv() {
+        if let Event::ProviderSwitched { reason: why, .. } = envelope.event {
+            reason = Some(why);
+        }
+    }
+    assert_eq!(reason, Some(SwitchReason::Refusal));
+}
+
+#[tokio::test]
+async fn a_refusal_that_names_no_policy_area_also_tries_the_next_account() {
+    let h = harness().await;
+    two_accounts(&h);
+    h.provider.push(refused(None)).push(text("answered by bob"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first", "second"]);
+    assert!(transcript(&h).iter().all(|message| message.info.error.is_none()));
+}
+
+#[tokio::test]
+async fn a_refusal_in_another_policy_area_stands_on_the_account_that_made_it() {
+    let h = harness().await;
+    two_accounts(&h);
+    h.provider.push(refused(Some("bio"))).push(text("never sent"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first"]);
+    let refused = transcript(&h).last().unwrap().info.clone();
+    assert_eq!(refused.ending, Some(crate::session::types::Ending::Refused));
+    assert_eq!(refused.refusal.unwrap().category.as_deref(), Some("bio"));
+}
+
+#[tokio::test]
+async fn when_every_account_refuses_the_last_refusal_is_shown() {
+    let h = harness().await;
+    two_accounts(&h);
+    h.provider.push(refused(Some("cyber"))).push(refused(Some("cyber")));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["first", "second"]);
+    let messages = transcript(&h);
+    assert_eq!(messages.len(), 2, "one refused reply stays: the last account's");
+    let shown = messages[1].info.clone();
+    assert_eq!(shown.ending, Some(crate::session::types::Ending::Refused));
+    assert_eq!(shown.refusal.unwrap().category.as_deref(), Some("cyber"));
 }
