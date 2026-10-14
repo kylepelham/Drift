@@ -29,7 +29,7 @@ pub use file::{
     CheckConfig, File, FormatterConfig, Limits, LimitsFile, LspConfig, ProviderConfig, ProviderModel, RouteTimeouts,
 };
 pub use overrides::{AgentOverride, ModelPin};
-pub use user::{user_plugins, user_providers};
+pub use user::{set_local_server, user_plugins, user_providers};
 
 use crate::permission::{Policy, Rule};
 use crate::session::types::ModelRef;

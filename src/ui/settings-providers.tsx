@@ -1,6 +1,7 @@
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import { ProviderConnect } from "./settings-provider-connect";
 import { LmStudioConnect } from "./settings-lm-studio";
+import { OllamaConnect } from "./settings-ollama";
 import { ProviderIcon } from "./provider-icon";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
@@ -74,19 +75,28 @@ export function ProvidersSection() {
                     </span>
                 </button>
                 <Show when={open()}>
-                    {provider.id === "lmstudio" ? (
-                        <LmStudioConnect providerName={provider.name} onNotice={setNotice} />
-                    ) : (
-                        <ProviderConnect
-                            providerId={provider.id}
-                            providerName={provider.name}
-                            connected={connected()}
-                            methods={
-                                methods()[provider.id] ?? [{ type: "api", label: t("provider.connect.method.apiKey") }]
-                            }
-                            onNotice={setNotice}
-                        />
-                    )}
+                    <Switch
+                        fallback={
+                            <ProviderConnect
+                                providerId={provider.id}
+                                providerName={provider.name}
+                                connected={connected()}
+                                methods={
+                                    methods()[provider.id] ?? [
+                                        { type: "api", label: t("provider.connect.method.apiKey") },
+                                    ]
+                                }
+                                onNotice={setNotice}
+                            />
+                        }
+                    >
+                        <Match when={provider.id === "lmstudio"}>
+                            <LmStudioConnect providerName={provider.name} onNotice={setNotice} />
+                        </Match>
+                        <Match when={provider.id === "ollama"}>
+                            <OllamaConnect onNotice={setNotice} />
+                        </Match>
+                    </Switch>
                 </Show>
             </div>
         );

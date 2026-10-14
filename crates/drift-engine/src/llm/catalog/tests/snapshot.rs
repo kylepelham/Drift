@@ -58,7 +58,12 @@ fn cache_is_reused_when_fresh_and_round_trips() {
     std::fs::write(cache_path(&directory), encoded).unwrap();
 
     let loaded = Catalog::load(&directory);
-    assert_eq!(loaded.providers.len(), 1);
+    let ids: Vec<&str> = loaded.providers.keys().map(String::as_str).collect();
+    assert_eq!(
+        ids,
+        ["anthropic", "lmstudio", "ollama"],
+        "the local routes are always offered"
+    );
 
     std::fs::remove_dir_all(directory).ok();
 }

@@ -865,6 +865,18 @@ export const drift = {
     "drift.message.revertKeepFiles": "Shift-click to keep the files as they are",
     "drift.message.tokenCounts": "{{input}} in / {{output}} out",
     "drift.message.tokensPerSecond": "{{rate}} tok/s",
+    "drift.ollama.address": "Address",
+    "drift.ollama.description":
+        "Ollama on this computer or another one. Each model runs with the full context window it was trained for unless you set a limit.",
+    "drift.ollama.found": "{{count}} models installed",
+    "drift.ollama.limit.description":
+        "Ollama holds a model's whole window in memory. Lower this if a model loads slowly or will not fit.",
+    "drift.ollama.limit.full": "Full window",
+    "drift.ollama.limit.title": "Context limit",
+    "drift.ollama.saved": "Saved. Ollama answered with {{count}} models.",
+    "drift.ollama.saveFailed": "Could not save the Ollama settings: {{reason}}",
+    "drift.ollama.unavailable": "Ollama is not answering at {{address}}. Start it, or enter the address it listens on.",
+    "drift.ollama.windowUnknown": "Window unknown",
     "drift.lmStudio.apiToken": "API token (only when server authentication is enabled)",
     "drift.lmStudio.contextTooSmall": "Reload at 32K+",
     "drift.lmStudio.description":

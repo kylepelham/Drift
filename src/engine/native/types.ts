@@ -452,6 +452,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers/{id}/server": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getLocalServer"];
+        /** Saves the address and limit in the user's drift.json and asks the server again at once. */
+        put: operations["setLocalServer"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/questions": {
         parameters: {
             query?: never;
@@ -1563,6 +1580,27 @@ export interface components {
              */
             spentUntil?: number | null;
             weekly?: components["schemas"]["Window"] | null;
+        };
+        /** @description A local server as the engine reaches it. */
+        LocalServer: {
+            /** @description Where the engine asks for its models. */
+            address: string;
+            /**
+             * Format: int64
+             * @description The largest window its models run with, in tokens; absent for each model's full window.
+             */
+            contextLimit?: number | null;
+            /** @description Where it listens unless the user says otherwise. */
+            defaultAddress: string;
+        };
+        LocalServerInput: {
+            /** @description An http or https address; absent or empty for the default. */
+            address?: string | null;
+            /**
+             * Format: int64
+             * @description Absent or 0 for each model's full window.
+             */
+            contextLimit?: number | null;
         };
         /**
          * @description A language server Drift starts to hear the errors an edit left: `false` turns a built-in off; a
@@ -3303,6 +3341,70 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getLocalServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalServer"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setLocalServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalServerInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalServer"];
+                };
             };
             400: {
                 headers: {

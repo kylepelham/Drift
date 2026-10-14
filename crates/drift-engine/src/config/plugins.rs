@@ -162,27 +162,38 @@ fn read_file(path: &Path) -> Result<serde_json::Map<String, Value>, PluginError>
     }
 }
 
-/// Rewrites the `plugins` list with `change` applied; the rest of the file is kept, comments aside.
-pub fn edit_plugins(dir: &Path, change: impl FnOnce(&mut Vec<PluginEntry>)) -> Result<(), PluginError> {
+/// Rewrites drift.json in `dir` with `change` applied; the rest of the file is kept, comments aside.
+pub(super) fn edit_file(
+    dir: &Path,
+    change: impl FnOnce(&Path, &mut serde_json::Map<String, Value>) -> Result<(), PluginError>,
+) -> Result<(), PluginError> {
     let path = dir.join(super::FILE);
     let mut file = read_file(&path)?;
-    let mut plugins: Vec<PluginEntry> = file
-        .get("plugins")
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()
-        .map_err(|source| PluginError::Entries {
-            path: path.clone(),
-            source,
-        })?
-        .unwrap_or_default();
+    change(&path, &mut file)?;
 
-    change(&mut plugins);
-    file.insert("plugins".into(), serde_json::to_value(&plugins)?);
     std::fs::create_dir_all(dir).map_err(|error| file_error("create", dir, error))?;
     let text = serde_json::to_string_pretty(&Value::Object(file))?;
-
     std::fs::write(&path, format!("{text}\n")).map_err(|error| file_error("write", &path, error))
+}
+
+/// Rewrites the `plugins` list with `change` applied; the rest of the file is kept, comments aside.
+pub fn edit_plugins(dir: &Path, change: impl FnOnce(&mut Vec<PluginEntry>)) -> Result<(), PluginError> {
+    edit_file(dir, |path, file| {
+        let mut plugins: Vec<PluginEntry> = file
+            .get("plugins")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|source| PluginError::Entries {
+                path: path.to_path_buf(),
+                source,
+            })?
+            .unwrap_or_default();
+
+        change(&mut plugins);
+        file.insert("plugins".into(), serde_json::to_value(&plugins)?);
+        Ok(())
+    })
 }
 
 /// Adds or replaces the entry for `path`, with `config` when it has anything in it.

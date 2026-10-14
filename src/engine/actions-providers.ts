@@ -3,6 +3,7 @@ import { errorMessage } from "./actions-context";
 import { t } from "../state/i18n";
 
 import type { ProviderAuthMethod } from "./provider-auth";
+import type { LocalServerInput } from "./native/client";
 import type { ActionContext } from "./actions-context";
 import type { ProviderAuthResult } from "./actions";
 import type { components } from "./native/types";
@@ -98,6 +99,16 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         return { ok: true, connected: state.connected.includes(id) };
     }
 
+    const localServer = (id: string) => requireClient().localServer(id);
+
+    /** Saves where a local server listens and its window limit; the engine asks it again before answering. */
+    async function setLocalServer(id: string, input: LocalServerInput) {
+        const saved = await requireClient().setLocalServer(id, input);
+        await refreshProviders();
+
+        return saved;
+    }
+
     async function disconnectProvider(id: string): Promise<ProviderAuthResult> {
         await requireClient().removeProviderCredentials(id);
         await refreshProviders();
@@ -159,6 +170,8 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         refreshProviders,
         reloadProviders: refreshProviders,
         setProviderKey,
+        localServer,
+        setLocalServer,
         disconnectProvider,
         providerAuthMethods,
         providerAuthorize,

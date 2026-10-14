@@ -73,6 +73,7 @@ GET    /workspaces/{id}/config              merged drift.json, agents, commands,
 GET    /providers           GET  /models     catalog with auth state
 POST   /providers/{id}/auth/{method}        key, oauth start, oauth callback
 DELETE /providers/{id}/auth
+GET    /providers/{id}/server  PUT          a local server's address and window limit (drift.json)
 GET    /sessions?workspace=&cursor=&archived=
 POST   /sessions                            {workspace, parent?, visibility?, title?}
 GET    /sessions/{id}       PATCH           DELETE archives
@@ -1442,6 +1443,11 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
   - A full trained window can need more memory than the machine has (Ollama allocates it whole), so
     `contextLimit` in the user's drift.json holds every model of a provider to that many tokens, and
     fills in a window nothing reported.
+  - Local Ollama is always listed (models.dev has no entry for it), so Settings > Providers has a row
+    to set it up from before it answers. Its panel shows what Ollama has installed and saves its
+    address and limit through `PUT /providers/{id}/server`, which writes `baseUrl` and `contextLimit`
+    into the user's drift.json (dropping both when left at the default) and asks the server again
+    before answering.
 - The user's own `~/.config/drift/drift.json` may add or re-point providers:
   `providers: { "<id>": { name?, baseUrl?, apiKeyEnv?, contextLimit?, models?: { "<model>": { name?,
   context, output, images } } } }`. A known id gets its endpoint replaced (a gateway, a remote LM Studio) and

@@ -1,4 +1,5 @@
 use super::{FILE, File, ProviderConfig, home, jsonc};
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -61,4 +62,81 @@ fn plugin_path(root: &Path, entry: &str) -> Result<PathBuf, PluginPathError> {
     }
 
     Ok(root.join(relative))
+}
+
+/// Saves where a local server listens and the largest window its models run with in the user's drift.json;
+/// `None` removes either, so the default address and the full window apply again.
+pub fn set_local_server(
+    id: &str,
+    base_url: Option<&str>,
+    context_limit: Option<u64>,
+) -> Result<(), super::plugins::PluginError> {
+    set_local_server_in(&super::plugins::config_dir()?, id, base_url, context_limit)
+}
+
+fn set_local_server_in(
+    dir: &Path,
+    id: &str,
+    base_url: Option<&str>,
+    context_limit: Option<u64>,
+) -> Result<(), super::plugins::PluginError> {
+    super::plugins::edit_file(dir, |_, file| {
+        let providers = file.entry("providers").or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(providers) = providers else {
+            return Ok(());
+        };
+        let provider = providers.entry(id).or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(provider) = provider else {
+            return Ok(());
+        };
+
+        match base_url {
+            Some(base) => provider.insert("baseUrl".into(), base.into()),
+            None => provider.remove("baseUrl"),
+        };
+        match context_limit {
+            Some(limit) => provider.insert("contextLimit".into(), limit.into()),
+            None => provider.remove("contextLimit"),
+        };
+
+        // An entry left empty would still read as the user's own provider.
+        if provider.is_empty() {
+            providers.remove(id);
+        }
+        if providers.is_empty() {
+            file.remove("providers");
+        }
+        Ok(())
+    })
+}
+
+#[cfg(test)]
+mod local_server_tests {
+    use super::*;
+
+    #[test]
+    fn a_local_servers_address_and_limit_are_saved_beside_the_rest_and_cleared_away() {
+        let dir = std::env::temp_dir().join(format!("drift-local-server-{}", crate::random_hex(6)));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(FILE),
+            r#"{ "theme": "dusk", "providers": { "xai": { "name": "Grok" } } }"#,
+        )
+        .unwrap();
+        let read = || serde_json::from_str::<Value>(&std::fs::read_to_string(dir.join(FILE)).unwrap()).unwrap();
+
+        set_local_server_in(&dir, "ollama", Some("http://192.168.1.20:11434"), Some(65_536)).unwrap();
+        assert_eq!(read()["providers"]["ollama"]["baseUrl"], "http://192.168.1.20:11434");
+        assert_eq!(read()["providers"]["ollama"]["contextLimit"], 65_536);
+        assert_eq!(read()["providers"]["xai"]["name"], "Grok");
+
+        set_local_server_in(&dir, "ollama", None, None).unwrap();
+        assert!(
+            read()["providers"].get("ollama").is_none(),
+            "nothing set leaves no entry"
+        );
+        assert_eq!(read()["theme"], "dusk");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

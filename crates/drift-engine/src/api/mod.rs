@@ -6,6 +6,7 @@ mod error;
 mod events;
 pub use events::Lease;
 mod health;
+mod local_servers;
 mod mcp;
 mod permissions;
 mod processes;
@@ -123,6 +124,7 @@ fn provider_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::remove))
         .routes(routes!(providers::oauth_start))
         .routes(routes!(providers::oauth_finish))
+        .routes(routes!(local_servers::get, local_servers::set))
         .routes(routes!(provider_accounts::reorder))
         .routes(routes!(provider_accounts::rename, provider_accounts::remove))
 }

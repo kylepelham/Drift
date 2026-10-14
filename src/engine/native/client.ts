@@ -28,6 +28,9 @@ export type McpServerStatus = components["schemas"]["ServerStatus"];
 export type McpServerConfig = components["schemas"]["ServerConfigInput"];
 /** What the UI sees: env and header names, never their values. */
 export type McpServerConfigView = components["schemas"]["ServerConfigView"];
+/** Where a local server listens and the largest window its models run with. */
+export type LocalServer = components["schemas"]["LocalServer"];
+export type LocalServerInput = components["schemas"]["LocalServerInput"];
 
 type Json<Op extends keyof operations, Status extends number> =
     operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never;
@@ -163,6 +166,9 @@ export function createClient(target: Target) {
         providers: () => request<Json<"listProviders", 200>>("GET", "/providers"),
         setProviderKey: (id: string, key: string) => request<void>("PUT", `/providers/${id}/key`, { key }),
         removeProviderCredentials: (id: string) => request<void>("DELETE", `/providers/${id}/credentials`),
+        localServer: (id: string) => request<Json<"getLocalServer", 200>>("GET", `/providers/${id}/server`),
+        setLocalServer: (id: string, input: LocalServerInput) =>
+            request<Json<"setLocalServer", 200>>("PUT", `/providers/${id}/server`, input),
         startOAuth: (id: string, mode: "max" | "console" | "chatgpt" | "supergrok") =>
             request<Json<"startOAuth", 200>>("POST", `/providers/${id}/oauth`, { mode }),
         finishOAuth: (id: string, input: string, state?: string) =>

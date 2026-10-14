@@ -294,11 +294,22 @@ impl Catalog {
 
     fn parse(text: &str) -> Result<Self, CatalogError> {
         let raw: BTreeMap<String, RawProvider> = serde_json::from_str(text)?;
-        let providers = raw
+        let mut providers: BTreeMap<String, ProviderInfo> = raw
             .into_iter()
             .filter(|(id, _)| PROVIDERS.contains(&id.as_str()))
             .map(|(id, provider)| (id.clone(), provider.into_info(&id)))
             .collect();
+
+        // models.dev lists no local Ollama; a local route is offered while its server is still to be found.
+        for (id, name, address) in super::local::LOCAL {
+            providers.entry(id.into()).or_insert_with(|| ProviderInfo {
+                id: id.into(),
+                name: name.into(),
+                env: Vec::new(),
+                api: Some(address.into()),
+                models: BTreeMap::new(),
+            });
+        }
 
         Ok(Self { providers })
     }

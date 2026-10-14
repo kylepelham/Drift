@@ -41,6 +41,7 @@ change the plan there when a decision changes.
 - [x] Gemini (adapter only; not yet exercised against the live API)
 - [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter and LM Studio presets
 - [x] Ollama, local and Cloud, on its native `/api/chat` at each model's full window (`num_ctx`), held to `contextLimit`; discovery checks `/api/version` and reads thinking levels from `/api/show`
+- [x] Settings > Providers lists local Ollama before it answers; its panel sets the address and context limit and shows its installed models
 - [x] MCP through rmcp: stdio, HTTP, approval (reconnect and reload: M3)
 - [x] `todowrite`, `question`, `webfetch`
 - [x] `skill`

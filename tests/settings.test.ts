@@ -216,6 +216,10 @@ const pendingTranslation = new Set([
     ),
     ...pendingKeys("drift.engine", "restart restarting stopped.title"),
     ...pendingKeys(
+        "drift.ollama",
+        "address description found limit.description limit.full limit.title saved saveFailed unavailable windowUnknown",
+    ),
+    ...pendingKeys(
         "drift.lmStudio",
         `
       apiToken contextTooSmall description discovered modelReady noReady notLoaded ready refresh
