@@ -4,6 +4,7 @@ import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
 import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
+import { downloadBackup, pickBackup } from "./session-backup";
 import { normalizeDir } from "../engine/store";
 import { WorkspaceGroup } from "./workspaces";
 import { drawerSwipe } from "./drawer-swipe";
@@ -70,6 +71,30 @@ export function Sidebar() {
         }
 
         setMoveStatus(null);
+    }
+
+    async function backupThread(sessionId: string) {
+        const backup = await engine.actions.exportSessions([sessionId]);
+        if (backup) downloadBackup(backup, engine.state.sessions[sessionId]?.title ?? sessionId);
+    }
+
+    async function backupWorkspace(workspace: Workspace) {
+        const backup = await engine.actions.exportWorkspace(workspace.path);
+        if (backup) downloadBackup(backup, workspace.name);
+    }
+
+    async function importInto(workspace: Workspace) {
+        const backup = await pickBackup().catch(() => null);
+        if (backup === null) return setMoveStatus({ error: true, text: t("drift.backup.unreadable") });
+        if (!backup) return;
+
+        setMoveStatus({ error: false, text: t("drift.backup.importing", { workspace: workspace.name }) });
+        const restored = await engine.actions.importSessions(workspace.path, backup);
+        if (!restored) return setMoveStatus(null);
+
+        const counts = { imported: restored.imported.length, skipped: restored.skipped.length };
+        setMoveStatus({ error: false, text: t("drift.backup.imported", counts) });
+        setTimeout(() => setMoveStatus(null), 5000);
     }
 
     async function retargetWorkspace(workspace: Workspace) {
@@ -210,6 +235,8 @@ export function Sidebar() {
                         workspace={entry().workspace}
                         onEdit={() => setEditing(entry().workspace.id)}
                         onMove={() => void retargetWorkspace(entry().workspace)}
+                        onBackup={() => void backupWorkspace(entry().workspace)}
+                        onImport={() => void importInto(entry().workspace)}
                         onClose={() => setMenu(null)}
                     />
                 )}
@@ -220,6 +247,7 @@ export function Sidebar() {
                         state={state()}
                         workspaces={workspaces()}
                         onMove={(workspace) => void moveSessionTo(state(), workspace)}
+                        onBackup={() => void backupThread(state().sessionId)}
                         onClose={() => setSessionMenu(null)}
                     />
                 )}

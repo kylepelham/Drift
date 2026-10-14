@@ -9,6 +9,7 @@ use utoipa::{IntoParams, ToSchema};
 use super::error::ApiError;
 use crate::Engine;
 use crate::event::Event;
+use crate::session::backup::{Backup, Restored};
 use crate::session::revert::Undone;
 use crate::session::tasks::TaskRecord;
 use crate::session::turn::{Prompt, Receipt};
@@ -419,6 +420,42 @@ pub(super) struct MoveBody {
 pub(super) struct Moved {
     /// The session and the subagents that moved with it.
     pub moved: Vec<String>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ExportBody {
+    pub ids: Vec<String>,
+}
+
+/// The sessions, with their subagents, as one backup file's contents.
+#[utoipa::path(post, path = "/sessions/export", operation_id = "exportSessions", request_body = ExportBody, responses((status = 200, body = Backup), (status = 404)))]
+pub(super) async fn export_sessions(
+    State(engine): State<Arc<Engine>>,
+    Json(body): Json<ExportBody>,
+) -> Result<Json<Backup>, ApiError> {
+    Ok(Json(engine.export_sessions(&body.ids)?))
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ImportBody {
+    pub workspace_id: String,
+    pub backup: Backup,
+}
+
+/// Restores a backup into a workspace; sessions already here are skipped, never overwritten.
+#[utoipa::path(post, path = "/sessions/import", operation_id = "importSessions", request_body = ImportBody, responses((status = 200, body = Restored), (status = 400), (status = 404)))]
+pub(super) async fn import_sessions(
+    State(engine): State<Arc<Engine>>,
+    Json(body): Json<ImportBody>,
+) -> Result<Json<Restored>, ApiError> {
+    let engine = engine.clone();
+    let restored = tokio::task::spawn_blocking(move || engine.import_sessions(body.backup, &body.workspace_id))
+        .await
+        .map_err(|error| ApiError::new(StatusCode::INTERNAL_SERVER_ERROR, "import", error.to_string()))??;
+
+    Ok(Json(restored))
 }
 
 /// Moves a session and its subagents to another workspace. 409 while any of them is running.

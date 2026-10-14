@@ -34,11 +34,13 @@ export function WorkspaceMenu(props: {
     workspace: Workspace;
     onEdit: () => void;
     onMove: () => void;
+    onBackup: () => void;
+    onImport: () => void;
     onClose: () => void;
 }) {
     let root!: HTMLDivElement;
     const [confirming, setConfirming] = createSignal(false);
-    const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, confirming() ? 176 : 144);
+    const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, confirming() ? 248 : 216);
 
     createDismissOnOutside({ inside: () => [root], onDismiss: () => props.onClose(), escape: true });
 
@@ -59,6 +61,20 @@ export function WorkspaceMenu(props: {
                 label={t("drift.workspace.move")}
                 onClick={() => {
                     props.onMove();
+                    props.onClose();
+                }}
+            />
+            <MenuItem
+                label={t("drift.backup.workspace")}
+                onClick={() => {
+                    props.onBackup();
+                    props.onClose();
+                }}
+            />
+            <MenuItem
+                label={t("drift.backup.import")}
+                onClick={() => {
+                    props.onImport();
                     props.onClose();
                 }}
             />
@@ -85,6 +101,7 @@ export function SessionMenu(props: {
     state: SessionMenuState;
     workspaces: Workspace[];
     onMove: (workspace: Workspace) => void;
+    onBackup: () => void;
     onClose: () => void;
 }) {
     let root!: HTMLDivElement;
@@ -98,7 +115,7 @@ export function SessionMenu(props: {
                 (!source || normalizeDir(workspace.path) !== normalizeDir(source.path)),
         );
     };
-    const height = () => (choosing() ? Math.min(320, 48 + Math.max(1, targets().length) * 36) : 48);
+    const height = () => (choosing() ? Math.min(320, 84 + Math.max(1, targets().length) * 36) : 84);
     const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, height());
 
     createDismissOnOutside({ inside: () => [root], onDismiss: () => props.onClose(), escape: true });
@@ -109,6 +126,13 @@ export function SessionMenu(props: {
             class="fade-up fixed z-40 max-h-80 w-52 overflow-y-auto rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
             style={{ left: `${position().left}px`, top: `${position().top}px` }}
         >
+            <MenuItem
+                label={t("drift.backup.thread")}
+                onClick={() => {
+                    props.onBackup();
+                    props.onClose();
+                }}
+            />
             <MenuItem
                 label={choosing() ? t("drift.thread.moveToWorkspace") : t("drift.thread.move")}
                 onClick={() => setChoosing(true)}

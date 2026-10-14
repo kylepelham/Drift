@@ -85,6 +85,8 @@ POST   /tasks/{id}/abort                    stop one worker and nothing else
 POST   /sessions/{id}/compact
 POST   /sessions/{id}/fork                  {atMessage?}
 POST   /sessions/{id}/move                  {workspaceId}
+POST   /sessions/export                     {ids}
+POST   /sessions/import                     {workspaceId, backup}
 POST   /sessions/{id}/revert                {messageId}
 POST   /sessions/{id}/unrevert
 GET    /sessions/{id}/todos
@@ -262,6 +264,19 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   running or still planning, because a turn keeps the workspace path it planned with. A turn
   claims its session *before* planning (credential refresh included), and the move checks and
   updates while holding claims off (`Turns::while_idle`), so no turn is admitted in between.
+- Backups (`session::backup`): `POST /sessions/export {ids}` returns the sessions with their
+  subagents as one `Backup` (`format: "drift-sessions"`, `version: 1`), each with its messages,
+  parts (attachments are inline data URLs) and todos. Messages an undo hid are left out and the
+  undo marker dropped; a reply still streaming is saved as aborted. `POST /sessions/import
+  {workspaceId, backup}` restores into that workspace through the migration's importer
+  (`begin_import`, pages of 200 messages, `finish_import`), live and unarchived, keeping every id:
+  a session already present is skipped, never overwritten, and one deleted since it was imported
+  can be imported again (`allow_reimport`). A sibling thread whose parent is not present stands
+  alone. The import route reads up to 1 GB, every other route 64 MB. Keeping ids is what later
+  syncing builds on: the same conversation on two machines is the same id. The sidebar offers it
+  as "Back up to file" on a thread, and "Back up all threads" and "Import threads from file" on a
+  workspace; files download as `drift-<name>-<date>.json`. Undo history (shadow blobs) is not in
+  a backup, so a restored conversation cannot undo file changes.
 - Re-pointing a workspace at a new folder moves nothing: sessions reference the workspace id and
   the shell rewrites the shared `workspace` row. The UI refuses while any session there is running,
   for the same reason as move.

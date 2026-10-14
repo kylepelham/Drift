@@ -78,6 +78,12 @@ fn session_action_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::switch_retry_model))
         .routes(routes!(sessions::revert))
         .routes(routes!(sessions::unrevert))
+        .routes(routes!(sessions::export_sessions))
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(sessions::import_sessions))
+                .layer(axum::extract::DefaultBodyLimit::max(MAX_BACKUP_BYTES)),
+        )
 }
 
 fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
@@ -160,6 +166,8 @@ fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {
 
 /// The largest request the engine reads: prompts carry attachments as base64 (a 40 MB video is 53 MB); axum's default is 2 MB.
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
+/// A restored backup carries whole conversations, attachments included.
+pub const MAX_BACKUP_BYTES: usize = 1024 * 1024 * 1024;
 
 pub fn router(engine: Arc<Engine>) -> Router {
     let (router, openapi) = documented().split_for_parts();

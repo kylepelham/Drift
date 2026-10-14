@@ -793,6 +793,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The sessions, with their subagents, as one backup file's contents. */
+        post: operations["exportSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restores a backup into a workspace; sessions already here are skipped, never overwritten. */
+        post: operations["importSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/settings": {
         parameters: {
             query?: never;
@@ -1092,6 +1126,15 @@ export interface components {
              *     line allows it: approving `git status` never approves `git status > victim.txt`.
              */
             writes?: string[];
+        };
+        Backup: {
+            /** Format: int64 */
+            exportedAt: number;
+            format: string;
+            /** @description Each conversation before its subagents. */
+            sessions: components["schemas"]["SessionBackup"][];
+            /** Format: int32 */
+            version: number;
         };
         BasePrompt: {
             /** @description The user's replacement, when there is one. */
@@ -1399,6 +1442,9 @@ export interface components {
             /** @enum {string} */
             type: "plugin.notice";
         };
+        ExportBody: {
+            ids: string[];
+        };
         /** @description The files of an undo that did not put them back to its own point. */
         FilesAt: "current" | {
             /** @description Put back to before this prompt. */
@@ -1443,6 +1489,10 @@ export interface components {
             path: string;
         } & {
             [key: string]: unknown;
+        };
+        ImportBody: {
+            backup: components["schemas"]["Backup"];
+            workspaceId: string;
         };
         /** @description Replies can ride the socket so a permission prompt never waits on a new HTTP connection. */
         Incoming: (components["schemas"]["ReplyBody"] & {
@@ -1939,6 +1989,11 @@ export interface components {
             pattern?: string | null;
             reply: components["schemas"]["Reply"];
         };
+        Restored: {
+            imported: string[];
+            /** @description Already here, so left as they are. */
+            skipped: string[];
+        };
         RetryModelBody: {
             model: components["schemas"]["ModelRef"];
             /** @description The variant to retry at, by name: absent keeps the turn's, null asks for the model's default. */
@@ -2092,6 +2147,11 @@ export interface components {
             variant?: string | null;
             visibility: components["schemas"]["Visibility"];
             workspaceId: string;
+        };
+        SessionBackup: {
+            messages: components["schemas"]["MessageWithParts"][];
+            session: components["schemas"]["Session"];
+            todos?: components["schemas"]["Todo"][];
         };
         /** @enum {string} */
         SessionStatus: "idle" | "running";
@@ -3955,6 +4015,70 @@ export interface operations {
                 content?: never;
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    exportSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    importSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Restored"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

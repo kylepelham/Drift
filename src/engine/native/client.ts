@@ -90,6 +90,9 @@ export function createClient(target: Target) {
             request<Json<"spawnThread", 201>>("POST", `/sessions/${id}/spawn`, { instruction }),
         forkSession: (id: string, atMessage?: string) =>
             request<Json<"forkSession", 201>>("POST", `/sessions/${id}/fork`, { atMessage }),
+        exportSessions: (ids: string[]) => request<Json<"exportSessions", 200>>("POST", "/sessions/export", { ids }),
+        importSessions: (workspaceId: string, backup: components["schemas"]["Backup"]) =>
+            request<Json<"importSessions", 200>>("POST", "/sessions/import", { workspaceId, backup }),
         moveSession: (id: string, workspaceId: string) =>
             request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
         compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),

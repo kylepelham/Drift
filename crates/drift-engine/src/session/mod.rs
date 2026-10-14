@@ -2,6 +2,7 @@
 
 mod assemble;
 mod attach;
+pub mod backup;
 pub mod branch;
 mod changes;
 pub mod clarify;
