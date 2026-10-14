@@ -22,12 +22,12 @@ export function NoteBox(props: { icon: JSX.Element; label: string; preview?: str
         <Show
             when={props.children}
             fallback={
-                <div data-find-ignore class={`${summaryClass} max-w-[85%] text-xs`}>
+                <div data-find-ignore class={`${summaryClass} max-w-[min(85%,28rem)] text-xs`}>
                     {line()}
                 </div>
             }
         >
-            <details class="group/note min-w-0 max-w-[85%] text-xs">
+            <details class="group/note min-w-0 max-w-[min(85%,28rem)] text-xs">
                 <summary
                     data-find-ignore
                     class={`${summaryClass} cursor-pointer list-none hover:bg-raised/40 [&::-webkit-details-marker]:hidden`}
