@@ -43,7 +43,7 @@ fn signed_in() -> String {
 }
 
 #[tokio::test]
-async fn only_the_webview_holding_this_launchs_cookie_gets_through() {
+async fn only_the_webview_holding_the_cookie_of_this_launch_gets_through() {
     let (_, address, client) = proxy().await;
     let url = |path: &str| format!("http://{address}{path}");
 
@@ -147,7 +147,7 @@ async fn routed(proxy: &Proxy) {
 }
 
 #[tokio::test]
-async fn requests_reach_the_pc_with_this_phones_session_and_without_the_proxys_cookie() {
+async fn requests_reach_the_pc_with_this_phones_session_and_without_the_proxy_cookie() {
     let (proxy, address, client) = proxy().await;
     routed(&proxy).await;
 
