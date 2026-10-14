@@ -118,8 +118,6 @@ pub enum TurnError {
     Refused(String),
     /// The session is not waiting to retry a failed request, so there is nothing to switch.
     NotRetrying,
-    /// The session is undone back to a prompt; send a prompt or redo first.
-    Reverted,
     /// A file in the prompt cannot go to this model; says which and why.
     Attachment(String),
     Store(String),
@@ -389,7 +387,6 @@ impl std::fmt::Display for TurnError {
                  sign in again under Settings > Providers ({reason})"
             ),
             Self::NotRetrying => write!(formatter, "the session is not waiting to retry"),
-            Self::Reverted => write!(formatter, "the session is undone; send a prompt or redo first"),
             Self::Attachment(message) => write!(formatter, "{message}"),
             Self::Store(message) => write!(formatter, "store: {message}"),
             Self::Stopped => write!(formatter, "stopped before it started"),

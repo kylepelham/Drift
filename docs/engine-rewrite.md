@@ -708,10 +708,10 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   than seven days.
 - Nothing is deleted while undone. The next prompt commits the undo: the hidden messages and their
   submission records are deleted in the same transaction that records the prompt, each announced
-  as `message.removed`, and the files stay as the undo left them.
+  as `message.removed`, and the files stay as the undo left them. `/compact` commits it the same
+  way (`Store::commit_revert`) before summarising, so the summary covers only what is visible.
 - Both hold the session like a turn (409 while one runs). While undone, a fork copies only the
-  visible part, a branch draft reads only the visible part, and compaction is refused (409
-  `reverted`) because its summary would land among the messages the next prompt deletes.
+  visible part and a branch draft reads only the visible part.
 - There is no session-wide diff endpoint: nothing consumes one. Per-call diffs travel in tool
   metadata.
 
