@@ -1,10 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/drift-engine", "crates/drift-engined", "crates/drift-migrate", "src-tauri"]
+members = ["crates/drift-engine", "crates/drift-engined", "crates/drift-migrate", "crates/drift-pairing", "src-android", "src-tauri"]
 
 # Every crate carries the app's version, so the engine reports what the shell is; the release stamp sets it.
 [workspace.package]
-version = "2.1.0"
+version = "2.2.0"
 license = "MIT"
 
 [workspace.dependencies]

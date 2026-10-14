@@ -12,6 +12,7 @@ pub mod image;
 pub(crate) mod lock;
 pub mod patch;
 mod paths;
+pub mod process;
 pub mod question;
 pub mod read;
 mod registry;
@@ -89,6 +90,11 @@ pub fn add_note(output: &mut String, metadata: &mut ToolMetadata, note: &str) {
 
 pub trait Tool: Send + Sync {
     fn spec(&self) -> ToolSpec;
+
+    /// The spec a turn offers, for a tool whose description follows the user's settings; else [`Tool::spec`].
+    fn spec_for(&self, _engine: &crate::Engine) -> ToolSpec {
+        self.spec()
+    }
 
     /// The MCP server a tool comes from; built-ins have none.
     fn server(&self) -> Option<&str> {

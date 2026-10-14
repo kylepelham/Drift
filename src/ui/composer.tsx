@@ -5,20 +5,20 @@ import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attach
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
 import { modelInfo, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions";
+import { IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
+import { compactModelName, connectedModelItems } from "./composer-models";
 import { emitThreadCreated, transformComposerSubmit } from "../plugins";
 import { defaultVisibleModelIds, ModelManager } from "./model-manager";
 import { modelInstalled, refreshVoiceModels } from "../voice/models";
 import { selectedSession, selectSession } from "../state/selection";
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n";
 import { interruptResponseAnimations } from "./response-animation";
-import { IconMic, IconPaperclip, IconShieldCheck } from "./icons";
 import { dictationEnabled, dictationModel } from "../state/voice";
 import { createAttachmentStager } from "./composer-attachments";
 import { ComposerMentionMenu } from "./composer-mention-menu";
 import { AttachmentChip } from "./composer-attachment-chip";
 import { ComposerSlashMenu } from "./composer-slash-menu";
 import { ComposerAttention } from "./composer-attention";
-import { connectedModelItems } from "./composer-models";
 import { createWindowFileDrop } from "./composer-drop";
 import { appendDictation } from "../voice/transcript";
 import { activeWorkspace } from "../state/workspaces";
@@ -469,6 +469,7 @@ export function Composer() {
                             selected={modelId()}
                             icon={<ProviderIcon id={model()?.providerID} class="size-3.5 shrink-0" />}
                             fallbackLabel={modelName()}
+                            compactLabel={compactModelName(modelName())}
                             onManage={() => setManageModels(true)}
                             onPick={(id) => {
                                 const [providerID, ...rest] = id.split("/");
@@ -534,14 +535,16 @@ export function Composer() {
                         </button>
                         <Show when={busy()}>
                             <button
-                                class="rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
+                                class="composer-stop flex items-center rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
                                 title={t("prompt.action.stop")}
+                                aria-label={t("prompt.action.stop")}
                                 onClick={() => {
                                     interruptResponseAnimations();
                                     void engine.actions.abort(selectedSession()!);
                                 }}
                             >
-                                {t("prompt.action.stop")}
+                                <IconStop class="composer-stop-icon size-3" />
+                                <span class="composer-stop-label">{t("prompt.action.stop")}</span>
                             </button>
                         </Show>
                         <button

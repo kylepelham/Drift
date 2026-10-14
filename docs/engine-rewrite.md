@@ -23,7 +23,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Approach | Clean-room rewrite in Rust, test driven. Upstream opencode is read as reference only (gitignored clone under `examples/opencode`). |
 | Topology | Engine is a library crate linked into the Tauri process. The frontend always talks HTTP + WebSocket on loopback so local and remote share one client. No sidecars. |
 | API | New. HTTP for request/response, one WebSocket for events and replies with a resume cursor. OpenAPI generated with `utoipa`; the TypeScript types are generated from it and a thin typed request wrapper (`src/engine/native/client.ts`) is maintained by hand over them. |
-| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio, Ollama. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
+| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio. Ollama, local and Cloud, on its own `/api/chat`. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec; it signs in with Codex's own OAuth client and sends `originator: opencode`, the value OpenAI accepts from that integration, so Drift keeps it rather than risk an unrecognised originator being refused). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the hook points; plugins are WebAssembly components run by wasmtime against the WIT in `crates/drift-engine/wit` (see "Plugins" below). |
@@ -73,6 +73,7 @@ GET    /workspaces/{id}/config              merged drift.json, agents, commands,
 GET    /providers           GET  /models     catalog with auth state
 POST   /providers/{id}/auth/{method}        key, oauth start, oauth callback
 DELETE /providers/{id}/auth
+GET    /providers/{id}/server  PUT          a local server's address and window limit (drift.json)
 GET    /sessions?workspace=&cursor=&archived=
 POST   /sessions                            {workspace, parent?, visibility?, title?}
 GET    /sessions/{id}       PATCH           DELETE archives
@@ -85,6 +86,8 @@ POST   /tasks/{id}/abort                    stop one worker and nothing else
 POST   /sessions/{id}/compact
 POST   /sessions/{id}/fork                  {atMessage?}
 POST   /sessions/{id}/move                  {workspaceId}
+POST   /sessions/export                     {ids}
+POST   /sessions/import                     {workspaceId, backup}
 POST   /sessions/{id}/revert                {messageId}
 POST   /sessions/{id}/unrevert
 GET    /sessions/{id}/todos
@@ -248,11 +251,13 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   Every failure after creation, including the final read-record copy or publication transaction,
   attempts to delete the partial copy. If cleanup fails too, the original error is returned and
   the cleanup failure is logged; the copy stays archived for later purging.
-  Which messages count is decided from message rows
-  alone, without parts. Without `atMessage` it copies through the last stable message: if a turn
-  is running, everything from the prompt it began at is left out (recorded when it starts, so a
-  prompt steered in later does not move it). With `atMessage` it stops at that message, which must be
-  finished and outside a running turn. A fork has no parent link; it is a copy, not a worker or
+  Which messages count is decided from message rows plus which of them still has a tool call
+  pending or running. Without `atMessage` it copies through the last stable message: if a turn is
+  running, its finished steps come along and the copy stops before the first reply still streaming
+  or with a call still running, and before any prompt the turn has not answered yet, so a fork never
+  ends on a question or holds a call that will never get its result. A long turn can be forked while
+  it works, steered or not. With `atMessage` it stops at that message, which must be within that
+  stable part. Spawning a thread cuts the same way. A fork has no parent link; it is a copy, not a worker or
   a branch. The copy keeps compaction markers, so the fork sees the same context as its source;
   `/fork active` and `/fork all` are one operation. Boundaries are remapped to the copied ids.
 - `POST /sessions/{id}/move {workspaceId}` moves the session and its subagents (hidden
@@ -260,6 +265,21 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   running or still planning, because a turn keeps the workspace path it planned with. A turn
   claims its session *before* planning (credential refresh included), and the move checks and
   updates while holding claims off (`Turns::while_idle`), so no turn is admitted in between.
+- Backups (`session::backup`): `POST /sessions/export {ids}` returns the sessions with their
+  subagents as one `Backup` (`format: "drift-sessions"`, `version: 1`), each with its messages,
+  parts (attachments are inline data URLs) and todos. Messages an undo hid are left out and the
+  undo marker dropped; a reply still streaming is saved as aborted. `POST /sessions/import
+  {workspaceId, backup}` restores into that workspace through the migration's importer
+  (`begin_import`, pages of 200 messages, `finish_import`), live and unarchived, keeping every id:
+  a session already present is skipped, never overwritten, and one deleted since it was imported
+  can be imported again (`allow_reimport`). A sibling thread whose parent is not present stands
+  alone. The import route reads up to 1 GB, every other route 64 MB. Keeping ids is what later
+  syncing builds on: the same conversation on two machines is the same id. The sidebar offers it
+  as "Back up to file" on a thread, and "Back up all threads" and "Import threads from file" on a
+  workspace. The file is `drift-<name>-<date>.json`: the desktop asks where to save it (the shell's
+  `save_json_file`, never offered to remote devices) and says where it went; a browser downloads it.
+  Undo history (shadow blobs) is not in
+  a backup, so a restored conversation cannot undo file changes.
 - Re-pointing a workspace at a new folder moves nothing: sessions reference the workspace id and
   the shell rewrites the shared `workspace` row. The UI refuses while any session there is running,
   for the same reason as move.
@@ -427,7 +447,7 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - A prompt may switch the model, agent or level mid-turn, as in opencode. It is admitted like any
   steered prompt, and admission writes its choice onto the session. Before every request the turn
   reads the session (`follow_session`) and, if the choice changed, rebuilds what it runs on: the
-  model, provider and credential, the agent's tools, system prompt and step limit, and the level.
+  model, provider and credential, the agent's tools and system prompt, and the level.
   The conversation carries on as the new choice from that request; the prompt cache is lost. A
   model is checked when the prompt is sent (unknown model, no credentials: the sender gets the
   error); one that fails later pauses the turn with the reason. The prompt's files are judged
@@ -436,19 +456,21 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   newest prompt always decides; the composer's own unsent pick changes nothing until it is sent.
   (A durable queue that gave such prompts a turn of their own was removed; migration 19 drops its
   table.)
-- Turn limits (`config::Limits`, drift.json `limits: { steps, repeats, polls }`, later files
-  override field by field; an agent's front matter `steps:` replaces `steps` for its turns):
-  - `steps` (default 200): model steps that ran tools in one turn. The last allowed step, like the
-    step after `repeats` trips, is a wrap-up (`WrapUp`): tools are off for it (`no_tool_calls`) and a
-    reminder asks the model to say the turn stops, summarise what it found and did, and list what
-    is undone, as opencode's max-steps prompt does. Early reads do not start on that reply, and a
-    call the model makes anyway (a local server may ignore `tool_choice: none`) is closed unrun.
-    The reply ends `limit` (`Ending::Limit`; migration 32 swaps the `ending` column to widen its
-    CHECK, keeping every stored value). A conversation then pauses with the reason; a subagent
-    ends on that reply, and its parent gets the write-up as an `incomplete` result (the task
-    fails, saying it reached its limit), never as a finished answer.
+- A turn has no step limit: long-running agents carry on until they finish, are stopped, or loop.
+  (A `steps` limit, default 200, was removed because it cut long agent runs short; an old
+  `limits.steps` in drift.json or `steps:` in agent front matter is ignored, and the shell drops a
+  `steps` field from stored agent overrides when it opens the store.)
+- Loop limits (`config::Limits`, drift.json `limits: { repeats, polls }`, later files override
+  field by field):
   - `repeats` (default 3): steps in a row whose calls, inputs and results are all identical. A
-    different result is progress, so a poll whose answer changes never counts.
+    different result is progress, so a poll whose answer changes never counts. The step after it
+    trips is a wrap-up (`WrapUp`): tools are off for it (`no_tool_calls`) and a reminder asks the
+    model to say the turn stops, summarise what it found and did, and list what is undone. Early
+    reads do not start on that reply, and a call the model makes anyway (a local server may ignore
+    `tool_choice: none`) is closed unrun. The reply ends `limit` (`Ending::Limit`; migration 32
+    swaps the `ending` column to widen its CHECK, keeping every stored value). A conversation then
+    pauses with the reason; a subagent ends on that reply, and its parent gets the write-up as an
+    `incomplete` result (the task fails, saying it kept repeating), never as a finished answer.
   - `polls` (default 30): the same for repeated steps whose shell commands wait on purpose
     (`sleep`, `Start-Sleep`, `timeout`, `wait`, `watch`), so deliberate polling is not taken for a
     loop.
@@ -715,7 +737,7 @@ Drift uses the explicit contract below rather than copying hidden feature gates.
    for completion. Receipt means queued/running, never completed. Repeated delivery
    of the originating admitted call resolves to the same job.
 3. **Supervise in the engine.** Use the same runner/adapters with a bounded Tokio
-   worker queue/semaphore, step limits, usage and cancellation. Workers outlive the
+   worker queue/semaphore, loop limits, usage and cancellation. Workers outlive the
    launching tool future and UI view. Main and several independent workers can
    make progress concurrently; no second model runtime or external engine process.
 4. **Deliver results at safe boundaries.** Commit completed/failed/cancelled result
@@ -846,6 +868,10 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   stopped or was interrupted. Above the composer, a Background tasks dock lists the conversation's
   background workers while any is queued, running or not yet delivered, each with its state, the
   running worker's current tool, Stop (`POST /tasks/{id}/abort`) and a link to its transcript.
+  Running workers come first, then queued workers and undelivered results. Delivered history is
+  newest first under a separate "Finished tasks" disclosure, closed by default. The two lists
+  scroll independently within viewport-relative height limits, so a long history never pushes
+  active workers or the composer off screen. Switching conversations closes both disclosures.
   Foreground workers are not listed there; their row in the transcript already waits for them.
   A background worker keeps the subagent look but is marked in both places: its transcript row's
   accent edge is dashed and its sidebar row's arrow is accent, each with a dashed "background"
@@ -1116,18 +1142,58 @@ goal retires them.
   settings. New capabilities are off by default, and with them off a session is exactly what it
   is today. Background processes are the one exception, on by default. `/watch-pr` needs no
   switch, since it starts only when the user runs it.
-- Background processes, first:
-  - `bash` takes `background: true` and returns a process id at once. A command still running at
-    its time limit moves to the background with its output so far, instead of being killed.
-  - A `process` tool lists, reads output (new lines, or a search), types input, interrupts,
-    stops, and waits until a line appears or the process exits. Background processes get an input
-    pipe; foreground commands keep a closed one. Typing input asks like `bash` does.
-  - A process outlives the turn and Stop. The dock's Stop, archiving its conversation and quitting
-    Drift end it.
-  - Processes show in the Background tasks dock beside background subagents, with the dashed
-    background tag, a live last line and Stop.
+- Background processes, first (built; `crate::background`, `tool::process`, `session::processes`):
+  - `bash` takes `background: true` and returns a process id after at most a second, so a command
+    that fails at once says so in its own result. A command still running at its time limit moves
+    to the background with its output so far, instead of being killed: the call returns that
+    output and the process id, and is not a failed call.
+  - The engine owns each process: a watcher task reads its output into a 256 KB tail in memory
+    and a log under `tool-output/<session>/<id>.log` (64 MB at most), and publishes
+    `process.updated` when it starts, at most once a second when its last line changes, and when
+    it ends. A process ends when its shell has exited and nothing still holds its output open, so
+    a server a wrapper script started counts as running.
+  - A `process` tool lists, reads output (only what is new since the model last read, its newest
+    32 KB, or the lines matching a regex), types input, interrupts, stops, and waits up to ten
+    minutes until a new line matches or the process exits. Background processes get an input
+    pipe; a command moved there at its limit keeps its closed one. Typing input asks like `bash`
+    does. Interrupt is SIGINT to the process group on unix; Windows has no console to send Ctrl+C
+    through, so there it stops the process and says so. A conversation sees only its own processes.
+  - A process outlives the turn and Stop. The dock's Stop, archiving or deleting its conversation
+    and quitting Drift end it (unix process groups are ended at exit; on Windows the job ends with
+    Drift). A subagent's processes end with its run.
+  - When a process exits, its conversation is told as a `process_exit` prompt with the exit code,
+    the end of its output and the log path, starting a turn or steering into the running one, as
+    background subagent results do. Nothing is said when the model already saw it end in a call (a call reading or waiting on a process holds a watch, and the notice waits until no call holds one, so the two never race),
+    when it was stopped, or when the user pressed Stop since it started; it then shows only in the
+    dock. A conversation busy with another job is offered it every 30 s, ten times.
+  - Processes show in the Background tasks dock beside background subagents while any runs, with a
+    live last line, an Open link for a printed URL, and Stop. Ended ones join the finished history.
+    The prompt a process's end adds folds like an answered question (`NoteBox`): how it ended and
+    its description, opening to its command, the end of its output and the full log. The
+    orchestrator's status and its nudges fold the same way.
+  - Settings > Execution > Shell has both switches, on by default and kept by the engine
+    (`backgroundProcesses`, `shellHandoff` in `/settings`). Background processes off: turns are not
+    offered `process`, bash's schema has no `background`, its description says to pass a larger
+    `timeout` and never start servers, and a `background: true` call is refused. Hand-off off, or
+    background processes off: a command at its time limit is stopped and the call fails, as before.
+    The time limit is the shell timeout; while hand-off is on its row reads "Move to the background
+    after".
   - A URL a process prints is handed back to the model. With the chrome-devtools MCP that is the
-    whole browser check: start the dev server, wait for its URL, look at the page, stop it.
+    whole browser check: start the dev server, wait for its URL, look at the page, stop it. Only a
+    local server's address counts (localhost, 127.0.0.1, 0.0.0.0 or [::1] with port 80 or 1024 and
+    up), and only while the process runs; addresses tests merely print are ignored.
+  - Shell commands get `PYTHONUNBUFFERED=1` unless the environment sets it, so a Python script's
+    output arrives as it is printed rather than when it exits.
+  - Usage review, 2026-10-11 (325 background processes, 214 background subagents over 15 hours):
+    70% of background commands finished within two minutes and two thirds were started alone and
+    then waited on, so bash's description now says to run commands in the foreground, since the
+    hand-off covers long ones, and to use `background: true` only for servers, watchers and work
+    done meanwhile. A subagent's start note says it is not told when the process ends and that the
+    process stops with its run, so it waits before reporting. `task_output` waits up to ten minutes
+    (it was 120 s; 133 calls had timed out at it) and takes `task_ids` to return when the first of
+    several finishes.
+  - Processes live in memory: a restart of Drift ends them and forgets them. Undo cannot capture
+    what a background process changes after its call returned.
 - Worktrees: a toggle when a thread starts, never mid-turn. Drift makes branch `drift/<name>` from
   the current commit in a folder under its data directory and says that uncommitted changes were
   not copied. Spawned threads inherit the toggle and branch from the parent's worktree. Drift never
@@ -1205,7 +1271,36 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
 - A Codex (ChatGPT sign-in) request also carries `session-id` (the session, so the backend keeps a
   conversation's requests together) and, when the access token's claims bind the account to a
   region (`chatgpt_compute_residency` other than `no_constraint`), `x-openai-internal-codex-residency`,
-  as upstream's Codex plugin sends them. The websocket transport is not used.
+  as upstream's Codex plugin sends them.
+- OpenAI Responses (API keys and the Codex backend alike) go over a WebSocket (`openai::websocket`).
+  Each conversation keeps one connection, keyed by its session, endpoint and every request header,
+  so credentials, accounts and modes never share one; a request without a session gets its own.
+  The connection's task runs the conversation's requests in order and keeps the last completed
+  response. A request whose settings match it and whose input starts with everything it saw and
+  said sends only the new items with `previous_response_id`; a tool result is then one item, not
+  the whole history. Changed settings, edited or compacted history, a new socket, or the server
+  answering `previous_response_not_found` (it replays the whole input once, on the same socket)
+  start a new chain. Ultrafast, Fast and Daybreak ride in the body, so they survive the short
+  request.
+  - The upgrade goes through an HTTP/1.1-only client (the Codex backend answers an HTTP/2 attempt
+    with 405) with the SSE request's URL and headers, plus `openai-beta:
+    responses_websockets=2026-02-06` for a ChatGPT sign-in. A 101 must carry the right
+    `sec-websocket-accept`. An endpoint answering 404, 405, 426, 501 or a 2xx does not take
+    WebSockets: that request and the next ten minutes of that endpoint's requests use SSE. Any
+    other refusal (credentials, limits) is the request's own error and is not retried over SSE.
+  - A connection closes after five idle minutes and is replaced after 55 (the server ends one at
+    60). While a turn runs its tools, the idle task answers the server's pings. At most 32
+    conversations hold a connection; the least recently used idle one makes room.
+  - A response that fails after it began is never re-sent over SSE: the failure goes to the turn,
+    whose retry policy decides. Stopping a turn drops its stream, which closes that socket, so a
+    half-read response never serves the next request.
+  - A conversation whose socket failed (it dropped, went silent, or would not open) sends its next
+    requests over SSE for two minutes (`websocket::dropped`), then tries a socket again. So the
+    turn's retry does not wait on a socket opened straight after the one that dropped, which was
+    seen to stay silent until the user stopped the turn. An API error is the request's own and
+    changes nothing; other conversations keep their sockets.
+  - Verified live on 2026-10-10 against the Codex backend: two requests completed over one socket,
+    the second sent as a continuation, with no SSE fallback.
 - A ChatGPT sign-in sees the catalog as the Codex backend takes it (`Engine::catalog_view`,
   `openai::codex::shape`), in the picker, planning, steering and retries alike: GPT models after
   5.4 plus the ones Codex names (`gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`, ...), never a
@@ -1214,25 +1309,97 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
   out publishes `catalog.updated` so the picker reloads. Nothing is priced to choose a small
   model by, so titles run on `gpt-5.4-mini` when the backend offers it (`codex::small_model`),
   never an API-only model.
-- Daybreak entries come from the signed-in account's Codex model list, fetched with Drift's
-  `client_version`. Startup and sign-in discover access asynchronously; a single-flight cache
-  lasts 15 minutes, retries failures after a minute, and never crosses users or ChatGPT accounts.
-  Logout discards it. Each offered Blue or Red program adds `<id>-daybreak`, named `<Name> Daybreak`,
-  retaining the base entry's limits, prices, reasoning, tools and any speed-mode settings.
-  Requests send the base model id with `access_programs.cyber` set to the offered program.
-  Unknown programs and models without Daybreak are left alone. API-key discovery is not supported.
-  The regular entries and their requests are unchanged. OpenAI still owns authorization.
-  Live comparison on 2026-10-09 found the installed Codex 0.155.0-alpha.9.2 client sending the
-  same `daybreak_blue` selection and receiving the same `standard` response echo as Drift's
-  direct HTTP and WebSocket probes. No extra Daybreak proof header appeared. Request selection
-  is verified; the backend echo does not establish that reduced-refusal treatment was applied.
+- A ChatGPT sign-in's catalog follows its account's Codex model list (`codex::offers`), fetched with
+  Drift's `client_version` (the backend refuses the list without one). Startup and sign-in fetch it
+  in the background; a single-flight cache lasts 15 minutes, retries a failed fetch after a minute,
+  and never crosses users or ChatGPT accounts. Sign-out discards it. Until a list is cached, nothing
+  changes. API keys have no such list.
+  - Speed modes: a mode whose `service_tier` the list does not offer for its model is removed. The
+    list names `priority` ("Fast") for the GPT-6 models of the account checked on 2026-10-10 and no
+    Ultrafast; sending `service_tier: ultrafast` there is accepted but served at standard speed
+    (about 80 tok/s, the same as no tier, against about 105 for `priority`). Ultrafast from
+    models.dev describes the API, so it only appears for a sign-in whose list offers it. Models the
+    list does not name keep every mode.
+  - Daybreak: each offered Blue or Red program adds `<id>-daybreak`, named `<Name> Daybreak`,
+    keeping the base entry's limits, prices, reasoning, tools and any speed-mode settings. Requests
+    send the base model id with `access_programs.cyber` set to the offered program. Unknown programs
+    and models without Daybreak are left alone; the regular entries are unchanged, and OpenAI still
+    owns authorization. Live comparison on 2026-10-09 found the installed Codex 0.155.0-alpha.9.2
+    client sending the same `daybreak_blue` selection and receiving the same `standard` response
+    echo as Drift's direct HTTP and WebSocket probes, with no extra Daybreak proof header. Request
+    selection is verified; the backend echo does not establish that reduced-refusal treatment was
+    applied.
+- A provider can hold several sign-ins, used in the order Settings lists them (`credentials::accounts`).
+  Each account's secret has its own keychain entry: the first keeps the provider's own key, so a
+  credential saved before accounts needs no migration, and the rest are `<provider>~<hex>`. The
+  order, names and identities live in one `__accounts` entry beside the provider index. Signing in
+  as someone already listed (the ChatGPT account and user in the token, Anthropic's account uuid
+  from the token response) replaces that account in place; anyone else joins the end. Only
+  sign-ins take turns: an API key, or a sign-in beside one, replaces them all. Refreshing a token
+  is single-flight per account and compare-and-sets that account only (`Plan::account`).
+  - Choosing an account adds no request latency: it is a lookup in `Engine::limits`, an in-memory
+    ledger fed by what responses already carry. Codex sends `x-codex-primary-*` and
+    `x-codex-secondary-*` headers on every response (window minutes, used percent, reset time;
+    10080 minutes is the weekly window, 300 the five-hour one, 0 absent) and a `codex.rate_limits`
+    event before each WebSocket response, with `limit_reached` and credits; both verified live on
+    2026-10-10. Anthropic's `anthropic-ratelimit-unified-{5h,7d}-{utilization,reset}` and `-status`
+    are read as Claude Code reads them (utilization a fraction); their names are not yet verified
+    against a live subscription. The adapters pass them on as `Chunk::Limits`, which the turn
+    records against its account and publishes as `provider.limits`.
+  - An account is spent until its window resets once a window reports 100%, the socket says
+    `limit_reached`, or the provider refuses it for usage: a 429 whose kind is `usage_limit_reached`
+    or whose limit headers show a full window or a `rejected` status (`Error::limit_reached`, with
+    the wait until the reset, from the headers or Codex's `resets_in_seconds`). A full window with
+    credits left counts too, so purchased credits are spent only when every account is out.
+  - Admission, one-shots and each step take the first account in order that can serve the model
+    (`follow_account`, `Engine::account_serves`): it has usage left, was not refused that model, and,
+    for a ChatGPT sign-in, its own Codex list offers the model's Daybreak program and speed tier. With
+    no account able to, admission sends the first and a running turn stays where it is, so the refusal
+    says why. A
+    refusal for spent usage marks the account, drops the empty reply and sends the step again from
+    the next account at once, without a retry or backoff (`Step::Switch`); an ordinary rate limit
+    still waits. Once the first account's window resets, the next step returns to it. Each move
+    publishes `provider.switched` with its reason (`limit`, `reset`, `model`, `refusal`), shown as a notice.
+  - Accounts on different plans see different models. A refusal saying the plan lacks the model
+    (Anthropic's 429 "Usage credits are required for this model", Codex's "not supported when using
+    Codex with a ChatGPT account"; `Error::plan_lacks_model`) is never retried with backoff: the
+    account is passed over for that model for six hours (`Engine::unserved`) and the step goes to the
+    next account at once, as for spent usage, while the account stays in use for every other model.
+    Codex lists are fetched for every ChatGPT account and the catalog shows what any of them offers;
+    the first account in order to offer a Daybreak program names the entry, and each request carries
+    the program of the account it is sent from (`Offers::fit`).
+  - Accounts also differ on cybersecurity: Anthropic's Cyber Verification Program and OpenAI's Daybreak
+    change what an account's safety filter refuses. A reply the filter ends (`StopReason::Refused`)
+    whose policy area is cyber, or that names none (OpenAI's `content_filter`), is deleted with
+    whatever it streamed and the step goes to the next account at once
+    (`Engine::leave_refusing_account`). The account is passed over for the rest of that conversation,
+    whose content stays, but serves every other one. When every account refuses, the last refusal
+    shows as before. A refusal in another policy area stands on the account that made it: retrying
+    those until one account lets them through would only be dodging the filter.
+  - Reasoning signatures and encrypted reasoning validate only for the account that made them, so
+    each reply records its account (`message.account`, migration 38) and history signed by another
+    account is sent as text, as another model's is. A reply from before accounts counts as the
+    account stored under the provider's name. The WebSocket pool keys connections by their
+    headers, so a new account opens its own socket and sends the full history once.
+  - Settings lists a provider's sign-ins with their five-hour and weekly use; each can be renamed,
+    moved up or down, or signed out, and signing in again adds another. Settings > Usage shows each
+    account's plan usage (the shell's `provider_usage`, through `Engine::account_credentials`), and
+    the composer's usage popover shows the first account with usage left.
+- Reply throughput uses `message.generationMs`, persisted in migration 37 and published with the
+  completed reply. The engine measures each response with a monotonic clock, from its first
+  generated text, reasoning or tool-call block to its last content event. Initial request waits,
+  trailing usage and stop frames, retry backoff, tool runs and subagent waits do not extend it.
+  The footer divides that reply's reported output tokens by the measured duration, not its wall
+  time or a reasoning part's absolute timestamp. Old replies and zero-duration samples show no
+  rate. This is observed stream throughput, not a provider-side benchmark; buffered delivery can
+  still distort it.
 - One-shot requests (titles, summaries) on a reasoning model run at its weakest level with
   4096 tokens of thinking room on top of the answer's own (a budget level adds its budget),
   within the model's output limit; a budget that cannot fit is dropped.
 - OpenAI caching is automatic, keyed by routing: every request of a conversation carries
   `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
   its steps and turns stay on one cache. Title and compaction requests carry none.
-- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio, Ollama) stream text and reasoning as
+- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
   without ever giving a `finish_reason` is a failed reply: its calls are not run, as with any stream
@@ -1247,24 +1414,43 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
     prompt steered in mid-loop and one sent after a Stop both sit beside the last tool results.
     Only finished replies give it; Anthropic never receives unsigned thinking.
 - Local servers report their own models (`llm::local`). Every 15 s the engine asks LM Studio and
-  Ollama (`/v1/models`, plus LM Studio's `/api/v0/models` for kind, context and tool support) at
-  their default address or the one the user set; what answers replaces that provider's listed
-  models (embedding and tool-less models left out). Context is the window the server really runs
-  with, since both cut longer prompts: LM Studio's loaded length for a loaded model and unknown (0)
-  for one it would load with its own default; for Ollama, a loaded model's allocated
-  `context_length` from `/api/ps`, else the model's own `num_ctx` from `/api/show` (asked once per
-  installed build, keyed by its `/api/tags` digest on the engine, so a model re-created under its
-  name is asked again; never more than its trained length), else unknown. The same answer's
-  `capabilities` decide the rest: a model without `tools` is left out, and one with `vision`
-  reads images. The window falls back to unknown,
-  since Ollama's default depends on the server's memory (4K below 24 GB of VRAM, 32K to 48 GB,
-  256K above, checked 2026-10 against docs.ollama.com) and Drift's environment says nothing about
-  a server elsewhere. An unknown window becomes known within a poll of the model loading; until
-  then the composer's picker says so, since a turn planned without it cannot compact. The
-  provider counts as connected with no key while it answers, and `catalog.updated` tells the UI.
+  Ollama at their default address or the one the user set; what answers replaces that provider's
+  listed models (embedding and tool-less models left out). The provider counts as connected with no
+  key while it answers, and `catalog.updated` tells the UI.
+  - LM Studio (`/v1/models`, plus `/api/v0/models` for kind, context and tool support): the window
+    is its loaded length for a loaded model and unknown (0) for one it would load with its own
+    default, since it cuts longer prompts. An unknown window becomes known within a poll of the
+    model loading; until then the composer's picker says so, since a turn planned without it cannot
+    compact.
+  - Ollama is asked only once `/api/version` answers with a version number, since another server on
+    its port (a llama.cpp shim, say) would otherwise be taken for it. Its models come from
+    `/api/tags`, each described once per installed build by `/api/show` (keyed by digest, so a model
+    re-created under its name is asked again): its `capabilities` leave out a model without `tools`
+    and mark `vision` and `thinking`, and its `thinking.values` (`low`, `medium`, `high`) become
+    reasoning variants. Its window is the length it was trained for, else its Modelfile's `num_ctx`.
+- Ollama, local and Cloud (`https://ollama.com`, key from `OLLAMA_API_KEY`), runs on its own
+  `/api/chat` (`llm::ollama`), not its OpenAI-compatible `/v1`: only the native API takes
+  `options.num_ctx`, and without it Ollama runs at a default that depends on the server's memory
+  (4K below 24 GB of VRAM, 32K to 48 GB, 256K above, checked 2026-10 against docs.ollama.com) and
+  silently cuts longer prompts. Every request asks for the model's catalog window
+  (`Request::context_window`), so the window the session plans and compacts against is the one
+  Ollama runs. A base URL ending in `/v1`, as older drift.json files and models.dev name it, is
+  taken back to the root.
+  - The reply is NDJSON. Text and `thinking` stream as they come; tool calls arrive whole and are
+    handed on at `done`, with an id made up for each, since Ollama gives none. Results go back as
+    `tool` messages naming the tool; images ride as base64 `images` on the user message; usage is
+    `prompt_eval_count` and `eval_count`.
+  - A full trained window can need more memory than the machine has (Ollama allocates it whole), so
+    `contextLimit` in the user's drift.json holds every model of a provider to that many tokens, and
+    fills in a window nothing reported.
+  - Local Ollama is always listed (models.dev has no entry for it), so Settings > Providers has a row
+    to set it up from before it answers. Its panel shows what Ollama has installed and saves its
+    address and limit through `PUT /providers/{id}/server`, which writes `baseUrl` and `contextLimit`
+    into the user's drift.json (dropping both when left at the default) and asks the server again
+    before answering.
 - The user's own `~/.config/drift/drift.json` may add or re-point providers:
-  `providers: { "<id>": { name?, baseUrl?, apiKeyEnv?, models?: { "<model>": { name?, context,
-  output, images } } } }`. A known id gets its endpoint replaced (a gateway, a remote LM Studio) and
+  `providers: { "<id>": { name?, baseUrl?, apiKeyEnv?, contextLimit?, models?: { "<model>": { name?,
+  context, output, images } } } }`. A known id gets its endpoint replaced (a gateway, a remote LM Studio) and
   any listed models added; a new id is an OpenAI-compatible route, keyless unless `apiKeyEnv`
   names its key. A project's drift.json cannot do this: a committed file must never send your key
   elsewhere. models.dev's own `api` field is ignored for the native routes, so only the user
@@ -1351,6 +1537,15 @@ Settled after the first external review of M1; each has a regression test.
 - How a `done` reply ended when not by itself is typed: `message.ending` is `length` or `refused`
   (migration 25, which also marks earlier replies by their wording). The UI decides by it, never by
   `error`'s words, which are only for reading.
+- A refusal keeps what the provider said about it in `message.refusal` (migration 39,
+  `refusal_json`): Anthropic's `stop_details` category (`cyber`, `bio`, `frontier_llm`,
+  `reasoning_extraction`, `general_harms`), explanation and `recommended_model`. No provider names
+  the text that set it off, and Drift does not probe for it by resending trimmed requests: that is
+  testing the provider's safeguards, against its usage policy. Instead the UI lists what was new in
+  the refused request (`engine/refusal.ts`): the user's messages since the last reply that went
+  through, with their attachments, or the calls whose results that reply had just read. When the
+  suggested model is in the catalog it offers a retry on it, which sends "carry on" on that model;
+  Drift never moves to it by itself. OpenAI and Gemini give no details, so only the list shows.
 - An Anthropic content block or delta of a type the adapter does not know (server tools,
   citations, kinds added later) is skipped, not an error: nothing opens for it, so its deltas and
   stop fall on nothing and the reply goes on. Bedrock shares this.
@@ -1420,8 +1615,10 @@ Settled after the first external review of M1; each has a regression test.
     (summarized, since those models otherwise return their thinking blank).
   - Gemini: `thinkingConfig.thinkingBudget` or `thinkingConfig.thinkingLevel`, with thoughts included.
   - OpenAI: `reasoning.effort` with an automatic summary.
-  - OpenRouter: `reasoning: {effort}` or `reasoning: {max_tokens}`. xAI, Z.ai, LM Studio and
-    Ollama: `reasoning_effort`; a budget has no field there, and those routes are never given one.
+  - OpenRouter: `reasoning: {effort}` or `reasoning: {max_tokens}`. xAI, Z.ai and LM Studio:
+    `reasoning_effort`; a budget has no field there, and those routes are never given one.
+  - Ollama: `think` is the level, `false` for `none`, `true` for a budget or for no level on a
+    thinking model (its thinking otherwise comes mixed into the answer, or not at all).
     Z.ai also always gets `thinking: {type: enabled, clear_thinking: false}`, so a turn's earlier
     reasoning is kept, as opencode sends it.
 - With no level picked, the catalog decides what a request still asks for (`catalog::default_reasoning`,
@@ -1616,7 +1813,12 @@ Settled after the first external review of M1; each has a regression test.
   one of those images or a PDF is attached, whether the server returns it from a read or embeds
   it in a call's result (`mcp::take_resource`), as opencode does; other binaries are named.
   Before it is stored, every returned image is checked against what providers accept
-  (`image::normalize`, on a blocking thread): one within 2000 px a side and 5 MB of base64 passes
+  (`image::normalize`, on a blocking thread). Every image is first decoded whole (`image::check`),
+  a JPEG strictly through `zune-jpeg`: the `image` crate decodes JPEG leniently and draws corrupt
+  entropy data (a frame mangled by extraction) that Anthropic refuses with "Could not process
+  image", so such a file is dropped with a line saying it is corrupt and to re-encode it. Strict
+  mode was checked on 2026-10-09 against baseline, progressive, grayscale, CMYK and 4:4:4 JPEGs and
+  the Windows wallpapers: all pass. Then one within 2000 px a side and 5 MB of base64 passes
   unchanged; a larger one is decoded (at most 16384 px a side) and scaled to fit, then down by a
   quarter at a time, each size tried until one fits: an opaque picture as JPEG at falling quality,
   then PNG; one with transparency as PNG, then JPEG flattened onto white. webfetch still stops
@@ -1636,6 +1838,13 @@ Settled after the first external review of M1; each has a regression test.
   reached, since providers cap both a request's images and its size (Anthropic: 100 images, 32 MB)
   and a rejected request would replay the same images forever; older ones become a line. A model
   whose catalog entry does not take images gets a line for each, on turns and engine requests alike.
+- A provider that still cannot read an image (`llm::Error::is_unreadable_image`: a 400 saying
+  "could not process image", Anthropic's wording) would refuse every later request too, since the
+  same images go out again. Once per turn the engine takes the newest images calls returned (as
+  many as a request carries), drops those that fail `image::check`, or all of them when none does,
+  from their calls' stored metadata with a line in each result ("the provider could not process
+  it"), discards the refused empty reply and retries. A second refusal in that turn ends it. A
+  conversation stuck on images stored before the strict check recovers on its next prompt.
 - While a command runs, every 500 ms that it has printed more, its part is republished with
   `metadata.output` = the last 4 KB so far (`Spool::recent`), through the call's `tool::Progress`.
   That is shown, never stored: the saved part is the result, and the UI shows the result once the
@@ -1654,9 +1863,10 @@ Settled after the first external review of M1; each has a regression test.
   The folders of the skills the session's config offers (`~/.agents/skills/...`, which `skill`
   names by absolute path) read and glob without asking too, as opencode allows skill directories;
   their secret files still ask, and nothing there is writable without asking.
-- Background processes do not outlive the call. Once the shell exits, output still in flight gets
-  500 ms; a pipe still open after that is held by a background descendant, so the call finishes
-  with the shell's exit code, the descendants are stopped, and the result says so. A command with
+- Processes a foreground command leaves behind (`cmd &`) do not outlive the call. Once the shell
+  exits, output still in flight gets 500 ms; a pipe still open after that is held by a background
+  descendant, so the call finishes with the shell's exit code, the descendants are stopped, and the
+  result says to use `background: true`. A command with
   no time limit therefore cannot wait forever on a background process's inherited output.
 - Prompt admission is one transaction (`Store::admit_prompt`). If it fails, the session's
   busy reservation is released and nothing half-written remains. The UI keeps a prompt's
@@ -1959,8 +2169,7 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   subagent list, so the model is never offered it. A broken global agent or override never stops
   other agents or workspaces.
 - Settings overrides an agent with exactly what the engine applies (`AgentOverride`): `prompt`,
-  `model` (`provider/model`, or empty to inherit), `steps` (its own step limit), `tools` (the
-  tool names it may use), `permissions` and `variant`. The shell refuses to store any other field, naming it, and the editor
+  `model` (`provider/model`, or empty to inherit), `tools` (the tool names it may use), `permissions` and `variant`. The shell refuses to store any other field, naming it, and the editor
   shows the agent as the engine resolved it, in those fields only. An override's tool list is
   never empty, because on an agent an empty list means every tool: that would quietly lift
   `plan`'s read-only set. Reset restores the definition's own tools. Stored overrides from

@@ -247,6 +247,10 @@ export function IconX(props: IconProps) {
     );
 }
 
+export function IconStop(props: IconProps) {
+    return frame(props, <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />);
+}
+
 export function IconCheck(props: IconProps) {
     return frame(props, <path d="M20 6 9 17l-5-5" />);
 }

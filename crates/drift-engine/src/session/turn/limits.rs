@@ -5,28 +5,23 @@ const WAITS: [&str; 5] = ["sleep", "start-sleep", "timeout", "wait", "watch"];
 
 impl WrapUp {
     pub(super) fn instruction(self) -> String {
-        let why = match self {
-            WrapUp::Steps(_) => "This is the last step this turn allows".to_string(),
-            WrapUp::Repeats(times) => format!("Your last {times} steps made the same calls and got the same results"),
-        };
+        let WrapUp(times) = self;
 
         format!(
-            "<system-reminder>\n{why}, so tools are off for this reply. Answer with text only, no tool calls: \
-             say that the turn stops here, summarise what you found and did, list what is still undone, \
-             and say what should happen next.\n</system-reminder>"
+            "<system-reminder>\nYour last {times} steps made the same calls and got the same results, so tools \
+             are off for this reply. Answer with text only, no tool calls: say that the turn stops here, \
+             summarise what you found and did, list what is still undone, and say what should happen \
+             next.\n</system-reminder>"
         )
     }
 
     pub(super) fn pause_reason(self) -> String {
-        match self {
-            WrapUp::Steps(steps) => {
-                format!("Paused after {steps} steps, this turn's limit. Send a message to carry on.")
-            }
-            WrapUp::Repeats(times) => format!(
-                "Paused: the last {times} steps made the same calls and got the same results. \
-                 Send a message to carry on or change course."
-            ),
-        }
+        let WrapUp(times) = self;
+
+        format!(
+            "Paused: the last {times} steps made the same calls and got the same results. \
+             Send a message to carry on or change course."
+        )
     }
 }
 

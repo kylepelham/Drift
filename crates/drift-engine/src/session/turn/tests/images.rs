@@ -16,10 +16,12 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
         .unwrap();
     std::fs::write(h._dir.join("ws/shot.png"), wide).unwrap();
     std::fs::write(h._dir.join("ws/broken.png"), b"\x89PNG\r\n\x1a\nrest").unwrap();
+    std::fs::write(h._dir.join("ws/mangled.jpg"), crate::tool::image::corrupt_jpeg()).unwrap();
     h.provider
         .push(tool_call("echo_echo", r#"{"text": "picture"}"#))
         .push(tool_call("read", r#"{"path": "shot.png"}"#))
         .push(tool_call("read", r#"{"path": "broken.png"}"#))
+        .push(tool_call("read", r#"{"path": "mangled.jpg"}"#))
         .push(text("seen"));
     h.engine.submit(&h.session.id, prompt("look")).await.await_ok();
     until_idle(&h).await;
@@ -38,11 +40,12 @@ async fn images_from_tools_reach_a_model_that_reads_them_and_a_line_reaches_one_
     assert_eq!(
         images,
         ["image/png", "image/jpeg"],
-        "the MCP screenshot and the scaled (opaque, so JPEG) read image reach the model; the broken one does not"
+        "the MCP screenshot and the scaled (opaque, so JPEG) read image reach the model; the broken and corrupt ones do not"
     );
     let said = format!("{:?}", last.messages);
     assert!(said.contains("was scaled from 2600x20 to 2000x15 to fit the model's limits"));
-    assert!(said.contains("[an image (image/png) is not shown: it could not be read"));
+    assert!(said.contains("[an image (image/png) is not shown: it could not be decoded"));
+    assert!(said.contains("[an image (image/jpeg) is not shown: its data is corrupt ("));
     let stored = serde_json::to_string(&transcript(&h)).unwrap();
     assert!(
         stored.contains("\"hash\"") && !stored.contains("iVBORw0KGgo"),

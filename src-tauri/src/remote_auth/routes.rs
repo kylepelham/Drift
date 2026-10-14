@@ -20,6 +20,12 @@ pub(crate) struct LinkRequest {
 }
 
 #[derive(Deserialize)]
+pub(crate) struct PairRequest {
+    ticket: String,
+    name: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub(crate) struct LoginRequest {
     username: String,
     password: String,
@@ -51,9 +57,45 @@ pub(crate) async fn certificate(State(app): State<tauri::AppHandle>) -> Response
     response
 }
 
+/// What a signed-out client may know: whether password sign-in is on, and which PC and API version this is.
 pub(crate) async fn options(State(app): State<tauri::AppHandle>) -> Response {
     let password = app.state::<RemoteAccess>().auth().password.is_some();
-    Json(json!({ "password": password })).into_response()
+    Json(json!({
+        "password": password,
+        "api": drift_pairing::API_VERSION,
+        "version": env!("CARGO_PKG_VERSION"),
+        "computer": crate::remote::computer_name(),
+    }))
+    .into_response()
+}
+
+/// The Drift app redeems the pairing code it scanned for a session token it sends as a bearer token.
+/// Wrong secrets count toward the same lockout as wrong passwords.
+pub(crate) async fn pair(
+    State(app): State<tauri::AppHandle>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    Json(request): Json<PairRequest>,
+) -> Response {
+    let access = app.state::<RemoteAccess>();
+    let address = peer.ip();
+    let mut auth = access.auth();
+    if let Some(wait) = auth.locked_for(address, Instant::now()) {
+        return locked_response(wait);
+    }
+
+    match auth.redeem(request.ticket.trim(), device_name(request.name), &app.state::<Store>()) {
+        Ok(token) => {
+            auth.failures.remove(&address);
+            drop(auth);
+            notify(&app);
+            Json(json!({ "token": token })).into_response()
+        }
+        Err(super::AuthError::UnknownTicket) => {
+            auth.fail(address, Instant::now());
+            failure(StatusCode::UNAUTHORIZED, &super::AuthError::UnknownTicket.to_string())
+        }
+        Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
+    }
 }
 
 pub(crate) async fn start_link(

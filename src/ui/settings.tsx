@@ -152,7 +152,7 @@ function SettingsModal(props: { onClose: () => void }) {
                                 type="text"
                                 inputMode="search"
                                 autocomplete="off"
-                                autofocus
+                                autofocus={!matchMedia("(pointer: coarse)").matches}
                                 class="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-ink outline-none placeholder:text-ink-faint"
                                 aria-label={t("drift.settings.search.placeholder")}
                                 placeholder={t("drift.settings.search.placeholder")}

@@ -12,7 +12,7 @@ use super::sse;
 #[cfg(test)]
 use super::{Block, ChatMessage, Role};
 use super::{Chunk, ChunkStream, Credential, Error, Request, StopReason};
-use crate::session::types::Usage;
+use crate::session::types::{Refusal, Usage};
 #[cfg(test)]
 use request::block;
 use request::body;
@@ -106,8 +106,9 @@ pub(super) async fn stream_from(
         return Err(api_error(status.as_u16(), &text).with_headers(&headers));
     }
 
+    let limits = super::limits::Limits::from_headers(response.headers()).map(|limits| Ok(Chunk::Limits(limits)));
     let events = sse::events(response.bytes_stream(), timeouts.idle);
-    Ok(Box::pin(events.flat_map(move |event| {
+    let chunks = events.flat_map(move |event| {
         let items: Vec<Result<Chunk, Error>> = match event {
             Err(error) => vec![Err(Error::Transport(error.to_string()))],
             Ok(event) => match chunks(&event.event, &event.data) {
@@ -116,7 +117,9 @@ pub(super) async fn stream_from(
             },
         };
         futures_util::stream::iter(items)
-    })))
+    });
+
+    Ok(Box::pin(futures_util::stream::iter(limits).chain(chunks)))
 }
 
 /// The Messages body for a cloud route: the model goes in the URL and the API version in the body.
@@ -199,6 +202,7 @@ fn block_delta(delta: &Value) -> Option<Chunk> {
 
 fn message_delta(value: &Value) -> Vec<Chunk> {
     let mut out = vec![Chunk::Usage(usage(&value["usage"]))];
+    out.extend(refusal(&value["delta"]["stop_details"]).map(Chunk::Refusal));
     if let Some(reason) = value["delta"]["stop_reason"].as_str() {
         out.push(Chunk::Stop(match reason {
             "end_turn" | "stop_sequence" => StopReason::EndTurn,
@@ -210,6 +214,25 @@ fn message_delta(value: &Value) -> Vec<Chunk> {
         }));
     }
     out
+}
+
+/// `stop_details` of a refusal: its policy category, explanation and suggested model, whichever it gives.
+fn refusal(details: &Value) -> Option<Refusal> {
+    if details["type"] != "refusal" {
+        return None;
+    }
+    let text = |key: &str| {
+        details[key]
+            .as_str()
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+
+    Some(Refusal {
+        category: text("category"),
+        explanation: text("explanation"),
+        model: text("recommended_model"),
+    })
 }
 
 fn usage(value: &Value) -> Usage {
@@ -343,6 +366,7 @@ mod tests {
                 top_p: None,
                 top_k: None,
                 mode: None,
+                context_window: None,
             }
         }
 
@@ -563,6 +587,40 @@ mod tests {
                 stop("model_context_window_exceeded"),
                 Some(Chunk::Stop(StopReason::ContextFull))
             );
+        }
+
+        #[test]
+        fn a_refusal_carries_its_category_explanation_and_suggested_model() {
+            let refused = chunks(
+                "message_delta",
+                r#"{"delta":{"stop_reason":"refusal","stop_details":{"type":"refusal","category":"cyber",
+                    "explanation":"Declined under the Usage Policy.","recommended_model":"claude-opus-4-8"}}}"#,
+            )
+            .unwrap();
+            assert_eq!(
+                refused[1..],
+                [
+                    Chunk::Refusal(Refusal {
+                        category: Some("cyber".into()),
+                        explanation: Some("Declined under the Usage Policy.".into()),
+                        model: Some("claude-opus-4-8".into()),
+                    }),
+                    Chunk::Stop(StopReason::Refused),
+                ]
+            );
+
+            let bare = chunks(
+                "message_delta",
+                r#"{"delta":{"stop_reason":"refusal","stop_details":{"type":"refusal","category":null}}}"#,
+            )
+            .unwrap();
+            assert_eq!(bare[1], Chunk::Refusal(Refusal::default()));
+            let none = chunks(
+                "message_delta",
+                r#"{"delta":{"stop_reason":"end_turn","stop_details":null}}"#,
+            )
+            .unwrap();
+            assert!(!none.iter().any(|chunk| matches!(chunk, Chunk::Refusal(_))));
         }
 
         #[test]

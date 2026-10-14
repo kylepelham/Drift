@@ -33,6 +33,7 @@ impl Engine {
         let target = convert::OnCatalog {
             model: &plan.model_ref,
             catalog: &plan.catalog,
+            account: plan.account.as_deref(),
         };
         let mut messages = compaction::request_messages(&transcript, &target, &lead);
         let no_tool_calls = closing.is_some();
@@ -55,6 +56,7 @@ impl Engine {
             top_p: sampling.top_p,
             top_k: sampling.top_k,
             mode: plan.model.mode.clone(),
+            context_window: Some(plan.model.limit.context).filter(|window| *window > 0),
         };
 
         (request, answered)

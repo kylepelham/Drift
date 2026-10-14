@@ -19,6 +19,20 @@ pub enum SessionStatus {
     Running,
 }
 
+/// Why a turn moved to another of the provider's accounts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SwitchReason {
+    /// The account it left reached its usage limit.
+    Limit,
+    /// An earlier account's usage limit reset, so the turn went back to it.
+    Reset,
+    /// The account it left has no access to the model on its plan.
+    Model,
+    /// The account it left refused the conversation under its safety filter.
+    Refusal,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Event {
@@ -73,6 +87,27 @@ pub enum Event {
     /// The model catalog was refreshed; clients reload `/providers`.
     #[serde(rename = "catalog.updated")]
     CatalogUpdated {},
+    /// An account reported how much of its subscription's usage it has spent.
+    #[serde(rename = "provider.limits")]
+    ProviderLimits {
+        provider: String,
+        account: String,
+        limits: crate::llm::limits::Limits,
+    },
+    /// A turn moved to another of the provider's accounts: the one it used reached its usage limit
+    /// (`limited`), or one earlier in the order can be used again.
+    #[serde(rename = "provider.switched", rename_all = "camelCase")]
+    ProviderSwitched {
+        session_id: String,
+        provider: String,
+        from: String,
+        to: String,
+        /// The new account's name, if it has one; else `position`, counted from 1, names it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        label: Option<String>,
+        position: usize,
+        reason: SwitchReason,
+    },
     #[serde(rename = "mcp.updated")]
     McpUpdated { server: crate::mcp::ServerStatus },
     #[serde(rename = "mcp.removed")]
@@ -81,6 +116,9 @@ pub enum Event {
     QuestionAsked { request: QuestionRequest },
     #[serde(rename = "question.replied", rename_all = "camelCase")]
     QuestionReplied { request_id: String, session_id: String },
+    /// A background process started, printed a new last line, or ended.
+    #[serde(rename = "process.updated")]
+    ProcessUpdated { process: crate::background::ProcessRecord },
     /// A worker was launched, started, ended, or its result reached its parent.
     #[serde(rename = "task.updated")]
     TaskUpdated { task: crate::session::tasks::TaskRecord },

@@ -1,3 +1,4 @@
+import { ProviderAccounts } from "./settings-provider-accounts";
 import { authorizationPrompt } from "../engine/provider-auth";
 import { createSignal, For, Show } from "solid-js";
 import { openExternal } from "../shell";
@@ -27,6 +28,8 @@ export function ProviderConnect(props: {
         code?: string;
     } | null>(null);
     const method = () => props.methods[methodIndex()] ?? props.methods[0];
+    const accounts = () => engine.state.providerAccounts[props.providerId] ?? [];
+    const signedIn = () => accounts().filter((account) => account.signedIn);
 
     function fail(message: string) {
         setError(message);
@@ -176,6 +179,14 @@ export function ProviderConnect(props: {
                     </button>
                 </div>
             </Show>
+            <Show when={method()?.type === "oauth" && signedIn().length > 0}>
+                <ProviderAccounts
+                    providerId={props.providerId}
+                    providerName={props.providerName}
+                    accounts={signedIn()}
+                    onNotice={props.onNotice}
+                />
+            </Show>
             <Show when={method()?.type === "oauth"}>
                 <Show
                     when={authorization()}
@@ -185,11 +196,7 @@ export function ProviderConnect(props: {
                             disabled={pending() !== null}
                             onClick={() => void startOauth()}
                         >
-                            {pending() === "connect"
-                                ? t("provider.connect.status.waiting")
-                                : t("drift.provider.signInWith", {
-                                      method: method()?.label ?? t("drift.provider.browser"),
-                                  })}
+                            {signInLabel(pending() === "connect", signedIn().length > 0, method()?.label)}
                         </button>
                     }
                 >
@@ -289,4 +296,12 @@ function providerConnectLabel(connecting: boolean, connected: boolean) {
     if (connecting) return "provider.connect.status.inProgress";
 
     return connected ? "common.save" : "common.connect";
+}
+
+/** Once a sign-in exists, signing in again adds another account to take turns with it. */
+function signInLabel(connecting: boolean, hasAccounts: boolean, method: string | undefined) {
+    if (connecting) return t("provider.connect.status.waiting");
+    if (hasAccounts) return t("drift.provider.accounts.add");
+
+    return t("drift.provider.signInWith", { method: method ?? t("drift.provider.browser") });
 }

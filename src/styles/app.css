@@ -309,6 +309,11 @@ textarea {
         both;
 }
 
+.picker-label-compact,
+.composer-stop-icon {
+    display: none;
+}
+
 .composer-dock {
     position: relative;
     isolation: isolate;
@@ -358,6 +363,22 @@ textarea {
         padding-left: max(0.65rem, env(safe-area-inset-left));
     }
 
+    /* One row: pickers drop their chevrons and the model its brand word, and Stop is an icon. */
+    .composer-options .picker-chevron,
+    .composer-options .picker-label-full,
+    .composer-stop-label {
+        display: none;
+    }
+
+    .composer-options .picker-label-compact,
+    .composer-stop-icon {
+        display: inline;
+    }
+
+    .composer-stop {
+        padding: 0.3125rem 0.5rem;
+    }
+
     .composer-options > .picker-control {
         position: static;
         min-width: 0;
@@ -377,6 +398,10 @@ textarea {
 
     .composer-action-buttons > button {
         flex-shrink: 0;
+    }
+
+    .picker-trigger .picker-label {
+        text-align: start;
     }
 
     .question-options {

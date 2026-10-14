@@ -47,8 +47,14 @@ tokio = { workspace = true }
 futures-util = { workspace = true }
 mime_guess = "2"
 rust-embed = "8"
+# The pairing code the Drift app scans; shared with it, no engine inside.
+drift-pairing = { path = "../crates/drift-pairing" }
+
+[target.'cfg(unix)'.dependencies]
+# Lists the network addresses offered in the pairing code; already in the tree through the engine.
+libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_Memory"] }
+windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_DataExchange", "Win32_System_Memory"] }
 windows = "0.61"
 webview2-com = "0.38.2"

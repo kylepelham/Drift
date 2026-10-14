@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use super::*;
 
+mod accounts;
 mod admission_receipts;
 mod agents;
 mod attachments;
@@ -25,6 +26,7 @@ mod orchestrator;
 mod permissions;
 mod plugin_hooks;
 mod pricing;
+mod processes;
 mod project_commands;
 mod retry_waits;
 mod routes;
@@ -35,6 +37,7 @@ mod subagents;
 mod tool_catalog;
 mod tool_order;
 mod tool_validation;
+mod unreadable_images;
 mod variants;
 
 pub(crate) struct Harness {

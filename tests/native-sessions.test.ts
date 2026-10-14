@@ -1,5 +1,5 @@
 import { childrenOf, createEngineState, putSession, savedChoice, sessionsFor } from "../src/engine/store";
-import { hiddenParent, sessionInWorkspace } from "../src/engine/sessions";
+import { hiddenParent, rehomeSessions, sessionInWorkspace } from "../src/engine/sessions";
 import { applySessionSnapshot, reduce } from "../src/engine/events";
 import { expect, test } from "bun:test";
 
@@ -61,4 +61,19 @@ test("a scoped session snapshot keeps native archived rows and clears dropped re
 
     expect(state.sessions.archived.archivedAt).toBe(50);
     expect(state.sessions.parent.revert).toBeUndefined();
+});
+
+test("a workspace moved to another folder keeps its loaded threads", () => {
+    const [state, set] = createEngineState();
+    putSession(set, sessionInWorkspace(session, workspaces));
+    const moved = { path: () => "C:/elsewhere", id: () => "workspace" };
+
+    set("sessions", (sessions) => {
+        const next = structuredClone(sessions);
+        rehomeSessions(next, moved);
+        return next;
+    });
+
+    expect(sessionsFor(state, "C:/elsewhere").map((current) => current.id)).toEqual(["parent"]);
+    expect(sessionsFor(state, "C:/repo")).toEqual([]);
 });

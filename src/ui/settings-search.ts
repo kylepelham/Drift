@@ -172,7 +172,6 @@ const settingsSearchDefinitions = {
         { title: "command.category.model" },
         { title: "drift.settings.prompts.agentPrompt", description: "drift.settings.prompts.inheritsFamily" },
         { title: "drift.settings.prompts.variant" },
-        { title: "drift.settings.prompts.steps" },
         { title: "drift.settings.prompts.tools", description: "drift.settings.prompts.toolsDescription" },
         { title: "drift.settings.permissions", description: "drift.settings.prompts.permissionsDescription" },
     ],

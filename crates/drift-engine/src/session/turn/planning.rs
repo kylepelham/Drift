@@ -100,6 +100,7 @@ impl Engine {
             model: resolved.model,
             provider,
             credential: resolved.credential,
+            account: resolved.account,
             variant,
             offer: Offer::default(),
             mcp_tools: Vec::new(),
@@ -145,13 +146,16 @@ impl Engine {
             .get(&provider)
             .map(|provider| (provider.env.clone(), provider.api.clone()))
             .unwrap_or_default();
-        let stored = self
+        let (account, stored) = self
             .credentials
-            .resolve(&provider, &environment)
+            .resolve_account(&provider, &environment, |key| {
+                self.account_suits(key, &plan.session.id, &plan.model)
+            })
             .ok_or(TurnError::NoCredentials)?;
         oneshot::refuse_signin_elsewhere(&provider, &stored, api.as_deref())?;
 
-        plan.credential = self.fresh_credential(&provider, stored).await?;
+        plan.credential = self.fresh_credential(&provider, account.as_deref(), stored).await?;
+        plan.account = account;
         Ok(())
     }
 
@@ -159,39 +163,53 @@ impl Engine {
     pub(in crate::session) async fn fresh_credential(
         &self,
         provider: &str,
+        account: Option<&str>,
         credential: Credential,
     ) -> Result<Credential, TurnError> {
         if !credential.is_expired() {
             return Ok(credential);
         }
 
-        self.renew(provider, credential).await
+        self.renew(provider, account, credential).await
     }
 
-    /// The provider's stored credential for callers outside a turn, such as the shell's usage limits.
+    /// The provider's first account's credential for callers outside a turn, such as the shell's usage limits.
     /// An expired sign-in is renewed first; `None` when there is no credential or renewal fails.
     pub async fn current_credential(&self, provider: &str) -> Option<Credential> {
-        let stored = self.credentials.get(provider)?;
-        if !stored.is_expired() {
-            return Some(stored);
-        }
+        let first = self.credentials.accounts(provider).into_iter().next()?;
 
-        self.renew(provider, stored).await.ok()
+        self.account_credential(provider, &first.key).await
+    }
+
+    /// Each of the provider's accounts in the user's order with its credential, renewed first when expired, for
+    /// callers outside a turn. The credential is `None` when the account has none or its renewal failed.
+    pub async fn account_credentials(&self, provider: &str) -> Vec<(llm::credentials::Account, Option<Credential>)> {
+        let accounts = self.credentials.accounts(provider);
+        let renewals = accounts
+            .iter()
+            .map(|account| self.account_credential(provider, &account.key));
+        let credentials = futures_util::future::join_all(renewals).await;
+
+        accounts.into_iter().zip(credentials).collect()
     }
 
     /// A new token for a sign-in that expired or was refused, refreshed once however many turns ask at the same time.
     pub(in crate::session) async fn renew(
         &self,
         provider: &str,
+        account: Option<&str>,
         credential: Credential,
     ) -> Result<Credential, TurnError> {
-        let lock = self.turns.refresh_lock(provider);
+        let Some(account) = account else {
+            return Ok(credential);
+        };
+        let lock = self.turns.refresh_lock(account);
         let _held = lock.lock().await;
 
         // A concurrent refresh or sign-in may already have supplied a usable replacement.
         if let Some(stored) = self
             .credentials
-            .get(provider)
+            .account(account)
             .filter(|stored| *stored != credential && !stored.is_expired())
         {
             return Ok(stored);
@@ -211,10 +229,10 @@ impl Engine {
         // A sign-in or sign-out made during refresh takes precedence over the refreshed token.
         if !self
             .credentials
-            .replace_if(provider, &credential, &fresh)
+            .replace_if(account, &credential, &fresh)
             .map_err(|error| TurnError::Store(error.to_string()))?
         {
-            return self.credentials.get(provider).ok_or(TurnError::NoCredentials);
+            return self.credentials.account(account).ok_or(TurnError::NoCredentials);
         }
 
         Ok(fresh)
@@ -289,6 +307,7 @@ impl Engine {
                 .provider
                 .with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
             plan.credential = resolved.credential;
+            plan.account = resolved.account;
         }
 
         plan.session.agent = session.agent;
@@ -314,7 +333,8 @@ impl Engine {
             .tools
             .offered(plan.model.profile)
             .into_iter()
-            .map(|tool| (tool.spec(), tool))
+            .map(|tool| (tool.spec_for(self), tool))
+            .filter(|(spec, _)| spec.name != "process" || self.background_processes())
             .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))

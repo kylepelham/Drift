@@ -2,6 +2,7 @@
 
 use serde_json::{Value, json};
 
+use crate::llm::credentials::Profile;
 use crate::llm::{Credential, OAuthError};
 
 pub const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -86,7 +87,7 @@ pub async fn exchange(
     code: &str,
     state: &str,
     verifier: &str,
-) -> Result<Credential, OAuthError> {
+) -> Result<(Credential, Profile), OAuthError> {
     let body = json!({
         "code": code,
         "state": state,
@@ -102,10 +103,10 @@ pub async fn exchange(
 pub async fn refresh(client: &reqwest::Client, refresh_token: &str) -> Result<Credential, OAuthError> {
     let body = json!({ "grant_type": "refresh_token", "refresh_token": refresh_token, "client_id": CLIENT_ID });
 
-    token_request(client, &body).await
+    token_request(client, &body).await.map(|(credential, _)| credential)
 }
 
-async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credential, OAuthError> {
+async fn token_request(client: &reqwest::Client, body: &Value) -> Result<(Credential, Profile), OAuthError> {
     let timeouts = crate::llm::http::Timeouts::default();
     let request = client
         .post(token_url())
@@ -128,13 +129,24 @@ async fn token_request(client: &reqwest::Client, body: &Value) -> Result<Credent
             .ok_or_else(|| OAuthError::MissingTokenField(key.to_owned()))
     };
     let expires_in = json["expires_in"].as_i64().unwrap_or(0);
-
-    Ok(Credential::OAuth {
+    let credential = Credential::OAuth {
         access: field("access_token")?,
         refresh: field("refresh_token")?,
         expires_at: crate::id::now_ms() + expires_in * 1000,
         account: None,
-    })
+    };
+
+    Ok((credential, profile(&json)))
+}
+
+/// Who signed in, as the token response names them; the tokens themselves are opaque.
+fn profile(json: &Value) -> Profile {
+    let account = &json["account"];
+
+    Profile {
+        identity: account["uuid"].as_str().map(str::to_string),
+        email: account["email_address"].as_str().map(str::to_string),
+    }
 }
 
 fn random_bytes(len: usize) -> Vec<u8> {
@@ -235,5 +247,19 @@ mod tests {
         assert!(!live.is_expired());
         assert!(dead.is_expired());
         assert!(!Credential::ApiKey { key: "k".into() }.is_expired());
+    }
+
+    #[test]
+    fn the_token_response_names_who_signed_in() {
+        let json = json!({ "account": { "uuid": "u-1", "email_address": "ann@example.com" } });
+
+        assert_eq!(
+            profile(&json),
+            Profile {
+                identity: Some("u-1".into()),
+                email: Some("ann@example.com".into()),
+            }
+        );
+        assert_eq!(profile(&json!({})), Profile::default());
     }
 }

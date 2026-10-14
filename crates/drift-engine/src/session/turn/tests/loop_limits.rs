@@ -1,41 +1,48 @@
 use super::*;
 
 #[tokio::test]
-async fn a_turn_pauses_at_its_step_limit_and_a_message_carries_on() {
+async fn a_turn_has_no_step_limit_even_when_an_old_config_sets_one() {
     let h = harness().await;
-    limits(&h, r#"{ "steps": 2 }"#);
+    limits(&h, r#"{ "steps": 1 }"#);
+    for name in ["a", "b", "c"] {
+        std::fs::write(h._dir.join(format!("ws/{name}.txt")), format!("{name}\n")).unwrap();
+    }
+    h.provider
+        .push(tool_call("read", r#"{"path": "a.txt"}"#))
+        .push(tool_call("read", r#"{"path": "b.txt"}"#))
+        .push(tool_call("read", r#"{"path": "c.txt"}"#))
+        .push(text("read all three"));
+    h.engine.submit(&h.session.id, prompt("work")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(transcript(&h).last().unwrap().info.status, MessageStatus::Done);
+    assert_eq!(h.provider.responses_left(), 0);
+    assert!(
+        h.provider
+            .requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|request| !request.no_tool_calls),
+        "tools stay on for every step"
+    );
+}
+
+#[tokio::test]
+async fn a_paused_turn_carries_on_with_a_message_and_the_pause_is_not_replayed() {
+    let h = harness().await;
+    limits(&h, r#"{ "repeats": 2 }"#);
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
-    std::fs::write(h._dir.join("ws/b.txt"), "b\n").unwrap();
     h.provider
         .push(read_a())
-        .push(text("WRAPPED: read a, b still to do"))
-        .push(tool_call("read", r#"{"path": "b.txt"}"#))
+        .push(read_a())
+        .push(text("WRAPPED: stuck on a.txt"))
         .push(text("finished"));
     h.engine.submit(&h.session.id, prompt("work")).await.await_ok();
     until_idle(&h).await;
 
-    let mut messages = transcript(&h);
-    let last = messages.pop().unwrap();
-    assert_eq!(last.info.status, MessageStatus::Paused);
-    assert!(
-        last.info.error.as_deref().unwrap().starts_with("Paused after 2 steps"),
-        "{:?}",
-        last.info.error
-    );
-    assert!(
-        format!("{:?}", messages.last().unwrap().parts).contains("WRAPPED"),
-        "the last allowed step writes up what was done"
-    );
-    {
-        let requests = h.provider.requests.lock().unwrap();
-        assert!(
-            !requests[0].no_tool_calls && requests[1].no_tool_calls,
-            "the last allowed step has tools off"
-        );
-        assert!(format!("{:?}", requests[1].messages.last()).contains("last step this turn allows"));
-    }
-
-    assert_eq!(h.provider.responses_left(), 2, "no request after the limit");
+    assert_eq!(transcript(&h).last().unwrap().info.status, MessageStatus::Paused);
+    assert_eq!(h.provider.responses_left(), 1, "no request after the pause");
 
     h.engine.submit(&h.session.id, prompt("carry on")).await.await_ok();
     until_idle(&h).await;
@@ -85,8 +92,9 @@ async fn the_same_calls_with_the_same_results_pause_the_turn() {
 }
 
 #[tokio::test]
-async fn a_subagent_at_its_step_limit_hands_back_what_it_found() {
+async fn a_subagent_stopped_for_repeating_hands_back_what_it_found() {
     let h = harness().await;
+    limits(&h, r#"{ "repeats": 2 }"#);
     h.engine
         .store
         .update_session(&h.session.id, None, Some(&model()), None)
@@ -94,7 +102,7 @@ async fn a_subagent_at_its_step_limit_hands_back_what_it_found() {
     std::fs::create_dir_all(h._dir.join("ws/.drift/agents")).unwrap();
     std::fs::write(
         h._dir.join("ws/.drift/agents/scout.md"),
-        "---\nmode: subagent\nsteps: 2\n---\nScout.",
+        "---\nmode: subagent\n---\nScout.",
     )
     .unwrap();
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
@@ -103,6 +111,7 @@ async fn a_subagent_at_its_step_limit_hands_back_what_it_found() {
             "task",
             r#"{"description": "scout", "prompt": "look around", "subagent_type": "scout"}"#,
         ))
+        .push(read_a())
         .push(read_a())
         .push(text("FINDINGS: a.txt holds a"))
         .push(text("thanks"));
@@ -123,7 +132,7 @@ async fn a_subagent_at_its_step_limit_hands_back_what_it_found() {
     );
     let last = format!("{:?}", h.provider.requests.lock().unwrap().last().unwrap().messages);
     assert!(
-        last.contains("FINDINGS") && last.contains("reached its step or repeat limit"),
+        last.contains("FINDINGS") && last.contains("kept repeating the same calls"),
         "the parent gets the write-up, marked partial"
     );
 }
@@ -131,14 +140,18 @@ async fn a_subagent_at_its_step_limit_hands_back_what_it_found() {
 #[tokio::test]
 async fn a_wrap_up_that_calls_a_tool_anyway_runs_nothing() {
     let h = harness().await;
-    limits(&h, r#"{ "steps": 1 }"#);
+    limits(&h, r#"{ "repeats": 2 }"#);
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
-    h.provider.push(read_a());
+    std::fs::write(h._dir.join("ws/b.txt"), "b\n").unwrap();
+    h.provider
+        .push(read_a())
+        .push(read_a())
+        .push(tool_call("read", r#"{"path": "b.txt"}"#));
     h.engine.submit(&h.session.id, prompt("work")).await.await_ok();
     until_idle(&h).await;
 
     let messages = transcript(&h);
-    let call = tool(&messages[1].parts[0]);
+    let call = tool(&messages[3].parts[0]);
     assert_eq!(call.status, ToolStatus::Error, "{messages:#?}");
     assert!(call.output.unwrap().contains("tools were off"), "{:?}", call.output);
     assert!(
@@ -147,7 +160,7 @@ async fn a_wrap_up_that_calls_a_tool_anyway_runs_nothing() {
             .read_files(&h.session.id)
             .unwrap_or_default()
             .iter()
-            .any(|path| path.ends_with("a.txt")),
+            .any(|path| path.ends_with("b.txt")),
         "not even an early read ran"
     );
 }
@@ -215,7 +228,7 @@ fn only_identical_results_count_as_repeats() {
 }
 
 #[test]
-fn an_agent_can_have_its_own_step_limit() {
+fn old_step_settings_load_without_complaint() {
     let dir = std::env::temp_dir().join(format!("drift-limits-{}", crate::random_hex(4)));
     std::fs::create_dir_all(dir.join(".drift/agents")).unwrap();
     std::fs::write(dir.join("drift.json"), r#"{ "limits": { "steps": 50, "repeats": 4 } }"#).unwrap();
@@ -226,14 +239,8 @@ fn an_agent_can_have_its_own_step_limit() {
     .unwrap();
 
     let config = Config::load_with_home(&dir, None);
-    assert_eq!(
-        config.limits_for("build"),
-        crate::config::Limits {
-            steps: 50,
-            repeats: 4,
-            polls: 30
-        }
-    );
-    assert_eq!(config.limits_for("quick").steps, 5);
+    assert_eq!(config.limits, crate::config::Limits { repeats: 4, polls: 30 });
+    assert!(config.agent("quick").unwrap().problem.is_none());
+    assert!(config.warnings.is_empty(), "{:?}", config.warnings);
     std::fs::remove_dir_all(dir).ok();
 }

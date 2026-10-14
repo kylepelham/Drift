@@ -312,9 +312,9 @@ conversation's next turn. The rules Drift always adds after the base prompt (too
 `<system-reminder>`, the worktree, the shape of answers) are never replaced and not shown.
 
 An agent's editor is laid out like the rest of Settings. Behavior holds its model (subagents and
-background jobs only; an agent picked in the composer runs on the conversation's), its default
-reasoning level and its step limit, each a dropdown: the levels are the pinned model's, or with none
-pinned every level a connected model offers, and the step limit offers presets. Then its prompt.
+background jobs only; an agent picked in the composer runs on the conversation's) and its default
+reasoning level, each a dropdown: the levels are the pinned model's, or with none pinned every level
+a connected model offers. Then its prompt.
 Then Tools: all tools, only these, or all except these, with a toggle for each built-in tool and
 one for each MCP server of the active workspace, covering all its tools and showing how many are
 chosen (from `GET /tools`; a single MCP tool is narrowed with a permission rule); "All tools" over an agent its

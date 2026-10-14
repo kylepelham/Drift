@@ -1,5 +1,5 @@
 import { shellInvoke, type ShellInvoke } from "./shell";
-import { isRemoteRuntime } from "./runtime";
+import { isRemoteRuntime, signInPath } from "./runtime";
 
 export function backendRoute(desktop: boolean, remote: boolean) {
     if (desktop) return "tauri";
@@ -23,7 +23,7 @@ export function backendInvoke(): ShellInvoke | undefined {
         });
 
         // A revoked or expired device session returns to the sign-in page.
-        if (response.status === 401 && (await remoteSessionExpired())) window.location.replace("/companion");
+        if (response.status === 401 && (await remoteSessionExpired())) window.location.replace(signInPath());
         const value = (await response.json().catch(() => null)) as T | { error?: string } | null;
         if (!response.ok) {
             const message = value && typeof value === "object" && "error" in value ? value.error : undefined;

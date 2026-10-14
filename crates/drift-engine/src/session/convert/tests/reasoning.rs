@@ -114,6 +114,7 @@ fn a_mode_and_its_base_take_each_others_signed_reasoning() {
         &OnCatalog {
             model: &base,
             catalog: &catalog,
+            account: None,
         },
     );
 
@@ -132,6 +133,7 @@ fn a_mode_and_its_base_take_each_others_signed_reasoning() {
                 model: "claude-opus-5".into(),
             },
             catalog: &catalog,
+            account: None,
         },
     );
 
@@ -139,6 +141,55 @@ fn a_mode_and_its_base_take_each_others_signed_reasoning() {
         sibling[0].blocks,
         vec![Block::Text("hm".into())],
         "another model in the family reads it as text"
+    );
+}
+
+#[test]
+fn reasoning_signed_through_another_account_is_read_as_text() {
+    let catalog = Catalog::bundled();
+    let model = ModelRef {
+        provider: "anthropic".into(),
+        model: "claude-opus-5-5".into(),
+    };
+    let signed = |account: Option<&str>| {
+        let mut reply = message(
+            Role::Assistant,
+            vec![Part::Reasoning {
+                text: "hm".into(),
+                signature: Some("sig".into()),
+                redacted: None,
+            }],
+        );
+        reply.info.model = Some(model.clone());
+        reply.info.account = account.map(str::to_string);
+        reply
+    };
+    let sent_by = |account: Option<&str>, reply: &MessageWithParts| {
+        let mut output = Vec::new();
+        let target = OnCatalog {
+            model: &model,
+            catalog: &catalog,
+            account,
+        };
+        append(&mut output, [reply], &target);
+        output.remove(0).blocks
+    };
+
+    assert!(matches!(
+        &sent_by(Some("anthropic~b2"), &signed(Some("anthropic~b2")))[0],
+        Block::Reasoning { signature: Some(_), .. }
+    ));
+    assert_eq!(
+        sent_by(Some("anthropic~b2"), &signed(Some("anthropic"))),
+        vec![Block::Text("hm".into())],
+        "another account cannot send this signature back"
+    );
+    assert!(
+        matches!(
+            &sent_by(Some("anthropic"), &signed(None))[0],
+            Block::Reasoning { signature: Some(_), .. }
+        ),
+        "a reply from before accounts came from the account stored under the provider's name"
     );
 }
 

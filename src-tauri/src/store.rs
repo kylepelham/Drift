@@ -136,17 +136,53 @@ pub(crate) fn attach(engine: Arc<drift_engine::store::Store>) -> rusqlite::Resul
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             token_hash TEXT NOT NULL UNIQUE,
-            method TEXT NOT NULL CHECK(method IN ('link', 'password')),
+            method TEXT NOT NULL CHECK(method IN ('link', 'password', 'app')),
             created_at INTEGER NOT NULL,
             last_seen_at INTEGER NOT NULL
         ) STRICT;",
     )?;
     // The removed model-recovery workflow used this table.
     connection.execute("DROP TABLE IF EXISTS recoverable_interruption", [])?;
+    allow_app_devices(&connection)?;
+    // Agents no longer have a step limit; an override that set one would otherwise be refused.
+    connection.execute(
+        "UPDATE prompt_override SET value_json = json_remove(value_json, '$.steps'),
+            original_json = json_remove(original_json, '$.steps')
+         WHERE json_type(value_json, '$.steps') IS NOT NULL OR json_type(original_json, '$.steps') IS NOT NULL",
+        [],
+    )?;
     collapse_duplicate_workspaces(&connection)?;
     drop(connection);
 
     Ok(store)
+}
+
+/// Devices the Drift app paired are a third sign-in method; a table made before it gets the wider check.
+fn allow_app_devices(connection: &Connection) -> rusqlite::Result<()> {
+    let sql: String = connection.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'remote_device'",
+        [],
+        |row| row.get(0),
+    )?;
+    if sql.contains("'app'") {
+        return Ok(());
+    }
+
+    connection.execute_batch(
+        "BEGIN;
+        CREATE TABLE remote_device_new(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            method TEXT NOT NULL CHECK(method IN ('link', 'password', 'app')),
+            created_at INTEGER NOT NULL,
+            last_seen_at INTEGER NOT NULL
+        ) STRICT;
+        INSERT INTO remote_device_new SELECT id, name, token_hash, method, created_at, last_seen_at FROM remote_device;
+        DROP TABLE remote_device;
+        ALTER TABLE remote_device_new RENAME TO remote_device;
+        COMMIT;",
+    )
 }
 
 /// Collapses duplicate paths that differ in slash direction or casing, including old forward-slash imports.

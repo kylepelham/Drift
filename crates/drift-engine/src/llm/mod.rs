@@ -13,8 +13,10 @@ pub use files::prepare_files;
 pub mod gemini;
 pub mod google;
 pub mod http;
+pub mod limits;
 pub mod local;
 mod oauth_error;
+pub mod ollama;
 pub mod openai;
 pub use oauth_error::OAuthError;
 #[cfg(test)]
@@ -33,7 +35,7 @@ use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::session::types::Usage;
+use crate::session::types::{Refusal, Usage};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -171,6 +173,8 @@ pub struct Request {
     pub top_k: Option<u32>,
     /// The catalog mode the chosen entry runs `model` in (fast, ultrafast, flex, pro).
     pub mode: Option<catalog::ModelMode>,
+    /// The model's window in tokens, for servers that size it per request (Ollama's `num_ctx`); `None` when unknown.
+    pub context_window: Option<u64>,
 }
 
 /// Lays the mode's body fields over the adapter's body, objects merged key by key
@@ -239,10 +243,17 @@ pub enum Chunk {
     ReasoningSignature(String),
     PartSignature(String),
     ReasoningRedacted(String),
-    ToolUseStart { id: String, name: String },
+    ToolUseStart {
+        id: String,
+        name: String,
+    },
     ToolInputDelta(String),
     BlockStop,
     Usage(Usage),
+    /// What the account that sent the request has spent of its subscription, from the response's headers or events.
+    Limits(limits::Limits),
+    /// What the provider said about a safety refusal, ahead of its `Stop(Refused)`.
+    Refusal(Refusal),
     Stop(StopReason),
 }
 
@@ -293,19 +304,35 @@ fn permanent(kind: &str) -> bool {
     PERMANENT_KINDS.contains(&kind.to_ascii_lowercase().as_str())
 }
 
+/// What providers say, lowercased, when the signed-in account's plan does not include the model, whatever
+/// status and kind come with it: Anthropic answers 429 `rate_limit_error`, Codex 400.
+const PLAN_LACKS_MODEL: [&str; 3] = [
+    "usage credits are required",
+    "not supported when using codex with a chatgpt account",
+    "not available on your plan",
+];
+
+fn plan_lacks_model(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+
+    PLAN_LACKS_MODEL.iter().any(|phrase| message.contains(phrase))
+}
+
 impl Error {
     /// A provider error, retryable by its status or, inside a stream, by what the provider calls it.
     /// A permanent fault is never retryable.
     pub fn api(status: u16, kind: impl Into<String>, message: impl Into<String>) -> Self {
         let kind = kind.into();
+        let message = message.into();
         let transient = RETRY_STATUSES.contains(&status)
             || (status == STREAMED && RETRY_KINDS.contains(&kind.to_ascii_lowercase().as_str()));
-        let retryable = transient && !permanent(&kind);
+        // Waiting never adds a model to the account's plan; another account may have it.
+        let retryable = transient && !permanent(&kind) && !plan_lacks_model(&message);
 
         Self::Api {
             status,
             kind,
-            message: message.into(),
+            message,
             retryable,
             retry_after: None,
         }
@@ -313,24 +340,67 @@ impl Error {
 
     /// Takes what the response headers say about retrying: the wait the provider asks for, and its
     /// explicit `x-should-retry` verdict, which cannot make a permanent fault retryable.
+    /// A refusal for spent subscription usage becomes `LIMIT_REACHED`, waiting until the usage frees.
     pub fn with_headers(mut self, headers: &::http::HeaderMap) -> Self {
         if let Self::Api {
+            status,
             kind,
+            message,
             retryable,
             retry_after,
-            ..
         } = &mut self
         {
-            *retry_after = requested_wait(headers);
+            *retry_after = requested_wait(headers).or(*retry_after);
             match headers.get("x-should-retry").and_then(|v| v.to_str().ok()) {
-                Some("true") => *retryable = !permanent(kind),
+                Some("true") => *retryable = !permanent(kind) && !plan_lacks_model(message),
                 Some("false") => *retryable = false,
                 _ => {}
+            }
+
+            let spent = limits::Limits::from_headers(headers).and_then(|limits| limits.spent_until);
+            if *status == 429 && (spent.is_some() || kind == limits::LIMIT_REACHED) {
+                *kind = limits::LIMIT_REACHED.into();
+                *retry_after = spent.map(wait_until).or(*retry_after);
             }
         }
 
         self
     }
+
+    /// The headers a WebSocket error event carries in its body, taken as `with_headers` takes a response's.
+    pub fn with_header_object(self, headers: &Value) -> Self {
+        let Some(object) = headers.as_object() else {
+            return self;
+        };
+
+        let map = object
+            .iter()
+            .filter_map(|(name, value)| {
+                let name = ::http::HeaderName::from_bytes(name.as_bytes()).ok()?;
+                let value =
+                    ::http::HeaderValue::from_str(&value.as_str().map_or_else(|| value.to_string(), str::to_string))
+                        .ok()?;
+                Some((name, value))
+            })
+            .collect();
+
+        self.with_headers(&map)
+    }
+
+    /// The account's usage is spent: switching accounts, not waiting, is the remedy.
+    pub fn limit_reached(&self) -> bool {
+        matches!(self, Self::Api { kind, .. } if kind == limits::LIMIT_REACHED)
+    }
+
+    /// The account's plan does not include the model; another account's may.
+    pub fn plan_lacks_model(&self) -> bool {
+        matches!(self, Self::Api { message, .. } if plan_lacks_model(message))
+    }
+}
+
+/// The wait from now until `at`, in ms since the epoch.
+fn wait_until(at: i64) -> std::time::Duration {
+    std::time::Duration::from_millis(u64::try_from(at - crate::id::now_ms()).unwrap_or(0))
 }
 
 /// `retry-after-ms`, else `retry-after` as seconds or as an HTTP date. A wait too long to represent
@@ -385,7 +455,18 @@ impl Error {
     pub fn is_context_overflow(&self) -> bool {
         matches!(self, Self::Api { status: 400 | 413, .. }) && mentions_context_overflow(&self.to_string())
     }
+
+    /// The provider could not read an image the request carried; dropping it can recover where retrying cannot.
+    pub fn is_unreadable_image(&self) -> bool {
+        let refused = matches!(self, Self::Api { status: 400, .. });
+        let text = self.to_string().to_ascii_lowercase();
+
+        refused && UNREADABLE_IMAGE_PHRASES.iter().any(|phrase| text.contains(phrase))
+    }
 }
+
+/// How providers say they could not read an image: Anthropic's wording, seen on a corrupt JPEG on 2026-10-09.
+const UNREADABLE_IMAGE_PHRASES: [&str; 1] = ["could not process image"];
 
 /// Also used on errors already flattened to text, such as a failed summary request.
 pub fn mentions_context_overflow(text: &str) -> bool {
@@ -414,6 +495,13 @@ mod overflow_tests {
         }
         assert!(api(413, "Input is too long for requested model.").is_context_overflow());
         assert!(!api(400, "messages: text content blocks must be non-empty").is_context_overflow());
+        assert!(api(400, "Could not process image").is_unreadable_image());
+        assert!(!api(400, "Could not process image").is_context_overflow());
+        assert!(
+            !api(500, "Could not process image").is_unreadable_image(),
+            "a server fault retries instead"
+        );
+        assert!(!api(400, "prompt is too long").is_unreadable_image());
         assert!(
             !api(429, "prompt is too long").is_context_overflow(),
             "a rate limit is not an overflow"
@@ -439,6 +527,7 @@ pub enum Provider {
     Gemini(gemini::Gemini),
     Bedrock(bedrock::Bedrock),
     Vertex(vertex::Vertex),
+    Ollama(ollama::Ollama),
     Scripted(scripted::Scripted),
 }
 
@@ -460,6 +549,7 @@ impl Provider {
             Self::Gemini(provider) => Some(provider.timeouts),
             Self::Bedrock(provider) => Some(provider.timeouts),
             Self::Vertex(provider) => Some(provider.timeouts),
+            Self::Ollama(provider) => Some(provider.timeouts),
             Self::Scripted(_) => None,
         }
     }
@@ -472,6 +562,7 @@ impl Provider {
             Self::Gemini(provider) => Some(&mut provider.timeouts),
             Self::Bedrock(provider) => Some(&mut provider.timeouts),
             Self::Vertex(provider) => Some(&mut provider.timeouts),
+            Self::Ollama(provider) => Some(&mut provider.timeouts),
             Self::Scripted(_) => None,
         }
     }
@@ -484,7 +575,8 @@ impl Provider {
             Self::Gemini(provider) => provider.stream(request, credential).await,
             Self::Bedrock(provider) => provider.stream(request, credential).await,
             Self::Vertex(provider) => provider.stream(request, credential).await,
-            Self::Scripted(provider) => provider.stream(request),
+            Self::Ollama(provider) => provider.stream(request, credential).await,
+            Self::Scripted(provider) => provider.stream(request, credential),
         }
     }
 }
@@ -517,7 +609,8 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "zai" => Provider::Compat(compat::Compat::zai(&base("https://api.z.ai/api/paas/v4"))),
         "openrouter" => Provider::Compat(compat::Compat::openrouter(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
-        "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),
+        "ollama" => Provider::Ollama(ollama::Ollama::new(&base(ollama::LOCAL_ROOT))),
+        "ollama-cloud" => Provider::Ollama(ollama::Ollama::new(&base(ollama::CLOUD_ROOT))),
         "amazon-bedrock" => Provider::Bedrock(bedrock::Bedrock::new(override_url)),
         "google-vertex" | "google-vertex-anthropic" => Provider::Vertex(vertex::Vertex::new(override_url)),
         _ => Provider::Compat(compat::Compat::new(override_url.as_deref()?)),

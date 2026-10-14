@@ -1,0 +1,7 @@
+Works with the background processes this conversation started: commands run with bash `background: true`, and commands that were still running at their time limit.
+
+- Start servers, watchers and long builds with bash `background: true`; it returns a process id at once.
+- When a process ends, a conversation the user sees is told with its exit code and the end of its output, even after your turn ends. So once you have nothing else to do, end your turn rather than waiting; do not poll with `sleep` or repeated `output` calls. A subagent is not told, and its processes stop when its run ends: wait for them with one long `wait` before you report.
+- To wait for a server, use `wait` with `until` set to the line it prints when ready (for example `listening|ready|Local:`); the result names any web address it printed.
+- `output` returns only what it printed since you last looked; `search` finds lines in its recent output. Everything it printed is in the log file the result names, which you can `read` or `grep`.
+- Stop processes you no longer need. They keep running after your turn ends and after the user presses Stop; they end when stopped, when this conversation is archived, or when Drift quits.

@@ -5,8 +5,14 @@ import { t } from "./i18n";
 type UsageWindowKind = "session" | "weekly" | "monthly" | "period";
 export type UsageWindow = { kind: UsageWindowKind; label: string | null; usedPercent: number; resetsAt: number | null };
 export type ProviderUsage = { status: "ok" | "expired" | "unsubscribed"; plan: string | null; windows: UsageWindow[] };
-export type UsageEntry = { usage: ProviderUsage | null; failed: boolean; fetchedAt: number; loading: boolean };
+/** One account's plan usage; `failed` when its last request failed, keeping the usage it showed before. */
+export type AccountUsage = { key: string; label: string | null; usage: ProviderUsage | null; failed: boolean };
+/** A provider's accounts in use order; `accounts` is null when the provider reports no plan usage. */
+export type UsageEntry = { accounts: AccountUsage[] | null; failed: boolean; fetchedAt: number; loading: boolean };
 export type UsageTone = "normal" | "warn" | "danger";
+
+/** One account as `provider_usage` answers; `usage` is null when its request failed. */
+type ReportedAccount = Omit<AccountUsage, "failed">;
 
 // Plan usage moves slowly and the endpoints are private, so hovering never polls faster than this.
 const freshMs = 60_000;
@@ -25,19 +31,43 @@ export function usageFor(provider: string): UsageEntry | undefined {
 export async function refreshUsage(provider: string, now = Date.now(), force = false) {
     const current = entries[provider];
     if (current?.loading || (!force && current && now - current.fetchedAt < freshMs)) return;
+
     const invoke = backendInvoke();
     if (!invoke) return;
+
+    const previous = current?.accounts ?? null;
     setEntries(provider, {
-        usage: current?.usage ?? null,
+        accounts: previous,
         failed: false,
         fetchedAt: current?.fetchedAt ?? 0,
         loading: true,
     });
-    const result = await invoke<ProviderUsage | null>("provider_usage", { provider }).then(
-        (usage) => ({ usage, failed: false }),
-        () => ({ usage: current?.usage ?? null, failed: true }),
+    const result = await invoke<ReportedAccount[] | null>("provider_usage", { provider }).then(
+        (reported) => ({ accounts: reported && merged(reported, previous), failed: false }),
+        () => ({ accounts: previous, failed: true }),
     );
     setEntries(provider, { ...result, fetchedAt: Date.now(), loading: false });
+}
+
+/** An account whose request failed keeps the usage it showed before. */
+function merged(reported: ReportedAccount[], previous: AccountUsage[] | null): AccountUsage[] {
+    return reported.map((account) => {
+        if (account.usage) return { ...account, failed: false };
+
+        const before = previous?.find((old) => old.key === account.key);
+        return { ...account, usage: before?.usage ?? null, failed: true };
+    });
+}
+
+/** The account a turn would use: the first with no window at its limit, else the first. */
+export function activeAccount(entry: UsageEntry | undefined): AccountUsage | undefined {
+    const accounts = entry?.accounts ?? [];
+    const available = accounts.find((account) => {
+        const usage = account.usage;
+        return usage?.status === "ok" && usage.windows.every((window) => window.usedPercent < 100);
+    });
+
+    return available ?? accounts[0];
 }
 
 export function usageTone(percent: number): UsageTone {

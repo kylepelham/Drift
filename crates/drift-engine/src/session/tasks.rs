@@ -23,8 +23,8 @@ pub const BACKGROUND_TASKS_KEY: &str = "backgroundTasks";
 pub const BACKGROUND_LIMIT_KEY: &str = "backgroundTaskLimit";
 /// How much of a worker's final reply comes back verbatim.
 const RESULT_CHARS: usize = 20_000;
-/// The longest `task_output` may wait for a worker to finish.
-pub const MAX_WAIT: Duration = Duration::from_secs(120);
+/// The longest `task_output` may wait for a worker to finish; one long wait beats many short polls.
+pub const MAX_WAIT: Duration = Duration::from_secs(600);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -479,6 +479,8 @@ impl Engine {
                 "failed",
             ),
         };
+        // A subagent's background processes are its own tools; they end with its run.
+        self.processes.stop_session(&task.session_id);
         self.end_task(&task.id, state, &text);
         self.workers.forget(&task.id);
 
@@ -507,7 +509,7 @@ impl Engine {
             }
             Attempt::Limited(write_up) => {
                 let text = format!(
-                    "The subagent reached its step or repeat limit before finishing; \
+                    "The subagent kept repeating the same calls with the same results; \
                      this is its account of where it got to, not a complete answer:\n\n{}",
                     clip(&write_up, RESULT_CHARS)
                 );
@@ -762,7 +764,7 @@ pub(crate) enum Attempt {
     Replied(String),
     /// It finished writing only because it hit the output limit; the text is partial.
     Incomplete(String),
-    /// The turn's step or repeat limit stopped it; the text is its write-up of unfinished work.
+    /// The repeat check stopped it; the text is its write-up of unfinished work.
     Limited(String),
     /// The provider's safety filter ended it; the text is whatever came before.
     Refused(String),

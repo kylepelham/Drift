@@ -143,6 +143,52 @@ async fn concurrent_turns_refresh_an_expired_token_once() {
 }
 
 #[tokio::test]
+async fn a_renewed_sign_in_is_stored_on_its_own_account_only() {
+    let (_held, hits) = token_endpoint(
+        200,
+        json!({ "access_token": "fresh", "refresh_token": "r2", "expires_in": 3600 }),
+    )
+    .await;
+    let h = harness().await;
+    let person = |name: &str| crate::llm::credentials::Profile {
+        identity: Some(name.into()),
+        email: None,
+    };
+    let live = |access: &str| Credential::OAuth {
+        access: access.into(),
+        refresh: "r1".into(),
+        expires_at: id::now_ms() + 3_600_000,
+        account: None,
+    };
+    let credentials = &h.engine.credentials;
+    let first = credentials
+        .add_account("anthropic", &live("first"), &person("ann"))
+        .unwrap();
+    let second = credentials
+        .add_account("anthropic", &live("revoked"), &person("bob"))
+        .unwrap();
+    credentials
+        .reorder_accounts("anthropic", &[second.clone(), first.clone()])
+        .unwrap();
+    h.provider
+        .push_error(llm::Error::Unauthenticated("OAuth token has expired.".into()))
+        .push(text("a"));
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    assert!(transcript(&h).iter().all(|message| message.info.error.is_none()));
+    assert!(
+        matches!(credentials.account(&second), Some(Credential::OAuth { access, refresh, .. }) if access == "fresh" && refresh == "r2"),
+        "the account in use is renewed"
+    );
+    assert!(
+        matches!(credentials.account(&first), Some(Credential::OAuth { access, .. }) if access == "first"),
+        "the other account keeps its own token"
+    );
+}
+
+#[tokio::test]
 async fn a_subscription_sign_in_is_never_sent_to_a_route_the_user_re_pointed() {
     let h = harness().await;
     let live = Credential::OAuth {
@@ -177,4 +223,76 @@ async fn a_subscription_sign_in_is_never_sent_to_a_route_the_user_re_pointed() {
     h.provider.push(text("via the gateway"));
     h.engine.submit(&h.session.id, prompt("hi")).await.await_ok();
     until_idle(&h).await;
+}
+
+/// A live sign-in and an expired one, the expired one first in use order; returns their keys as (live, expired).
+fn live_and_expired_accounts(h: &Harness) -> (String, String) {
+    let sign_in = |access: &str, expires_at: i64| Credential::OAuth {
+        access: access.into(),
+        refresh: "r1".into(),
+        expires_at,
+        account: None,
+    };
+    let person = |name: &str, email: Option<&str>| crate::llm::credentials::Profile {
+        identity: Some(name.into()),
+        email: email.map(str::to_string),
+    };
+
+    let credentials = &h.engine.credentials;
+    let live = credentials
+        .add_account(
+            "anthropic",
+            &sign_in("ann", id::now_ms() + 3_600_000),
+            &person("ann", Some("ann@example.com")),
+        )
+        .unwrap();
+    let expired = credentials
+        .add_account("anthropic", &sign_in("bob", 1), &person("bob", None))
+        .unwrap();
+    credentials
+        .reorder_accounts("anthropic", &[expired.clone(), live.clone()])
+        .unwrap();
+
+    (live, expired)
+}
+
+#[tokio::test]
+async fn every_account_is_listed_in_use_order_with_an_expired_sign_in_renewed() {
+    let (_held, hits) = token_endpoint(
+        200,
+        json!({ "access_token": "fresh", "refresh_token": "r2", "expires_in": 3600 }),
+    )
+    .await;
+    let h = harness().await;
+    let (live, expired) = live_and_expired_accounts(&h);
+
+    let listed = h.engine.account_credentials("anthropic").await;
+
+    let accounts: Vec<_> = listed
+        .iter()
+        .map(|(account, _)| (account.key.clone(), account.label.clone()))
+        .collect();
+    assert_eq!(accounts, vec![(expired, None), (live, Some("ann@example.com".into()))]);
+    assert!(matches!(&listed[0].1, Some(Credential::OAuth { access, .. }) if access == "fresh"));
+    assert!(matches!(&listed[1].1, Some(Credential::OAuth { access, .. }) if access == "ann"));
+    assert_eq!(hits.load(Ordering::SeqCst), 1, "only the expired account is renewed");
+}
+
+#[tokio::test]
+async fn an_account_that_cannot_be_renewed_is_listed_without_a_credential() {
+    let (_held, _) = token_endpoint(
+        400,
+        json!({ "error": "invalid_grant", "error_description": "Refresh token revoked" }),
+    )
+    .await;
+    let h = harness().await;
+    live_and_expired_accounts(&h);
+
+    let listed = h.engine.account_credentials("anthropic").await;
+
+    assert_eq!(listed.len(), 2);
+    assert!(listed[0].1.is_none(), "the expired account says it expired");
+    assert!(matches!(&listed[1].1, Some(Credential::OAuth { access, .. }) if access == "ann"));
+    assert!(h.engine.current_credential("anthropic").await.is_none());
+    assert!(h.engine.account_credentials("openrouter").await.is_empty());
 }

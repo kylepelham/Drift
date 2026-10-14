@@ -6,9 +6,12 @@ mod error;
 mod events;
 pub use events::Lease;
 mod health;
+mod local_servers;
 mod mcp;
 mod permissions;
+mod processes;
 mod prompts;
+mod provider_accounts;
 mod providers;
 mod questions;
 mod sessions;
@@ -76,6 +79,12 @@ fn session_action_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::switch_retry_model))
         .routes(routes!(sessions::revert))
         .routes(routes!(sessions::unrevert))
+        .routes(routes!(sessions::export_sessions))
+        .merge(
+            OpenApiRouter::new()
+                .routes(routes!(sessions::import_sessions))
+                .layer(axum::extract::DefaultBodyLimit::max(MAX_BACKUP_BYTES)),
+        )
 }
 
 fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
@@ -115,6 +124,9 @@ fn provider_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::remove))
         .routes(routes!(providers::oauth_start))
         .routes(routes!(providers::oauth_finish))
+        .routes(routes!(local_servers::get, local_servers::set))
+        .routes(routes!(provider_accounts::reorder))
+        .routes(routes!(provider_accounts::rename, provider_accounts::remove))
 }
 
 fn permission_routes() -> OpenApiRouter<Arc<Engine>> {
@@ -139,6 +151,8 @@ fn task_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::tasks))
         .routes(routes!(sessions::task))
         .routes(routes!(sessions::abort_task))
+        .routes(routes!(processes::list))
+        .routes(routes!(processes::stop))
 }
 
 fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {
@@ -154,6 +168,8 @@ fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {
 
 /// The largest request the engine reads: prompts carry attachments as base64 (a 40 MB video is 53 MB); axum's default is 2 MB.
 pub const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
+/// A restored backup carries whole conversations, attachments included.
+pub const MAX_BACKUP_BYTES: usize = 1024 * 1024 * 1024;
 
 pub fn router(engine: Arc<Engine>) -> Router {
     let (router, openapi) = documented().split_for_parts();

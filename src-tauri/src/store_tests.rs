@@ -117,6 +117,48 @@ fn open_drops_legacy_recoverable_interruptions() {
 }
 
 #[test]
+fn an_older_device_table_keeps_its_devices_and_accepts_app_pairings() {
+    let dir = test_dir("app-devices");
+    let file = dir.join("drift.db");
+    let raw = Connection::open(&file).unwrap();
+    raw.execute_batch(
+        "CREATE TABLE remote_device(
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            method TEXT NOT NULL CHECK(method IN ('link', 'password')),
+            created_at INTEGER NOT NULL,
+            last_seen_at INTEGER NOT NULL
+        ) STRICT;
+        INSERT INTO remote_device VALUES('d1', 'Phone', 'hash', 'link', 1, 2);",
+    )
+    .unwrap();
+    drop(raw);
+
+    let store = open_at(&file).unwrap();
+    let app = RemoteDevice {
+        id: "d2".into(),
+        name: "Pixel".into(),
+        token_hash: "other".into(),
+        method: "app".into(),
+        created_at: 3,
+        last_seen_at: 3,
+    };
+    store.insert_remote_device(&app).unwrap();
+
+    let names: Vec<String> = store
+        .remote_devices()
+        .unwrap()
+        .into_iter()
+        .map(|device| device.name)
+        .collect();
+    assert_eq!(names, ["Phone", "Pixel"]);
+    drop(store);
+    assert!(open_at(&file).is_ok(), "a second open leaves the rebuilt table alone");
+    std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
 fn expired_duplicates_of_active_directories_are_collapsed_not_returned() {
     let dir = test_dir("dup");
     let file = dir.join("drift.db");
@@ -343,4 +385,23 @@ fn legacy_remote_access_key_survives_for_older_builds_and_devices_round_trip() {
     assert!(store.remote_devices().unwrap().is_empty());
     drop(store);
     std::fs::remove_dir_all(dir).ok();
+}
+
+#[test]
+fn a_saved_agent_step_limit_is_dropped_on_open() {
+    let dir = test_dir("steps");
+    let original = serde_json::json!({ "prompt": "Base.", "steps": 50 });
+    let saved = serde_json::json!({ "prompt": "Mine.", "steps": 20, "tools": ["read"] });
+    open(&dir)
+        .unwrap()
+        .save_prompt_override("agent:build", &saved, Some(&original))
+        .unwrap();
+
+    let overrides = open(&dir).unwrap().prompt_overrides().unwrap();
+    assert_eq!(
+        overrides[0].value,
+        serde_json::json!({ "prompt": "Mine.", "tools": ["read"] })
+    );
+    assert_eq!(overrides[0].original, Some(serde_json::json!({ "prompt": "Base." })));
+    std::fs::remove_dir_all(&dir).ok();
 }

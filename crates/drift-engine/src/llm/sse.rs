@@ -1,4 +1,5 @@
-//! Server-sent events over a byte stream: yields (event, data) pairs, tolerant of split chunks.
+//! Server-sent events over a byte stream: yields (event, data) pairs, tolerant of split chunks. The same
+//! reader yields plain lines for newline-delimited JSON.
 
 use std::time::Duration;
 
@@ -13,56 +14,25 @@ pub(crate) struct SseEvent {
 
 #[derive(Default)]
 pub(crate) struct Parser {
+    lines: LineReader,
+    event: String,
+    data: Vec<String>,
+}
+
+/// Complete lines of a byte stream, whatever reads split a line or a character.
+#[derive(Default)]
+pub(crate) struct LineReader {
     buffer: String,
     /// The start of a character whose remaining bytes are in the next network read.
     pending: Vec<u8>,
-    event: String,
-    data: Vec<String>,
 }
 
 impl Parser {
     /// Feeds bytes and returns every event completed by them.
     pub(crate) fn feed(&mut self, chunk: &[u8]) -> Vec<SseEvent> {
-        self.decode(chunk);
-        let mut events = Vec::new();
+        let lines = self.lines.feed(chunk);
 
-        while let Some(end) = self.buffer.find('\n') {
-            let line = self.buffer[..end].trim_end_matches('\r').to_string();
-            self.buffer.drain(..=end);
-            if let Some(event) = self.line(&line) {
-                events.push(event);
-            }
-        }
-
-        events
-    }
-
-    /// Appends complete characters to the buffer and keeps an unfinished one for the next read; bytes
-    /// that can never form a character become U+FFFD.
-    fn decode(&mut self, chunk: &[u8]) {
-        self.pending.extend_from_slice(chunk);
-
-        loop {
-            let error = match std::str::from_utf8(&self.pending) {
-                Ok(text) => {
-                    self.buffer.push_str(text);
-                    self.pending.clear();
-                    return;
-                }
-                Err(error) => error,
-            };
-
-            let valid = error.valid_up_to();
-            self.buffer
-                .push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
-            let Some(bad) = error.error_len() else {
-                self.pending.drain(..valid);
-                return;
-            };
-
-            self.buffer.push('\u{FFFD}');
-            self.pending.drain(..valid + bad);
-        }
+        lines.into_iter().filter_map(|line| self.line(&line)).collect()
     }
 
     fn line(&mut self, line: &str) -> Option<SseEvent> {
@@ -94,6 +64,49 @@ impl Parser {
     }
 }
 
+impl LineReader {
+    /// Feeds bytes and returns every line completed by them, without its line ending.
+    pub(crate) fn feed(&mut self, chunk: &[u8]) -> Vec<String> {
+        self.decode(chunk);
+        let mut lines = Vec::new();
+
+        while let Some(end) = self.buffer.find('\n') {
+            lines.push(self.buffer[..end].trim_end_matches('\r').to_string());
+            self.buffer.drain(..=end);
+        }
+
+        lines
+    }
+
+    /// Appends complete characters to the buffer and keeps an unfinished one for the next read; bytes
+    /// that can never form a character become U+FFFD.
+    fn decode(&mut self, chunk: &[u8]) {
+        self.pending.extend_from_slice(chunk);
+
+        loop {
+            let error = match std::str::from_utf8(&self.pending) {
+                Ok(text) => {
+                    self.buffer.push_str(text);
+                    self.pending.clear();
+                    return;
+                }
+                Err(error) => error,
+            };
+
+            let valid = error.valid_up_to();
+            self.buffer
+                .push_str(std::str::from_utf8(&self.pending[..valid]).unwrap_or_default());
+            let Some(bad) = error.error_len() else {
+                self.pending.drain(..valid);
+                return;
+            };
+
+            self.buffer.push('\u{FFFD}');
+            self.pending.drain(..valid + bad);
+        }
+    }
+}
+
 /// Events from a byte stream. Nothing at all for `idle` (not even a comment or ping) means the
 /// connection has stalled: the stream ends with an error rather than waiting forever.
 pub(crate) fn events<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<SseEvent, StreamError>>
@@ -105,6 +118,28 @@ where
     watched(bytes, idle).flat_map(move |chunk| {
         let items: Vec<Result<SseEvent, StreamError>> = match chunk {
             Ok(bytes) => parser.feed(&bytes).into_iter().map(Ok).collect(),
+            Err(error) => vec![Err(error)],
+        };
+
+        futures_util::stream::iter(items)
+    })
+}
+
+/// The non-empty lines of a byte stream (newline-delimited JSON), with the same stall limit as [`events`].
+pub(crate) fn lines<S>(bytes: S, idle: Duration) -> impl Stream<Item = Result<String, StreamError>>
+where
+    S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+{
+    let mut reader = LineReader::default();
+
+    watched(bytes, idle).flat_map(move |chunk| {
+        let items: Vec<Result<String, StreamError>> = match chunk {
+            Ok(bytes) => reader
+                .feed(&bytes)
+                .into_iter()
+                .filter(|line| !line.trim().is_empty())
+                .map(Ok)
+                .collect(),
             Err(error) => vec![Err(error)],
         };
 

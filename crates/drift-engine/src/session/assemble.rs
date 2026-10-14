@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::event::{Event, Hub};
 use crate::llm::{Chunk, StopReason};
-use crate::session::types::{Message, Part, PartRow, ToolStatus, Usage};
+use crate::session::types::{Message, Part, PartRow, Refusal, ToolStatus, Usage};
 use crate::store::Store;
 
 pub(crate) struct Assembler<'a> {
@@ -14,7 +14,9 @@ pub(crate) struct Assembler<'a> {
     open: Option<Open>,
     pub usage: Usage,
     pub stop: Option<StopReason>,
+    pub refusal: Option<Refusal>,
     pub calls: Vec<PartRow>,
+    generation: super::generation::Generation,
 }
 
 /// How often a streaming part is written to disk as it stands, so a crash loses little of it.
@@ -38,11 +40,14 @@ impl<'a> Assembler<'a> {
             open: None,
             usage: Usage::default(),
             stop: None,
+            refusal: None,
             calls: Vec::new(),
+            generation: Default::default(),
         }
     }
 
     pub(crate) fn apply(&mut self, chunk: Chunk) -> rusqlite::Result<()> {
+        self.generation.observe(&chunk);
         match chunk {
             Chunk::TextStart => self.start(Part::Text { text: String::new() }),
             Chunk::ReasoningStart => self.start(Part::Reasoning {
@@ -92,11 +97,21 @@ impl<'a> Assembler<'a> {
                 self.usage.merge(usage);
                 Ok(())
             }
+            // The turn records an account's limits before the reply is assembled.
+            Chunk::Limits(_) => Ok(()),
+            Chunk::Refusal(refusal) => {
+                self.refusal = Some(refusal);
+                Ok(())
+            }
             Chunk::Stop(reason) => {
                 self.stop = Some(reason);
                 Ok(())
             }
         }
+    }
+
+    pub(crate) fn generation_ms(&self) -> Option<u64> {
+        self.generation.milliseconds()
     }
 
     fn start(&mut self, part: Part) -> rusqlite::Result<()> {

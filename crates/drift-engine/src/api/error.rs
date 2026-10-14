@@ -4,6 +4,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::session::backup::BackupError;
 use crate::session::branch::BranchError;
 use crate::session::revert::RevertError;
 use crate::session::tree::TreeError;
@@ -119,6 +120,15 @@ impl From<RevertError> for ApiError {
                 format!("the files could not be restored: {message}"),
             ),
             RevertError::Store(error) => error.into(),
+        }
+    }
+}
+
+impl From<BackupError> for ApiError {
+    fn from(error: BackupError) -> Self {
+        match error {
+            BackupError::Tree(error) => error.into(),
+            BackupError::Unreadable(why) => Self::new(StatusCode::BAD_REQUEST, "backup", why),
         }
     }
 }

@@ -106,6 +106,7 @@ impl Engine {
             .provider
             .with_timeouts(plan.config.route_timeouts(&plan.model_ref.provider));
         plan.credential = resolved.credential;
+        plan.account = resolved.account;
 
         // A different model may need a different set of tools.
         plan.offer = self.offer(plan);

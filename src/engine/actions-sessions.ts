@@ -11,6 +11,7 @@ import type { components } from "./native/types";
 import type { Session } from "./sessions";
 
 type NativeSession = components["schemas"]["Session"];
+export type Backup = components["schemas"]["Backup"];
 type SessionListing = (params: { workspace?: string }) => Promise<{ sessions: Session[]; running: string[] }>;
 
 /** One session's lifecycle: rename, archive, purge, fork, spawn, compact, undo, retry model and moves. */
@@ -192,6 +193,38 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         }
     }
 
+    /** The sessions and their subagents as one backup file's contents; a failure says why and returns nothing. */
+    async function exportSessions(ids: string[]) {
+        try {
+            return await requireClient().exportSessions(ids);
+        } catch (cause) {
+            notice({ id: "backup-export", title: "Couldn't back up", message: errorMessage(cause), variant: "error" });
+        }
+    }
+
+    /** Every live thread of the workspace at `directory`, with their subagents, as one backup. */
+    async function exportWorkspace(directory: string) {
+        const workspace = workspaces().id(directory);
+        if (!workspace) return undefined;
+        try {
+            const { sessions } = await allPages({ workspace });
+            return await exportSessions(sessions.map((session) => session.id));
+        } catch (cause) {
+            notice({ id: "backup-export", title: "Couldn't back up", message: errorMessage(cause), variant: "error" });
+        }
+    }
+
+    /** Restores a backup into the workspace at `directory`; sessions already there are skipped, never overwritten. */
+    async function importSessions(directory: string, backup: Backup) {
+        const workspaceId = workspaces().id(directory);
+        try {
+            if (!workspaceId) throw new Error("That workspace is not registered with the engine");
+            return await requireClient().importSessions(workspaceId, backup);
+        } catch (cause) {
+            notice({ id: "backup-import", title: "Couldn't import", message: errorMessage(cause), variant: "error" });
+        }
+    }
+
     /**
      * Sessions belong to the workspace, not its path, so re-pointing a folder moves nothing; a running turn must finish
      * first.
@@ -244,6 +277,9 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         switchRetryModel,
         moveSession,
         moveWorkspaceSessions,
+        exportSessions,
+        exportWorkspace,
+        importSessions,
     };
 }
 

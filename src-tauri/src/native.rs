@@ -92,6 +92,8 @@ impl Native {
 
 pub(crate) fn stop(app: &AppHandle) {
     let native = app.state::<Native>();
+    // On unix a process group outlives Drift unless it is ended here; Windows ends it with its job.
+    native.engine.processes.stop_all();
     let mut state = native.state.lock().unwrap();
     if let Listening::Bound(server) = &*state {
         server.stop();

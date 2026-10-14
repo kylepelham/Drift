@@ -28,6 +28,9 @@ export type McpServerStatus = components["schemas"]["ServerStatus"];
 export type McpServerConfig = components["schemas"]["ServerConfigInput"];
 /** What the UI sees: env and header names, never their values. */
 export type McpServerConfigView = components["schemas"]["ServerConfigView"];
+/** Where a local server listens and the largest window its models run with. */
+export type LocalServer = components["schemas"]["LocalServer"];
+export type LocalServerInput = components["schemas"]["LocalServerInput"];
 
 type Json<Op extends keyof operations, Status extends number> =
     operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never;
@@ -90,6 +93,9 @@ export function createClient(target: Target) {
             request<Json<"spawnThread", 201>>("POST", `/sessions/${id}/spawn`, { instruction }),
         forkSession: (id: string, atMessage?: string) =>
             request<Json<"forkSession", 201>>("POST", `/sessions/${id}/fork`, { atMessage }),
+        exportSessions: (ids: string[]) => request<Json<"exportSessions", 200>>("POST", "/sessions/export", { ids }),
+        importSessions: (workspaceId: string, backup: components["schemas"]["Backup"]) =>
+            request<Json<"importSessions", 200>>("POST", "/sessions/import", { workspaceId, backup }),
         moveSession: (id: string, workspaceId: string) =>
             request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
         compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),
@@ -160,10 +166,19 @@ export function createClient(target: Target) {
         providers: () => request<Json<"listProviders", 200>>("GET", "/providers"),
         setProviderKey: (id: string, key: string) => request<void>("PUT", `/providers/${id}/key`, { key }),
         removeProviderCredentials: (id: string) => request<void>("DELETE", `/providers/${id}/credentials`),
+        localServer: (id: string) => request<Json<"getLocalServer", 200>>("GET", `/providers/${id}/server`),
+        setLocalServer: (id: string, input: LocalServerInput) =>
+            request<Json<"setLocalServer", 200>>("PUT", `/providers/${id}/server`, input),
         startOAuth: (id: string, mode: "max" | "console" | "chatgpt" | "supergrok") =>
             request<Json<"startOAuth", 200>>("POST", `/providers/${id}/oauth`, { mode }),
         finishOAuth: (id: string, input: string, state?: string) =>
             request<void>("POST", `/providers/${id}/oauth/callback`, { input, state }),
+        reorderProviderAccounts: (id: string, order: string[]) =>
+            request<void>("PUT", `/providers/${id}/accounts`, { order }),
+        renameProviderAccount: (id: string, account: string, label: string) =>
+            request<void>("PATCH", `/providers/${id}/accounts/${encodeURIComponent(account)}`, { label }),
+        removeProviderAccount: (id: string, account: string) =>
+            request<void>("DELETE", `/providers/${id}/accounts/${encodeURIComponent(account)}`),
         permissions: () => request<Json<"listPermissions", 200>>("GET", "/permissions"),
         replyPermission: (id: string, body: ReplyBody) => request<void>("POST", `/permissions/${id}/reply`, body),
         permissionRules: () => request<Json<"listPermissionRules", 200>>("GET", "/permission-rules"),
@@ -210,6 +225,8 @@ export function createClient(target: Target) {
         todos: (id: string) => request<Json<"listTodos", 200>>("GET", `/sessions/${id}/todos`),
         tasks: (id: string) => request<Json<"listTasks", 200>>("GET", `/sessions/${id}/tasks`),
         stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
+        processes: (id: string) => request<Json<"listProcesses", 200>>("GET", `/sessions/${id}/processes`),
+        stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
     };
 }
 

@@ -411,6 +411,12 @@ test("loaded stale tool states become interrupted without mutating live or compl
     const duringTurn = interruptStaleTools([old, live], { live: "s1" }, "Interrupted");
     expect(duringTurn[0].parts[0]).toMatchObject({ status: "error" });
     expect(duringTurn[1].parts[0]).toMatchObject({ status: "running" });
+
+    // Joining mid-turn: no start event was seen, but the engine says the session runs.
+    const joined = interruptStaleTools([old, live], {}, "Interrupted", true);
+    expect(joined[0].parts[0]).toMatchObject({ status: "error" });
+    expect(joined[1].parts[0]).toMatchObject({ status: "running" });
+    expect(interruptStaleTools([old, live], {}, "Interrupted")[1].parts[0]).toMatchObject({ status: "error" });
 });
 
 test("streamed tool replacements retain mounted group and plugin identities", async () => {

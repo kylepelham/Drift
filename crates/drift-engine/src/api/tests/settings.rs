@@ -116,3 +116,30 @@ async fn base_prompts_are_replaced_for_every_model_or_one_family_and_the_shared_
         404
     );
 }
+
+#[tokio::test]
+async fn local_ollama_is_listed_before_it_answers_and_its_address_must_be_a_web_address() {
+    let harness = harness().await;
+
+    let providers = json_response(harness.get("/providers")).await;
+    let ollama = providers
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|provider| provider["id"] == "ollama")
+        .expect("local Ollama has a row to set it up from");
+    assert_eq!(ollama["name"], "Ollama");
+
+    let server = json_response(harness.get("/providers/ollama/server")).await;
+    assert_eq!(server["address"], "http://127.0.0.1:11434");
+    assert_eq!(server["defaultAddress"], "http://127.0.0.1:11434");
+    assert!(server.get("contextLimit").is_none());
+
+    assert_eq!(response_status(harness.get("/providers/xai/server")).await, 404);
+    for typed in ["192.168.1.20:11434", "ftp://nas/ollama", "http://"] {
+        let put = harness
+            .put("/providers/ollama/server")
+            .json(&json!({ "address": typed }));
+        assert_eq!(response_status(put).await, 400, "{typed}");
+    }
+}

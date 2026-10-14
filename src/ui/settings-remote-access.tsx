@@ -1,6 +1,6 @@
 import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
-import { isRemoteRuntime } from "../runtime";
+import { isAppRuntime, isRemoteRuntime } from "../runtime";
 import { Toggle } from "./controls";
 import DOMPurify from "dompurify";
 import { t } from "../state/i18n";
@@ -11,6 +11,7 @@ import {
     loadRemoteSession,
     nextRemoteAccessEnabled,
     normalizeLinkCode,
+    pairedDevice,
     refreshRemoteAccess,
     remoteAccessBusy,
     remoteAccessError,
@@ -20,8 +21,10 @@ import {
     revokeRemoteDevice,
     setRemoteAccess,
     setRemotePassword,
+    showRemotePairing,
     signOutRemoteDevice,
     type RemoteDevice,
+    type RemotePairing,
 } from "../state/remote-access";
 
 const button =
@@ -35,6 +38,7 @@ export function RemoteAccessSection() {
             <Show when={!isRemoteRuntime()} fallback={<ThisDevice />}>
                 <EnableRow />
                 <Show when={remoteAccessStatus()?.enabled && remoteAccessStatus()?.listening}>
+                    <AppPairing />
                     <ConnectDevice />
                     <Devices />
                     <PasswordSignIn />
@@ -62,9 +66,16 @@ function ThisDevice() {
                 }
                 description={t("drift.remote.manageOnDesktop")}
             >
-                <button class={button} onClick={() => void signOutRemoteDevice()}>
-                    {t("drift.remote.device.signOut")}
-                </button>
+                <div class="flex gap-2">
+                    <Show when={isAppRuntime()}>
+                        <a class={button} href="/app/computers">
+                            {t("drift.remote.device.switch")}
+                        </a>
+                    </Show>
+                    <button class={button} onClick={() => void signOutRemoteDevice()}>
+                        {t("drift.remote.device.signOut")}
+                    </button>
+                </div>
             </SettingsRow>
         </SettingsGroup>
     );
@@ -109,6 +120,79 @@ function Step(props: { number: number; children: JSX.Element }) {
             </span>
             <div class="min-w-0 flex-1 space-y-1.5 text-xs leading-relaxed text-ink-muted">{props.children}</div>
         </li>
+    );
+}
+
+/** The QR code the Drift app scans: it trusts this PC's certificate and links in one step. */
+function AppPairing() {
+    const [pairing, setPairing] = createSignal<{ code: RemotePairing; since: number } | null>(null);
+    const [error, setError] = createSignal("");
+    const [now, setNow] = createSignal(Date.now());
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    onCleanup(() => clearInterval(tick));
+
+    const linked = () => {
+        const shown = pairing();
+        return shown ? pairedDevice(remoteAccessStatus(), shown.since) : undefined;
+    };
+    const expired = () => {
+        const shown = pairing();
+        return !!shown && shown.code.expiresAt <= now();
+    };
+
+    async function show() {
+        setError("");
+        try {
+            const since = Date.now();
+            setPairing({ code: await showRemotePairing(), since });
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+        }
+    }
+
+    return (
+        <SettingsGroup title={t("drift.remote.app.title")}>
+            <div class="flex flex-col gap-4 px-1 py-3 sm:flex-row">
+                <Show when={pairing() && !linked() && !expired() && pairing()}>
+                    {(shown) => (
+                        <div
+                            class="size-40 shrink-0 self-center rounded-lg bg-white p-1.5 sm:self-start [&>svg]:size-full"
+                            role="img"
+                            aria-label={t("drift.remote.app.qr")}
+                            // eslint-disable-next-line solid/no-innerhtml -- DOMPurify sanitises the host-generated QR SVG.
+                            innerHTML={DOMPurify.sanitize(shown().code.qr)}
+                        />
+                    )}
+                </Show>
+                <div class="min-w-0 flex-1 space-y-2 text-xs leading-relaxed text-ink-muted">
+                    <p>{t("drift.remote.app.description")}</p>
+                    <Show when={linked()}>
+                        {(device) => (
+                            <p class="text-ok" role="status">
+                                {t("drift.remote.app.linked", { name: device().name })}
+                            </p>
+                        )}
+                    </Show>
+                    <Show when={pairing() && !linked()}>
+                        <p class="text-ink-faint">
+                            {expired()
+                                ? t("drift.remote.app.expired")
+                                : t("drift.remote.app.expires", {
+                                      minutes: Math.max(1, Math.ceil((pairing()!.code.expiresAt - now()) / 60_000)),
+                                  })}
+                        </p>
+                    </Show>
+                    <button class={button} onClick={() => void show()}>
+                        {pairing() ? t("drift.remote.app.again") : t("drift.remote.app.show")}
+                    </button>
+                    <Show when={error()}>
+                        <p class="text-danger" role="alert">
+                            {error()}
+                        </p>
+                    </Show>
+                </div>
+            </div>
+        </SettingsGroup>
     );
 }
 
@@ -203,6 +287,13 @@ function ConnectDevice() {
                                 {t("drift.remote.link.action")}
                             </button>
                         </form>
+                        <Show when={pending().length && remoteAccessStatus()?.certificateWords.length}>
+                            <div class="text-ink-faint">
+                                {t("drift.remote.link.words", {
+                                    words: remoteAccessStatus()!.certificateWords.join(" "),
+                                })}
+                            </div>
+                        </Show>
                         <For each={pending()}>
                             {(device) => (
                                 <div class="flex items-center gap-1.5 text-warn" role="status">
@@ -231,8 +322,7 @@ function ConnectDevice() {
 function Devices() {
     const devices = () => remoteAccessStatus()?.devices ?? [];
     const describe = (device: RemoteDevice) => {
-        const method =
-            device.method === "password" ? t("drift.remote.devices.password") : t("drift.remote.devices.link");
+        const method = t(`drift.remote.devices.${device.method}`);
         return `${method} · ${t("drift.remote.devices.lastSeen", { time: lastSeenLabel(device.lastSeenAt) })}`;
     };
     return (

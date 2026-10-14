@@ -32,9 +32,16 @@ change the plan there when a decision changes.
 ## M2: breadth
 
 - [x] OpenAI Responses, Codex OAuth, `apply_patch` profile
+- [x] Responses over a reusable per-conversation WebSocket with incremental continuation; SSE where the endpoint has none
 - [x] Account-specific Daybreak model entries and request selection for ChatGPT sign-ins; backend treatment unverified
+- [x] A ChatGPT sign-in offers only the speed modes its account's Codex model list names (no Ultrafast where it is not served)
+- [x] Several sign-ins per provider as ordered accounts; a turn moves to the next the moment one reaches its five-hour or weekly limit, chosen from usage read off every response (Anthropic's header names unverified live)
+- [x] Accounts on different plans: the model list shows what any account offers (Daybreak and speed tiers from every ChatGPT account's list), a turn goes to an account that can serve its model, and a refusal saying the plan lacks the model moves it to the next account at once instead of retrying
+- [x] A cyber safety refusal (or one naming no policy area) sends the request again from the next account and keeps the conversation off the refusing account; other policy areas stand; switch notices say why
 - [x] Gemini (adapter only; not yet exercised against the live API)
-- [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter, LM Studio and Ollama presets
+- [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter and LM Studio presets
+- [x] Ollama, local and Cloud, on its native `/api/chat` at each model's full window (`num_ctx`), held to `contextLimit`; discovery checks `/api/version` and reads thinking levels from `/api/show`
+- [x] Settings > Providers lists local Ollama before it answers; its panel sets the address and context limit and shows its installed models
 - [x] MCP through rmcp: stdio, HTTP, approval (reconnect and reload: M3)
 - [x] `todowrite`, `question`, `webfetch`
 - [x] `skill`
@@ -54,6 +61,8 @@ change the plan there when a decision changes.
 - [x] Attributed worker permission/question waits, parent-scoped task output/stop API and generated lifecycle events
 - [x] Async-worker conformance: engine-level gates (concurrent progress, out-of-order results, bounded slots, Stop while idle, single-worker stop, attributed asks, restart) and HTTP/WS conformance against the fake provider (progress events, parent carries on, single delivery, cursor replay, idle Stop wakes nothing)
 - [x] UI task views: engine store `tasks` from `GET /sessions/{id}/tasks` and `task.updated`; transcript task rows follow the worker, not the launch receipt; Background tasks dock with state, current tool, Stop and open
+- [x] Crowded task dock: live and undelivered tasks first, delivered history collapsed, independently bounded scrolling
+- [x] Reply throughput uses persisted monotonic generation timing, excluding tool and request waits; no fabricated rate for old replies
 - Agent-loop review at b93cbc9 (`docs/research/agent-loop-review-b93cbc9.md`):
   - [x] Undo/redo keep a path whose change chain another edit broke
   - [x] `apply_patch`: read-before-write for every existing target and move destination, an ask per path, whole patch checked before any write, rollback on a failed write
@@ -110,7 +119,7 @@ change the plan there when a decision changes.
     - [x] `.envrc`, `cd` chains, opaque-construct docs, periodic prune (OpenRouter caching checked, left open above)
   - [x] Shared HTTP client with connect, header and stream-idle timeouts; Stop cancels while waiting
   - [x] Thinking budget within the output limit; max-tokens endings surfaced; unexecuted calls settled
-  - [x] Configurable step limits and repeated-call intervention
+  - [x] Repeated-call intervention (the per-turn step limit was removed: it cut long agent runs short)
   - [x] Shared tool-output limits with full-output artifacts (read, list, MCP, shell)
   - [x] Engine-owned steering and queueing at safe boundaries
   - [x] File discovery and @ expansion, every read through `tool::read_ask`
@@ -192,6 +201,7 @@ change the plan there when a decision changes.
 - [x] Before cutover: pending V2 `session_input` work checked (only test fixtures here); the import names any conversation holding queued prompts instead of running them
 - [x] Import summary shown once in a dialog after a run that brought anything in or left anything out (`opencode_import_summary` hands it out once), left-out items grouped and worded in every locale
 - [x] Usage limits read Drift's own credential (`Engine::current_credential`), renewing an expired sign-in through the engine's refresh lock
+- [x] Usage limits list every account of a provider (`Engine::account_credentials`, fetched in parallel); the composer popover shows the first account with usage left
 - [x] xAI SuperGrok sign-in (device code, renewed like the others); opencode's xAI sign-in imported
 - [x] Model modes back in the catalog (fast, ultrafast, flex, pro from models.dev `experimental.modes`, as opencode listed them): own entries and prices, the base model on the wire with the mode's body fields and headers
 - [x] A mode and its base take each other's signed reasoning (one model on the wire); another model reads earlier finished thoughts as plain text, as opencode sends them
@@ -289,12 +299,14 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 ## M6: capabilities
 
 - [ ] One settings mechanism decides the tools, instruction sections and settings a session is offered; new capabilities off by default, and a session with them off is unchanged
-- [ ] Background processes, on by default:
-  - [ ] `bash` `background: true` returns a process id; a command at its time limit moves to the background instead of being killed
-  - [ ] `process` tool: list, output (new lines or search), input (asks like `bash`), interrupt, stop, wait for a line or exit; background processes get an input pipe
-  - [ ] A process outlives the turn and Stop; the dock's Stop, archiving the conversation and quitting Drift end it
-  - [ ] Processes in the Background tasks dock with the background tag, live last line and Stop
-  - [ ] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
+- [x] Background processes, on by default:
+  - [x] `bash` `background: true` returns a process id; a command at its time limit moves to the background instead of being killed
+  - [x] `process` tool: list, output (new lines or search), input (asks like `bash`), interrupt (stops instead on Windows), stop, wait for a line or exit; background processes get an input pipe
+  - [x] A process outlives the turn and Stop; the dock's Stop, archiving the conversation and quitting Drift end it; a subagent's end with its run
+  - [x] Processes in the Background tasks dock with a live last line, an Open link for a printed URL, and Stop
+  - [x] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
+  - [x] Settings > Execution switches background processes (the `process` tool and bash `background`) and the hand-off at the time limit; off restores stopping at the limit
+  - [x] A process that exits after the turn wakes its conversation with its exit code and the end of its output, unless the model saw it end, it was stopped, or the user pressed Stop since it started
 - [ ] Worktrees: per-thread toggle at start; branch `drift/<name>` from the current commit under Drift's data; uncommitted changes not copied (said so); spawned threads inherit; never merged by Drift; purged with the thread when merged, asked otherwise
 - [ ] `/watch-pr`: poll through `gh` about once a minute, wake the thread on CI failure or a review comment, stop at merge, close or the fifth wake
 
@@ -305,6 +317,14 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [ ] Remote execution targets (same report)
 - [ ] Deferred MCP tool schemas, only if a workspace still sends more than about 30 KB of them (`docs/research/claude-agent-quality-2.0.2.md`)
 - [ ] Pin the user's own corrections through compaction, once there is a rule for when a new goal retires them (same report)
+
+## Drift for Android (`docs/android.md`)
+
+- [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, fingerprint words, all reachable addresses and the LAN MAC
+- [ ] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, discovery, QR and typed-code linking
+- [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
+- [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN
+- [ ] Background notification service, CI signing, release APKs, update prompt
 
 ## Parity with Claude Code, Codex and opencode
 

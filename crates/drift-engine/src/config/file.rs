@@ -38,11 +38,14 @@ pub struct File {
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderConfig {
     pub name: Option<String>,
-    /// Where its requests go: an OpenAI-compatible `/v1` root for a new or local provider.
+    /// Where its requests go: an OpenAI-compatible `/v1` root for a new provider or LM Studio, Ollama's own root.
     pub base_url: Option<String>,
     /// The environment variable holding its key. A new provider without one takes no key.
     pub api_key_env: Option<String>,
     pub models: BTreeMap<String, ProviderModel>,
+    /// The largest window its models run with, in tokens: Ollama allocates memory for the whole window a
+    /// request asks for, so a model trained for far more than the machine can hold is kept to this.
+    pub context_limit: Option<u64>,
 }
 
 /// A model of a user's provider, as the catalog needs it.
@@ -70,7 +73,6 @@ pub struct RouteTimeouts {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase", default)]
 pub struct LimitsFile {
-    pub steps: Option<u32>,
     pub repeats: Option<u32>,
     pub polls: Option<u32>,
 }
@@ -79,8 +81,6 @@ pub struct LimitsFile {
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Limits {
-    /// Model steps (requests) one turn may take.
-    pub steps: u32,
     /// Steps in a row whose calls and results are all identical: no progress, so likely a loop.
     pub repeats: u32,
     /// The same for steps whose shell commands deliberately wait, as polling does.
@@ -124,10 +124,6 @@ pub enum LspConfig {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self {
-            steps: 200,
-            repeats: 3,
-            polls: 30,
-        }
+        Self { repeats: 3, polls: 30 }
     }
 }

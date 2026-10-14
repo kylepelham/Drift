@@ -127,12 +127,35 @@ pub struct Message {
     pub created_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<i64>,
+    /// Monotonic time from the first generated block to its last content event, excluding request and tool waits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_ms: Option<u64>,
+    /// The stored account that sent the request, whose reasoning signatures only it can send back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
     /// A compaction summary: from here on the model sees this instead of the history before it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub summary: bool,
     /// How a `done` reply ended when not on its own; `error` then says it in words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ending: Option<Ending>,
+    /// What the provider said about a safety refusal, when it said anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<Refusal>,
+}
+
+/// The provider's account of a safety refusal. None of it names the text that triggered it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct Refusal {
+    /// The policy area, as the provider names it (Anthropic: `cyber`, `bio`, `general_harms`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explanation: Option<String>,
+    /// A model the provider suggests retrying on; Drift only offers it, never switches by itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 /// A finished reply that did not end by itself.
@@ -143,7 +166,7 @@ pub enum Ending {
     Length,
     /// The provider's safety filter ended it.
     Refused,
-    /// The turn's step or repeat limit stopped it; the reply is a write-up with tools off.
+    /// The repeat check stopped it; the reply is a write-up with tools off.
     Limit,
 }
 
@@ -207,6 +230,20 @@ pub enum Part {
         /// `replied`, `failed`, `stopped` or `interrupted`.
         outcome: String,
         text: String,
+    },
+    /// How a background process ended, put into its conversation by the engine so the model can carry on.
+    #[serde(rename_all = "camelCase")]
+    ProcessExit {
+        process_id: String,
+        command: String,
+        description: String,
+        /// `None` when it was stopped rather than exiting.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        /// The end of what it printed.
+        output: String,
+        /// Where everything it printed is.
+        log: String,
     },
     /// The user's answer to a question the model asked without waiting, delivered as its own prompt.
     #[serde(rename_all = "camelCase")]

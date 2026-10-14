@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
 
-use super::{Block, Chunk, ChunkStream, Error, Request};
+use super::{Block, Chunk, ChunkStream, Credential, Error, Request};
 
 #[derive(Debug)]
 enum Response {
@@ -28,6 +28,8 @@ pub struct Scripted {
     /// the shared queue, so sessions running at once each get their own replies in their own order.
     keyed: Arc<Mutex<Vec<(String, Response)>>>,
     pub requests: Arc<Mutex<Vec<Request>>>,
+    /// The credential each request was sent with, in order.
+    pub credentials: Arc<Mutex<Vec<Credential>>>,
 }
 
 impl Scripted {
@@ -102,8 +104,9 @@ impl Scripted {
         self.responses.lock().unwrap().len() + self.keyed.lock().unwrap().len()
     }
 
-    pub fn stream(&self, request: &Request) -> Result<ChunkStream, Error> {
+    pub fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
         self.requests.lock().unwrap().push(request.clone());
+        self.credentials.lock().unwrap().push(credential.clone());
 
         let first = first_message_text(request);
         let mut keyed = self.keyed.lock().unwrap();

@@ -289,6 +289,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/processes/{id}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stops a process and everything it started; its conversation is not told, since the user chose it. */
+        post: operations["stopProcess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/prompts": {
         parameters: {
             query?: never;
@@ -337,6 +354,38 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["reorderProviderAccounts"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/accounts/{account}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["removeProviderAccount"];
+        options?: never;
+        head?: never;
+        patch: operations["renameProviderAccount"];
         trace?: never;
     };
     "/providers/{id}/credentials": {
@@ -397,6 +446,23 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["finishOAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/{id}/server": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getLocalServer"];
+        /** Saves the address and limit in the user's drift.json and asks the server again at once. */
+        put: operations["setLocalServer"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -603,6 +669,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/processes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The conversation's background processes, oldest first, recently ended ones included. */
+        get: operations["listProcesses"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/retry": {
         parameters: {
             query?: never;
@@ -721,6 +804,40 @@ export interface paths {
         put?: never;
         /** Redoes everything an undo hid, files included, keeping any changed since. */
         post: operations["unrevertSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The sessions, with their subagents, as one backup file's contents. */
+        post: operations["exportSessions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restores a backup into a workspace; sessions already here are skipped, never overwritten. */
+        post: operations["importSessions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -960,6 +1077,14 @@ export interface components {
         Aborted: {
             aborted: boolean;
         };
+        AccountLabelBody: {
+            /** @description Empty clears the name. */
+            label: string;
+        };
+        AccountOrderBody: {
+            /** @description Every account id, first used first. */
+            order: string[];
+        };
         Agent: {
             /** @description Front matter `background: true|false`: how a `task` for this agent runs when the call does not say. */
             background?: boolean | null;
@@ -983,11 +1108,6 @@ export interface components {
              *     something (a writing tool, a shell line that is not only reads, a task to a writing subagent) is refused.
              */
             readOnly?: boolean;
-            /**
-             * Format: int32
-             * @description Front matter `steps:`: this agent's own step limit, in place of the workspace's.
-             */
-            steps?: number | null;
             /** @description Tool names this agent may use, any case; `!name` takes one away. Empty, or only `!` entries, means every other tool. */
             tools?: string[];
             variant?: string | null;
@@ -1023,6 +1143,15 @@ export interface components {
              *     line allows it: approving `git status` never approves `git status > victim.txt`.
              */
             writes?: string[];
+        };
+        Backup: {
+            /** Format: int64 */
+            exportedAt: number;
+            format: string;
+            /** @description Each conversation before its subagents. */
+            sessions: components["schemas"]["SessionBackup"][];
+            /** Format: int32 */
+            version: number;
         };
         BasePrompt: {
             /** @description The user's replacement, when there is one. */
@@ -1166,20 +1295,29 @@ export interface components {
             autoAcceptAll?: boolean | null;
             /** @description Compact a conversation automatically when it nears its model's context window. Left out of a PUT, it stays as it is. */
             autoCompact?: boolean | null;
+            /** @description Let agents run shell commands in the background and see them with `process`. Left out of a PUT, it stays as it is. */
+            backgroundProcesses?: boolean | null;
             /** @description How many background subagents run at once, 1 to 16; more wait for a slot. Left out of a PUT, it stays as it is. */
             backgroundTaskLimit?: number | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
             /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
             registrySources?: components["schemas"]["RegistrySource"][] | null;
+            /**
+             * @description A shell command still running at its time limit moves to the background instead of being stopped; only while
+             *     background processes are on. Left out of a PUT, it stays as it is.
+             */
+            shellHandoff?: boolean | null;
         };
         /** @description The same settings, with each source's token to store or clear, for a PUT. */
         EngineSettingsInput: {
             autoAcceptAll?: boolean | null;
             autoCompact?: boolean | null;
+            backgroundProcesses?: boolean | null;
             backgroundTaskLimit?: number | null;
             backgroundTasks?: boolean | null;
             registrySources?: components["schemas"]["SourceInput"][] | null;
+            shellHandoff?: boolean | null;
         };
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
@@ -1272,6 +1410,23 @@ export interface components {
             /** @enum {string} */
             type: "catalog.updated";
         } | {
+            account: string;
+            limits: components["schemas"]["Limits"];
+            provider: string;
+            /** @enum {string} */
+            type: "provider.limits";
+        } | {
+            from: string;
+            /** @description The new account's name, if it has one; else `position`, counted from 1, names it. */
+            label?: string | null;
+            position: number;
+            provider: string;
+            reason: components["schemas"]["SwitchReason"];
+            sessionId: string;
+            to: string;
+            /** @enum {string} */
+            type: "provider.switched";
+        } | {
             server: components["schemas"]["ServerStatus"];
             /** @enum {string} */
             type: "mcp.updated";
@@ -1289,6 +1444,10 @@ export interface components {
             /** @enum {string} */
             type: "question.replied";
         } | {
+            process: components["schemas"]["ProcessRecord"];
+            /** @enum {string} */
+            type: "process.updated";
+        } | {
             task: components["schemas"]["TaskRecord"];
             /** @enum {string} */
             type: "task.updated";
@@ -1299,6 +1458,9 @@ export interface components {
             tone: string;
             /** @enum {string} */
             type: "plugin.notice";
+        };
+        ExportBody: {
+            ids: string[];
         };
         /** @description The files of an undo that did not put them back to its own point. */
         FilesAt: "current" | {
@@ -1344,6 +1506,10 @@ export interface components {
             path: string;
         } & {
             [key: string]: unknown;
+        };
+        ImportBody: {
+            backup: components["schemas"]["Backup"];
+            workspaceId: string;
         };
         /** @description Replies can ride the socket so a permission prompt never waits on a new HTTP connection. */
         Incoming: (components["schemas"]["ReplyBody"] & {
@@ -1406,23 +1572,35 @@ export interface components {
             /** Format: int64 */
             output: number;
         };
-        /** @description When a turn pauses for the user rather than carrying on by itself. */
         Limits: {
+            fiveHour?: components["schemas"]["Window"] | null;
             /**
-             * Format: int32
-             * @description The same for steps whose shell commands deliberately wait, as polling does.
+             * Format: int64
+             * @description The plan's usage is spent until then, in ms; requests before it are refused or paid for with credits.
              */
-            polls: number;
+            spentUntil?: number | null;
+            weekly?: components["schemas"]["Window"] | null;
+        };
+        /** @description A local server as the engine reaches it. */
+        LocalServer: {
+            /** @description Where the engine asks for its models. */
+            address: string;
             /**
-             * Format: int32
-             * @description Steps in a row whose calls and results are all identical: no progress, so likely a loop.
+             * Format: int64
+             * @description The largest window its models run with, in tokens; absent for each model's full window.
              */
-            repeats: number;
+            contextLimit?: number | null;
+            /** @description Where it listens unless the user says otherwise. */
+            defaultAddress: string;
+        };
+        LocalServerInput: {
+            /** @description An http or https address; absent or empty for the default. */
+            address?: string | null;
             /**
-             * Format: int32
-             * @description Model steps (requests) one turn may take.
+             * Format: int64
+             * @description Absent or 0 for each model's full window.
              */
-            steps: number;
+            contextLimit?: number | null;
         };
         /**
          * @description A language server Drift starts to hear the errors an edit left: `false` turns a built-in off; a
@@ -1434,6 +1612,8 @@ export interface components {
             language?: string | null;
         };
         Message: {
+            /** @description The stored account that sent the request, whose reasoning signatures only it can send back. */
+            account?: string | null;
             /** @description The agent the session ran as when this was written. */
             agent?: string | null;
             /** Format: double */
@@ -1444,8 +1624,14 @@ export interface components {
             error?: string | null;
             /** Format: int64 */
             finishedAt?: number | null;
+            /**
+             * Format: int64
+             * @description Monotonic time from the first generated block to its last content event, excluding request and tool waits.
+             */
+            generationMs?: number | null;
             id: string;
             model?: components["schemas"]["ModelRef"] | null;
+            refusal?: components["schemas"]["Refusal"] | null;
             role: components["schemas"]["Role"];
             sessionId: string;
             status: components["schemas"]["MessageStatus"];
@@ -1610,6 +1796,21 @@ export interface components {
             /** @description The worker's own transcript; not `session_id`, which the part row already carries. */
             workerSessionId: string;
         } | {
+            command: string;
+            description: string;
+            /**
+             * Format: int32
+             * @description `None` when it was stopped rather than exiting.
+             */
+            exitCode?: number | null;
+            /** @description Where everything it printed is. */
+            log: string;
+            /** @description The end of what it printed. */
+            output: string;
+            processId: string;
+            /** @enum {string} */
+            type: "process_exit";
+        } | {
             items: components["schemas"]["Clarified"][];
             requestId: string;
             /** @enum {string} */
@@ -1680,6 +1881,27 @@ export interface components {
             name: string;
             path: string;
         };
+        /** @description A background process as the dock and the API show it. */
+        ProcessRecord: {
+            command: string;
+            description: string;
+            /** Format: int64 */
+            endedAt?: number | null;
+            /** Format: int32 */
+            exitCode?: number | null;
+            id: string;
+            lastLine?: string | null;
+            /** @description Everything it printed, up to 64 MB. */
+            log: string;
+            sessionId: string;
+            /** Format: int64 */
+            startedAt: number;
+            state: components["schemas"]["ProcessState"];
+            /** @description The first web address it printed, such as a dev server's. */
+            url?: string | null;
+        };
+        /** @enum {string} */
+        ProcessState: "running" | "exited" | "stopped";
         Prompt: {
             /** @description The agent the session runs as from this prompt on; absent keeps the session's. Only a primary agent of the workspace. */
             agent?: string | null;
@@ -1698,8 +1920,19 @@ export interface components {
          * @enum {string}
          */
         PromptFamily: "codex" | "claude" | "gemini" | "default";
+        /** @description One stored credential of a provider, in the order the engine uses them. */
+        ProviderAccount: {
+            id: string;
+            /** @description What the user named it, else the email it signed in with. */
+            label?: string | null;
+            limits?: components["schemas"]["Limits"] | null;
+            /** @description A subscription sign-in, which takes turns with the provider's others; else an API key. */
+            signedIn: boolean;
+        };
         /** @description A catalog provider plus whether the engine can currently talk to it. */
         ProviderStatus: {
+            /** @description Stored credentials in the order they are used; sign-ins take turns as each reaches its limit. */
+            accounts: components["schemas"]["ProviderAccount"][];
             connected: boolean;
             /** @description `keychain`, `env` or absent. */
             credential?: string | null;
@@ -1753,6 +1986,14 @@ export interface components {
             message: components["schemas"]["Message"];
             session: components["schemas"]["Session"];
         };
+        /** @description The provider's account of a safety refusal. None of it names the text that triggered it. */
+        Refusal: {
+            /** @description The policy area, as the provider names it (Anthropic: `cyber`, `bio`, `general_harms`, ...). */
+            category?: string | null;
+            explanation?: string | null;
+            /** @description A model the provider suggests retrying on; Drift only offers it, never switches by itself. */
+            model?: string | null;
+        };
         /** @enum {string} */
         RegistryKind: "plugins" | "mcp";
         /** @description A registry the user added. Secrets are not here: a token lives in the credential store under the source's id. */
@@ -1785,6 +2026,11 @@ export interface components {
             message?: string | null;
             pattern?: string | null;
             reply: components["schemas"]["Reply"];
+        };
+        Restored: {
+            imported: string[];
+            /** @description Already here, so left as they are. */
+            skipped: string[];
         };
         RetryModelBody: {
             model: components["schemas"]["ModelRef"];
@@ -1940,6 +2186,11 @@ export interface components {
             visibility: components["schemas"]["Visibility"];
             workspaceId: string;
         };
+        SessionBackup: {
+            messages: components["schemas"]["MessageWithParts"][];
+            session: components["schemas"]["Session"];
+            todos?: components["schemas"]["Todo"][];
+        };
         /** @enum {string} */
         SessionStatus: "idle" | "running";
         SignInPage: {
@@ -1980,6 +2231,11 @@ export interface components {
             name: string;
             usage?: string | null;
         };
+        /**
+         * @description Why a turn moved to another of the provider's accounts.
+         * @enum {string}
+         */
+        SwitchReason: "limit" | "reset" | "model" | "refusal";
         /** @description One worker: who launched it, how it runs and why, how it ended, and whether its parent has it. */
         TaskRecord: {
             agent: string;
@@ -2093,6 +2349,7 @@ export interface components {
             outputFile?: string | null;
             owner?: string | null;
             path?: string | null;
+            processId?: string | null;
             reason?: string | null;
             redirect?: string | null;
             replacements?: number | null;
@@ -2172,6 +2429,15 @@ export interface components {
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";
+        Window: {
+            /**
+             * Format: int64
+             * @description In ms.
+             */
+            resetsAt?: number | null;
+            /** Format: double */
+            usedPercent: number;
+        };
         Workspace: {
             icon: string;
             id: string;
@@ -2762,6 +3028,33 @@ export interface operations {
             };
         };
     };
+    stopProcess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessRecord"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listBasePrompts: {
         parameters: {
             query?: never;
@@ -2864,6 +3157,91 @@ export interface operations {
             };
         };
     };
+    reorderProviderAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountOrderBody"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    removeProviderAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    renameProviderAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountLabelBody"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     removeProviderCredentials: {
         parameters: {
             query?: never;
@@ -2963,6 +3341,70 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getLocalServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalServer"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setLocalServer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LocalServerInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LocalServer"];
+                };
             };
             400: {
                 headers: {
@@ -3421,6 +3863,27 @@ export interface operations {
             };
         };
     };
+    listProcesses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProcessRecord"][];
+                };
+            };
+        };
+    };
     switchRetryModel: {
         parameters: {
             query?: never;
@@ -3659,6 +4122,70 @@ export interface operations {
                 content?: never;
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    exportSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    importSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportBody"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Restored"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

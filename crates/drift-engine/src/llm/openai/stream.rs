@@ -1,3 +1,4 @@
+use crate::llm::limits::Limits;
 use crate::llm::{Chunk, Error, STREAMED, StopReason};
 use crate::session::types::Usage;
 use serde_json::Value;
@@ -17,6 +18,10 @@ pub(super) struct StreamState {
 impl StreamState {
     pub(super) fn chunks(&mut self, data: &str) -> Result<Vec<Chunk>, Error> {
         let value: Value = serde_json::from_str(data).map_err(|error| Error::Malformed(error.to_string()))?;
+        self.chunks_value(&value)
+    }
+
+    pub(super) fn chunks_value(&mut self, value: &Value) -> Result<Vec<Chunk>, Error> {
         let kind = value["type"].as_str().unwrap_or_default();
         let item_id = value["item_id"].as_str().unwrap_or_default();
         let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
@@ -39,7 +44,15 @@ impl StreamState {
                 self.finished(&value["response"], kind == "response.incomplete")
             }
             "response.failed" => return Err(api_error(STREAMED, &value["response"].to_string())),
-            "error" => return Err(api_error(STREAMED, data)),
+            "codex.rate_limits" => Limits::from_codex_event(value).map(Chunk::Limits).into_iter().collect(),
+            "error" => {
+                let status = value["status"]
+                    .as_u64()
+                    .or_else(|| value["status_code"].as_u64())
+                    .and_then(|status| u16::try_from(status).ok())
+                    .unwrap_or(STREAMED);
+                return Err(api_error(status, &value.to_string()).with_header_object(&value["headers"]));
+            }
             _ => Vec::new(),
         })
     }

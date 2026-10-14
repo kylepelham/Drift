@@ -3,24 +3,27 @@ import { groupParts, updatePartGroupSlots, type PartGroup, type PartGroupSlot } 
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store";
 import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
+import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
 import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator";
 import { collapseCompaction, compactionCollapsed } from "../state/prefs";
 import { selectedSession, selectSession } from "../state/selection";
-import { IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
 import { messageModel, messageProblem } from "../engine/messages";
 import { PartView, partVisible, PluginRow } from "./parts";
 import { citationFileGroups } from "./citation-files";
 import { emitMessageRendered } from "../plugins";
+import { ProcessExitRow } from "./process-row";
 import { agentLabel, t } from "../state/i18n";
 import { TextShimmer } from "./text-shimmer";
 import { ExploredGroup } from "./tool-view";
 import { FilePartView } from "./file-part";
+import { RefusalNotice } from "./refusal";
 import { useEngine } from "../engine";
 import { Markdown } from "./markdown";
+import { NoteBox } from "./note-box";
 import { Chevron } from "./controls";
 
+import type { ContextPart, ProcessExitPart } from "../engine/parts";
 import type { Message, MessageProblem } from "../engine/messages";
-import type { ContextPart } from "../engine/parts";
 
 /**
  * `hideError`: the reply's failure is no longer news (it is being retried, or the session went on), so its error box is
@@ -74,7 +77,7 @@ export function messageVisible(entry: MessageEntry) {
     if (entry.info.role === "user")
         return (
             !!messageText(entry) ||
-            entry.parts.some((part) => part.type === "file" || part.type === "compaction" || part.type === "context")
+            entry.parts.some((part) => ["file", "compaction", "context", "process_exit"].includes(part.type))
         );
 
     const info = entry.info;
@@ -127,15 +130,19 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     const engine = useEngine();
     const info = () => props.entry.info;
     const answered = createMemo(() => clarificationAnswer(props.entry));
-    // A spawned thread's instruction folds like an answer: a label, a preview, the full text on open.
+    // A spawned thread's instruction and an orchestrator nudge fold like an answer: a label, a preview, the full text on open.
     const clarification = createMemo(
-        () => answered() ?? (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined),
+        () =>
+            answered() ??
+            (props.spawned ? spawnedInstruction(messageText(props.entry)) : undefined) ??
+            orchestratorNudge(props.entry),
     );
     const text = () => clarification()?.text ?? messageText(props.entry);
     // Seed prompts carried into spawned threads are machine-written and keep full Markdown.
     const generated = () => props.entry.parts.some((part) => part.type === "nudge");
     const files = () => props.entry.parts.filter((part) => part.type === "file");
     const plugins = () => props.entry.parts.filter((part): part is ContextPart => part.type === "context");
+    const exits = () => props.entry.parts.filter((part): part is ProcessExitPart => part.type === "process_exit");
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
     const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
     const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -154,6 +161,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
             fallback={
                 <>
                     <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
+                    <For each={exits()}>{(part) => <ProcessExitRow part={part} />}</For>
                     <Show when={text() || files().length > 0}>
                         <div class="group flex flex-col items-end gap-1.5">
                             <Show when={files().length > 0}>
@@ -216,52 +224,30 @@ ${t("drift.message.revertKeepFiles")}`}
         >
             {(answer) => (
                 <div class="group flex min-w-0 items-start justify-end gap-1.5">
-                    <details class="group/answer min-w-0 max-w-[85%] text-xs">
-                        <summary
-                            data-find-ignore
-                            class="flex min-w-0 cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1.5 text-ink-muted hover:bg-raised/40 [&::-webkit-details-marker]:hidden"
+                    <NoteBox icon={noteIcon(answer())} label={noteLabel(answer())} preview={answer().preview}>
+                        <Show
+                            when={answer().items.length}
+                            fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
                         >
-                            <Show
-                                when={answer().spawned}
-                                fallback={<IconCheck class="size-3.5 shrink-0 text-ink-faint" />}
-                            >
-                                <IconBranch class="size-3.5 shrink-0 text-ink-faint" />
-                            </Show>
-                            <span class="shrink-0">
-                                {answer().spawned ? t("drift.chat.spawned.instruction") : t("drift.question.answered")}
-                            </span>
-                            <Show when={answer().preview}>
-                                <span class="min-w-0 truncate text-ink">{answer().preview}</span>
-                            </Show>
-                            <span class="shrink-0 transition-transform group-open/answer:rotate-90">
-                                <Chevron open={false} />
-                            </span>
-                        </summary>
-                        <div class="mt-1 mb-2 space-y-3 border-l border-edge px-3 py-1 text-sm">
-                            <Show
-                                when={answer().items.length}
-                                fallback={<div class="whitespace-pre-wrap break-words">{answer().text}</div>}
-                            >
-                                <For each={answer().items}>
-                                    {(item) => (
-                                        <div class="space-y-1">
-                                            <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
-                                                {item.question}
-                                            </div>
-                                            <div
-                                                data-find-ignore={item.answers.length ? undefined : ""}
-                                                class="whitespace-pre-wrap break-words text-ink"
-                                            >
-                                                {item.answers.length
-                                                    ? item.answers.join(", ")
-                                                    : t("drift.question.unanswered")}
-                                            </div>
+                            <For each={answer().items}>
+                                {(item) => (
+                                    <div class="space-y-1">
+                                        <div class="whitespace-pre-wrap break-words text-xs text-ink-faint">
+                                            {item.question}
                                         </div>
-                                    )}
-                                </For>
-                            </Show>
-                        </div>
-                    </details>
+                                        <div
+                                            data-find-ignore={item.answers.length ? undefined : ""}
+                                            class="whitespace-pre-wrap break-words text-ink"
+                                        >
+                                            {item.answers.length
+                                                ? item.answers.join(", ")
+                                                : t("drift.question.unanswered")}
+                                        </div>
+                                    </div>
+                                )}
+                            </For>
+                        </Show>
+                    </NoteBox>
                     <div class="flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                         <button
                             title={`${t("drift.message.revertHere")}
@@ -283,6 +269,29 @@ ${t("drift.message.revertKeepFiles")}`}
             )}
         </Show>
     );
+}
+
+function noteIcon(answer: ClarificationAnswer) {
+    if (answer.spawned) return <IconBranch class="size-3.5" />;
+    if (answer.nudge) return <IconArrowUpRight class="size-3.5" />;
+
+    return <IconCheck class="size-3.5" />;
+}
+
+function noteLabel(answer: ClarificationAnswer) {
+    if (answer.spawned) return t("drift.chat.spawned.instruction");
+    if (answer.nudge) return t("drift.orchestrator.nudge");
+
+    return t("drift.question.answered");
+}
+
+/** A prompt made only of the engine's nudges, which keep an orchestrator working; not the user's words. */
+function orchestratorNudge(entry: MessageEntry): ClarificationAnswer | undefined {
+    if (entry.info.role !== "user" || !entry.parts.length) return;
+    if (!entry.parts.every((part) => part.type === "nudge")) return;
+
+    const text = messageText(entry);
+    return { text, preview: text.replace(/\s+/g, " ").trim(), items: [], nudge: true };
 }
 
 function spawnedInstruction(text: string): ClarificationAnswer {
@@ -352,12 +361,19 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                                 </div>
                             }
                         >
-                            <div
-                                class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger"
-                                role="alert"
+                            <Show
+                                when={info().ending === "refused"}
+                                fallback={
+                                    <div
+                                        class="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm break-words text-danger"
+                                        role="alert"
+                                    >
+                                        {error().text}
+                                    </div>
+                                }
                             >
-                                {error().text}
-                            </div>
+                                <RefusalNotice entry={props.entry} text={error().text} />
+                            </Show>
                         </Show>
                     )}
                 </Show>
@@ -407,24 +423,19 @@ function formatDuration(ms: number) {
     return t("drift.message.duration.hours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
 }
 
-/** Time spent generating text or reasoning; wall time would count tool runs and subagent waits. */
+/** Measured by the engine's response clock; old replies have no reliable generation duration. */
 export function generationMs(entry: MessageEntry) {
-    const info = entry.info;
-    let total = 0;
-    for (const part of entry.parts) {
-        if (part.type !== "text" && part.type !== "reasoning") continue;
-        // Native reasoning has no timestamps; its previous display used a zero start.
-        if (part.type === "reasoning" && info.finishedAt) total += Math.max(0, info.finishedAt);
-    }
-
-    return total;
+    return entry.info.generationMs ?? 0;
 }
 
+/** Output tokens over the measured generation time; null when there is no usable measurement. */
 export function tokensPerSecond(entry: MessageEntry) {
-    const info = entry.info;
-    const elapsed = generationMs(entry) || (info.finishedAt ?? 0) - info.createdAt;
-    const tokens = info.usage.output;
-    if (elapsed <= 0 || tokens <= 0) return null;
+    const elapsed = generationMs(entry);
+    const tokens = entry.info.usage.output;
+
+    const measured = Number.isFinite(elapsed) && elapsed > 0;
+    const produced = Number.isFinite(tokens) && tokens > 0;
+    if (!measured || !produced) return null;
 
     return (tokens / (elapsed / 1000)).toFixed(1);
 }

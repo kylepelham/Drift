@@ -1,10 +1,11 @@
+import { appRuntimeFrom, remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime";
 import { isNarrowWidth, navigationHash, parseNavigationHash } from "../src/state/navigation";
-import { remoteEngineBase, remoteRuntimeFrom, runtimeNameFrom } from "../src/runtime";
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { backendInvoke, backendRoute } from "../src/backend";
 import {
     nextRemoteAccessEnabled,
     normalizeLinkCode,
+    pairedDevice,
     remoteStatusTone,
     type RemoteAccessStatus,
 } from "../src/state/remote-access";
@@ -16,6 +17,18 @@ test("remote runtime uses the same-origin engine gateway", () => {
     expect(remoteRuntimeFrom(desktop)).toBe(false);
     expect(remoteEngineBase(remote)).toBe("https://192.168.1.8:41718/engine");
     expect(remoteEngineBase(desktop)).toBeUndefined();
+});
+
+test("the Drift app's proxy serves the UI as a remote one under /app, with the engine beside it", () => {
+    const app = { pathname: "/app", origin: "http://127.0.0.1:32999" };
+
+    expect(appRuntimeFrom(app)).toBeTrue();
+    expect(appRuntimeFrom({ ...app, pathname: "/app/computers" })).toBeTrue();
+    expect(appRuntimeFrom({ ...app, pathname: "/application" })).toBeFalse();
+    expect(remoteRuntimeFrom(app)).toBeTrue();
+    expect(runtimeNameFrom(app)).toBe("remote");
+    expect(remoteEngineBase(app)).toBe("http://127.0.0.1:32999/engine");
+    expect(appRuntimeFrom({ ...app, pathname: "/companion" })).toBeFalse();
 });
 
 test("dynamic viewport sizing is limited to the remote runtime", () => {
@@ -126,13 +139,14 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(composer).toContainCode('class="composer-options relative flex min-w-0 flex-1');
     expect(composer).not.toContainCode("composer-options flex min-w-0 flex-1 items-center gap-1 overflow-hidden");
     expect(composer).toContainCode('class="composer-action-buttons ml-auto flex shrink-0');
-    // The composer keeps its compact single-row desktop layout on mobile: pickers shrink and
-    // truncate instead of stretching into full-width rows, and buttons keep their desktop size.
+    // On a phone it stays one row: pickers lose their chevrons, the model shows its short name, Stop is an icon.
+    expect(css).not.toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
+    expect(css).toMatch(
+        /\.composer-options \.picker-chevron,\s*\.composer-options \.picker-label-full,\s*\.composer-stop-label\s*\{\s*display: none/s,
+    );
     expect(css).toMatch(
         /\.composer-options > \.picker-control\s*\{[^}]*position: static;[^}]*min-width: 0;[^}]*flex: 0 1 auto/s,
     );
-    expect(css).not.toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
-    expect(css).not.toMatch(/flex-basis: 100%/);
     expect(css).toMatch(/\.composer-actions button,\s*\.composer-actions \[role="button"\]\s*\{[^}]*min-height: 0/s);
     // The drawer must not add safe-area padding: the wrapper webview already sits below the
     // status bar, so env(safe-area-inset-top) doubles into a large blank band at the top.
@@ -154,6 +168,7 @@ test("remote settings state distinguishes online, offline, and error", () => {
         devices: [],
         pendingLinks: [],
         certificateFingerprint: "AB:CD",
+        certificateWords: [],
     };
     expect(remoteStatusTone(base)).toBe("online");
     expect(remoteStatusTone({ ...base, listening: false })).toBe("offline");
@@ -167,6 +182,31 @@ test("remote access toggle has one state transition helper", async () => {
     expect(section).toContainCode("onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}");
     expect(section).not.toContainCode("onClick={() => void setRemoteAccess");
     expect(section).not.toContainCode("remote-access-card");
+});
+
+test("the pairing code counts as used once an app device signs in after it was shown", () => {
+    const device = (method: "link" | "password" | "app", createdAt: number) => ({
+        id: `${method}${createdAt}`,
+        name: `${method} device`,
+        method,
+        createdAt,
+        lastSeenAt: createdAt,
+    });
+    const status = (devices: ReturnType<typeof device>[]): RemoteAccessStatus => ({
+        enabled: true,
+        listening: true,
+        port: 41718,
+        discoveryPort: 41717,
+        urls: [],
+        devices,
+        pendingLinks: [],
+        certificateFingerprint: "AB:CD",
+        certificateWords: [],
+    });
+
+    expect(pairedDevice(status([device("app", 5), device("link", 20)]), 10)).toBeUndefined();
+    expect(pairedDevice(status([device("app", 5), device("app", 12)]), 10)?.id).toBe("app12");
+    expect(pairedDevice(null, 10)).toBeUndefined();
 });
 
 test("typed link codes ignore case, spaces, and the separator", () => {
@@ -184,7 +224,7 @@ test("the shared access-key flow is gone and management stays desktop-only", asy
     }
     expect(section).toContainCode("<Show when={!isRemoteRuntime()} fallback={<ThisDevice />}>");
     expect(await Bun.file("src/backend.ts").text()).toContainCode(
-        'if (response.status === 401 && (await remoteSessionExpired())) window.location.replace("/companion")',
+        "if (response.status === 401 && (await remoteSessionExpired())) window.location.replace(signInPath())",
     );
 });
 

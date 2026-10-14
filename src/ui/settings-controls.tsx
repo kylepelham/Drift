@@ -18,7 +18,7 @@ export function SettingsGroup(props: { title: string; action?: JSX.Element; chil
     );
 }
 
-/** A label/description pair on the left with its control on the right. */
+/** A label/description pair on the left with its control on the right; a control too wide to fit wraps under the text. */
 export function SettingsRow(props: {
     title: string;
     description: string;
@@ -28,18 +28,18 @@ export function SettingsRow(props: {
 }) {
     return (
         <div
-            class="flex min-h-13 flex-col items-stretch gap-2 border-b border-edge/70 px-1 py-2.5 last:border-b-0 sm:flex-row sm:items-center sm:gap-4"
+            class="flex min-h-13 flex-wrap items-center gap-x-4 gap-y-2 border-b border-edge/70 px-1 py-2.5 last:border-b-0 sm:flex-nowrap"
             classList={{
                 "cursor-pointer hover:bg-raised/40": !!props.onClick && !props.disabled,
                 "opacity-50": !!props.disabled,
             }}
             onClick={() => !props.disabled && props.onClick?.()}
         >
-            <div class="min-w-0 flex-1">
+            <div class="min-w-0 flex-[1_1_12rem]">
                 <div class="text-[0.82rem] font-medium text-ink">{props.title}</div>
                 <div class="mt-0.5 text-[0.72rem] leading-relaxed text-ink-faint">{props.description}</div>
             </div>
-            <div class="shrink-0 self-end sm:self-auto">{props.children}</div>
+            <div class="ml-auto shrink-0">{props.children}</div>
         </div>
     );
 }

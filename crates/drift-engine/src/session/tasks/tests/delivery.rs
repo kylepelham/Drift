@@ -334,3 +334,39 @@ async fn a_result_blocked_by_a_missing_model_stays_owed_with_its_reason_until_on
 
     assert_eq!(h.engine.store.task(&task.id).unwrap().unwrap().delivery_error, None);
 }
+
+#[tokio::test]
+async fn task_output_with_several_ids_returns_when_the_first_finishes() {
+    let h = harness().await;
+    let slow = recorded(&h, "slow", Mode::Background);
+    let quick = recorded(&h, "quick", Mode::Background);
+    h.engine.store.start_task(&slow.id).unwrap();
+    h.engine.store.start_task(&quick.id).unwrap();
+
+    let finishing = {
+        let (engine, id) = (h.engine.clone(), quick.id.clone());
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            engine.end_task(&id, TaskState::Replied, "quick answer");
+        })
+    };
+    let ctx = context(&h, &h.session.id, "call");
+    let started = std::time::Instant::now();
+    let out = crate::tool::task::TaskOutput
+        .run(&ctx, json!({ "task_ids": [slow.id, quick.id], "wait_seconds": 30 }))
+        .await
+        .unwrap();
+    finishing.await.unwrap();
+
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "it does not wait for the slow one"
+    );
+    assert!(out.output.contains("replied\n\nquick answer"), "{}", out.output);
+    assert!(
+        out.output.contains(slow.id.as_str()) && out.output.contains(": running"),
+        "{}",
+        out.output
+    );
+    assert_eq!(out.metadata.delivers.as_deref(), Some(quick.id.as_str()));
+}

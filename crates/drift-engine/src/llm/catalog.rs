@@ -18,11 +18,11 @@ use raw::RawProvider;
 const SNAPSHOT: &str = include_str!("../../data/models.json");
 const SOURCE_URL: &str = "https://models.dev/api.json";
 /// Renamed whenever the entries made from models.dev change, so a cache an older build wrote is not read.
-const CACHE_FILE: &str = "models-2.json";
-const OLDER_CACHES: [&str; 1] = ["models.json"];
+const CACHE_FILE: &str = "models-3.json";
+const OLDER_CACHES: [&str; 2] = ["models.json", "models-2.json"];
 const CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 const SMALL_MODEL_MIN_CONTEXT: u64 = 16_000;
-pub const PROVIDERS: [&str; 11] = [
+pub const PROVIDERS: [&str; 12] = [
     "anthropic",
     "openai",
     "google",
@@ -34,6 +34,7 @@ pub const PROVIDERS: [&str; 11] = [
     "google-vertex-anthropic",
     "lmstudio",
     "ollama",
+    "ollama-cloud",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -293,11 +294,22 @@ impl Catalog {
 
     fn parse(text: &str) -> Result<Self, CatalogError> {
         let raw: BTreeMap<String, RawProvider> = serde_json::from_str(text)?;
-        let providers = raw
+        let mut providers: BTreeMap<String, ProviderInfo> = raw
             .into_iter()
             .filter(|(id, _)| PROVIDERS.contains(&id.as_str()))
             .map(|(id, provider)| (id.clone(), provider.into_info(&id)))
             .collect();
+
+        // models.dev lists no local Ollama; a local route is offered while its server is still to be found.
+        for (id, name, address) in super::local::LOCAL {
+            providers.entry(id.into()).or_insert_with(|| ProviderInfo {
+                id: id.into(),
+                name: name.into(),
+                env: Vec::new(),
+                api: Some(address.into()),
+                models: BTreeMap::new(),
+            });
+        }
 
         Ok(Self { providers })
     }
@@ -345,6 +357,15 @@ impl Catalog {
                     .iter()
                     .map(|(model, listed)| (model.clone(), user_model(model, listed))),
             );
+
+            // A window the user's machine or plan cannot hold is kept to their limit.
+            if let Some(limit) = config.context_limit.filter(|limit| *limit > 0) {
+                for model in info.models.values_mut() {
+                    if model.limit.context == 0 || model.limit.context > limit {
+                        model.limit.context = limit;
+                    }
+                }
+            }
         }
 
         self
@@ -367,6 +388,23 @@ impl Catalog {
 #[cfg(test)]
 mod overlay_tests {
     use super::*;
+
+    #[test]
+    fn a_context_limit_holds_every_model_of_the_provider_to_it() {
+        let user: BTreeMap<String, ProviderConfig> =
+            serde_json::from_value(serde_json::json!({ "ollama-cloud": { "contextLimit": 131072 } })).unwrap();
+        let catalog = Catalog::bundled().with_user(&user);
+
+        let windows = catalog.providers["ollama-cloud"]
+            .models
+            .values()
+            .map(|model| model.limit.context);
+        assert!(windows.clone().all(|window| window <= 131_072));
+        assert!(
+            windows.clone().any(|window| window == 131_072),
+            "a larger window is brought down to it"
+        );
+    }
 
     #[test]
     fn the_users_providers_repoint_add_and_list_models() {
@@ -517,9 +555,12 @@ pub fn sampling(model: &Model) -> Sampling {
     }
 }
 
-/// Gemini keeps its thinking to itself unless asked, even at its default level.
+/// Gemini keeps its thinking to itself unless asked, even at its default level; Ollama sends a model's thinking
+/// apart from its answer only when asked.
 pub fn shows_thinking(provider: &str, model: &Model) -> bool {
-    matches!(provider, "google" | "google-vertex") && model.reasoning && !speaks_claude(provider, &model.id)
+    let asked = matches!(provider, "google" | "google-vertex" | "ollama" | "ollama-cloud");
+
+    asked && model.reasoning && !speaks_claude(provider, &model.id)
 }
 
 fn effort_variant(level: &serde_json::Value) -> Variant {

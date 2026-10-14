@@ -1,6 +1,7 @@
 //! The Drift engine: sessions, providers, tools and the API that serves them.
 
 pub mod api;
+pub mod background;
 pub mod config;
 pub mod edit;
 pub mod event;
@@ -85,7 +86,14 @@ pub struct Engine {
     local_models: std::sync::Mutex<std::collections::BTreeMap<String, Vec<llm::catalog::Model>>>,
     /// Ollama models' own windows, asked once per installed build.
     local_shown: llm::local::Shown,
-    codex_daybreak: llm::openai::codex::Daybreak,
+    /// What the signed-in ChatGPT account's Codex model list offers: Daybreak and speed tiers.
+    codex_offers: llm::openai::codex::Offers,
+    /// What each account last reported of its subscription's usage, so picking one never waits on the network.
+    pub limits: llm::limits::Ledger,
+    /// Models each account's plan was found not to include.
+    pub unserved: llm::limits::Unserved,
+    /// Shell commands running in the background, by the conversation that started them.
+    pub processes: background::Processes,
     /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
     /// The user's plugins, loaded at start and on request.
@@ -154,7 +162,10 @@ impl Engine {
             runtime: Default::default(),
             local_models: Default::default(),
             local_shown: Default::default(),
-            codex_daybreak: Default::default(),
+            codex_offers: Default::default(),
+            limits: Default::default(),
+            unserved: Default::default(),
+            processes: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
         }))
@@ -360,17 +371,29 @@ impl Engine {
         }
     }
 
-    /// The catalog as the current credentials see it: a ChatGPT sign-in offers only what the Codex backend takes.
+    /// The catalog as the current credentials see it: ChatGPT sign-ins offer only what the Codex backend takes,
+    /// and what any of their accounts' model lists offers.
     pub fn catalog_view(&self) -> Catalog {
         let mut catalog = self.catalog.read().unwrap().clone();
+        let sign_ins = self.codex_sign_ins();
         if let Some(openai) = catalog.providers.get_mut("openai")
-            && let Some(credential @ llm::Credential::OAuth { .. }) = self.credentials.resolve("openai", &openai.env)
+            && !sign_ins.is_empty()
         {
             llm::openai::codex::shape(openai);
-            self.codex_daybreak.apply(openai, &credential);
+            self.codex_offers.apply(openai, &sign_ins);
         }
 
         catalog
+    }
+
+    /// The ChatGPT sign-ins among OpenAI's accounts, in the user's order, as stored.
+    fn codex_sign_ins(&self) -> Vec<llm::Credential> {
+        self.credentials
+            .accounts("openai")
+            .into_iter()
+            .filter_map(|account| self.credentials.account(&account.key))
+            .filter(|credential| matches!(credential, llm::Credential::OAuth { .. }))
+            .collect()
     }
 
     /// Pulls a fresh catalog from models.dev when the cached one is stale; the bundled snapshot covers failure.
@@ -389,36 +412,52 @@ impl Engine {
         }
     }
 
+    /// A ChatGPT sign-in or sign-out: the old account's offers go at once, and the new one's are fetched.
     pub(crate) fn codex_credentials_changed(self: &Arc<Self>) {
-        self.codex_daybreak.clear();
+        self.codex_offers.clear();
+
         let engine = self.clone();
-        tokio::spawn(async move { engine.refresh_codex_models().await });
+        tokio::spawn(async move { engine.refresh_codex_offers().await });
     }
 
-    async fn refresh_codex_models(&self) {
-        let Some(credential @ llm::Credential::OAuth { .. }) = self.current_credential("openai").await else {
-            if self.codex_daybreak.clear() {
-                self.hub.publish(event::Event::CatalogUpdated {});
-            }
-            return;
-        };
-        if self
-            .codex_daybreak
-            .refresh(&self.http, llm::openai::CODEX_BASE_URL, &credential)
-            .await
-        {
+    /// Fetches each ChatGPT account's offers when its cached ones are stale, and tells clients when the catalog changed.
+    async fn refresh_codex_offers(&self) {
+        let accounts = self.credentials.accounts("openai");
+        let mut changed = false;
+        let mut signed_in = false;
+
+        for account in accounts {
+            let credential = self.account_credential("openai", &account.key).await;
+            let Some(credential @ llm::Credential::OAuth { .. }) = credential else {
+                continue;
+            };
+
+            signed_in = true;
+            changed |= self
+                .codex_offers
+                .refresh(&self.http, llm::openai::CODEX_BASE_URL, &credential)
+                .await;
+        }
+        if !signed_in {
+            changed = self.codex_offers.clear();
+        }
+
+        if changed {
             self.hub.publish(event::Event::CatalogUpdated {});
         }
     }
 
-    async fn watch_codex(self: Arc<Self>) {
+    /// Checks every [`CODEX_OFFERS_INTERVAL`] for as long as the engine lives; the cache decides whether to fetch.
+    async fn watch_codex_offers(self: Arc<Self>) {
         let engine = Arc::downgrade(&self);
         drop(self);
+
         loop {
             let Some(engine) = engine.upgrade() else { return };
-            engine.refresh_codex_models().await;
+            engine.refresh_codex_offers().await;
             drop(engine);
-            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+
+            tokio::time::sleep(CODEX_OFFERS_INTERVAL).await;
         }
     }
 
@@ -436,6 +475,7 @@ impl Engine {
     }
 
     pub(crate) async fn ask_local(&self) {
+        let user = config::user_providers();
         let mut changed = false;
         for (id, name, default) in llm::local::LOCAL {
             let base = self
@@ -446,7 +486,8 @@ impl Engine {
                 .get(id)
                 .and_then(|provider| provider.api.clone())
                 .unwrap_or_else(|| default.into());
-            let found = llm::local::discover(&self.http, id, &base, &self.local_shown).await;
+            let limit = user.get(id).and_then(|provider| provider.context_limit);
+            let found = llm::local::discover(&self.http, id, &base, &self.local_shown, limit).await;
             self.credentials.set_keyless(id, found.is_some());
             let mut known = self.local_models.lock().unwrap();
             let was_up = known.contains_key(id);
@@ -483,6 +524,8 @@ pub enum WorkspacePurge {
 
 /// How often local servers are asked what they have.
 const LOCAL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);
+/// How often the ChatGPT account's offers are checked; a fetch happens only once the cached list is stale.
+const CODEX_OFFERS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// The catalog with the user's own providers laid over it; a new one without a key variable takes none.
 fn with_user_providers(catalog: Catalog, credentials: &Credentials) -> Catalog {
@@ -542,7 +585,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
     let _ = engine.runtime.set(tokio::runtime::Handle::current());
     let starting = engine.clone();
     tokio::spawn(engine.clone().watch_local());
-    tokio::spawn(engine.clone().watch_codex());
+    tokio::spawn(engine.clone().watch_codex_offers());
     tokio::spawn(engine.clone().stop_idle_mcp());
     tokio::spawn(hook::relay_session_events(engine.clone()));
     tokio::spawn(async move {

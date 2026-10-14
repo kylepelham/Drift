@@ -1,9 +1,10 @@
-//! OpenAI Responses API over SSE, for API keys and for ChatGPT subscriptions through the Codex backend.
+//! OpenAI Responses over reusable WebSockets, with SSE fallback, for API keys and ChatGPT subscriptions.
 
 pub mod codex;
 pub mod oauth;
 mod request;
 mod stream;
+mod websocket;
 
 use futures_util::StreamExt;
 use serde_json::Value;
@@ -33,6 +34,7 @@ pub struct OpenAi {
     base_url: Option<String>,
     client: reqwest::Client,
     pub timeouts: super::http::Timeouts,
+    websockets: std::sync::Arc<websocket::Pool>,
 }
 
 impl Default for OpenAi {
@@ -41,6 +43,7 @@ impl Default for OpenAi {
             base_url: None,
             client: super::http::client(),
             timeouts: super::http::Timeouts::default(),
+            websockets: websocket::Pool::shared(),
         }
     }
 }
@@ -53,7 +56,34 @@ impl OpenAi {
         }
     }
 
+    /// Streams over the conversation's WebSocket, or over SSE where the endpoint does not take one.
     pub async fn stream(&self, request: &Request, credential: &Credential) -> Result<ChunkStream, Error> {
+        let subscription = matches!(credential, Credential::OAuth { .. });
+        let http = self.http_request(request, credential)?;
+
+        // The SSE request's URL and headers also authenticate the WebSocket upgrade.
+        let handshake = http
+            .try_clone()
+            .ok_or_else(|| Error::Transport("could not prepare the WebSocket handshake".into()))?
+            .build()?;
+        let prepared = websocket::Prepared {
+            handshake,
+            body: body(request, subscription),
+            session: request.cache_key.clone(),
+            timeouts: self.timeouts,
+            subscription,
+        };
+
+        let client = super::http::websocket_client();
+        if let Some(stream) = self.websockets.stream(&client, &prepared).await? {
+            return Ok(stream);
+        }
+
+        self.stream_http(http.json(&prepared.body)).await
+    }
+
+    /// The authenticated `POST /responses`, with the mode's headers, before its body.
+    fn http_request(&self, request: &Request, credential: &Credential) -> Result<reqwest::RequestBuilder, Error> {
         let subscription = matches!(credential, Credential::OAuth { .. });
         let default_base = if subscription { CODEX_BASE_URL } else { API_BASE_URL };
         let base = self.base_url.as_deref().unwrap_or(default_base);
@@ -84,11 +114,11 @@ impl OpenAi {
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
 
-        let response = super::http::send(
-            super::mode_headers(http, request, Vec::new()).json(&body(request, subscription)),
-            &self.timeouts,
-        )
-        .await?;
+        Ok(super::mode_headers(http, request, Vec::new()))
+    }
+
+    async fn stream_http(&self, http: reqwest::RequestBuilder) -> Result<ChunkStream, Error> {
+        let response = super::http::send(http, &self.timeouts).await?;
         let status = response.status();
         if !status.is_success() {
             let headers = response.headers().clone();
@@ -97,9 +127,10 @@ impl OpenAi {
             return Err(api_error(status.as_u16(), &text).with_headers(&headers));
         }
 
+        let limits = super::limits::Limits::from_headers(response.headers()).map(|limits| Ok(Chunk::Limits(limits)));
         let mut state = StreamState::default();
         let events = sse::events(response.bytes_stream(), self.timeouts.idle);
-        Ok(Box::pin(events.flat_map(move |event| {
+        let chunks = events.flat_map(move |event| {
             let items: Vec<Result<Chunk, Error>> = match event {
                 Err(error) => vec![Err(Error::Transport(error.to_string()))],
                 Ok(event) => match state.chunks(&event.data) {
@@ -108,7 +139,9 @@ impl OpenAi {
                 },
             };
             futures_util::stream::iter(items)
-        })))
+        });
+
+        Ok(Box::pin(futures_util::stream::iter(limits).chain(chunks)))
     }
 }
 
@@ -146,8 +179,26 @@ fn api_error(status: u16, text: &str) -> Error {
 
     match status {
         401 | 403 => Error::Unauthenticated(message),
-        _ => Error::api(status, kind, message),
+        _ => with_named_reset(Error::api(status, kind, message), error),
     }
+}
+
+/// Codex says in a usage-limit refusal's body when the usage frees, as seconds from now or an epoch time.
+fn with_named_reset(mut refused: Error, body: &Value) -> Error {
+    if let Error::Api { kind, retry_after, .. } = &mut refused
+        && kind == crate::llm::limits::LIMIT_REACHED
+    {
+        let at = body["resets_at"]
+            .as_f64()
+            .map(|at| at - crate::id::now_ms() as f64 / 1000.0);
+        let seconds = body["resets_in_seconds"]
+            .as_f64()
+            .or(at)
+            .filter(|seconds| *seconds > 0.0);
+        *retry_after = seconds.and_then(|seconds| std::time::Duration::try_from_secs_f64(seconds).ok());
+    }
+
+    refused
 }
 
 #[cfg(test)]
@@ -348,6 +399,7 @@ mod tests {
                 top_p: None,
                 top_k: None,
                 mode: None,
+                context_window: None,
             }
         }
 
@@ -588,6 +640,32 @@ mod tests {
             assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
             let expired = api_error(401, r#"{"error":{"message":"token expired"}}"#);
             assert!(matches!(expired, Error::Unauthenticated(ref m) if m == "token expired"));
+        }
+
+        #[test]
+        fn a_usage_limit_refusal_says_when_it_frees_and_the_socket_sends_limits_first() {
+            let refused = api_error(
+                429,
+                r#"{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_in_seconds":7200}}"#,
+            );
+            assert!(refused.limit_reached());
+            assert!(matches!(refused, Error::Api { retry_after: Some(wait), .. } if wait.as_secs() == 7200));
+
+            let event = json!({
+                "type": "error",
+                "status_code": 429,
+                "error": { "type": "usage_limit_reached", "message": "The usage limit has been reached" },
+                "headers": { "x-codex-primary-used-percent": "100.0", "x-codex-primary-window-minutes": "300" }
+            });
+            let streamed = StreamState::default().chunks(&event.to_string());
+            assert!(matches!(&streamed, Err(error) if error.limit_reached()), "{streamed:?}");
+
+            let limits = json!({
+                "type": "codex.rate_limits",
+                "rate_limits": { "primary": { "used_percent": 40, "window_minutes": 10080, "reset_at": 1791996130 } }
+            });
+            let chunks = StreamState::default().chunks(&limits.to_string()).unwrap();
+            assert!(matches!(&chunks[..], [Chunk::Limits(reported)] if reported.weekly.is_some()));
         }
     }
 }

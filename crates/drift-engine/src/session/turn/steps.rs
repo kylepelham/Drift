@@ -77,8 +77,7 @@ impl Engine {
         started: Option<&str>,
     ) -> Option<String> {
         let mut attempts = 0;
-        let mut recovered = false;
-        let mut steps = 0;
+        let mut recovered = Recovered::default();
         let mut repeats = Repeats::default();
         let mut answered = None;
         let mut wrapping = None;
@@ -88,11 +87,8 @@ impl Engine {
                 self.pause(plan, reason.to_string());
                 break;
             }
+            self.follow_account(plan).await;
 
-            let limits = plan.config.limits_for(&plan.session.agent);
-            if wrapping.is_none() && steps + 1 >= limits.steps {
-                wrapping = Some(WrapUp::Steps(limits.steps));
-            }
             let Some(transcript) = self.transcript_for_step(plan, abort).await else {
                 break;
             };
@@ -120,10 +116,9 @@ impl Engine {
                 Step::Done => break,
                 Step::Continue => {
                     attempts = 0;
-                    steps += 1;
                     wrapping = repeats
-                        .record(self.last_calls(&plan.session.id), &limits)
-                        .map(WrapUp::Repeats);
+                        .record(self.last_calls(&plan.session.id), &plan.config.limits)
+                        .map(WrapUp);
                 }
                 Step::Retry(retry) if retry.allowed(attempts) => {
                     attempts += 1;
@@ -137,17 +132,33 @@ impl Engine {
                     }
                 }
                 Step::Retry(_) => break,
-                Step::Overflow if !recovered => {
-                    recovered = true;
-                    if !self.recover_from_overflow(&plan.session.id, reply, abort).await {
+                // The next pass sends the same request again from the next account, at once.
+                Step::Switch => self.discard_refused_reply(&plan.session.id, reply),
+                refused @ (Step::Overflow | Step::UnreadableImage) => {
+                    let first = recovered.first(&refused);
+                    if !first || !self.recover(&plan.session.id, &refused, reply, abort).await {
                         break;
                     }
                 }
-                Step::Overflow => break,
             }
         }
 
         answered
+    }
+
+    /// Recovers from a request the provider refused for what it carried; false ends the turn.
+    async fn recover(
+        self: &Arc<Self>,
+        session_id: &str,
+        refused: &Step,
+        reply: String,
+        abort: &CancellationToken,
+    ) -> bool {
+        match refused {
+            Step::Overflow => self.recover_from_overflow(session_id, reply, abort).await,
+            Step::UnreadableImage => self.drop_unreadable_images(session_id, reply),
+            _ => false,
+        }
     }
 
     /// Compacts an overflowing request and discards an empty refused reply once recovery succeeds.
@@ -161,14 +172,28 @@ impl Engine {
             return false;
         }
 
+        self.discard_refused_reply(session_id, reply);
+        true
+    }
+
+    /// A reply sent again from another account goes with whatever it streamed.
+    fn discard_reply(&self, session_id: &str, reply: String) {
+        if self.store.discard_reply(&reply).unwrap_or(false) {
+            self.hub.publish(Event::MessageRemoved {
+                session_id: session_id.into(),
+                message_id: reply,
+            });
+        }
+    }
+
+    /// A refused request leaves an empty reply; once recovered, it goes, so no error stays in the transcript.
+    pub(super) fn discard_refused_reply(&self, session_id: &str, reply: String) {
         if self.store.discard_empty_reply(&reply).unwrap_or(false) {
             self.hub.publish(Event::MessageRemoved {
                 session_id: session_id.into(),
                 message_id: reply,
             });
         }
-
-        true
     }
 
     /// The transcript for the next request, compacted first when the last reply left too little room.
@@ -201,9 +226,21 @@ impl Engine {
     ) -> Step {
         let streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
+            Err(StreamError::Provider(error)) if self.leave_refused_account(plan, &error) => {
+                self.failed_step(&mut message, StreamError::Provider(error));
+                return Step::Switch;
+            }
             Err(error) => return self.failed_step(&mut message, error),
         };
+        // A safety refusal another account may not make sends the request again from it; the refused reply goes.
+        if streamed.stop == StopReason::Refused && self.leave_refusing_account(plan, streamed.refusal.as_ref()) {
+            self.discard_reply(&plan.session.id, message.id);
+            return Step::Switch;
+        }
+
         message.usage = streamed.usage;
+        message.generation_ms = streamed.generation_ms;
+        message.account = plan.account.clone();
         message.cost = cost(&plan.model, streamed.usage);
         message.status = MessageStatus::Done;
 
@@ -229,6 +266,7 @@ impl Engine {
         if let Some((error, _)) = &ending {
             message.error = Some(error.clone());
         }
+        message.refusal = streamed.refusal.filter(|_| streamed.stop == StopReason::Refused);
         message.ending = match streamed.stop {
             StopReason::MaxTokens => Some(types::Ending::Length),
             StopReason::Refused => Some(types::Ending::Refused),
@@ -287,6 +325,9 @@ impl Engine {
                 if error.is_context_overflow() {
                     return Step::Overflow;
                 }
+                if error.is_unreadable_image() {
+                    return Step::UnreadableImage;
+                }
 
                 Retry::from(&error).map_or(Step::Done, Step::Retry)
             }
@@ -299,7 +340,14 @@ impl Engine {
             Err(llm::Error::Unauthenticated(words)) if matches!(plan.credential, Credential::OAuth { .. }) => words,
             opened => return opened,
         };
-        match self.renew(&plan.model_ref.provider, plan.credential.clone()).await {
+        match self
+            .renew(
+                &plan.model_ref.provider,
+                plan.account.as_deref(),
+                plan.credential.clone(),
+            )
+            .await
+        {
             Ok(fresh) => plan.credential = fresh,
             Err(error) => return Err(llm::Error::Unauthenticated(format!("{refused} ({error})"))),
         }
@@ -344,6 +392,7 @@ impl Engine {
                 }
             };
             match next {
+                Some(Ok(llm::Chunk::Limits(limits))) => self.record_limits(scope.plan, limits),
                 Some(Ok(chunk)) => assembler
                     .apply(chunk)
                     .map_err(|error| StreamError::Provider(llm::Error::Transport(error.to_string())))?,
@@ -364,7 +413,9 @@ impl Engine {
 
         Ok(Streamed {
             usage: assembler.usage,
+            generation_ms: assembler.generation_ms(),
             stop,
+            refusal: assembler.refusal,
             calls: assembler.calls,
             early,
         })

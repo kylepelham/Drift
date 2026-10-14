@@ -3,9 +3,10 @@ import { hiddenParent } from "./sessions";
 import { messageModel } from "./messages";
 import { promptPartText } from "./parts";
 
-import type { ModelInfo, ProviderInfo } from "./catalog";
+import type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
+import type { ProcessRecord } from "./processes";
 import type { Session } from "./sessions";
 import type { Message } from "./messages";
 import type { Part } from "./parts";
@@ -22,7 +23,7 @@ export type Permission = components["schemas"]["PermissionRequest"] & { director
 type Todo = components["schemas"]["Todo"];
 export type Connection = "idle" | "connecting" | "online" | "offline";
 
-export type { ModelInfo, ProviderInfo } from "./catalog";
+export type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
 export type ModelRef = { providerID: string; modelID: string };
 /** An agent as the engine resolved it for the workspace, Settings overrides applied. */
 export type AgentInfo = {
@@ -36,8 +37,6 @@ export type AgentInfo = {
     model?: ModelRef;
     /** Tool names it may use; empty means every tool. */
     tools: string[];
-    /** Its own step limit, in place of the workspace's. */
-    steps?: number;
     permissions?: PermissionRule[];
     variant?: string;
     /** Why the engine refuses to run it (a broken file or override); other agents are unaffected. */
@@ -52,12 +51,23 @@ export type CommandInfo = Pick<components["schemas"]["Command"], "name" | "descr
 };
 export type MessageEntry = { info: Message; parts: Part[] };
 
+/**
+ * Closes tool calls left running by a turn that is gone. A client that joined mid-turn never saw its calls
+ * start, so while the session is `running` the calls of its latest reply are taken as live.
+ */
 export function interruptStaleTools(
     entries: MessageEntry[],
     liveTools: Readonly<Record<string, string>>,
     error = "Interrupted",
+    running = false,
 ) {
+    const current = running
+        ? [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info.id
+        : undefined;
+
     return entries.map((entry) => {
+        if (entry.info.id === current) return entry;
+
         let changed = false;
         const parts = entry.parts.map((part) => {
             if (part.type !== "tool_call" || (part.status !== "pending" && part.status !== "running")) return part;
@@ -140,10 +150,14 @@ export type EngineState = {
     todos: Record<string, Todo[]>;
     /** Workers each session launched, keyed by the launching session, oldest first. */
     tasks: Record<string, TaskRecord[]>;
+    /** Background processes each session started, oldest first. */
+    processes: Record<string, ProcessRecord[]>;
     providers: ProviderInfo[];
     /** The engine's MCP servers by name: the only place their definition and state live. */
     mcpServers: Record<string, McpServerStatus>;
     connected: string[];
+    /** Each provider's stored accounts, first used first. */
+    providerAccounts: Record<string, ProviderAccount[]>;
     defaultModels: Record<string, string>;
     agents: AgentInfo[];
     commands: CommandInfo[];
@@ -206,9 +220,11 @@ export function createEngineState() {
         questions: {},
         todos: {},
         tasks: {},
+        processes: {},
         providers: [],
         mcpServers: {},
         connected: [],
+        providerAccounts: {},
         defaultModels: {},
         agents: [],
         commands: [],

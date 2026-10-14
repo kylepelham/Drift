@@ -1,9 +1,26 @@
 import { applyProviderCatalog } from "../state/provider-cache";
 import { errorMessage } from "./actions-context";
+import { t } from "../state/i18n";
 
 import type { ProviderAuthMethod } from "./provider-auth";
+import type { LocalServerInput } from "./native/client";
 import type { ActionContext } from "./actions-context";
 import type { ProviderAuthResult } from "./actions";
+import type { components } from "./native/types";
+
+const switchMessages: Record<components["schemas"]["SwitchReason"], string> = {
+    limit: "drift.provider.accounts.switched",
+    reset: "drift.provider.accounts.returned",
+    model: "drift.provider.accounts.switchedForModel",
+    refusal: "drift.provider.accounts.switchedForRefusal",
+};
+
+/** The notice key for why a turn moved to another account. */
+export function switchMessage(reason: components["schemas"]["SwitchReason"]) {
+    return switchMessages[reason];
+}
+
+type Event = components["schemas"]["Event"];
 
 /** Sign-in methods per provider, in the order the settings page lists them. */
 const authMethods: Record<
@@ -38,14 +55,58 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
             connected: providers.filter((p) => p.connected).map((p) => p.id),
             default: {},
         });
+        set("providerAccounts", Object.fromEntries(providers.map((p) => [p.id, p.accounts])));
 
         return true;
+    }
+
+    /** Runs one account change and reloads the list; false when the engine refused it. */
+    async function changeAccounts(change: Promise<void>) {
+        const done = await change.then(() => true).catch(() => false);
+        await refreshProviders();
+
+        return done;
+    }
+
+    const reorderProviderAccounts = (id: string, order: string[]) =>
+        changeAccounts(requireClient().reorderProviderAccounts(id, order));
+
+    const renameProviderAccount = (id: string, account: string, label: string) =>
+        changeAccounts(requireClient().renameProviderAccount(id, account, label));
+
+    const removeProviderAccount = (id: string, account: string) =>
+        changeAccounts(requireClient().removeProviderAccount(id, account));
+
+    /** Keeps the usage an account reports, and tells the user when a turn moved to another account. */
+    function applyProviderEvent(event: Event) {
+        if (event.type === "provider.limits" && state.providerAccounts[event.provider])
+            set("providerAccounts", event.provider, (account) => account.id === event.account, "limits", event.limits);
+        if (event.type !== "provider.switched") return;
+
+        const provider = state.providers.find((entry) => entry.id === event.provider)?.name ?? event.provider;
+        const account = event.label ?? t("drift.provider.accounts.unnamed", { number: event.position });
+        notice({
+            title: provider,
+            message: t(switchMessage(event.reason), { account, provider }),
+            variant: "info",
+            duration: 8000,
+        });
     }
 
     async function setProviderKey(id: string, key: string): Promise<ProviderAuthResult> {
         await requireClient().setProviderKey(id, key);
         await refreshProviders();
         return { ok: true, connected: state.connected.includes(id) };
+    }
+
+    const localServer = (id: string) => requireClient().localServer(id);
+
+    /** Saves where a local server listens and its window limit; the engine asks it again before answering. */
+    async function setLocalServer(id: string, input: LocalServerInput) {
+        const saved = await requireClient().setLocalServer(id, input);
+        await refreshProviders();
+
+        return saved;
     }
 
     async function disconnectProvider(id: string): Promise<ProviderAuthResult> {
@@ -109,9 +170,15 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         refreshProviders,
         reloadProviders: refreshProviders,
         setProviderKey,
+        localServer,
+        setLocalServer,
         disconnectProvider,
         providerAuthMethods,
         providerAuthorize,
         providerCallback,
+        reorderProviderAccounts,
+        renameProviderAccount,
+        removeProviderAccount,
+        applyProviderEvent,
     };
 }

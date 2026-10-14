@@ -26,6 +26,10 @@ pub(super) struct DiscoveryDescriptor {
     brand: &'static str,
     protocol: &'static str,
     version: u8,
+    /// The remote API version the Drift app checks before linking.
+    api: u32,
+    /// This computer's name, to tell several PCs apart.
+    computer: String,
     url: String,
     host: String,
     port: u16,
@@ -144,6 +148,8 @@ pub(super) fn discovery_descriptor(ip: Ipv4Addr, fingerprint: &str) -> Discovery
         brand: "Drift",
         protocol: "drift-remote",
         version: 2,
+        api: drift_pairing::API_VERSION,
+        computer: super::computer_name(),
         url: format!("https://{ip}:{HTTP_PORT}/companion"),
         host: ip.to_string(),
         port: HTTP_PORT,

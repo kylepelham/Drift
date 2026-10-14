@@ -33,6 +33,7 @@ use crate::session::types::{
 use crate::store::{Admit, Admitted, Handover, Pick};
 use crate::tool::{Context, SessionFiles};
 
+mod accounts;
 mod admission;
 mod approval;
 mod calls;
@@ -198,6 +199,8 @@ pub(crate) struct Plan {
     pub(super) model: Model,
     pub(super) provider: Provider,
     pub(super) credential: Credential,
+    /// The stored account the credential is, renewed in place; none for a key from the environment.
+    pub(super) account: Option<String>,
     /// The reasoning variant by name, looked up on each request so a switched model reads it as its own.
     variant: Option<String>,
     offer: Offer,
@@ -249,8 +252,32 @@ enum Step {
     Continue,
     /// A failure worth trying again.
     Retry(Retry),
+    /// The account's usage is spent and another of the provider's can take the request now.
+    Switch,
     /// The request no longer fit the model's context.
     Overflow,
+    /// The provider could not read an image the request carried.
+    UnreadableImage,
+}
+
+/// Which content refusals a turn has already recovered from; each is tried once.
+#[derive(Default)]
+struct Recovered {
+    overflow: bool,
+    images: bool,
+}
+
+impl Recovered {
+    /// True the first time this turn meets `refused`, which is then counted.
+    fn first(&mut self, refused: &Step) -> bool {
+        let seen = match refused {
+            Step::Overflow => &mut self.overflow,
+            Step::UnreadableImage => &mut self.images,
+            _ => return false,
+        };
+
+        !std::mem::replace(seen, true)
+    }
 }
 
 /// One call as the loop check sees it: what was asked and what came back.
@@ -261,12 +288,10 @@ struct CallTrace {
     output: String,
 }
 
-/// Why a turn makes one last request with tools off before it stops, as opencode does at its step limit.
+/// A turn whose last steps repeated the same calls with the same results, this many times in a row,
+/// makes one last request with tools off before it stops.
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum WrapUp {
-    Steps(u32),
-    Repeats(u32),
-}
+struct WrapUp(u32);
 
 /// Consecutive steps whose calls and results were all the same.
 /// Changing results are progress, and a deliberate wait gets the larger `polls` allowance.
@@ -318,7 +343,9 @@ struct StepWrites {
 
 struct Streamed {
     usage: Usage,
+    generation_ms: Option<u64>,
     stop: StopReason,
+    refusal: Option<types::Refusal>,
     calls: Vec<PartRow>,
     /// Calls already started while the reply streamed.
     early: early::Early,

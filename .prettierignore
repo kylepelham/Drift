@@ -2,6 +2,7 @@
 # the bundled models.dev snapshot and the lockfiles.
 src/engine/native/types.ts
 src-tauri/gen/
+src-android/gen/
 crates/drift-engine/data/models.json
 bun.lock
 Cargo.lock

@@ -2,6 +2,7 @@
 
 mod assemble;
 mod attach;
+pub mod backup;
 pub mod branch;
 mod changes;
 pub mod clarify;
@@ -10,7 +11,9 @@ pub mod compaction;
 mod convert;
 pub mod drive;
 mod early;
+mod generation;
 mod oneshot;
+mod processes;
 pub mod prompt;
 pub mod revert;
 pub mod snapshot;

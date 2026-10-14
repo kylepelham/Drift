@@ -135,3 +135,82 @@ fn the_providers_wait_is_read_in_every_form() {
         Error::Api { retryable: true, .. }
     ));
 }
+
+#[test]
+fn a_refusal_for_spent_usage_waits_until_the_usage_frees() {
+    let reset = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 3600;
+    let codex = Error::api(429, "rate_limit_exceeded", "slow down").with_headers(&headers(&[
+        ("x-codex-primary-used-percent", "100".into()),
+        ("x-codex-primary-window-minutes", "10080".into()),
+        ("x-codex-primary-reset-at", reset.to_string()),
+    ]));
+
+    assert!(codex.limit_reached());
+    let until = wait(&codex).unwrap();
+    assert!(
+        until > Duration::from_secs(3590) && until <= Duration::from_secs(3600),
+        "{until:?}"
+    );
+
+    let anthropic = Error::api(429, "rate_limit_error", "x").with_headers(&headers(&[
+        ("anthropic-ratelimit-unified-status", "rejected".into()),
+        ("anthropic-ratelimit-unified-reset", reset.to_string()),
+    ]));
+    assert!(anthropic.limit_reached());
+
+    let named = Error::api(429, "usage_limit_reached", "The usage limit has been reached");
+    assert!(
+        named.with_headers(&headers(&[])).limit_reached(),
+        "the kind alone says so"
+    );
+
+    let busy = Error::api(429, "rate_limit_error", "per-minute").with_headers(&headers(&[
+        ("x-codex-primary-used-percent", "40".into()),
+        ("x-codex-primary-window-minutes", "10080".into()),
+    ]));
+    assert!(!busy.limit_reached(), "a per-minute rate limit is still waited out");
+}
+
+#[test]
+fn a_socket_error_event_carries_its_headers_in_the_body() {
+    let reset = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        + 60;
+    let event = serde_json::json!({
+        "x-codex-primary-used-percent": "100.0",
+        "x-codex-primary-window-minutes": 300,
+        "x-codex-primary-reset-at": reset,
+    });
+
+    let error = Error::api(429, "usage_limit_reached", "x").with_header_object(&event);
+
+    assert!(error.limit_reached());
+    assert!(wait(&error).unwrap() <= Duration::from_secs(60));
+}
+
+#[test]
+fn a_plan_that_lacks_the_model_is_never_waited_on_and_is_told_apart_from_a_rate_limit() {
+    let lacks = Error::api(429, "rate_limit_error", "Usage credits are required for this model.");
+    let codex = Error::api(
+        400,
+        "invalid_request_error",
+        "The 'gpt-6-sol' model is not supported when using Codex with a ChatGPT account.",
+    );
+    let busy = Error::api(429, "rate_limit_error", "slow down");
+
+    let retryable = |error: &Error| matches!(error, Error::Api { retryable: true, .. });
+
+    assert!(lacks.plan_lacks_model() && !retryable(&lacks));
+    assert!(codex.plan_lacks_model() && !retryable(&codex));
+    assert!(!busy.plan_lacks_model() && retryable(&busy));
+
+    // A provider asking for a retry cannot make waiting add the model to the plan.
+    let told = lacks.with_headers(&headers(&[("x-should-retry", "true".into())]));
+    assert!(!retryable(&told));
+}

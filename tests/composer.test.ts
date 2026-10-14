@@ -531,13 +531,16 @@ test("question.replied clears the matching draft and submission before a late fa
     expect(questionSubmissionState("q-event")).toBeUndefined();
 });
 
-test("only async question cards collapse and their controls expose the controlled body", async () => {
+test("every question card folds from its header and its controls expose the controlled body", async () => {
     const source = await Bun.file("src/ui/attention.tsx").text();
     const card = source.slice(
         source.indexOf("export function QuestionCard"),
         source.indexOf("export function selectQuestionOption"),
     );
-    expect(card).toContainCode("const hidden = () => !!props.async && collapsed()");
+    expect(card).toContainCode("const hidden = () => collapsed()");
+    expect(card).toMatch(
+        /aria-expanded=\{!hidden\(\)\}[\s\S]*?onClick=\{\(\) => setCollapsed\(!hidden\(\)\)\}[\s\S]*?\{question\(\)\.header\}[\s\S]*?<Chevron open=\{!hidden\(\)\} \/>/,
+    );
     expect(card).toContainCode(
         'if (event.key === "Escape") { event.stopPropagation(); if (props.async) setCollapsed(true); else void answer(null)',
     );
@@ -742,4 +745,13 @@ test("waiting questions are listed in the front card: each names its thread and 
     const stack = { items, current: "q1", onSelect: () => undefined };
     expect(neighbour(stack, 1)).toBe("q2");
     expect(neighbour(stack, -1)).toBeUndefined();
+});
+
+test("the phone composer shortens a model name only by its brand word", async () => {
+    const { compactModelName } = await import("../src/ui/composer-models");
+    expect(compactModelName("Claude Opus 5.5")).toBe("Opus 5.5");
+    expect(compactModelName("Gemini 3 Pro")).toBe("Gemini 3 Pro");
+    expect(compactModelName("GPT-6 Sol")).toBe("GPT-6 Sol");
+    expect(compactModelName("DeepSeek V3")).toBe("DeepSeek V3");
+    expect(compactModelName(undefined)).toBeUndefined();
 });

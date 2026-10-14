@@ -1,5 +1,4 @@
-//! One HTTP client for every provider and service: shared connections, a bounded connect, a bounded
-//! wait for the response to begin, and a stream that goes quiet too long counts as broken.
+//! Shared HTTP clients; ordinary requests can use HTTP/2, while WebSocket upgrades need HTTP/1.1.
 
 use futures_util::StreamExt;
 use std::sync::OnceLock;
@@ -51,20 +50,27 @@ pub const USER_AGENT: &str = concat!("Drift/", env!("CARGO_PKG_VERSION"));
 /// The shared client. Cloning it shares its connection pool.
 pub fn client() -> reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            // The shell installs TLS in release builds; test processes install it before their first client.
-            #[cfg(test)]
-            let _ = rustls::crypto::ring::default_provider().install_default();
+    CLIENT.get_or_init(|| builder().build().unwrap_or_default()).clone()
+}
 
-            reqwest::Client::builder()
-                .user_agent(USER_AGENT)
-                .connect_timeout(CONNECT)
-                .tcp_keepalive(Duration::from_secs(30))
-                .build()
-                .unwrap_or_default()
-        })
+/// For WebSocket upgrades: the Codex backend refuses one negotiated over HTTP/2 (405).
+pub(super) fn websocket_client() -> reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT
+        .get_or_init(|| builder().http1_only().build().unwrap_or_default())
         .clone()
+}
+
+/// What every client shares: Drift's user agent, a bounded connect and TCP keepalive.
+fn builder() -> reqwest::ClientBuilder {
+    // The shell installs TLS in release builds; test processes install it before their first client.
+    #[cfg(test)]
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
+    reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .connect_timeout(CONNECT)
+        .tcp_keepalive(Duration::from_secs(30))
 }
 
 /// A non-streamed body (an error, a token exchange) is read no further than this: enough for any

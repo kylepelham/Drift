@@ -37,6 +37,18 @@ impl Store {
     pub fn checkpoint_part(&self, row: &PartRow) -> rusqlite::Result<()> {
         save_part_in(&self.lock(), row)
     }
+
+    /// The session's messages with a tool call still pending or running.
+    pub fn messages_with_open_calls(&self, session_id: &str) -> rusqlite::Result<std::collections::HashSet<String>> {
+        let connection = self.lock();
+        let mut statement = connection.prepare_cached(
+            "SELECT DISTINCT message_id FROM part WHERE session_id = ?1 AND json_extract(json, '$.type') = 'tool_call'
+             AND json_extract(json, '$.status') IN ('pending', 'running')",
+        )?;
+        let open = statement.query_map(params![session_id], |row| row.get(0))?;
+
+        open.collect()
+    }
 }
 
 pub(super) fn save_part_in(connection: &Connection, row: &PartRow) -> rusqlite::Result<()> {

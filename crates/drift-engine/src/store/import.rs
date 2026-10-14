@@ -120,6 +120,18 @@ impl Store {
         })
     }
 
+    /// Lets a conversation imported before, and deleted since, be imported again, as restoring a backup does.
+    pub fn allow_reimport(&self, session_id: &str) -> rusqlite::Result<()> {
+        self.lock()
+            .prepare_cached(
+                "DELETE FROM imported_session WHERE id = ?1 AND complete = 1
+                 AND NOT EXISTS (SELECT 1 FROM session WHERE id = ?1)",
+            )?
+            .execute([session_id])?;
+
+        Ok(())
+    }
+
     /// Removes an import that failed partway, so its half never shows; only an unfinished import is touched.
     pub fn discard_import(&self, session_id: &str) -> rusqlite::Result<()> {
         transaction(&self.lock(), |conn| {
@@ -181,8 +193,8 @@ fn insert_session(conn: &Connection, session: &Session, archived_at: Option<i64>
 
 fn insert_message(conn: &Connection, message: &Message) -> rusqlite::Result<()> {
     conn.prepare_cached(
-        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
     )?
     .execute(params![
         message.id,
@@ -198,7 +210,10 @@ fn insert_message(conn: &Connection, message: &Message) -> rusqlite::Result<()> 
         message.finished_at,
         message.summary,
         message.agent,
-        message.ending.map(crate::session::types::Ending::as_str)
+        message.ending.map(crate::session::types::Ending::as_str),
+        message.generation_ms,
+        message.account,
+        message.refusal.as_ref().and_then(|refusal| serde_json::to_string(refusal).ok())
     ])?;
 
     Ok(())
@@ -245,8 +260,11 @@ mod tests {
             error: None,
             created_at: 10,
             finished_at: Some(10),
+            generation_ms: None,
+            account: None,
             summary: false,
             ending: None,
+            refusal: None,
         };
         let part = PartRow {
             id: format!("prt_{n:016x}aaaaaaaa"),

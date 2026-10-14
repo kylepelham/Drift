@@ -215,6 +215,8 @@ fn discovery_is_branded_without_disclosing_credentials() {
     assert_eq!(value["version"], 2);
     assert_eq!(value["url"], "https://192.168.1.20:41718/companion");
     assert_eq!(value["certificateSha256"], "AB:CD");
+    assert_eq!(value["api"], drift_pairing::API_VERSION);
+    assert!(value["computer"].as_str().is_some_and(|name| !name.is_empty()));
     assert!(!value.to_string().contains("token"));
 }
 

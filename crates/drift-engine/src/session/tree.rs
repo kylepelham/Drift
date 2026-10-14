@@ -1,6 +1,6 @@
 //! Fork and move: whole-session operations that never touch a turn in flight.
 
-use super::types::{MessageStatus, Role, Session, Visibility};
+use super::types::{Message, MessageStatus, Role, Session, Visibility};
 use crate::Engine;
 use crate::event::Event;
 use crate::store::NewSession;
@@ -68,15 +68,12 @@ impl Engine {
         Ok(session)
     }
 
-    /// Finished visible message IDs before the running turn, read without loading their parts.
+    /// Finished visible message IDs, read without loading their parts. A running turn's finished steps count;
+    /// a reply still streaming, a step whose calls still run, and anything after them do not.
     pub(super) fn finished(&self, source: &Session) -> rusqlite::Result<Vec<String>> {
         let messages = self.store.message_infos(&source.id)?;
-        // A running turn can change history from its original prompt, not just its latest steered prompt.
         let stable = match self.turns.began(&source.id) {
-            Some(began) => messages
-                .iter()
-                .position(|message| message.id >= began)
-                .unwrap_or(messages.len()),
+            Some(began) => self.settled(&source.id, &messages, &began)?,
             // Another job, such as a compaction, is unstable from the last prompt.
             None if self.turns.is_running(&source.id) => messages
                 .iter()
@@ -96,6 +93,22 @@ impl Engine {
             .filter(|message| message.status != MessageStatus::Streaming)
             .map(|message| message.id.clone())
             .collect())
+    }
+
+    /// How much of a running turn's history is settled: up to its first reply still streaming or with calls
+    /// still running. A prompt the turn has not answered yet is left off the end, so a fork never ends on one.
+    fn settled(&self, session_id: &str, messages: &[Message], began: &str) -> rusqlite::Result<usize> {
+        let open = self.store.messages_with_open_calls(session_id)?;
+        let mut end = messages
+            .iter()
+            .position(|message| message.status == MessageStatus::Streaming || open.contains(&message.id))
+            .unwrap_or(messages.len());
+
+        while end > 0 && messages[end - 1].role == Role::User && messages[end - 1].id.as_str() >= began {
+            end -= 1;
+        }
+
+        Ok(end)
     }
 
     /// Moves a session and its subagents to another workspace. Refused while any of them is running or

@@ -34,7 +34,6 @@ const familyLabels: Record<string, string> = {
     default: "drift.settings.prompts.family.default",
 };
 
-const stepPresets = ["10", "25", "50", "100", "200", "500"];
 const pickerWidth = "13rem";
 const editorClass =
     "w-full resize-y rounded-lg border border-edge bg-bg/50 p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-accent";
@@ -340,14 +339,8 @@ function AgentEditor(props: {
             label: reasoningLevelLabel(level),
         })),
     ]);
-    const steps = createMemo(() => [
-        { id: "", label: t("drift.settings.prompts.stepsPlaceholder") },
-        ...[...new Set([...stepPresets, props.draft.steps].filter(Boolean))]
-            .sort((a, b) => Number(a) - Number(b))
-            .map((step) => ({ id: step, label: step })),
-    ]);
     const changed = () => props.draft.prompt !== props.baseline.prompt;
-    // Background jobs only answer in text, so they have no reasoning level, steps, tools or permissions.
+    // Background jobs only answer in text, so they have no reasoning level, tools or permissions.
     const runsTools = () => capability() !== "text";
 
     return (
@@ -398,22 +391,6 @@ function AgentEditor(props: {
                             placement="below"
                             width={pickerWidth}
                             onPick={(variant) => props.onChange({ variant })}
-                        />
-                    </SettingsRow>
-                    <SettingsRow
-                        title={t("drift.settings.prompts.steps")}
-                        description={t("drift.settings.prompts.stepsDescription")}
-                    >
-                        <Picker
-                            label={t("drift.settings.prompts.steps")}
-                            items={steps()}
-                            selected={props.draft.steps}
-                            floating
-                            bordered
-                            chevronAtEnd
-                            placement="below"
-                            width={pickerWidth}
-                            onPick={(steps) => props.onChange({ steps })}
                         />
                     </SettingsRow>
                 </Show>

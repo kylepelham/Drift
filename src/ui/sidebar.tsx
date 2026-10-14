@@ -1,11 +1,13 @@
 import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces";
-import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen } from "../state/navigation";
+import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen, openMobileDrawer } from "../state/navigation";
 import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
 import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
+import { pickBackup, saveBackup } from "./session-backup";
 import { normalizeDir } from "../engine/store";
 import { WorkspaceGroup } from "./workspaces";
+import { drawerSwipe } from "./drawer-swipe";
 import { pickFolder } from "../state/dialog";
 import { persisted } from "../state/persist";
 import { openSettings } from "./settings";
@@ -69,6 +71,39 @@ export function Sidebar() {
         }
 
         setMoveStatus(null);
+    }
+
+    async function backupThread(sessionId: string) {
+        const backup = await engine.actions.exportSessions([sessionId]);
+        if (backup) await saved(saveBackup(backup, engine.state.sessions[sessionId]?.title ?? sessionId));
+    }
+
+    async function backupWorkspace(workspace: Workspace) {
+        const backup = await engine.actions.exportWorkspace(workspace.path);
+        if (backup) await saved(saveBackup(backup, workspace.name));
+    }
+
+    /** Says where a backup went, or why it could not be written. */
+    async function saved(saving: Promise<string | undefined>) {
+        const path = await saving.catch((cause: unknown) => setMoveStatus({ error: true, text: String(cause) }));
+        if (typeof path !== "string") return;
+
+        setMoveStatus({ error: false, text: t("drift.backup.saved", { path }) });
+        setTimeout(() => setMoveStatus(null), 6000);
+    }
+
+    async function importInto(workspace: Workspace) {
+        const backup = await pickBackup().catch(() => null);
+        if (backup === null) return setMoveStatus({ error: true, text: t("drift.backup.unreadable") });
+        if (!backup) return;
+
+        setMoveStatus({ error: false, text: t("drift.backup.importing", { workspace: workspace.name }) });
+        const restored = await engine.actions.importSessions(workspace.path, backup);
+        if (!restored) return setMoveStatus(null);
+
+        const counts = { imported: restored.imported.length, skipped: restored.skipped.length };
+        setMoveStatus({ error: false, text: t("drift.backup.imported", counts) });
+        setTimeout(() => setMoveStatus(null), 5000);
     }
 
     async function retargetWorkspace(workspace: Workspace) {
@@ -135,6 +170,16 @@ export function Sidebar() {
 
     return (
         <aside
+            ref={(drawer) =>
+                onCleanup(
+                    drawerSwipe(drawer, {
+                        open: mobileDrawerOpen,
+                        show: openMobileDrawer,
+                        hide: () => closeMobileDrawer(),
+                        narrow: () => isNarrowWidth(window.innerWidth),
+                    }),
+                )
+            }
             class="app-sidebar relative flex shrink-0 flex-col border-r border-edge bg-surface"
             classList={{ "mobile-sidebar-open": mobileDrawerOpen() }}
             style={{ width: `${width()}px` }}
@@ -199,6 +244,8 @@ export function Sidebar() {
                         workspace={entry().workspace}
                         onEdit={() => setEditing(entry().workspace.id)}
                         onMove={() => void retargetWorkspace(entry().workspace)}
+                        onBackup={() => void backupWorkspace(entry().workspace)}
+                        onImport={() => void importInto(entry().workspace)}
                         onClose={() => setMenu(null)}
                     />
                 )}
@@ -209,6 +256,7 @@ export function Sidebar() {
                         state={state()}
                         workspaces={workspaces()}
                         onMove={(workspace) => void moveSessionTo(state(), workspace)}
+                        onBackup={() => void backupThread(state().sessionId)}
                         onClose={() => setSessionMenu(null)}
                     />
                 )}

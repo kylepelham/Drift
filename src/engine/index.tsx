@@ -1,5 +1,5 @@
 import { createEngineState, putTasks, normalizeDir as normalizeWorkspacePath, type EngineState } from "./store";
-import { createContext, onCleanup, untrack, useContext, type ParentProps } from "solid-js";
+import { createContext, createEffect, onCleanup, untrack, useContext, type ParentProps } from "solid-js";
 import { createClient, type Client, type Target } from "./native/client";
 import { connectEvents, type EventStream } from "./native/events";
 import { createActions, type EngineActions } from "./actions";
@@ -8,6 +8,8 @@ import { produce, reconcile } from "solid-js/store";
 import { errorMessage } from "./actions-context";
 import { workspaces } from "../state/workspaces";
 import { resolveTarget } from "./native/target";
+import { rehomeSessions } from "./sessions";
+import { putProcesses } from "./processes";
 import { reduce } from "./events";
 
 import type { WorkspaceIndex } from "./sessions";
@@ -79,6 +81,11 @@ export function EngineProvider(props: ParentProps) {
         return client;
     };
     const actions = createActions(requireClient, state, set, workspaceIndex);
+    // A workspace moved to another folder keeps its threads: loaded sessions follow its new path.
+    createEffect(() => {
+        const index = workspaceIndex();
+        untrack(() => set(produce((draft) => rehomeSessions(draft.sessions, index))));
+    });
 
     async function hydrate() {
         if (!client || disposed) return;
@@ -110,6 +117,8 @@ export function EngineProvider(props: ParentProps) {
                 if (envelope.type === "catalog.updated") void actions.refreshProviders().catch(() => undefined);
                 if (envelope.type === "task.updated")
                     putTasks(set, state, envelope.task.parentSessionId, [envelope.task]);
+                if (envelope.type === "process.updated")
+                    putProcesses(set, state, envelope.process.sessionId, [envelope.process]);
                 if (envelope.type === "mcp.updated")
                     set("mcpServers", envelope.server.name, reconcile(envelope.server));
                 if (envelope.type === "mcp.removed")
@@ -117,6 +126,7 @@ export function EngineProvider(props: ParentProps) {
                         "mcpServers",
                         produce((servers) => void delete servers[envelope.name]),
                     );
+                actions.applyProviderEvent(envelope);
                 reduce(
                     set,
                     envelope,

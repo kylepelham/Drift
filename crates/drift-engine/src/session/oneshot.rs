@@ -18,6 +18,8 @@ pub(crate) struct Resolved {
     pub model: Model,
     pub provider: Provider,
     pub credential: Credential,
+    /// The stored account the credential is; none for a key from the environment.
+    pub account: Option<String>,
 }
 
 /// One text-only request. Tools are defined only so a history with tool calls stays valid; calling one is forbidden.
@@ -143,6 +145,7 @@ impl Engine {
                 model: plan.model.clone(),
                 provider: plan.provider.clone(),
                 credential: plan.credential.clone(),
+                account: plan.account.clone(),
             }
         } else {
             self.resolve(&chosen).await?
@@ -167,7 +170,7 @@ impl Engine {
         model_ref: &ModelRef,
         catalog: &crate::llm::catalog::Catalog,
     ) -> Result<Resolved, TurnError> {
-        let (model, env, api) = {
+        let (mut model, env, api) = {
             let info = catalog
                 .providers
                 .get(&model_ref.provider)
@@ -182,12 +185,15 @@ impl Engine {
             )
         };
 
-        let credential = self
+        let (account, credential) = self
             .credentials
-            .resolve(&model_ref.provider, &env)
+            .resolve_account(&model_ref.provider, &env, |key| self.account_serves(key, &model))
             .ok_or(TurnError::NoCredentials)?;
         refuse_signin_elsewhere(&model_ref.provider, &credential, api.as_deref())?;
-        let credential = self.fresh_credential(&model_ref.provider, credential).await?;
+        let credential = self
+            .fresh_credential(&model_ref.provider, account.as_deref(), credential)
+            .await?;
+        self.codex_offers.fit(&mut model, &credential);
         let provider = self
             .provider_for(&model_ref.provider, api.as_deref())
             .ok_or(TurnError::UnknownModel)?;
@@ -197,6 +203,7 @@ impl Engine {
             model,
             provider,
             credential,
+            account,
         })
     }
 
@@ -238,6 +245,7 @@ impl Engine {
             top_p: None,
             top_k: None,
             mode: resolved.model.mode.clone(),
+            context_window: Some(resolved.model.limit.context).filter(|window| *window > 0),
         };
 
         self.send(

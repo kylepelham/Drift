@@ -35,6 +35,7 @@ pub(super) fn router(app: tauri::AppHandle) -> Router {
         .route("/auth/link", post(remote_auth::start_link))
         .route("/auth/link/{id}", get(remote_auth::poll_link))
         .route("/auth/login", post(remote_auth::login))
+        .route("/auth/pair", post(remote_auth::pair))
         .route("/auth/logout", post(remote_auth::logout))
         .route("/auth/me", get(remote_auth::me))
         // A wildcard route would leak its path parameter into the engine's own extractors.

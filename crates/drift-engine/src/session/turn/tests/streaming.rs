@@ -1,6 +1,36 @@
 use super::*;
 
 #[tokio::test]
+async fn a_response_records_its_generation_duration_with_its_usage() {
+    let h = harness().await;
+    h.provider.push_paused(
+        vec![Chunk::TextStart, Chunk::TextDelta("first".into())],
+        Duration::from_millis(30),
+        vec![
+            Chunk::TextDelta(" last".into()),
+            Chunk::BlockStop,
+            Chunk::Usage(Usage {
+                output: 20,
+                ..Usage::default()
+            }),
+            Chunk::Stop(StopReason::EndTurn),
+        ],
+    );
+    h.engine.submit(&h.session.id, prompt("answer")).await.await_ok();
+    until_idle(&h).await;
+    let reply = transcript(&h).pop().unwrap().info;
+    let measured = reply
+        .generation_ms
+        .expect("the completed response carries its generation duration");
+    assert!(measured >= 30);
+    assert_eq!(reply.usage.output, 20);
+    assert_eq!(
+        h.engine.store.message(&reply.id).unwrap().unwrap().generation_ms,
+        Some(measured)
+    );
+}
+
+#[tokio::test]
 async fn a_read_starts_while_the_reply_still_streams() {
     let h = harness().await;
     let file = h._dir.join("ws/a.txt");
@@ -102,6 +132,12 @@ async fn a_refused_reply_says_so_and_runs_nothing() {
     let h = harness().await;
     std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
     let mut refused = call_block("t1", "read", r#"{"path": "a.txt"}"#);
+    let said = crate::session::types::Refusal {
+        category: Some("cyber".into()),
+        explanation: None,
+        model: Some("claude-opus-4-8".into()),
+    };
+    refused.push(Chunk::Refusal(said.clone()));
     refused.push(Chunk::Stop(StopReason::Refused));
     h.provider.push(refused);
     h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
@@ -119,6 +155,11 @@ async fn a_refused_reply_says_so_and_runs_nothing() {
         "typed, so the UI never reads the wording"
     );
     assert_eq!(tool(&last.parts[0]).status, ToolStatus::Error);
+    assert_eq!(
+        last.info.refusal,
+        Some(said),
+        "what the provider said is kept, read back from the store"
+    );
 }
 
 #[tokio::test]
@@ -179,7 +220,7 @@ async fn a_reply_cut_off_without_calls_still_says_so() {
 }
 
 #[tokio::test]
-async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() {
+async fn a_shell_call_shows_its_limit_while_running_and_moves_to_the_background_at_it() {
     let h = harness().await;
     rule(&h, "bash", "*", Decision::Allow);
     h.engine.set_shell_timeout(Some(Duration::from_millis(400)));
@@ -218,16 +259,15 @@ async fn a_shell_call_shows_its_limit_while_running_and_fails_when_it_expires() 
 
     let messages = transcript(&h);
     let call = tool(&messages[1].parts[0]);
-    assert_eq!(call.status, ToolStatus::Error);
+    assert_eq!(call.status, ToolStatus::Done);
     let metadata = call.metadata.unwrap();
-    assert_eq!(
-        (metadata.timed_out, metadata.shell_timeout_ms.flatten()),
-        (Some(true), Some(400))
-    );
+    assert_eq!(metadata.shell_timeout_ms.flatten(), Some(400));
+    assert!(metadata.process_id.is_some(), "it goes on in the background");
     assert!(
         metadata.changes.is_some(),
-        "what the command changed is recorded next to the timeout details"
+        "what the command changed by then is recorded next to the limit"
     );
+    h.engine.processes.stop_session(&h.session.id);
 }
 
 #[tokio::test]

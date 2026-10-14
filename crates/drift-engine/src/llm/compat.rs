@@ -1,4 +1,4 @@
-//! OpenAI Chat Completions over SSE: the dialect xAI, Z.ai, OpenRouter, LM Studio and Ollama all speak.
+//! OpenAI Chat Completions over SSE: the dialect xAI, Z.ai, OpenRouter and LM Studio speak.
 
 use std::collections::BTreeMap;
 

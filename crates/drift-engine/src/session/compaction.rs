@@ -515,6 +515,7 @@ impl Engine {
         let target = convert::OnCatalog {
             model: &input.action.resolved.model_ref,
             catalog: &catalog,
+            account: input.action.resolved.account.as_deref(),
         };
         convert::append(&mut messages, input.head[from..].iter().copied(), &target);
 
@@ -685,6 +686,7 @@ fn estimate(messages: &[&MessageWithParts]) -> usize {
             Part::ToolCall { input, output, .. } => input.to_string().len() + output.as_ref().map_or(0, String::len),
             Part::File { url, .. } => url.len(),
             Part::Clarification { request_id, items } => super::convert::clarification_text(request_id, items).len(),
+            Part::ProcessExit { .. } => super::processes::exit_text(&row.part).len(),
             Part::Compaction { .. } | Part::Unknown { .. } => 0,
         })
         .sum();

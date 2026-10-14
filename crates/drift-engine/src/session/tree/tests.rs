@@ -284,6 +284,61 @@ async fn forking_a_running_session_leaves_the_turn_in_flight_out() {
 }
 
 #[tokio::test]
+async fn a_fork_of_a_long_turn_keeps_its_finished_steps_and_leaves_the_running_one_out() {
+    let h = harness().await;
+    two_turns(&h).await;
+    // A quick first step, then a long command that is still running when the fork is made.
+    let mut first_step = vec![
+        crate::llm::Chunk::TextStart,
+        crate::llm::Chunk::TextDelta("checking first".into()),
+        crate::llm::Chunk::BlockStop,
+    ];
+    first_step.extend(tool_call("bash", &json!({ "command": "echo done" }).to_string()));
+    h.provider.push(first_step);
+    long_bash(&h);
+
+    h.engine.submit(&h.session.id, prompt("work")).await.unwrap();
+    // The first step finishes and the second, a long command, is running.
+    let long_running = |h: &Harness| {
+        h.engine
+            .store
+            .transcript(&h.session.id)
+            .unwrap()
+            .iter()
+            .flat_map(|m| &m.parts)
+            .any(|row| {
+                matches!(&row.part, Part::ToolCall { input, status: crate::session::types::ToolStatus::Running, .. }
+                if input["command"] != "echo done")
+            })
+    };
+    for _ in 0..200 {
+        if long_running(&h) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    let fork = h.engine.fork(&h.session.id, None).unwrap();
+
+    assert_eq!(
+        texts(&h, &fork.id),
+        ["first", "one", "second", "two", "work", "checking first"],
+        "the turn's finished step comes along; the step still running does not"
+    );
+    let copied = h.engine.store.transcript(&fork.id).unwrap();
+    assert!(
+        copied
+            .iter()
+            .flat_map(|message| &message.parts)
+            .all(|row| !matches!(&row.part, Part::ToolCall { status, .. } if matches!(status, crate::session::types::ToolStatus::Pending | crate::session::types::ToolStatus::Running))),
+        "no call in the fork waits for a result it will never get"
+    );
+
+    h.engine.abort(&h.session.id);
+    until_idle(&h).await;
+}
+
+#[tokio::test]
 async fn a_move_takes_subagents_but_not_branches_and_waits_for_idle() {
     let h = harness().await;
     let other = h
