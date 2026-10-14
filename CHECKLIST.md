@@ -39,7 +39,8 @@ change the plan there when a decision changes.
 - [x] Accounts on different plans: the model list shows what any account offers (Daybreak and speed tiers from every ChatGPT account's list), a turn goes to an account that can serve its model, and a refusal saying the plan lacks the model moves it to the next account at once instead of retrying
 - [x] A cyber safety refusal (or one naming no policy area) sends the request again from the next account and keeps the conversation off the refusing account; other policy areas stand; switch notices say why
 - [x] Gemini (adapter only; not yet exercised against the live API)
-- [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter, LM Studio and Ollama presets
+- [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter and LM Studio presets
+- [x] Ollama, local and Cloud, on its native `/api/chat` at each model's full window (`num_ctx`), held to `contextLimit`; discovery checks `/api/version` and reads thinking levels from `/api/show`
 - [x] MCP through rmcp: stdio, HTTP, approval (reconnect and reload: M3)
 - [x] `todowrite`, `question`, `webfetch`
 - [x] `skill`

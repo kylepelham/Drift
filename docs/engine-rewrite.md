@@ -23,7 +23,7 @@ when a decision changes, change it here first. Milestone status lives in `CHECKL
 | Approach | Clean-room rewrite in Rust, test driven. Upstream opencode is read as reference only (gitignored clone under `examples/opencode`). |
 | Topology | Engine is a library crate linked into the Tauri process. The frontend always talks HTTP + WebSocket on loopback so local and remote share one client. No sidecars. |
 | API | New. HTTP for request/response, one WebSocket for events and replies with a resume cursor. OpenAPI generated with `utoipa`; the TypeScript types are generated from it and a thin typed request wrapper (`src/engine/native/client.ts`) is maintained by hand over them. |
-| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio, Ollama. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
+| Providers | Native wire adapters: Anthropic Messages, OpenAI Responses and Chat Completions, Gemini, OpenAI-compatible generic. Presets over the generic adapter: OpenRouter, xAI, Z.ai, LM Studio. Ollama, local and Cloud, on its own `/api/chat`. Bedrock (hand-rolled SigV4, env and profile credentials) and Vertex (service account JSON and ADC file) reuse the Anthropic and Gemini adapters. |
 | Catalog | models.dev JSON fetched and cached, filtered to supported providers, with a bundled snapshot fallback. Each entry carries a tool profile (`edit` or `apply_patch`). |
 | Auth | API keys. Anthropic subscription OAuth (PKCE; the `@ex-machina/opencode-anthropic-auth` tarball is the spec). OpenAI Codex OAuth (upstream `plugin/openai/codex.ts` is the spec; it signs in with Codex's own OAuth client and sends `originator: opencode`, the value OpenAI accepts from that integration, so Drift keeps it rather than risk an unrecognised originator being refused). Credentials stored with the `keyring` crate; encrypted file fallback on headless Linux. |
 | Plugins | No JavaScript host. An internal `Hook` trait with serde-able input and output structs at the hook points; plugins are WebAssembly components run by wasmtime against the WIT in `crates/drift-engine/wit` (see "Plugins" below). |
@@ -1398,7 +1398,7 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
 - OpenAI caching is automatic, keyed by routing: every request of a conversation carries
   `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
   its steps and turns stay on one cache. Title and compaction requests carry none.
-- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio, Ollama) stream text and reasoning as
+- Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
   without ever giving a `finish_reason` is a failed reply: its calls are not run, as with any stream
@@ -1413,24 +1413,38 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
     prompt steered in mid-loop and one sent after a Stop both sit beside the last tool results.
     Only finished replies give it; Anthropic never receives unsigned thinking.
 - Local servers report their own models (`llm::local`). Every 15 s the engine asks LM Studio and
-  Ollama (`/v1/models`, plus LM Studio's `/api/v0/models` for kind, context and tool support) at
-  their default address or the one the user set; what answers replaces that provider's listed
-  models (embedding and tool-less models left out). Context is the window the server really runs
-  with, since both cut longer prompts: LM Studio's loaded length for a loaded model and unknown (0)
-  for one it would load with its own default; for Ollama, a loaded model's allocated
-  `context_length` from `/api/ps`, else the model's own `num_ctx` from `/api/show` (asked once per
-  installed build, keyed by its `/api/tags` digest on the engine, so a model re-created under its
-  name is asked again; never more than its trained length), else unknown. The same answer's
-  `capabilities` decide the rest: a model without `tools` is left out, and one with `vision`
-  reads images. The window falls back to unknown,
-  since Ollama's default depends on the server's memory (4K below 24 GB of VRAM, 32K to 48 GB,
-  256K above, checked 2026-10 against docs.ollama.com) and Drift's environment says nothing about
-  a server elsewhere. An unknown window becomes known within a poll of the model loading; until
-  then the composer's picker says so, since a turn planned without it cannot compact. The
-  provider counts as connected with no key while it answers, and `catalog.updated` tells the UI.
+  Ollama at their default address or the one the user set; what answers replaces that provider's
+  listed models (embedding and tool-less models left out). The provider counts as connected with no
+  key while it answers, and `catalog.updated` tells the UI.
+  - LM Studio (`/v1/models`, plus `/api/v0/models` for kind, context and tool support): the window
+    is its loaded length for a loaded model and unknown (0) for one it would load with its own
+    default, since it cuts longer prompts. An unknown window becomes known within a poll of the
+    model loading; until then the composer's picker says so, since a turn planned without it cannot
+    compact.
+  - Ollama is asked only once `/api/version` answers with a version number, since another server on
+    its port (a llama.cpp shim, say) would otherwise be taken for it. Its models come from
+    `/api/tags`, each described once per installed build by `/api/show` (keyed by digest, so a model
+    re-created under its name is asked again): its `capabilities` leave out a model without `tools`
+    and mark `vision` and `thinking`, and its `thinking.values` (`low`, `medium`, `high`) become
+    reasoning variants. Its window is the length it was trained for, else its Modelfile's `num_ctx`.
+- Ollama, local and Cloud (`https://ollama.com`, key from `OLLAMA_API_KEY`), runs on its own
+  `/api/chat` (`llm::ollama`), not its OpenAI-compatible `/v1`: only the native API takes
+  `options.num_ctx`, and without it Ollama runs at a default that depends on the server's memory
+  (4K below 24 GB of VRAM, 32K to 48 GB, 256K above, checked 2026-10 against docs.ollama.com) and
+  silently cuts longer prompts. Every request asks for the model's catalog window
+  (`Request::context_window`), so the window the session plans and compacts against is the one
+  Ollama runs. A base URL ending in `/v1`, as older drift.json files and models.dev name it, is
+  taken back to the root.
+  - The reply is NDJSON. Text and `thinking` stream as they come; tool calls arrive whole and are
+    handed on at `done`, with an id made up for each, since Ollama gives none. Results go back as
+    `tool` messages naming the tool; images ride as base64 `images` on the user message; usage is
+    `prompt_eval_count` and `eval_count`.
+  - A full trained window can need more memory than the machine has (Ollama allocates it whole), so
+    `contextLimit` in the user's drift.json holds every model of a provider to that many tokens, and
+    fills in a window nothing reported.
 - The user's own `~/.config/drift/drift.json` may add or re-point providers:
-  `providers: { "<id>": { name?, baseUrl?, apiKeyEnv?, models?: { "<model>": { name?, context,
-  output, images } } } }`. A known id gets its endpoint replaced (a gateway, a remote LM Studio) and
+  `providers: { "<id>": { name?, baseUrl?, apiKeyEnv?, contextLimit?, models?: { "<model>": { name?,
+  context, output, images } } } }`. A known id gets its endpoint replaced (a gateway, a remote LM Studio) and
   any listed models added; a new id is an OpenAI-compatible route, keyless unless `apiKeyEnv`
   names its key. A project's drift.json cannot do this: a committed file must never send your key
   elsewhere. models.dev's own `api` field is ignored for the native routes, so only the user
@@ -1595,8 +1609,10 @@ Settled after the first external review of M1; each has a regression test.
     (summarized, since those models otherwise return their thinking blank).
   - Gemini: `thinkingConfig.thinkingBudget` or `thinkingConfig.thinkingLevel`, with thoughts included.
   - OpenAI: `reasoning.effort` with an automatic summary.
-  - OpenRouter: `reasoning: {effort}` or `reasoning: {max_tokens}`. xAI, Z.ai, LM Studio and
-    Ollama: `reasoning_effort`; a budget has no field there, and those routes are never given one.
+  - OpenRouter: `reasoning: {effort}` or `reasoning: {max_tokens}`. xAI, Z.ai and LM Studio:
+    `reasoning_effort`; a budget has no field there, and those routes are never given one.
+  - Ollama: `think` is the level, `false` for `none`, `true` for a budget or for no level on a
+    thinking model (its thinking otherwise comes mixed into the answer, or not at all).
     Z.ai also always gets `thinking: {type: enabled, clear_thinking: false}`, so a turn's earlier
     reasoning is kept, as opencode sends it.
 - With no level picked, the catalog decides what a request still asks for (`catalog::default_reasoning`,
