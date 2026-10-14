@@ -245,6 +245,7 @@ impl Engine {
             top_p: None,
             top_k: None,
             mode: resolved.model.mode.clone(),
+            context_window: Some(resolved.model.limit.context).filter(|window| *window > 0),
         };
 
         self.send(

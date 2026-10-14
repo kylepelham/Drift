@@ -475,6 +475,7 @@ impl Engine {
     }
 
     pub(crate) async fn ask_local(&self) {
+        let user = config::user_providers();
         let mut changed = false;
         for (id, name, default) in llm::local::LOCAL {
             let base = self
@@ -485,7 +486,8 @@ impl Engine {
                 .get(id)
                 .and_then(|provider| provider.api.clone())
                 .unwrap_or_else(|| default.into());
-            let found = llm::local::discover(&self.http, id, &base, &self.local_shown).await;
+            let limit = user.get(id).and_then(|provider| provider.context_limit);
+            let found = llm::local::discover(&self.http, id, &base, &self.local_shown, limit).await;
             self.credentials.set_keyless(id, found.is_some());
             let mut known = self.local_models.lock().unwrap();
             let was_up = known.contains_key(id);

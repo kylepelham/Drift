@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
-use super::catalog::{Limit, Model, ToolProfile};
+use super::catalog::{Limit, Model, Reasoning, ToolProfile, Variant};
 
 /// A local server that is not running refuses at once; one that is answers well inside this.
 const ASK_WITHIN: Duration = Duration::from_secs(2);
@@ -15,7 +15,7 @@ const ASK_WITHIN: Duration = Duration::from_secs(2);
 /// The local routes and where they listen unless the user's drift.json says otherwise.
 pub const LOCAL: [(&str, &str, &str); 2] = [
     ("lmstudio", "LM Studio", "http://127.0.0.1:1234/v1"),
-    ("ollama", "Ollama", "http://127.0.0.1:11434/v1"),
+    ("ollama", "Ollama", super::ollama::LOCAL_ROOT),
 ];
 
 /// What `/api/show` says of each Ollama model, by the digest of what is installed: asked once per
@@ -24,17 +24,31 @@ pub const LOCAL: [(&str, &str, &str); 2] = [
 pub struct Shown(Mutex<BTreeMap<String, Showing>>);
 
 /// One Ollama model as `/api/show` describes it.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 struct Showing {
-    /// Its own `num_ctx`, never more than it was trained for; `None` when it sets none.
+    /// The window it was trained for, else the `num_ctx` its Modelfile sets; `None` when neither is known.
     window: Option<u64>,
     /// `false` only when Ollama lists its capabilities without `tools`.
     tools: bool,
     vision: bool,
+    thinking: bool,
+    /// The thinking levels it takes (`low`, `medium`, `high`); empty when it only turns thinking on or off.
+    levels: Vec<String>,
 }
 
-/// The chat models the server at `base` (an OpenAI-compatible `/v1` root) offers; `None` when it does not answer.
-pub async fn discover(client: &reqwest::Client, provider: &str, base: &str, shown: &Shown) -> Option<Vec<Model>> {
+/// The chat models the server at `base` offers, each window at most `limit`; `None` when it does not answer.
+/// LM Studio's `base` is its OpenAI-compatible `/v1` root; Ollama's is its root, or `/v1` as older drift.json files say.
+pub async fn discover(
+    client: &reqwest::Client,
+    provider: &str,
+    base: &str,
+    shown: &Shown,
+    limit: Option<u64>,
+) -> Option<Vec<Model>> {
+    if provider == "ollama" {
+        return ollama_models(client, &super::ollama::root(base), shown, limit).await;
+    }
+
     let base = base.trim_end_matches('/');
     let listed = get(client, &format!("{base}/models")).await?;
     let details = lm_studio_details(client, base).await;
@@ -50,40 +64,76 @@ pub async fn discover(client: &reqwest::Client, provider: &str, base: &str, show
             model(id, description)
         })
         .collect();
-    if provider == "ollama" {
-        models = ollama_details(client, base, shown, models).await;
+    for model in &mut models {
+        cap(model, limit);
     }
 
     Some(models)
 }
 
-/// Ollama's own answers for each model: a loaded one's allocated window (`/api/ps`), else its own
-/// `num_ctx`; whether it reads images; and models that cannot call tools are left out.
-async fn ollama_details(client: &reqwest::Client, base: &str, shown: &Shown, models: Vec<Model>) -> Vec<Model> {
-    let running = ollama_listing(client, base, "ps", "context_length").await;
-    let digests = ollama_listing(client, base, "tags", "digest").await;
-    let mut kept = Vec::new();
-
-    for mut model in models {
-        let digest = digests
-            .get(&model.id)
-            .and_then(Value::as_str)
-            .map_or_else(|| format!("{base}|{}", model.id), str::to_string);
-        let showing = shown.describe(client, base, &model.id, &digest).await;
-        if !showing.tools {
-            continue;
-        }
-
-        model.attachment = showing.vision;
-        model.limit.context = running
-            .get(&model.id)
-            .and_then(Value::as_u64)
-            .or(showing.window)
-            .unwrap_or(0);
-        kept.push(model);
+/// Ollama's installed chat models, from Ollama itself: each at the window it was trained for, which every
+/// request asks for (`num_ctx`), with what it can do. `None` unless what answers at `root` is Ollama.
+async fn ollama_models(client: &reqwest::Client, root: &str, shown: &Shown, limit: Option<u64>) -> Option<Vec<Model>> {
+    // Another server on Ollama's port answers `/api/version` with something other than a version number.
+    let version = get(client, &format!("{root}/api/version")).await?;
+    if !is_ollama_version(version["version"].as_str()?) {
+        return None;
     }
 
-    kept
+    let installed = get(client, &format!("{root}/api/tags")).await?;
+    let mut models = Vec::new();
+    for entry in installed["models"].as_array()? {
+        // An embedding model is left out before anything more is asked of it.
+        let Some(listed) = entry["name"].as_str().and_then(|name| model(name, None)) else {
+            continue;
+        };
+        let name = listed.id.as_str();
+        let digest = entry["digest"]
+            .as_str()
+            .map_or_else(|| format!("{root}|{name}"), str::to_string);
+
+        let showing = shown.describe(client, root, name, &digest).await;
+        if showing.tools {
+            models.push(ollama_model(listed, &showing, limit));
+        }
+    }
+
+    Some(models)
+}
+
+/// `0.12.3` and the like; `0.0.0` from a development build counts too.
+fn is_ollama_version(version: &str) -> bool {
+    let mut parts = version.trim_start_matches('v').split('.');
+    let numbered = |part: Option<&str>| part.is_some_and(|part| part.starts_with(|c: char| c.is_ascii_digit()));
+
+    numbered(parts.next()) && numbered(parts.next())
+}
+
+/// An installed model with what `/api/show` says it can do.
+fn ollama_model(mut model: Model, showing: &Showing, limit: Option<u64>) -> Model {
+    model.attachment = showing.vision;
+    model.reasoning = showing.thinking;
+    model.limit.context = showing.window.unwrap_or(0);
+    model.variants = showing
+        .levels
+        .iter()
+        .map(|level| Variant {
+            name: level.clone(),
+            reasoning: Reasoning::Effort { level: level.clone() },
+        })
+        .collect();
+    cap(&mut model, limit);
+
+    model
+}
+
+/// Holds a model's window to the user's limit, from drift.json's `contextLimit`.
+fn cap(model: &mut Model, limit: Option<u64>) {
+    if let Some(limit) = limit.filter(|limit| *limit > 0)
+        && (model.limit.context == 0 || model.limit.context > limit)
+    {
+        model.limit.context = limit;
+    }
 }
 
 async fn get(client: &reqwest::Client, url: &str) -> Option<Value> {
@@ -106,40 +156,14 @@ async fn read(response: reqwest::Response) -> Option<Value> {
         .ok()
 }
 
-/// One field of each model Ollama lists at `/api/<what>` (`ps` for loaded models' windows, `tags`
-/// for installed models' digests), by every name the model goes by.
-async fn ollama_listing(client: &reqwest::Client, base: &str, what: &str, field: &str) -> BTreeMap<String, Value> {
-    let root = base.strip_suffix("/v1").unwrap_or(base);
-    let Some(listed) = get(client, &format!("{root}/api/{what}")).await else {
-        return BTreeMap::new();
-    };
-
-    let mut by_name = BTreeMap::new();
-    for model in listed["models"].as_array().cloned().unwrap_or_default() {
-        let value = model[field].clone();
-        if value.is_null() {
-            continue;
-        }
-
-        for name in [&model["name"], &model["model"]].into_iter().filter_map(Value::as_str) {
-            by_name.insert(name.to_string(), value.clone());
-            by_name.entry(format!("{name}:latest")).or_insert(value.clone());
-        }
-    }
-
-    by_name
-}
-
 impl Shown {
-    /// Caches `/api/show` by model digest, keeping an unset context window as `None`.
-    /// Ollama chooses that window at load time according to available memory.
-    /// An unanswered request assumes tool support and is retried on the next discovery.
-    async fn describe(&self, client: &reqwest::Client, base: &str, model: &str, digest: &str) -> Showing {
+    /// Caches `/api/show` by model digest. An unanswered request assumes tool support and is retried on the
+    /// next discovery.
+    async fn describe(&self, client: &reqwest::Client, root: &str, model: &str, digest: &str) -> Showing {
         if let Some(known) = self.0.lock().unwrap().get(digest) {
-            return *known;
+            return known.clone();
         }
 
-        let root = base.strip_suffix("/v1").unwrap_or(base);
         let shown = async {
             read(
                 client
@@ -174,12 +198,18 @@ impl Shown {
             .as_array()
             .map(|c| c.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default();
+        let levels = shown["thinking"]["values"]
+            .as_array()
+            .map(|values| values.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .unwrap_or_default();
         let showing = Showing {
-            window: set.map(|set| trained.map_or(set, |trained| set.min(trained))),
+            window: trained.or(set),
             tools: capabilities.is_empty() || capabilities.contains(&"tools"),
             vision: capabilities.contains(&"vision"),
+            thinking: capabilities.contains(&"thinking"),
+            levels,
         };
-        self.0.lock().unwrap().insert(digest.into(), showing);
+        self.0.lock().unwrap().insert(digest.into(), showing.clone());
 
         showing
     }
@@ -236,6 +266,9 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use serde_json::json;
 
     use super::*;
@@ -279,7 +312,9 @@ mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = crate::llm::http::client();
 
-        let models = discover(&client, "lmstudio", &base, &Shown::default()).await.unwrap();
+        let models = discover(&client, "lmstudio", &base, &Shown::default(), None)
+            .await
+            .unwrap();
         let found: Vec<(&str, u64, bool)> = models
             .iter()
             .map(|m| (m.id.as_str(), m.limit.context, m.attachment))
@@ -297,20 +332,26 @@ mod tests {
             .local_addr()
             .unwrap();
         assert!(
-            discover(&client, "lmstudio", &format!("http://{stopped}/v1"), &Shown::default())
-                .await
-                .is_none()
+            discover(
+                &client,
+                "lmstudio",
+                &format!("http://{stopped}/v1"),
+                &Shown::default(),
+                None
+            )
+            .await
+            .is_none()
         );
     }
 
-    /// Ollama's `/api/tags`: the installed models, `set` carrying a digest that changes with each `build`.
+    /// Ollama's `/api/tags`: the installed models, `long` carrying a digest that changes with each `build`.
     fn installed(build: usize) -> Value {
         json!({ "models": [
-            { "name": "loaded:latest", "digest": "l" },
-            { "name": "set", "digest": format!("set-{build}") },
-            { "name": "unset", "digest": "u" },
-            { "name": "tiny", "digest": "t" },
-            { "name": "chatty", "digest": "c" }
+            { "name": "long", "digest": format!("long-{build}") },
+            { "name": "set", "digest": "s" },
+            { "name": "unknown", "digest": "u" },
+            { "name": "chatty", "digest": "c" },
+            { "name": "nomic-embed-text", "digest": "e" }
         ] })
     }
 
@@ -318,49 +359,28 @@ mod tests {
     fn shown_model(model: Option<&str>) -> Value {
         let info = |n: u64| json!({ "llama.context_length": n });
         match model {
-            Some("set") => json!({
-                "parameters": "temperature 0.7\nnum_ctx 32768",
-                "model_info": info(131072),
-                "capabilities": ["completion", "tools", "vision"]
+            Some("long") => json!({
+                "parameters": "temperature 0.7\nnum_ctx 4096",
+                "model_info": info(262_144),
+                "capabilities": ["completion", "tools", "vision", "thinking"],
+                "thinking": { "values": ["low", "medium", "high"], "default": "medium" }
             }),
-            Some("tiny") => json!({
-                "parameters": "num_ctx 8192",
-                "model_info": info(2048),
-                "capabilities": ["completion", "tools"]
-            }),
+            Some("set") => json!({ "parameters": "num_ctx 8192", "capabilities": ["completion", "tools"] }),
             Some("chatty") => json!({ "model_info": info(8192), "capabilities": ["completion"] }),
-            _ => json!({ "model_info": info(131072) }),
+            _ => json!({}),
         }
     }
 
-    #[tokio::test]
-    async fn ollama_models_get_the_window_ollama_runs_them_with() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-
-        let shows = std::sync::Arc::new(AtomicUsize::new(0));
+    /// A fake Ollama answering `/api/version` with `version`; counts `/api/show` calls.
+    async fn ollama(version: &'static str) -> (String, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+        let shows = Arc::new(AtomicUsize::new(0));
         let counted = shows.clone();
-        let build = std::sync::Arc::new(AtomicUsize::new(1));
+        let build = Arc::new(AtomicUsize::new(1));
         let rebuilt = build.clone();
-        let listed = json!({
-            "data": [
-                { "id": "loaded:latest" },
-                { "id": "set" },
-                { "id": "unset" },
-                { "id": "tiny" },
-                { "id": "chatty" }
-            ]
-        });
-        let running = json!({
-            "models": [{ "name": "loaded:latest", "model": "loaded:latest", "context_length": 262144 }]
-        });
         let app = axum::Router::new()
             .route(
-                "/v1/models",
-                axum::routing::get(move || async move { axum::Json(listed) }),
-            )
-            .route(
-                "/api/ps",
-                axum::routing::get(move || async move { axum::Json(running) }),
+                "/api/version",
+                axum::routing::get(move || async move { axum::Json(json!({ "version": version })) }),
             )
             .route(
                 "/api/tags",
@@ -377,42 +397,84 @@ mod tests {
                 }),
             );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let base = format!("http://{}/v1", listener.local_addr().unwrap());
+        let root = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
         let _ = rustls::crypto::ring::default_provider().install_default();
+
+        (root, shows, build)
+    }
+
+    #[tokio::test]
+    async fn ollama_models_run_at_the_window_they_were_trained_for_with_what_they_can_do() {
+        let (root, shows, build) = ollama("0.12.6").await;
         let client = crate::llm::http::client();
         let shown = Shown::default();
 
-        let models = discover(&client, "ollama", &base, &shown).await.unwrap();
-        let found: Vec<(&str, u64, bool)> = models
+        // An older drift.json names Ollama by its `/v1` root; either form reaches it.
+        let models = discover(&client, "ollama", &format!("{root}/v1"), &shown, None)
+            .await
+            .unwrap();
+        let found: Vec<(&str, u64, bool, bool)> = models
             .iter()
-            .map(|m| (m.id.as_str(), m.limit.context, m.attachment))
+            .map(|m| (m.id.as_str(), m.limit.context, m.attachment, m.reasoning))
             .collect();
         assert_eq!(
             found,
             [
-                ("loaded:latest", 262144, false),
-                ("set", 32768, true),
-                ("unset", 0, false),
-                ("tiny", 2048, false)
+                ("long", 262_144, true, true),
+                ("set", 8192, false, false),
+                ("unknown", 0, false, false)
             ],
-            "loaded as allocated; else num_ctx within the trained length; else unknown; \
-             vision read from its capabilities; a model without tools left out"
+            "the trained window over a smaller Modelfile num_ctx; num_ctx when nothing else is known; \
+             a model without tools and an embedding model left out"
+        );
+        let levels: Vec<&str> = models[0].variants.iter().map(|variant| variant.name.as_str()).collect();
+        assert_eq!(
+            levels,
+            ["low", "medium", "high"],
+            "its thinking levels become reasoning variants"
         );
 
-        discover(&client, "ollama", &base, &shown).await.unwrap();
+        discover(&client, "ollama", &root, &shown, None).await.unwrap();
+        assert_eq!(
+            shows.load(Ordering::SeqCst),
+            4,
+            "each installed model is shown once, not every poll"
+        );
+        build.store(2, Ordering::SeqCst);
+        discover(&client, "ollama", &root, &shown, None).await.unwrap();
         assert_eq!(
             shows.load(Ordering::SeqCst),
             5,
-            "each installed model is shown once, not every poll"
-        );
-
-        build.store(2, Ordering::SeqCst);
-        discover(&client, "ollama", &base, &shown).await.unwrap();
-        assert_eq!(
-            shows.load(Ordering::SeqCst),
-            6,
             "a model re-created under its name has a new digest, so it is asked again"
         );
+    }
+
+    #[tokio::test]
+    async fn the_users_limit_holds_every_window_and_fills_an_unknown_one() {
+        let (root, _, _) = ollama("0.12.6").await;
+        let client = crate::llm::http::client();
+
+        let models = discover(&client, "ollama", &root, &Shown::default(), Some(65_536))
+            .await
+            .unwrap();
+        let windows: Vec<u64> = models.iter().map(|model| model.limit.context).collect();
+
+        assert_eq!(windows, [65_536, 8192, 65_536]);
+    }
+
+    #[tokio::test]
+    async fn another_server_on_ollamas_port_is_not_taken_for_ollama() {
+        let (root, shows, _) = ollama("llama-fim shim").await;
+        let client = crate::llm::http::client();
+
+        assert!(
+            discover(&client, "ollama", &root, &Shown::default(), None)
+                .await
+                .is_none()
+        );
+        assert_eq!(shows.load(Ordering::SeqCst), 0, "nothing more is asked of it");
+        assert!(is_ollama_version("0.0.0") && is_ollama_version("v0.13.1"));
+        assert!(!is_ollama_version("") && !is_ollama_version("1") && !is_ollama_version("llama-fim shim"));
     }
 }

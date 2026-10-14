@@ -93,6 +93,7 @@ pub(crate) fn request() -> Request {
         top_p: None,
         top_k: None,
         mode: None,
+        context_window: None,
     }
 }
 

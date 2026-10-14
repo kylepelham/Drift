@@ -38,11 +38,14 @@ pub struct File {
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderConfig {
     pub name: Option<String>,
-    /// Where its requests go: an OpenAI-compatible `/v1` root for a new or local provider.
+    /// Where its requests go: an OpenAI-compatible `/v1` root for a new provider or LM Studio, Ollama's own root.
     pub base_url: Option<String>,
     /// The environment variable holding its key. A new provider without one takes no key.
     pub api_key_env: Option<String>,
     pub models: BTreeMap<String, ProviderModel>,
+    /// The largest window its models run with, in tokens: Ollama allocates memory for the whole window a
+    /// request asks for, so a model trained for far more than the machine can hold is kept to this.
+    pub context_limit: Option<u64>,
 }
 
 /// A model of a user's provider, as the catalog needs it.

@@ -56,6 +56,7 @@ impl Engine {
             top_p: sampling.top_p,
             top_k: sampling.top_k,
             mode: plan.model.mode.clone(),
+            context_window: Some(plan.model.limit.context).filter(|window| *window > 0),
         };
 
         (request, answered)

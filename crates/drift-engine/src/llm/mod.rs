@@ -16,6 +16,7 @@ pub mod http;
 pub mod limits;
 pub mod local;
 mod oauth_error;
+pub mod ollama;
 pub mod openai;
 pub use oauth_error::OAuthError;
 #[cfg(test)]
@@ -172,6 +173,8 @@ pub struct Request {
     pub top_k: Option<u32>,
     /// The catalog mode the chosen entry runs `model` in (fast, ultrafast, flex, pro).
     pub mode: Option<catalog::ModelMode>,
+    /// The model's window in tokens, for servers that size it per request (Ollama's `num_ctx`); `None` when unknown.
+    pub context_window: Option<u64>,
 }
 
 /// Lays the mode's body fields over the adapter's body, objects merged key by key
@@ -524,6 +527,7 @@ pub enum Provider {
     Gemini(gemini::Gemini),
     Bedrock(bedrock::Bedrock),
     Vertex(vertex::Vertex),
+    Ollama(ollama::Ollama),
     Scripted(scripted::Scripted),
 }
 
@@ -545,6 +549,7 @@ impl Provider {
             Self::Gemini(provider) => Some(provider.timeouts),
             Self::Bedrock(provider) => Some(provider.timeouts),
             Self::Vertex(provider) => Some(provider.timeouts),
+            Self::Ollama(provider) => Some(provider.timeouts),
             Self::Scripted(_) => None,
         }
     }
@@ -557,6 +562,7 @@ impl Provider {
             Self::Gemini(provider) => Some(&mut provider.timeouts),
             Self::Bedrock(provider) => Some(&mut provider.timeouts),
             Self::Vertex(provider) => Some(&mut provider.timeouts),
+            Self::Ollama(provider) => Some(&mut provider.timeouts),
             Self::Scripted(_) => None,
         }
     }
@@ -569,6 +575,7 @@ impl Provider {
             Self::Gemini(provider) => provider.stream(request, credential).await,
             Self::Bedrock(provider) => provider.stream(request, credential).await,
             Self::Vertex(provider) => provider.stream(request, credential).await,
+            Self::Ollama(provider) => provider.stream(request, credential).await,
             Self::Scripted(provider) => provider.stream(request, credential),
         }
     }
@@ -602,7 +609,8 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
         "zai" => Provider::Compat(compat::Compat::zai(&base("https://api.z.ai/api/paas/v4"))),
         "openrouter" => Provider::Compat(compat::Compat::openrouter(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),
-        "ollama" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:11434/v1"))),
+        "ollama" => Provider::Ollama(ollama::Ollama::new(&base(ollama::LOCAL_ROOT))),
+        "ollama-cloud" => Provider::Ollama(ollama::Ollama::new(&base(ollama::CLOUD_ROOT))),
         "amazon-bedrock" => Provider::Bedrock(bedrock::Bedrock::new(override_url)),
         "google-vertex" | "google-vertex-anthropic" => Provider::Vertex(vertex::Vertex::new(override_url)),
         _ => Provider::Compat(compat::Compat::new(override_url.as_deref()?)),
