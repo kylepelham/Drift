@@ -7,7 +7,7 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 use super::convert;
-use super::oneshot::{Action, Answer, Failure, Fallback, OneShot};
+use super::oneshot::{Action, Answer, Failure, Fallback, OneShot, Resolved};
 use super::turn::Plan;
 use super::turn::TurnError;
 use super::types::{Message, MessageStatus, MessageWithParts, ModelRef, Part, Role, Session};
@@ -412,6 +412,7 @@ impl Engine {
     /// That reads the whole history at the cached price.
     /// Otherwise, or when that reply is unusable or too long, summarises the history before the tail leanly.
     async fn summarise(&self, input: &SummaryInput<'_>, spent: &mut Spent) -> Result<String, CompactionError> {
+        let mut moved = None;
         if let Some(plan) = input
             .action
             .own
@@ -428,11 +429,14 @@ impl Engine {
                     if !failure.retry_another_way() {
                         return Err(CompactionError::Request(failure.message()));
                     }
+                    moved = self
+                        .leave_refusing_account_for(input.session_id, &input.action.resolved, &failure)
+                        .await;
                 }
             }
         }
 
-        self.summarise_lean(input, spent).await
+        self.summarise_lean(input, moved, spent).await
     }
 
     /// Sends exactly the request the turn's next step would, with the instructions as the last user message.
@@ -468,17 +472,49 @@ impl Engine {
     }
 
     /// Summarises the history before the tail without a system prompt, files mentioned and tool results cut.
-    /// When that request is too long, drops the oldest turns and asks again.
-    async fn summarise_lean(&self, input: &SummaryInput<'_>, spent: &mut Spent) -> Result<String, CompactionError> {
-        let resolved = &input.action.resolved;
+    /// When that request is too long, drops the oldest turns and asks again. `moved` is the account a refusal
+    /// already moved the summary to, if any.
+    async fn summarise_lean(
+        &self,
+        input: &SummaryInput<'_>,
+        mut moved: Option<Resolved>,
+        spent: &mut Spent,
+    ) -> Result<String, CompactionError> {
         let starts = turn_starts(input.head);
         let mut dropped = 0;
 
         for attempt in 0..=TRIM_ATTEMPTS {
             let from = starts.get(dropped).copied().unwrap_or(input.head.len());
+            let messages = self.lean_messages(input, from, dropped > 0);
+            let failure = match self.ask_lean(input, messages, &mut moved, spent).await {
+                Ok(text) => return Ok(text),
+                Err(failure) => failure,
+            };
+
+            let error = failure.message();
+            if attempt == TRIM_ATTEMPTS || !llm::mentions_context_overflow(&error) || dropped >= starts.len() {
+                return Err(CompactionError::Request(error));
+            }
+            dropped += (starts.len() / 5).max(1);
+        }
+
+        Err(CompactionError::TooLong)
+    }
+
+    /// One lean request. A refusal another account may not make asks that account instead, which the rest of the
+    /// summary keeps.
+    async fn ask_lean(
+        &self,
+        input: &SummaryInput<'_>,
+        messages: Vec<ChatMessage>,
+        moved: &mut Option<Resolved>,
+        spent: &mut Spent,
+    ) -> Result<String, Failure> {
+        loop {
+            let resolved = moved.as_ref().unwrap_or(&input.action.resolved);
             let shot = OneShot {
                 system: String::new(),
-                messages: self.lean_messages(input, from, dropped > 0),
+                messages: messages.clone(),
                 tools: self.tool_specs(resolved.model.profile, Some(&input.action.workspace)),
                 max_tokens: SUMMARY_MAX_TOKENS,
                 timeout: SUMMARY_TIMEOUT,
@@ -488,16 +524,16 @@ impl Engine {
                 Ok(answer) => return Ok(spent.take(&resolved.model, answer)),
                 Err(failure) => failure,
             };
-
             spent.add(&resolved.model, failure.usage());
-            let error = failure.message();
-            if attempt == TRIM_ATTEMPTS || !llm::mentions_context_overflow(&error) || dropped >= starts.len() {
-                return Err(CompactionError::Request(error));
-            }
-            dropped += (starts.len() / 5).max(1);
-        }
 
-        Err(CompactionError::TooLong)
+            let next = self
+                .leave_refusing_account_for(input.session_id, resolved, &failure)
+                .await;
+            match next {
+                Some(next) => *moved = Some(next),
+                None => return Err(failure),
+            }
+        }
     }
 
     /// The lean summary request for the head from message `from`, noting when older turns were left out.

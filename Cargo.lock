@@ -1415,7 +1415,7 @@ dependencies = [
 
 [[package]]
 name = "drift"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1459,7 +1459,7 @@ dependencies = [
 
 [[package]]
 name = "drift-android"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "axum",
  "drift-pairing",
@@ -1485,7 +1485,7 @@ dependencies = [
 
 [[package]]
 name = "drift-engine"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "async-trait",
  "axum",
@@ -1532,7 +1532,7 @@ dependencies = [
 
 [[package]]
 name = "drift-engined"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "drift-engine",
  "rustls",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "drift-migrate"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "drift-engine",
  "rusqlite",
@@ -1556,7 +1556,7 @@ dependencies = [
 
 [[package]]
 name = "drift-pairing"
-version = "2.2.0"
+version = "2.2.1"
 dependencies = [
  "thiserror 2.0.19",
  "url",
@@ -4648,9 +4648,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "once_cell",
  "ring",

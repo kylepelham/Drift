@@ -1075,6 +1075,28 @@ test("failed attempts the engine retried collapse into one retry line that stays
     expect(retryInFlight(answered, "a3"), "once the attempt shows output, the line goes").toBeUndefined();
 });
 
+test("a reply after a failed compaction summary is the turn going on, not a retry", async () => {
+    const { retryInFlight } = await import("../src/ui/timeline-state");
+    const entries = [
+        { info: { id: "u1", role: "user", time: { created: 1 } }, parts: [] },
+        {
+            info: {
+                id: "a1",
+                role: "assistant",
+                summary: true,
+                createdAt: 2,
+                finishedAt: 2,
+                status: "error",
+                error: "the model refused the request; its partial reply was discarded",
+            },
+            parts: [],
+        },
+        { info: { id: "a2", role: "assistant", createdAt: 3 }, parts: [] },
+    ] as never;
+
+    expect(retryInFlight(entries, "a2")).toBeUndefined();
+});
+
 test("a failure stops showing once the session goes on, by a retry or a new prompt", async () => {
     const { failedAttempt } = await import("../src/ui/timeline-state");
     const failed = {

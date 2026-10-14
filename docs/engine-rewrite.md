@@ -1376,6 +1376,10 @@ sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
     whose content stays, but serves every other one. When every account refuses, the last refusal
     shows as before. A refusal in another policy area stands on the account that made it: retrying
     those until one account lets them through would only be dodging the filter.
+    A compaction summary the filter refuses the same way is asked of the next account too
+    (`Engine::leave_refusing_account_for`), and the conversation's next turn follows it there with
+    the same notice; a summary failing on the refusing account would leave the conversation too
+    long to go on.
   - Reasoning signatures and encrypted reasoning validate only for the account that made them, so
     each reply records its account (`message.account`, migration 38) and history signed by another
     account is sent as text, as another model's is. A reply from before accounts counts as the

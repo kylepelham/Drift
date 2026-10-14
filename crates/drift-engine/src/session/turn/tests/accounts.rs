@@ -373,3 +373,84 @@ async fn when_every_account_refuses_the_last_refusal_is_shown() {
     assert_eq!(shown.ending, Some(crate::session::types::Ending::Refused));
     assert_eq!(shown.refusal.unwrap().category.as_deref(), Some("cyber"));
 }
+
+#[tokio::test]
+async fn a_cyber_refusal_of_a_compaction_summary_asks_the_next_account_and_the_conversation_follows() {
+    let h = harness().await;
+    let (first, second) = two_accounts(&h);
+    let mut events = h.engine.hub.attach(None).rx;
+    h.provider
+        .push(text("The retry loop now backs off."))
+        .push(refused(Some("cyber")))
+        .push(text("We reworked the retry loop to back off."))
+        .push(text("Done, the backoff is capped at a minute."));
+    h.engine
+        .submit(&h.session.id, prompt("Make the retry loop back off"))
+        .await
+        .await_ok();
+    until_idle(&h).await;
+
+    // The summary comes from the next account instead of failing on the refusing one.
+    h.engine
+        .compact(
+            &h.session.id,
+            crate::session::compaction::Trigger::Manual,
+            &Default::default(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent_with(&h), ["first", "first", "second"]);
+    assert!(h.engine.unserved.refused_conversation(&first, &h.session.id));
+    assert!(transcript(&h).iter().all(|message| message.info.error.is_none()));
+
+    // The conversation's next turn moves there too, and says why.
+    h.engine
+        .submit(&h.session.id, prompt("Cap it at a minute"))
+        .await
+        .await_ok();
+    until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["first", "first", "second", "second"]);
+    assert_eq!(
+        transcript(&h).last().unwrap().info.account.as_deref(),
+        Some(second.as_str())
+    );
+
+    let mut reason = None;
+    while let Ok(envelope) = events.try_recv() {
+        if let Event::ProviderSwitched { reason: why, .. } = envelope.event {
+            reason = Some(why);
+        }
+    }
+    assert_eq!(reason, Some(SwitchReason::Refusal));
+}
+
+#[tokio::test]
+async fn a_compaction_summary_refused_in_another_policy_area_fails_on_the_account_that_refused_it() {
+    let h = harness().await;
+    two_accounts(&h);
+    h.provider
+        .push(text("The retry loop now backs off."))
+        .push(refused(Some("bio")))
+        .push(refused(Some("bio")));
+    h.engine
+        .submit(&h.session.id, prompt("Make the retry loop back off"))
+        .await
+        .await_ok();
+    until_idle(&h).await;
+
+    let compacted = h
+        .engine
+        .compact(
+            &h.session.id,
+            crate::session::compaction::Trigger::Manual,
+            &Default::default(),
+        )
+        .await;
+
+    assert!(compacted.is_err());
+    assert!(
+        sent_with(&h).iter().all(|account| account == "first"),
+        "{:?}",
+        sent_with(&h)
+    );
+}

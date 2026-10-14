@@ -38,6 +38,7 @@ change the plan there when a decision changes.
 - [x] Several sign-ins per provider as ordered accounts; a turn moves to the next the moment one reaches its five-hour or weekly limit, chosen from usage read off every response (Anthropic's header names unverified live)
 - [x] Accounts on different plans: the model list shows what any account offers (Daybreak and speed tiers from every ChatGPT account's list), a turn goes to an account that can serve its model, and a refusal saying the plan lacks the model moves it to the next account at once instead of retrying
 - [x] A cyber safety refusal (or one naming no policy area) sends the request again from the next account and keeps the conversation off the refusing account; other policy areas stand; switch notices say why
+- [x] A compaction summary refused the same way is asked of the next account, and the conversation follows it
 - [x] Gemini (adapter only; not yet exercised against the live API)
 - [x] OpenAI-compatible generic with xAI, Z.ai, OpenRouter and LM Studio presets
 - [x] Ollama, local and Cloud, on its native `/api/chat` at each model's full window (`num_ctx`), held to `contextLimit`; discovery checks `/api/version` and reads thinking levels from `/api/show`

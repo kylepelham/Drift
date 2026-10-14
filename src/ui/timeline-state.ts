@@ -52,7 +52,8 @@ export function timelineRowVisible(
 
 /** A reply that failed before showing anything: what the engine retries. */
 export function failedAttempt(entry: MessageEntry) {
-    if (entry.info.role !== "assistant") return false;
+    // A failed compaction summary shows its own error; the reply after it is the turn going on, not a retry.
+    if (entry.info.role !== "assistant" || entry.info.summary) return false;
     const problem = messageProblem(entry.info);
     return !!problem && !problem.interrupted && !entry.parts.some(partVisible);
 }

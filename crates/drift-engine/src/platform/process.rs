@@ -391,8 +391,11 @@ fn registry_string(root: windows_sys::Win32::System::Registry::HKEY, key: &str, 
         return None;
     }
 
-    let text = String::from_utf16_lossy(&buffer[..written as usize / 2]);
-    Some(text.trim_end_matches('\0').to_string())
+    // Expansion happens in place, and the size reported is the raw value's: a value that expands shorter leaves its
+    // raw tail after the expanded text's NUL, which must not reach a child's PATH.
+    let text = &buffer[..written as usize / 2];
+    let end = text.iter().position(|unit| *unit == 0).unwrap_or(text.len());
+    Some(String::from_utf16_lossy(&text[..end]))
 }
 
 pub fn find_in(program: &str, dirs: impl Iterator<Item = std::path::PathBuf>) -> Option<std::path::PathBuf> {
@@ -516,5 +519,35 @@ mod tests {
             std::env::split_paths(&saved).any(|dir| dir.join("cmd.exe").is_file() || dir.join("System32").is_dir()),
             "{saved:?}"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_placeholder_that_expands_shorter_leaves_no_nul_behind() {
+        use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_EXPAND_SZ, RegDeleteTreeW, RegSetKeyValueW};
+        let wide = |text: &str| text.encode_utf16().chain([0]).collect::<Vec<u16>>();
+        let key = format!(r"Software\drift-tests\path-{}", crate::random_hex(4));
+        // A fresh Windows keeps its PATH as placeholders, and `C:\Windows` is shorter than `%SystemRoot%`.
+        let raw = wide(r"%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\Wbem");
+        // SAFETY: every string is NUL-terminated and the data length is the buffer's size in bytes.
+        let set = unsafe {
+            RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                wide(&key).as_ptr(),
+                wide("Path").as_ptr(),
+                REG_EXPAND_SZ,
+                raw.as_ptr().cast(),
+                (raw.len() * 2) as u32,
+            )
+        };
+        assert_eq!(set, 0);
+
+        let read = super::registry_string(HKEY_CURRENT_USER, &key, "Path");
+        // SAFETY: the key path is NUL-terminated; the tree is the scratch key this test made.
+        unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, wide(&key).as_ptr()) };
+
+        let read = read.expect("the value reads back");
+        assert!(!read.contains('\0'), "{read:?}");
+        assert!(read.ends_with(r"\System32\Wbem") && !read.contains('%'), "{read:?}");
     }
 }
