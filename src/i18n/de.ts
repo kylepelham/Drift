@@ -727,6 +727,7 @@ export const drift = {
     "drift.question.answerLater": "Später antworten",
     "drift.question.collapse": "Einklappen; die Frage wartet weiter auf eine Antwort",
     "drift.question.expand": "Frage anzeigen",
+    "drift.backup.saved": "Gespeichert unter {{path}}",
     "drift.backup.thread": "In Datei sichern",
     "drift.backup.workspace": "Alle Threads sichern",
     "drift.backup.import": "Threads aus Datei importieren",

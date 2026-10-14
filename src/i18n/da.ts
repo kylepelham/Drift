@@ -753,6 +753,7 @@ export const drift = {
     "drift.question.answerLater": "Svar senere",
     "drift.question.collapse": "Fold sammen; spørgsmålet venter stadig på svar",
     "drift.question.expand": "Vis spørgsmålet",
+    "drift.backup.saved": "Gemt i {{path}}",
     "drift.backup.thread": "Sikkerhedskopiér til fil",
     "drift.backup.workspace": "Sikkerhedskopiér alle tråde",
     "drift.backup.import": "Importér tråde fra fil",

@@ -719,6 +719,7 @@ export const drift = {
     "drift.question.answerLater": "Odpowiedz później",
     "drift.question.collapse": "Zwiń; pytanie nadal czeka na odpowiedź",
     "drift.question.expand": "Pokaż pytanie",
+    "drift.backup.saved": "Zapisano w {{path}}",
     "drift.backup.thread": "Zapisz kopię do pliku",
     "drift.backup.workspace": "Zapisz kopię wszystkich wątków",
     "drift.backup.import": "Importuj wątki z pliku",

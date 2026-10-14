@@ -4,7 +4,7 @@ import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
 import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
-import { downloadBackup, pickBackup } from "./session-backup";
+import { pickBackup, saveBackup } from "./session-backup";
 import { normalizeDir } from "../engine/store";
 import { WorkspaceGroup } from "./workspaces";
 import { drawerSwipe } from "./drawer-swipe";
@@ -75,12 +75,21 @@ export function Sidebar() {
 
     async function backupThread(sessionId: string) {
         const backup = await engine.actions.exportSessions([sessionId]);
-        if (backup) downloadBackup(backup, engine.state.sessions[sessionId]?.title ?? sessionId);
+        if (backup) await saved(saveBackup(backup, engine.state.sessions[sessionId]?.title ?? sessionId));
     }
 
     async function backupWorkspace(workspace: Workspace) {
         const backup = await engine.actions.exportWorkspace(workspace.path);
-        if (backup) downloadBackup(backup, workspace.name);
+        if (backup) await saved(saveBackup(backup, workspace.name));
+    }
+
+    /** Says where a backup went, or why it could not be written. */
+    async function saved(saving: Promise<string | undefined>) {
+        const path = await saving.catch((cause: unknown) => setMoveStatus({ error: true, text: String(cause) }));
+        if (typeof path !== "string") return;
+
+        setMoveStatus({ error: false, text: t("drift.backup.saved", { path }) });
+        setTimeout(() => setMoveStatus(null), 6000);
     }
 
     async function importInto(workspace: Workspace) {

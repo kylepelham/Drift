@@ -724,6 +724,7 @@ export const drift = {
     "drift.question.answerLater": "Responder depois",
     "drift.question.collapse": "Recolher; ela continua esperando uma resposta",
     "drift.question.expand": "Mostrar a pergunta",
+    "drift.backup.saved": "Salvo em {{path}}",
     "drift.backup.thread": "Fazer backup em arquivo",
     "drift.backup.workspace": "Fazer backup de todas as conversas",
     "drift.backup.import": "Importar conversas de arquivo",

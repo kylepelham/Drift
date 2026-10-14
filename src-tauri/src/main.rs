@@ -98,6 +98,7 @@ fn main() {
             clipboard::clipboard_write_text,
             config::config_read,
             editor::pick_folder,
+            editor::save_json_file,
             editor::open_file,
             editor::open_file_in_editor,
             file_preview::read_file_preview,

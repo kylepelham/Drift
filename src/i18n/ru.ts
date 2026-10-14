@@ -752,6 +752,7 @@ export const drift = {
     "drift.question.answerLater": "Ответить позже",
     "drift.question.collapse": "Свернуть; вопрос по-прежнему ждёт ответа",
     "drift.question.expand": "Показать вопрос",
+    "drift.backup.saved": "Сохранено в {{path}}",
     "drift.backup.thread": "Сохранить в файл",
     "drift.backup.workspace": "Сохранить все треды",
     "drift.backup.import": "Импортировать треды из файла",

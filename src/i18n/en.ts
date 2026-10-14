@@ -950,6 +950,7 @@ export const drift = {
     "drift.question.answerLater": "Answer later",
     "drift.question.collapse": "Fold away; it still waits for an answer",
     "drift.question.expand": "Show the question",
+    "drift.backup.saved": "Saved to {{path}}",
     "drift.backup.thread": "Back up to file",
     "drift.backup.workspace": "Back up all threads",
     "drift.backup.import": "Import threads from file",

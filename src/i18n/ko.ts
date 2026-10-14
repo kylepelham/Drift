@@ -714,6 +714,7 @@ export const drift = {
     "drift.question.answerLater": "나중에 답변",
     "drift.question.collapse": "접기 (질문은 계속 답을 기다립니다)",
     "drift.question.expand": "질문 표시",
+    "drift.backup.saved": "{{path}}에 저장했습니다",
     "drift.backup.thread": "파일로 백업",
     "drift.backup.workspace": "모든 스레드 백업",
     "drift.backup.import": "파일에서 스레드 가져오기",

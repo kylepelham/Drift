@@ -32,6 +32,26 @@ pub(crate) async fn pick_folder() -> Option<String> {
         .map(|path| path.to_string_lossy().to_string())
 }
 
+/// Asks where to save a JSON file named `name` and writes `contents` there; `None` when the dialog was closed.
+/// Desktop only: a remote device must never choose a path on this computer.
+#[tauri::command]
+pub(crate) async fn save_json_file(name: String, contents: String) -> Result<Option<String>, String> {
+    let Some(path) = rfd::AsyncFileDialog::new()
+        .set_file_name(&name)
+        .add_filter("JSON", &["json"])
+        .save_file()
+        .await
+    else {
+        return Ok(None);
+    };
+    let path = path.path().to_path_buf();
+    tokio::fs::write(&path, contents)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(Some(path.to_string_lossy().to_string()))
+}
+
 #[tauri::command]
 pub(crate) fn open_file(
     app: tauri::AppHandle,

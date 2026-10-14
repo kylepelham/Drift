@@ -702,6 +702,7 @@ export const drift = {
     "drift.question.answerLater": "الإجابة لاحقًا",
     "drift.question.collapse": "طيّ؛ لا يزال السؤال ينتظر إجابة",
     "drift.question.expand": "عرض السؤال",
+    "drift.backup.saved": "تم الحفظ في {{path}}",
     "drift.backup.thread": "نسخ احتياطي إلى ملف",
     "drift.backup.workspace": "نسخ احتياطي لكل المحادثات",
     "drift.backup.import": "استيراد محادثات من ملف",

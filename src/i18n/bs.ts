@@ -753,6 +753,7 @@ export const drift = {
     "drift.question.answerLater": "Odgovori kasnije",
     "drift.question.collapse": "Skupi; pitanje i dalje čeka odgovor",
     "drift.question.expand": "Prikaži pitanje",
+    "drift.backup.saved": "Sačuvano u {{path}}",
     "drift.backup.thread": "Sačuvaj u datoteku",
     "drift.backup.workspace": "Sačuvaj sve niti",
     "drift.backup.import": "Uvezi niti iz datoteke",

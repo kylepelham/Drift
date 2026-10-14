@@ -275,7 +275,9 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   alone. The import route reads up to 1 GB, every other route 64 MB. Keeping ids is what later
   syncing builds on: the same conversation on two machines is the same id. The sidebar offers it
   as "Back up to file" on a thread, and "Back up all threads" and "Import threads from file" on a
-  workspace; files download as `drift-<name>-<date>.json`. Undo history (shadow blobs) is not in
+  workspace. The file is `drift-<name>-<date>.json`: the desktop asks where to save it (the shell's
+  `save_json_file`, never offered to remote devices) and says where it went; a browser downloads it.
+  Undo history (shadow blobs) is not in
   a backup, so a restored conversation cannot undo file changes.
 - Re-pointing a workspace at a new folder moves nothing: sessions reference the workspace id and
   the shell rewrites the shared `workspace` row. The UI refuses while any session there is running,

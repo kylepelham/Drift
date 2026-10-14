@@ -756,6 +756,7 @@ export const drift = {
     "drift.question.answerLater": "Daha sonra yanıtla",
     "drift.question.collapse": "Daralt; soru yine de yanıt bekler",
     "drift.question.expand": "Soruyu göster",
+    "drift.backup.saved": "{{path}} konumuna kaydedildi",
     "drift.backup.thread": "Dosyaya yedekle",
     "drift.backup.workspace": "Tüm konuları yedekle",
     "drift.backup.import": "Dosyadan konu içe aktar",

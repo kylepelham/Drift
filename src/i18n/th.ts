@@ -742,6 +742,7 @@ export const drift = {
     "drift.question.answerLater": "ตอบภายหลัง",
     "drift.question.collapse": "ย่อ คำถามยังรอคำตอบอยู่",
     "drift.question.expand": "แสดงคำถาม",
+    "drift.backup.saved": "บันทึกไปที่ {{path}}",
     "drift.backup.thread": "สำรองไปยังไฟล์",
     "drift.backup.workspace": "สำรองเธรดทั้งหมด",
     "drift.backup.import": "นำเข้าเธรดจากไฟล์",

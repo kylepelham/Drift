@@ -719,6 +719,7 @@ export const drift = {
     "drift.question.answerLater": "後で回答",
     "drift.question.collapse": "折りたたむ (質問は回答を待ち続けます)",
     "drift.question.expand": "質問を表示",
+    "drift.backup.saved": "{{path}} に保存しました",
     "drift.backup.thread": "ファイルにバックアップ",
     "drift.backup.workspace": "すべてのスレッドをバックアップ",
     "drift.backup.import": "ファイルからスレッドをインポート",

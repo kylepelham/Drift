@@ -756,6 +756,7 @@ export const drift = {
     "drift.question.answerLater": "Responder más tarde",
     "drift.question.collapse": "Plegar; sigue esperando una respuesta",
     "drift.question.expand": "Mostrar la pregunta",
+    "drift.backup.saved": "Guardado en {{path}}",
     "drift.backup.thread": "Copia de seguridad a archivo",
     "drift.backup.workspace": "Copia de seguridad de todos los hilos",
     "drift.backup.import": "Importar hilos desde archivo",

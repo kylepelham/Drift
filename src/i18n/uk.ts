@@ -750,6 +750,7 @@ export const drift = {
     "drift.question.answerLater": "Відповісти пізніше",
     "drift.question.collapse": "Згорнути; питання й далі чекає на відповідь",
     "drift.question.expand": "Показати питання",
+    "drift.backup.saved": "Збережено в {{path}}",
     "drift.backup.thread": "Зберегти у файл",
     "drift.backup.workspace": "Зберегти всі треди",
     "drift.backup.import": "Імпортувати треди з файлу",

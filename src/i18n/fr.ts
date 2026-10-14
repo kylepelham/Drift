@@ -727,6 +727,7 @@ export const drift = {
     "drift.question.answerLater": "Répondre plus tard",
     "drift.question.collapse": "Replier ; la question attend toujours une réponse",
     "drift.question.expand": "Afficher la question",
+    "drift.backup.saved": "Enregistré dans {{path}}",
     "drift.backup.thread": "Sauvegarder dans un fichier",
     "drift.backup.workspace": "Sauvegarder tous les fils",
     "drift.backup.import": "Importer des fils depuis un fichier",

@@ -725,6 +725,7 @@ export const drift = {
     "drift.question.answerLater": "稍後回答",
     "drift.question.collapse": "摺疊；問題仍在等待回答",
     "drift.question.expand": "顯示問題",
+    "drift.backup.saved": "已儲存到 {{path}}",
     "drift.backup.thread": "備份到檔案",
     "drift.backup.workspace": "備份所有對話",
     "drift.backup.import": "從檔案匯入對話",
