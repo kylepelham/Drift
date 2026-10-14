@@ -21,6 +21,18 @@ export function modelDetail(providerID: string, model: { id: string; limit?: { c
     return providerID === "lmstudio" ? `${model.id} | ${formatModelContext(context)} context` : undefined;
 }
 
+/**
+ * A model's name without its brand word, for the phone's one-row composer beside the provider icon:
+ * "Claude Opus 5.5" is "Opus 5.5". A name whose rest is only a version ("Gemini 3 Pro") or one word stays whole.
+ */
+export function compactModelName(name: string | undefined) {
+    const [brand, ...rest] = (name ?? "").split(" ");
+    const remainder = rest.join(" ");
+    const keeps = !brand || /\d/.test(brand) || rest.length < 2 || !/^\p{L}/u.test(remainder);
+
+    return keeps ? name : remainder;
+}
+
 /** Every model of a connected provider, newest first within each provider. */
 export function connectedModelItems(state: EngineState): PickerItem[] {
     const providers = state.providers.filter((provider) => {

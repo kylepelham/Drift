@@ -746,3 +746,12 @@ test("waiting questions are listed in the front card: each names its thread and 
     expect(neighbour(stack, 1)).toBe("q2");
     expect(neighbour(stack, -1)).toBeUndefined();
 });
+
+test("the phone composer shortens a model name only by its brand word", async () => {
+    const { compactModelName } = await import("../src/ui/composer-models");
+    expect(compactModelName("Claude Opus 5.5")).toBe("Opus 5.5");
+    expect(compactModelName("Gemini 3 Pro")).toBe("Gemini 3 Pro");
+    expect(compactModelName("GPT-6 Sol")).toBe("GPT-6 Sol");
+    expect(compactModelName("DeepSeek V3")).toBe("DeepSeek V3");
+    expect(compactModelName(undefined)).toBeUndefined();
+});

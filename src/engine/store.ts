@@ -51,12 +51,23 @@ export type CommandInfo = Pick<components["schemas"]["Command"], "name" | "descr
 };
 export type MessageEntry = { info: Message; parts: Part[] };
 
+/**
+ * Closes tool calls left running by a turn that is gone. A client that joined mid-turn never saw its calls
+ * start, so while the session is `running` the calls of its latest reply are taken as live.
+ */
 export function interruptStaleTools(
     entries: MessageEntry[],
     liveTools: Readonly<Record<string, string>>,
     error = "Interrupted",
+    running = false,
 ) {
+    const current = running
+        ? [...entries].reverse().find((entry) => entry.info.role === "assistant")?.info.id
+        : undefined;
+
     return entries.map((entry) => {
+        if (entry.info.id === current) return entry;
+
         let changed = false;
         const parts = entry.parts.map((part) => {
             if (part.type !== "tool_call" || (part.status !== "pending" && part.status !== "running")) return part;

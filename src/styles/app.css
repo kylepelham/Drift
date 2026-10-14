@@ -309,6 +309,11 @@ textarea {
         both;
 }
 
+.picker-label-compact,
+.composer-stop-icon {
+    display: none;
+}
+
 .composer-dock {
     position: relative;
     isolation: isolate;
@@ -358,14 +363,20 @@ textarea {
         padding-left: max(0.65rem, env(safe-area-inset-left));
     }
 
-    /* The pickers get a row of their own, at full size, and the buttons the row under it. */
-    .composer-actions {
-        flex-wrap: wrap;
-        row-gap: 0.25rem;
+    /* One row: pickers drop their chevrons and the model its brand word, and Stop is an icon. */
+    .composer-options .picker-chevron,
+    .composer-options .picker-label-full,
+    .composer-stop-label {
+        display: none;
     }
 
-    .composer-options {
-        flex: 1 0 100%;
+    .composer-options .picker-label-compact,
+    .composer-stop-icon {
+        display: inline;
+    }
+
+    .composer-stop {
+        padding: 0.3125rem 0.5rem;
     }
 
     .composer-options > .picker-control {

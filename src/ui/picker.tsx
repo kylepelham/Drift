@@ -22,6 +22,8 @@ export function Picker(props: {
     label: string;
     icon?: JSX.Element;
     fallbackLabel?: string;
+    /** A shorter trigger label for a phone's one-row composer; the list still shows full names. */
+    compactLabel?: string;
     onManage?: () => void;
     floating?: boolean;
     bordered?: boolean;
@@ -173,11 +175,17 @@ export function Picker(props: {
                 onClick={() => setOpen(!open())}
             >
                 {props.icon}
-                <span class="picker-label min-w-0 max-w-40 truncate" classList={{ "flex-1": !!props.chevronAtEnd }}>
+                <span
+                    class="picker-label min-w-0 max-w-40 truncate"
+                    classList={{ "flex-1": !!props.chevronAtEnd, "picker-label-full": !!props.compactLabel }}
+                >
                     {selectedLabel()}
                 </span>
+                <Show when={props.compactLabel}>
+                    <span class="picker-label picker-label-compact min-w-0 truncate">{props.compactLabel}</span>
+                </Show>
                 <svg
-                    class="size-2.5 shrink-0 text-ink-faint"
+                    class="picker-chevron size-2.5 shrink-0 text-ink-faint"
                     style={{ "margin-inline-start": props.chevronAtEnd ? "auto" : undefined }}
                     viewBox="0 0 16 16"
                     fill="none"

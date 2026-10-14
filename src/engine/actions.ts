@@ -19,6 +19,7 @@ import {
     putSession,
     putTasks,
     savedChoice,
+    sessionBusy,
     type EngineState,
     type MessageEntry,
     type ModelRef,
@@ -99,6 +100,7 @@ export function createActions(
             entries(messages).sort(compareMessages),
             state.liveTools,
             t("drift.message.interrupted"),
+            sessionBusy(state, id),
         );
 
         if (existed && !state.sessions[id]) return;

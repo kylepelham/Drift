@@ -139,10 +139,11 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(composer).toContainCode('class="composer-options relative flex min-w-0 flex-1');
     expect(composer).not.toContainCode("composer-options flex min-w-0 flex-1 items-center gap-1 overflow-hidden");
     expect(composer).toContainCode('class="composer-action-buttons ml-auto flex shrink-0');
-    // On a phone the pickers get a full-width row and the buttons the row under it, so labels are not cut to one letter;
-    // the buttons keep their desktop size.
-    expect(css).toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
-    expect(css).toMatch(/\.composer-options\s*\{[^}]*flex: 1 0 100%/s);
+    // On a phone it stays one row: pickers lose their chevrons, the model shows its short name, Stop is an icon.
+    expect(css).not.toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
+    expect(css).toMatch(
+        /\.composer-options \.picker-chevron,\s*\.composer-options \.picker-label-full,\s*\.composer-stop-label\s*\{\s*display: none/s,
+    );
     expect(css).toMatch(
         /\.composer-options > \.picker-control\s*\{[^}]*position: static;[^}]*min-width: 0;[^}]*flex: 0 1 auto/s,
     );
