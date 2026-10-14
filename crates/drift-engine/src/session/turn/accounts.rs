@@ -6,6 +6,7 @@ use super::*;
 use crate::event::SwitchReason;
 use crate::llm::catalog::Model;
 use crate::llm::limits::Limits;
+use crate::session::oneshot::{Failure, Resolved};
 use crate::session::types::Refusal;
 
 /// How long an account refused for usage, without saying until when, is passed over.
@@ -129,22 +130,54 @@ impl Engine {
     }
 
     /// After the safety filter refused the reply, passes the account over for this conversation when another
-    /// account may judge it differently; `true` when one can take the request. Accounts differ on cybersecurity
-    /// (Anthropic's Cyber Verification, OpenAI's Daybreak), so a cyber refusal, or one naming no policy area, moves
-    /// on; a refusal in any other area stands.
+    /// account may judge it differently ([`accounts_differ`]); `true` when one can take the request.
     pub(super) fn leave_refusing_account(&self, plan: &Plan, refusal: Option<&Refusal>) -> bool {
         let Some(account) = &plan.account else {
             return false;
         };
-        let category = refusal.and_then(|refusal| refusal.category.as_deref());
-        let accounts_differ = category.is_none_or(|category| category.to_ascii_lowercase().contains("cyber"));
-        if !accounts_differ {
+        if !accounts_differ(refusal) {
             return false;
         }
 
         self.unserved.refuse_conversation(account, &plan.session.id);
 
         self.another_account(plan, account)
+    }
+
+    /// After the safety filter refused a request made for `session` outside its turns (a compaction summary), passes
+    /// the account over for the conversation as [`Engine::leave_refusing_account`] does, and returns the next account
+    /// that suits it, ready to call. The conversation's next turn follows it there and says why.
+    pub(crate) async fn leave_refusing_account_for(
+        &self,
+        session: &str,
+        resolved: &Resolved,
+        failure: &Failure,
+    ) -> Option<Resolved> {
+        let Failure::Refused(refusal, _) = failure else {
+            return None;
+        };
+        let account = resolved.account.as_deref()?;
+        if !accounts_differ(refusal.as_ref()) {
+            return None;
+        }
+        self.unserved.refuse_conversation(account, session);
+
+        let provider = &resolved.model_ref.provider;
+        let next = self
+            .preferred_account(provider, session, &resolved.model)
+            .filter(|next| next != account)?;
+        let stored = self.credentials.account(&next)?;
+        let credential = self.fresh_credential(provider, Some(&next), stored).await.ok()?;
+        let mut model = resolved.model.clone();
+        self.codex_offers.fit(&mut model, &credential);
+
+        Some(Resolved {
+            model_ref: resolved.model_ref.clone(),
+            model,
+            provider: resolved.provider.clone(),
+            credential,
+            account: Some(next),
+        })
     }
 
     /// Whether an account other than `account` suits the turn now.
@@ -190,6 +223,14 @@ impl Engine {
             limits,
         });
     }
+}
+
+/// Accounts differ on cybersecurity (Anthropic's Cyber Verification, OpenAI's Daybreak), so a cyber refusal, or one
+/// naming no policy area, may not be made by another account; a refusal in any other area stands.
+fn accounts_differ(refusal: Option<&Refusal>) -> bool {
+    let category = refusal.and_then(|refusal| refusal.category.as_deref());
+
+    category.is_none_or(|category| category.to_ascii_lowercase().contains("cyber"))
 }
 
 fn millis(duration: std::time::Duration) -> i64 {

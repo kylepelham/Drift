@@ -5,7 +5,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 
 use super::turn::{Plan, Prompt, TurnError};
-use super::types::{ModelRef, Usage};
+use super::types::{ModelRef, Refusal, Usage};
 use crate::Engine;
 use crate::config::Config;
 use crate::event::{Event, SessionStatus};
@@ -64,14 +64,19 @@ pub(crate) enum Failure {
     Provider(crate::llm::Error),
     /// The model answered, but not with a usable text reply; what it used is still paid for.
     Reply(String, Usage),
+    /// The provider's safety filter refused the reply, naming why when it says.
+    Refused(Option<Refusal>, Usage),
     Late,
 }
+
+const REFUSED: &str = "the model refused the request; its partial reply was discarded";
 
 impl Failure {
     pub(crate) fn message(&self) -> String {
         match self {
             Self::Provider(error) => error.to_string(),
             Self::Reply(why, _) => why.clone(),
+            Self::Refused(..) => REFUSED.into(),
             Self::Late => "the model took too long to answer".into(),
         }
     }
@@ -79,7 +84,7 @@ impl Failure {
     /// The tokens a reply used before it was refused; none when no reply came.
     pub(crate) fn usage(&self) -> Usage {
         match self {
-            Self::Reply(_, usage) => *usage,
+            Self::Reply(_, usage) | Self::Refused(_, usage) => *usage,
             _ => Usage::default(),
         }
     }
@@ -87,7 +92,7 @@ impl Failure {
     /// Worth asking again another way: the reply was unusable, or the request was too long.
     pub(super) fn retry_another_way(&self) -> bool {
         match self {
-            Self::Reply(..) => true,
+            Self::Reply(..) | Self::Refused(..) => true,
             Self::Provider(error) => crate::llm::mentions_context_overflow(&error.to_string()),
             Self::Late => false,
         }
@@ -330,6 +335,7 @@ async fn collect_text(provider: &Provider, request: &Request, credential: &Crede
     let mut usage = Usage::default();
     let mut stopped = None;
     let mut called_tool = false;
+    let mut refusal = None;
 
     while let Some(chunk) = chunks.next().await {
         match chunk.map_err(Failure::Provider)? {
@@ -337,6 +343,7 @@ async fn collect_text(provider: &Provider, request: &Request, credential: &Crede
             Chunk::Usage(reported) => usage.merge(reported),
             Chunk::Stop(reason) => stopped = Some(reason),
             Chunk::ToolUseStart { .. } => called_tool = true,
+            Chunk::Refusal(reported) => refusal = Some(reported),
             _ => {}
         }
     }
@@ -347,7 +354,7 @@ async fn collect_text(provider: &Provider, request: &Request, credential: &Crede
         Some(StopReason::MaxTokens) => {
             return failed("the model hit its output limit; the incomplete reply was discarded");
         }
-        Some(StopReason::Refused) => return failed("the model refused the request; its partial reply was discarded"),
+        Some(StopReason::Refused) => return Err(Failure::Refused(refusal, usage)),
         Some(StopReason::ContextFull) => {
             return failed("the reply exhausted its context window; its partial text was discarded");
         }
