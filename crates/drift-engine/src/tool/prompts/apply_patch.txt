@@ -1,4 +1,4 @@
-Applies a patch to one or more files using the apply_patch format. This is the only way to create, change, move or delete files.
+Applies a patch to one or more text files using the apply_patch format. Use it for every change you write by hand: creating, changing, renaming or deleting a text file. Binary files, and moving or copying files without changing them, are for the shell.
 
 *** Begin Patch
 *** Add File: path/to/new.txt

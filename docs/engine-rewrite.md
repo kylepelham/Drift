@@ -1790,6 +1790,10 @@ Settled after the first external review of M1; each has a regression test.
   after Drift started is found. The tool text names the one it runs, and how to chain steps in it:
   `&&` in bash and PowerShell 7, `;` with an explicit `$LASTEXITCODE` check in 5.1, which has no
   `&&`.
+- `apply_patch` and the patch profile's instructions cover text written by hand, not every file
+  operation: moving, copying or deleting files, binary files and generated output go through the
+  shell. An earlier "the only way to create, change, move or delete files" left a GPT model
+  refusing to move binary `.obj` files at all, since a patch cannot carry them.
 - `edit`, `write` and `apply_patch` answer the model in one line, as opencode does ("Edited
   src/a.rs (+3 -1): 1 replacement.", "Created notes.md (40 lines).", "Patched 2 files:" then
   `A`/`M`/`D`/`R` and each file's counts), so a new 1,500-line file is not echoed back. The diff
