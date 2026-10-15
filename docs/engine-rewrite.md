@@ -593,6 +593,14 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   prompt. `done`, `blocked`, a failed or cut-off reply, a Stop, a command's turn-only agent, or
   `drive::MAX_ROUNDS` (30) nudges since the user's newest text or file prompt
   (`Store::nudges_since_prompt`) end it. The count lives in the transcript, so a restart keeps it.
+  `working` while a background subagent or process the session started is still running also ends
+  the turn without a nudge (`Engine::background_running`): the result wakes it as a prompt. Before
+  this, a session reviewed on 2026-10-15 spent 17 nudges, each a request at about 280k tokens, only
+  to wait ten minutes in `task_output` and report "still running", and the waits used up nudges
+  meant for real work.
+- A `task_output` or `process wait` call ends early when a message arrives in its conversation (a
+  steer, another worker's result, a process's end; `session::arrivals`), so the model reads it at
+  once instead of after a wait of up to ten minutes.
 - A stored part this build cannot parse (imported by `drift-migrate`, or written by a newer Drift)
   loads as `unknown` with its stored JSON in `raw` (`Part::from_stored`), instead of failing the
   whole conversation's read. It is never sent to a model, counts nothing toward compaction, and is

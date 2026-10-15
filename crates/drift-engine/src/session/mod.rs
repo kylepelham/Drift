@@ -1,5 +1,6 @@
 //! Conversations: their shape, their storage and the turn loop that advances them.
 
+mod arrivals;
 mod assemble;
 mod attach;
 pub mod backup;

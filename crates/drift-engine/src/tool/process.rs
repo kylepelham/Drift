@@ -164,12 +164,16 @@ async fn wait(context: &Context, handle: &Handle, input: &Value) -> Result<Outpu
     };
     let until = matcher.as_ref().map(|_| &matches as &(dyn Fn(&str) -> bool + Sync));
 
-    let waited = handle.wait(until, limit, &context.abort).await;
-    let why = match waited {
-        Waited::Matched => "A line matched.",
-        Waited::Ended => "",
-        Waited::TimedOut => "The wait ran out; it is still running.",
-        Waited::Aborted => "The wait was stopped.",
+    // A message arriving meanwhile is read now, not when the wait runs out.
+    let mut arrivals = context.engine.arrivals(&context.session_id);
+    let why = tokio::select! {
+        waited = handle.wait(until, limit, &context.abort) => match waited {
+            Waited::Matched => "A line matched.",
+            Waited::Ended => "",
+            Waited::TimedOut => "The wait ran out; it is still running.",
+            Waited::Aborted => "The wait was stopped.",
+        },
+        () = arrivals.next() => "A new message arrived in this conversation, so the wait stopped early; it is still running.",
     };
 
     Ok(report(handle, why))
