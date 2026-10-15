@@ -794,6 +794,7 @@ export const drift = {
     "drift.shell.copyOutput": "คัดลอกผลลัพธ์เชลล์",
     "drift.shell.omitted": "ละไว้ {{size}}",
     "drift.shell.openFull": "เปิดเอาต์พุตทั้งหมด",
+    "drift.path.copied": "คัดลอก {{path}} แล้ว",
     "drift.shell.output": "ผลลัพธ์เชลล์",
     "drift.shortcuts.autoAccept": "สลับการยอมรับสิทธิ์อัตโนมัติ",
     "drift.shortcuts.zoomIn": "ซูมเข้า",

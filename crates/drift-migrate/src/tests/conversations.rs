@@ -111,6 +111,7 @@ fn assert_prompt(prompt: &MessageWithParts, nudge: &Value) {
             name: "a.rs".into(),
             url: "data:text/plain;base64,YQ==".into(),
             path: Some("src/a.rs".into()),
+            image: None,
         }
     );
 }

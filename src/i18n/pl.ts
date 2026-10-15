@@ -774,6 +774,7 @@ export const drift = {
     "drift.shell.copyOutput": "Kopiuj dane wyjściowe powłoki",
     "drift.shell.omitted": "Pominięto {{size}}",
     "drift.shell.openFull": "Otwórz pełne wyjście",
+    "drift.path.copied": "Skopiowano {{path}}",
     "drift.shell.output": "Dane wyjściowe powłoki",
     "drift.shortcuts.autoAccept": "Przełącz automatyczne akceptowanie uprawnień",
     "drift.shortcuts.zoomIn": "Powiększ",

@@ -1692,6 +1692,11 @@ Settled after the first external review of M1; each has a regression test.
     or PDF for a model that cannot read it, is refused with 400 `attachment` naming the file, never
     dropped. The UI reports a model's PDF input from that same `pdf` flag, and still extracts PDF,
     text and CSV attachments to text before sending, which every model reads.
+  - A pasted image is numbered at admission across its conversation (`Part::File.image`, so a fork
+    keeps it and compaction cannot renumber it) and the model sees `[Image N]` right after it: a few
+    tokens, no path. `save_image {image, path}` writes the bytes the user pasted to a file, asked
+    like `write`; nothing is written until the model needs a file. Images pasted before this have
+    no number and cannot be saved this way.
   - `GET /workspaces/{id}/files?query=` serves @ autocomplete: the same walk as `glob` (ignore
     rules apply, version-control internals never), directories with a trailing `/`, ranked by name
     prefix, name substring, path substring, then letters in order.

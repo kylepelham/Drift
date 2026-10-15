@@ -807,6 +807,7 @@ export const drift = {
     "drift.shell.copyOutput": "Kopiraj izlaz shella",
     "drift.shell.omitted": "{{size}} izostavljeno",
     "drift.shell.openFull": "Otvori cijeli izlaz",
+    "drift.path.copied": "Kopirano {{path}}",
     "drift.shell.output": "Izlaz shella",
     "drift.shortcuts.autoAccept": "Uključi/isključi automatsko prihvatanje dozvola",
     "drift.shortcuts.zoomIn": "Uvećaj",

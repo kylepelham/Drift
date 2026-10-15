@@ -20,6 +20,7 @@ import { hiddenParent } from "./engine/sessions";
 import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
 import { debugPanelOpen } from "./state/panels";
+import { bindPathCopy } from "./ui/path-copy";
 import { messageText } from "./engine/store";
 import { SettingsHost } from "./ui/settings";
 import { StartupSplash } from "./ui/startup";
@@ -52,6 +53,7 @@ export function App() {
             <WorkspaceBinding />
             <OrchestratorBinding />
             <PluginBinding />
+            <PathCopyBinding />
             <div class="app-shell flex h-full flex-col bg-bg text-ink">
                 <Titlebar />
                 <div class="flex min-h-0 flex-1">
@@ -122,6 +124,17 @@ function PluginBinding() {
             <AttentionNotifier engine={engine} />
         </>
     );
+}
+
+/** Double-clicking a path copies it with this platform's separators, and says so. */
+function PathCopyBinding() {
+    const engine = useEngine();
+    onCleanup(
+        bindPathCopy((path) =>
+            engine.actions.notice({ message: t("drift.path.copied", { path }), variant: "success", duration: 2000 }),
+        ),
+    );
+    return null;
 }
 
 /** The engine drives orchestrator turns; this only says how one ended. */

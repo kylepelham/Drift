@@ -774,6 +774,7 @@ export const drift = {
     "drift.shell.copyOutput": "シェル出力をコピー",
     "drift.shell.omitted": "{{size}} を省略",
     "drift.shell.openFull": "全出力を開く",
+    "drift.path.copied": "{{path}} をコピーしました",
     "drift.shell.output": "シェル出力",
     "drift.shortcuts.autoAccept": "権限の自動承認を切り替え",
     "drift.shortcuts.zoomIn": "拡大",

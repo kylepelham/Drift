@@ -811,6 +811,7 @@ export const drift = {
     "drift.shell.copyOutput": "Copiar salida del shell",
     "drift.shell.omitted": "{{size}} omitidos",
     "drift.shell.openFull": "Abrir la salida completa",
+    "drift.path.copied": "Copiado {{path}}",
     "drift.shell.output": "Salida del shell",
     "drift.shortcuts.autoAccept": "Alternar la aceptación automática de permisos",
     "drift.shortcuts.zoomIn": "Acercar",

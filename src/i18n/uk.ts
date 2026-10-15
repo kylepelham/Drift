@@ -805,6 +805,7 @@ export const drift = {
     "drift.shell.copyOutput": "Копіювати вивід оболонки",
     "drift.shell.omitted": "Пропущено {{size}}",
     "drift.shell.openFull": "Відкрити весь вивід",
+    "drift.path.copied": "Скопійовано: {{path}}",
     "drift.shell.output": "Вивід оболонки",
     "drift.shortcuts.autoAccept": "Перемкнути автоматичне прийняття дозволів",
     "drift.shortcuts.zoomIn": "Збільшити масштаб",

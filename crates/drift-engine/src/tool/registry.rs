@@ -1,4 +1,6 @@
-use super::{Tool, apply_patch, bash, edit, glob, grep, process, question, read, skill, task, todo, webfetch, write};
+use super::{
+    Tool, apply_patch, bash, edit, glob, grep, process, question, read, save_image, skill, task, todo, webfetch, write,
+};
 use crate::llm::ToolSpec;
 use crate::llm::catalog::ToolProfile;
 use std::sync::Arc;
@@ -18,6 +20,7 @@ impl Registry {
                 Arc::new(apply_patch::ApplyPatch),
                 Arc::new(bash::Bash::detect()),
                 Arc::new(process::Process),
+                Arc::new(save_image::SaveImage),
                 Arc::new(glob::Glob),
                 Arc::new(grep::Grep),
                 Arc::new(webfetch::WebFetch),

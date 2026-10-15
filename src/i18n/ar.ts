@@ -754,6 +754,7 @@ export const drift = {
     "drift.shell.copyOutput": "نسخ مخرجات Shell",
     "drift.shell.omitted": "تم حذف {{size}}",
     "drift.shell.openFull": "فتح المخرجات كاملة",
+    "drift.path.copied": "تم نسخ {{path}}",
     "drift.shell.output": "مخرجات Shell",
     "drift.shortcuts.autoAccept": "تبديل القبول التلقائي للأذونات",
     "drift.shortcuts.zoomIn": "تكبير",

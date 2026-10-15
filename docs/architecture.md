@@ -81,6 +81,15 @@ headings roll over at midnight without a restart.
 
 ## Tool rendering
 
+Double-clicking a path anywhere in the window (prose, inline code, code blocks, shell output)
+selects all of it and copies it written for this platform: backslashes on Windows, where Git
+Bash's `/c/Users` becomes `C:\Users`, slashes elsewhere; a `:line` suffix is left off
+(`src/ui/path-copy.ts`). One document listener reads the text under the pointer when the
+double-click happens, so nothing is rendered differently. A path is a drive or root prefix, a
+file name with an extension, or two or more separators with a letter somewhere, so `and/or`,
+dates and web addresses still select a word. Inputs, buttons and links keep their own
+double-click.
+
 `src/ui/tool-labels.ts` owns tool titles, subtitles, patch-file selection and permission
 wait detection. Tool rows and message grouping share it rather than coupling these
 descriptions to the transcript renderer.

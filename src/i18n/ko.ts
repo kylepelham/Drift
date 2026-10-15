@@ -768,6 +768,7 @@ export const drift = {
     "drift.shell.copyOutput": "셸 출력 복사",
     "drift.shell.omitted": "{{size}} 생략됨",
     "drift.shell.openFull": "전체 출력 열기",
+    "drift.path.copied": "{{path}} 복사됨",
     "drift.shell.output": "셸 출력",
     "drift.shortcuts.autoAccept": "권한 자동 승인 전환",
     "drift.shortcuts.zoomIn": "확대",

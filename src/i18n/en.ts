@@ -1079,6 +1079,7 @@ export const drift = {
     "drift.shell.copyOutput": "Copy shell output",
     "drift.shell.omitted": "{{size}} omitted",
     "drift.shell.openFull": "Open full output",
+    "drift.path.copied": "Copied {{path}}",
     "drift.shell.output": "Shell output",
     "drift.search.archived": "Archived",
     "drift.search.clear": "Clear search",

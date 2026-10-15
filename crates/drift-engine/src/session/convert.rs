@@ -117,7 +117,35 @@ pub(crate) fn push(out: &mut Vec<ChatMessage>, role: LlmRole, blocks: Vec<Block>
 
 /// Maps user text, engine context and supported attachment parts into model blocks.
 fn user_blocks(message: &MessageWithParts) -> Vec<Block> {
-    message.parts.iter().filter_map(|row| match &row.part {
+    message
+        .parts
+        .iter()
+        .flat_map(|row| match &row.part {
+            // A pasted image is followed by the number `save_image` knows it by.
+            Part::File {
+                mime,
+                url,
+                image: Some(number),
+                ..
+            } if mime.starts_with("image/") => url
+                .split_once(',')
+                .map(|(_, data)| {
+                    vec![
+                        Block::Image {
+                            mime: mime.clone(),
+                            base64: data.to_string(),
+                        },
+                        Block::Text(format!("[Image {number}]")),
+                    ]
+                })
+                .unwrap_or_default(),
+            _ => user_block(&row.part).into_iter().collect(),
+        })
+        .collect()
+}
+
+fn user_block(part: &Part) -> Option<Block> {
+    match part {
         Part::Text { text } | Part::Nudge { text } if !text.is_empty() => Some(Block::Text(text.clone())),
         Part::Context { plugin, text } => {
             let context = format!("<system-reminder>\nFrom the {plugin} plugin:\n{text}\n</system-reminder>");
@@ -131,15 +159,23 @@ fn user_blocks(message: &MessageWithParts) -> Vec<Block> {
         }
         Part::File { mime, url, .. } if mime.starts_with("text/") => super::attach::data_text(url).map(Block::Text),
         Part::File { mime, url, .. } if mime.eq_ignore_ascii_case(crate::tool::image::PDF) => {
-            url.split_once(',').map(|(_, data)| Block::Pdf { base64: data.to_string() })
+            url.split_once(',').map(|(_, data)| Block::Pdf {
+                base64: data.to_string(),
+            })
         }
-        Part::TaskResult { task_id, description, outcome, text, .. } => Some(Block::Text(format!(
+        Part::TaskResult {
+            task_id,
+            description,
+            outcome,
+            text,
+            ..
+        } => Some(Block::Text(format!(
             "<task-result id=\"{task_id}\" description=\"{description}\" outcome=\"{outcome}\">\n{text}\n</task-result>"
         ))),
         Part::Clarification { request_id, items } => Some(Block::Text(clarification_text(request_id, items))),
-        Part::ProcessExit { .. } => Some(Block::Text(super::processes::exit_text(&row.part))),
+        Part::ProcessExit { .. } => Some(Block::Text(super::processes::exit_text(part))),
         _ => None,
-    }).collect()
+    }
 }
 
 /// How the model reads an answer that arrives after it moved on.

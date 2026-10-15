@@ -47,12 +47,28 @@ enum MentionError {
 impl Attach<'_> {
     pub(crate) fn prepare(&self, parts: Vec<Part>) -> Result<Prepared, TurnError> {
         let mut read = Vec::new();
-        let parts = parts
+        let mut parts: Vec<Part> = parts
             .into_iter()
             .map(|part| self.part(part, &mut read))
             .collect::<Result<_, _>>()?;
+        self.number_images(&mut parts)?;
 
         Ok(Prepared { parts, read })
+    }
+
+    /// Gives each pasted image the next number of the conversation, so the model can name it to `save_image`.
+    fn number_images(&self, parts: &mut [Part]) -> Result<(), TurnError> {
+        let mut last = self.engine.store.last_image_number(self.session_id)?;
+        for part in parts {
+            if let Part::File { mime, image, .. } = part
+                && mime.starts_with("image/")
+            {
+                last += 1;
+                *image = Some(last);
+            }
+        }
+
+        Ok(())
     }
 
     fn part(&self, part: Part, read: &mut Vec<PathBuf>) -> Result<Part, TurnError> {
@@ -78,6 +94,7 @@ impl Attach<'_> {
                 name,
                 url,
                 path: None,
+                image: None,
             }),
             "text" => refuse("its text could not be decoded".into()),
             "image" if !data.base64 || data.bytes().is_none() => refuse("its image data is not valid base64".into()),
@@ -86,6 +103,7 @@ impl Attach<'_> {
                 name,
                 url,
                 path: None,
+                image: None,
             }),
             "image" => Err(TurnError::Attachment(format!(
                 "{} cannot read images; pick a model that can, or remove {name}",
@@ -113,6 +131,7 @@ impl Attach<'_> {
                 name,
                 url: url.to_string(),
                 path: None,
+                image: None,
             }),
         }
     }
@@ -266,6 +285,7 @@ fn mention_part(shown: &str, text: &str) -> Part {
         name: shown.into(),
         url,
         path: Some(shown.into()),
+        image: None,
     }
 }
 

@@ -1777,6 +1777,12 @@ export interface components {
             /** @enum {string} */
             type: "tool_call";
         } | {
+            /**
+             * Format: int32
+             * @description The number the model knows a pasted image by (`[Image 2]`), counted across the conversation when it is
+             *     attached; `save_image` writes it to a file by that number. Only the engine sets it.
+             */
+            image?: number | null;
             mime: string;
             name: string;
             /** @description For an `@` mention, the workspace file it was read from, so a client can open it; only the engine sets it. */

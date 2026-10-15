@@ -807,6 +807,7 @@ export const drift = {
     "drift.shell.copyOutput": "Kopier shell-utdata",
     "drift.shell.omitted": "{{size}} utelatt",
     "drift.shell.openFull": "Åpne hele utdataene",
+    "drift.path.copied": "Kopierte {{path}}",
     "drift.shell.output": "Shell-utdata",
     "drift.shortcuts.autoAccept": "Veksle automatisk godkjenning av tillatelser",
     "drift.shortcuts.zoomIn": "Zoom inn",
