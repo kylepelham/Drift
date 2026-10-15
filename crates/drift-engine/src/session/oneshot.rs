@@ -275,6 +275,8 @@ impl Engine {
         options: SendOptions<'_>,
     ) -> Result<Answer, Failure> {
         let SendOptions { timeout, shown_in } = options;
+        let masks = self.hooks.masks();
+        let request = &*masks.request(request);
         let mut retries = 0;
         loop {
             let attempt = tokio::time::timeout(timeout, collect_text(provider, request, credential))

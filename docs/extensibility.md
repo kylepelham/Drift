@@ -145,6 +145,37 @@ and a notice. Build it with
 `cargo build --release --target wasm32-wasip2` in that directory (the target installs with
 `rustup target add wasm32-wasip2`); the component is `target/wasm32-wasip2/release/guard.wasm`.
 
+### Keeping secrets from the model
+
+A plugin built for the `masking` world (the `plugin` world plus one export) also answers
+`replacements()`: pairs of a secret and the placeholder the model sees instead. Drift asks once,
+when the plugin loads (a config change reloads it). A plugin built for `plugin` alone loads as
+before and hides nothing.
+
+Drift does the swapping itself, at the two places everything passes, so no hook can be missed:
+
+- Every request to every model (turns, subagents, compaction summaries, titles) leaves through
+  `llm::mask::Masks::request`: the system prompt and instructions files, the user's prompts,
+  attached and mentioned files, tool calls replayed, tool output and errors, process exits,
+  subagent results and tool descriptions all carry the placeholder. Signatures, redacted reasoning
+  and image or PDF data are never changed, so a secret inside an image or PDF still reaches the
+  model.
+- Every tool call the model makes has its placeholders turned back into the secrets as its input
+  is parsed (`Assembler::revealing`), before permission checks, `before-tool` plugins, early reads
+  or the tool itself see it: shell commands, edits, writes, MCP servers and subagent prompts all get
+  the real value. The stored call keeps the real value; the next request hides it again.
+
+Matching is exact text, longest secret first, in one pass. A pair is skipped (and logged) when its
+secret or placeholder is empty, a secret is listed twice, or a placeholder contains any secret.
+Choose placeholders that never occur on their own (`API_KEY_PLACEHOLDER`, not `key`): any
+occurrence the model writes in a tool call becomes the secret. What you see in Drift keeps the real
+values (your prompts, tool output, file contents); the model's own replies show the placeholder.
+Output cut at the engine's bound can end partway through a secret, and that fragment is not
+recognised.
+
+`plugins/secrets` is that plugin: its config is `{ "replacements": { "<secret>": "<placeholder>" } }`
+and it does nothing else.
+
 ## Skills
 
 Settings > Skills (before MCP in the list) shows every skill the engine offers and lets each be
@@ -167,8 +198,8 @@ the entry names and the skills chosen, drops anything that would climb out, and 
 `~/.config/drift/skills/<id>/`, with a marker that lists the pack for the Installed tab. A skill
 runs no code, but its text reaches the model, which the sheet says. Registry sources are shared with
 plugins: one document lists both. The registry's packs today are the ones people install in Claude
-Code as plugins: Superpowers, Skills for Real Engineers, Agent Skills, Karpathy Guidelines and SQL
-Server Query Plans.
+Code as plugins: Superpowers, Skills for Real Engineers, Agent Skills, Karpathy Guidelines, SQL
+Server Query Plans and Universal Modder.
 
 ## Interface plugins
 

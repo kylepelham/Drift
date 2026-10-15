@@ -116,9 +116,12 @@ impl Runtime {
             }
         });
 
-        let bindings = Plugin::instantiate_async(&mut store, &component, &self.linker)
+        let instance = self
+            .linker
+            .instantiate_async(&mut store, &component)
             .await
             .map_err(|error| Error::Instantiate(error.to_string()))?;
+        let bindings = Plugin::new(&mut store, &instance).map_err(|error| Error::Instantiate(error.to_string()))?;
         let name = bindings
             .call_name(&mut store)
             .await
@@ -128,11 +131,13 @@ impl Runtime {
         }
 
         store.data_mut().name.clone_from(&name);
+        let replacements = replacements(&mut store, &instance).await;
 
         Ok(WasmPlugin {
             name,
             path: path.to_path_buf(),
             capabilities,
+            replacements,
             store: Mutex::new(store),
             bindings,
         })
@@ -140,6 +145,22 @@ impl Runtime {
 }
 
 /// The host interfaces a component imports besides `host` itself: what it can reach.
+/// The `masking` world's secret pairs; none from a plugin built for `plugin` alone.
+async fn replacements(store: &mut Store<State>, instance: &wasmtime::component::Instance) -> Vec<(String, String)> {
+    type Pairs = (Vec<(String, String)>,);
+    let Ok(export) = instance.get_typed_func::<(), Pairs>(&mut *store, "replacements") else {
+        return Vec::new();
+    };
+
+    match export.call_async(&mut *store, ()).await {
+        Ok((pairs,)) => pairs,
+        Err(error) => {
+            eprintln!("drift: plugin {} failed in replacements: {error}", store.data().name);
+            Vec::new()
+        }
+    }
+}
+
 fn capabilities(engine: &Engine, component: &Component) -> Vec<String> {
     let mut found: Vec<String> = component
         .component_type()
@@ -164,6 +185,8 @@ pub struct WasmPlugin {
     name: String,
     pub path: PathBuf,
     pub capabilities: Vec<String>,
+    /// Secret and placeholder pairs from the `masking` world, read once at load.
+    replacements: Vec<(String, String)>,
     store: Mutex<Store<State>>,
     bindings: Plugin,
 }
@@ -188,6 +211,10 @@ impl WasmPlugin {
 impl Hook for WasmPlugin {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn replacements(&self) -> Vec<(String, String)> {
+        self.replacements.clone()
     }
 
     async fn before_tool(&self, call: &ToolCall) -> BeforeTool {
@@ -356,24 +383,29 @@ pub(super) mod tests {
 
     /// The example plugin, built into the workspace's `target/plugins`; `None` without the wasm32-wasip2 target.
     pub(super) fn guard() -> Option<PathBuf> {
+        built("guard")
+    }
+
+    /// A plugin under `plugins/`, built into the workspace's `target/plugins`; `None` without the wasm32-wasip2 target.
+    fn built(name: &str) -> Option<PathBuf> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let target = root.join("target/plugins");
         let built = std::process::Command::new("cargo")
             .args(["build", "--release", "--target", "wasm32-wasip2"])
             .env("CARGO_TARGET_DIR", &target)
-            .current_dir(root.join("plugins/guard"))
+            .current_dir(root.join("plugins").join(name))
             .output()
             .expect("cargo runs");
         if !built.status.success() {
             let stderr = String::from_utf8_lossy(&built.stderr);
             assert!(
                 stderr.contains("wasm32-wasip2"),
-                "guard plugin failed to build: {stderr}"
+                "{name} plugin failed to build: {stderr}"
             );
             eprintln!("skipping: the wasm32-wasip2 target is not installed");
             return None;
         }
-        Some(target.join("wasm32-wasip2/release/guard.wasm"))
+        Some(target.join(format!("wasm32-wasip2/release/{name}.wasm")))
     }
 
     pub(super) fn site() -> Site {
@@ -392,6 +424,34 @@ pub(super) mod tests {
             tool: tool.into(),
             input: serde_json::json!({ "command": command }),
         }
+    }
+
+    #[tokio::test]
+    async fn the_secrets_plugin_names_its_pairs_and_a_plain_plugin_names_none() {
+        let (Some(secrets), Some(guard)) = (built("secrets"), guard()) else {
+            return;
+        };
+        let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
+        let runtime = Runtime::new(&cache).unwrap();
+        let configured = Site {
+            entry: "plugins/secrets.wasm".into(),
+            config: serde_json::json!({ "replacements": { "sk-\"quoted\"-1": "API_KEY" } }),
+            engine: Weak::new(),
+        };
+
+        let plugin = runtime.load(&secrets, configured).await.unwrap();
+        assert_eq!(plugin.name(), "secrets");
+        assert!(plugin.capabilities.is_empty(), "it reads its config and nothing else");
+        assert_eq!(
+            plugin.replacements(),
+            vec![("sk-\"quoted\"-1".to_owned(), "API_KEY".to_owned())]
+        );
+
+        let plain = runtime.load(&guard, site()).await.unwrap();
+        assert!(
+            plain.replacements().is_empty(),
+            "a plugin built before the masking world still loads"
+        );
     }
 
     #[tokio::test]
