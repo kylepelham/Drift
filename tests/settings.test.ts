@@ -230,7 +230,7 @@ const pendingTranslation = new Set([
         "drift.mcp",
         `
       servers registry add edit engineDescription status.disconnected removed
-      name nameRequired registrySearch registrySource registryLoadFailed install
+      name nameRequired registrySearch registryLoadFailed install
       registry.filter registry.filter.all registry.filter.remote registry.filter.local registry.more registry.official registry.searchingOfficial
       registry.empty registry.back registry.repository registry.website registry.runAs registry.required
       registry.optional registry.secret registry.secretNote registry.installing registry.stars registry.needsKey

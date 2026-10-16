@@ -271,8 +271,6 @@ export const dict = {
     "drift.mcp.form.urlInvalid": "Use an HTTP or HTTPS URL.",
     "drift.mcp.form.pairInvalid": "Names must be non-empty and unique.",
     "drift.mcp.registrySearch": "Search MCP servers by name, publisher or what they do",
-    "drift.mcp.registrySource":
-        "Popular servers from the GitHub MCP Registry. Searches also cover the official MCP Registry.",
     "drift.mcp.registryLoadFailed": "Could not load the MCP Registry.",
     "drift.mcp.registry.filter": "Show",
     "drift.mcp.registry.filter.all": "All",
@@ -718,8 +716,6 @@ export const drift = {
         "A JSON document in the Drift-Plugins registry.json format: each plugin with its download URL and SHA-256.",
     "drift.registry.sources.mcpFormat":
         "A JSON document in the MCP registry format: a servers list, as the official registry's API returns it.",
-    "drift.plugins.registrySourceWithOwn":
-        "From your sources and the Drift-Plugins registry on GitHub. Each is a sandboxed WebAssembly component; its download is checked against its registry's hash.",
     "drift.plugins.configRaw": "This plugin's settings as JSON; no registry describes its fields.",
     "drift.plugins.saving": "Saving...",
     "drift.plugins.saved": "{{name}}'s settings were saved.",
@@ -741,8 +737,6 @@ export const drift = {
     "drift.skills.registrySearch": "Search skills",
     "drift.skills.registrySource":
         "From the Drift-Plugins registry on GitHub. A skill is Markdown the model reads; nothing runs.",
-    "drift.skills.registrySourceWithOwn":
-        "From your sources and the Drift-Plugins registry on GitHub. A skill is Markdown the model reads; nothing runs.",
     "drift.plugins.reload": "Reload",
     "drift.plugins.loading": "Loading plugins...",
     "drift.plugins.empty": 'No plugins. List WebAssembly components under "plugins" in {{path}}, then reload.',
@@ -1045,7 +1039,6 @@ export const drift = {
     "drift.storage.sessions.subagent.description": "Spawned by tasks, and not shown in the sidebar.",
     "drift.storage.sessions.total": "Total threads",
     "drift.storage.sessions.total.description": "Every thread the engine has stored.",
-    "drift.storage.subtitle": "Conversations, undo history and shell output",
     "drift.storage.table.part": "Message content",
     "drift.storage.table.part.hint": "transcripts",
     "drift.storage.table.blob": "Images",

@@ -65,11 +65,8 @@ export function StorageSection() {
                         <section>
                             <div class="mb-3 flex items-baseline justify-between gap-3">
                                 <div class="min-w-0">
-                                    <div class="text-2xl font-semibold text-ink">
+                                    <div class="text-2xl font-semibold text-ink" title={current().path}>
                                         {formatBytes(current().totalBytes)}
-                                    </div>
-                                    <div class="mt-0.5 truncate text-[0.7rem] text-ink-faint" title={current().path}>
-                                        {t("drift.storage.subtitle")}
                                     </div>
                                 </div>
                                 <button

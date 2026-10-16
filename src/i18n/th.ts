@@ -548,8 +548,6 @@ export const drift = {
         "เอกสาร JSON ในรูปแบบ registry.json ของ Drift-Plugins: แต่ละปลั๊กอินมี URL ดาวน์โหลดและ SHA-256",
     "drift.registry.sources.mcpFormat":
         "เอกสาร JSON ในรูปแบบรีจิสทรี MCP: รายการ servers แบบที่ API ของรีจิสทรีทางการส่งกลับ",
-    "drift.plugins.registrySourceWithOwn":
-        "จากแหล่งของคุณและรีจิสทรี Drift-Plugins บน GitHub แต่ละตัวเป็นคอมโพเนนต์ WebAssembly ในแซนด์บ็อกซ์ และการดาวน์โหลดจะถูกตรวจกับแฮชของรีจิสทรีนั้น",
     "drift.plugins.configRaw": "การตั้งค่าของปลั๊กอินนี้ในรูปแบบ JSON ไม่มีรีจิสทรีใดอธิบายฟิลด์ของมัน",
     "drift.plugins.saving": "กำลังบันทึก...",
     "drift.plugins.saved": "บันทึกการตั้งค่าของ {{name}} แล้ว",
@@ -569,8 +567,6 @@ export const drift = {
     "drift.skills.installed": "ติดตั้ง {{name}} พร้อม {{count}} สกิลแล้ว จะพร้อมใช้ตั้งแต่เทิร์นถัดไป",
     "drift.skills.registrySearch": "ค้นหาสกิล",
     "drift.skills.registrySource": "จากรีจิสทรี Drift-Plugins บน GitHub สกิลคือ Markdown ที่โมเดลอ่าน ไม่มีอะไรทำงาน",
-    "drift.skills.registrySourceWithOwn":
-        "จากแหล่งของคุณและรีจิสทรี Drift-Plugins บน GitHub สกิลคือ Markdown ที่โมเดลอ่าน ไม่มีอะไรทำงาน",
     "drift.plugins.reload": "โหลดใหม่",
     "drift.plugins.loading": "กำลังโหลดปลั๊กอิน...",
     "drift.plugins.empty": 'ไม่มีปลั๊กอิน ระบุคอมโพเนนต์ WebAssembly ใต้ "plugins" ใน {{path}} แล้วโหลดใหม่',

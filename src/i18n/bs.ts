@@ -555,8 +555,6 @@ export const drift = {
         "JSON dokument u formatu registry.json iz Drift-Plugins: svaki dodatak s URL-om za preuzimanje i SHA-256.",
     "drift.registry.sources.mcpFormat":
         "JSON dokument u formatu MCP registra: lista servers, kakvu vraća API službenog registra.",
-    "drift.plugins.registrySourceWithOwn":
-        "Iz vaših izvora i registra Drift-Plugins na GitHubu. Svaki je izolirana WebAssembly komponenta; preuzimanje se provjerava s hashom njegovog registra.",
     "drift.plugins.configRaw": "Postavke ovog dodatka kao JSON; nijedan registar ne opisuje njegova polja.",
     "drift.plugins.saving": "Spremanje...",
     "drift.plugins.saved": "Postavke za {{name}} su spremljene.",
@@ -577,8 +575,6 @@ export const drift = {
     "drift.skills.registrySearch": "Pretraži vještine",
     "drift.skills.registrySource":
         "Iz registra Drift-Plugins na GitHubu. Vještina je Markdown koji model čita; ništa se ne pokreće.",
-    "drift.skills.registrySourceWithOwn":
-        "Iz vaših izvora i registra Drift-Plugins na GitHubu. Vještina je Markdown koji model čita; ništa se ne pokreće.",
     "drift.plugins.reload": "Ponovo učitaj",
     "drift.plugins.loading": "Učitavanje dodataka...",
     "drift.plugins.empty": 'Nema dodataka. Navedite WebAssembly komponente pod "plugins" u {{path}} i ponovo učitajte.',

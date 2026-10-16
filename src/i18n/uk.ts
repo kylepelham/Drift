@@ -552,8 +552,6 @@ export const drift = {
         "JSON-документ у форматі registry.json із Drift-Plugins: кожен плагін з URL завантаження та SHA-256.",
     "drift.registry.sources.mcpFormat":
         "JSON-документ у форматі реєстру MCP: список servers, як його повертає API офіційного реєстру.",
-    "drift.plugins.registrySourceWithOwn":
-        "З ваших джерел і реєстру Drift-Plugins на GitHub. Кожен плагін є ізольованим компонентом WebAssembly; завантаження звіряється з хешем свого реєстру.",
     "drift.plugins.configRaw": "Налаштування цього плагіна у JSON; жоден реєстр не описує його поля.",
     "drift.plugins.saving": "Збереження...",
     "drift.plugins.saved": "Налаштування {{name}} збережено.",
@@ -574,8 +572,6 @@ export const drift = {
     "drift.skills.registrySearch": "Пошук навичок",
     "drift.skills.registrySource":
         "З реєстру Drift-Plugins на GitHub. Навичка являє собою Markdown, який читає модель; нічого не виконується.",
-    "drift.skills.registrySourceWithOwn":
-        "З ваших джерел і реєстру Drift-Plugins на GitHub. Навичка являє собою Markdown, який читає модель; нічого не виконується.",
     "drift.plugins.reload": "Перезавантажити",
     "drift.plugins.loading": "Завантаження плагінів...",
     "drift.plugins.empty": 'Плагінів немає. Вкажіть компоненти WebAssembly у "plugins" у {{path}} і перезавантажте.',

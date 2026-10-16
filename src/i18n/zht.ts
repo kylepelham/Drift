@@ -532,8 +532,6 @@ export const drift = {
     "drift.registry.sources.pluginsFormat":
         "Drift-Plugins registry.json 格式的 JSON 文件：每個外掛附下載網址與 SHA-256。",
     "drift.registry.sources.mcpFormat": "MCP 登錄庫格式的 JSON 文件：一個 servers 清單，與官方登錄庫 API 回傳的相同。",
-    "drift.plugins.registrySourceWithOwn":
-        "來自你的來源與 GitHub 上的 Drift-Plugins 登錄庫。每個外掛都是沙箱化的 WebAssembly 元件，下載會與其登錄庫的雜湊值核對。",
     "drift.plugins.configRaw": "此外掛的設定（JSON）；沒有登錄庫描述它的欄位。",
     "drift.plugins.saving": "儲存中...",
     "drift.plugins.saved": "已儲存 {{name}} 的設定。",
@@ -554,8 +552,6 @@ export const drift = {
     "drift.skills.registrySearch": "搜尋技能",
     "drift.skills.registrySource":
         "來自 GitHub 上的 Drift-Plugins 登錄庫。技能是模型閱讀的 Markdown，不會執行任何東西。",
-    "drift.skills.registrySourceWithOwn":
-        "來自你的來源與 GitHub 上的 Drift-Plugins 登錄庫。技能是模型閱讀的 Markdown，不會執行任何東西。",
     "drift.plugins.reload": "重新載入",
     "drift.plugins.loading": "正在載入外掛...",
     "drift.plugins.empty": '沒有外掛。在 {{path}} 的 "plugins" 下列出 WebAssembly 元件，然後重新載入。',

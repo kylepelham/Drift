@@ -517,8 +517,6 @@ export const drift = {
         "Drift-Plugins registry.json 형식의 JSON 문서: 각 플러그인의 다운로드 URL과 SHA-256을 포함합니다.",
     "drift.registry.sources.mcpFormat":
         "MCP 레지스트리 형식의 JSON 문서: 공식 레지스트리 API가 반환하는 servers 목록입니다.",
-    "drift.plugins.registrySourceWithOwn":
-        "내 소스와 GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 각 플러그인은 샌드박스 WebAssembly 컴포넌트이며 다운로드는 해당 레지스트리의 해시와 대조됩니다.",
     "drift.plugins.configRaw": "이 플러그인의 설정을 JSON으로 표시합니다. 필드를 설명하는 레지스트리가 없습니다.",
     "drift.plugins.saving": "저장 중...",
     "drift.plugins.saved": "{{name}} 설정을 저장했습니다.",
@@ -540,8 +538,6 @@ export const drift = {
     "drift.skills.registrySearch": "스킬 검색",
     "drift.skills.registrySource":
         "GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 스킬은 모델이 읽는 Markdown이며 아무것도 실행되지 않습니다.",
-    "drift.skills.registrySourceWithOwn":
-        "내 소스와 GitHub의 Drift-Plugins 레지스트리에서 가져옵니다. 스킬은 모델이 읽는 Markdown이며 아무것도 실행되지 않습니다.",
     "drift.plugins.reload": "다시 로드",
     "drift.plugins.loading": "플러그인을 로드하는 중...",
     "drift.plugins.empty":

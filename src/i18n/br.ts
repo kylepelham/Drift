@@ -525,8 +525,6 @@ export const drift = {
         "Um documento JSON no formato registry.json do Drift-Plugins: cada plugin com URL de download e SHA-256.",
     "drift.registry.sources.mcpFormat":
         "Um documento JSON no formato do registro MCP: uma lista servers, como a API do registro oficial retorna.",
-    "drift.plugins.registrySourceWithOwn":
-        "Das suas fontes e do registro Drift-Plugins no GitHub. Cada um é um componente WebAssembly isolado; o download é conferido com o hash do seu registro.",
     "drift.plugins.configRaw": "As configurações deste plugin em JSON; nenhum registro descreve seus campos.",
     "drift.plugins.saving": "Salvando...",
     "drift.plugins.saved": "As configurações de {{name}} foram salvas.",
@@ -548,8 +546,6 @@ export const drift = {
     "drift.skills.registrySearch": "Buscar skills",
     "drift.skills.registrySource":
         "Do registro Drift-Plugins no GitHub. Uma skill é Markdown que o modelo lê; nada é executado.",
-    "drift.skills.registrySourceWithOwn":
-        "Das suas fontes e do registro Drift-Plugins no GitHub. Uma skill é Markdown que o modelo lê; nada é executado.",
     "drift.plugins.reload": "Recarregar",
     "drift.plugins.loading": "Carregando plugins...",
     "drift.plugins.empty": 'Nenhum plugin. Liste componentes WebAssembly em "plugins" no {{path}} e recarregue.',

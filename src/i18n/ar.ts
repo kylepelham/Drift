@@ -508,8 +508,6 @@ export const drift = {
     "drift.registry.sources.pluginsFormat":
         "مستند JSON بصيغة registry.json الخاصة بـ Drift-Plugins: كل إضافة مع رابط تنزيلها وتجزئة SHA-256.",
     "drift.registry.sources.mcpFormat": "مستند JSON بصيغة سجل MCP: قائمة servers كما تعيدها واجهة السجل الرسمي.",
-    "drift.plugins.registrySourceWithOwn":
-        "من مصادرك ومن سجل Drift-Plugins على GitHub. كل إضافة مكوّن WebAssembly معزول، ويُتحقق من التنزيل بمقارنته بتجزئة سجلها.",
     "drift.plugins.configRaw": "إعدادات هذه الإضافة بصيغة JSON؛ لا يصف أي سجل حقولها.",
     "drift.plugins.saving": "جارٍ الحفظ...",
     "drift.plugins.saved": "تم حفظ إعدادات {{name}}.",
@@ -529,8 +527,6 @@ export const drift = {
     "drift.skills.installed": "تم تثبيت {{name}} مع {{count}} مهارة؛ تُعرض من الدور التالي.",
     "drift.skills.registrySearch": "البحث عن مهارات",
     "drift.skills.registrySource": "من سجل Drift-Plugins على GitHub. المهارة نص Markdown يقرؤه النموذج؛ لا يُنفّذ شيء.",
-    "drift.skills.registrySourceWithOwn":
-        "من مصادرك ومن سجل Drift-Plugins على GitHub. المهارة نص Markdown يقرؤه النموذج؛ لا يُنفّذ شيء.",
     "drift.plugins.reload": "إعادة التحميل",
     "drift.plugins.loading": "جارٍ تحميل الإضافات...",
     "drift.plugins.empty": 'لا توجد إضافات. أدرج مكوّنات WebAssembly تحت "plugins" في {{path}} ثم أعد التحميل.',

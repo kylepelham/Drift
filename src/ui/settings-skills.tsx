@@ -1,5 +1,5 @@
-import { loadRegistrySources, registrySources, sourcesOf } from "../state/registry-sources";
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
+import { loadRegistrySources, sourcesOf } from "../state/registry-sources";
 import { IconCheck, IconSearch, IconSliders, IconTrash } from "./icons";
 import { PackSheet, skillsFolder } from "./settings-skill-pack";
 import { RegistrySourcesSheet } from "./registry-sources";
@@ -417,13 +417,6 @@ function SkillRegistry(props: {
                                 <IconSliders class="size-3.5" />
                                 <Show when={sourcesOf("plugins").length}>{(count) => <span>{count()}</span>}</Show>
                             </button>
-                        </div>
-                        <div class="text-[0.7rem] text-ink-faint">
-                            {t(
-                                registrySources().some((source) => source.kind === "plugins")
-                                    ? "drift.skills.registrySourceWithOwn"
-                                    : "drift.skills.registrySource",
-                            )}
                         </div>
                         <For each={failures()}>
                             {(failure) => (

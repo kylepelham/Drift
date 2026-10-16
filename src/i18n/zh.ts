@@ -532,8 +532,6 @@ export const drift = {
     "drift.registry.sources.pluginsFormat":
         "Drift-Plugins registry.json 格式的 JSON 文档：每个插件带下载地址和 SHA-256。",
     "drift.registry.sources.mcpFormat": "MCP 注册表格式的 JSON 文档：一个 servers 列表，与官方注册表 API 返回的一致。",
-    "drift.plugins.registrySourceWithOwn":
-        "来自你的来源和 GitHub 上的 Drift-Plugins 注册表。每个插件都是沙箱化的 WebAssembly 组件，下载会与其注册表中的哈希校验。",
     "drift.plugins.configRaw": "此插件的设置（JSON）；没有注册表描述它的字段。",
     "drift.plugins.saving": "正在保存...",
     "drift.plugins.saved": "已保存 {{name}} 的设置。",
@@ -554,8 +552,6 @@ export const drift = {
     "drift.skills.registrySearch": "搜索技能",
     "drift.skills.registrySource":
         "来自 GitHub 上的 Drift-Plugins 注册表。技能是模型阅读的 Markdown，不会运行任何东西。",
-    "drift.skills.registrySourceWithOwn":
-        "来自你的来源和 GitHub 上的 Drift-Plugins 注册表。技能是模型阅读的 Markdown，不会运行任何东西。",
     "drift.plugins.reload": "重新加载",
     "drift.plugins.loading": "正在加载插件...",
     "drift.plugins.empty": '没有插件。在 {{path}} 的 "plugins" 下列出 WebAssembly 组件，然后重新加载。',

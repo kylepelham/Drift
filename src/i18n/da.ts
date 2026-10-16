@@ -553,8 +553,6 @@ export const drift = {
         "Et JSON-dokument i Drift-Plugins' registry.json-format: hvert plugin med download-URL og SHA-256.",
     "drift.registry.sources.mcpFormat":
         "Et JSON-dokument i MCP-registrets format: en servers-liste, som det officielle registers API returnerer den.",
-    "drift.plugins.registrySourceWithOwn":
-        "Fra dine kilder og Drift-Plugins-registret på GitHub. Hvert er en WebAssembly-komponent i sandkasse; downloadet kontrolleres mod registrets hash.",
     "drift.plugins.configRaw": "Dette plugins indstillinger som JSON; intet register beskriver dets felter.",
     "drift.plugins.saving": "Gemmer...",
     "drift.plugins.saved": "Indstillingerne for {{name}} blev gemt.",
@@ -576,8 +574,6 @@ export const drift = {
     "drift.skills.registrySearch": "Søg i skills",
     "drift.skills.registrySource":
         "Fra Drift-Plugins-registret på GitHub. En skill er Markdown, som modellen læser; intet kører.",
-    "drift.skills.registrySourceWithOwn":
-        "Fra dine kilder og Drift-Plugins-registret på GitHub. En skill er Markdown, som modellen læser; intet kører.",
     "drift.plugins.reload": "Genindlæs",
     "drift.plugins.loading": "Indlæser plugins...",
     "drift.plugins.empty": 'Ingen plugins. Angiv WebAssembly-komponenter under "plugins" i {{path}}, og genindlæs.',

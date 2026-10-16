@@ -557,8 +557,6 @@ export const drift = {
         "Drift-Plugins registry.json biçiminde bir JSON belgesi: her eklenti indirme adresi ve SHA-256 ile.",
     "drift.registry.sources.mcpFormat":
         "MCP kayıt defteri biçiminde bir JSON belgesi: resmi kayıt defteri API'sinin döndürdüğü gibi bir servers listesi.",
-    "drift.plugins.registrySourceWithOwn":
-        "Kaynaklarınızdan ve GitHub'daki Drift-Plugins kayıt defterinden. Her biri yalıtılmış bir WebAssembly bileşenidir; indirme, kayıt defterindeki karma ile doğrulanır.",
     "drift.plugins.configRaw": "Bu eklentinin ayarları JSON olarak; hiçbir kayıt defteri alanlarını tanımlamıyor.",
     "drift.plugins.saving": "Kaydediliyor...",
     "drift.plugins.saved": "{{name}} ayarları kaydedildi.",
@@ -580,8 +578,6 @@ export const drift = {
     "drift.skills.registrySearch": "Beceri ara",
     "drift.skills.registrySource":
         "GitHub'daki Drift-Plugins kayıt defterinden. Beceri, modelin okuduğu Markdown'dır; hiçbir şey çalışmaz.",
-    "drift.skills.registrySourceWithOwn":
-        "Kaynaklarınızdan ve GitHub'daki Drift-Plugins kayıt defterinden. Beceri, modelin okuduğu Markdown'dır; hiçbir şey çalışmaz.",
     "drift.plugins.reload": "Yeniden yükle",
     "drift.plugins.loading": "Eklentiler yükleniyor...",
     "drift.plugins.empty":

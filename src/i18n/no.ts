@@ -554,8 +554,6 @@ export const drift = {
         "Et JSON-dokument i Drift-Plugins sitt registry.json-format: hvert tillegg med nedlastings-URL og SHA-256.",
     "drift.registry.sources.mcpFormat":
         "Et JSON-dokument i MCP-registerets format: en servers-liste, slik det offisielle registerets API returnerer den.",
-    "drift.plugins.registrySourceWithOwn":
-        "Fra kildene dine og Drift-Plugins-registeret på GitHub. Hvert er en WebAssembly-komponent i sandkasse; nedlastingen kontrolleres mot registerets hash.",
     "drift.plugins.configRaw": "Innstillingene til dette tillegget som JSON; ingen register beskriver feltene.",
     "drift.plugins.saving": "Lagrer...",
     "drift.plugins.saved": "Innstillingene til {{name}} ble lagret.",
@@ -577,8 +575,6 @@ export const drift = {
     "drift.skills.registrySearch": "Søk i skills",
     "drift.skills.registrySource":
         "Fra Drift-Plugins-registeret på GitHub. En skill er Markdown som modellen leser; ingenting kjører.",
-    "drift.skills.registrySourceWithOwn":
-        "Fra kildene dine og Drift-Plugins-registeret på GitHub. En skill er Markdown som modellen leser; ingenting kjører.",
     "drift.plugins.reload": "Last på nytt",
     "drift.plugins.loading": "Laster programtillegg...",
     "drift.plugins.empty":

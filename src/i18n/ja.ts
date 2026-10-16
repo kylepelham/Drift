@@ -519,8 +519,6 @@ export const drift = {
         "Drift-Plugins の registry.json 形式の JSON 文書。各プラグインにダウンロード URL と SHA-256 を含みます。",
     "drift.registry.sources.mcpFormat":
         "MCP レジストリ形式の JSON 文書。公式レジストリ API が返す servers リストです。",
-    "drift.plugins.registrySourceWithOwn":
-        "あなたのソースと GitHub の Drift-Plugins レジストリから。各プラグインはサンドボックス化された WebAssembly コンポーネントで、ダウンロードはそのレジストリのハッシュと照合されます。",
     "drift.plugins.configRaw":
         "このプラグインの設定を JSON で表示しています。フィールドを記述するレジストリがありません。",
     "drift.plugins.saving": "保存中...",
@@ -544,8 +542,6 @@ export const drift = {
     "drift.skills.registrySearch": "スキルを検索",
     "drift.skills.registrySource":
         "GitHub の Drift-Plugins レジストリから。スキルはモデルが読む Markdown で、何も実行されません。",
-    "drift.skills.registrySourceWithOwn":
-        "あなたのソースと GitHub の Drift-Plugins レジストリから。スキルはモデルが読む Markdown で、何も実行されません。",
     "drift.plugins.reload": "再読み込み",
     "drift.plugins.loading": "プラグインを読み込んでいます...",
     "drift.plugins.empty":
