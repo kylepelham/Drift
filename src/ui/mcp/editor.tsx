@@ -366,7 +366,7 @@ function SecretInput(props: {
     const toggle = () => (shown() ? t("drift.mcp.form.hideValue") : t("drift.mcp.form.showValue"));
 
     return (
-        <div class="relative min-w-0 flex-1">
+        <div class="relative w-full min-w-0">
             <input
                 type={shown() ? "text" : "password"}
                 aria-label={props.label}
