@@ -64,7 +64,7 @@ impl Tool for Edit {
                 return Err(ToolError("old_string and new_string are identical".into()));
             }
 
-            let raw = read_for_edit(ctx, &path, &name).await?;
+            let raw = read_for_edit(&path, &name).await?;
             let ending = TextFormat::detect(&raw);
             let content = ending.normalise(&raw);
             let (updated, replacements) =
@@ -73,6 +73,7 @@ impl Tool for Edit {
             let written = ending.apply(&updated);
             super::fits_history(&name, written.len())?;
             super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
+            ctx.files.mark_read(&path);
 
             let change = Change::new(&path, &name, "update", &content, &updated);
             let plural = if replacements == 1 { "" } else { "s" };
@@ -91,8 +92,9 @@ impl Tool for Edit {
     }
 }
 
-/// The file's text, once it exists and has been read this session.
-async fn read_for_edit(ctx: &Context, path: &std::path::Path, name: &str) -> Result<String, ToolError> {
+/// The file's text, once it exists. It need not have been read: `old_string` must match it exactly and once,
+/// which proves the model knows the text it changes.
+async fn read_for_edit(path: &std::path::Path, name: &str) -> Result<String, ToolError> {
     // A missing file first: reading it would only fail too, and `write` is what creates one.
     if tokio::fs::metadata(path)
         .await
@@ -100,12 +102,6 @@ async fn read_for_edit(ctx: &Context, path: &std::path::Path, name: &str) -> Res
     {
         return Err(ToolError(format!("{name} does not exist; use write to create it")));
     }
-    if !ctx.files.was_read(path) {
-        return Err(ToolError(format!(
-            "{name} has not been read this session; read it before editing"
-        )));
-    }
-
     tokio::fs::read_to_string(path)
         .await
         .map_err(|error| match error.kind() {
@@ -415,16 +411,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unread_files_are_refused() {
+    async fn an_exact_match_edits_an_unread_file_and_marks_it_read() {
         let sandbox = Sandbox::new("edit-unread");
-        sandbox.file("u.txt", "a\n");
-        let err = edit(
+        let path = sandbox.file("u.txt", "a\n");
+        edit(
             &sandbox,
             json!({ "path": "u.txt", "old_string": "a", "new_string": "b" }),
         )
         .await
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "b\n");
+        assert!(
+            sandbox.ctx.files.was_read(&path),
+            "the next write to it goes straight through"
+        );
+
+        // A guess at text that is not there still changes nothing.
+        let missed = edit(
+            &sandbox,
+            json!({ "path": "u.txt", "old_string": "zzz", "new_string": "c" }),
+        )
+        .await
         .unwrap_err();
-        assert!(err.0.contains("has not been read"));
+        assert!(!missed.0.contains("has not been read"), "{}", missed.0);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "b\n");
         let missing = Edit
             .run(
                 &sandbox.ctx,

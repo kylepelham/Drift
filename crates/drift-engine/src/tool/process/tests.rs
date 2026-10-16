@@ -28,8 +28,8 @@ async fn wait_until_a_line_then_read_only_what_is_new_then_stop() {
     let sandbox = Sandbox::new("process-wait");
     let id = background(
         &sandbox,
-        "sleep 1; echo 'ready at http://localhost:7000'; sleep 1; echo later; sleep 30",
-        "Start-Sleep 1; Write-Output 'ready at http://localhost:7000'; Start-Sleep 1; Write-Output later; Start-Sleep 30",
+        "sleep 3; echo 'ready at http://localhost:7000'; sleep 1; echo later; sleep 30",
+        "Start-Sleep 3; Write-Output 'ready at http://localhost:7000'; Start-Sleep 1; Write-Output later; Start-Sleep 30",
     )
     .await;
 
