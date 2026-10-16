@@ -312,6 +312,11 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
     store.remove_workspace("p1").unwrap();
     assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
     assert!(store.workspaces().unwrap().iter().all(|workspace| workspace.id != "p1"));
+
+    // Seven days on, the purge forgets the removed row; the next start must not bring the folder back.
+    assert!(store.forget_workspace("p1").unwrap());
+    assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
+    assert!(store.workspaces().unwrap().iter().all(|workspace| workspace.id != "p1"));
     std::fs::remove_dir_all(&dir).ok();
 }
 
