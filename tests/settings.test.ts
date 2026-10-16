@@ -276,7 +276,7 @@ const pendingTranslation = new Set([
         "drift.storage",
         `
       actions compact compact.action compact.description compacting estimated free prune prune.action
-      prune.description pruning refresh subtitle
+      prune.description pruning refresh
       sessions sessions.archived sessions.archived.description sessions.subagent
       sessions.subagent.description sessions.total sessions.total.description
       table.part table.part.hint table.blob table.blob.hint table.undo table.undo.hint table.output table.output.hint
