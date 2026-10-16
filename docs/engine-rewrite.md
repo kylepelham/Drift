@@ -443,7 +443,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   with a fresh step budget, otherwise it stops taking prompts, so none can land unanswered. A Stop
   still ends the turn; the steered prompt stays in the transcript for the next one. A session held
   by a job that is not a turn (a compaction, an undo) makes the prompt wait up to 30 s and then
-  start a turn of its own; past that it is 409 `busy`.
+  start a turn of its own; past that it is 409 `busy`. A turn still planning (waiting on MCP
+  servers, renewing a sign-in, running plugin prompt hooks) is not such a job: the prompt joins it
+  the moment it starts taking prompts (`Turns::steerable`). Before this, a prompt or an answer sent
+  in that window waited for the whole turn, often one a background result had just started, and
+  showed "Sending..." for up to 30 s.
 - A prompt may switch the model, agent or level mid-turn, as in opencode. It is admitted like any
   steered prompt, and admission writes its choice onto the session. Before every request the turn
   reads the session (`follow_session`) and, if the choice changed, rebuilds what it runs on: the

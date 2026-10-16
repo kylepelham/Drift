@@ -160,6 +160,8 @@ pub struct Turns {
     /// Admission and turn completion both hold this lock, so no prompt lands after the turn stops looking.
     /// Command turns retain the session's defaults for steered prompts.
     steering: Mutex<HashMap<String, Steering>>,
+    /// Fired when a turn starts accepting prompts, so one sent while it was still planning goes in at once.
+    steerable: tokio::sync::Notify,
     /// The prompt each running turn began at: a fork stops before it, whatever is steered in later.
     began: Mutex<HashMap<String, String>>,
     /// Tests swap the wire adapter for a scripted one.
