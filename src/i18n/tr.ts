@@ -805,6 +805,8 @@ export const drift = {
     "drift.shell.omitted": "{{size}} atlandı",
     "drift.shell.openFull": "Tüm çıktıyı aç",
     "drift.path.copied": "{{path}} kopyalandı",
+    "drift.mcp.form.showValue": "Değeri göster",
+    "drift.mcp.form.hideValue": "Değeri gizle",
     "drift.shell.output": "Kabuk çıktısı",
     "drift.shortcuts.autoAccept": "İzinleri otomatik kabul etmeyi aç/kapat",
     "drift.shortcuts.zoomIn": "Yakınlaştır",

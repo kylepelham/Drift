@@ -804,6 +804,8 @@ export const drift = {
     "drift.shell.omitted": "{{size}} utelatt",
     "drift.shell.openFull": "Åpne hele utdataene",
     "drift.path.copied": "Kopierte {{path}}",
+    "drift.mcp.form.showValue": "Vis verdi",
+    "drift.mcp.form.hideValue": "Skjul verdi",
     "drift.shell.output": "Shell-utdata",
     "drift.shortcuts.autoAccept": "Veksle automatisk godkjenning av tillatelser",
     "drift.shortcuts.zoomIn": "Zoom inn",

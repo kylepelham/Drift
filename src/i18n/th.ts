@@ -791,6 +791,8 @@ export const drift = {
     "drift.shell.omitted": "ละไว้ {{size}}",
     "drift.shell.openFull": "เปิดเอาต์พุตทั้งหมด",
     "drift.path.copied": "คัดลอก {{path}} แล้ว",
+    "drift.mcp.form.showValue": "แสดงค่า",
+    "drift.mcp.form.hideValue": "ซ่อนค่า",
     "drift.shell.output": "ผลลัพธ์เชลล์",
     "drift.shortcuts.autoAccept": "สลับการยอมรับสิทธิ์อัตโนมัติ",
     "drift.shortcuts.zoomIn": "ซูมเข้า",

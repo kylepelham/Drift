@@ -774,6 +774,8 @@ export const drift = {
     "drift.shell.omitted": "已省略 {{size}}",
     "drift.shell.openFull": "打开完整输出",
     "drift.path.copied": "已复制 {{path}}",
+    "drift.mcp.form.showValue": "显示值",
+    "drift.mcp.form.hideValue": "隐藏值",
     "drift.shell.output": "Shell 输出",
     "drift.shortcuts.autoAccept": "切换自动接受权限",
     "drift.shortcuts.zoomIn": "放大",

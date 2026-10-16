@@ -771,6 +771,8 @@ export const drift = {
     "drift.shell.omitted": "Pominięto {{size}}",
     "drift.shell.openFull": "Otwórz pełne wyjście",
     "drift.path.copied": "Skopiowano {{path}}",
+    "drift.mcp.form.showValue": "Pokaż wartość",
+    "drift.mcp.form.hideValue": "Ukryj wartość",
     "drift.shell.output": "Dane wyjściowe powłoki",
     "drift.shortcuts.autoAccept": "Przełącz automatyczne akceptowanie uprawnień",
     "drift.shortcuts.zoomIn": "Powiększ",

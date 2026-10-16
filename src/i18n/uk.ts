@@ -802,6 +802,8 @@ export const drift = {
     "drift.shell.omitted": "Пропущено {{size}}",
     "drift.shell.openFull": "Відкрити весь вивід",
     "drift.path.copied": "Скопійовано: {{path}}",
+    "drift.mcp.form.showValue": "Показати значення",
+    "drift.mcp.form.hideValue": "Приховати значення",
     "drift.shell.output": "Вивід оболонки",
     "drift.shortcuts.autoAccept": "Перемкнути автоматичне прийняття дозволів",
     "drift.shortcuts.zoomIn": "Збільшити масштаб",
