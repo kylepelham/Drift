@@ -4,6 +4,21 @@ use crate::session::types::{Part, PartRow};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
 impl Store {
+    /// Finds one call through its session/call-id index, without loading the transcript.
+    pub fn call_part(&self, session_id: &str, call_id: &str) -> rusqlite::Result<Option<PartRow>> {
+        self.lock()
+            .prepare_cached(
+                "SELECT id, session_id, json, message_id, provider_signature FROM part
+                 WHERE session_id = ?1 AND json_extract(json, '$.callId') = ?2
+                 AND json_extract(json, '$.type') = 'tool_call' ORDER BY id LIMIT 1",
+            )?
+            .query_row(params![session_id, call_id], |row| {
+                let message_id: String = row.get(3)?;
+                map_part(row, &message_id)
+            })
+            .optional()
+    }
+
     /// A tool call whose id is empty or already used in the session gets an engine id: tasks, spilled
     /// output and recovery all find a call by its id.
     pub fn add_part(&self, message_id: &str, session_id: &str, mut part: Part) -> rusqlite::Result<PartRow> {

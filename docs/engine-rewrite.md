@@ -253,13 +253,16 @@ Product rationale: `docs/research/m3-conversations-and-subagents.md`.
   the cleanup failure is logged; the copy stays archived for later purging.
   Which messages count is decided from message rows plus which of them still has a tool call
   pending or running. Without `atMessage` it copies through the last stable message: if a turn is
-  running, its finished steps come along and the copy stops before the first reply still streaming
+  running, its finished steps come along and the copy stops before the first reply in that turn still streaming
   or with a call still running, and before any prompt the turn has not answered yet, so a fork never
   ends on a question or holds a call that will never get its result. A long turn can be forked while
   it works, steered or not. With `atMessage` it stops at that message, which must be within that
   stable part. Spawning a thread cuts the same way. A fork has no parent link; it is a copy, not a worker or
   a branch. The copy keeps compaction markers, so the fork sees the same context as its source;
   `/fork active` and `/fork all` are one operation. Boundaries are remapped to the copied ids.
+  A stale streaming message or open call from an earlier turn does not limit that cutoff. Any
+  unfinished calls copied from older history become interrupted errors in the copy, preserving
+  partial output and leaving the source untouched; they never wait for a result in the fork.
 - `POST /sessions/{id}/move {workspaceId}` moves the session and its subagents (hidden
   descendants at any depth). Branches stay where they are. It returns 409 while any of them is
   running or still planning, because a turn keeps the workspace path it planned with. A turn
@@ -858,7 +861,11 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   worker's token; a Stop that arrives before the worker registers waits for it. Worker permission
   and question asks carry the worker's session id and inherit the owner's approvals.
 - Restart: opening the store marks rows still `queued` or `running` `interrupted` (never rerun,
-  never delivered as a prompt), before anything in the new process can launch a worker. Once the
+  never delivered as a prompt), before anything in the new process can launch a worker. An
+  interrupted foreground result remains owed until its parent call is closed, even
+  when the parent message already finished. Older interrupted foreground rows acknowledged while
+  their calls stayed pending or running are made owed again, using the session/call-id index.
+  Recovery reads that one call rather than the parent's entire transcript. Once the
   engine listens, `recover_tasks` handles owed results by mode. A background one is delivered as
   above, compared against the durable Stop count, so a Stop before the restart still suppresses
   it. A foreground one is never a prompt: if its launching call's result never landed (still

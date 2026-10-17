@@ -238,6 +238,68 @@ async fn a_foreground_result_left_owed_by_a_restart_goes_to_its_own_call_never_a
 }
 
 #[tokio::test]
+async fn restart_recovery_closes_foreground_calls_in_finished_messages_including_old_acknowledged_rows() {
+    for already_interrupted in [false, true] {
+        let h = harness().await;
+        let task = recorded(&h, "foreground-before-restart", Mode::Foreground);
+        let mut row = call_row(&h, &task.call_id);
+        if let Part::ToolCall { name, .. } = &mut row.part {
+            *name = "task".into();
+        }
+        h.engine.store.save_part(&row).unwrap();
+        let mut message = h.engine.store.message(&row.message_id).unwrap().unwrap();
+        message.status = MessageStatus::Done;
+        message.finished_at = Some(1);
+        h.engine.store.save_message(&message).unwrap();
+        if already_interrupted {
+            h.engine
+                .store
+                .finish_task(&task.id, TaskState::Interrupted, "stopped at an earlier restart")
+                .unwrap();
+            h.engine.store.mark_task_delivered(&task.id).unwrap();
+        }
+        let restarted = crate::Engine::open_with(
+            &h._dir.join("data"),
+            crate::Options {
+                file_credentials: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let pending = restarted.store.task(&task.id).unwrap().unwrap();
+        assert_eq!(pending.state, TaskState::Interrupted);
+        assert!(
+            !pending.delivered,
+            "the call result must be saved before it is acknowledged"
+        );
+
+        restarted.recover_tasks().await;
+        let saved = restarted
+            .store
+            .call_part(&h.session.id, &task.call_id)
+            .unwrap()
+            .unwrap();
+        let result = tool(&saved);
+        assert_eq!(result.status, ToolStatus::Error);
+        assert!(result.output.unwrap().contains("stopped"));
+        assert!(restarted.store.task(&task.id).unwrap().unwrap().delivered);
+        let transcript = restarted.store.transcript(&h.session.id).unwrap();
+        assert_eq!(transcript.len(), 1);
+        assert!(delivered_results(&transcript).is_empty());
+        restarted.recover_tasks().await;
+        assert_eq!(
+            restarted
+                .store
+                .call_part(&h.session.id, &task.call_id)
+                .unwrap()
+                .unwrap(),
+            saved
+        );
+        assert!(h.provider.requests.lock().unwrap().is_empty());
+    }
+}
+
+#[tokio::test]
 async fn after_a_restart_unfinished_workers_are_interrupted_and_finished_results_arrive_once() {
     let h = harness().await;
     let was_running = recorded(&h, "was running", Mode::Background);

@@ -95,6 +95,8 @@ change the plan there when a decision changes.
   - [x] Undo and redo are all or nothing: a failed write puts back the files already changed, so a retry reports nothing as kept
   - [x] A replacement is marked `swapped` once its swap succeeds, so a stale backup is removed, never restored over a deliberate deletion
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
+- [x] Forks ignore stale unfinished work before the current turn; copied orphaned calls become interrupted errors without changing the source
+- [x] Restart recovery saves an interrupted foreground task's result into its parent call before acknowledging it, including old acknowledged-but-running calls in finished messages
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, subagent pins
 - [x] Compaction with recovery: automatic (meter threshold, Settings off switch, stops after 3 failures), overflow compact-and-retry, `/compact`; summary plus a 2-turn tail of a quarter of the compaction point (2k to 15k), nothing deleted

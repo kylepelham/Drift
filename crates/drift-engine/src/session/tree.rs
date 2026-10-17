@@ -101,7 +101,10 @@ impl Engine {
         let open = self.store.messages_with_open_calls(session_id)?;
         let mut end = messages
             .iter()
-            .position(|message| message.status == MessageStatus::Streaming || open.contains(&message.id))
+            .position(|message| {
+                message.id.as_str() >= began
+                    && (message.status == MessageStatus::Streaming || open.contains(&message.id))
+            })
             .unwrap_or(messages.len());
 
         while end > 0 && messages[end - 1].role == Role::User && messages[end - 1].id.as_str() >= began {

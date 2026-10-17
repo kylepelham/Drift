@@ -201,7 +201,24 @@ fn copy_message(
             )?;
             continue;
         }
-        conn.prepare_cached("INSERT INTO part(id, message_id, session_id, json, provider_signature) SELECT ?1, ?2, ?3, json, provider_signature FROM part WHERE id = ?4")?.execute(params![copy, message_id, session_id, part])?;
+        conn.prepare_cached(
+            "INSERT INTO part(id, message_id, session_id, json, provider_signature)
+             SELECT ?1, ?2, ?3,
+                CASE WHEN json_extract(json, '$.type') = 'tool_call'
+                     AND json_extract(json, '$.status') IN ('pending', 'running')
+                THEN json_set(json, '$.status', 'error', '$.finishedAt', ?5, '$.output',
+                    CASE WHEN json_extract(json, '$.output') IS NULL THEN ?6
+                    ELSE json_extract(json, '$.output') || char(10) || char(10) || ?6 END)
+                ELSE json END, provider_signature FROM part WHERE id = ?4",
+        )?
+        .execute(params![
+            copy,
+            message_id,
+            session_id,
+            part,
+            id::now_ms(),
+            "This call was interrupted before the fork; no result will arrive in this copy."
+        ])?;
     }
 
     Ok(true)
@@ -242,7 +259,7 @@ fn copy_boundary(
 
 #[cfg(test)]
 mod tests {
-    use crate::session::types::{MessageStatus, Part, Role, Visibility};
+    use crate::session::types::{MessageStatus, Part, Role, ToolStatus, Visibility};
     use crate::store::NewSession;
     use crate::store::tests::store;
 
@@ -255,6 +272,70 @@ mod tests {
             agent: "build",
             model: None,
         }
+    }
+
+    #[test]
+    fn a_fork_finishes_only_its_copies_of_stale_calls_and_keeps_closed_results_unchanged() {
+        let store = store();
+        let source = store.create_session(new("w")).unwrap();
+        let mut reply = store.create_message(&source.id, Role::Assistant, None).unwrap();
+        reply.status = MessageStatus::Done;
+        store.save_message(&reply).unwrap();
+        let mut originals = Vec::new();
+        for status in [
+            ToolStatus::Pending,
+            ToolStatus::Running,
+            ToolStatus::Done,
+            ToolStatus::Error,
+            ToolStatus::Denied,
+        ] {
+            let mut row = store
+                .add_part(
+                    &reply.id,
+                    &source.id,
+                    Part::ToolCall {
+                        call_id: format!("{status:?}"),
+                        name: "task".into(),
+                        input: serde_json::json!({"description": "copied task"}),
+                        status,
+                        title: Some("kept title".into()),
+                        output: (!matches!(status, ToolStatus::Pending | ToolStatus::Running))
+                            .then(|| "kept output".into()),
+                        metadata: None,
+                        started_at: Some(1),
+                        finished_at: None,
+                    },
+                )
+                .unwrap();
+            row.provider_signature = Some("kept signature".into());
+            store.save_part(&row).unwrap();
+            originals.push(row);
+        }
+        let fork = store
+            .fork_session(&source.id, new("w"), &reply.id, None)
+            .unwrap()
+            .unwrap();
+        let copied = store.transcript(&fork.id).unwrap();
+        for (index, row) in copied[0].parts.iter().enumerate() {
+            assert_eq!(row.provider_signature, originals[index].provider_signature);
+            if index >= 2 {
+                assert_eq!(row.part, originals[index].part);
+                continue;
+            }
+            let Part::ToolCall {
+                status,
+                output,
+                finished_at,
+                ..
+            } = &row.part
+            else {
+                unreachable!()
+            };
+            assert_eq!(*status, ToolStatus::Error);
+            assert!(output.as_deref().unwrap().contains("interrupted"));
+            assert!(finished_at.is_some());
+        }
+        assert_eq!(store.with_parts(&reply.id).unwrap().unwrap().parts, originals);
     }
 
     #[test]
