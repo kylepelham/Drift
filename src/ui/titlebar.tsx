@@ -9,7 +9,7 @@ export function nativeFrame() {
 }
 
 /** The update offer and the minimize, maximize and close buttons, at the right end of the chat header. */
-export function WindowControls() {
+export function WindowControls(props: { offerUpdate?: boolean }) {
     const shell = shellWindow();
     // eslint-disable-next-line solid/components-return-once -- Shell availability is fixed at webview startup.
     if (!shell) return null;
@@ -31,7 +31,7 @@ export function WindowControls() {
             .catch(() => {});
 
         const check = () => {
-            if (!autoUpdate() || update()) return;
+            if (props.offerUpdate === false || !autoUpdate() || update()) return;
 
             void shellInvoke()?.("check_update")
                 .then((version) => typeof version === "string" && setUpdate(version))

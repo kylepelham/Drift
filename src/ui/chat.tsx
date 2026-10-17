@@ -406,6 +406,9 @@ export function Chat() {
     const gesture = () => (gestureAt = Date.now());
     const nativeWheel = gesture;
     const releaseDrag = () => (dragging = false);
+    // Forwarded ticks build on the target still being scrolled to, as the browser's own smooth wheel does.
+    let wheelTarget: number | null = null;
+    const smoothWheel = () => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const forwardedWheel = (event: Event) => {
         const detail = (event as CustomEvent<ForwardedWheel>).detail;
 
@@ -413,12 +416,21 @@ export function Chat() {
 
         const delta = normalizedWheelDelta(detail.deltaY, detail.deltaMode, scroller.clientHeight);
         const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        scroller.scrollTop = accumulatedWheelTarget(scroller.scrollTop, null, delta, max);
+        const target = accumulatedWheelTarget(scroller.scrollTop, smoothWheel() ? wheelTarget : null, delta, max);
+        if (!smoothWheel()) {
+            scroller.scrollTop = target;
+            return;
+        }
+        wheelTarget = target;
+        scroller.scrollTo({ top: target, behavior: "smooth" });
     };
+    const wheelSettled = () => (wheelTarget = null);
     window.addEventListener("pointerup", releaseDrag);
     window.addEventListener(chatWheelEvent, forwardedWheel);
+    onMount(() => scroller.addEventListener("scrollend", wheelSettled));
     onCleanup(() => {
         clearTimeout(scrollLatchReset);
+        scroller?.removeEventListener("scrollend", wheelSettled);
         window.removeEventListener("pointerup", releaseDrag);
         window.removeEventListener(chatWheelEvent, forwardedWheel);
     });

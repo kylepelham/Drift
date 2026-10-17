@@ -1,21 +1,28 @@
 import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./transcript-find";
+import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
+import { closeReview, openReview, reviewPanel } from "../state/panels";
+import { IconArrowUp, IconDiff, IconMenu, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
-import { IconArrowUp, IconMenu, IconSearch } from "./icons";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { nativeFrame, WindowControls } from "./titlebar";
 import { openMobileDrawer } from "../state/navigation";
 import { hiddenParent } from "../engine/sessions";
 import { ContextMeter } from "./context-meter";
-import { touchInput } from "../state/screen";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 
 const chatColumnWidth = 768;
 
+function toggleReview() {
+    if (reviewPanel()) closeReview();
+    else openReview({ source: { kind: "uncommitted" } });
+}
+
 export function ChatHeader() {
     const engine = useEngine();
     const session = () => engine.state.sessions[selectedSession() ?? ""];
     const [transparent, setTransparent] = createSignal(false);
+    const narrow = createMediaQuery(smallScreenQuery);
     let row!: HTMLDivElement;
 
     function remeasure() {
@@ -114,12 +121,23 @@ export function ChatHeader() {
                                     >
                                         <IconSearch class="size-3.5" />
                                     </button>
+                                    <button
+                                        class="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink"
+                                        classList={{ "text-accent": !!reviewPanel(), "text-ink-faint": !reviewPanel() }}
+                                        title={t("drift.review.open")}
+                                        aria-pressed={!!reviewPanel()}
+                                        onClick={toggleReview}
+                                    >
+                                        <IconDiff class="size-3.5" />
+                                    </button>
                                 </Show>
                                 <ContextMeter sessionId={current().id} />
                             </>
                         )}
                     </Show>
-                    <WindowControls />
+                    <Show when={!reviewPanel() || narrow()}>
+                        <WindowControls />
+                    </Show>
                 </div>
             </div>
         </Show>

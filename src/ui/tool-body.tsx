@@ -66,7 +66,7 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
             <Switch fallback={<GenericBody part={props.part} />}>
                 <Match when={tasked()}>
                     {(task) => (
-                        <div class="space-y-2 border-l-2 border-edge pl-3">
+                        <div class="tool-card space-y-2">
                             <Show when={task().prompt}>
                                 <div class="transcript-tool-output max-h-40 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-faint">
                                     {clip(task().prompt)}
@@ -121,7 +121,7 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
             </Switch>
             <Show when={props.error}>
                 {(message) => (
-                    <div class="mt-1.5 border-l-2 border-danger py-0.5 pl-3 text-[0.85rem] break-words whitespace-pre-wrap text-ink-muted">
+                    <div class="tool-card tool-card-error mt-1.5 text-[0.85rem] break-words whitespace-pre-wrap text-ink-muted">
                         {clip(stripAnsi(message()))}
                     </div>
                 )}

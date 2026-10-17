@@ -311,8 +311,14 @@ test("shell transcript preserves a visible command-output gap and normalizes out
         shellScrollTarget,
         shellTranscript,
     } = await import("../src/ui/shell-output");
-    const { initialToolOpen, initialToolOpenForPart, nextShellOpen, rememberToolOpen } =
-        await import("../src/ui/tool-view");
+    const {
+        initialToolOpen,
+        initialToolOpenForPart,
+        nextShellOpen,
+        rememberToolOpen,
+        shellOpenDelayMs,
+        shellOpenWait,
+    } = await import("../src/ui/tool-view");
     const { shellTimeoutStatus } = await import("../src/ui/tool-labels");
     expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone");
     const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n");
@@ -320,7 +326,14 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     expect(transcript.startsWith("$ generate\n\nline 0\nline 1")).toBeTrue();
     expect(transcript.endsWith("line 9999")).toBeTrue();
     expect(initialToolOpen("bash", "completed", false)).toBeFalse();
-    expect(initialToolOpen("bash", "running", false)).toBeTrue();
+    expect(initialToolOpen("bash", "running", false)).toBeFalse();
+    expect(initialToolOpen("bash", "pending", false)).toBeFalse();
+    expect(initialToolOpen("bash", "running", false, true, shellOpenDelayMs)).toBeTrue();
+    expect(initialToolOpen("bash", "completed", false, false)).toBeTrue();
+    expect(shellOpenWait("running", 1_000, 1_000 + shellOpenDelayMs - 200)).toBe(200);
+    expect(shellOpenWait("running", 1_000, 1_000 + shellOpenDelayMs + 200)).toBe(0);
+    expect(shellOpenWait("pending", undefined, 1_000)).toBeUndefined();
+    expect(shellOpenWait("completed", 1_000, 2_000)).toBeUndefined();
     expect(nextShellOpen(true, "running", "done", false)).toBeFalse();
     expect(nextShellOpen(true, "running", "done", true)).toBeTrue();
     expect(nextShellOpen(true, "done", "done", false)).toBeTrue();

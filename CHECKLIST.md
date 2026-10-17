@@ -337,6 +337,7 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [ ] Plugins add tools: a WIT export declaring tools (name, description, input schema) and a call entry, offered and permission-checked like built-in tools
 - [ ] `/review`: diff against a chosen ref (default the merge-base with the default branch) reviewed by a read-only agent
 - [ ] `/security-review`: the same flow with a security-focused prompt
+- [x] Review panel beside the chat: a turn's changes, uncommitted changes, against a branch or one commit, as unified diffs with foldable unchanged lines; the edited files card opens it
 - [ ] Headless one-shot mode: run one prompt against a workspace from the command line and exit (as `claude -p`, `codex exec`, `opencode run`), with plain text or JSON event output for scripts and CI
 - [ ] `/init` that interviews instead of generating: asks the user for build and test commands, conventions and no-go areas, and writes only their answers to `AGENTS.md`, about 30 lines at most, with no summary of the codebase (generated instruction files tend to be long and make results worse)
 

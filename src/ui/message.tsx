@@ -328,6 +328,11 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
         return [...props.entry.parts].reverse().find((part) => part.type === "text")?.id;
     };
 
+    // A step that ends in tool calls finishes while the turn goes on; only the turn's last one is its end.
+    const turnOver = () =>
+        !sessionBusy(engine.state, info().sessionId) ||
+        engine.state.transcripts[info().sessionId]?.at(-1)?.info.id !== info().id;
+
     return (
         <Show when={visible()}>
             <div class="group flex min-w-0 max-w-full flex-col gap-3">
@@ -382,7 +387,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                         </Show>
                     )}
                 </Show>
-                <Show when={props.footer && info().finishedAt && editedFilesCard()}>
+                <Show when={props.footer && info().finishedAt && turnOver() && editedFilesCard()}>
                     <EditedFilesCard entry={props.entry} />
                 </Show>
                 <Show when={props.footer && info().finishedAt}>

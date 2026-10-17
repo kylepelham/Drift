@@ -39,13 +39,11 @@
     }
 
     .composer-options .picker-chevron,
-    .composer-options .picker-label-full,
-    .composer-stop-label {
+    .composer-options .picker-label-full {
         display: none;
     }
 
-    .composer-options .picker-label-compact,
-    .composer-stop-icon {
+    .composer-options .picker-label-compact {
         display: inline;
     }
 
@@ -231,6 +229,14 @@
         z-index: 25;
         inset: 3.5rem 0 0;
         width: 100%;
+    }
+
+    .app-shell .review-panel {
+        position: fixed;
+        z-index: 25;
+        inset: 0;
+        width: 100%;
+        border-left: 0;
     }
 
     .settings-dialog.settings-dialog {

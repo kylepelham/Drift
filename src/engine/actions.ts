@@ -1,6 +1,5 @@
 import { errorMessage, type ActionContext, type NoticeInput } from "./actions-context";
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
-import { EngineError, maxRequestBytes, type Client } from "./native/client";
 import { produce, type SetStoreFunction } from "solid-js/store";
 import { createProviderActions } from "./actions-providers";
 import { createSessionActions } from "./actions-sessions";
@@ -24,6 +23,14 @@ import {
     type MessageEntry,
     type ModelRef,
 } from "./store";
+import {
+    EngineError,
+    maxRequestBytes,
+    type Client,
+    type GitSource,
+    type Review,
+    type ReviewRefs,
+} from "./native/client";
 
 // Engine actions own HTTP requests; message, part and catalog views still use the adapter.
 import type { Session, WorkspaceIndex } from "./sessions";
@@ -364,6 +371,17 @@ export function createActions(
         return workspace ? requireClient().findFiles(workspace, text) : [];
     }
 
+    /** The current workspace's changes against git, or nothing without a workspace. */
+    async function reviewWorkspace(source: GitSource, target?: string): Promise<Review | undefined> {
+        const workspace = workspaces().id(state.directory);
+        return workspace ? requireClient().reviewWorkspace(workspace, source, target) : undefined;
+    }
+
+    async function reviewRefs(): Promise<ReviewRefs | undefined> {
+        const workspace = workspaces().id(state.directory);
+        return workspace ? requireClient().reviewRefs(workspace) : undefined;
+    }
+
     async function runCommand(id: string, command: string, args: string) {
         set("errors", id, undefined!);
         try {
@@ -392,6 +410,10 @@ export function createActions(
         stopProcess,
         notice,
         findFiles,
+        reviewWorkspace,
+        reviewRefs,
+        reviewTurn: (sessionId: string, messageId: string): Promise<Review> =>
+            requireClient().reviewTurn(sessionId, messageId),
         steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
         runCommand,
     };

@@ -2,11 +2,10 @@ import { editedFiles, turnOf, turnTasks, type EditedFile, type TurnWorker } from
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
 import { delegatedChildId } from "./tool-delegation";
+import { openReview } from "../state/panels";
 import { toolInput } from "../engine/parts";
-import { DiffPanel } from "./diff-panel";
+import { FileIcon } from "./file-icon";
 import { useEngine } from "../engine";
-import { Chevron } from "./controls";
-import { IconUndo } from "./icons";
 import { t } from "../state/i18n";
 
 import type { MessageEntry } from "../engine/store";
@@ -22,43 +21,32 @@ function Counts(props: { additions: number; deletions: number }) {
     );
 }
 
-function FileRow(props: { file: EditedFile }) {
-    const [open, setOpen] = createSignal(false);
-
+function FileRow(props: { file: EditedFile; onOpen: () => void }) {
     return (
-        <div class="border-t border-edge/60">
-            <button
-                class="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-raised/35"
-                aria-expanded={open()}
-                title={props.file.path}
-                onClick={() => setOpen(!open())}
-            >
-                <span class="min-w-0 truncate text-ink-muted">{props.file.name}</span>
-                <Show when={props.file.by}>
-                    {(by) => (
-                        <span class="min-w-0 truncate text-xs text-ink-faint">
-                            {t("drift.editedFiles.by", { name: by() })}
-                        </span>
-                    )}
-                </Show>
-                <span class="flex-1" />
-                <Counts additions={props.file.additions} deletions={props.file.deletions} />
-                <span class="flex shrink-0 text-ink-faint">
-                    <Chevron open={open()} />
-                </span>
-            </button>
-            <Show when={open()}>
-                <div class="space-y-2 px-3 pb-3">
-                    <For each={props.file.edits}>
-                        {(edit) => <DiffPanel diff={edit.patch} filename={edit.filename} />}
-                    </For>
-                </div>
+        <button
+            class="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-raised/45"
+            title={props.file.path}
+            onClick={() => props.onOpen()}
+        >
+            <FileIcon path={props.file.path} class="size-4" />
+            <span class="min-w-0 truncate text-ink-muted">{props.file.name}</span>
+            <Show when={props.file.by}>
+                {(by) => (
+                    <span class="min-w-0 truncate text-xs text-ink-faint">
+                        {t("drift.editedFiles.by", { name: by() })}
+                    </span>
+                )}
             </Show>
-        </div>
+            <span class="flex-1" />
+            <Counts additions={props.file.additions} deletions={props.file.deletions} />
+        </button>
     );
 }
 
-/** At the end of a turn: every file it and its subagents changed, with their edits and Undo for the whole turn. */
+/** Files listed before "See all" opens the rest in the review panel. */
+const shownFiles = 3;
+
+/** At the end of a turn: the files it and its subagents changed, each opening the turn's review, and Undo for the whole turn. */
 export function EditedFilesCard(props: { entry: MessageEntry }) {
     const engine = useEngine();
     const sessionId = () => props.entry.info.sessionId;
@@ -113,20 +101,26 @@ export function EditedFilesCard(props: { entry: MessageEntry }) {
             setComposerDraft(composerScope(sessionId()), restored);
     };
 
+    const review = (focus?: string) => {
+        const prompt = turn().prompt;
+        if (prompt) openReview({ source: { kind: "turn", sessionId: sessionId(), messageId: prompt.info.id }, focus });
+    };
+
     return (
         <Show when={files().length}>
             {(count) => (
-                <div class="edited-files overflow-hidden rounded-lg border border-edge/70 text-sm">
-                    <div class="flex min-w-0 items-center gap-2 px-3 py-2">
+                <div class="edited-files rounded-lg border border-edge/70 p-1.5 text-sm">
+                    <div class="flex min-w-0 items-center gap-2 px-2 py-1">
                         <span class="min-w-0 truncate text-ink-muted">
                             {t(count() === 1 ? "drift.editedFiles.title.one" : "drift.editedFiles.title.other", {
                                 count: count(),
                             })}
                         </span>
+                        <Counts additions={total().additions} deletions={total().deletions} />
                         <span class="flex-1" />
                         <Show when={turn().prompt}>
                             <button
-                                class="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-raised"
+                                class="shrink-0 rounded px-1.5 py-0.5 text-xs transition-colors hover:bg-raised"
                                 classList={{
                                     "text-danger": confirming(),
                                     "text-ink-faint hover:text-ink": !confirming(),
@@ -134,13 +128,21 @@ export function EditedFilesCard(props: { entry: MessageEntry }) {
                                 title={t("drift.editedFiles.undoHint")}
                                 onClick={() => void undo()}
                             >
-                                <IconUndo class="size-3" />
                                 {confirming() ? t("drift.editedFiles.confirm") : t("drift.editedFiles.undo")}
                             </button>
                         </Show>
-                        <Counts additions={total().additions} deletions={total().deletions} />
                     </div>
-                    <For each={files()}>{(file) => <FileRow file={file} />}</For>
+                    <For each={files().slice(0, shownFiles)}>
+                        {(file) => <FileRow file={file} onOpen={() => review(file.path)} />}
+                    </For>
+                    <Show when={count() > shownFiles}>
+                        <button
+                            class="w-full rounded-md px-2 py-1 text-left text-xs text-ink-faint transition-colors hover:bg-raised/45 hover:text-ink"
+                            onClick={() => review()}
+                        >
+                            {t("drift.editedFiles.seeAll", { count: count() })}
+                        </button>
+                    </Show>
                 </div>
             )}
         </Show>

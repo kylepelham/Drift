@@ -125,7 +125,7 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(css).toMatch(/\.transcript-scroll\s*\{[^}]*overscroll-behavior-y: contain/s);
     expect(mobile).toMatch(/@media \(max-width: 719px\)[\s\S]*\.chat-pane-covered\s*\{[^}]*visibility: hidden/s);
     expect(await Bun.file("src/ui/debug.tsx").text()).toContainCode("debug-panel-scroll");
-    expect(await Bun.file("src/app.tsx").text()).toContainCode("debugPanelOpen() && !!selectedSession()");
+    expect(await Bun.file("src/app.tsx").text()).toContainCode("rightPanelOpen() && !!selectedSession()");
     expect(css).toMatch(/\.composer-dock\s*\{[^}]*padding-top: 1rem/s);
     expect(css).toMatch(/\.composer-dock::before\s*\{[^}]*inset: -2\.75rem 0 auto;[^}]*linear-gradient/s);
     expect(css).toMatch(/\.dock-card\s*\{[^}]*box-shadow:/s);
@@ -142,7 +142,7 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(composer).toContainCode('class="composer-action-buttons ml-auto flex shrink-0');
     expect(mobile).toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
     expect(mobile).toMatch(
-        /\.composer-options \.picker-chevron,\s*\.composer-options \.picker-label-full,\s*\.composer-stop-label\s*\{\s*display: none/s,
+        /\.composer-options \.picker-chevron,\s*\.composer-options \.picker-label-full\s*\{\s*display: none/s,
     );
     expect(mobile).toMatch(/\.composer-options > \.picker-control\s*\{[^}]*min-width: 0/s);
     expect(css).not.toMatch(

@@ -61,8 +61,3 @@ export function shellWebview(): ShellWebview | undefined {
 export function shellEvents(): ShellEvents | undefined {
     return tauri()?.event;
 }
-
-/** The shell draws its own titlebar, so the app renders a custom one only when it is present. */
-export function hasNativeWindow() {
-    return Boolean(tauri()?.window);
-}

@@ -14,12 +14,13 @@ import { EngineProvider, useEngine } from "./engine";
 import { forwardWheelToChat } from "./ui/chat-wheel";
 import { selectedSession } from "./state/selection";
 import { FilePreviewHost } from "./ui/file-preview";
+import { ReviewPanelHost } from "./ui/review-panel";
 import { messageProblem } from "./engine/messages";
 import { bindCodePreferences } from "./state/code";
 import { hiddenParent } from "./engine/sessions";
 import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
-import { debugPanelOpen } from "./state/panels";
+import { rightPanelOpen } from "./state/panels";
 import { bindPathCopy } from "./ui/path-copy";
 import { messageText } from "./engine/store";
 import { SettingsHost } from "./ui/settings";
@@ -66,7 +67,7 @@ export function App() {
                     <main inert={mobileDrawerOpen()} class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                         <div
                             class="chat-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                            classList={{ "chat-pane-covered": debugPanelOpen() && !!selectedSession() }}
+                            classList={{ "chat-pane-covered": rightPanelOpen() && !!selectedSession() }}
                         >
                             <div class="relative flex min-h-0 flex-1 flex-col">
                                 <ChatHeader />
@@ -80,6 +81,7 @@ export function App() {
                             </div>
                         </div>
                         <DebugPanel />
+                        <ReviewPanelHost />
                     </main>
                 </div>
                 <Lightbox />

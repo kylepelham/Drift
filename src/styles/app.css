@@ -310,8 +310,7 @@ textarea {
         both;
 }
 
-.picker-label-compact,
-.composer-stop-icon {
+.picker-label-compact {
     display: none;
 }
 
@@ -441,8 +440,13 @@ textarea {
     font-family: var(--startup-font, var(--ui-font));
 }
 
-.startup-splash-native {
-    top: 2.75rem;
+.startup-controls {
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    right: 0;
+    display: flex;
+    height: 2.75rem;
 }
 
 .startup-backdrop {
@@ -780,6 +784,27 @@ textarea {
 .tool-row-subtitle {
     color: var(--ink-faint);
     font-size: 0.8rem;
+}
+
+.tool-row-header[aria-expanded="true"] {
+    background: color-mix(in srgb, var(--raised) 35%, transparent);
+}
+
+.tool-children {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin-inline-start: 0.75rem;
+}
+
+.tool-card {
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, var(--raised) 45%, transparent);
+    padding: 0.625rem 0.75rem;
+}
+
+.tool-card-error {
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .tool-row-header:hover .tool-row-title {

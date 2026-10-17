@@ -173,7 +173,7 @@ export function WorkspaceGroup(props: {
                 </div>
             </div>
             <Show when={!collapsed()}>
-                <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
+                <div class="mt-0.5 space-y-0.5">
                     <For each={visibleIds()}>
                         {(id) => (
                             <>

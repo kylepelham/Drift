@@ -4,13 +4,11 @@ import { parseDiff } from "./diff-panel";
 
 import type { MessageEntry } from "../engine/store";
 
-type FileEdit = { patch: string; filename: string };
 export type EditedFile = {
     path: string;
     name: string;
     additions: number;
     deletions: number;
-    edits: FileEdit[];
     /** The subagent that changed it; none for the turn's own edits. */
     by?: string;
 };
@@ -48,7 +46,6 @@ function callChanges(part: ToolPart) {
         return patched.map((file) => ({
             path: file.filePath,
             label: file.relativePath ?? file.filePath,
-            patch: file.patch,
             additions: file.additions,
             deletions: file.deletions,
         }));
@@ -57,7 +54,7 @@ function callChanges(part: ToolPart) {
     const diff = toolMetadata(part).diff;
     if (typeof path !== "string" || typeof diff !== "string" || !diff.trim()) return [];
 
-    return [{ path, label: path, patch: diff, ...counted(diff) }];
+    return [{ path, label: path, ...counted(diff) }];
 }
 
 function editCalls(entries: MessageEntry[]) {
@@ -79,12 +76,10 @@ export function editedFiles(replies: MessageEntry[], workers: TurnWorker[]): Edi
                 name: toolFilename(change.label) ?? change.label,
                 additions: 0,
                 deletions: 0,
-                edits: [],
                 by,
             };
             file.additions += change.additions;
             file.deletions += change.deletions;
-            file.edits.push({ patch: change.patch, filename: change.label });
             files.set(key, file);
         }
     };

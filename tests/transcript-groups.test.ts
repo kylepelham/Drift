@@ -57,7 +57,7 @@ test("a kind the user did not group breaks a run, and enabled kinds merge into o
 test("a run's label counts each kind, names the latest command, and reads in the present while one runs", async () => {
     const { loadDictionary } = await import("../src/state/i18n");
     await loadDictionary("en");
-    const { runDetail, runSummary } = await import("../src/ui/tool-run");
+    const { runDetail, runLongestMs, runSummary } = await import("../src/ui/tool-run");
     const parts = [
         tool("bash", { command: "cargo test", description: "Run the engine tests" }),
         tool("edit", { filePath: "C:/w/a.ts" }),
@@ -67,8 +67,11 @@ test("a run's label counts each kind, names the latest command, and reads in the
 
     expect(runSummary(parts, false)).toBe("Ran 2 commands, edited 1 file");
     expect(runSummary(parts.slice(0, 1), true)).toBe("Running 1 command");
-    expect(runDetail(parts)).toBe("bun run build");
-    expect(runDetail(parts.slice(0, 2))).toBe("Run the engine tests");
+    expect(runDetail(parts)).toBe("");
+    const timed = (startedAt: number, finishedAt: number, name = "bash") =>
+        tool(name, { command: "x" }, { startedAt, finishedAt });
+    expect(runLongestMs([timed(0, 2_000), timed(5_000, 607_000), timed(0, 900_000, "edit")])).toBe(602_000);
+    expect(runLongestMs([timed(0, 3_000, "edit"), timed(0, 1_000, "webfetch")])).toBe(3_000);
     expect(runDetail([tool("bash", { command: "sleep 9", description: "Wait" }, { status: "running" })])).toBe("Wait");
 });
 
@@ -106,8 +109,8 @@ test("the edited-files card lists a turn's files once with summed counts, its su
     expect(turn.replies).toEqual(steps);
 
     const files = editedFiles(turn.replies, [{ name: "Fix paths", entries: worker }]);
-    expect(files.map((file) => [file.name, file.additions, file.deletions, file.edits.length, file.by])).toEqual([
-        ["a.ts", 3, 1, 2, undefined],
-        ["c.ts", 0, 3, 1, "Fix paths"],
+    expect(files.map((file) => [file.name, file.additions, file.deletions, file.by])).toEqual([
+        ["a.ts", 3, 1, undefined],
+        ["c.ts", 0, 3, "Fix paths"],
     ]);
 });

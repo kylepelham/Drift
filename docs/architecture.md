@@ -293,16 +293,33 @@ row in that state.
 
 Settings > General > Transcript shapes tool rows. A command row shows the model's
 `description` (the command itself when there is none); with "Collapse finished commands"
-on, its output shows while it runs and folds when it finishes. "Group consecutive tool
+on, a command opens its live output only once it has run for five seconds, so quick ones
+never flash open, and folds again when it finishes. "Group consecutive tool
 calls" has a switch per kind (commands, edits, fetches, MCP tools, other; commands on by
 default): two or more consecutive calls of enabled kinds, across the steps of one turn,
-fold into one row such as `Ran 2 commands, edited 1 file · <latest description>`. A
-disabled kind ends the run; reads keep their own `Read · N` group; delegation and
-questions never group. The row stays collapsed while it runs, names the call in progress,
-counts background commands still alive, and says Failed when any call failed. The edited
-files card ends a finished turn: one row per file with summed counts (a subagent's files
-marked with its description), its edits inline in order, and Undo, which on a second
-click reverts to the turn's prompt like the prompt's own undo.
+fold into one row such as `Ran 2 commands, edited 1 file`, which names the call in
+progress while one runs and, once finished, shows how long its longest command took. A
+disabled kind ends the run; reads, searches and listings group as `Read 4 files, searched
+2 patterns · <latest target>`; delegation and questions never group. The row stays
+collapsed while it runs, counts background commands still
+alive, and says Failed when any call failed. An opened group indents its calls with their
+own disclosure and no rule line. The edited files card ends a finished turn, never a step
+that only paused for its tools: up to three files with their language icon and summed
+counts (a subagent's files marked with its description), See all for the rest, and Undo,
+which on a second click reverts to the turn's prompt like the prompt's own undo. A file or
+See all opens the review panel on that turn.
+
+The review panel shares the slot right of the chat with the debug panel (opening one
+closes the other), is resizable by its left edge, and fills the screen with Back on a
+phone. Its source picker offers the turn it was opened from and, inside a git repository,
+uncommitted changes (untracked files included), the working tree against where the
+current branch left another branch, or one recent commit; the header's diff button opens
+it on uncommitted changes. "This turn" folds every recorded call of the turn and its
+subagents into one change per file, from before its first change to after its last, so it
+includes what commands saw change while they ran. Files are unified diffs with
+collapsible headers, three lines of context and expandable "N unmodified lines" bars,
+since the engine sends both versions merged line by line. While it is open on the
+desktop, the window controls move to its header.
 
 On the desktop Drift draws its own frame. The sidebar runs to the top of the window with
 the logo and its search, archive and add buttons; the chat header is the title bar, with

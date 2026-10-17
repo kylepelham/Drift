@@ -546,7 +546,7 @@ export function Composer() {
                         </button>
                         <Show when={busy()}>
                             <button
-                                class="composer-stop flex items-center rounded-md border border-edge px-3 py-1 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
+                                class="composer-stop flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-raised hover:text-danger"
                                 title={t("prompt.action.stop")}
                                 aria-label={t("prompt.action.stop")}
                                 onClick={() => {
@@ -554,8 +554,7 @@ export function Composer() {
                                     void engine.actions.abort(selectedSession()!);
                                 }}
                             >
-                                <IconStop class="composer-stop-icon size-3" />
-                                <span class="composer-stop-label">{t("prompt.action.stop")}</span>
+                                <IconStop class="size-3.5" />
                             </button>
                         </Show>
                         <button

@@ -1,4 +1,4 @@
-import { awaitingPermission, commandLabel, patchFiles, toolGroupKind, toolInfo } from "./tool-labels";
+import { awaitingPermission, commandLabel, patchFiles, toolFilename, toolGroupKind, toolInfo } from "./tool-labels";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toolDisplay } from "./tool-presentation";
 import { ToolDuration } from "./tool-duration";
@@ -57,13 +57,64 @@ export function runSummary(parts: ToolPart[], running: boolean) {
     return text.charAt(0).toLocaleUpperCase() + text.slice(1);
 }
 
-/** What the row adds after the summary: the call running now, else the latest command's description. */
+const exploredKinds = { read: "read", grep: "search", glob: "search", list: "list" } as const;
+type ExploredKind = (typeof exploredKinds)[keyof typeof exploredKinds];
+
+function exploredTarget(part: ToolPart) {
+    const input = toolInput(part);
+    const text = (key: string) => (typeof input[key] === "string" ? (input[key] as string) : "");
+    if (part.name === "read") return toolFilename(text("filePath")) ?? "";
+    if (part.name === "list") return toolFilename(text("path")) || text("path");
+
+    return text("pattern");
+}
+
+/** `Read 2 files, searched 3 patterns`; files and folders count once however often they were read. */
+export function exploredSummary(parts: ToolPart[], running: boolean) {
+    const seen = new Map<ExploredKind, Set<string>>();
+    for (const part of parts) {
+        const kind = exploredKinds[part.name as keyof typeof exploredKinds];
+        if (!kind) continue;
+        const targets = seen.get(kind) ?? new Set<string>();
+        targets.add(kind === "search" ? part.id : exploredTarget(part) || part.id);
+        seen.set(kind, targets);
+    }
+    const tense = running ? "running" : "done";
+    const text = (["read", "search", "list"] as const)
+        .filter((kind) => seen.has(kind))
+        .map((kind) => {
+            const count = seen.get(kind)!.size;
+            return t(`drift.explored.${kind}.${tense}.${count === 1 ? "one" : "other"}`, { count });
+        })
+        .join(", ");
+
+    return text.charAt(0).toLocaleUpperCase() + text.slice(1);
+}
+
+/** The file or pattern being read now, else the latest one. */
+export function exploredDetail(parts: ToolPart[]) {
+    const current = [...parts].reverse().find(active) ?? parts.at(-1);
+    return current ? exploredTarget(current) : "";
+}
+
+/** What the row adds after the summary while a call runs: that call; a finished run shows only its summary. */
 export function runDetail(parts: ToolPart[]) {
     const current = [...parts].reverse().find(active);
-    if (current) return current.name === "bash" ? commandLabel(current).text : (toolInfo(current).subtitle ?? "");
+    if (!current) return "";
 
-    const command = [...parts].reverse().find((part) => part.name === "bash");
-    return command ? commandLabel(command).text : "";
+    return current.name === "bash" ? commandLabel(current).text : (toolInfo(current).subtitle ?? "");
+}
+
+/** How long the run's longest command took, or its longest call when it ran none; for a finished run. */
+export function runLongestMs(parts: ToolPart[]) {
+    const commands = parts.filter((part) => part.name === "bash");
+    let longest: number | undefined;
+    for (const part of commands.length ? commands : parts) {
+        if (part.startedAt == null || part.finishedAt == null) continue;
+        longest = Math.max(longest ?? 0, part.finishedAt - part.startedAt);
+    }
+
+    return longest;
 }
 
 /** Commands of the run that went on in the background and still run. */
@@ -117,16 +168,26 @@ export function ToolRun(props: { parts: ToolPart[] }) {
                 <Show when={failed()}>
                     <span class="shrink-0 text-xs text-danger">{t("drift.run.failed")}</span>
                 </Show>
-                <Show when={current()}>{(part) => <ToolDuration state={toolDisplay(part())} />}</Show>
+                <Show when={current()} fallback={<LongestDuration parts={props.parts} />}>
+                    {(part) => <ToolDuration state={toolDisplay(part())} />}
+                </Show>
                 <span class="tool-row-chevron flex shrink-0">
                     <Chevron open={expanded()} />
                 </span>
             </button>
             <Show when={expanded()}>
-                <div class="ml-2 flex flex-col gap-0.5 border-l border-edge pl-3">
+                <div class="tool-children">
                     <For each={props.parts}>{(part) => <ToolView part={part} />}</For>
                 </div>
             </Show>
         </div>
+    );
+}
+
+function LongestDuration(props: { parts: ToolPart[] }) {
+    return (
+        <Show when={runLongestMs(props.parts)}>
+            {(ms) => <ToolDuration state={{ status: "completed", time: { start: 0, end: ms() } }} />}
+        </Show>
     );
 }
