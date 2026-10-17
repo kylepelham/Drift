@@ -1,5 +1,6 @@
 import { currentMirrorSnapshot, publishMirrorSelection } from "./mirror";
 import { parseNavigationHash, pushRemoteSelection } from "./navigation";
+import { overlayBackPending } from "./overlay-back";
 import { isRemoteRuntime } from "../runtime";
 import { persisted } from "./persist";
 
@@ -18,7 +19,7 @@ export function applyMirroredSession(session: string | null) {
 }
 
 if (typeof window !== "undefined" && isRemoteRuntime()) {
-    window.addEventListener("popstate", () =>
-        setSelectedSession(parseNavigationHash(window.location.hash).session ?? null),
-    );
+    window.addEventListener("popstate", () => {
+        if (!overlayBackPending()) setSelectedSession(parseNavigationHash(window.location.hash).session ?? null);
+    });
 }

@@ -72,7 +72,7 @@ export function AttachmentChip(props: { file: StagedFile; remove: () => void }) 
                     </div>
                     <button
                         title={t("prompt.attachment.remove")}
-                        class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
+                        class="touch-reveal absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
                         onClick={() => props.remove()}
                     >
                         <IconX class="size-3" />

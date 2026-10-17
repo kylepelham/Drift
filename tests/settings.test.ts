@@ -391,7 +391,7 @@ test("settings elevation and toggle contrast follow their visual state", async (
     ]);
     expect(settings).toContainCode('"settings-header-scrolled": contentScrolled()');
     expect(settings).toContainCode("setContentScrolled(event.currentTarget.scrollTop > 1)");
-    expect(settings).toContainCode('class="flex min-w-0 flex-1 flex-col overflow-hidden"');
+    expect(settings).toContainCode('class="settings-body flex min-w-0 flex-1 flex-col overflow-hidden"');
     expect(styles).toContain(".settings-header-scrolled::after");
     expect(styles).not.toContain(".settings-header::after");
     expect(toggles).toContainCode('"bg-ink-muted": !props.checked');

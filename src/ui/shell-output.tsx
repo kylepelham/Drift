@@ -315,7 +315,7 @@ export function ShellOutput(props: { command: string; output: string; running: b
         <div class="group/shell relative overflow-hidden rounded-[6px] border-[0.5px] border-edge">
             <button
                 title={t("drift.shell.copyOutput")}
-                class="absolute top-1 right-1 z-10 flex size-6 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-focus-within/shell:opacity-100 group-hover/shell:opacity-100 hover:bg-raised hover:text-ink"
+                class="touch-reveal absolute top-1 right-1 z-10 flex size-6 items-center justify-center rounded text-ink-faint opacity-0 transition-opacity group-focus-within/shell:opacity-100 group-hover/shell:opacity-100 hover:bg-raised hover:text-ink"
                 onClick={() => void copy()}
             >
                 <Show when={copied()} fallback={<IconCopy class="size-3.5" />}>

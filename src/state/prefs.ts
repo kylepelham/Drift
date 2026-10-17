@@ -120,6 +120,33 @@ export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>(
 export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true);
 /** Day headings (Today, Yesterday, a weekday, a date) between a workspace's threads in the sidebar. */
 export const [sidebarDayDividers, setSidebarDayDividers] = persisted<boolean>("drift.sidebar.dayDividers", false);
+/** A finished command folds to its row; it shows its output only while it runs. */
+export const [collapseFinishedCommands, setCollapseFinishedCommands] = persisted<boolean>(
+    "drift.transcript.collapseCommands",
+    true,
+);
+export const toolGroupKinds = ["commands", "edits", "fetches", "mcp", "other"] as const;
+export type ToolGroupKind = (typeof toolGroupKinds)[number];
+const toolGroupDefaults: Record<ToolGroupKind, boolean> = {
+    commands: true,
+    edits: false,
+    fetches: false,
+    mcp: false,
+    other: false,
+};
+const [storedToolGroups, setStoredToolGroups] = persisted<Record<ToolGroupKind, boolean>>(
+    "drift.transcript.groups",
+    toolGroupDefaults,
+);
+/** Which kinds of consecutive tool calls fold into one row. */
+export function toolGroups(): Record<ToolGroupKind, boolean> {
+    return { ...toolGroupDefaults, ...storedToolGroups() };
+}
+export function setToolGroup(kind: ToolGroupKind, on: boolean) {
+    setStoredToolGroups({ ...toolGroups(), [kind]: on });
+}
+/** The card at the end of a turn listing the files it changed. */
+export const [editedFilesCard, setEditedFilesCard] = persisted<boolean>("drift.transcript.editedFiles", true);
 export type KeptAutoAccept = { all: boolean; sessions: string[] };
 
 function keptAutoAccept(): KeptAutoAccept {

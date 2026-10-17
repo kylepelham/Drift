@@ -109,6 +109,7 @@ test("responsive navigation state round-trips and uses the narrow breakpoint", (
 test("mobile layout keeps scrolling inside the transcript and drawer", async () => {
     const app = await Bun.file("src/app.tsx").text();
     const css = await Bun.file("src/styles/app.css").text();
+    const mobile = await Bun.file("src/styles/mobile.css").text();
     const parts = (
         await Promise.all(
             ["tool-body", "shell-output", "diff-panel"].map((name) => Bun.file(`src/ui/${name}.tsx`).text()),
@@ -122,7 +123,7 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(css).toMatch(/html,\s*body,\s*#root\s*\{[^}]*overflow: hidden/s);
     expect(css).toMatch(/\.app-shell\s*\{[^}]*overflow: hidden/s);
     expect(css).toMatch(/\.transcript-scroll\s*\{[^}]*overscroll-behavior-y: contain/s);
-    expect(css).toMatch(/@media \(max-width: 719px\)[\s\S]*\.chat-pane-covered\s*\{[^}]*visibility: hidden/s);
+    expect(mobile).toMatch(/@media \(max-width: 719px\)[\s\S]*\.chat-pane-covered\s*\{[^}]*visibility: hidden/s);
     expect(await Bun.file("src/ui/debug.tsx").text()).toContainCode("debug-panel-scroll");
     expect(await Bun.file("src/app.tsx").text()).toContainCode("debugPanelOpen() && !!selectedSession()");
     expect(css).toMatch(/\.composer-dock\s*\{[^}]*padding-top: 1rem/s);
@@ -131,7 +132,7 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(app.match(/min-h-0 min-w-0 flex-1[^\"]*overflow-hidden/g)).toHaveLength(2);
     expect(parts.match(/transcript-tool-output/g)?.length).toBeGreaterThanOrEqual(5);
     expect(markdown).toContainCode("transcript-tool-output code-view code-stream");
-    expect(css).toMatch(
+    expect(mobile).toMatch(
         /@media \(max-width: 719px\)[\s\S]*\.transcript-scroll\.transcript-scroll-active \.transcript-tool-output\s*\{[^}]*pointer-events: none/s,
     );
     expect(css).not.toMatch(/\.transcript-tool-output\s*\{[^}]*max-height: none/s);
@@ -139,21 +140,21 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
     expect(composer).toContainCode('class="composer-options relative flex min-w-0 flex-1');
     expect(composer).not.toContainCode("composer-options flex min-w-0 flex-1 items-center gap-1 overflow-hidden");
     expect(composer).toContainCode('class="composer-action-buttons ml-auto flex shrink-0');
-    // On a phone it stays one row: pickers lose their chevrons, the model shows its short name, Stop is an icon.
-    expect(css).not.toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
-    expect(css).toMatch(
+    expect(mobile).toMatch(/\.composer-actions\s*\{[^}]*flex-wrap: wrap/s);
+    expect(mobile).toMatch(
         /\.composer-options \.picker-chevron,\s*\.composer-options \.picker-label-full,\s*\.composer-stop-label\s*\{\s*display: none/s,
     );
-    expect(css).toMatch(
-        /\.composer-options > \.picker-control\s*\{[^}]*position: static;[^}]*min-width: 0;[^}]*flex: 0 1 auto/s,
+    expect(mobile).toMatch(/\.composer-options > \.picker-control\s*\{[^}]*min-width: 0/s);
+    expect(css).not.toMatch(
+        /\.composer-actions button,\s*\.composer-actions \[role="button"\]\s*\{[^}]*min-height: 0/s,
     );
-    expect(css).toMatch(/\.composer-actions button,\s*\.composer-actions \[role="button"\]\s*\{[^}]*min-height: 0/s);
+    expect(mobile).toMatch(/\.composer-action-buttons > button\s*\{[^}]*min-width: 44px;[^}]*min-height: 44px/s);
     // The drawer must not add safe-area padding: the wrapper webview already sits below the
     // status bar, so env(safe-area-inset-top) doubles into a large blank band at the top.
-    expect(css).not.toMatch(/\.app-sidebar\s*\{[^}]*safe-area-inset-top/s);
-    expect(css).toMatch(/\.app-sidebar\s*\{[^}]*visibility: hidden;[^}]*visibility 0s linear 180ms/s);
-    expect(css).toMatch(/\.app-sidebar\.mobile-sidebar-open\s*\{[^}]*visibility: visible/s);
-    expect(css).toMatch(/\.app-sidebar-scroll\s*\{[^}]*touch-action: pan-y/s);
+    expect(mobile).not.toMatch(/\.app-sidebar\s*\{[^}]*safe-area-inset-top/s);
+    expect(mobile).toMatch(/\.app-sidebar\s*\{[^}]*visibility: hidden;[^}]*visibility 0s linear 180ms/s);
+    expect(mobile).toMatch(/\.app-sidebar\.mobile-sidebar-open\s*\{[^}]*visibility: visible/s);
+    expect(mobile).toMatch(/\.app-sidebar-scroll\s*\{[^}]*touch-action: pan-y/s);
     expect(sidebar).toContainCode('event.target.closest("[data-sidebar-navigation]")');
     expect(workspaces).toContainCode('class="group sticky top-0');
 });

@@ -291,6 +291,25 @@ Tool errors use the same clickable disclosure as successful tool rows. A prefere
 controls whether a newly failed tool starts expanded or collapsed; it never locks the
 row in that state.
 
+Settings > General > Transcript shapes tool rows. A command row shows the model's
+`description` (the command itself when there is none); with "Collapse finished commands"
+on, its output shows while it runs and folds when it finishes. "Group consecutive tool
+calls" has a switch per kind (commands, edits, fetches, MCP tools, other; commands on by
+default): two or more consecutive calls of enabled kinds, across the steps of one turn,
+fold into one row such as `Ran 2 commands, edited 1 file · <latest description>`. A
+disabled kind ends the run; reads keep their own `Read · N` group; delegation and
+questions never group. The row stays collapsed while it runs, names the call in progress,
+counts background commands still alive, and says Failed when any call failed. The edited
+files card ends a finished turn: one row per file with summed counts (a subagent's files
+marked with its description), its edits inline in order, and Undo, which on a second
+click reverts to the turn's prompt like the prompt's own undo.
+
+On the desktop Drift draws its own frame. The sidebar runs to the top of the window with
+the logo and its search, archive and add buttons; the chat header is the title bar, with
+the thread title, search, context meter and window controls. Empty header space drags the
+window and double-click maximizes it; double-clicking the title renames the thread. The
+companion and the phone keep the sidebar's Workspaces heading and no window controls.
+
 An adjacent compaction-only user boundary and its assistant summary become one
 collapsible transcript row. Session-level engine errors defensively end busy activity
 and render after the virtualized transcript unless the assistant message already owns

@@ -322,19 +322,24 @@ export function QuestionCard(props: {
                                 <For each={props.questions}>
                                     {(_, index) => (
                                         <button
-                                            class="h-1 flex-1 rounded-full transition-colors"
-                                            classList={{
-                                                "bg-accent": index() === step(),
-                                                "bg-accent/35":
-                                                    index() !== step() && questionAnswer(drafts()[index()]).length > 0,
-                                                "bg-edge":
-                                                    index() !== step() &&
-                                                    questionAnswer(drafts()[index()]).length === 0,
-                                            }}
+                                            class="flex h-1 flex-1 items-center rounded-full"
                                             title={t("drift.question.number", { number: index() + 1 })}
                                             disabled={sending()}
                                             onClick={() => setStep(index())}
-                                        />
+                                        >
+                                            <span
+                                                class="h-1 w-full rounded-full transition-colors"
+                                                classList={{
+                                                    "bg-accent": index() === step(),
+                                                    "bg-accent/35":
+                                                        index() !== step() &&
+                                                        questionAnswer(drafts()[index()]).length > 0,
+                                                    "bg-edge":
+                                                        index() !== step() &&
+                                                        questionAnswer(drafts()[index()]).length === 0,
+                                                }}
+                                            />
+                                        </button>
                                     )}
                                 </For>
                             </div>

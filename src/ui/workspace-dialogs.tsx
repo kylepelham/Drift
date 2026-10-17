@@ -2,9 +2,10 @@ import { createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
 import { removeWorkspace, updateWorkspace } from "../state/workspaces";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { workspaceInitials } from "./workspace-presentation";
-import { createDismissOnOutside } from "./dismiss";
 import { fixedMenuPosition } from "../state/zoom";
 import { normalizeDir } from "../engine/store";
+import { MenuSurface } from "./menu-surface";
+import { Portal } from "solid-js/web";
 import { t } from "../state/i18n";
 
 import type { Workspace } from "../state/store";
@@ -38,18 +39,11 @@ export function WorkspaceMenu(props: {
     onImport: () => void;
     onClose: () => void;
 }) {
-    let root!: HTMLDivElement;
     const [confirming, setConfirming] = createSignal(false);
     const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, confirming() ? 248 : 216);
 
-    createDismissOnOutside({ inside: () => [root], onDismiss: () => props.onClose(), escape: true });
-
     return (
-        <div
-            ref={root}
-            class="fade-up fixed z-40 w-52 rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
-            style={{ left: `${position().left}px`, top: `${position().top}px` }}
-        >
+        <MenuSurface position={position()} onClose={props.onClose}>
             <MenuItem
                 label={t("common.edit")}
                 onClick={() => {
@@ -93,7 +87,7 @@ export function WorkspaceMenu(props: {
                     {t("drift.workspace.removeHint")}
                 </div>
             </Show>
-        </div>
+        </MenuSurface>
     );
 }
 
@@ -102,9 +96,10 @@ export function SessionMenu(props: {
     workspaces: Workspace[];
     onMove: (workspace: Workspace) => void;
     onBackup: () => void;
+    onFork: () => void;
+    onArchive: () => void;
     onClose: () => void;
 }) {
-    let root!: HTMLDivElement;
     const [choosing, setChoosing] = createSignal(false);
     const targets = () => {
         const source = props.workspaces.find((workspace) => workspace.id === props.state.workspaceId);
@@ -118,14 +113,8 @@ export function SessionMenu(props: {
     const height = () => (choosing() ? Math.min(320, 84 + Math.max(1, targets().length) * 36) : 84);
     const position = () => fixedMenuPosition(props.state.x, props.state.y, 212, height());
 
-    createDismissOnOutside({ inside: () => [root], onDismiss: () => props.onClose(), escape: true });
-
     return (
-        <div
-            ref={root}
-            class="fade-up fixed z-40 max-h-80 w-52 overflow-y-auto rounded-lg border border-edge bg-overlay p-1.5 shadow-xl shadow-black/40"
-            style={{ left: `${position().left}px`, top: `${position().top}px` }}
-        >
+        <MenuSurface position={position()} onClose={props.onClose}>
             <MenuItem
                 label={t("drift.backup.thread")}
                 onClick={() => {
@@ -137,6 +126,22 @@ export function SessionMenu(props: {
                 label={choosing() ? t("drift.thread.moveToWorkspace") : t("drift.thread.move")}
                 onClick={() => setChoosing(true)}
             />
+            <div class="touch-only-menu hidden">
+                <MenuItem
+                    label={t("drift.slash.fork.active.description")}
+                    onClick={() => {
+                        props.onFork();
+                        props.onClose();
+                    }}
+                />
+                <MenuItem
+                    label={t("command.session.archive")}
+                    onClick={() => {
+                        props.onArchive();
+                        props.onClose();
+                    }}
+                />
+            </div>
             <Show when={choosing()}>
                 <div class="my-1 border-t border-edge" />
                 <For each={targets()}>
@@ -154,7 +159,7 @@ export function SessionMenu(props: {
                     <MenuItem label={t("drift.thread.noOtherWorkspaces")} disabled onClick={() => {}} />
                 </Show>
             </Show>
-        </div>
+        </MenuSurface>
     );
 }
 
@@ -173,77 +178,79 @@ export function WorkspaceEditModal(props: { workspace: Workspace; onClose: () =>
     }
 
     return (
-        <div
-            data-modal-layer
-            class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
-            onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
-        >
+        <Portal>
             <div
-                ref={dialog}
-                role="dialog"
-                aria-modal="true"
-                aria-label={t("dialog.project.edit.title")}
-                tabIndex={-1}
-                class="fade-up w-96 rounded-xl border border-edge bg-overlay p-4 shadow-2xl shadow-black/40"
-                onClick={(event) => event.stopPropagation()}
+                data-modal-layer
+                class="fixed inset-0 z-30 flex items-center justify-center bg-black/50"
+                onPointerDown={(event) => closeOnBackdropPointerDown(event, props.onClose, dialog)}
             >
-                <div class="mb-4 text-sm font-semibold text-ink">{t("dialog.project.edit.title")}</div>
-                <div class="mb-4 flex items-center gap-3">
-                    <Show
-                        when={icon().startsWith("data:")}
-                        fallback={
-                            <span class="flex size-12 items-center justify-center rounded-lg bg-raised text-sm font-semibold text-ink-muted">
-                                {workspaceInitials(name() || props.workspace.name)}
-                            </span>
-                        }
-                    >
-                        <img src={icon()} alt="" class="size-12 rounded-lg object-cover" />
-                    </Show>
-                    <div class="flex flex-col gap-1.5">
-                        <button
-                            class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-                            onClick={() => void pickIconImage().then((image) => image && setIcon(image))}
+                <div
+                    ref={dialog}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={t("dialog.project.edit.title")}
+                    tabIndex={-1}
+                    class="fade-up w-96 rounded-xl border border-edge bg-overlay p-4 shadow-2xl shadow-black/40"
+                    onClick={(event) => event.stopPropagation()}
+                >
+                    <div class="mb-4 text-sm font-semibold text-ink">{t("dialog.project.edit.title")}</div>
+                    <div class="mb-4 flex items-center gap-3">
+                        <Show
+                            when={icon().startsWith("data:")}
+                            fallback={
+                                <span class="flex size-12 items-center justify-center rounded-lg bg-raised text-sm font-semibold text-ink-muted">
+                                    {workspaceInitials(name() || props.workspace.name)}
+                                </span>
+                            }
                         >
-                            {t("drift.workspace.changeImage")}
-                        </button>
-                        <Show when={icon()}>
+                            <img src={icon()} alt="" class="size-12 rounded-lg object-cover" />
+                        </Show>
+                        <div class="flex flex-col gap-1.5">
                             <button
                                 class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
-                                onClick={() => setIcon("")}
+                                onClick={() => void pickIconImage().then((image) => image && setIcon(image))}
                             >
-                                {t("drift.workspace.useInitials")}
+                                {t("drift.workspace.changeImage")}
                             </button>
-                        </Show>
+                            <Show when={icon()}>
+                                <button
+                                    class="rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink"
+                                    onClick={() => setIcon("")}
+                                >
+                                    {t("drift.workspace.useInitials")}
+                                </button>
+                            </Show>
+                        </div>
+                    </div>
+                    <label class="mb-4 block">
+                        <span class="mb-1 block text-[0.68rem] tracking-wide text-ink-faint uppercase">
+                            {t("dialog.project.edit.name")}
+                        </span>
+                        <input
+                            class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
+                            value={name()}
+                            onInput={(event) => setName(event.currentTarget.value)}
+                            onKeyDown={(event) => event.key === "Enter" && void save()}
+                        />
+                    </label>
+                    <div class="mb-3 text-[0.68rem] text-ink-faint">{props.workspace.path}</div>
+                    <div class="flex justify-end gap-2">
+                        <button
+                            class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
+                            onClick={() => props.onClose()}
+                        >
+                            {t("common.cancel")}
+                        </button>
+                        <button
+                            class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink"
+                            onClick={() => void save()}
+                        >
+                            {t("common.save")}
+                        </button>
                     </div>
                 </div>
-                <label class="mb-4 block">
-                    <span class="mb-1 block text-[0.68rem] tracking-wide text-ink-faint uppercase">
-                        {t("dialog.project.edit.name")}
-                    </span>
-                    <input
-                        class="w-full rounded-md border border-edge bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-edge-strong"
-                        value={name()}
-                        onInput={(event) => setName(event.currentTarget.value)}
-                        onKeyDown={(event) => event.key === "Enter" && void save()}
-                    />
-                </label>
-                <div class="mb-3 text-[0.68rem] text-ink-faint">{props.workspace.path}</div>
-                <div class="flex justify-end gap-2">
-                    <button
-                        class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
-                        onClick={() => props.onClose()}
-                    >
-                        {t("common.cancel")}
-                    </button>
-                    <button
-                        class="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-accent-ink"
-                        onClick={() => void save()}
-                    >
-                        {t("common.save")}
-                    </button>
-                </div>
             </div>
-        </div>
+        </Portal>
     );
 }
 

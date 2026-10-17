@@ -34,7 +34,20 @@ test("composer clipboard publishing uses the exact selected text", async () => {
 test("composer hides fractional textarea overflow until the autosize ceiling", async () => {
     const source = await Bun.file("src/ui/composer.tsx").text();
     expect(source).toContainCode("resize-none overflow-y-hidden");
-    expect(source).toContainCode('area.style.overflowY = scrollHeight > maxComposerHeightPx ? "auto" : "hidden"');
+    expect(source).toContainCode("Number.parseFloat(getComputedStyle(area).maxHeight) || maxComposerHeightPx");
+    expect(source).toContainCode('area.style.overflowY = scrollHeight > ceiling ? "auto" : "hidden"');
+});
+
+test("touch Enter inserts a line break, while desktop Enter and modified touch Enter send", async () => {
+    const { composerSendKey } = await import("../src/ui/composer");
+    const key = (patch = {}) =>
+        ({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: false, ...patch }) as KeyboardEvent;
+    expect(composerSendKey(key(), true)).toBeFalse();
+    expect(composerSendKey(key(), false)).toBeTrue();
+    expect(composerSendKey(key({ ctrlKey: true }), true)).toBeTrue();
+    expect(composerSendKey(key({ metaKey: true }), true)).toBeTrue();
+    expect(composerSendKey(key({ shiftKey: true }), false)).toBeFalse();
+    expect(composerSendKey(key({ key: "a" }), false)).toBeFalse();
 });
 
 test("slash parsing preserves command argument mode", async () => {
@@ -298,15 +311,19 @@ test("shell transcript preserves a visible command-output gap and normalizes out
         shellScrollTarget,
         shellTranscript,
     } = await import("../src/ui/shell-output");
-    const { initialToolOpen, initialToolOpenForPart, rememberToolOpen } = await import("../src/ui/tool-view");
+    const { initialToolOpen, initialToolOpenForPart, nextShellOpen, rememberToolOpen } =
+        await import("../src/ui/tool-view");
     const { shellTimeoutStatus } = await import("../src/ui/tool-labels");
     expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone");
     const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n");
     const transcript = shellTranscript("generate", output);
     expect(transcript.startsWith("$ generate\n\nline 0\nline 1")).toBeTrue();
     expect(transcript.endsWith("line 9999")).toBeTrue();
-    expect(initialToolOpen("bash", "completed", false)).toBeTrue();
+    expect(initialToolOpen("bash", "completed", false)).toBeFalse();
     expect(initialToolOpen("bash", "running", false)).toBeTrue();
+    expect(nextShellOpen(true, "running", "done", false)).toBeFalse();
+    expect(nextShellOpen(true, "running", "done", true)).toBeTrue();
+    expect(nextShellOpen(true, "done", "done", false)).toBeTrue();
     expect(initialToolOpen("read", "completed", true)).toBeFalse();
     expect(initialToolOpen("bash", "error", true)).toBeTrue();
     expect(initialToolOpen("bash", "error", false)).toBeFalse();

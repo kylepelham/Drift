@@ -327,6 +327,7 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, fingerprint words, all reachable addresses and the LAN MAC
 - [ ] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, discovery, QR and typed-code linking
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
+- [x] Small-screen UI: labeled settings navigation, touch-sized controls, picker sheets, multiline composer, bounded approvals, fitting search/previews, scrollable pairing, and Back dismissal
 - [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN
 - [ ] Background notification service, CI signing, release APKs, update prompt
 

@@ -111,7 +111,7 @@ export function WorkspaceGroup(props: {
         <div ref={root} data-workspace={props.workspace.id}>
             <div
                 class="group sticky top-0 z-[1] flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
-                classList={{ "bg-raised": active(), "bg-surface hover:bg-raised/60": !active() }}
+                classList={{ "bg-raised/55": active(), "bg-surface hover:bg-raised/45": !active() }}
                 onPointerDown={(event) => {
                     cancelDrag();
                     cancelDrag = dragReorder(event, root, {
@@ -288,7 +288,7 @@ function ThreadItem(props: {
         <div
             data-sidebar-navigation
             class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors"
-            classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
+            classList={{ "bg-raised/80": active(), "hover:bg-raised/45": !active() }}
             onClick={() => {
                 selectWorkspace(props.workspace.id);
                 selectSession(props.sessionId);
@@ -305,13 +305,15 @@ function ThreadItem(props: {
         >
             <StatusDot sessionId={props.sessionId} />
             <span
-                class="min-w-0 flex-1 truncate text-[0.8rem]"
+                class="min-w-0 flex-1 truncate text-[0.84rem]"
                 classList={{ "text-ink": active(), "text-ink-muted": !active() }}
             >
                 {props.title || t("drift.thread.untitled")}
             </span>
-            <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
-            <span class="hidden shrink-0 items-center group-hover:flex">
+            <span class="thread-age shrink-0 text-[0.65rem] text-ink-faint/75 group-hover:hidden">
+                {ago(props.updated)}
+            </span>
+            <span class="thread-hover-actions hidden shrink-0 items-center group-hover:flex">
                 <RowButton
                     title={forking() ? t("common.loading") : t("drift.slash.fork.active.description")}
                     disabled={forking()}
@@ -346,6 +348,22 @@ function ThreadItem(props: {
                     }}
                 >
                     <IconArchive />
+                </RowButton>
+            </span>
+            <span class="touch-thread-menu hidden shrink-0">
+                <RowButton
+                    title={t("common.moreOptions")}
+                    onClick={(event) => {
+                        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                        props.onMenu({
+                            x: rect.left,
+                            y: rect.bottom,
+                            sessionId: props.sessionId,
+                            workspaceId: props.workspace.id,
+                        });
+                    }}
+                >
+                    <IconDots />
                 </RowButton>
             </span>
         </div>
@@ -431,6 +449,22 @@ function ChildThreadItem(props: {
             <Show when={background()}>
                 <BackgroundTag />
             </Show>
+            <span class="touch-thread-menu hidden shrink-0">
+                <RowButton
+                    title={t("common.moreOptions")}
+                    onClick={(event) => {
+                        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                        props.onMenu({
+                            x: rect.left,
+                            y: rect.bottom,
+                            sessionId: props.sessionId,
+                            workspaceId: props.workspace.id,
+                        });
+                    }}
+                >
+                    <IconDots />
+                </RowButton>
+            </span>
         </div>
     );
 }
@@ -448,14 +482,14 @@ export function WorkspaceIcon(props: { workspace: Workspace }) {
             when={props.workspace.icon.startsWith("data:")}
             fallback={
                 <span
-                    class="flex size-6 shrink-0 items-center justify-center rounded-md text-[0.65rem] font-semibold text-white/90"
-                    style={{ background: `hsl(${hue()} 40% 34%)` }}
+                    class="workspace-icon flex size-5 shrink-0 items-center justify-center rounded-[5px] text-[0.58rem] font-semibold text-white/85"
+                    style={{ background: `hsl(${hue()} 24% 31%)` }}
                 >
                     {workspaceInitials(props.workspace.name)}
                 </span>
             }
         >
-            <img src={props.workspace.icon} alt="" class="size-6 shrink-0 rounded-md object-cover" />
+            <img src={props.workspace.icon} alt="" class="workspace-icon size-5 shrink-0 rounded-[5px] object-cover" />
         </Show>
     );
 }

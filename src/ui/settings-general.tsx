@@ -12,21 +12,28 @@ import {
     animateResponses,
     autoUpdate,
     collapseCompaction,
+    collapseFinishedCommands,
     compactionCollapsed,
+    editedFilesCard,
     responseAnimationSpeed,
     responseAnimationSpeedMax,
     responseAnimationSpeedMin,
     setAnimateResponses,
     setAutoUpdate,
     setCollapseCompaction,
+    setCollapseFinishedCommands,
     setCompactionCollapsed,
+    setEditedFilesCard,
     setResponseAnimationSpeed,
     setShowReasoning,
     setSidebarDayDividers,
     setToolErrorsExpanded,
+    setToolGroup,
     showReasoning,
     sidebarDayDividers,
     toolErrorsExpanded,
+    toolGroupKinds,
+    toolGroups,
 } from "../state/prefs";
 
 import type { LanguageId } from "../state/language";
@@ -127,6 +134,52 @@ export function GeneralSection() {
                         </div>
                     </SettingsRow>
                 </Show>
+            </SettingsGroup>
+
+            <SettingsGroup title={t("drift.settings.transcript")}>
+                <SettingsRow
+                    title={t("drift.settings.collapseCommands.title")}
+                    description={t("drift.settings.collapseCommands.description")}
+                    onClick={() => setCollapseFinishedCommands(!collapseFinishedCommands())}
+                >
+                    <Toggle
+                        label={t("drift.settings.collapseCommands.title")}
+                        checked={collapseFinishedCommands()}
+                        onChange={() => setCollapseFinishedCommands(!collapseFinishedCommands())}
+                    />
+                </SettingsRow>
+                <SettingsRow
+                    title={t("drift.settings.groupTools.title")}
+                    description={t("drift.settings.groupTools.description")}
+                >
+                    <span />
+                </SettingsRow>
+                <For each={toolGroupKinds}>
+                    {(kind) => (
+                        <SettingsRow
+                            title={t(`drift.settings.groupTools.${kind}`)}
+                            description=""
+                            onClick={() => setToolGroup(kind, !toolGroups()[kind])}
+                        >
+                            <Toggle
+                                label={t(`drift.settings.groupTools.${kind}`)}
+                                checked={toolGroups()[kind]}
+                                onChange={() => setToolGroup(kind, !toolGroups()[kind])}
+                            />
+                        </SettingsRow>
+                    )}
+                </For>
+                <SettingsRow
+                    title={t("drift.settings.editedFiles.title")}
+                    description={t("drift.settings.editedFiles.description")}
+                    onClick={() => setEditedFilesCard(!editedFilesCard())}
+                >
+                    <Toggle
+                        label={t("drift.settings.editedFiles.title")}
+                        checked={editedFilesCard()}
+                        onChange={() => setEditedFilesCard(!editedFilesCard())}
+                    />
+                </SettingsRow>
             </SettingsGroup>
 
             <SettingsGroup title={t("drift.preview.settings.title")}>

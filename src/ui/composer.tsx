@@ -1,11 +1,11 @@
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
-import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { IconArrowUp, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
 import { modelInfo, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions";
-import { IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { compactModelName, connectedModelItems } from "./composer-models";
 import { emitThreadCreated, transformComposerSubmit } from "../plugins";
 import { defaultVisibleModelIds, ModelManager } from "./model-manager";
@@ -28,6 +28,7 @@ import { DictationStatus } from "./composer-voice";
 import { variantNames } from "../engine/catalog";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
+import { touchInput } from "../state/screen";
 import { openSettings } from "./settings";
 import { shellInvoke } from "../shell";
 import { useEngine } from "../engine";
@@ -53,6 +54,10 @@ const clipboardRepublishDelayMs = 100;
 
 export function composerSelection(value: string, start: number, end: number) {
     return value.slice(Math.min(start, end), Math.max(start, end));
+}
+
+export function composerSendKey(event: KeyboardEvent, touch: boolean) {
+    return event.key === "Enter" && !event.shiftKey && (!touch || event.ctrlKey || event.metaKey);
 }
 
 export function Composer() {
@@ -258,7 +263,7 @@ export function Composer() {
                 clearComposerDraft(key, snapshot);
                 setFileError("");
                 resize();
-                queueMicrotask(() => area.focus());
+                if (!touchInput()) queueMicrotask(() => area.focus());
             },
             failed(error) {
                 engine.actions.notice({
@@ -278,7 +283,8 @@ export function Composer() {
     function onKey(event: KeyboardEvent) {
         if (event.isComposing) return;
 
-        if (event.key === "Enter" && !event.shiftKey && submitting()) {
+        const send = composerSendKey(event, touchInput());
+        if (send && submitting()) {
             event.preventDefault();
             return;
         }
@@ -293,7 +299,7 @@ export function Composer() {
             return;
         }
 
-        if (event.key !== "Enter" || event.shiftKey) return;
+        if (!send) return;
 
         event.preventDefault();
         void submit();
@@ -356,9 +362,10 @@ export function Composer() {
         area.style.height = "auto";
 
         const scrollHeight = area.scrollHeight;
-        const next = Math.min(scrollHeight, maxComposerHeightPx);
+        const ceiling = Number.parseFloat(getComputedStyle(area).maxHeight) || maxComposerHeightPx;
+        const next = Math.min(scrollHeight, ceiling);
         area.style.height = `${next}px`;
-        area.style.overflowY = scrollHeight > maxComposerHeightPx ? "auto" : "hidden";
+        area.style.overflowY = scrollHeight > ceiling ? "auto" : "hidden";
         if (next !== current) areaFrame.style.height = `${next}px`;
     }
 
@@ -386,6 +393,8 @@ export function Composer() {
 
     onMount(() => {
         if (dictationEnabled()) void refreshVoiceModels();
+        window.addEventListener("resize", resize);
+        onCleanup(() => window.removeEventListener("resize", resize));
         return onKeybind("autoAccept", toggleAutoAccept);
     });
 
@@ -398,7 +407,7 @@ export function Composer() {
     return (
         <div class="composer-shell relative z-10">
             <ComposerAttention />
-            <div class="relative mx-auto max-w-3xl rounded-xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
+            <div class="composer-box relative mx-auto max-w-3xl rounded-2xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
                 <Show when={dropActive() && ready()}>
                     <div class="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-surface/85">
                         <span class="text-sm font-medium text-accent">{t("drift.composer.dropFiles")}</span>
@@ -433,6 +442,7 @@ export function Composer() {
                         aria-controls={slash.open() ? slash.id : undefined}
                         aria-activedescendant={slash.activeOptionId()}
                         rows={1}
+                        aria-label={t("prompt.placeholder.simple")}
                         class="max-h-50 w-full resize-none overflow-y-hidden bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
                         placeholder={placeholder()}
                         disabled={!ready()}
@@ -527,6 +537,7 @@ export function Composer() {
                         </Show>
                         <button
                             title={t("prompt.action.attachFile")}
+                            aria-label={t("prompt.action.attachFile")}
                             class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
                             disabled={!ready()}
                             onClick={() => filePicker.click()}
@@ -548,12 +559,13 @@ export function Composer() {
                             </button>
                         </Show>
                         <button
-                            class="composer-submit rounded-md bg-accent px-3 py-1 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
+                            class="composer-submit flex size-7 items-center justify-center rounded-md text-accent transition-colors hover:bg-raised disabled:pointer-events-none disabled:text-ink-faint disabled:opacity-60"
                             title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
+                            aria-label={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
                             disabled={sendDisabled()}
                             onClick={() => void submit()}
                         >
-                            {busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
+                            <IconArrowUp class="size-4" />
                         </button>
                     </div>
                 </div>

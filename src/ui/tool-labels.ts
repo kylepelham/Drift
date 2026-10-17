@@ -1,13 +1,46 @@
 import { toolInput, toolMetadata } from "../engine/parts";
 import { agentLabel, t } from "../state/i18n";
 
+import type { ToolGroupKind } from "../state/prefs";
 import type { EngineState } from "../engine/store";
 import type { ToolPart } from "../engine/parts";
 
 export const contextTools = new Set(["read", "glob", "grep", "list"]);
 const maxArgsPreviewChars = 120;
 
-type ToolInfo = { title?: string; called?: string; subtitle?: string; mono?: boolean };
+const groupKinds: Record<string, ToolGroupKind> = {
+    bash: "commands",
+    edit: "edits",
+    write: "edits",
+    apply_patch: "edits",
+    webfetch: "fetches",
+    websearch: "fetches",
+    process: "other",
+    save_image: "other",
+    skill: "other",
+    task_output: "other",
+    task_stop: "other",
+    read_thread: "other",
+};
+// Delegation and questions are cards of their own, and todos never show, so none of them group.
+const ungrouped = new Set([...contextTools, "task", "spawn_thread", "question", "todowrite", "todoread"]);
+
+/** Which grouping setting covers a tool; an unknown name is an MCP tool. */
+export function toolGroupKind(name: string): ToolGroupKind | undefined {
+    if (groupKinds[name]) return groupKinds[name];
+    return ungrouped.has(name) ? undefined : "mcp";
+}
+
+/** What the model said a command does, or the command itself when it said nothing. */
+export function commandLabel(part: ToolPart) {
+    const input = toolInput(part);
+    const description = typeof input.description === "string" ? input.description.trim() : "";
+    const command = typeof input.command === "string" ? input.command : "";
+
+    return description ? { text: description, mono: false } : { text: command, mono: true };
+}
+
+type ToolInfo = { title?: string; titleMono?: boolean; called?: string; subtitle?: string; mono?: boolean };
 export type PatchFile = {
     filePath: string;
     relativePath?: string;
@@ -52,8 +85,10 @@ export function toolInfo(part: ToolPart): ToolInfo {
     if (context) return context;
 
     switch (part.name) {
-        case "bash":
-            return { title: t("prompt.mode.shell"), subtitle: text("command"), mono: true };
+        case "bash": {
+            const label = commandLabel(part);
+            return { title: label.text || t("prompt.mode.shell"), titleMono: label.mono };
+        }
         case "edit":
         case "write":
             return { title: t("settings.permissions.tool.edit.title"), subtitle: toolFilename(text("filePath")) };

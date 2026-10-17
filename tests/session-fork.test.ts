@@ -38,6 +38,7 @@ function setup() {
         StatusDot: "status",
         IconBranch: "branch",
         IconArchive: "archive",
+        IconDots: "dots",
         jsx: (type: string, props: Node["props"], ...children: Node[]): Node => ({ type, props, children }),
     };
     const render = new Function(

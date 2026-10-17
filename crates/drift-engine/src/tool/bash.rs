@@ -157,7 +157,7 @@ impl Bash {
         let mut properties = json!({
             "command": { "type": "string", "description": "The command to run." },
             "timeout": { "type": "integer", "description": timeout_note(limits) },
-            "description": { "type": "string", "description": "Five to ten words saying what the command does, shown to the user." },
+            "description": { "type": "string", "description": "Always give one: five to ten words saying what the command does, such as \"Run the engine tests\". The user sees this in place of the command, so leave it out only for a command that already reads as plain words." },
             "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of changing directory first. Default: the workspace root." }
         });
         if limits.background {

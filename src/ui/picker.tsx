@@ -1,8 +1,10 @@
-import { createEffect, createMemo, createSignal, For, Show, untrack, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, untrack, type JSX } from "solid-js";
+import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
+import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { createDismissOnOutside } from "./dismiss";
 import { fixedMenuPosition } from "../state/zoom";
+import { IconSliders, IconX } from "./icons";
 import { Portal } from "solid-js/web";
-import { IconSliders } from "./icons";
 import { t } from "../state/i18n";
 
 export type PickerItem = {
@@ -35,6 +37,7 @@ export function Picker(props: {
     const [open, setOpen] = createSignal(false);
     const [query, setQuery] = createSignal("");
     const [cursor, setCursor] = createSignal(0);
+    const narrow = createMediaQuery(smallScreenQuery);
     let root!: HTMLDivElement;
     let input!: HTMLInputElement;
     let panel!: HTMLDivElement;
@@ -57,7 +60,7 @@ export function Picker(props: {
 
         setQuery("");
         setCursor(0);
-        if (props.floating) {
+        if (props.floating && !narrow()) {
             const rect = root.getBoundingClientRect();
             const width = 288;
             const height = 336;
@@ -65,12 +68,16 @@ export function Picker(props: {
             const next = fixedMenuPosition(rect.left, y, width, height);
             setPosition({ left: next.left, top: next.top });
         }
-        queueMicrotask(() => input?.focus());
+        if (!touchInput()) queueMicrotask(() => input?.focus());
+    });
+
+    createEffect(() => {
+        if (open() && narrow()) onCleanup(activateModal(panel, () => setOpen(false)));
     });
 
     createDismissOnOutside({
         // Portal panels count as inside for dismissal; only floating panels need to close on resize.
-        enabled: open,
+        enabled: () => open() && !narrow(),
         inside: () => [root, panel],
         onDismiss: () => setOpen(false),
         resize: untrack(() => props.floating),
@@ -88,6 +95,7 @@ export function Picker(props: {
     };
 
     const onKey = (event: KeyboardEvent) => {
+        if (event.isComposing) return;
         if (event.key === "Escape") setOpen(false);
         if (event.key === "ArrowDown") setCursor(Math.min(cursor() + 1, filtered().length - 1));
         if (event.key === "ArrowUp") setCursor(Math.max(cursor() - 1, 0));
@@ -99,15 +107,38 @@ export function Picker(props: {
         <div
             ref={panel}
             data-wheel-lock
-            class="pop-in z-50 w-72 overflow-hidden rounded-lg border border-edge bg-overlay shadow-xl shadow-black/30"
-            classList={{ fixed: !!props.floating, "absolute bottom-full left-0 mb-2": !props.floating }}
-            style={props.floating ? { left: `${position().left}px`, top: `${position().top}px` } : undefined}
+            class="picker-panel pop-in z-50 w-72 overflow-hidden rounded-lg border border-edge bg-overlay shadow-xl shadow-black/30"
+            role={narrow() ? "dialog" : undefined}
+            aria-modal={narrow() ? true : undefined}
+            aria-label={props.label}
+            tabIndex={-1}
+            classList={{
+                fixed: !!props.floating && !narrow(),
+                "absolute bottom-full left-0 mb-2": !props.floating && !narrow(),
+            }}
+            style={
+                props.floating && !narrow() ? { left: `${position().left}px`, top: `${position().top}px` } : undefined
+            }
         >
+            <Show when={narrow()}>
+                <div class="picker-sheet-heading">
+                    <span>{props.label}</span>
+                    <button
+                        aria-label={t("common.close")}
+                        class="flex size-11 items-center justify-center rounded-md text-ink-muted hover:bg-raised"
+                        onClick={() => setOpen(false)}
+                    >
+                        <IconX />
+                    </button>
+                </div>
+            </Show>
             <div class="flex items-center border-b border-edge">
                 <input
                     ref={input}
                     class="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-ink-faint"
                     placeholder={t("common.search.placeholder")}
+                    aria-label={t("common.search.placeholder")}
+                    inputMode="search"
                     value={query()}
                     onInput={(event) => {
                         setQuery(event.currentTarget.value);
@@ -128,7 +159,7 @@ export function Picker(props: {
                     </button>
                 </Show>
             </div>
-            <div class="max-h-72 overflow-y-auto py-1">
+            <div class="picker-list max-h-72 overflow-y-auto py-1">
                 <For each={filtered()}>
                     {(item, index) => (
                         <>
@@ -145,6 +176,7 @@ export function Picker(props: {
                                     "text-accent": item.id === props.selected,
                                 }}
                                 title={item.hint}
+                                aria-pressed={item.id === props.selected}
                                 onMouseEnter={() => setCursor(index())}
                                 onClick={() => pick(item.id)}
                             >
@@ -172,6 +204,9 @@ export function Picker(props: {
                 classList={{ "border border-edge bg-overlay hover:border-edge-strong": !!props.bordered }}
                 style={{ width: props.width }}
                 title={props.label}
+                aria-label={`${props.label}: ${selectedLabel()}`}
+                aria-expanded={open()}
+                aria-haspopup={narrow() ? "dialog" : undefined}
                 onClick={() => setOpen(!open())}
             >
                 {props.icon}
@@ -196,8 +231,23 @@ export function Picker(props: {
                 </svg>
             </button>
             <Show when={open()}>
-                <Show when={props.floating} fallback={menu()}>
-                    <Portal>{menu()}</Portal>
+                <Show
+                    when={narrow()}
+                    fallback={
+                        <Show when={props.floating} fallback={menu()}>
+                            <Portal>{menu()}</Portal>
+                        </Show>
+                    }
+                >
+                    <Portal>
+                        <div
+                            data-modal-layer
+                            class="picker-sheet-layer fixed inset-0"
+                            onPointerDown={(event) => closeOnBackdropPointerDown(event, () => setOpen(false), panel)}
+                        >
+                            {menu()}
+                        </div>
+                    </Portal>
                 </Show>
             </Show>
         </div>

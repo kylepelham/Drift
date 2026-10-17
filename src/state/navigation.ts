@@ -1,3 +1,4 @@
+import { afterOverlayBack, overlayBackPending, popOverlayBack } from "./overlay-back";
 import { isRemoteRuntime } from "../runtime";
 import { createSignal } from "solid-js";
 
@@ -35,8 +36,10 @@ function currentRoute() {
 export function pushRemoteSelection(patch: Pick<RemoteRoute, "workspace" | "session">) {
     if (!isRemoteRuntime()) return;
 
-    const next = { ...currentRoute(), ...patch, overlay: undefined };
-    history.pushState(null, "", navigationHash(next));
+    afterOverlayBack(() => {
+        const next = { ...currentRoute(), ...patch, overlay: undefined };
+        history.pushState(null, "", navigationHash(next));
+    });
 }
 
 /**
@@ -46,32 +49,45 @@ export function pushRemoteSelection(patch: Pick<RemoteRoute, "workspace" | "sess
 export function replaceRemoteSelection(workspace: string | null, session: string | null) {
     if (!isRemoteRuntime()) return;
 
-    history.replaceState(
-        null,
-        "",
-        navigationHash({ workspace: workspace ?? undefined, session: session ?? undefined }),
+    afterOverlayBack(() =>
+        history.replaceState(
+            history.state,
+            "",
+            navigationHash({ ...currentRoute(), workspace: workspace ?? undefined, session: session ?? undefined }),
+        ),
     );
 }
 
 export function pushRemoteOverlay(overlay: RemoteRoute["overlay"]) {
     if (!isRemoteRuntime()) return;
 
-    history.pushState(null, "", navigationHash({ ...currentRoute(), overlay }));
+    afterOverlayBack(() => {
+        const route = currentRoute();
+        if (route.overlay === overlay) return;
+        const next = navigationHash({ ...route, overlay });
+        if (route.overlay) history.replaceState(null, "", next);
+        else history.pushState(null, "", next);
+    });
 }
 
 const [mobileDrawerOpen, setMobileDrawerOpen] = createSignal(false);
 export { mobileDrawerOpen };
 
 export function openMobileDrawer() {
-    setMobileDrawerOpen(true);
-    pushRemoteOverlay("drawer");
+    if (mobileDrawerOpen()) return;
+    afterOverlayBack(() => {
+        setMobileDrawerOpen(true);
+        pushRemoteOverlay("drawer");
+    });
 }
 
 export function closeMobileDrawer(fromHistory = false) {
     setMobileDrawerOpen(false);
-    if (!fromHistory && isRemoteRuntime() && currentRoute().overlay === "drawer") history.back();
+    if (!fromHistory && isRemoteRuntime() && currentRoute().overlay === "drawer") popOverlayBack();
 }
 
 if (typeof window !== "undefined") {
-    window.addEventListener("popstate", () => setMobileDrawerOpen(currentRoute().overlay === "drawer"));
+    window.addEventListener("popstate", () => {
+        if (!overlayBackPending()) setMobileDrawerOpen(currentRoute().overlay === "drawer");
+    });
 }

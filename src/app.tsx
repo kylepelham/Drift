@@ -30,7 +30,6 @@ import { bindTheme } from "./state/theme";
 import { Composer } from "./ui/composer";
 import { ChatHeader } from "./ui/header";
 import { Lightbox } from "./ui/lightbox";
-import { Titlebar } from "./ui/titlebar";
 import { initZoom } from "./state/zoom";
 import { DebugPanel } from "./ui/debug";
 import { PluginHost } from "./plugins";
@@ -55,7 +54,6 @@ export function App() {
             <PluginBinding />
             <PathCopyBinding />
             <div class="app-shell flex h-full flex-col bg-bg text-ink">
-                <Titlebar />
                 <div class="flex min-h-0 flex-1">
                     <Show when={mobileDrawerOpen()}>
                         <button
@@ -65,7 +63,7 @@ export function App() {
                         />
                     </Show>
                     <Sidebar />
-                    <main class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <main inert={mobileDrawerOpen()} class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                         <div
                             class="chat-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
                             classList={{ "chat-pane-covered": debugPanelOpen() && !!selectedSession() }}
@@ -109,7 +107,7 @@ function MirrorConnectionNotice() {
     });
     return (
         <Show when={error()}>
-            <div class="fixed right-3 bottom-3 z-20 max-w-sm rounded-md border border-danger/35 bg-surface px-3 py-2 text-xs text-danger shadow-lg">
+            <div class="mirror-notice fixed right-3 bottom-3 z-20 max-w-sm rounded-md border border-danger/35 bg-surface px-3 py-2 text-xs text-danger shadow-lg">
                 {error()}
             </div>
         </Show>

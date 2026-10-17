@@ -19,12 +19,16 @@ export function swipeSettles(dx: number, width: number, speed: number, closing: 
 /** Where a rightward drag belongs to something else: typing, a dialog or menu, or content that can scroll back. */
 function swipeOpensFrom(target: EventTarget | null) {
     if (!(target instanceof Element)) return true;
-    if (target.closest('input, textarea, [contenteditable="true"], [role="dialog"], [role="menu"], .pop-in'))
+    if (
+        target.closest(
+            'input, textarea, select, button, a, [role="slider"], [contenteditable="true"], [role="dialog"], [role="menu"], [data-modal-layer], .pop-in',
+        )
+    )
         return false;
 
     for (let node: Element | null = target; node; node = node.parentElement) {
         const sideways = node.scrollWidth > node.clientWidth && /auto|scroll/.test(getComputedStyle(node).overflowX);
-        if (sideways && node.scrollLeft > 0) return false;
+        if (sideways) return false;
     }
 
     return true;
@@ -44,15 +48,18 @@ export function drawerSwipe(drawer: HTMLElement, state: DrawerState) {
     };
 
     const onStart = (event: TouchEvent) => {
+        reset();
         const touch = event.touches[0];
         if (!state.narrow() || event.touches.length !== 1 || !touch) return;
 
         const closing = state.open();
-        if (!closing && !swipeOpensFrom(event.target)) return;
+        if (!swipeOpensFrom(event.target)) return;
+        if (!closing && touch.clientX < 24) return;
         start = { x: touch.clientX, y: touch.clientY, at: event.timeStamp, closing };
     };
 
     const onMove = (event: TouchEvent) => {
+        if (event.touches.length !== 1 || !state.narrow()) return reset();
         const touch = event.touches[0];
         if (!start || !touch) return;
         const dx = touch.clientX - start.x;

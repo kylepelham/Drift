@@ -1,4 +1,4 @@
-import { assistantFlowContinues } from "./message-groups";
+import { assistantFlowContinues, groupMembers } from "./message-groups";
 import { messageProblem } from "../engine/messages";
 import { messageVisible } from "./message";
 import { partVisible } from "./parts";
@@ -26,7 +26,7 @@ export function timelinePitch(entry: MessageEntry, next?: MessageEntry) {
 
 export function timelineParts(entry: MessageEntry, groups?: PartGroup[]) {
     if (entry.info.role !== "assistant" || !groups) return entry.parts;
-    return groups.flatMap((group) => ("explored" in group ? group.explored : [group.part]));
+    return groups.flatMap((group) => groupMembers(group) ?? ("part" in group ? [group.part] : []));
 }
 
 export function timelineRowVisible(

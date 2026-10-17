@@ -487,7 +487,7 @@ export function Chat() {
                 onTouchStart={gesture}
             >
                 <Show when={selectedSession()} keyed fallback={<EmptyState />}>
-                    <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
+                    <div class="transcript-column fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
                         <Show
                             when={
                                 timeline().length === 0 &&

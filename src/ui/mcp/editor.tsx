@@ -370,7 +370,7 @@ function SecretInput(props: {
             <input
                 type={shown() ? "text" : "password"}
                 aria-label={props.label}
-                class="h-8 w-full min-w-0 rounded-md border border-edge bg-raised/45 pr-8 pl-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
+                class="secret-input h-8 w-full min-w-0 rounded-md border border-edge bg-raised/45 pr-8 pl-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
                 classList={{ "font-mono text-xs": props.mono }}
                 placeholder={props.placeholder}
                 value={props.value}
