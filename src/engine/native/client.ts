@@ -31,6 +31,10 @@ export type McpServerConfigView = components["schemas"]["ServerConfigView"];
 /** Where a local server listens and the largest window its models run with. */
 export type LocalServer = components["schemas"]["LocalServer"];
 export type LocalServerInput = components["schemas"]["LocalServerInput"];
+export type Review = components["schemas"]["Review"];
+export type ReviewFile = components["schemas"]["ReviewFile"];
+export type ReviewRefs = components["schemas"]["ReviewRefs"];
+export type GitSource = operations["reviewWorkspace"]["parameters"]["query"]["source"];
 
 type Json<Op extends keyof operations, Status extends number> =
     operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never;
@@ -227,6 +231,15 @@ export function createClient(target: Target) {
         stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
         processes: (id: string) => request<Json<"listProcesses", 200>>("GET", `/sessions/${id}/processes`),
         stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
+        reviewTurn: (sessionId: string, messageId: string) =>
+            request<Json<"reviewTurn", 200>>("GET", `/sessions/${sessionId}/review/${messageId}`),
+        reviewWorkspace: (workspaceId: string, source: GitSource, target?: string) =>
+            request<Json<"reviewWorkspace", 200>>(
+                "GET",
+                `/workspaces/${workspaceId}/review${query({ source, target })}`,
+            ),
+        reviewRefs: (workspaceId: string) =>
+            request<Json<"reviewRefs", 200>>("GET", `/workspaces/${workspaceId}/review/refs`),
     };
 }
 

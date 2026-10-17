@@ -14,6 +14,7 @@ mod prompts;
 mod provider_accounts;
 mod providers;
 mod questions;
+mod review;
 mod sessions;
 mod settings;
 mod workspaces;
@@ -49,6 +50,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .merge(question_routes())
         .merge(task_routes())
         .merge(mcp_routes())
+        .merge(review_routes())
         .routes(routes!(events::get))
 }
 
@@ -164,6 +166,13 @@ fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(mcp::disconnect))
         .routes(routes!(mcp::set_enabled))
         .routes(routes!(mcp::sign_in, mcp::sign_out))
+}
+
+fn review_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
+        .routes(routes!(review::turn))
+        .routes(routes!(review::workspace))
+        .routes(routes!(review::refs))
 }
 
 /// The largest request the engine reads: prompts carry attachments as base64 (a 40 MB video is 53 MB); axum's default is 2 MB.

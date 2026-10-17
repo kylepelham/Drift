@@ -17,6 +17,7 @@ mod oneshot;
 mod processes;
 pub mod prompt;
 pub mod revert;
+pub mod review;
 pub mod snapshot;
 pub mod tasks;
 mod title;

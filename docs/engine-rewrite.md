@@ -92,6 +92,9 @@ POST   /sessions/import                     {workspaceId, backup}
 POST   /sessions/{id}/revert                {messageId}
 POST   /sessions/{id}/unrevert
 GET    /sessions/{id}/todos
+GET    /sessions/{id}/review/{message}      what the turn started by prompt `message` changed
+GET    /workspaces/{id}/review?source=&target=  uncommitted | branch (merge-base) | commit
+GET    /workspaces/{id}/review/refs         repo?, branch, other branches, 50 recent commits
 GET    /mcp                 POST /mcp/{id}/connect | disconnect | auth
 GET    /find/files?q=
 WS     /events?cursor=
@@ -730,6 +733,16 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   visible part and a branch draft reads only the visible part.
 - There is no session-wide diff endpoint: nothing consumes one. Per-call diffs travel in tool
   metadata.
+
+- `GET /sessions/{id}/review/{message}` reports the turn a prompt started as undo sees it
+  (`session::review`): the recorded calls of the session and its subagents up to the next
+  prompt fold into one change per file, and each side is read from its snapshot owner's
+  shadow store. The workspace routes run the workspace's own git: `diff-index` against `HEAD`
+  or the merge-base plus `ls-files --others` for the working tree, `diff-tree` against the
+  first parent for a commit. A target that starts with `-` or does not resolve to a commit is
+  refused before git sees it. Every file carries both versions merged line by line (` `, `+`,
+  `-` prefixes, so the panel folds unchanged runs itself) unless a side is binary, over 1 MB
+  or no longer recorded; a review lists at most 300 files and counts the rest.
 
 #### Background-worker implementation
 

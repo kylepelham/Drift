@@ -726,6 +726,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/review/{message}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the turn started by prompt `message` and its subagents changed, each file from before its first change to after its last. */
+        get: operations["reviewTurn"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/spawn": {
         parameters: {
             query?: never;
@@ -1064,6 +1081,40 @@ export interface paths {
          *     after which the shell forgets the workspace. 409 while it is in use again or one of them runs.
          */
         post: operations["purgeWorkspace"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The workspace's files against `HEAD`, where the current branch left another, or one commit's own changes. */
+        get: operations["reviewWorkspace"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/review/refs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether the workspace is a git repository, with its branches and recent commits to review against. */
+        get: operations["reviewRefs"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1467,6 +1518,8 @@ export interface components {
             /** @description Put back to before this prompt. */
             before: string;
         };
+        /** @enum {string} */
+        FileStatus: "added" | "deleted" | "modified";
         ForkBody: {
             /** @description Copy through this message; default is the last finished one, leaving out a turn in flight. */
             atMessage?: string | null;
@@ -1887,6 +1940,11 @@ export interface components {
             name: string;
             path: string;
         };
+        /**
+         * @description Whether the file's lines are listed, and why not.
+         * @enum {string}
+         */
+        Preview: "lines" | "binary" | "large" | "unavailable";
         /** @description A background process as the dock and the API show it. */
         ProcessRecord: {
             command: string;
@@ -2055,6 +2113,42 @@ export interface components {
             keepFiles?: boolean;
             /** @description The prompt to go back to; it and everything after it are hidden. */
             messageId: string;
+        };
+        Review: {
+            files: components["schemas"]["ReviewFile"][];
+            /** @description Changed files past the listed ones. */
+            omitted: number;
+        };
+        ReviewCommit: {
+            author: string;
+            id: string;
+            short: string;
+            subject: string;
+            /**
+             * Format: int64
+             * @description Unix seconds.
+             */
+            time: number;
+        };
+        ReviewFile: {
+            additions: number;
+            deletions: number;
+            /** @description Both versions merged line by line, each line prefixed with ` `, `+` or `-`; empty unless `preview` is `lines`. */
+            lines: string[];
+            /** @description Relative to the workspace with `/` separators, or absolute for a file outside it. */
+            path: string;
+            preview: components["schemas"]["Preview"];
+            status: components["schemas"]["FileStatus"];
+        };
+        ReviewRefs: {
+            /** @description The checked-out branch; none when detached. */
+            branch?: string | null;
+            /** @description Local and remote branches other than the checked-out one. */
+            branches: string[];
+            /** @description The latest commits on `HEAD`, newest first. */
+            commits: components["schemas"]["ReviewCommit"][];
+            /** @description The workspace is inside a git repository; nothing else is filled in when it is not. */
+            repo: boolean;
         };
         /** @enum {string} */
         Role: "user" | "assistant";
@@ -3974,6 +4068,40 @@ export interface operations {
             };
         };
     };
+    reviewTurn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                message: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     spawnThread: {
         parameters: {
             query?: never;
@@ -4633,6 +4761,70 @@ export interface operations {
                 content?: never;
             };
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reviewWorkspace: {
+        parameters: {
+            query: {
+                source: "uncommitted" | "branch" | "commit";
+                /** @description The branch for `branch`, the commit for `commit`. */
+                target?: string | null;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Review"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reviewRefs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewRefs"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

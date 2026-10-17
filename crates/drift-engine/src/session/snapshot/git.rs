@@ -100,7 +100,7 @@ impl Snapshots {
 }
 
 /// Git in the workspace's own repository, never the shadow one; `None` when it fails.
-pub(super) async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Option<Vec<u8>> {
+pub(crate) async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Option<Vec<u8>> {
     let mut command = Command::new("git");
     let stdin = if input.is_some() { Stdio::piped() } else { Stdio::null() };
     command

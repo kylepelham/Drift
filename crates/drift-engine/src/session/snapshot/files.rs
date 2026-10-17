@@ -52,6 +52,11 @@ impl Snapshots {
         self.git(workspace, &args).await.map(Some)
     }
 
+    /// A stored blob's bytes.
+    pub async fn blob(&self, workspace: &Path, blob: &str) -> Result<Vec<u8>, Error> {
+        self.git_bytes(workspace, &["cat-file", "blob", blob]).await
+    }
+
     /// Makes `path` hold `blob` through the staged writer, or removes it for `None`.
     pub async fn put(
         &self,

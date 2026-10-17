@@ -72,19 +72,19 @@ pub struct Undone {
 }
 
 /// A physical file's chronological change chain, with independent snapshot owners for its endpoints.
-struct Net {
+pub(super) struct Net {
     file: Option<PathBuf>,
     key: Option<PathBuf>,
-    path: String,
-    before: Endpoint,
-    after: Endpoint,
+    pub(super) path: String,
+    pub(super) before: Endpoint,
+    pub(super) after: Endpoint,
     observed: bool,
     broken: bool,
 }
 
-struct Endpoint {
-    owner: String,
-    blob: Option<String>,
+pub(super) struct Endpoint {
+    pub(super) owner: String,
+    pub(super) blob: Option<String>,
 }
 
 /// A recorded call sorted by its completed writes, with its stable part id as the tie-breaker.
@@ -408,7 +408,7 @@ impl Engine {
 
     /// Groups chronological changes by canonical physical path, retaining each endpoint's snapshot
     /// owner; also names the files finished writing calls changed without leaving a record.
-    fn net_changes(
+    pub(super) fn net_changes(
         &self,
         session: &Session,
         from: &str,
@@ -488,7 +488,7 @@ impl Engine {
     }
 
     /// Where a workspace is now, bound to its history; `None` once the workspace is gone.
-    fn root_of(&self, owner: &str) -> Option<PathBuf> {
+    pub(super) fn root_of(&self, owner: &str) -> Option<PathBuf> {
         let workspace = self.store.workspace(owner).ok()??;
         let root = crate::tool::canonical(Path::new(&workspace.path));
         self.snapshots.bind(owner, &root);
@@ -497,7 +497,7 @@ impl Engine {
     }
 }
 
-fn is_prompt(message: &MessageWithParts) -> bool {
+pub(super) fn is_prompt(message: &MessageWithParts) -> bool {
     message.info.role == Role::User
         && !message
             .parts
