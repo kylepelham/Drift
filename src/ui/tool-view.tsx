@@ -360,10 +360,10 @@ export function ToolView(props: { part: ToolPart }) {
 export function ExploredGroup(props: { parts: ToolPart[] }) {
     const engine = useEngine();
     const [open, setOpen] = createSignal(false);
-    const summary = createMemo(() => exploredSummary(props.parts, running()));
-    const detail = createMemo(() => exploredDetail(props.parts));
     const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part));
     const running = () => props.parts.some((part) => part.status === "running" || part.status === "pending");
+    const summary = createMemo(() => exploredSummary(props.parts, running()));
+    const detail = createMemo(() => exploredDetail(props.parts));
 
     const activePart = () => {
         for (let index = props.parts.length - 1; index >= 0; index--) {
