@@ -443,7 +443,8 @@ mod tests {
         std::fs::write(root.join("parent.cmd"), "@echo off\r\nstart \"\" /b cmd.exe /c \"ping -n 30 127.0.0.1 > nul & echo late>late.txt\"\r\nexit /b 0\r\n").unwrap();
         let mut command = tokio::process::Command::new("cmd.exe");
         command
-            .args(["/c", "parent.cmd"])
+            .arg("/c")
+            .arg(root.join("parent.cmd"))
             .current_dir(&root)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
