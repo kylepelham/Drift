@@ -58,6 +58,11 @@ export function formatToolDuration(ms: number) {
     return `${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, "0")}m`;
 }
 
+/** The label a row shows; under a second says nothing worth the space. */
+export function visibleToolDuration(ms: number | undefined) {
+    return ms === undefined || ms < 1000 ? undefined : formatToolDuration(ms);
+}
+
 export function ToolDuration(props: { state: ToolTimingState; maxMs?: number }) {
     const live = () =>
         props.maxMs === undefined &&
@@ -66,10 +71,7 @@ export function ToolDuration(props: { state: ToolTimingState; maxMs?: number }) 
         timestamp(props.state.time?.end) === undefined;
     const now = createSharedNow(live);
     const elapsed = () => toolElapsedMs(props.state, now(), props.maxMs);
-    const duration = () => {
-        const value = elapsed();
-        return value === undefined ? undefined : formatToolDuration(value);
-    };
+    const duration = () => visibleToolDuration(elapsed());
     return (
         <Show when={duration()} keyed>
             {(value) => <span class="shrink-0 font-mono text-xs text-ink-faint">{value}</span>}

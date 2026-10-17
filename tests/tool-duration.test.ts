@@ -1,4 +1,4 @@
-import { formatToolDuration, toolElapsedMs, type ToolTimingState } from "../src/ui/tool-duration";
+import { formatToolDuration, toolElapsedMs, visibleToolDuration, type ToolTimingState } from "../src/ui/tool-duration";
 import { describe, expect, test } from "bun:test";
 
 describe("tool duration formatting", () => {
@@ -16,6 +16,12 @@ describe("tool duration formatting", () => {
     ])("formats %dms as %s", (ms, expected) => {
         expect(formatToolDuration(ms)).toBe(expected);
     });
+});
+
+test("a row shows no duration under a second, the way it shows none without timestamps", () => {
+    expect(visibleToolDuration(undefined)).toBeUndefined();
+    expect(visibleToolDuration(999)).toBeUndefined();
+    expect(visibleToolDuration(1_000)).toBe("1s");
 });
 
 describe("tool elapsed timestamps", () => {
