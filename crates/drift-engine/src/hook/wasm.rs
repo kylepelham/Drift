@@ -520,7 +520,8 @@ pub(super) mod tests {
     async fn the_guard_plugin_runs_the_workspaces_tests_on_request_and_keeps_the_turn_going_when_they_fail() {
         let Some(path) = guard() else { return };
         let cache = std::env::temp_dir().join(format!("drift-plugin-cache-{}", crate::random_hex(4)));
-        let workspace = cache.join("ws");
+        // Outside the cache: wasmtime's cache worker deletes files it does not recognise there.
+        let workspace = std::env::temp_dir().join(format!("drift-guard-ws-{}", crate::random_hex(4)));
         std::fs::create_dir_all(&workspace).unwrap();
         let runtime = Runtime::new(&cache).unwrap();
         let mut site = site();
@@ -561,6 +562,7 @@ pub(super) mod tests {
         assert_eq!(plugin.prompt_submit(&prompt).await, PromptSubmit::Keep);
 
         let _ = std::fs::remove_dir_all(&cache);
+        let _ = std::fs::remove_dir_all(&workspace);
     }
 
     #[tokio::test]
