@@ -1,10 +1,10 @@
 import { closeMobileDrawer, mobileDrawerOpen, openMobileDrawer } from "../state/navigation";
 import { createEffect, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
+import { archiveFailed, forkThread, WorkspaceGroup } from "./workspaces";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
 import { createMediaQuery, smallScreenQuery } from "../state/screen";
 import { selectedSession, selectSession } from "../state/selection";
-import { archiveFailed, WorkspaceGroup } from "./workspaces";
 import { pickBackup, saveBackup } from "./session-backup";
 import { emitThreadArchived } from "../plugins";
 import { normalizeDir } from "../engine/store";
@@ -282,13 +282,7 @@ export function Sidebar() {
                         workspaces={workspaces()}
                         onMove={(workspace) => void moveSessionTo(state(), workspace)}
                         onBackup={() => void backupThread(state().sessionId)}
-                        onFork={() => {
-                            selectWorkspace(state().workspaceId);
-                            const selected = selectedSession();
-                            void engine.actions.fork(state().sessionId).then((session) => {
-                                if (session && selectedSession() === selected) selectSession(session.id);
-                            });
-                        }}
+                        onFork={() => void forkThread(engine, state().sessionId, state().workspaceId)}
                         onArchive={() => {
                             const id = state().sessionId;
                             if (selectedSession() === id) selectSession(null);

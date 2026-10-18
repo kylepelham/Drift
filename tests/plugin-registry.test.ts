@@ -119,6 +119,18 @@ describe("plugin registry sources", () => {
         }
     });
 
+    test("a bundle whose registry entry leaves out a list reads it as empty", async () => {
+        const partial = { servers: [{ name: "fal", type: "stdio" }] } as unknown as BundleContents;
+        const loaded = await loadRegistries([{ id: "acme", name: "Acme" }], true, async () => ({
+            version: 1,
+            plugins: [plugin("um", { kind: "bundle", contents: partial })],
+        }));
+        const contents = loaded.plugins[0]!.contents;
+        expect(contents?.programs).toEqual([]);
+        expect(bundleAsks(contents)).toEqual([]);
+        expect(bundleRunsCode(contents)).toBe(true);
+    });
+
     test("search covers the source name and install paths are under plugins/", () => {
         expect(matchesRegistryQuery(plugin("x", { sourceName: "Acme" }), "acme")).toBeTrue();
         expect(matchesRegistryQuery(plugin("x"), "zzz")).toBeFalse();

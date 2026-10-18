@@ -1,5 +1,6 @@
+import { compareMessages, messageText, nextUserMessage, previousUserMessage, type MessageEntry } from "../engine/store";
 import { clearComposerDraft, composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
-import { compareMessages, messageText, nextUserMessage, type MessageEntry } from "../engine/store";
+import { t } from "../state/i18n";
 
 export type RevertHost = {
     state: { transcripts: Record<string, MessageEntry[]> };
@@ -23,6 +24,7 @@ export function revertDockEntries(entries: MessageEntry[], marker?: string) {
 
 export function revertPreview(entry?: MessageEntry) {
     if (!entry) return "";
+    if (isCompaction(entry)) return t("drift.context.compacted");
     return messageText(entry).replace(/\s+/g, " ").trim();
 }
 
@@ -40,4 +42,22 @@ export async function restoreReverted(engine: RevertHost, sessionID: string, mes
     if (success) clearComposerDraft(composerScope(sessionID));
 
     return success;
+}
+
+function isCompaction(entry: MessageEntry) {
+    return entry.parts.some((part) => part.type === "compaction");
+}
+
+/** Undoes a failed compaction and summarises again; compacting commits the undo, so the failed attempt goes. */
+export async function retryCompaction(
+    engine: RevertHost & { actions: { summarize: (id: string) => Promise<void> } },
+    sessionID: string,
+    summaryID: string,
+) {
+    const boundary = previousUserMessage(engine.state.transcripts[sessionID] ?? [], summaryID);
+    if (!boundary || !isCompaction(boundary)) return false;
+    if (!(await engine.actions.revert(sessionID, boundary.info.id))) return false;
+
+    await engine.actions.summarize(sessionID);
+    return true;
 }

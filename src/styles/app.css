@@ -173,11 +173,10 @@
     color-scheme: dark;
     --bg: var(--custom-bg);
     --surface: var(--custom-surface);
-    /* Layers step up from the surface's own lightness, as the built-in themes do; the text colour never tints them. */
-    --raised: oklch(from var(--custom-surface) calc(l + 0.03) c h);
-    --overlay: oklch(from var(--custom-surface) calc(l + 0.05) c h);
-    --edge: oklch(from var(--custom-surface) calc(l + 0.065) c h);
-    --edge-strong: oklch(from var(--custom-surface) calc(l + 0.13) c h);
+    --raised: color-mix(in srgb, var(--custom-surface) 94%, white);
+    --overlay: color-mix(in srgb, var(--custom-surface) 90%, white);
+    --edge: color-mix(in srgb, var(--custom-surface) 88%, white);
+    --edge-strong: color-mix(in srgb, var(--custom-surface) 78%, white);
     --ink: var(--custom-ink);
     --ink-muted: color-mix(in srgb, var(--custom-ink) 67%, var(--custom-bg));
     --ink-faint: color-mix(in srgb, var(--custom-ink) 42%, var(--custom-bg));
@@ -186,6 +185,16 @@
     --ok: #7fc98b;
     --warn: #e0b56b;
     --danger: #e07a7a;
+}
+
+/* Layers step up from the surface's own lightness, as the built-in themes do; the text colour never tints them. */
+@supports (color: oklch(from red l c h)) {
+    :root[data-theme="drift-custom"] {
+        --raised: oklch(from var(--custom-surface) calc(l + 0.03) c h);
+        --overlay: oklch(from var(--custom-surface) calc(l + 0.05) c h);
+        --edge: oklch(from var(--custom-surface) calc(l + 0.065) c h);
+        --edge-strong: oklch(from var(--custom-surface) calc(l + 0.13) c h);
+    }
 }
 
 html,

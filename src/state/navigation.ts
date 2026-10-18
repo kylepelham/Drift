@@ -63,9 +63,10 @@ export function pushRemoteOverlay(overlay: RemoteRoute["overlay"]) {
 
     afterOverlayBack(() => {
         const route = currentRoute();
-        if (route.overlay === overlay) return;
         const next = navigationHash({ ...route, overlay });
-        if (route.overlay) history.replaceState(null, "", next);
+        // A page loaded on this overlay has no entry under it, so closing it would go back off the page.
+        if (route.overlay === overlay) history.replaceState(null, "", navigationHash({ ...route, overlay: undefined }));
+        if (route.overlay && route.overlay !== overlay) history.replaceState(null, "", next);
         else history.pushState(null, "", next);
     });
 }

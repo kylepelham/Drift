@@ -72,8 +72,8 @@ impl Tool for Edit {
 
             let written = ending.apply(&updated);
             super::fits_history(&name, written.len())?;
+            // The match proves the text it changed, not the rest: the file is not counted as read for a later overwrite.
             super::stage::replace(&ctx.engine.store, &path, written.as_bytes()).await?;
-            ctx.files.mark_read(&path);
 
             let change = Change::new(&path, &name, "update", &content, &updated);
             let plural = if replacements == 1 { "" } else { "s" };
@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_exact_match_edits_an_unread_file_and_marks_it_read() {
+    async fn an_exact_match_edits_an_unread_file_without_counting_it_as_read() {
         let sandbox = Sandbox::new("edit-unread");
         let path = sandbox.file("u.txt", "a\n");
         edit(
@@ -422,8 +422,19 @@ mod tests {
         .unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "b\n");
         assert!(
-            sandbox.ctx.files.was_read(&path),
-            "the next write to it goes straight through"
+            !sandbox.ctx.files.was_read(&path),
+            "an edit proves one match, so overwriting the whole file still needs a read"
+        );
+        let empty = edit(
+            &sandbox,
+            json!({ "path": "u.txt", "old_string": "", "new_string": "x", "replace_all": true }),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            empty.0.contains("is required"),
+            "an empty old_string matches everywhere: {}",
+            empty.0
         );
 
         // A guess at text that is not there still changes nothing.

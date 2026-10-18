@@ -130,8 +130,14 @@ function PluginBinding() {
 function PathCopyBinding() {
     const engine = useEngine();
     onCleanup(
-        bindPathCopy((path) =>
-            engine.actions.notice({ message: t("drift.path.copied", { path }), variant: "success", duration: 2000 }),
+        bindPathCopy(
+            (path) =>
+                engine.actions.notice({
+                    message: t("drift.path.copied", { path }),
+                    variant: "success",
+                    duration: 2000,
+                }),
+            (path) => engine.actions.notice({ message: t("drift.path.copyFailed", { path }), variant: "error" }),
         ),
     );
     return null;

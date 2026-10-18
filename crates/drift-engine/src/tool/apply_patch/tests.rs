@@ -270,5 +270,17 @@ async fn a_hunk_patches_an_unread_file_since_its_context_must_match() {
         .unwrap();
 
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs\n");
-    assert!(sandbox.ctx.files.was_read(&path));
+    assert!(
+        !sandbox.ctx.files.was_read(&path),
+        "a hunk proves the lines it changed, not the whole file"
+    );
+    let deleted = ApplyPatch
+        .run(
+            &sandbox.ctx,
+            json!({ "patch": "*** Begin Patch\n*** Delete File: kept.txt\n*** End Patch\n" }),
+        )
+        .await
+        .unwrap_err();
+    assert!(deleted.0.contains("has not been read"), "{}", deleted.0);
+    assert!(path.exists(), "deleting it still needs a read");
 }

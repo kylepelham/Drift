@@ -67,6 +67,10 @@ test("a run's label counts each kind, names the latest command, and reads in the
 
     expect(runSummary(parts, false)).toBe("Ran 2 commands, edited 1 file");
     expect(runSummary(parts.slice(0, 1), true)).toBe("Running 1 command");
+    const failed = (id: string) => ({ ...tool("apply_patch", {}, { status: "error" }), id });
+    expect(runSummary([failed("p1"), failed("p2")], false), "failed patches name no file but still count").toBe(
+        "Edited 2 files",
+    );
     expect(runDetail(parts)).toBe("");
     const timed = (startedAt: number, finishedAt: number, name = "bash") =>
         tool(name, { command: "x" }, { startedAt, finishedAt });

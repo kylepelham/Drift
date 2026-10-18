@@ -190,7 +190,8 @@ world plugin {
 }
 
 /// A plugin that also keeps secrets from the model. Each pair is a secret and the placeholder the model
-/// sees instead: in prompts, files, instructions, tool output and errors, everything sent to a model.
+/// sees instead: in prompts, text files, instructions, tool output and errors, all text sent to a model.
+/// Image and PDF data are sent as they are, so a secret inside one still reaches the model.
 /// Placeholders the model writes in a tool call become the secrets again before the call runs. Asked
 /// once when the plugin loads; a plugin built for `plugin` alone keeps working.
 world masking {

@@ -1,4 +1,4 @@
-//! Undo and redo hide history back to a prompt and restore files changed by the session and its subagents.
+//! Undo and redo hide history back to a prompt or compaction and restore files changed by the session and its subagents.
 //! Files changed by another writer are kept and reported; unrelated workspace files are untouched.
 //! Hidden history is deleted only when a new prompt commits the undo (see `Store::admit_prompt`).
 
@@ -23,7 +23,7 @@ const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(3);
 #[derive(Debug)]
 pub enum RevertError {
     NoSession,
-    /// Only a prompt the user sent can be the point to go back to.
+    /// Only a prompt the user sent, or a compaction's boundary, can be the point to go back to.
     NotAPrompt,
     /// A job that would not stop holds the session; its files and history are in motion.
     Busy,
@@ -212,7 +212,7 @@ impl Engine {
             .store
             .transcript(session_id)?
             .iter()
-            .any(|m| m.info.id == message_id && is_prompt(m))
+            .any(|m| m.info.id == message_id && m.info.role == Role::User)
         {
             return Err(RevertError::NotAPrompt);
         }

@@ -339,6 +339,11 @@ impl Handle {
         !self.reported.swap(true, Ordering::SeqCst)
     }
 
+    /// Whether its end was already told to the conversation or claimed by a call; reading it claims nothing.
+    pub fn reported(&self) -> bool {
+        self.reported.load(Ordering::SeqCst)
+    }
+
     /// Marks a call as looking at the process until the guard drops; a call that sees it ended says so itself.
     pub fn watch(self: &Arc<Self>) -> Watching {
         self.watchers.fetch_add(1, Ordering::SeqCst);

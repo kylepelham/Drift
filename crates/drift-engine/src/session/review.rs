@@ -112,6 +112,8 @@ pub enum ReviewError {
 /// One side of a changed file: its bytes, or `None` for no file.
 enum Side {
     Present(Vec<u8>),
+    /// There, but past [`MAX_DIFF_BYTES`], so it was never read.
+    Large,
     Absent,
     Unavailable,
 }
@@ -135,6 +137,10 @@ impl Engine {
 
         let mut review = Review::default();
         for net in nets {
+            if review.full() {
+                review.omitted += 1;
+                continue;
+            }
             let before = self.recorded(&net.before).await;
             let after = self.recorded(&net.after).await;
             review.push(net.path, before, after);
@@ -271,15 +277,20 @@ async fn commit_id(root: &Path, name: &str) -> Option<String> {
 async fn working_tree(root: &Path, base: &str) -> Result<Review, ReviewError> {
     let raw = git_bytes(root, &["diff-index", "--no-renames", "-z", "--relative", base]).await?;
     let changes = parse_raw(&raw);
-    let blobs = stored_all(
-        root,
-        changes.iter().filter_map(|change| change.before.as_deref()).collect(),
-    )
-    .await;
+    let ids = changes
+        .iter()
+        .take(MAX_FILES)
+        .filter_map(|change| change.before.as_deref())
+        .collect();
+    let blobs = stored_all(root, ids).await;
     let mut review = Review::default();
     for change in changes {
+        if review.full() {
+            review.omitted += 1;
+            continue;
+        }
         let before = stored(&blobs, change.before.as_deref());
-        let after = on_disk(root, &change.path);
+        let after = on_disk(root, &change.path).await;
         review.push(change.path, before, after);
     }
 
@@ -288,7 +299,11 @@ async fn working_tree(root: &Path, base: &str) -> Result<Review, ReviewError> {
         .split('\0')
         .filter(|path| !path.is_empty())
     {
-        let after = on_disk(root, path);
+        if review.full() {
+            review.omitted += 1;
+            continue;
+        }
+        let after = on_disk(root, path).await;
         review.push(path.to_string(), Side::Absent, after);
     }
 
@@ -304,12 +319,17 @@ async fn commit(root: &Path, parent: &str, target: &str) -> Result<Review, Revie
     let changes = parse_raw(&raw);
     let ids = changes
         .iter()
+        .take(MAX_FILES)
         .flat_map(|change| [change.before.as_deref(), change.after.as_deref()])
         .flatten()
         .collect();
     let blobs = stored_all(root, ids).await;
     let mut review = Review::default();
     for change in changes {
+        if review.full() {
+            review.omitted += 1;
+            continue;
+        }
         let before = stored(&blobs, change.before.as_deref());
         let after = stored(&blobs, change.after.as_deref());
         review.push(change.path, before, after);
@@ -343,25 +363,66 @@ fn parse_raw(raw: &[u8]) -> Vec<RawChange> {
     changes
 }
 
-fn stored(blobs: &HashMap<String, Vec<u8>>, blob: Option<&str>) -> Side {
+/// Blob contents by id, and the ids too large to have been read.
+#[derive(Default)]
+struct Blobs {
+    read: HashMap<String, Vec<u8>>,
+    large: std::collections::HashSet<String>,
+}
+
+fn stored(blobs: &Blobs, blob: Option<&str>) -> Side {
     let Some(blob) = blob else { return Side::Absent };
+    if blobs.large.contains(blob) {
+        return Side::Large;
+    }
 
     blobs
+        .read
         .get(blob)
         .map_or(Side::Unavailable, |bytes| Side::Present(bytes.clone()))
 }
 
-/// Every blob's content from one `git cat-file --batch`, by id: a git process per file costs seconds on Windows.
-async fn stored_all(root: &Path, ids: Vec<&str>) -> HashMap<String, Vec<u8>> {
-    let input = ids.join("\n") + "\n";
+/// Every blob's content from one `git cat-file --batch`, by id: a git process per file costs seconds on Windows. Their
+/// sizes are asked first, so one past the limit is never read.
+async fn stored_all(root: &Path, ids: Vec<&str>) -> Blobs {
     if ids.is_empty() {
-        return HashMap::new();
+        return Blobs::default();
     }
-
-    plain_git(root, &["cat-file", "--batch"], Some(input.as_bytes()))
+    let listed = ids.join("\n") + "\n";
+    let sizes = plain_git(root, &["cat-file", "--batch-check"], Some(listed.as_bytes()))
         .await
-        .map(|output| parse_batch(&output))
-        .unwrap_or_default()
+        .map(|output| parse_sizes(&output))
+        .unwrap_or_default();
+    let (small, large): (Vec<&str>, Vec<&str>) = ids
+        .into_iter()
+        .filter(|id| sizes.contains_key(*id))
+        .partition(|id| sizes[*id] <= MAX_DIFF_BYTES);
+    let read = if small.is_empty() {
+        HashMap::new()
+    } else {
+        let wanted = small.join("\n") + "\n";
+        plain_git(root, &["cat-file", "--batch"], Some(wanted.as_bytes()))
+            .await
+            .map(|output| parse_batch(&output))
+            .unwrap_or_default()
+    };
+
+    Blobs {
+        read,
+        large: large.into_iter().map(str::to_owned).collect(),
+    }
+}
+
+/// `cat-file --batch-check` output: per object `<id> <type> <size>`, or `<id> missing`.
+fn parse_sizes(output: &[u8]) -> HashMap<String, usize> {
+    String::from_utf8_lossy(output)
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split(' ').collect();
+            let [id, _, size] = fields[..] else { return None };
+            Some((id.to_string(), size.parse().ok()?))
+        })
+        .collect()
 }
 
 /// `cat-file --batch` output: per object `<id> <type> <size>`, its bytes and a newline, or `<id> missing`.
@@ -383,10 +444,20 @@ fn parse_batch(output: &[u8]) -> HashMap<String, Vec<u8>> {
     found
 }
 
-fn on_disk(root: &Path, path: &str) -> Side {
-    match std::fs::read(root.join(path)) {
+/// A file in the working tree, its size looked at first so a large one is never read.
+async fn on_disk(root: &Path, path: &str) -> Side {
+    let file = root.join(path);
+    let missing = |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound;
+    match tokio::fs::metadata(&file).await {
+        Ok(meta) if meta.len() > MAX_DIFF_BYTES as u64 => return Side::Large,
+        Ok(_) => {}
+        Err(error) if missing(&error) => return Side::Absent,
+        Err(_) => return Side::Unavailable,
+    }
+
+    match tokio::fs::read(&file).await {
         Ok(bytes) => Side::Present(bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Side::Absent,
+        Err(error) if missing(&error) => Side::Absent,
         Err(_) => Side::Unavailable,
     }
 }
@@ -406,6 +477,10 @@ async fn git_text(root: &Path, args: &[&str]) -> Option<String> {
 
 impl Review {
     /// Adds a file unless both sides hold the same bytes, as a stat-only change does.
+    fn full(&self) -> bool {
+        self.files.len() == MAX_FILES
+    }
+
     fn push(&mut self, path: String, before: Side, after: Side) {
         if let (Side::Present(left), Side::Present(right)) = (&before, &after)
             && left == right
@@ -474,9 +549,11 @@ fn preview_without_lines(before: &Side, after: &Side) -> Preview {
     if sides.iter().any(|side| matches!(side, Side::Unavailable)) {
         return Preview::Unavailable;
     }
-    let large = sides
-        .iter()
-        .any(|side| matches!(side, Side::Present(bytes) if bytes.len() > MAX_DIFF_BYTES));
+    let large = sides.iter().any(|side| match side {
+        Side::Large => true,
+        Side::Present(bytes) => bytes.len() > MAX_DIFF_BYTES,
+        _ => false,
+    });
 
     if large { Preview::Large } else { Preview::Binary }
 }

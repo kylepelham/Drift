@@ -481,11 +481,15 @@
         height: auto;
     }
 
-    .group-hover\:visible,
-    .group-hover\:flex,
-    .group-hover\:opacity-100 {
+    .group-hover\:visible {
         visibility: visible;
+    }
+
+    .group-hover\:flex {
         display: flex;
+    }
+
+    .group-hover\:opacity-100 {
         opacity: 1;
     }
 

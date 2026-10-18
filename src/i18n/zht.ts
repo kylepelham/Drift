@@ -678,7 +678,7 @@ export const drift = {
     "drift.bundles.offNote":
         "已關閉：它的技能、代理、指令、伺服器和程式都不會生效。各自的開關會保留，供重新開啟時使用。",
     "drift.bundles.runsCode":
-        "此套件包含會在代理或 Drift 啟動時於本機執行的程式或 MCP 伺服器。請只從你信任的來源安裝。",
+        "此套件包含程式或 MCP 伺服器，代理或 Drift 啟動它們時會在本機執行。請只從你信任的來源安裝。",
     "drift.bundles.values": "其 MCP 伺服器需要的值",
     "drift.bundles.valuesHint":
         "與伺服器一同儲存，不會再次顯示。留空即可省略使用它的項目；自帶登入的伺服器可以改為登入。",
@@ -783,6 +783,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "規劃和探索可以使用其唯讀工具",
     "drift.mcp.status.connecting": "正在連線...",
     "drift.message.compactedSummary": "上下文已壓縮 · 摘要",
+    "drift.message.compactionFailed": "壓縮失敗",
+    "drift.message.compactionRetry": "重試壓縮",
     "drift.message.copy": "複製訊息",
     "drift.message.copyResponse": "複製回覆",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",
@@ -907,6 +909,7 @@ export const drift = {
     "drift.shell.omitted": "已省略 {{size}}",
     "drift.shell.openFull": "開啟完整輸出",
     "drift.path.copied": "已複製 {{path}}",
+    "drift.path.copyFailed": "無法複製 {{path}}",
     "drift.mcp.form.showValue": "顯示值",
     "drift.mcp.form.hideValue": "隱藏值",
     "drift.shell.output": "Shell 輸出",

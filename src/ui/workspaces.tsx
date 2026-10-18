@@ -319,19 +319,7 @@ function ThreadItem(props: {
                         if (forking()) return;
 
                         setForking(true);
-                        selectWorkspace(props.workspace.id);
-
-                        const selection = selectedSession();
-                        void engine.actions
-                            .fork(props.sessionId)
-                            .then(
-                                (session) =>
-                                    session &&
-                                    activeWorkspaceId() === props.workspace.id &&
-                                    selectedSession() === selection &&
-                                    selectSession(session.id),
-                            )
-                            .finally(() => setForking(false));
+                        void forkThread(engine, props.sessionId, props.workspace.id).finally(() => setForking(false));
                     }}
                 >
                     <IconBranch />
@@ -468,6 +456,31 @@ function ChildThreadItem(props: {
 }
 
 const hues = [212, 262, 330, 24, 96, 168];
+
+/** Forks a thread already being forked, once: a repeated tap waits for the first. */
+const forksUnderWay = new Map<string, Promise<void>>();
+
+/**
+ * Forks a thread and selects the copy, but only if the user is still where they were when they asked: the same
+ * workspace and the same thread. Both the row's button and its menu fork through here.
+ */
+export function forkThread(engine: Engine, sessionId: string, workspaceId: string) {
+    const underWay = forksUnderWay.get(sessionId);
+    if (underWay) return underWay;
+
+    selectWorkspace(workspaceId);
+    const selection = selectedSession();
+    const forking = engine.actions
+        .fork(sessionId)
+        .then((session) => {
+            if (session && activeWorkspaceId() === workspaceId && selectedSession() === selection)
+                selectSession(session.id);
+        })
+        .finally(() => forksUnderWay.delete(sessionId));
+    forksUnderWay.set(sessionId, forking);
+
+    return forking;
+}
 
 export function WorkspaceIcon(props: { workspace: Workspace }) {
     const hue = () => {

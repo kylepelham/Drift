@@ -271,7 +271,7 @@ pub(crate) struct Started {
 }
 
 /// Starts the shell; a background command gets an input pipe so the model can type into it. `programs` (the
-/// bin folders of bundles that are on) come first on its PATH.
+/// bin folders of bundles that are on) are on its PATH after the user's own.
 fn spawn(
     shell: &Shell,
     line: &str,

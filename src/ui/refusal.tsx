@@ -32,7 +32,9 @@ export function RefusalNotice(props: { entry: MessageEntry; text: string }) {
                 {(explanation) => <div class="text-xs break-words text-ink-muted">{explanation()}</div>}
             </Show>
             <Show when={trigger()}>{(found) => <TriggerList trigger={found()} />}</Show>
-            <RetryButton info={info()} />
+            <Show when={!info().summary}>
+                <RetryButton info={info()} />
+            </Show>
         </div>
     );
 }

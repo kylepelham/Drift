@@ -49,6 +49,7 @@ impl Tool for SaveImage {
                 .ok_or_else(|| ToolError("`image` is required: N from [Image N]".into()))?;
             let path = ctx.resolve(required_str(&input, "path")?);
             let (mime, bytes) = pasted(ctx, number)?;
+            matching_extension(&path, &mime)?;
 
             let name = display(&path, &ctx.workspace);
             super::fits_history(&name, bytes.len())?;
@@ -69,6 +70,35 @@ impl Tool for SaveImage {
     }
 }
 
+/// The extensions an image type is saved under; a path with another would name a file that is not what it holds.
+fn extensions(mime: &str) -> &'static [&'static str] {
+    match mime {
+        "image/png" => &["png"],
+        "image/jpeg" => &["jpg", "jpeg"],
+        "image/gif" => &["gif"],
+        "image/webp" => &["webp"],
+        "image/bmp" => &["bmp"],
+        "image/svg+xml" => &["svg"],
+        _ => &[],
+    }
+}
+
+fn matching_extension(path: &std::path::Path, mime: &str) -> Result<(), ToolError> {
+    let allowed = extensions(mime);
+    let extension = path
+        .extension()
+        .map(|extension| extension.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if allowed.is_empty() || allowed.contains(&extension.as_str()) {
+        return Ok(());
+    }
+
+    Err(ToolError(format!(
+        "the image is {mime}, so the path should end in .{}; nothing was written",
+        allowed.join(" or .")
+    )))
+}
+
 /// The image's type and bytes, as the user pasted it.
 fn pasted(ctx: &Context, number: u32) -> Result<(String, Vec<u8>), ToolError> {
     let missing = || ToolError(format!("this conversation has no [Image {number}]"));
@@ -81,4 +111,26 @@ fn pasted(ctx: &Context, number: u32) -> Result<(String, Vec<u8>), ToolError> {
         .map_err(|error| ToolError(format!("[Image {number}] is not valid base64: {error}")))?;
 
     Ok((mime, bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_path_must_end_in_an_extension_of_the_images_type() {
+        let path = |name: &str| std::path::PathBuf::from(name);
+        assert!(matching_extension(&path("shot.png"), "image/png").is_ok());
+        assert!(matching_extension(&path("shot.JPEG"), "image/jpeg").is_ok());
+        let wrong = matching_extension(&path("shot.jpg"), "image/png").unwrap_err();
+        assert!(wrong.0.contains(".png"), "{}", wrong.0);
+        assert!(
+            matching_extension(&path("shot"), "image/png").is_err(),
+            "no extension at all"
+        );
+        assert!(
+            matching_extension(&path("shot.x"), "image/x-unknown").is_ok(),
+            "an unknown type is not judged"
+        );
+    }
 }

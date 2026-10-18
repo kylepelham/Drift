@@ -69,9 +69,16 @@ export function PluginsSection() {
     };
     const run = (action: () => Promise<PluginInfo[]>, success?: string) => act(action, setPlugins, success);
     const runBundles = (action: () => Promise<Bundle[]>, success?: string) => act(action, setBundles, success);
-    const reload = () =>
-        run(() => engine.actions.reloadPlugins()).then(() => runBundles(() => engine.actions.bundles()));
-    onMount(() => void run(() => engine.actions.plugins()).then(() => runBundles(() => engine.actions.bundles())));
+    const loadAll = (list: () => Promise<PluginInfo[]>) =>
+        act(
+            async () => [await list(), await engine.actions.bundles().catch(() => bundles())] as const,
+            ([found, bundled]) => {
+                setPlugins(found);
+                setBundles(bundled);
+            },
+        );
+    const reload = () => loadAll(() => engine.actions.reloadPlugins());
+    onMount(() => void loadAll(() => engine.actions.plugins()));
 
     const install = async (plugin: RegistryPlugin, config: Record<string, unknown>) => {
         setBusy(plugin.id);
@@ -117,6 +124,7 @@ export function PluginsSection() {
                     image: plugin.image,
                     values,
                     registry: plugin.sourceId,
+                    sha256: plugin.sha256 || undefined,
                 }),
             t("drift.bundles.installed", { name: plugin.name }),
         );

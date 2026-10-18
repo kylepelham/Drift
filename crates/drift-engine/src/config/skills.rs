@@ -156,14 +156,12 @@ fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> R
         keep: &keep,
         max_file: Some(MAX_FILE_BYTES),
     };
-    let mut skills: Vec<String> = archive::unpack(bytes, &plan)?
-        .iter()
-        .filter_map(|relative| skill_of(relative))
-        .collect();
+    let staged = archive::unpack(bytes, &plan)?;
+    let mut skills: Vec<String> = staged.paths.iter().filter_map(|relative| skill_of(relative)).collect();
     if skills.is_empty() {
-        let _ = std::fs::remove_dir_all(into);
         return Err(SkillError::NoSkills);
     }
+    staged.commit(into)?;
 
     skills.sort();
     Ok(skills)

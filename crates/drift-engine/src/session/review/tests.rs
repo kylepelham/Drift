@@ -11,6 +11,7 @@ fn git(root: &Path, args: &[&str]) {
     let status = Command::new("git")
         .current_dir(root)
         .args(["-c", "user.email=t@t", "-c", "user.name=t", "-c", "core.autocrlf=false"])
+        .args(["-c", "commit.gpgsign=false"])
         .args(args)
         .status()
         .unwrap();
@@ -53,6 +54,31 @@ async fn uncommitted_lists_edits_deletions_and_untracked_files_with_every_line()
     assert_eq!(file(&review, "gone.txt").status, FileStatus::Deleted);
     assert_eq!(file(&review, "new.txt").lines, ["+fresh"]);
     assert_eq!(review.files.len(), 3);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn a_file_past_the_size_limit_is_listed_without_being_read_on_either_side() {
+    let root = repo();
+    let big = "x\n".repeat(MAX_DIFF_BYTES);
+    std::fs::write(root.join("big.txt"), &big).unwrap();
+    git(&root, &["add", "big.txt"]);
+    git(&root, &["commit", "-q", "-m", "big"]);
+    std::fs::write(root.join("big.txt"), big + "more\n").unwrap();
+    std::fs::write(root.join("huge.bin"), vec![b'y'; MAX_DIFF_BYTES + 1]).unwrap();
+
+    let review = git_review(&root, GitSource::Uncommitted, None).await.unwrap();
+    assert_eq!(
+        file(&review, "big.txt").preview,
+        Preview::Large,
+        "a committed blob past the limit"
+    );
+    assert_eq!(
+        file(&review, "huge.bin").preview,
+        Preview::Large,
+        "an untracked file past the limit"
+    );
+    assert!(file(&review, "big.txt").lines.is_empty());
     let _ = std::fs::remove_dir_all(root);
 }
 

@@ -4,8 +4,14 @@ import * as ts from "typescript";
 
 const source = await Bun.file(new URL("../src/ui/workspaces.tsx", import.meta.url)).text();
 const parsed = ts.createSourceFile("workspaces.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const component = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "ThreadItem")!;
-const compiled = ts.transpileModule(component.getText(parsed), {
+// The row and the fork helper it shares with the thread menu, with what they import supplied below.
+const named = (node: ts.Statement, name: string) =>
+    (ts.isFunctionDeclaration(node) && node.name?.text === name) ||
+    (ts.isVariableStatement(node) &&
+        node.declarationList.declarations.some((item) => ts.isIdentifier(item.name) && item.name.text === name));
+const wanted = ["forksUnderWay", "forkThread", "ThreadItem"];
+const pieces = parsed.statements.filter((node) => wanted.some((name) => named(node, name)));
+const compiled = ts.transpileModule(pieces.map((node) => node.getText(parsed).replace(/^export /, "")).join("\n"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, jsxFactory: "jsx" },
     fileName: "workspaces.tsx",
 }).outputText;

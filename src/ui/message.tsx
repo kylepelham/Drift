@@ -16,6 +16,7 @@ import { ProcessExitRow } from "./process-row";
 import { agentLabel, t } from "../state/i18n";
 import { TextShimmer } from "./text-shimmer";
 import { ExploredGroup } from "./tool-view";
+import { retryCompaction } from "./revert";
 import { FilePartView } from "./file-part";
 import { RefusalNotice } from "./refusal";
 import { useEngine } from "../engine";
@@ -88,7 +89,14 @@ export function messageVisible(entry: MessageEntry) {
 }
 
 function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; thinking?: boolean }) {
-    const [open, setOpen] = createSignal(!compactionCollapsed());
+    const failed = () => !!messageProblem(props.entry.info);
+    const [toggled, setOpen] = createSignal<boolean>();
+    // A failed summary stays open so its error and retry are seen.
+    const open = () => toggled() ?? (!compactionCollapsed() || failed());
+    const label = () => {
+        if (props.thinking) return t("drift.context.compacting");
+        return failed() ? t("drift.message.compactionFailed") : t("drift.message.compactedSummary");
+    };
     return (
         <div class="min-w-0 max-w-full">
             <button
@@ -99,10 +107,7 @@ function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; think
                 <div class="h-px flex-1 bg-edge" />
                 <span class="flex items-center gap-1.5">
                     <Chevron open={open()} />
-                    <TextShimmer
-                        text={props.thinking ? t("drift.context.compacting") : t("drift.message.compactedSummary")}
-                        active={!!props.thinking}
-                    />
+                    <TextShimmer text={label()} active={!!props.thinking} />
                 </span>
                 <div class="h-px flex-1 bg-edge" />
             </button>
@@ -112,6 +117,34 @@ function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; think
                 </div>
             </Show>
         </div>
+    );
+}
+
+/** Offered while the failed summary is still the session's last word; later turns would go with the undo. */
+function CompactionRetry(props: { entry: MessageEntry }) {
+    const engine = useEngine();
+    const [sending, setSending] = createSignal(false);
+    const session = () => props.entry.info.sessionId;
+    const latest = () =>
+        !sessionBusy(engine.state, session()) &&
+        engine.state.transcripts[session()]?.at(-1)?.info.id === props.entry.info.id;
+
+    const retry = async () => {
+        setSending(true);
+        await retryCompaction(engine, session(), props.entry.info.id);
+        setSending(false);
+    };
+
+    return (
+        <Show when={latest()}>
+            <button
+                class="self-start rounded-md border border-edge px-2 py-1 text-xs text-ink-muted transition-colors hover:border-accent/50 hover:text-ink disabled:opacity-50"
+                disabled={sending()}
+                onClick={() => void retry()}
+            >
+                {t("drift.message.compactionRetry")}
+            </button>
+        </Show>
     );
 }
 
@@ -382,6 +415,9 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                                 }
                             >
                                 <RefusalNotice entry={props.entry} text={error().text} />
+                            </Show>
+                            <Show when={info().summary}>
+                                <CompactionRetry entry={props.entry} />
                             </Show>
                         </Show>
                     )}

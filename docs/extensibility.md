@@ -166,7 +166,8 @@ Drift does the swapping itself, at the two places everything passes, so no hook 
   the real value. The stored call keeps the real value; the next request hides it again.
 
 Matching is exact text, longest secret first, in one pass. A pair is skipped (and logged) when its
-secret or placeholder is empty, a secret is listed twice, or a placeholder contains any secret.
+secret or placeholder is empty, a secret or a placeholder is listed twice, or a placeholder contains
+any secret; the log names the pair by its place, never by its values.
 Choose placeholders that never occur on their own (`API_KEY_PLACEHOLDER`, not `key`): any
 occurrence the model writes in a tool call becomes the secret. What you see in Drift keeps the real
 values (your prompts, tool output, file contents); the model's own replies show the placeholder.
@@ -226,9 +227,11 @@ installs unchanged (`config::bundles::layout`):
   entry naming a value left blank is left out, so a server with its own sign-in signs in instead; a
   reinstall without the value keeps the one saved before. A stdio server also gets
   `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` in its environment. WebSocket servers are skipped.
-- `bin/`: while the bundle and its Programs switch are on, the folder comes first on the PATH of
-  every shell the agent runs, so a skill can say `um scan` and it works. Each command still goes
-  through the permission rules like any other.
+- `bin/`: while the bundle and its Programs switch are on, the folder is on the PATH of every shell
+  the agent runs, after the user's own folders, so a skill can say `um scan` and it works. It never
+  comes first: the shell's approval checks trust a command by its name, so a bundle's own `git` or
+  `ls` must not stand in for the user's. Each command still goes through the permission rules like
+  any other.
 - `hooks/hooks.json` (and the manifest's `hooks`): the events are listed on the bundle's screen and
   never run. A bundle is downloaded code, and hooks would run it on events without the agent or the
   user asking; Drift's own hooks are sandboxed WebAssembly.
@@ -238,7 +241,10 @@ or agent's text names them. A bundle's agents and commands come before the user'
 workspace's own, which replace any of the same name; its skills come after every other skill folder.
 
 The registry lists a bundle as `kind: "bundle"`: the archive of a pinned commit (never a branch, so
-nothing changes under the user until the registry is rebuilt), the plugin's folder inside it
+nothing changes under the user until the registry is rebuilt), an optional `sha256` of that archive
+(checked before anything is unpacked; Drift's own registry leaves it out, since GitHub does not
+promise the same archive bytes for a commit over time, and a team's registry serving fixed files can
+set it), the plugin's folder inside it
 (`path`, empty for the root), and `contents` (its skills, agents and commands with their
 descriptions, each MCP server with how it is reached and the values it asks for, its programs and
 its hook events), read from the repository when the registry is built. The install sheet shows all

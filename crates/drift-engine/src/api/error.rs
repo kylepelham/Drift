@@ -101,7 +101,7 @@ impl From<RevertError> for ApiError {
             RevertError::NotAPrompt => Self::new(
                 StatusCode::BAD_REQUEST,
                 "not_a_prompt",
-                "undo goes back to a prompt you sent",
+                "undo goes back to a prompt you sent or a compaction",
             ),
             RevertError::Busy => Self::new(
                 StatusCode::CONFLICT,

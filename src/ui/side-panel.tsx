@@ -74,12 +74,13 @@ function ResizeHandle(props: { width: number; onWidth: (width: number) => void }
             const max = Math.max(minWidth, window.innerWidth * 0.75);
             props.onWidth(Math.round(Math.min(max, Math.max(minWidth, initial + origin - moved.clientX))));
         };
+        const ends = ["pointerup", "pointercancel", "lostpointercapture"] as const;
         const stop = () => {
             handle.removeEventListener("pointermove", move);
-            handle.removeEventListener("pointerup", stop);
+            for (const end of ends) handle.removeEventListener(end, stop);
         };
         handle.addEventListener("pointermove", move);
-        handle.addEventListener("pointerup", stop);
+        for (const end of ends) handle.addEventListener(end, stop);
     };
 
     return (

@@ -43,7 +43,13 @@ export function BundleRow(props: {
         <div
             class="flex cursor-pointer items-center gap-3 border-b border-edge/70 px-3 py-2.5 last:border-b-0 hover:bg-raised/40"
             role="button"
+            tabIndex={0}
             onClick={() => props.onOpen()}
+            onKeyDown={(event) => {
+                if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                event.preventDefault();
+                props.onOpen();
+            }}
         >
             <Chevron open={false} />
             <LogoTile image={props.bundle.image ?? undefined} title={props.bundle.name} />

@@ -95,7 +95,7 @@ pub struct Config {
     /// The `skillPaths` the files list, resolved; read once the files are applied.
     #[serde(skip)]
     skill_paths: Vec<PathBuf>,
-    /// Folders of programs the shell finds before its own PATH: the `bin/` of each bundle whose programs are on.
+    /// Folders of programs the shell finds after its own PATH: the `bin/` of each bundle whose programs are on.
     #[serde(skip)]
     pub programs: Vec<PathBuf>,
 }

@@ -317,6 +317,33 @@ fn imports_opencode_projects_without_overwriting_drift_metadata() {
     assert!(store.forget_workspace("p1").unwrap());
     assert_eq!(store.import_opencode_workspaces(&source).unwrap(), 0);
     assert!(store.workspaces().unwrap().iter().all(|workspace| workspace.id != "p1"));
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_workspace_removed_and_purged_before_its_folder_was_imported_is_never_offered_again() {
+    let dir = test_dir("import-purged");
+    let store = open_at(&dir.join("drift.db")).unwrap();
+    store.save_workspace("w2", "S:/Two", "Two", "T").unwrap();
+    store.remove_workspace("w2").unwrap();
+    assert!(store.forget_workspace("w2").unwrap());
+    let late = dir.join("opencode-late.db");
+    let connection = Connection::open(&late).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TABLE project(id TEXT PRIMARY KEY, worktree TEXT, name TEXT, time_updated INTEGER);
+         CREATE TABLE session(id TEXT PRIMARY KEY, project_id TEXT, time_updated INTEGER);
+         INSERT INTO project VALUES('p2', 'S:\\Two', 'Two', 50);
+         INSERT INTO session VALUES('s2', 'p2', 51);",
+        )
+        .unwrap();
+    drop(connection);
+    assert_eq!(
+        store.import_opencode_workspaces(&late).unwrap(),
+        0,
+        "the purged folder is not offered again"
+    );
     std::fs::remove_dir_all(&dir).ok();
 }
 
