@@ -1079,6 +1079,21 @@ textarea {
         100% 100%;
 }
 
+/* A truncated shimmer keeps to one line like plain text: a long or multi-line command ends in an ellipsis. */
+[data-component="text-shimmer"].truncate {
+    display: flex;
+}
+
+[data-component="text-shimmer"].truncate [data-slot="text-shimmer-char"] {
+    min-width: 0;
+}
+
+[data-component="text-shimmer"].truncate :where([data-slot="text-shimmer-base"], [data-slot="text-shimmer-sweep"]) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 [data-component="text-shimmer"][data-active="true"] [data-slot="text-shimmer-base"] {
     opacity: 0;
 }

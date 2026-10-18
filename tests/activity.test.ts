@@ -1133,3 +1133,16 @@ test("a forwarded wheel animation keeps every notch's distance and lands exactly
     expect(position).toBe(200);
     expect(wheelStep(0, 100, 16)).toBeGreaterThan(15);
 });
+
+test("a running command's shimmering title keeps to one line however long the command", async () => {
+    const view = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
+    expect(view).toContainCode('props.part.name === "bash" ? "min-w-0 truncate" : "shrink-0"');
+
+    const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
+    expect(css).toMatch(
+        /\[data-component="text-shimmer"\]\.truncate \[data-slot="text-shimmer-char"\] \{[^}]*min-width: 0;/s,
+    );
+    expect(css).toMatch(
+        /\[data-component="text-shimmer"\]\.truncate :where\([^)]*\) \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+    );
+});
