@@ -294,6 +294,14 @@ Tool errors use the same clickable disclosure as successful tool rows. A prefere
 controls whether a newly failed tool starts expanded or collapsed; it never locks the
 row in that state.
 
+Settings > General > Thinking indicator styles the row a working turn shows. Style is Shimmer
+(the default: the word with a sweep of light), Orbs, Floating motes, Dots, Pulse, Still (the
+word without motion), or one an interface plugin registered (see `extensibility.md`). Color is
+Grey, the theme's accent, or Spectrum (the accent turning slowly through every hue), and Speed
+is Slow, Normal or Fast. A figure can drop the word; Shimmer and Still are the word, so they
+keep it. The reasoning heading shows beside every style, and with reduced motion the figures
+stand still. The choice is one UI preference, `drift.thinking.indicator`.
+
 Settings > General > Transcript shapes tool rows. A command row shows the model's
 `description` (the command itself when there is none). "Command output" chooses how its output
 shows: Always collapsed (only the row, open one by clicking it), Open while running (the default:

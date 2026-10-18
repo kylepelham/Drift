@@ -859,6 +859,170 @@ textarea {
     color: var(--ink-faint);
 }
 
+.thinking-indicator {
+    --thinking-speed: 1;
+    --thinking-color: var(--ink-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 1rem;
+}
+
+.thinking-indicator[data-tint="accent"],
+.thinking-indicator[data-tint="spectrum"] {
+    --thinking-color: var(--accent);
+}
+
+.thinking-indicator[data-tint="spectrum"] :is(.thinking-figure, .thinking-label, [data-component="text-shimmer"]) {
+    animation: thinking-hue calc(6s * var(--thinking-speed)) linear infinite;
+}
+
+.thinking-indicator:not([data-tint="neutral"]) [data-component="text-shimmer"] {
+    --text-shimmer-sweep: linear-gradient(
+        90deg,
+        transparent calc(50% - 5.2ch),
+        var(--thinking-color) 50%,
+        transparent calc(50% + 5.2ch)
+    );
+}
+
+.thinking-label {
+    color: color-mix(in srgb, var(--thinking-color) 70%, var(--ink-faint));
+}
+
+.thinking-indicator[data-tint="neutral"] .thinking-label {
+    color: var(--ink-faint);
+}
+
+.thinking-figure {
+    position: relative;
+    display: inline-block;
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+}
+
+.thinking-piece {
+    position: absolute;
+    border-radius: 9999px;
+    background: var(--thinking-color);
+}
+
+.thinking-indicator[data-style="orbs"] .thinking-figure {
+    animation: thinking-spin calc(1.8s * var(--thinking-speed)) linear infinite;
+}
+
+.thinking-indicator[data-style="orbs"] .thinking-piece {
+    top: calc(50% - 0.16rem);
+    left: calc(50% - 0.16rem);
+    width: 0.32rem;
+    height: 0.32rem;
+    box-shadow: 0 0 0.35rem color-mix(in srgb, var(--thinking-color) 70%, transparent);
+    transform: rotate(calc(var(--i) * 120deg)) translateY(-0.3rem);
+    animation: thinking-orb calc(1.2s * var(--thinking-speed)) ease-in-out infinite;
+    animation-delay: calc(var(--i) * -0.4s * var(--thinking-speed));
+}
+
+.thinking-indicator[data-style="float"] .thinking-piece {
+    bottom: 0;
+    left: calc(var(--i) * 0.2rem);
+    width: 0.2rem;
+    height: 0.2rem;
+    opacity: 0;
+    box-shadow: 0 0 0.25rem color-mix(in srgb, var(--thinking-color) 60%, transparent);
+    animation: thinking-rise calc(2.2s * var(--thinking-speed)) ease-out infinite;
+    animation-delay: calc(var(--i) * -0.44s * var(--thinking-speed));
+}
+
+.thinking-indicator[data-style="dots"] .thinking-figure {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.16rem;
+    width: auto;
+}
+
+.thinking-indicator[data-style="dots"] .thinking-piece {
+    position: static;
+    width: 0.26rem;
+    height: 0.26rem;
+    animation: thinking-hop calc(1.1s * var(--thinking-speed)) ease-in-out infinite;
+    animation-delay: calc(var(--i) * 0.15s * var(--thinking-speed));
+}
+
+.thinking-indicator[data-style="pulse"] .thinking-piece {
+    top: calc(50% - 0.22rem);
+    left: calc(50% - 0.22rem);
+    width: 0.44rem;
+    height: 0.44rem;
+    animation: thinking-breathe calc(1.6s * var(--thinking-speed)) ease-in-out infinite;
+}
+
+@keyframes thinking-spin {
+    to {
+        rotate: 360deg;
+    }
+}
+
+@keyframes thinking-orb {
+    50% {
+        scale: 0.55;
+        opacity: 0.5;
+    }
+}
+
+@keyframes thinking-rise {
+    25% {
+        opacity: 0.9;
+    }
+    to {
+        opacity: 0;
+        translate: calc((var(--i) - 2) * 0.08rem) -0.95rem;
+        scale: 0.5;
+    }
+}
+
+@keyframes thinking-hop {
+    0%,
+    60%,
+    100% {
+        translate: 0 0;
+        opacity: 0.45;
+    }
+    30% {
+        translate: 0 -0.22rem;
+        opacity: 1;
+    }
+}
+
+@keyframes thinking-breathe {
+    0%,
+    100% {
+        scale: 0.7;
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--thinking-color) 45%, transparent);
+    }
+    50% {
+        scale: 1;
+        box-shadow: 0 0 0 0.3rem transparent;
+    }
+}
+
+@keyframes thinking-hue {
+    to {
+        filter: hue-rotate(360deg);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .thinking-indicator :is(.thinking-figure, .thinking-piece, .thinking-label) {
+        animation: none;
+    }
+
+    .thinking-indicator[data-style="float"] .thinking-piece {
+        opacity: 0.7;
+        bottom: calc(var(--i) * 0.15rem);
+    }
+}
+
 [data-component="text-shimmer"] {
     --text-shimmer-base: linear-gradient(var(--ink-faint), var(--ink-faint));
     --text-shimmer-sweep: linear-gradient(

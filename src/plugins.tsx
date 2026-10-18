@@ -1,3 +1,4 @@
+import { registerThinkingIndicator, type ThinkingIndicator } from "./thinking-indicators";
 import { createEffect, createSignal, onCleanup, onMount, untrack } from "solid-js";
 import { selectedSession, selectSession } from "./state/selection";
 import { activeWorkspace } from "./state/workspaces";
@@ -55,6 +56,7 @@ type DriftPluginApi = {
     registerToolRenderer: (tool: string, renderer: ToolRenderer) => () => void;
     registerPartRenderer: (type: string, renderer: PartRenderer) => () => void;
     registerToolContextActions: (tool: string, provider: ToolContextActionProvider) => () => void;
+    registerThinkingIndicator: (id: string, indicator: ThinkingIndicator) => () => void;
     ask: (question: QuestionInfo | QuestionInfo[]) => Promise<string[][] | null>;
     files: {
         open: (path: string, location?: FileLocation) => Promise<{ positioned: boolean }>;
@@ -267,6 +269,7 @@ function createPluginApi(engine: Engine) {
         registerToolRenderer: (tool, renderer) => track(registerToolRenderer(tool, renderer)),
         registerPartRenderer: (type, renderer) => track(registerPartRenderer(type, renderer)),
         registerToolContextActions: (tool, provider) => track(registerToolContextActions(tool, provider)),
+        registerThinkingIndicator: (id, indicator) => track(registerThinkingIndicator(id, indicator)),
         ask: (question) => pushAsk(Array.isArray(question) ? question : [question], selectedSession()),
         files: { open: openFile },
         threads: {
