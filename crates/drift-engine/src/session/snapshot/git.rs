@@ -100,7 +100,7 @@ impl Snapshots {
 }
 
 /// Git in the workspace's own repository, never the shadow one; `None` when it fails.
-pub(super) async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Option<Vec<u8>> {
+pub(crate) async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u8]>) -> Option<Vec<u8>> {
     let mut command = Command::new("git");
     let stdin = if input.is_some() { Stdio::piped() } else { Stdio::null() };
     command
@@ -114,10 +114,20 @@ pub(super) async fn plain_git(workspace: &Path, args: &[&str], input: Option<&[u
     #[cfg(windows)]
     command.creation_flags(0x0800_0000);
     let mut child = command.spawn().ok()?;
-    if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
-        stdin.write_all(input).await.ok()?;
-    }
+    // Fed while the output is read: a reply like `cat-file --batch` can fill its pipe before the input is all in.
+    let writer = match (input, child.stdin.take()) {
+        (Some(input), Some(mut stdin)) => {
+            let input = input.to_vec();
+            Some(tokio::spawn(async move { stdin.write_all(&input).await.is_ok() }))
+        }
+        _ => None,
+    };
 
     let output = child.wait_with_output().await.ok()?;
+    if let Some(writer) = writer
+        && !writer.await.unwrap_or(false)
+    {
+        return None;
+    }
     output.status.success().then_some(output.stdout)
 }

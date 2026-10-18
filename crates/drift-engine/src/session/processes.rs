@@ -28,6 +28,21 @@ impl Engine {
         self.background_processes() && self.store.setting(HANDOFF_KEY).ok().flatten().unwrap_or(true)
     }
 
+    /// Whether a background subagent or process the session started is still running; its end will wake the session.
+    pub(crate) fn background_running(&self, session_id: &str) -> bool {
+        let tasks = self.store.tasks_of(session_id).unwrap_or_default();
+        let working = tasks
+            .iter()
+            .any(|task| task.mode == super::tasks::Mode::Background && !task.state.is_terminal());
+
+        working
+            || self
+                .processes
+                .of(session_id)
+                .iter()
+                .any(|handle| handle.exit().is_none())
+    }
+
     /// Hands a started command to the background; it belongs to `start.session_id` from now on.
     pub(crate) fn start_process(self: &Arc<Self>, start: Start) -> Watching {
         let (_, generation) = self.worker_scope(&start.session_id);

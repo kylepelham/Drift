@@ -28,8 +28,8 @@ async fn wait_until_a_line_then_read_only_what_is_new_then_stop() {
     let sandbox = Sandbox::new("process-wait");
     let id = background(
         &sandbox,
-        "sleep 1; echo 'ready at http://localhost:7000'; sleep 1; echo later; sleep 30",
-        "Start-Sleep 1; Write-Output 'ready at http://localhost:7000'; Start-Sleep 1; Write-Output later; Start-Sleep 30",
+        "sleep 3; echo 'ready at http://localhost:7000'; sleep 1; echo later; sleep 30",
+        "Start-Sleep 3; Write-Output 'ready at http://localhost:7000'; Start-Sleep 1; Write-Output later; Start-Sleep 30",
     )
     .await;
 
@@ -111,4 +111,45 @@ fn spans_read_as_a_person_would_say_them() {
     assert_eq!(elapsed(4_500), "4 s");
     assert_eq!(elapsed(125_000), "2 min 5 s");
     assert_eq!(elapsed(3_725_000), "1 h 2 min");
+}
+
+#[tokio::test]
+async fn a_wait_ends_when_a_message_arrives_in_the_conversation() {
+    let mut sandbox = Sandbox::new("process-arrival");
+    let store = &sandbox.ctx.engine.store;
+    let workspace = store
+        .add_workspace(&sandbox.ctx.workspace.to_string_lossy(), "ws", "")
+        .unwrap();
+    let session = store
+        .create_session(crate::store::NewSession {
+            workspace_id: &workspace.id,
+            parent_id: None,
+            visibility: crate::session::types::Visibility::Sibling,
+            title: "Arrival",
+            agent: "build",
+            model: None,
+        })
+        .unwrap();
+    sandbox.ctx.session_id = session.id;
+    let id = background(&sandbox, "sleep 30", "Start-Sleep 30").await;
+    let engine = sandbox.ctx.engine.clone();
+    let session = sandbox.ctx.session_id.clone();
+    let arriving = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        let message = engine
+            .store
+            .create_message(&session, crate::session::types::Role::User, None)
+            .unwrap();
+        engine.hub.publish(crate::event::Event::MessageCreated { message });
+    });
+
+    let started = std::time::Instant::now();
+    let waited = call(&sandbox, json!({ "action": "wait", "id": id, "wait_seconds": 60 }))
+        .await
+        .unwrap();
+    arriving.await.unwrap();
+
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert!(waited.output.starts_with("A new message arrived"), "{}", waited.output);
+    sandbox.ctx.engine.processes.stop_session(&sandbox.ctx.session_id);
 }

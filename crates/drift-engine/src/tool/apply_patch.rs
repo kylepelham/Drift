@@ -157,7 +157,9 @@ impl Plan {
         target: &Path,
         chunks: &[Chunk],
     ) -> Result<(), ToolError> {
-        let raw = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
+        let raw = existing(ctx, path, false)
+            .await?
+            .ok_or(ToolError("does not exist".into()))?;
         // Lossy decoding would write every byte that is not UTF-8 back as U+FFFD.
         let text = String::from_utf8(raw.clone()).map_err(|_| {
             ToolError(
@@ -193,7 +195,7 @@ impl Plan {
                 display(target, &ctx.workspace)
             )));
         }
-        let displaced = existing(ctx, target).await?;
+        let displaced = existing(ctx, target, true).await?;
         self.steps.push(Step {
             path: target.to_path_buf(),
             before: displaced,
@@ -209,7 +211,7 @@ impl Plan {
     }
 
     async fn prepare_add(&mut self, ctx: &Context, path: &Path, content: &str) -> Result<(), ToolError> {
-        let existing = existing(ctx, path).await?;
+        let existing = existing(ctx, path, true).await?;
         let before_text = existing
             .as_ref()
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
@@ -234,7 +236,9 @@ impl Plan {
     }
 
     async fn prepare_delete(&mut self, ctx: &Context, path: &Path) -> Result<(), ToolError> {
-        let before = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
+        let before = existing(ctx, path, true)
+            .await?
+            .ok_or(ToolError("does not exist".into()))?;
 
         self.changes.push(Change::new(
             path,
@@ -303,15 +307,16 @@ impl Plan {
     }
 }
 
-/// A file's bytes if it exists and was read this session; only a missing file is absent, any other read error stops the patch.
-async fn existing(ctx: &Context, path: &Path) -> Result<Option<Vec<u8>>, ToolError> {
+/// A file's bytes if it exists; only a missing file is absent, any other read error stops the patch. `whole` is a
+/// change to all of it (replacing, deleting, moving onto it), which needs a read this session; a hunk proves itself.
+async fn existing(ctx: &Context, path: &Path, whole: bool) -> Result<Option<Vec<u8>>, ToolError> {
     let bytes = match tokio::fs::read(path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(ToolError(format!("could not read it: {error}"))),
     };
 
-    if !ctx.files.was_read(path) {
+    if whole && !ctx.files.was_read(path) {
         return Err(ToolError(
             "exists and has not been read this session; read it before patching it".into(),
         ));

@@ -133,9 +133,7 @@ impl Engine {
         permissions.save_grants_with(Box::new(move |workspace, grants| {
             let _ = saving.set_setting(&grants_key(workspace), &grants);
         }));
-        if store.setting::<bool>(AUTO_ACCEPT_ALL_KEY)?.unwrap_or(false) {
-            permissions.set_auto_accept(&Hub::new(0), None, true);
-        }
+        permissions.load_auto_accept_all(store.setting(AUTO_ACCEPT_ALL_KEY)?.unwrap_or(false));
 
         let mcp = mcp::Servers::new(credentials.clone(), store.clone());
         let background_limit = session::tasks::stored_background_limit(&store);
@@ -280,7 +278,7 @@ impl Engine {
 
     /// The workspace's agents, commands and skills with the user's Settings overrides applied.
     pub fn workspace_config(&self, workspace: &Path) -> config::Config {
-        let mut config = config::Config::load_skipping(workspace, &self.disabled_skills());
+        let mut config = config::Config::load_with(workspace, &self.disabled_skills(), &self.active_bundles());
         config.apply_overrides(&self.agent_overrides.read().unwrap());
 
         config

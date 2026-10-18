@@ -5,6 +5,8 @@ license.workspace = true
 edition = "2024"
 
 [dependencies]
+# Already in the tree through `ignore`; one pass over a whole request for every secret.
+aho-corasick = "1.1"
 axum = { workspace = true, features = ["ws"] }
 # Text files in prompts travel as data URLs; both crates are already in the tree through reqwest.
 base64 = "0.22"

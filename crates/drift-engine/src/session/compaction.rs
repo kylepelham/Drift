@@ -185,7 +185,8 @@ impl Engine {
     }
 
     /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it.
-    /// Refused while undone, because the summary would follow hidden messages the next prompt deletes.
+    /// An undo still pending is committed first, as sending a prompt would: the rolled-back messages go
+    /// and the summary covers what is visible.
     pub fn start_compaction(self: &Arc<Self>, session_id: &str) -> Result<(), TurnError> {
         let abort = CancellationToken::new();
         if !self.turns.claim(session_id, &abort) {
@@ -197,8 +198,10 @@ impl Engine {
             Ok(None) => return self.refuse_compaction(session_id, TurnError::NoSession),
             Err(error) => return self.refuse_compaction(session_id, error.into()),
         };
-        if session.revert.is_some() {
-            return self.refuse_compaction(session_id, TurnError::Reverted);
+        if session.revert.is_some()
+            && let Err(error) = self.commit_revert(session_id)
+        {
+            return self.refuse_compaction(session_id, error.into());
         }
 
         let engine = self.clone();
@@ -206,6 +209,21 @@ impl Engine {
         self.spawn_job(session_id, async move {
             let _ = engine.compact(&id, Trigger::Manual, &abort).await;
         });
+
+        Ok(())
+    }
+
+    fn commit_revert(&self, session_id: &str) -> rusqlite::Result<()> {
+        let (discarded, session) = self.store.commit_revert(session_id)?;
+        for message_id in discarded {
+            self.hub.publish(Event::MessageRemoved {
+                session_id: session_id.into(),
+                message_id,
+            });
+        }
+        if let Some(session) = session {
+            self.hub.publish(Event::SessionUpdated { session });
+        }
 
         Ok(())
     }

@@ -370,3 +370,37 @@ async fn task_output_with_several_ids_returns_when_the_first_finishes() {
     );
     assert_eq!(out.metadata.delivers.as_deref(), Some(quick.id.as_str()));
 }
+
+#[tokio::test]
+async fn a_long_task_output_wait_ends_when_a_message_arrives() {
+    let h = harness().await;
+    let running = recorded(&h, "a", Mode::Background);
+    h.engine.store.start_task(&running.id).unwrap();
+
+    let arriving = {
+        let engine = h.engine.clone();
+        let session = h.session.id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            let message = engine
+                .store
+                .create_message(&session, crate::session::types::Role::User, None)
+                .unwrap();
+            engine.hub.publish(crate::event::Event::MessageCreated { message });
+        })
+    };
+    let ctx = context(&h, &h.session.id, "call");
+    let started = std::time::Instant::now();
+    let out = crate::tool::task::TaskOutput
+        .run(&ctx, json!({ "task_id": running.id, "wait_seconds": 60 }))
+        .await
+        .unwrap();
+    arriving.await.unwrap();
+
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "it stops waiting for the message"
+    );
+    assert!(out.output.contains("A new message arrived"), "{}", out.output);
+    assert!(out.metadata.delivers.is_none(), "the task is still running");
+}

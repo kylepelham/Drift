@@ -380,21 +380,38 @@ impl Tool for TaskOutput {
 
             let wait = std::time::Duration::from_secs(input["wait_seconds"].as_u64().unwrap_or(0)).min(MAX_WAIT);
             let until = tokio::time::Instant::now() + wait;
+            let mut arrivals = ctx.engine.arrivals(&ctx.session_id);
+            let mut interrupted = false;
             while !tasks.iter().any(|task| task.state.is_terminal())
                 && tokio::time::Instant::now() < until
                 && !ctx.abort.is_cancelled()
             {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                // A message arriving meanwhile is read now, not when the wait runs out.
+                tokio::select! {
+                    () = tokio::time::sleep(std::time::Duration::from_millis(200)) => {}
+                    () = arrivals.next() => interrupted = true,
+                }
                 tasks = tasks
                     .iter()
                     .map(|task| owned_id(ctx, &task.id))
                     .collect::<Result<_, _>>()?;
+                if interrupted {
+                    break;
+                }
             }
 
-            Ok(answer(&tasks, &claimed))
+            let mut output = answer(&tasks, &claimed);
+            if interrupted && !tasks.iter().any(|task| task.state.is_terminal()) {
+                output.output.push_str(ARRIVED);
+            }
+            Ok(output)
         })
     }
 }
+
+const ARRIVED: &str = "
+
+A new message arrived in this conversation, so the wait stopped early.";
 
 /// The first finished task, its result when this call hands it over, and how the others stand.
 fn answer(tasks: &[TaskRecord], claimed: &[String]) -> Output {

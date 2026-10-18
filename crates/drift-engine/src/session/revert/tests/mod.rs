@@ -1,5 +1,4 @@
 use crate::permission::{Decision, Policy, Rule};
-use crate::session::turn::TurnError;
 use crate::session::turn::tests::{Harness, harness, prompt, text, tool_call, until_idle};
 use crate::session::types::MessageStatus;
 use serde_json::json;

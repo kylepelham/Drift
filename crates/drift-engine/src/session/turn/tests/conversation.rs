@@ -35,7 +35,7 @@ async fn a_plain_reply_is_stored_and_costed() {
     assert_eq!(session(&h).model, Some(model()));
     let requests = h.provider.requests.lock().unwrap();
     assert!(requests[0].system.starts_with("You are Drift"));
-    assert_eq!(requests[0].tools.len(), 15);
+    assert_eq!(requests[0].tools.len(), 16);
 }
 
 #[tokio::test]

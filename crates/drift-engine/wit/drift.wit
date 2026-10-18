@@ -188,3 +188,12 @@ world plugin {
     export compaction: func(compaction: compaction) -> compacting;
     export session: func(session: session, kind: session-kind);
 }
+
+/// A plugin that also keeps secrets from the model. Each pair is a secret and the placeholder the model
+/// sees instead: in prompts, files, instructions, tool output and errors, everything sent to a model.
+/// Placeholders the model writes in a tool call become the secrets again before the call runs. Asked
+/// once when the plugin loads; a plugin built for `plugin` alone keeps working.
+world masking {
+    include plugin;
+    export replacements: func() -> list<tuple<string, string>>;
+}

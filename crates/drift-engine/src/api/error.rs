@@ -56,7 +56,6 @@ impl From<TurnError> for ApiError {
             TurnError::NoSession | TurnError::NoWorkspace => (StatusCode::NOT_FOUND, "not_found"),
             TurnError::Busy => (StatusCode::CONFLICT, "busy"),
             TurnError::NotRetrying => (StatusCode::CONFLICT, "not_retrying"),
-            TurnError::Reverted => (StatusCode::CONFLICT, "reverted"),
             TurnError::Stopped => (StatusCode::CONFLICT, "stopped"),
             TurnError::Moved => (StatusCode::CONFLICT, "moved"),
             TurnError::UnknownAgent => (StatusCode::BAD_REQUEST, "agent"),

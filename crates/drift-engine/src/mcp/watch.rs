@@ -122,6 +122,13 @@ impl crate::Engine {
         }
     }
 
+    /// Starts a remote server's shared connection in the background; a stdio one starts with its workspace's next turn.
+    pub(crate) fn begin_remote_mcp(self: &Arc<Self>, row: &super::ServerRow) {
+        if row.config.is_remote() && row.on_anywhere() {
+            self.begin_mcp(Key::shared(&row.name));
+        }
+    }
+
     fn begin_mcp(self: &Arc<Self>, key: Key) {
         let Ok((row, attempt)) = self.mcp.begin(&key, &self.store, Start::Startup) else {
             return;

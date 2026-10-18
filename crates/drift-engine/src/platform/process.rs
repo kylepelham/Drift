@@ -317,6 +317,14 @@ pub fn use_current_path(command: &mut tokio::process::Command, own: &std::collec
     }
 }
 
+/// The current PATH with `first` ahead of it, so a bundle's programs are found before anything else of that name.
+pub fn path_with(first: &[std::path::PathBuf]) -> std::ffi::OsString {
+    let current = current_path();
+    let dirs = first.iter().cloned().chain(std::env::split_paths(&current));
+
+    std::env::join_paths(dirs).unwrap_or(current)
+}
+
 fn merged(live: &std::ffi::OsStr, saved: Option<std::ffi::OsString>) -> std::ffi::OsString {
     let key = |dir: &std::path::Path| dir.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase();
     let mut dirs: Vec<std::path::PathBuf> = std::env::split_paths(live).collect();
@@ -443,7 +451,8 @@ mod tests {
         std::fs::write(root.join("parent.cmd"), "@echo off\r\nstart \"\" /b cmd.exe /c \"ping -n 30 127.0.0.1 > nul & echo late>late.txt\"\r\nexit /b 0\r\n").unwrap();
         let mut command = tokio::process::Command::new("cmd.exe");
         command
-            .args(["/c", "parent.cmd"])
+            .arg("/c")
+            .arg(root.join("parent.cmd"))
             .current_dir(&root)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -493,6 +502,15 @@ mod tests {
             "a path is taken as given"
         );
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_bundles_programs_are_found_before_anything_else_on_path() {
+        let bin = std::env::temp_dir().join("drift-bundle-bin");
+        let path = super::path_with(std::slice::from_ref(&bin));
+        let dirs: Vec<_> = std::env::split_paths(&path).collect();
+        assert_eq!(dirs.first(), Some(&bin));
+        assert_eq!(dirs.len(), std::env::split_paths(&super::current_path()).count() + 1);
     }
 
     #[test]

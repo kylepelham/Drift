@@ -15,6 +15,7 @@ pub mod google;
 pub mod http;
 pub mod limits;
 pub mod local;
+pub mod mask;
 mod oauth_error;
 pub mod ollama;
 pub mod openai;

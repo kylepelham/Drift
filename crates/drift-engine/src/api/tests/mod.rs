@@ -11,6 +11,7 @@ mod events;
 mod http;
 mod mcp;
 mod permissions;
+mod review;
 mod sessions;
 mod settings;
 

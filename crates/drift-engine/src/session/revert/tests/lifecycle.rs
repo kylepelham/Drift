@@ -260,7 +260,7 @@ async fn undo_puts_back_what_a_subagent_wrote() {
 }
 
 #[tokio::test]
-async fn while_undone_a_fork_copies_only_what_is_visible_and_compaction_waits() {
+async fn while_undone_a_fork_copies_only_what_is_visible_and_compaction_commits_the_undo() {
     let h = harness().await;
     let (_, second) = two_writing_turns(&h).await;
     h.engine.revert(&h.session.id, &second).await.unwrap();
@@ -270,9 +270,21 @@ async fn while_undone_a_fork_copies_only_what_is_visible_and_compaction_waits() 
     assert_eq!(copied.len(), 3, "the first prompt, its write and its reply");
     assert!(copied.iter().all(|message| message.info.status == MessageStatus::Done));
 
-    assert_eq!(h.engine.start_compaction(&h.session.id), Err(TurnError::Reverted));
+    h.provider.push(text("SUMMARY"));
+    assert_eq!(h.engine.start_compaction(&h.session.id), Ok(()));
+    until_idle(&h).await;
+    let session = h.engine.store.session(&h.session.id).unwrap().unwrap();
     assert!(
-        !h.engine.turns.is_running(&h.session.id),
-        "the refused compaction left nothing claimed"
+        session.revert.is_none(),
+        "compacting commits the undo, as a prompt does"
+    );
+    assert!(
+        h.engine
+            .store
+            .transcript(&h.session.id)
+            .unwrap()
+            .iter()
+            .all(|message| message.info.id != second),
+        "the rolled-back prompt is gone"
     );
 }

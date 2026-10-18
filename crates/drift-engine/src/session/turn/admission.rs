@@ -210,6 +210,7 @@ impl Engine {
             .lock()
             .unwrap()
             .insert(session_id.into(), Steering::of(&plan));
+        self.turns.steerable.notify_waiters();
         let engine = self.clone();
         self.spawn_job(session_id, async move { engine.run(plan, abort).await });
 
@@ -291,14 +292,21 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
 
+        // A turn still planning takes the prompt as soon as it runs; another job is waited out until it ends.
         let never = CancellationToken::new();
         let stop = how.parent.unwrap_or(&never);
-        let wait = tokio::time::timeout(QUEUE_WAIT, self.turns.wait_idle(session_id, stop)).await;
-        if wait.is_err() {
-            return Err(TurnError::Busy);
-        }
-        if stop.is_cancelled() {
-            return Err(TurnError::Stopped);
+        let deadline = tokio::time::Instant::now() + QUEUE_WAIT;
+        while self.turns.is_running(session_id) {
+            let changed = self.turns.wait_change(session_id, stop);
+            if tokio::time::timeout_at(deadline, changed).await.is_err() {
+                return Err(TurnError::Busy);
+            }
+            if stop.is_cancelled() {
+                return Err(TurnError::Stopped);
+            }
+            if let Some(receipt) = self.steer(session_id, &prompt, payload_hash, how)? {
+                return Ok(receipt);
+            }
         }
 
         Box::pin(self.admit(session_id, prompt, how)).await

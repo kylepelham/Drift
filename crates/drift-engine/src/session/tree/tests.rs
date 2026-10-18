@@ -339,6 +339,79 @@ async fn a_fork_of_a_long_turn_keeps_its_finished_steps_and_leaves_the_running_o
 }
 
 #[tokio::test]
+async fn a_stale_open_call_before_the_running_turn_does_not_truncate_a_fork() {
+    let h = harness().await;
+    two_turns(&h).await;
+    let old = h.engine.store.message_infos(&h.session.id).unwrap()[1].id.clone();
+    let stale = h
+        .engine
+        .store
+        .add_part(
+            &old,
+            &h.session.id,
+            Part::ToolCall {
+                call_id: "old-task".into(),
+                name: "task".into(),
+                input: json!({"description": "interrupted task"}),
+                status: crate::session::types::ToolStatus::Running,
+                title: None,
+                output: Some("partial output".into()),
+                metadata: None,
+                started_at: Some(1),
+                finished_at: None,
+            },
+        )
+        .unwrap();
+    long_bash(&h);
+    h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();
+
+    let fork = h.engine.fork(&h.session.id, None).unwrap();
+    assert_eq!(texts(&h, &fork.id), ["first", "one", "second", "two"]);
+    let copied = h.engine.store.transcript(&fork.id).unwrap();
+    let call = copied
+        .iter()
+        .flat_map(|m| &m.parts)
+        .find(|row| matches!(&row.part, Part::ToolCall { call_id, .. } if call_id == "old-task"))
+        .unwrap();
+    let Part::ToolCall {
+        status,
+        output,
+        finished_at,
+        ..
+    } = &call.part
+    else {
+        unreachable!()
+    };
+    assert_eq!(*status, crate::session::types::ToolStatus::Error);
+    assert!(output.as_deref().unwrap().starts_with("partial output"));
+    assert!(output.as_deref().unwrap().contains("interrupted"));
+    assert!(finished_at.is_some());
+    assert_eq!(
+        h.engine.store.with_parts(&old).unwrap().unwrap().parts.last().unwrap(),
+        &stale
+    );
+    h.engine.abort(&h.session.id);
+    until_idle(&h).await;
+}
+
+#[tokio::test]
+async fn a_stale_streaming_message_before_the_running_turn_does_not_truncate_a_fork() {
+    let h = harness().await;
+    h.engine
+        .store
+        .create_message(&h.session.id, Role::Assistant, None)
+        .unwrap();
+    two_turns(&h).await;
+    long_bash(&h);
+    h.engine.submit(&h.session.id, prompt("wait")).await.unwrap();
+
+    let fork = h.engine.fork(&h.session.id, None).unwrap();
+    assert_eq!(texts(&h, &fork.id), ["first", "one", "second", "two"]);
+    h.engine.abort(&h.session.id);
+    until_idle(&h).await;
+}
+
+#[tokio::test]
 async fn a_move_takes_subagents_but_not_branches_and_waits_for_idle() {
     let h = harness().await;
     let other = h

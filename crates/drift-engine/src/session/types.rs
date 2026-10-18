@@ -219,6 +219,10 @@ pub enum Part {
         /// For an `@` mention, the workspace file it was read from, so a client can open it; only the engine sets it.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<String>,
+        /// The number the model knows a pasted image by (`[Image 2]`), counted across the conversation when it is
+        /// attached; `save_image` writes it to a file by that number. Only the engine sets it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<u32>,
     },
     /// A background worker's result, put into its parent's conversation by the engine, not typed by the user.
     #[serde(rename_all = "camelCase")]

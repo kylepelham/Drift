@@ -246,6 +246,7 @@ fn mentions(workspace: &Path, text: &str) -> Vec<Part> {
                 name: name.into(),
                 url: file_url(&path),
                 path: None,
+                image: None,
             })
         })
         .collect()

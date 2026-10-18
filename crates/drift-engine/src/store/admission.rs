@@ -76,6 +76,14 @@ impl<'a> Pick<'a> {
 }
 
 impl Store {
+    /// Deletes what an undo hid, as the next prompt would, and returns the removed messages' ids with the session.
+    pub fn commit_revert(&self, session_id: &str) -> rusqlite::Result<(Vec<String>, Option<Session>)> {
+        transaction(&self.lock(), |connection| {
+            let discarded = discard_reverted(connection, session_id)?;
+            Ok((discarded, session_in(connection, session_id)?))
+        })
+    }
+
     /// Records a user prompt as one unit: message, parts and the session's model, or nothing at all.
     /// A prompt sent while undone commits the undo: the hidden messages go, in the same write.
     pub fn admit_prompt(

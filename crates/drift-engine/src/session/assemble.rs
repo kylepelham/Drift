@@ -17,6 +17,8 @@ pub(crate) struct Assembler<'a> {
     pub refusal: Option<Refusal>,
     pub calls: Vec<PartRow>,
     generation: super::generation::Generation,
+    /// Placeholders in a finished tool call's input become the secrets they stand for.
+    masks: std::sync::Arc<crate::llm::mask::Masks>,
 }
 
 /// How often a streaming part is written to disk as it stands, so a crash loses little of it.
@@ -43,7 +45,13 @@ impl<'a> Assembler<'a> {
             refusal: None,
             calls: Vec::new(),
             generation: Default::default(),
+            masks: Default::default(),
         }
+    }
+
+    pub(crate) fn revealing(mut self, masks: std::sync::Arc<crate::llm::mask::Masks>) -> Self {
+        self.masks = masks;
+        self
     }
 
     pub(crate) fn apply(&mut self, chunk: Chunk) -> rusqlite::Result<()> {
@@ -172,6 +180,7 @@ impl<'a> Assembler<'a> {
 
         if let Part::ToolCall { input, .. } = &mut open.row.part {
             *input = parse_input(&open.tool_json);
+            self.masks.reveal(input);
         }
         self.store.save_part(&open.row)?;
         self.hub.publish(Event::PartUpdated { part: open.row.clone() });

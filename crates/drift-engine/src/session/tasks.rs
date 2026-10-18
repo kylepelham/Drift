@@ -699,11 +699,9 @@ impl Engine {
 
     /// Writes a foreground result into its launching call if that call's own result never landed.
     fn recover_foreground(&self, task: &TaskRecord) {
-        let transcript = self.store.transcript(&task.parent_session_id).unwrap_or_default();
-        let call = transcript
-            .into_iter()
-            .flat_map(|message| message.parts)
-            .find(|row| matches!(&row.part, Part::ToolCall { call_id, .. } if *call_id == task.call_id));
+        let Ok(call) = self.store.call_part(&task.parent_session_id, &task.call_id) else {
+            return;
+        };
         let unsettled = |row: &PartRow| {
             matches!(
                 row.part,
