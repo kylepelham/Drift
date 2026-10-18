@@ -9,7 +9,6 @@ import { useEngine, type Engine } from "../engine";
 import { emitThreadArchived } from "../plugins";
 import { TextShimmer } from "./text-shimmer";
 import { dragReorder } from "./drag-reorder";
-import { BackgroundTag } from "./task-dock";
 import { t } from "../state/i18n";
 import {
     activeWorkspaceId,
@@ -427,15 +426,17 @@ function ChildThreadItem(props: {
             </span>
             <StatusDot sessionId={props.sessionId} />
             <span
-                class="min-w-0 flex-1 truncate text-[0.75rem]"
-                classList={{ "text-ink": active(), "text-ink-faint": !active() }}
+                class="min-w-0 truncate text-[0.75rem]"
+                classList={{
+                    "text-ink": active(),
+                    "text-ink-faint": !active(),
+                    "background-mark": background(),
+                }}
+                title={background() ? t("drift.task.background") : undefined}
             >
                 {props.title || t("drift.thread.untitled")}
             </span>
-            <Show when={background()}>
-                <BackgroundTag />
-            </Show>
-            <span class="touch-thread-menu hidden shrink-0">
+            <span class="touch-thread-menu ms-auto hidden shrink-0">
                 <RowButton
                     title={t("common.moreOptions")}
                     onClick={(event) => {

@@ -1136,7 +1136,7 @@ test("a forwarded wheel animation keeps every notch's distance and lands exactly
 
 test("a running command's shimmering title keeps to one line however long the command", async () => {
     const view = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
-    expect(view).toContainCode('props.part.name === "bash" ? "min-w-0 truncate" : "shrink-0"');
+    expect(view).toContainCode('props.part.name === "bash" || delegated() ? "min-w-0 truncate" : "shrink-0"');
 
     const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
     expect(css).toMatch(
@@ -1145,4 +1145,19 @@ test("a running command's shimmering title keeps to one line however long the co
     expect(css).toMatch(
         /\[data-component="text-shimmer"\]\.truncate :where\([^)]*\) \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
     );
+});
+
+test("background work is marked by a dotted squiggle under its title, and agents sit in a bordered card", async () => {
+    const view = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
+    const sidebar = await Bun.file(new URL("../src/ui/workspaces.tsx", import.meta.url)).text();
+    for (const source of [view, sidebar]) {
+        expect(source).not.toContain("BackgroundTag");
+        expect(source).toContain('"background-mark": ');
+    }
+    expect(view).toContainCode('<span class="delegate-avatar" data-status={delegatedStatus() ?? "running"}>');
+
+    const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
+    expect(css).toMatch(/\.background-mark::after \{[^}]*mask: url\("data:image\/svg\+xml,[^"]*stroke-dasharray/s);
+    expect(css).toMatch(/\.delegate-card \{[^}]*border: 1px solid/s);
+    expect(css).not.toContain("border-inline-start-style: dashed");
 });

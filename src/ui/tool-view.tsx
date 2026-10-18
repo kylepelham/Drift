@@ -10,7 +10,6 @@ import { toolDisplay } from "./tool-presentation";
 import { ToolDuration } from "./tool-duration";
 import { taskTiming } from "../engine/store";
 import { TextShimmer } from "./text-shimmer";
-import { BackgroundTag } from "./task-dock";
 import { parseDiff } from "./diff-panel";
 import { ToolBody } from "./tool-body";
 import { useEngine } from "../engine";
@@ -230,10 +229,7 @@ export function ToolView(props: { part: ToolPart }) {
         <div class="tool-row flex min-w-0 max-w-full flex-col gap-1 text-sm">
             <button
                 class="tool-row-header flex min-h-7 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1 text-left transition-colors hover:bg-raised/35"
-                classList={{
-                    "delegate-tool border-accent/35": delegated(),
-                    "delegate-tool-background": !!background(),
-                }}
+                classList={{ "delegate-card": delegated() }}
                 aria-expanded={inlineExpanded()}
                 onClick={activate}
             >
@@ -252,7 +248,9 @@ export function ToolView(props: { part: ToolPart }) {
                     />
                 </Show>
                 <Show when={delegated()}>
-                    <IconBranch class="delegate-tool-icon size-3.5 shrink-0 text-accent/70" />
+                    <span class="delegate-avatar" data-status={delegatedStatus() ?? "running"}>
+                        <IconBranch class="delegate-tool-icon size-3" />
+                    </span>
                 </Show>
                 <Show
                     when={active()}
@@ -263,10 +261,12 @@ export function ToolView(props: { part: ToolPart }) {
                                 <span
                                     class="tool-row-title"
                                     classList={{
-                                        "shrink-0": props.part.name !== "bash",
-                                        "min-w-0 truncate": props.part.name === "bash",
+                                        "shrink-0": props.part.name !== "bash" && !delegated(),
+                                        "min-w-0 truncate": props.part.name === "bash" || delegated(),
                                         "font-mono text-xs": !!info().titleMono,
+                                        "background-mark": !!background(),
                                     }}
+                                    title={background() ? t("drift.task.background") : undefined}
                                 >
                                     {info().title}
                                 </span>
@@ -283,11 +283,8 @@ export function ToolView(props: { part: ToolPart }) {
                 >
                     <TextShimmer
                         text={title()}
-                        class={`tool-row-title ${props.part.name === "bash" ? "min-w-0 truncate" : "shrink-0"}${info().titleMono ? " font-mono text-xs" : ""}`}
+                        class={`tool-row-title ${props.part.name === "bash" || delegated() ? "min-w-0 truncate" : "shrink-0"}${info().titleMono ? " font-mono text-xs" : ""}${background() ? " background-mark" : ""}`}
                     />
-                </Show>
-                <Show when={background()}>
-                    <BackgroundTag />
                 </Show>
                 <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
                     <span
@@ -306,7 +303,7 @@ export function ToolView(props: { part: ToolPart }) {
                     )}
                 </Show>
                 <Show when={progress()}>
-                    {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
+                    {(text) => <span class="ms-auto shrink-0 text-xs text-ink-faint tabular-nums">{text()}</span>}
                 </Show>
                 <Show when={timeout()}>
                     {(status) => (
