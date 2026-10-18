@@ -1,5 +1,6 @@
 //! What a turn, the working tree, a branch or a commit changed, as whole-file line diffs for the review panel.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
@@ -269,9 +270,15 @@ async fn commit_id(root: &Path, name: &str) -> Option<String> {
 /// `base` against the files on disk, untracked ones included.
 async fn working_tree(root: &Path, base: &str) -> Result<Review, ReviewError> {
     let raw = git_bytes(root, &["diff-index", "--no-renames", "-z", "--relative", base]).await?;
+    let changes = parse_raw(&raw);
+    let blobs = stored_all(
+        root,
+        changes.iter().filter_map(|change| change.before.as_deref()).collect(),
+    )
+    .await;
     let mut review = Review::default();
-    for change in parse_raw(&raw) {
-        let before = stored(root, change.before.as_deref()).await;
+    for change in changes {
+        let before = stored(&blobs, change.before.as_deref());
         let after = on_disk(root, &change.path);
         review.push(change.path, before, after);
     }
@@ -294,10 +301,17 @@ async fn commit(root: &Path, parent: &str, target: &str) -> Result<Review, Revie
         &["diff-tree", "-r", "--no-renames", "-z", "--relative", parent, target],
     )
     .await?;
+    let changes = parse_raw(&raw);
+    let ids = changes
+        .iter()
+        .flat_map(|change| [change.before.as_deref(), change.after.as_deref()])
+        .flatten()
+        .collect();
+    let blobs = stored_all(root, ids).await;
     let mut review = Review::default();
-    for change in parse_raw(&raw) {
-        let before = stored(root, change.before.as_deref()).await;
-        let after = stored(root, change.after.as_deref()).await;
+    for change in changes {
+        let before = stored(&blobs, change.before.as_deref());
+        let after = stored(&blobs, change.after.as_deref());
         review.push(change.path, before, after);
     }
 
@@ -329,13 +343,44 @@ fn parse_raw(raw: &[u8]) -> Vec<RawChange> {
     changes
 }
 
-async fn stored(root: &Path, blob: Option<&str>) -> Side {
+fn stored(blobs: &HashMap<String, Vec<u8>>, blob: Option<&str>) -> Side {
     let Some(blob) = blob else { return Side::Absent };
 
-    match git_bytes(root, &["cat-file", "blob", blob]).await {
-        Ok(bytes) => Side::Present(bytes),
-        Err(_) => Side::Unavailable,
+    blobs
+        .get(blob)
+        .map_or(Side::Unavailable, |bytes| Side::Present(bytes.clone()))
+}
+
+/// Every blob's content from one `git cat-file --batch`, by id: a git process per file costs seconds on Windows.
+async fn stored_all(root: &Path, ids: Vec<&str>) -> HashMap<String, Vec<u8>> {
+    let input = ids.join("\n") + "\n";
+    if ids.is_empty() {
+        return HashMap::new();
     }
+
+    plain_git(root, &["cat-file", "--batch"], Some(input.as_bytes()))
+        .await
+        .map(|output| parse_batch(&output))
+        .unwrap_or_default()
+}
+
+/// `cat-file --batch` output: per object `<id> <type> <size>`, its bytes and a newline, or `<id> missing`.
+fn parse_batch(output: &[u8]) -> HashMap<String, Vec<u8>> {
+    let mut found = HashMap::new();
+    let mut rest = output;
+    while let Some(end) = rest.iter().position(|byte| *byte == b'\n') {
+        let header = String::from_utf8_lossy(&rest[..end]).into_owned();
+        rest = &rest[end + 1..];
+        let fields: Vec<&str> = header.split(' ').collect();
+        let [id, _, size] = fields[..] else { continue };
+        let Some(size) = size.parse::<usize>().ok().filter(|size| *size <= rest.len()) else {
+            break;
+        };
+        found.insert(id.to_string(), rest[..size].to_vec());
+        rest = &rest[(size + 1).min(rest.len())..];
+    }
+
+    found
 }
 
 fn on_disk(root: &Path, path: &str) -> Side {

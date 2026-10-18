@@ -20,6 +20,9 @@ pub struct ServerView {
     pub updated_at: i64,
     /// Workspaces where it is on though the switch is off, or off though the switch is on.
     pub workspaces: Vec<super::WorkspaceChoice>,
+    /// The bundle it came with, whose screen holds its switch; none for a server added on its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -158,6 +161,7 @@ impl ServerView {
             read_only_trusted: row.read_only_trusted,
             updated_at: row.updated_at,
             workspaces: row.workspaces.clone(),
+            bundle: row.bundle.clone(),
         }
     }
 }
@@ -283,6 +287,7 @@ mod tests {
             era: None,
             read_only_trusted: false,
             workspaces: Vec::new(),
+            bundle: None,
         }
     }
 

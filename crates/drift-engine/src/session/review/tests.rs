@@ -186,3 +186,17 @@ async fn a_turn_review_spans_the_turn_from_before_its_first_change_to_after_its_
         Err(ReviewError::NotAPrompt)
     ));
 }
+
+#[test]
+fn a_batch_reply_is_read_object_by_object_even_when_content_holds_newlines() {
+    let output = b"aaa blob 6\none\ntw\nbbb missing\nccc blob 0\n\nddd blob 3\nxyz\n";
+    let found = super::parse_batch(output);
+    assert_eq!(found["aaa"], b"one\ntw");
+    assert!(!found.contains_key("bbb"), "a missing object is unavailable");
+    assert_eq!(found["ccc"], b"");
+    assert_eq!(found["ddd"], b"xyz");
+    assert!(
+        super::parse_batch(b"eee blob 99\nshort").is_empty(),
+        "a cut-off reply is not trusted"
+    );
+}

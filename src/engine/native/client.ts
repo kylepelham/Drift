@@ -12,6 +12,9 @@ export type Target = { url: string; token: string };
 export const maxRequestBytes = 64 * 1024 * 1024;
 export type PluginInfo = components["schemas"]["PluginInfo"];
 export type SkillPack = components["schemas"]["Pack"];
+export type Bundle = components["schemas"]["Bundle"];
+export type InstallBundle = components["schemas"]["InstallBundle"];
+export type BundlePartKind = components["schemas"]["BundlePartKind"];
 export type UserSkill = components["schemas"]["UserSkill"];
 export type NewWorkspace = components["schemas"]["NewWorkspace"];
 export type Frame = components["schemas"]["Frame"];
@@ -134,6 +137,14 @@ export function createClient(target: Target) {
             request<Json<"installSkillPack", 200>>("POST", "/skills/packs", body),
         removeSkillPack: (id: string) =>
             request<Json<"removeSkillPack", 200>>("DELETE", `/skills/packs?${new URLSearchParams({ id })}`),
+        bundles: () => request<Json<"listBundles", 200>>("GET", "/bundles"),
+        installBundle: (body: InstallBundle) => request<Json<"installBundle", 200>>("POST", "/bundles", body),
+        removeBundle: (id: string) =>
+            request<Json<"removeBundle", 200>>("DELETE", `/bundles?${new URLSearchParams({ id })}`),
+        setBundleEnabled: (id: string, enabled: boolean) =>
+            request<Json<"setBundleEnabled", 200>>("PUT", "/bundles/enabled", { id, enabled }),
+        setBundlePart: (id: string, kind: BundlePartKind, name: string, enabled: boolean) =>
+            request<Json<"setBundlePart", 200>>("PUT", "/bundles/parts", { id, kind, name, enabled }),
         configurePlugin: (path: string, config: unknown) =>
             request<Json<"configurePlugin", 200>>("PUT", "/plugins/config", { path, config }),
         tools: (workspaceId?: string) =>

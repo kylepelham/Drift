@@ -278,7 +278,7 @@ impl Engine {
 
     /// The workspace's agents, commands and skills with the user's Settings overrides applied.
     pub fn workspace_config(&self, workspace: &Path) -> config::Config {
-        let mut config = config::Config::load_skipping(workspace, &self.disabled_skills());
+        let mut config = config::Config::load_with(workspace, &self.disabled_skills(), &self.active_bundles());
         config.apply_overrides(&self.agent_overrides.read().unwrap());
 
         config

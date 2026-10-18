@@ -1,6 +1,7 @@
 //! HTTP and WebSocket surface. Every route is documented in the OpenAPI the TS client is built from.
 
 mod auth;
+mod bundles;
 mod cors;
 mod error;
 mod events;
@@ -45,6 +46,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .merge(settings_routes())
         .merge(plugin_routes())
         .merge(skill_routes())
+        .merge(bundle_routes())
         .merge(provider_routes())
         .merge(permission_routes())
         .merge(question_routes())
@@ -115,6 +117,13 @@ fn skill_routes() -> OpenApiRouter<Arc<Engine>> {
         ))
         .routes(routes!(settings::skills))
         .routes(routes!(settings::set_skill_enabled))
+}
+
+fn bundle_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
+        .routes(routes!(bundles::list, bundles::install, bundles::remove))
+        .routes(routes!(bundles::set_enabled))
+        .routes(routes!(bundles::set_part))
 }
 
 fn provider_routes() -> OpenApiRouter<Arc<Engine>> {

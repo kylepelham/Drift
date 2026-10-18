@@ -113,7 +113,7 @@ impl Tool for Bash {
             let started = Started {
                 command: command.to_string(),
                 title: input["description"].as_str().unwrap_or(command).to_string(),
-                running: spawn(&self.shell, command, &directory, background)?,
+                running: spawn(&self.shell, command, &directory, background, &context.config.programs)?,
             };
 
             if background {
@@ -270,8 +270,15 @@ pub(crate) struct Started {
     pub running: Running,
 }
 
-/// Starts the shell; a background command gets an input pipe so the model can type into it.
-fn spawn(shell: &Shell, line: &str, directory: &Path, background: bool) -> Result<Running, ToolError> {
+/// Starts the shell; a background command gets an input pipe so the model can type into it. `programs` (the
+/// bin folders of bundles that are on) come first on its PATH.
+fn spawn(
+    shell: &Shell,
+    line: &str,
+    directory: &Path,
+    background: bool,
+    programs: &[std::path::PathBuf],
+) -> Result<Running, ToolError> {
     let mut process = shell_command(shell, line);
     let stdin = if background { Stdio::piped() } else { Stdio::null() };
     process
@@ -280,7 +287,7 @@ fn spawn(shell: &Shell, line: &str, directory: &Path, background: bool) -> Resul
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    crate::platform::process::use_current_path(&mut process, &Default::default());
+    process.env("PATH", crate::platform::process::path_with(programs));
     // Python holds its output back when it is not writing to a terminal, so a running script would look silent.
     if std::env::var_os("PYTHONUNBUFFERED").is_none() {
         process.env("PYTHONUNBUFFERED", "1");
