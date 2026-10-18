@@ -4,8 +4,8 @@ import { IconCheck, IconSearch, IconSliders, IconTrash } from "./icons";
 import { PackSheet, skillsFolder } from "./settings-skill-pack";
 import { RegistrySourcesSheet } from "./registry-sources";
 import { activeWorkspace } from "../state/workspaces";
-import { Badge, Tab } from "./settings-plugins";
-import { Chevron, Toggle } from "./controls";
+import { Badge, Chevron, Toggle } from "./controls";
+import { Tab } from "./settings-plugins";
 import { LogoTile } from "./logo-tile";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
@@ -16,16 +16,17 @@ import {
     type RegistryPlugin,
 } from "../state/plugin-registry";
 
-import type { SkillPack, UserSkill } from "../engine/native/client";
+import type { Bundle, SkillPack, UserSkill } from "../engine/native/client";
 
 type View = "installed" | "registry";
 
-/** Manages installed skills and installation of skill packs from registries. */
-export function SkillsSection() {
+/** Manages installed skills and installation of skill packs from registries; a bundle's skills are switched on its screen, which `onBundle` opens. */
+export function SkillsSection(props: { onBundle?: (id: string) => void }) {
     const engine = useEngine();
     const [view, setView] = createSignal<View>("installed");
     const [skills, setSkills] = createSignal<UserSkill[]>([]);
     const [packs, setPacks] = createSignal<SkillPack[]>([]);
+    const [bundles, setBundles] = createSignal<Bundle[]>([]);
     const [loading, setLoading] = createSignal(false);
     const [busy, setBusy] = createSignal("");
     const [failure, setFailure] = createSignal("");
@@ -52,10 +53,15 @@ export function SkillsSection() {
     };
 
     const refresh = async () => {
-        const [list, installed] = await Promise.all([engine.actions.skills(here()), engine.actions.skillPacks()]);
+        const [list, installed, bundled] = await Promise.all([
+            engine.actions.skills(here()),
+            engine.actions.skillPacks(),
+            engine.actions.bundles(),
+        ]);
 
         setSkills(list);
         setPacks(installed);
+        setBundles(bundled.filter((bundle) => bundle.skills.length));
     };
     onMount(() => void run(refresh));
 
@@ -239,6 +245,41 @@ export function SkillsSection() {
                                         </button>
                                     }
                                 />
+                            )}
+                        </For>
+                    </div>
+                </Show>
+                <Show when={bundles().length}>
+                    <div class="pt-5 pb-1.5 text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">
+                        {t("drift.bundles.title")}
+                    </div>
+                    <div class="border-y border-edge/80">
+                        <For each={bundles()}>
+                            {(bundle) => (
+                                <div class="flex min-h-13 items-center gap-3 border-b border-edge/70 px-3 py-2.5 last:border-b-0">
+                                    <LogoTile image={bundle.image ?? undefined} title={bundle.name} />
+                                    <div class="min-w-0 flex-1">
+                                        <div class="truncate text-sm font-medium text-ink">{bundle.name}</div>
+                                        <div class="text-xs text-ink-faint">
+                                            {t("drift.skills.packCount", {
+                                                on: bundle.enabled
+                                                    ? bundle.skills.filter((skill) => skill.enabled).length
+                                                    : 0,
+                                                count: bundle.skills.length,
+                                            })}
+                                        </div>
+                                    </div>
+                                    <Show when={props.onBundle}>
+                                        {(open) => (
+                                            <button
+                                                class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted hover:text-ink"
+                                                onClick={() => open()(bundle.id)}
+                                            >
+                                                {t("drift.bundles.manage")}
+                                            </button>
+                                        )}
+                                    </Show>
+                                </div>
                             )}
                         </For>
                     </div>

@@ -6,6 +6,8 @@
  * that do not exist.
  */
 
+import type { JSX } from "solid-js";
+
 /** Disclosure arrow that rotates to point down when its section is open. */
 export function Chevron(props: { open: boolean }) {
     return (
@@ -72,6 +74,22 @@ export function ToggleTrack(props: { checked: boolean }) {
                     "bg-ink-muted": !props.checked,
                 }}
             />
+        </span>
+    );
+}
+
+/** A small label: neutral, accent or warning. */
+export function Badge(props: { tone?: "accent" | "warn"; children: JSX.Element }) {
+    return (
+        <span
+            class="rounded px-1.5 py-0.5 text-[0.65rem]"
+            classList={{
+                "bg-raised text-ink-muted": !props.tone,
+                "bg-accent/12 text-accent": props.tone === "accent",
+                "bg-warn/12 text-warn": props.tone === "warn",
+            }}
+        >
+            {props.children}
         </span>
     );
 }

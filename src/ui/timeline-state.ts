@@ -1,7 +1,9 @@
 import { assistantFlowContinues, groupMembers } from "./message-groups";
 import { messageProblem } from "../engine/messages";
+import { continuesTurn } from "./edited-files";
 import { messageVisible } from "./message";
 import { partVisible } from "./parts";
+import { t } from "../state/i18n";
 
 import type { MessageEntry, SessionStatus } from "../engine/store";
 import type { PartGroup } from "./message-groups";
@@ -46,7 +48,7 @@ export function timelineRowVisible(
         !!info.summary ||
         !!messageProblem(info) ||
         entry.info.id === active ||
-        (!!info.finishedAt && next?.info.role !== "assistant")
+        (!!info.finishedAt && !continuesTurn(next))
     );
 }
 
@@ -74,7 +76,7 @@ export function retryInFlight(
 
     const last = entries[index - 1].info;
 
-    return { type: "retry", attempt, message: messageProblem(last)?.text ?? "An error occurred", next: 0 };
+    return { type: "retry", attempt, message: messageProblem(last)?.text ?? t("drift.error.unknown"), next: 0 };
 }
 
 export function thinkingAfterMessage(entries: MessageEntry[], status?: string) {

@@ -1,4 +1,4 @@
-import { samePath, sourceFromId, sourceId, sourceItems } from "../src/ui/review-sources";
+import { defaultBase, matching, samePath, sameSource, sourceTitle } from "../src/ui/review-sources";
 import { reviewRows } from "../src/ui/review-rows";
 import { expect, test } from "bun:test";
 
@@ -34,25 +34,82 @@ test("one unchanged line is never folded into a bar of its own", () => {
     expect(rows.find((row) => row.kind === "fold")).toBeUndefined();
 });
 
-test("review sources round-trip through picker ids, and git ones are offered only in a repository", () => {
-    const turn = { kind: "turn", sessionId: "ses", messageId: "msg" } as const;
-    for (const source of [turn, { kind: "uncommitted" }, { kind: "branch", target: "origin/main" }] as const)
-        expect(sourceFromId(sourceId(source), turn)).toEqual(source);
-    expect(sourceFromId("commit:abc:def", undefined)).toEqual({ kind: "commit", target: "abc:def" });
-    expect(sourceFromId("branch:", undefined)).toBeUndefined();
-
-    expect(sourceItems({ repo: false, branches: [], commits: [] }, true).map((item) => item.id)).toEqual(["turn"]);
+test("All changes compares with the main line, and a branch comparison reads base to current", () => {
     const refs = {
         repo: true,
-        branch: "work",
-        branches: ["main"],
-        commits: [{ id: "c1", short: "c1", subject: "Fix", author: "Kyle", time: 0 }],
+        branch: "next/2.3.0",
+        branches: ["feat/x", "origin/master", "master"],
+        commits: [{ id: "c1abc", short: "c1a", subject: "Fix", author: "Kyle", time: 0 }],
     };
-    expect(sourceItems(refs, false).map((item) => item.id)).toEqual(["uncommitted", "branch:main", "commit:c1"]);
+    expect(defaultBase(refs)).toBe("master");
+    expect(defaultBase({ ...refs, branches: ["feat/x"] })).toBe("feat/x");
+    expect(defaultBase({ repo: false, branches: [], commits: [] })).toBeUndefined();
+    expect(sourceTitle({ kind: "branch", target: "master" }, refs)).toEqual({ text: "master", to: "next/2.3.0" });
+    expect(sourceTitle({ kind: "commit", target: "c1abc" }, refs).text).toBe("c1a Fix");
+
+    const turn = { kind: "turn", sessionId: "ses", messageId: "msg" } as const;
+    expect(sameSource(turn, { ...turn })).toBeTrue();
+    expect(sameSource({ kind: "branch", target: "a" }, { kind: "branch", target: "b" })).toBeFalse();
+    expect(sameSource({ kind: "uncommitted" }, { kind: "uncommitted" })).toBeTrue();
+    expect(matching(["fix/streaming", "feat/splash"], "FIX str", (name) => name)).toEqual(["fix/streaming"]);
 });
 
 test("a workspace-relative review path matches the absolute path an edit names", () => {
     expect(samePath("src/a.ts", "C:\\Work\\Repo\\src\\A.ts")).toBeTrue();
     expect(samePath("src/a.ts", "src/a.ts")).toBeTrue();
     expect(samePath("a.ts", "C:/repo/data.ts")).toBeFalse();
+});
+
+test("a line note finds its line by file, side, number and text, and reaches the model as one text file", async () => {
+    const { commentOn, reviewCommentsFile, reviewCommentsText } = await import("../src/state/review-comments");
+    const note = {
+        id: "n1",
+        path: "src/api/mod.rs",
+        line: 5,
+        side: "add" as const,
+        code: "let h = harness().await;",
+        text: "use a fixture",
+    };
+    expect(commentOn(note, "src/api/mod.rs", { kind: "add", line: 5, text: "let h = harness().await;" })).toBeTrue();
+    expect(commentOn(note, "src/api/mod.rs", { kind: "del", line: 5, text: "let h = harness().await;" })).toBeFalse();
+    expect(commentOn(note, "src/api/lib.rs", { kind: "add", line: 5, text: "let h = harness().await;" })).toBeFalse();
+
+    const text = reviewCommentsText([note]);
+    expect(text).toContain("src/api/mod.rs line 5 (added):\n    let h = harness().await;\nuse a fixture");
+    const file = reviewCommentsFile([{ ...note, text: "naïve ünïcode" }]);
+    expect(file.mime).toBe("text/plain");
+    const decoded = new TextDecoder().decode(Uint8Array.from(atob(file.url.split(",")[1]!), (c) => c.charCodeAt(0)));
+    expect(decoded).toContain("naïve ünïcode");
+});
+
+test("a draft holding only line notes can be sent", async () => {
+    const { createComposerSubmit } = await import("../src/ui/composer-submit");
+    let sent = false;
+    const draft = {
+        text: "",
+        staged: [],
+        mentions: [],
+        comments: [{ id: "n", path: "a", line: 1, side: "ctx" as const, code: "x", text: "y" }],
+    };
+    const submit = createComposerSubmit({
+        scope: () => "s",
+        session: () => "ses",
+        workspace: () => ({ id: "w", name: "w", path: "C:/w" }),
+        online: () => true,
+        draft: () => draft,
+        prepare: () => undefined,
+        transform: async ({ text }) => text,
+        newSession: async () => undefined,
+        sessionScope: () => "s",
+        migrateDraft: () => undefined,
+        selectSession: () => undefined,
+        sessionCreated: () => undefined,
+        send: async () => {
+            sent = true;
+            return { ok: true };
+        },
+        admitted: () => undefined,
+    });
+    expect(await submit()).toBe("submitted");
+    expect(sent).toBeTrue();
 });

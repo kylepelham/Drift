@@ -1,9 +1,9 @@
-/** Icons copied from Material Icon Theme (MIT, `licenses/material-icon-theme-LICENSE.txt`), named as there. */
+/** Glyphs from Seti UI (MIT, `licenses/seti-ui-LICENSE.md`), cropped to fill their tile and given brand colors. */
 const byExtension: Record<string, string> = {
     ts: "typescript",
     mts: "typescript",
     cts: "typescript",
-    tsx: "react_ts",
+    tsx: "react",
     js: "javascript",
     mjs: "javascript",
     cjs: "javascript",
@@ -13,17 +13,20 @@ const byExtension: Record<string, string> = {
     go: "go",
     java: "java",
     c: "c",
+    h: "c",
     cc: "cpp",
     cpp: "cpp",
     cxx: "cpp",
-    hpp: "h",
-    h: "h",
-    cs: "csharp",
+    hpp: "cpp",
+    cs: "c-sharp",
     json: "json",
     jsonc: "json",
-    yaml: "yaml",
-    yml: "yaml",
-    toml: "toml",
+    yaml: "yml",
+    yml: "yml",
+    toml: "config",
+    ini: "config",
+    cfg: "config",
+    conf: "config",
     md: "markdown",
     mdx: "markdown",
     html: "html",
@@ -31,15 +34,11 @@ const byExtension: Record<string, string> = {
     css: "css",
     scss: "sass",
     sass: "sass",
-    ini: "settings",
-    cfg: "settings",
-    conf: "settings",
-    env: "settings",
-    sh: "console",
-    bash: "console",
-    zsh: "console",
-    bat: "console",
-    cmd: "console",
+    sh: "shell",
+    bash: "shell",
+    zsh: "shell",
+    bat: "windows",
+    cmd: "windows",
     ps1: "powershell",
     psm1: "powershell",
     xml: "xml",
@@ -52,7 +51,6 @@ const byExtension: Record<string, string> = {
     webp: "image",
     ico: "image",
     lock: "lock",
-    txt: "document",
     vue: "vue",
     svelte: "svelte",
     kt: "kotlin",
@@ -61,25 +59,35 @@ const byExtension: Record<string, string> = {
     rb: "ruby",
     php: "php",
     lua: "lua",
-    sql: "database",
-    db: "database",
+    sql: "db",
+    db: "db",
     zig: "zig",
+    wasm: "wasm",
+    pdf: "pdf",
+    zip: "zip",
+    csv: "csv",
 };
 
 const byName: Record<string, string> = {
     dockerfile: "docker",
-    ".gitignore": "git",
+    ".gitignore": "git_ignore",
     ".gitattributes": "git",
+    "package.json": "npm",
+    "cargo.toml": "rust",
     "cargo.lock": "lock",
     "bun.lock": "lock",
     "bun.lockb": "lock",
+    "tsconfig.json": "tsconfig",
+    ".env": "config",
+    license: "license",
+    makefile: "makefile",
 };
 
-/** The icon a file is shown with; plain text for anything unknown. */
+/** The icon a file is shown with; the plain file for anything unknown. */
 export function fileIconName(path: string) {
     const name = (path.replaceAll("\\", "/").split("/").at(-1) ?? "").toLowerCase();
     if (byName[name]) return byName[name];
 
     const dot = name.lastIndexOf(".");
-    return (dot > 0 && byExtension[name.slice(dot + 1)]) || "document";
+    return (dot > 0 && byExtension[name.slice(dot + 1)]) || "default";
 }

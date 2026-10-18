@@ -1,4 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { t } from "../state/i18n";
 
 export type ToolTimingState = {
     status: string;
@@ -52,10 +53,12 @@ export function toolElapsedMs(state: ToolTimingState, now: number, maxMs?: numbe
 
 export function formatToolDuration(ms: number) {
     const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-    if (totalSeconds < 60) return `${totalSeconds}s`;
+    if (totalSeconds < 60) return t("drift.message.duration.seconds", { seconds: totalSeconds });
     const totalMinutes = Math.floor(totalSeconds / 60);
-    if (totalMinutes < 60) return `${totalMinutes}m ${String(totalSeconds % 60).padStart(2, "0")}s`;
-    return `${Math.floor(totalMinutes / 60)}h ${String(totalMinutes % 60).padStart(2, "0")}m`;
+    const pad = (value: number) => String(value).padStart(2, "0");
+    if (totalMinutes < 60)
+        return t("drift.message.duration.minutes", { minutes: totalMinutes, seconds: pad(totalSeconds % 60) });
+    return t("drift.message.duration.hours", { hours: Math.floor(totalMinutes / 60), minutes: pad(totalMinutes % 60) });
 }
 
 /** The label a row shows; under a second says nothing worth the space. */

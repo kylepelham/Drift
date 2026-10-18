@@ -5,8 +5,10 @@ import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
 import { modelInfo, resolveModel, savedChoice, sessionBusy } from "../engine/store";
+import { removeReviewComment, reviewCommentsFile } from "../state/review-comments";
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions";
 import { compactModelName, connectedModelItems } from "./composer-models";
+import { AttachmentChip, CommentChip } from "./composer-attachment-chip";
 import { emitThreadCreated, transformComposerSubmit } from "../plugins";
 import { defaultVisibleModelIds, ModelManager } from "./model-manager";
 import { modelInstalled, refreshVoiceModels } from "../voice/models";
@@ -16,7 +18,6 @@ import { interruptResponseAnimations } from "./response-animation";
 import { dictationEnabled, dictationModel } from "../state/voice";
 import { createAttachmentStager } from "./composer-attachments";
 import { ComposerMentionMenu } from "./composer-mention-menu";
-import { AttachmentChip } from "./composer-attachment-chip";
 import { ComposerSlashMenu } from "./composer-slash-menu";
 import { ComposerAttention } from "./composer-attention";
 import { createWindowFileDrop } from "./composer-drop";
@@ -81,6 +82,7 @@ export function Composer() {
     const draft = () => composerDraft(scope()).text;
     const staged = () => composerDraft(scope()).staged;
     const mentions = () => composerDraft(scope()).mentions;
+    const comments = () => composerDraft(scope()).comments;
     const setDraft = (text: string) => {
         setHistoryNavigation(null);
         patchComposerDraft(scope(), { text });
@@ -244,7 +246,11 @@ export function Composer() {
                 }
 
                 const attachments = await prepareAttachmentsForSend(snapshot.staged);
-                const files = [...mentionFiles(text, snapshot.mentions, workspace.path), ...attachments.files];
+                const files = [
+                    ...mentionFiles(text, snapshot.mentions, workspace.path),
+                    ...attachments.files,
+                    ...(snapshot.comments.length ? [reviewCommentsFile(snapshot.comments)] : []),
+                ];
                 const prompt = [text, attachments.text].filter(Boolean).join("\n\n");
                 const result = await engine.actions.send(id, prompt, {
                     model: prepared.selectedModel,
@@ -399,7 +405,7 @@ export function Composer() {
     });
 
     const sendDisabled = () =>
-        (!draft().trim() && staged().length === 0) ||
+        (!draft().trim() && staged().length === 0 && comments().length === 0) ||
         staged().some((file) => file.status === "processing") ||
         !ready() ||
         submitting();
@@ -419,8 +425,16 @@ export function Composer() {
                 <Show when={slash.open()}>
                     <ComposerSlashMenu menu={slash} />
                 </Show>
-                <Show when={staged().length > 0 || fileError()}>
+                <Show when={staged().length > 0 || comments().length > 0 || fileError()}>
                     <div class="flex flex-wrap items-center gap-2 px-3 pt-2.5">
+                        <For each={comments()}>
+                            {(comment) => (
+                                <CommentChip
+                                    comment={comment}
+                                    remove={() => removeReviewComment(comment.id, scope())}
+                                />
+                            )}
+                        </For>
                         <For each={staged()}>
                             {(file) => {
                                 const remove = () => setStaged(staged().filter((item) => item.id !== file.id));

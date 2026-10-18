@@ -18,6 +18,7 @@ import { StorageSection } from "./settings-storage";
 import { PluginsSection } from "./settings-plugins";
 import { PromptsSection } from "./settings-prompts";
 import { GeneralSection } from "./settings-general";
+import { focusBundle } from "../state/bundle-focus";
 import { SkillsSection } from "./settings-skills";
 import { VoiceSection } from "./settings-voice";
 import { preloadJellyfish } from "./jellyfish";
@@ -43,6 +44,12 @@ export function openSettings(section?: Section) {
     if (!settingsOpen()) pushRemoteOverlay("settings");
 
     setSettingsOpen(true);
+}
+
+/** Another page's link to a bundle: Plugins, on that bundle's screen. */
+function showBundle(id: string) {
+    focusBundle(id);
+    setSettingsSection("Plugins");
 }
 
 export function SettingsHost() {
@@ -256,10 +263,10 @@ function SettingsModal(props: { onClose: () => void }) {
                                         <UsageLimitsSection />
                                     </Match>
                                     <Match when={section() === "MCP"}>
-                                        <McpManagement embedded />
+                                        <McpManagement embedded onBundle={showBundle} />
                                     </Match>
                                     <Match when={section() === "Skills"}>
-                                        <SkillsSection />
+                                        <SkillsSection onBundle={showBundle} />
                                     </Match>
                                     <Match when={section() === "Plugins"}>
                                         <PluginsSection />

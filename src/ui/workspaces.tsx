@@ -10,7 +10,6 @@ import { emitThreadArchived } from "../plugins";
 import { TextShimmer } from "./text-shimmer";
 import { dragReorder } from "./drag-reorder";
 import { BackgroundTag } from "./task-dock";
-import { Chevron } from "./controls";
 import { t } from "../state/i18n";
 import {
     activeWorkspaceId,
@@ -134,16 +133,15 @@ export function WorkspaceGroup(props: {
                 <button
                     title={collapsed() ? t("drift.workspace.showThreads") : t("drift.workspace.hideThreads")}
                     aria-expanded={!collapsed()}
-                    class="-mr-1 -ml-1 flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+                    class="flex shrink-0 rounded-[5px]"
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
                         event.stopPropagation();
                         toggleWorkspaceCollapsed(props.workspace.id);
                     }}
                 >
-                    <Chevron open={!collapsed()} />
+                    <WorkspaceIcon workspace={props.workspace} />
                 </button>
-                <WorkspaceIcon workspace={props.workspace} />
                 <span
                     class="min-w-0 flex-1 truncate text-sm"
                     classList={{ "text-ink": active(), "text-ink-muted": !active() }}

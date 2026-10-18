@@ -173,10 +173,11 @@
     color-scheme: dark;
     --bg: var(--custom-bg);
     --surface: var(--custom-surface);
-    --raised: color-mix(in srgb, var(--custom-surface) 88%, var(--custom-ink));
-    --overlay: color-mix(in srgb, var(--custom-surface) 82%, var(--custom-ink));
-    --edge: color-mix(in srgb, var(--custom-surface) 75%, var(--custom-ink));
-    --edge-strong: color-mix(in srgb, var(--custom-surface) 62%, var(--custom-ink));
+    /* Layers step up from the surface's own lightness, as the built-in themes do; the text colour never tints them. */
+    --raised: oklch(from var(--custom-surface) calc(l + 0.03) c h);
+    --overlay: oklch(from var(--custom-surface) calc(l + 0.05) c h);
+    --edge: oklch(from var(--custom-surface) calc(l + 0.065) c h);
+    --edge-strong: oklch(from var(--custom-surface) calc(l + 0.13) c h);
     --ink: var(--custom-ink);
     --ink-muted: color-mix(in srgb, var(--custom-ink) 67%, var(--custom-bg));
     --ink-faint: color-mix(in srgb, var(--custom-ink) 42%, var(--custom-bg));
@@ -228,6 +229,15 @@ textarea {
 }
 
 .shell-output::-webkit-scrollbar {
+    display: none;
+}
+
+/* Each file's lines scroll sideways on their own; a bar under every file would box them in. */
+.review-lines {
+    scrollbar-width: none;
+}
+
+.review-lines::-webkit-scrollbar {
     display: none;
 }
 

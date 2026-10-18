@@ -224,14 +224,7 @@
         overflow-wrap: anywhere;
     }
 
-    .app-shell .debug-panel {
-        position: fixed;
-        z-index: 25;
-        inset: 3.5rem 0 0;
-        width: 100%;
-    }
-
-    .app-shell .review-panel {
+    .app-shell .side-panel {
         position: fixed;
         z-index: 25;
         inset: 0;

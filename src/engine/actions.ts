@@ -146,7 +146,7 @@ export function createActions(
             .catch((cause) => {
                 notice({
                     id: `transcript-load-${id}`,
-                    title: "Transcript load failed",
+                    title: t("drift.session.transcriptFailed"),
                     message: errorMessage(cause),
                     variant: "error",
                 });
@@ -202,7 +202,7 @@ export function createActions(
             .catch((cause) => {
                 notice({
                     id: `transcript-load-${id}`,
-                    title: "Transcript load failed",
+                    title: t("drift.session.transcriptFailed"),
                     message: errorMessage(cause),
                     variant: "error",
                 });
@@ -319,7 +319,7 @@ export function createActions(
                 url: file.url,
             })),
         ];
-        if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty");
+        if (parts.length === 0) return fail(id, t("drift.prompt.failed", { reason: t("drift.prompt.empty") }));
 
         // Named only when they change what runs next; an unchanged follow-up steers into the running turn.
         const saved = savedChoice(state, id);
@@ -352,7 +352,7 @@ export function createActions(
             return { ok: true };
         } catch (cause) {
             if (definite(cause)) unsettled.delete(key);
-            return fail(id, `Prompt failed: ${errorMessage(cause)}`);
+            return fail(id, t("drift.prompt.failed", { reason: errorMessage(cause) }));
         }
     }
 
@@ -387,7 +387,7 @@ export function createActions(
         try {
             await requireClient().runCommand(id, command, args);
         } catch (cause) {
-            fail(id, `Command failed: ${errorMessage(cause)}`);
+            fail(id, t("drift.command.failed", { reason: errorMessage(cause) }));
         }
     }
 

@@ -1137,6 +1137,17 @@ the default `wasm-plugins` feature; without it, listed plugins report that the b
   a folder straight from disk with no climbing out, a URL with the token only on its own host.
   `GET /registries/fetch?source=` returns the document, and the install endpoints take `registry` so
   a download goes through the same source.
+- Bundles (`config::bundles`): a Claude Code plugin folder unpacked from an archive pinned to a
+  commit under the config directory's `bundles/<id>/` (`config::archive` does the fetching and
+  unpacking for skill packs too). `Layout::read` finds its skills, commands, agents, `.mcp.json`
+  servers, `bin/` programs and hook events; `Engine::active_bundles` hands the ones that are on to
+  `Config::load_with`, which adds their agents and commands under the user's and the workspace's
+  and their skills last, with `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` filled in, and sets
+  `Config::programs`, the `bin/` folders the shell tool puts first on its PATH. A bundle's servers
+  are `mcp_config` rows with `bundle` set (migration 40); `save_bundle_servers` writes them,
+  `apply_bundle_servers` sets their switches from the bundle's state (the `bundles` setting: the
+  whole switch and the parts turned off). Routes: `GET`/`POST`/`DELETE /bundles`,
+  `PUT /bundles/enabled`, `PUT /bundles/parts`. Hooks are listed, never run.
 - Example: `plugins/guard` (Rust, `wit-bindgen`, target `wasm32-wasip2`): refuses history
   rewrites, notes failed commands, runs the configured test command on `@guard test` and continues
   the turn with the failures; `hook::wasm::tests` builds it into `target/plugins` and runs it.

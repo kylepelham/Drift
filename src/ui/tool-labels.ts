@@ -91,9 +91,9 @@ export function toolInfo(part: ToolPart): ToolInfo {
         }
         case "edit":
         case "write":
-            return { title: t("settings.permissions.tool.edit.title"), subtitle: toolFilename(text("filePath")) };
+            return { title: changeTitle(part), subtitle: toolFilename(text("filePath")) };
         case "apply_patch":
-            return { title: t("settings.permissions.tool.edit.title"), subtitle: patchSubtitle(part) };
+            return { title: changeTitle(part), subtitle: patchSubtitle(part) };
         case "webfetch":
             return { title: t("drift.tool.fetch"), subtitle: text("url"), mono: true };
         default:
@@ -218,6 +218,36 @@ export function shellTimeoutStatus(part: ToolPart) {
         : t("drift.shell.timeout.limit", { duration });
 
     return { timedOut, timeoutMs: timeout, text };
+}
+
+/** What a writing call does to its files, whatever the tool is called: Create, Delete, or Edit for anything else. */
+export function fileChangeKind(part: ToolPart): "create" | "delete" | "edit" {
+    if (part.name === "write") return toolMetadata(part).created === false ? "edit" : "create";
+    if (part.name !== "apply_patch") return "edit";
+
+    const recorded = patchFiles(part).map((file) => file.type);
+    const kinds = recorded.length ? recorded : patchInputKinds(part);
+    if (kinds.length && kinds.every((kind) => kind === "add")) return "create";
+    if (kinds.length && kinds.every((kind) => kind === "delete")) return "delete";
+
+    return "edit";
+}
+
+function changeTitle(part: ToolPart) {
+    const kind = fileChangeKind(part);
+    if (kind === "create") return t("drift.tool.create");
+    if (kind === "delete") return t("drift.tool.delete");
+
+    return t("settings.permissions.tool.edit.title");
+}
+
+/** The change each file of a patch still being written will get, read from its `*** Add File` style headers. */
+function patchInputKinds(part: ToolPart) {
+    const patch = toolInput(part).patchText;
+    if (typeof patch !== "string") return [];
+    const kinds: Record<string, string> = { Add: "add", Update: "update", Delete: "delete" };
+
+    return [...patch.matchAll(/^\*\*\* (Add|Update|Delete) File: /gm)].map((match) => kinds[match[1]]!);
 }
 
 export function patchFiles(part: ToolPart) {

@@ -17,15 +17,31 @@ export type TurnWorker = { name: string; entries: MessageEntry[] };
 
 const editTools = new Set(["edit", "write", "apply_patch"]);
 
+/** Parts the engine writes into a user message to carry on a turn: a background job's result or exit, a drive nudge. */
+const engineNotices = new Set(["task_result", "process_exit", "nudge"]);
+
+/** A message that goes on with the turn before it: a reply, or a user message holding only engine notices. */
+export function continuesTurn(entry: MessageEntry | undefined) {
+    if (!entry) return false;
+    if (entry.info.role === "assistant") return true;
+
+    return entry.parts.length > 0 && entry.parts.every((part) => engineNotices.has(part.type));
+}
+
 /** The prompt that started the turn ending at `id`, and the replies between them. */
 export function turnOf(entries: MessageEntry[], id: string) {
     const end = entries.findIndex((entry) => entry.info.id === id);
     if (end < 0) return { prompt: undefined, replies: [] };
 
     let start = end;
-    while (start > 0 && entries[start - 1].info.role === "assistant") start--;
+    while (start > 0 && continuesTurn(entries[start - 1])) start--;
 
     return { prompt: entries[start - 1], replies: entries.slice(start, end + 1) };
+}
+
+/** A turn whose replies reach the first loaded message while older pages remain: its prompt has not been loaded yet. */
+export function turnStartsEarlier(turn: ReturnType<typeof turnOf>, cursor?: string | null) {
+    return !turn.prompt && turn.replies.length > 0 && !!cursor;
 }
 
 function counted(patch: string) {

@@ -1,12 +1,14 @@
+import { t } from "../state/i18n";
+
 export type EngineError = { name?: string; data?: unknown };
 
 export function errorText(error?: EngineError) {
-    if (!error) return "An error occurred";
+    if (!error) return t("drift.error.unknown");
 
     const data = error.data as { message?: unknown } | undefined;
     const message = typeof data?.message === "string" ? data.message : "";
 
-    return unwrapErrorMessage(message) || error.name || "An error occurred";
+    return unwrapErrorMessage(message) || error.name || t("drift.error.unknown");
 }
 
 export function unwrapErrorMessage(message: string) {

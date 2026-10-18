@@ -1,6 +1,7 @@
 import { backendInvoke } from "../backend";
 import { shellEvents } from "../shell";
 import { persisted } from "./persist";
+import { t } from "./i18n";
 
 import type { ModelRef } from "../engine/store";
 
@@ -72,7 +73,7 @@ function reportShellTimeoutError(error: string) {
 
 export async function setShellTimeoutMs(value: number | null) {
     const timeoutMs = normalizeShellTimeout(value);
-    if (value !== null && timeoutMs === null) throw new Error("Invalid shell timeout");
+    if (value !== null && timeoutMs === null) throw new Error(t("drift.shellTimeout.invalid"));
 
     const invoke = backendInvoke();
     if (!invoke) {
@@ -120,10 +121,19 @@ export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>(
 export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true);
 /** Day headings (Today, Yesterday, a weekday, a date) between a workspace's threads in the sidebar. */
 export const [sidebarDayDividers, setSidebarDayDividers] = persisted<boolean>("drift.sidebar.dayDividers", false);
-/** A finished command folds to its row; it shows its output only while it runs. */
-export const [collapseFinishedCommands, setCollapseFinishedCommands] = persisted<boolean>(
+/** How a command's row shows its output: always folded, open only while it runs, or always open. */
+export const commandRowModes = ["collapsed", "running", "open"] as const;
+export type CommandRows = (typeof commandRowModes)[number];
+/** The setting was a switch first: on folded finished commands, off kept them open. */
+export function commandRowsFrom(value: unknown): CommandRows {
+    if (value === true) return "running";
+    if (value === false) return "open";
+    return commandRowModes.find((mode) => mode === value) ?? "running";
+}
+export const [commandRows, setCommandRows] = persisted<CommandRows>(
     "drift.transcript.collapseCommands",
-    true,
+    "running",
+    commandRowsFrom,
 );
 export const toolGroupKinds = ["commands", "edits", "fetches", "mcp", "other"] as const;
 export type ToolGroupKind = (typeof toolGroupKinds)[number];

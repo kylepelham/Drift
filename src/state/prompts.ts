@@ -1,4 +1,5 @@
 import { backendInvoke } from "../backend";
+import { t } from "./i18n";
 
 /** An agent's saved Settings override (`agent:<name>`); base prompts are the engine's own. */
 export type PromptOverride = { key: string; value: unknown; original?: unknown; updatedAt: number };
@@ -11,13 +12,13 @@ export function loadPromptSnapshot() {
 
 export async function savePromptOverride(key: string, value: unknown, original?: unknown) {
     const invoke = backendInvoke();
-    if (!invoke) throw new Error("Prompt editing requires the Drift host backend");
+    if (!invoke) throw new Error(t("drift.host.promptsRequired"));
     await invoke("prompt_save", { key, value, original });
 }
 
 export async function resetPromptOverride(key: string) {
     const invoke = backendInvoke();
-    if (!invoke) throw new Error("Prompt editing requires the Drift host backend");
+    if (!invoke) throw new Error(t("drift.host.promptsRequired"));
     await invoke("prompt_reset", { key });
 }
 

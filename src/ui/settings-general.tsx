@@ -12,7 +12,9 @@ import {
     animateResponses,
     autoUpdate,
     collapseCompaction,
-    collapseFinishedCommands,
+    commandRowModes,
+    commandRowsFrom,
+    commandRows,
     compactionCollapsed,
     editedFilesCard,
     responseAnimationSpeed,
@@ -21,7 +23,7 @@ import {
     setAnimateResponses,
     setAutoUpdate,
     setCollapseCompaction,
-    setCollapseFinishedCommands,
+    setCommandRows,
     setCompactionCollapsed,
     setEditedFilesCard,
     setResponseAnimationSpeed,
@@ -140,12 +142,20 @@ export function GeneralSection() {
                 <SettingsRow
                     title={t("drift.settings.collapseCommands.title")}
                     description={t("drift.settings.collapseCommands.description")}
-                    onClick={() => setCollapseFinishedCommands(!collapseFinishedCommands())}
                 >
-                    <Toggle
+                    <Picker
                         label={t("drift.settings.collapseCommands.title")}
-                        checked={collapseFinishedCommands()}
-                        onChange={() => setCollapseFinishedCommands(!collapseFinishedCommands())}
+                        items={commandRowModes.map((mode) => ({
+                            id: mode,
+                            label: t(`drift.settings.collapseCommands.${mode}`),
+                        }))}
+                        selected={commandRows()}
+                        floating
+                        bordered
+                        chevronAtEnd
+                        placement="below"
+                        width="12rem"
+                        onPick={(mode) => setCommandRows(commandRowsFrom(mode))}
                     />
                 </SettingsRow>
                 <SettingsRow

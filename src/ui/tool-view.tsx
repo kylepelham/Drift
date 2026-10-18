@@ -1,7 +1,7 @@
 import { backgroundRun, delegatedChildId, delegatedTaskClickPolicy, delegatedTaskStatus } from "./tool-delegation";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
+import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
-import { collapseFinishedCommands, toolErrorsExpanded } from "../state/prefs";
 import { exploredDetail, exploredSummary } from "./tool-run";
 import { toolMetadata as toolMeta } from "../engine/parts";
 import { IconArrowUpRight, IconBranch } from "./icons";
@@ -30,13 +30,13 @@ export function initialToolOpen(
     tool: string,
     status: ReturnType<typeof toolDisplay>["status"],
     errorsExpanded: boolean,
-    collapseCommands = true,
+    rows: CommandRows = "running",
     runningMs = 0,
 ) {
     if (status === "error") return errorsExpanded;
-    if (tool !== "bash") return false;
+    if (tool !== "bash" || rows === "collapsed") return false;
 
-    return !collapseCommands || (status === "running" && runningMs >= shellOpenDelayMs);
+    return rows === "open" || (status === "running" && runningMs >= shellOpenDelayMs);
 }
 
 /** Milliseconds until a running command should open, or nothing when it never will. */
@@ -54,10 +54,10 @@ export function initialToolOpenForPart(
     tool: string,
     status: ReturnType<typeof toolDisplay>["status"],
     errorsExpanded: boolean,
-    collapseCommands = true,
+    rows: CommandRows = "running",
     runningMs = 0,
 ) {
-    return explicitToolOpen.get(partId) ?? initialToolOpen(tool, status, errorsExpanded, collapseCommands, runningMs);
+    return explicitToolOpen.get(partId) ?? initialToolOpen(tool, status, errorsExpanded, rows, runningMs);
 }
 
 export function nextShellOpen(current: boolean, previous: string | undefined, status: string, explicit: boolean) {
@@ -160,7 +160,7 @@ export function ToolView(props: { part: ToolPart }) {
 
     const error = () => (state().status === "error" ? (state() as { error: string }).error : null);
     const shellWait = () => {
-        if (props.part.name !== "bash" || !collapseFinishedCommands()) return;
+        if (props.part.name !== "bash" || commandRows() !== "running") return;
         return shellOpenWait(state().status, state().time.start, Date.now());
     };
     const [open, setOpen] = createSignal(
@@ -170,7 +170,7 @@ export function ToolView(props: { part: ToolPart }) {
                 props.part.name,
                 state().status,
                 toolErrorsExpanded(),
-                collapseFinishedCommands(),
+                commandRows(),
                 Date.now() - (state().time.start ?? Date.now()),
             ),
         ),
@@ -191,7 +191,7 @@ export function ToolView(props: { part: ToolPart }) {
         on(
             () => state().status,
             (status, previous) => {
-                if (props.part.name === "bash" && status !== "error" && untrack(collapseFinishedCommands))
+                if (props.part.name === "bash" && status !== "error" && untrack(commandRows) !== "open")
                     setOpen(nextShellOpen(open(), previous, status, explicitToolOpen.has(props.part.id)));
             },
         ),

@@ -1,6 +1,6 @@
 import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./transcript-find";
+import { closeReview, openReview, reviewPanel, rightPanelOpen } from "../state/panels";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
-import { closeReview, openReview, reviewPanel } from "../state/panels";
 import { IconArrowUp, IconDiff, IconMenu, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
 import { createSignal, onCleanup, Show } from "solid-js";
@@ -135,7 +135,7 @@ export function ChatHeader() {
                             </>
                         )}
                     </Show>
-                    <Show when={!reviewPanel() || narrow()}>
+                    <Show when={!rightPanelOpen() || narrow()}>
                         <WindowControls />
                     </Show>
                 </div>

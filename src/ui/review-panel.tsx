@@ -1,19 +1,19 @@
+import { commentOn, removeReviewComment, reviewComments, saveReviewComment } from "../state/review-comments";
 import { closeReview, openReview, reviewPanel, type ReviewPanel, type ReviewSource } from "../state/panels";
 import { EngineError, type Review, type ReviewFile } from "../engine/native/client";
-import { samePath, sourceFromId, sourceId, sourceItems } from "./review-sources";
+import { CommentButton, CommentEditor, SavedComment } from "./review-comment";
 import { diffIndicator, diffLineNumbers, diffWordWrap } from "../state/code";
-import { createMediaQuery, smallScreenQuery } from "../state/screen";
 import { createDiffHighlight, SyntaxTokenView } from "./diff-panel";
-import { IconChevronLeft, IconRestore, IconX } from "./icons";
 import { reviewRows, type ReviewRow } from "./review-rows";
-import { nativeFrame, WindowControls } from "./titlebar";
+import { ReviewSourceMenu } from "./review-source-menu";
 import { activeWorkspace } from "../state/workspaces";
 import { selectedSession } from "../state/selection";
-import { persisted } from "../state/persist";
+import { samePath } from "./review-sources";
+import { SidePanel } from "./side-panel";
 import { FileIcon } from "./file-icon";
+import { IconRestore } from "./icons";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
-import { Picker } from "./picker";
 import { t } from "../state/i18n";
 import {
     createEffect,
@@ -21,19 +21,22 @@ import {
     createResource,
     createSignal,
     For,
+    Index,
     Match,
     on,
+    onCleanup,
+    onMount,
     Show,
     Switch,
     untrack,
 } from "solid-js";
 
-const minWidth = 360;
-const defaultWidth = 640;
 /** Files with more merged lines than this start folded, and are never syntax highlighted. */
 const largeFileLines = 4000;
-
-const [panelWidth, setPanelWidth] = persisted<number>("drift.review.width", defaultWidth);
+/** A diff row's height (text-xs at leading-relaxed), so a file not yet built keeps its place in the scroll. */
+const rowPx = 19.5;
+/** How far outside the view a file's lines are built, so scrolling never meets an empty file. */
+const buildAhead = "1200px 0px";
 
 /** The changes of a turn or of the workspace against git, right of the chat; full screen on a phone. */
 export function ReviewPanelHost() {
@@ -42,7 +45,6 @@ export function ReviewPanelHost() {
 
 function ReviewPanelView(props: { panel: ReviewPanel }) {
     const engine = useEngine();
-    const narrow = createMediaQuery(smallScreenQuery);
     const [refresh, setRefresh] = createSignal(0);
     const turn = () => (props.panel.turn?.sessionId === selectedSession() ? props.panel.turn : undefined);
 
@@ -55,43 +57,16 @@ function ReviewPanelView(props: { panel: ReviewPanel }) {
         ({ source }) => loadReview(engine.actions, source),
     );
 
-    const pick = (id: string) => {
-        const source = sourceFromId(id, turn());
-        if (source) openReview({ source, turn: turn() });
-    };
+    const [fold, setFold] = createSignal<Fold>();
+    const pick = (source: ReviewSource) => openReview({ source, turn: turn() });
 
     return (
-        <div
-            class="review-panel relative flex min-h-0 min-w-0 shrink-0 flex-col overflow-hidden border-l border-edge bg-bg"
-            style={narrow() ? undefined : { width: `${panelWidth()}px` }}
-        >
-            <Show when={!narrow()}>
-                <ResizeHandle />
-            </Show>
-            <div
-                class="review-header flex h-11 shrink-0 items-center gap-1 border-b border-edge/60 pl-2"
-                classList={{ "pr-2": !nativeFrame() || narrow() }}
-                data-tauri-drag-region={nativeFrame() ? "" : undefined}
-            >
-                <Show when={narrow()}>
-                    <button
-                        class="flex size-11 shrink-0 items-center justify-center rounded-md text-ink-muted hover:bg-raised hover:text-ink"
-                        title={t("common.goBack")}
-                        onClick={closeReview}
-                    >
-                        <IconChevronLeft />
-                    </button>
-                </Show>
-                <Picker
-                    items={sourceItems(refs(), !!turn())}
-                    selected={sourceId(props.panel.source)}
-                    fallbackLabel={sourceLabel(props.panel.source)}
-                    label={t("drift.review.source")}
-                    floating
-                    placement="below"
-                    onPick={pick}
-                />
-                <div class="min-w-2 flex-1 self-stretch" data-tauri-drag-region={nativeFrame() ? "" : undefined} />
+        <SidePanel
+            name="review"
+            defaultWidth={640}
+            onClose={closeReview}
+            title={<ReviewSourceMenu source={props.panel.source} refs={refs()} turn={turn()} onPick={pick} />}
+            actions={
                 <button
                     class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
                     title={t("drift.review.refresh")}
@@ -99,33 +74,62 @@ function ReviewPanelView(props: { panel: ReviewPanel }) {
                 >
                     <IconRestore class="size-3.5" />
                 </button>
-                <Show when={!narrow()}>
-                    <button
-                        class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                        title={t("common.close")}
-                        onClick={closeReview}
-                    >
-                        <IconX class="size-3.5" />
-                    </button>
-                    <WindowControls />
-                </Show>
-            </div>
+            }
+        >
+            <Show when={!review.error && review()?.files.length ? review() : undefined}>
+                {(loaded) => <ReviewSummary review={loaded()} onFold={setFold} />}
+            </Show>
             <div class="review-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                <Show when={props.panel.source.kind === "turn"}>
-                    <p class="px-4 pt-3 text-xs text-ink-faint">{t("drift.review.turnNote")}</p>
-                </Show>
                 <ReviewBody
                     review={review.error ? undefined : review()}
                     loading={review.loading}
                     error={review.error ? errorText(review.error) : undefined}
                     focus={props.panel.focus}
+                    fold={fold()}
                 />
             </div>
-        </div>
+        </SidePanel>
     );
 }
 
 type ReviewActions = ReturnType<typeof useEngine>["actions"];
+/** Collapse all or Expand all, numbered so pressing the same one twice still applies. */
+type Fold = { open: boolean; at: number };
+
+/** How many files changed and by how much, with one control to fold or open every file. */
+function ReviewSummary(props: { review: Review; onFold: (fold: Fold) => void }) {
+    const [open, setOpen] = createSignal(true);
+    const total = createMemo(() =>
+        props.review.files.reduce(
+            (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
+            { additions: 0, deletions: 0 },
+        ),
+    );
+    const count = () => props.review.files.length + (props.review.omitted ?? 0);
+    const toggle = () => {
+        const next = !open();
+        setOpen(next);
+        props.onFold({ open: next, at: Date.now() });
+    };
+
+    return (
+        <div class="flex h-9 shrink-0 items-center gap-3 border-b border-edge/60 px-4 text-xs">
+            <span class="text-ink-muted">
+                {t(count() === 1 ? "drift.review.files.one" : "drift.review.files.other", { count: count() })}
+            </span>
+            <span class="font-mono">
+                <span class="text-ok">+{total().additions}</span> <span class="text-danger">-{total().deletions}</span>
+            </span>
+            <span class="flex-1" />
+            <button
+                class="rounded px-1.5 py-0.5 text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                onClick={toggle}
+            >
+                {t(open() ? "drift.review.collapseAll" : "drift.review.expandAll")}
+            </button>
+        </div>
+    );
+}
 
 async function loadReview(actions: ReviewActions, source: ReviewSource): Promise<Review | undefined> {
     if (source.kind === "turn") return actions.reviewTurn(source.sessionId, source.messageId);
@@ -134,49 +138,13 @@ async function loadReview(actions: ReviewActions, source: ReviewSource): Promise
     return actions.reviewWorkspace(source.kind, source.target);
 }
 
-function sourceLabel(source: ReviewSource) {
-    if (source.kind === "turn") return t("drift.review.source.turn");
-    if (source.kind === "uncommitted") return t("drift.review.source.uncommitted");
-
-    return source.kind === "commit" ? source.target.slice(0, 7) : source.target;
-}
-
 function errorText(error: unknown) {
     if (error instanceof EngineError && error.code === "not_a_repo") return t("drift.review.notRepo");
 
     return error instanceof Error ? error.message : String(error);
 }
 
-function ResizeHandle() {
-    const start = (event: PointerEvent) => {
-        event.preventDefault();
-        const handle = event.currentTarget as HTMLElement;
-        handle.setPointerCapture(event.pointerId);
-        const origin = event.clientX;
-        const initial = panelWidth();
-        const move = (moved: PointerEvent) => {
-            const max = Math.max(minWidth, window.innerWidth * 0.75);
-            setPanelWidth(Math.round(Math.min(max, Math.max(minWidth, initial + origin - moved.clientX))));
-        };
-        const stop = () => {
-            handle.removeEventListener("pointermove", move);
-            handle.removeEventListener("pointerup", stop);
-        };
-        handle.addEventListener("pointermove", move);
-        handle.addEventListener("pointerup", stop);
-    };
-
-    return (
-        <div
-            class="review-resize absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-accent/30"
-            role="separator"
-            aria-orientation="vertical"
-            onPointerDown={start}
-        />
-    );
-}
-
-function ReviewBody(props: { review?: Review; loading: boolean; error?: string; focus?: string }) {
+function ReviewBody(props: { review?: Review; loading: boolean; error?: string; focus?: string; fold?: Fold }) {
     let list!: HTMLDivElement;
 
     createEffect(
@@ -193,22 +161,22 @@ function ReviewBody(props: { review?: Review; loading: boolean; error?: string; 
     );
 
     return (
-        <div ref={list} class="flex flex-col gap-2 p-3">
+        <div ref={list} class="flex flex-col">
             <Switch>
-                <Match when={props.error}>{(error) => <p class="px-1 text-sm text-ink-faint">{error()}</p>}</Match>
+                <Match when={props.error}>{(error) => <p class="px-4 py-3 text-sm text-ink-faint">{error()}</p>}</Match>
                 <Match when={!props.review && props.loading}>
-                    <p class="px-1 text-sm text-ink-faint">{t("drift.review.loading")}</p>
+                    <p class="px-4 py-3 text-sm text-ink-faint">{t("drift.review.loading")}</p>
                 </Match>
                 <Match when={props.review && !props.review.files.length}>
-                    <p class="px-1 text-sm text-ink-faint">{t("drift.review.empty")}</p>
+                    <p class="px-4 py-3 text-sm text-ink-faint">{t("drift.review.empty")}</p>
                 </Match>
                 <Match when={props.review}>
                     {(review) => (
                         <>
-                            <For each={review().files}>{(file) => <FileDiff file={file} />}</For>
+                            <For each={review().files}>{(file) => <FileDiff file={file} fold={props.fold} />}</For>
                             <Show when={review().omitted}>
                                 {(count) => (
-                                    <p class="px-1 text-xs text-ink-faint">
+                                    <p class="px-4 py-3 text-xs text-ink-faint">
                                         {t("drift.review.omitted", { count: count() })}
                                     </p>
                                 )}
@@ -228,15 +196,39 @@ function splitPath(path: string) {
     return { folder: normalized.slice(0, slash + 1), name: normalized.slice(slash + 1) };
 }
 
-function FileDiff(props: { file: ReviewFile }) {
+/** One file: a header that stays at the top while its lines scroll past, and its lines, built once near the view. */
+function FileDiff(props: { file: ReviewFile; fold?: Fold }) {
     const [open, setOpen] = createSignal(untrack(() => props.file.lines.length <= largeFileLines));
+    const [near, setNear] = createSignal(false);
     const parts = () => splitPath(props.file.path);
+    createEffect(
+        on(
+            () => props.fold,
+            (fold) => fold && setOpen(fold.open),
+            { defer: true },
+        ),
+    );
+    // Rows the file shows before anything is unfolded, for its height until it is built.
+    const estimate = createMemo(() => reviewRows(props.file.lines, new Set()).length * rowPx);
+    let root!: HTMLDivElement;
+    onMount(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (!entries.some((entry) => entry.isIntersecting)) return;
+                setNear(true);
+                observer.disconnect();
+            },
+            { root: root.closest(".review-scroll"), rootMargin: buildAhead },
+        );
+        observer.observe(root);
+        onCleanup(() => observer.disconnect());
+    });
 
     return (
-        <div class="review-file rounded-lg border border-edge/70" data-review-path={props.file.path}>
+        <div ref={root} class="review-file border-b border-edge/60" data-review-path={props.file.path}>
             <button
-                class="review-file-header sticky top-0 z-[1] flex w-full min-w-0 items-center gap-2 rounded-t-lg bg-bg px-3 py-2 text-left text-sm transition-colors hover:bg-raised/35"
-                classList={{ "rounded-b-lg": !open() }}
+                class="review-file-header sticky top-0 z-[1] flex w-full min-w-0 items-center gap-2 border-b border-transparent bg-bg px-4 py-2 text-left text-[0.82rem] transition-colors hover:bg-raised"
+                classList={{ "border-edge/60": open() }}
                 aria-expanded={open()}
                 title={props.file.path}
                 onClick={() => setOpen(!open())}
@@ -261,14 +253,14 @@ function FileDiff(props: { file: ReviewFile }) {
                 </span>
             </button>
             <Show when={open()}>
-                <div class="border-t border-edge/70">
-                    <Show
-                        when={props.file.preview === "lines"}
-                        fallback={<p class="px-3 py-2 text-xs text-ink-faint">{previewText(props.file.preview)}</p>}
-                    >
+                <Show
+                    when={props.file.preview === "lines"}
+                    fallback={<p class="px-4 py-2 text-xs text-ink-faint">{previewText(props.file.preview)}</p>}
+                >
+                    <Show when={near()} fallback={<div style={{ height: `${estimate()}px` }} />}>
                         <FileLines file={props.file} />
                     </Show>
-                </div>
+                </Show>
             </Show>
         </div>
     );
@@ -281,27 +273,152 @@ function previewText(preview: ReviewFile["preview"]) {
     return t("drift.review.unavailable");
 }
 
+/** Rows built together; a chunk far from the view is torn down to its measured height, so the panel never holds a whole repository's lines. */
+const chunkRows = 60;
+/** How far outside the view a chunk stays built, so scrolling never meets an empty stretch. */
+const keepBuilt = "1500px 0px";
+
+type LineRowValue = Exclude<ReviewRow, { kind: "fold" }>;
+type Writing = { index: number; id?: string };
+
 function FileLines(props: { file: ReviewFile }) {
     const [opened, setOpened] = createSignal<ReadonlySet<number>>(new Set());
     const rows = createMemo(() => reviewRows(props.file.lines, opened()));
+    const chunks = createMemo(() => {
+        const all = rows();
+        return Array.from({ length: Math.ceil(all.length / chunkRows) }, (_, at) =>
+            all.slice(at * chunkRows, (at + 1) * chunkRows),
+        );
+    });
     const code = createMemo(() =>
         props.file.lines.length > largeFileLines ? "" : props.file.lines.map((line) => line.slice(1)).join("\n"),
     );
     const tokens = createDiffHighlight(() => props.file.path, code);
     const unfold = (start: number) => setOpened(new Set([...opened(), start]));
+    // The row a note is being written on, and the note when it is an edit of one already saved.
+    const [writing, setWriting] = createSignal<Writing>();
+    // Each line's notes by its index, worked out once per change rather than by every row.
+    const notes = createMemo(() => {
+        const found = new Map<number, ReturnType<typeof reviewComments>>();
+        const mine = reviewComments().filter((note) => note.path === props.file.path);
+        if (!mine.length) return found;
+        for (const row of rows()) {
+            if (row.kind === "fold") continue;
+            const on = mine.filter((note) => commentOn(note, props.file.path, row));
+            if (on.length) found.set(row.index, on);
+        }
+        return found;
+    });
+    const save = (line: LineRowValue, text: string, id: string = crypto.randomUUID()) => {
+        saveReviewComment({ id, path: props.file.path, line: line.line, side: line.kind, code: line.text, text });
+        setWriting();
+    };
+    const lines: LinesContext = {
+        tokens: () => tokens(),
+        notes: () => notes(),
+        writing,
+        setWriting,
+        save,
+        unfold,
+    };
 
     return (
-        <div class="overflow-x-auto py-1 font-mono text-xs leading-relaxed">
+        <div class="review-lines @container overflow-x-auto font-mono text-xs leading-relaxed">
             <div classList={{ "w-full": diffWordWrap(), "w-max min-w-full": !diffWordWrap() }}>
-                <For each={rows()}>
+                <Index each={chunks()}>{(chunk) => <LineChunk rows={chunk()} lines={lines} />}</Index>
+            </div>
+        </div>
+    );
+}
+
+type LinesContext = {
+    tokens: () => ReturnType<ReturnType<typeof createDiffHighlight>>;
+    notes: () => Map<number, ReturnType<typeof reviewComments>>;
+    writing: () => Writing | undefined;
+    setWriting: (writing?: Writing) => void;
+    save: (line: LineRowValue, text: string, id?: string) => void;
+    unfold: (start: number) => void;
+};
+
+/** A run of rows built only while it is near the view; away from it, an empty block of the height it had. */
+function LineChunk(props: { rows: ReviewRow[]; lines: LinesContext }) {
+    const [near, setNear] = createSignal(false);
+    const [height, setHeight] = createSignal<number>();
+    let root!: HTMLDivElement;
+    onMount(() => {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                const entry = entries.at(-1);
+                if (!entry) return;
+                if (!entry.isIntersecting && near()) setHeight(root.offsetHeight);
+                setNear(entry.isIntersecting);
+            },
+            { root: root.closest(".review-scroll"), rootMargin: keepBuilt },
+        );
+        observer.observe(root);
+        onCleanup(() => observer.disconnect());
+    });
+
+    return (
+        <div ref={root} style={near() ? undefined : { height: `${height() ?? props.rows.length * rowPx}px` }}>
+            <Show when={near()}>
+                <For each={props.rows}>
                     {(row) => (
-                        <Show when={row.kind !== "fold" && row} fallback={<FoldBar row={row} onOpen={unfold} />}>
-                            {(line) => <LineRow row={line()} tokens={tokens()[line().index]} />}
+                        <Show
+                            when={row.kind !== "fold" && row}
+                            fallback={<FoldBar row={row} onOpen={props.lines.unfold} />}
+                        >
+                            {(line) => <LineWithNotes line={line()} lines={props.lines} />}
                         </Show>
                     )}
                 </For>
-            </div>
+            </Show>
         </div>
+    );
+}
+
+function LineWithNotes(props: { line: LineRowValue; lines: LinesContext }) {
+    const notes = () => props.lines.notes().get(props.line.index) ?? [];
+    const writing = () => props.lines.writing();
+
+    return (
+        <>
+            <LineRow
+                row={props.line}
+                tokens={props.lines.tokens()[props.line.index]}
+                onComment={() => props.lines.setWriting({ index: props.line.index })}
+            />
+            <For each={notes()}>
+                {(note) => (
+                    <Show
+                        when={writing()?.id === note.id}
+                        fallback={
+                            <SavedComment
+                                comment={note}
+                                onEdit={() => props.lines.setWriting({ index: props.line.index, id: note.id })}
+                                onRemove={() => removeReviewComment(note.id)}
+                            />
+                        }
+                    >
+                        <CommentEditor
+                            side={note.side}
+                            line={note.line}
+                            initial={note.text}
+                            onSave={(text) => props.lines.save(props.line, text, note.id)}
+                            onCancel={() => props.lines.setWriting()}
+                        />
+                    </Show>
+                )}
+            </For>
+            <Show when={writing()?.index === props.line.index && !writing()?.id}>
+                <CommentEditor
+                    side={props.line.kind}
+                    line={props.line.line}
+                    onSave={(text) => props.lines.save(props.line, text)}
+                    onCancel={() => props.lines.setWriting()}
+                />
+            </Show>
+        </>
     );
 }
 
@@ -310,7 +427,7 @@ function FoldBar(props: { row: ReviewRow; onOpen: (start: number) => void }) {
 
     return (
         <button
-            class="review-fold my-0.5 flex w-full items-center gap-2 bg-raised/40 px-3 py-1 text-left font-sans text-xs text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+            class="review-fold flex h-[19.5px] w-full items-center gap-2 bg-raised/30 pl-14 text-left font-sans text-[0.7rem] text-ink-faint transition-colors hover:bg-raised hover:text-ink"
             onClick={() => props.onOpen(fold().start)}
         >
             {t(fold().count === 1 ? "drift.review.unmodified.one" : "drift.review.unmodified.other", {
@@ -327,12 +444,14 @@ function lineSymbol(kind: LineRowValue["kind"]) {
     return " ";
 }
 
-type LineRowValue = Exclude<ReviewRow, { kind: "fold" }>;
-
-function LineRow(props: { row: LineRowValue; tokens?: ReturnType<ReturnType<typeof createDiffHighlight>>[number] }) {
+function LineRow(props: {
+    row: LineRowValue;
+    tokens?: ReturnType<ReturnType<typeof createDiffHighlight>>[number];
+    onComment: () => void;
+}) {
     return (
         <div
-            class="flex border-l-2"
+            class="group/line relative flex border-l-2"
             classList={{
                 "bg-ok/10": diffIndicator() === "background" && props.row.kind === "add",
                 "bg-danger/10": diffIndicator() === "background" && props.row.kind === "del",
@@ -341,6 +460,7 @@ function LineRow(props: { row: LineRowValue; tokens?: ReturnType<ReturnType<type
                 "border-l-transparent": diffIndicator() !== "bars" || props.row.kind === "ctx",
             }}
         >
+            <CommentButton onClick={props.onComment} />
             <Show when={diffLineNumbers()}>
                 <span class="w-12 shrink-0 pr-2 text-right text-ink-faint select-none">{props.row.line}</span>
             </Show>

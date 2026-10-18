@@ -240,8 +240,11 @@ notification and sound choices, custom sound data, and global permission auto-ac
 Built-in sounds are Vite-managed URLs from OpenCode's MIT sound catalog, kept in `src/assets/audio`;
 audio bytes load only when played and require no asset-copy build step. Custom audio is
 stored locally as a capped data URL. Drift owns its English and 17 localized catalogs;
-only the selected non-English catalog loads as a cached Vite chunk. Custom CSS
-persistence and application are debounced.
+only the selected non-English catalog loads as a cached Vite chunk. Every locale carries
+every key in `en.ts`; the only exceptions are the invariants listed in
+`tests/settings.test.ts` (product names, `URL`, `GPU`), which fall back to English. UI text,
+notices and errors the frontend writes itself all go through `t()`; error text the engine
+sends is shown as it arrives. Custom CSS persistence and application are debounced.
 
 The About section shows the app version, the live engine version, whether this copy can
 update itself, a link to driftagent.dev, and credit to OpenCode. Update capability loads
@@ -292,9 +295,11 @@ controls whether a newly failed tool starts expanded or collapsed; it never lock
 row in that state.
 
 Settings > General > Transcript shapes tool rows. A command row shows the model's
-`description` (the command itself when there is none); with "Collapse finished commands"
-on, a command opens its live output only once it has run for five seconds, so quick ones
-never flash open, and folds again when it finishes. "Group consecutive tool
+`description` (the command itself when there is none). "Command output" chooses how its output
+shows: Always collapsed (only the row, open one by clicking it), Open while running (the default:
+live output opens once a command has run for five seconds, so quick ones never flash open, and
+folds again when it finishes), or Always open. The setting was a switch before; on reads as Open
+while running and off as Always open. "Group consecutive tool
 calls" has a switch per kind (commands, edits, fetches, MCP tools, other; commands on by
 default): two or more consecutive calls of enabled kinds, across the steps of one turn,
 fold into one row such as `Ran 2 commands, edited 1 file`, which names the call in
@@ -312,15 +317,26 @@ See all opens the review panel on that turn.
 
 The review panel shares the slot right of the chat with the debug panel (opening one
 closes the other), is resizable by its left edge, and fills the screen with Back on a
-phone. Its source picker offers the turn it was opened from and, inside a git repository,
-uncommitted changes (untracked files included), the working tree against where the
-current branch left another branch, or one recent commit; the header's diff button opens
-it on uncommitted changes. "This turn" folds every recorded call of the turn and its
-subagents into one change per file, from before its first change to after its last, so it
-includes what commands saw change while they ran. Files are unified diffs with
-collapsible headers, three lines of context and expandable "N unmodified lines" bars,
-since the engine sends both versions merged line by line. While it is open on the
-desktop, the window controls move to its header.
+phone. Its source menu offers the turn it was opened from and, inside a git repository, All
+changes (the working tree against where the current branch left the main line: `main`,
+`master` or `develop`), uncommitted changes (untracked files included), Compare against
+(any other branch, searched) and Commits (one recent commit, searched); its button reads
+`base → current` for a branch. The header's diff button opens it on uncommitted changes.
+"This turn" folds every recorded call of the turn and its subagents into one change per
+file, from before its first change to after its last, so it includes what commands saw
+change while they ran. Files are unified diffs whose headers stay pinned while their lines
+scroll, with three lines of context, expandable "N unmodified lines" bars and Collapse all /
+Expand all; a file's lines are built only once it scrolls near the view, since the engine
+sends both versions merged line by line (read from git in one `cat-file --batch`). While it
+is open on the desktop, the window controls move to its header.
+
+The + beside a diff line opens a note on it (Enter saves, Shift+Enter breaks the line,
+Escape gives up). Notes belong to the composer draft of the conversation beside the panel:
+each shows under its line with Edit and Delete and as a Comment chip in the composer, and
+removing it in either place removes it from both. Sending turns them into one
+`review-comments.md` text attachment naming each file, line number and side with the line
+itself, so the sent message shows a chip rather than the notes; a draft of only notes can
+be sent.
 
 On the desktop Drift draws its own frame. The sidebar runs to the top of the window with
 the logo and its search, archive and add buttons; the chat header is the title bar, with

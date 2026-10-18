@@ -1121,3 +1121,15 @@ test("a failure stops showing once the session goes on, by a retry or a new prom
     expect(state).toContain("if (failedAttempt(entry) && next) return false");
     expect(row).toContain("hideError={!!props.retry || !!props.next}");
 });
+
+test("a forwarded wheel animation keeps every notch's distance and lands exactly", async () => {
+    const { accumulatedWheelTarget, wheelStep } = await import("../src/ui/chat-wheel");
+    let target = accumulatedWheelTarget(0, null, 100, 5000);
+    let position = 0;
+    for (let frame = 0; frame < 3; frame++) position = wheelStep(position, target, 16);
+    target = accumulatedWheelTarget(Math.round(position), target, 100, 5000);
+    expect(target, "a second notch adds to the first target, not to where the scroll has got to").toBe(200);
+    for (let frame = 0; frame < 60 && position !== target; frame++) position = wheelStep(position, target, 16);
+    expect(position).toBe(200);
+    expect(wheelStep(0, 100, 16)).toBeGreaterThan(15);
+});

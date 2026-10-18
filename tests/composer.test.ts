@@ -75,7 +75,7 @@ test("slash parsing preserves command argument mode", async () => {
 test("composer history is normalized, deduplicated, and bounded", async () => {
     const { maxComposerHistory, normalizeComposerHistory, prependComposerHistory } =
         await import("../src/state/composer");
-    const draft = { text: "  carry on  ", staged: [], mentions: ["src/app.tsx", "src/app.tsx"] };
+    const draft = { text: "  carry on  ", staged: [], mentions: ["src/app.tsx", "src/app.tsx"], comments: [] };
     const first = prependComposerHistory([], draft);
     expect(first).toEqual([{ text: "carry on", mentions: ["src/app.tsx"] }]);
     expect(prependComposerHistory(first, draft)).toBe(first);
@@ -84,7 +84,7 @@ test("composer history is normalized, deduplicated, and bounded", async () => {
         text: `prompt ${index}`,
         mentions: [],
     }));
-    const bounded = prependComposerHistory(entries, { text: "newest", staged: [], mentions: [] });
+    const bounded = prependComposerHistory(entries, { text: "newest", staged: [], mentions: [], comments: [] });
     expect(bounded).toHaveLength(maxComposerHistory);
     expect(bounded[0].text).toBe("newest");
     expect(bounded.at(-1)?.text).toBe("prompt 98");
@@ -103,9 +103,10 @@ test("composer history navigation restores the draft and attachments", async () 
         text: "",
         staged: [{ id: "f1", filename: "screen.png", mime: "image/png", dataUrl: "data:image/png;base64,x", size: 1 }],
         mentions: ["draft.ts"],
+        comments: [],
     };
     const newest = navigateComposerHistory(entries, { index: -1, saved: null }, current, "up");
-    expect(newest?.draft).toEqual({ text: "newest", staged: [], mentions: ["new.ts"] });
+    expect(newest?.draft).toEqual({ text: "newest", staged: [], mentions: ["new.ts"], comments: [] });
     expect(newest?.cursor).toBe("start");
 
     if (!newest) throw new Error("expected history navigation");
@@ -328,8 +329,16 @@ test("shell transcript preserves a visible command-output gap and normalizes out
     expect(initialToolOpen("bash", "completed", false)).toBeFalse();
     expect(initialToolOpen("bash", "running", false)).toBeFalse();
     expect(initialToolOpen("bash", "pending", false)).toBeFalse();
-    expect(initialToolOpen("bash", "running", false, true, shellOpenDelayMs)).toBeTrue();
-    expect(initialToolOpen("bash", "completed", false, false)).toBeTrue();
+    expect(initialToolOpen("bash", "running", false, "running", shellOpenDelayMs)).toBeTrue();
+    expect(initialToolOpen("bash", "running", false, "collapsed", shellOpenDelayMs)).toBeFalse();
+    expect(initialToolOpen("bash", "completed", false, "open")).toBeTrue();
+    const { commandRowsFrom } = await import("../src/state/prefs");
+    expect([true, false, "collapsed", "nonsense"].map(commandRowsFrom)).toEqual([
+        "running",
+        "open",
+        "collapsed",
+        "running",
+    ]);
     expect(shellOpenWait("running", 1_000, 1_000 + shellOpenDelayMs - 200)).toBe(200);
     expect(shellOpenWait("running", 1_000, 1_000 + shellOpenDelayMs + 200)).toBe(0);
     expect(shellOpenWait("pending", undefined, 1_000)).toBeUndefined();
@@ -615,13 +624,13 @@ test("question card uses shared submission state and locks only answer editing f
     expect(source).toContainCode('if (event.key === "Escape") return; event.stopPropagation()');
 });
 
-test("question retry copy falls back to English in other languages", async () => {
+test("question retry copy is translated in other languages", async () => {
     const { loadDictionary, t } = await import("../src/state/i18n");
     try {
         await loadDictionary("es");
-        expect(t("session.question.retryOriginal")).toBe("Retry original answer");
+        expect(t("session.question.retryOriginal")).toBe("Reintentar respuesta original");
         expect(t("session.question.deliveryUnconfirmed")).toBe(
-            "Delivery is unconfirmed. Answers are locked; retry will send your original submitted answer.",
+            "Entrega sin confirmar. Las respuestas están bloqueadas; reintentar enviará tu respuesta original.",
         );
     } finally {
         await loadDictionary("en");

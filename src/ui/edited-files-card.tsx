@@ -1,4 +1,4 @@
-import { editedFiles, turnOf, turnTasks, type EditedFile, type TurnWorker } from "./edited-files";
+import { editedFiles, turnOf, turnStartsEarlier, turnTasks, type EditedFile, type TurnWorker } from "./edited-files";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
 import { delegatedChildId } from "./tool-delegation";
@@ -57,6 +57,25 @@ export function EditedFilesCard(props: { entry: MessageEntry }) {
             .map((part) => ({ part, id: delegatedChildId(engine.state, part) }))
             .filter((child): child is { part: (typeof child)["part"]; id: string } => !!child.id),
     );
+
+    // A turn longer than one page started before what is loaded: page its prompt in, so Undo and the review have it.
+    const [paging, setPaging] = createSignal(false);
+    let failed: string | undefined;
+    createEffect(() => {
+        const id = sessionId();
+        const cursor = engine.state.cursors[id];
+        if (paging() || !turnStartsEarlier(turn(), cursor) || failed === cursor) return;
+
+        setPaging(true);
+        // A page that brought nothing or failed leaves the cursor where it was; it is not asked for again.
+        void engine.actions
+            .loadOlder(id)
+            .catch(() => false)
+            .then((loaded) => {
+                if (!loaded) failed = cursor ?? undefined;
+            })
+            .finally(() => setPaging(false));
+    });
 
     // A subagent's edits are in its own transcript, loaded only when a card that needs it is on screen.
     createEffect(() => {

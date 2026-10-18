@@ -1,6 +1,7 @@
 import { isRemoteRuntime } from "../runtime";
 import { backendInvoke } from "../backend";
 import { shellEvents } from "../shell";
+import { t } from "./i18n";
 
 type MirrorThemeName =
     | "drift-dark"
@@ -192,8 +193,10 @@ export function registerMirrorApplier(next: MirrorApplier) {
 
 export async function bootstrapMirror() {
     const invoke = backendInvoke();
-    if (!invoke) throw new Error("The Drift host bridge is unavailable.");
     const remote = isRemoteRuntime();
+    // The browser dev loop has no host to share state with: it keeps this window's own.
+    if (!invoke && !remote) return void acceptMirrorSnapshot(localMirrorSnapshot(), true);
+    if (!invoke) throw new Error(t("drift.host.bridgeUnavailable"));
     const snapshot = remote
         ? await invoke<UiMirrorSnapshot>(mirrorBootstrapCommand(true))
         : await invoke<UiMirrorSnapshot>(mirrorBootstrapCommand(false), { snapshot: localMirrorSnapshot() });
@@ -318,12 +321,12 @@ function connectRemoteEvents() {
             acceptMirrorSnapshot(JSON.parse(event.data) as UiMirrorSnapshot);
             setLiveError("");
         } catch {
-            setLiveError("The host sent invalid mirror state.");
+            setLiveError(t("drift.host.invalidMirror"));
         }
     };
     source.onerror = () => {
         source.close();
-        setLiveError("Connection to the Drift host was lost. Reconnecting...");
+        setLiveError(t("drift.host.reconnecting"));
         setTimeout(async () => {
             try {
                 const snapshot = await backendInvoke()!<UiMirrorSnapshot>("ui_state_snapshot");

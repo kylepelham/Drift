@@ -39,7 +39,7 @@ function Palette(props: { onClose: () => void }) {
     const items = createMemo<PaletteItem[]>(() => {
         const actions: PaletteItem[] = [
             { label: t("drift.thread.new"), hint: t("command.category.suggested"), run: () => selectSession(null) },
-            { label: t("sidebar.settings"), hint: "action", run: openSettings },
+            { label: t("sidebar.settings"), hint: t("drift.palette.action"), run: openSettings },
             { label: t("dialog.mcp.title"), hint: t("command.category.suggested"), run: openMcpServers },
             {
                 label: t("command.theme.cycle"),

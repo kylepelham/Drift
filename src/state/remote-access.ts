@@ -1,6 +1,7 @@
 import { shellEvents, shellInvoke } from "../shell";
 import { signInPath } from "../runtime";
 import { createSignal } from "solid-js";
+import { t } from "./i18n";
 
 export type RemoteDevice = {
     id: string;
@@ -93,7 +94,7 @@ export function setRemoteAccess(enabled: boolean) {
 /** Approves the device showing `code`; resolves to its name. */
 export async function linkRemoteDevice(code: string) {
     const invoke = shellInvoke();
-    if (!invoke) throw new Error("Linking requires the Drift desktop app");
+    if (!invoke) throw new Error(t("drift.remote.linkRequiresDesktop"));
     const name = await invoke<string>("remote_access_link", { code: normalizeLinkCode(code) });
     void refreshRemoteAccess();
     return name;
@@ -102,7 +103,7 @@ export async function linkRemoteDevice(code: string) {
 /** A fresh pairing code for the Drift app; it replaces any shown before. */
 export async function showRemotePairing() {
     const invoke = shellInvoke();
-    if (!invoke) throw new Error("Pairing requires the Drift desktop app");
+    if (!invoke) throw new Error(t("drift.remote.pairRequiresDesktop"));
     return invoke<RemotePairing>("remote_access_pairing");
 }
 

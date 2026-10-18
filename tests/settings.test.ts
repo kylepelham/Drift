@@ -10,6 +10,14 @@ if (!("localStorage" in globalThis))
         },
     });
 
+test("no source guards on typeof import.meta.glob, which a Vite build leaves false so the assets never load", async () => {
+    const { Glob } = await import("bun");
+    for await (const file of new Glob("src/**/*.{ts,tsx}").scan(".")) {
+        const text = await Bun.file(file).text();
+        expect(code(text).includes("typeof import.meta.glob"), file).toBe(false);
+    }
+});
+
 test("settings expose the OpenCode language and sound catalogs", async () => {
     const { languages } = await import("../src/state/language");
     const { soundOptions } = await import("../src/ui/sounds");
@@ -56,9 +64,9 @@ test("selected language dictionaries translate settings without loading every lo
     expect(t("settings.tab.general")).toBe("General");
     expect(t("settings.general.row.language.title")).toBe("Idioma");
     expect(t("common.reset")).toBe("Restablecer");
-    expect(t("drift.remote.title")).toBe("Remote Access");
+    expect(t("drift.remote.title")).toBe("Acceso remoto");
     expect(t("drift.settings.prompts")).toBe("Prompts");
-    expect(t("drift.slash.spawn.required")).toBe("Say what the new thread should do after /spawn.");
+    expect(t("drift.slash.spawn.required")).toBe("Indica qué debe hacer el nuevo hilo después de /spawn.");
     expect(t("drift.attachment.kind.pdf")).toBe("PDF");
     expect(reasoningLevelLabel("xhigh")).toBe("Muy alto");
     expect(reasoningLevelLabel("custom")).toBe("Custom");
@@ -166,138 +174,6 @@ test("agent overrides saved or reset reach the engine for desktop and companion 
     expect(ui).not.toContain("showRestartNotice");
 });
 
-const pendingKeys = (prefix: string, suffixes: string) =>
-    suffixes
-        .trim()
-        .split(/\s+/)
-        .map((suffix) => `${prefix}.${suffix}`);
-
-/** Keys that deliberately fall back to English until locale-specific translations ship. */
-const pendingTranslation = new Set([
-    ...pendingKeys("drift.thread", "openSubagent"),
-    ...pendingKeys("drift.settings.autoCompact", "title description"),
-    ...pendingKeys("drift.settings.prompts", "behaviorRefused"),
-    "drift.message.forkHere",
-    ...pendingKeys("drift.about", "row.native.title row.native.description native.connected native.offline"),
-    "drift.markdown.linkFailed",
-    ...pendingKeys("drift.context", "window systemAndTools user assistant tool"),
-    ...pendingKeys(
-        "drift.usage",
-        `
-      title settingsDescription none refresh session weekly weeklyModel monthly period premium chat resetsInMinutes resetsInHours resetsInDays resetsAt
-      resetsSoon loading expired unsubscribed failed empty
-    `,
-    ),
-    "drift.tool.readThread",
-    "drift.mobile.openNavigation",
-    "drift.settings.agents.automaticSmallModel",
-    "drift.settings.agents.currentSessionModel",
-    "drift.settings.code",
-    ...pendingKeys("drift.settings.search", "empty placeholder"),
-    ...pendingKeys("drift.chat.retry", "switchModel switchingModel"),
-    ...pendingKeys("drift.chat.spawned", "copy instruction"),
-    ...pendingKeys("drift.model", "smallContext unknownContext"),
-    ...pendingKeys("drift.mcp.transport", "stdio streamable_http sse"),
-    ...pendingKeys("drift.mcp.era", "stateless legacy"),
-    ...pendingKeys("drift.mcp.form", "transport cwd cwdDefault timeout timeoutNone timeoutInvalid"),
-    ...pendingKeys("drift.mcp.form", "app appHint clientId clientSecret clientSecretNone scopes scopesNone"),
-    ...pendingKeys("drift.mcp", "signIn signOut signInOpened status.needsSignIn"),
-    ...pendingKeys(
-        "drift.code",
-        `
-      syntax layout diffs spaces
-      syntaxTheme.title syntaxTheme.description
-      theme.automatic theme.github theme.vitesse theme.one theme.dracula theme.nord
-      fontSize.title fontSize.description tabWidth.title tabWidth.description
-      wordWrap.title wordWrap.description diffWordWrap.title diffWordWrap.description
-      lineNumbers.title lineNumbers.description diffIndicator.title diffIndicator.description
-      diffIndicators.symbols diffIndicators.bars diffIndicators.background
-    `,
-    ),
-    ...pendingKeys("drift.engine", "restart restarting stopped.title"),
-    ...pendingKeys(
-        "drift.ollama",
-        "address description found limit.description limit.full limit.title saved saveFailed unavailable windowUnknown",
-    ),
-    ...pendingKeys(
-        "drift.lmStudio",
-        `
-      apiToken contextTooSmall description discovered modelReady noReady notLoaded ready refresh
-      refreshed refreshFailed unavailable
-    `,
-    ),
-    ...pendingKeys(
-        "drift.mcp",
-        `
-      servers registry add edit engineDescription status.disconnected removed
-      name nameRequired registrySearch registryLoadFailed install
-      registry.filter registry.filter.all registry.filter.remote registry.filter.local registry.more registry.official registry.searchingOfficial
-      registry.empty registry.back registry.repository registry.website registry.runAs registry.required
-      registry.optional registry.secret registry.secretNote registry.installing registry.stars registry.needsKey
-      registry.note.remote registry.note.docker registry.note.latest registry.note.local
-      installedLabel installed
-      form.nameInvalid form.type form.local form.remote form.command
-      form.executable form.argument form.addArgument form.removeArgument form.environment
-      form.url form.headers form.key form.value form.savedValue
-      form.addPair form.removePair form.commandRequired form.urlRequired form.urlInvalid form.pairInvalid
-    `,
-    ),
-    ...pendingKeys(
-        "drift.remote",
-        `
-      connected copied copy enable enableDescription manageOnDesktop noLanAddress title
-      connect.title connect.open connect.warning connect.code
-      link.action link.linked link.waiting
-      devices.title devices.empty devices.link devices.password devices.lastSeen devices.revoke devices.revokeAll
-      password.title password.description password.on password.off password.setUp password.change
-      password.turnOff password.username password.password password.confirm password.mismatch
-      password.save password.cancel password.note
-      certificate.title certificate.description encryption.fingerprint
-      device.title device.signedIn device.signOut toast.title toast.message toast.open
-    `,
-    ),
-    ...pendingKeys(
-        "drift.search",
-        `
-      archived clear close empty mode.content mode.name next previous
-      sessions.placeholder transcript transcript.placeholder
-    `,
-    ),
-    ...pendingKeys("drift.settings.prompts", "agentPrompt familyDescription inheritsFamily saved systemPrompt"),
-    "drift.shortcuts.findInSession",
-    ...pendingKeys(
-        "drift.slash",
-        `
-      fork fork.active fork.active.description fork.all fork.all.description fork.invalid
-      spawn spawn.required
-    `,
-    ),
-    ...pendingKeys(
-        "drift.storage",
-        `
-      actions compact compact.action compact.description compacting estimated free prune prune.action
-      prune.description pruning refresh
-      sessions sessions.archived sessions.archived.description sessions.subagent
-      sessions.subagent.description sessions.total sessions.total.description
-      table.part table.part.hint table.blob table.blob.hint table.undo table.undo.hint table.output table.output.hint
-    `,
-    ),
-    "drift.storage",
-    ...pendingKeys(
-        "drift.voice",
-        `
-      acceleration.cpu acceleration.gpu acceleration.off acceleration.on acceleration.title dictation
-      dictation.enabled.description dictation.enabled.title dictation.keyterms.description
-      dictation.keyterms.placeholder dictation.keyterms.title dictation.language.auto
-      dictation.language.description dictation.language.title dictation.privacy error.download
-      error.microphone error.noMicrophone error.permission error.unsupported listening model.balanced
-      model.best model.description model.download model.downloading model.fastest model.remove
-      model.storage.missing model.storage.ready model.storage.title model.title start starting stop transcribing
-    `,
-    ),
-    "drift.voice",
-]);
-
 /** Values that intentionally remain identical in every language. */
 const invariantTranslation = new Set([
     "drift.about.version",
@@ -309,13 +185,19 @@ const invariantTranslation = new Set([
     "drift.settings.section",
     "drift.settings.prompts.family.claude",
     "drift.settings.prompts.family.gemini",
+    "drift.code.theme.github",
+    "drift.code.theme.vitesse",
+    "drift.code.theme.one",
+    "drift.code.theme.dracula",
+    "drift.code.theme.nord",
+    "drift.mcp.transport.stdio",
+    "drift.mcp.transport.streamable_http",
+    "drift.mcp.form.url",
+    "drift.voice.dictation.keyterms.placeholder",
+    "drift.voice.acceleration.on",
 ]);
 
 type Catalog = { dict: Record<string, string>; drift: Record<string, string> };
-const featureTranslations = (catalog: Catalog) =>
-    Object.fromEntries(
-        Object.entries({ ...catalog.dict, ...catalog.drift }).filter(([key]) => key.startsWith("drift.")),
-    ) as Record<string, string>;
 
 test("no locale keeps a key English does not have", async () => {
     const { languages } = await import("../src/state/language");
@@ -328,30 +210,31 @@ test("no locale keeps a key English does not have", async () => {
     }
 });
 
-test("Drift owns explicit app-specific translations for every locale", async () => {
+test("every locale translates every key except the deliberate invariants", async () => {
     const { languages } = await import("../src/state/language");
-    const english = featureTranslations(await import("../src/i18n/en"));
+    const en: Catalog = await import("../src/i18n/en");
+    const english = { ...en.dict, ...en.drift } as Record<string, string>;
+    const keys = Object.keys(english)
+        .filter((key) => !invariantTranslation.has(key))
+        .sort();
     const nonEnglish = languages.filter((language) => language.id !== "en");
     const localized = await Promise.all(
-        nonEnglish.map(async (language) => featureTranslations(await import(`../src/i18n/${language.id}.ts`))),
+        nonEnglish.map(async (language) => {
+            const catalog: Catalog = await import(`../src/i18n/${language.id}.ts`);
+            return { ...catalog.dict, ...catalog.drift } as Record<string, string>;
+        }),
     );
-    const translated = (keys: string[]) =>
-        keys.filter((key) => !pendingTranslation.has(key) && !invariantTranslation.has(key)).sort();
-    const keys = translated(Object.keys(english));
 
-    for (const catalog of localized) expect(translated(Object.keys(catalog))).toEqual(keys);
+    nonEnglish.forEach((language, index) =>
+        expect(Object.keys(localized[index]).sort(), `${language.id} keys`).toEqual(keys),
+    );
 
-    const unknown = [...pendingTranslation].filter((key) => !(key in english));
-    const stale = [...pendingTranslation].filter((key) => localized.every((catalog) => key in catalog));
     const unknownInvariant = [...invariantTranslation].filter((key) => !(key in english));
-    const copiedInvariant = [...invariantTranslation].filter((key) => localized.some((catalog) => key in catalog));
-    const copiedEnglish = keys.filter((key) => localized.every((catalog) => catalog[key] === english[key]));
-
-    expect(unknown, "pendingTranslation names keys that do not exist in en.ts").toEqual([]);
-    expect(stale, "pendingTranslation names keys that are translated now; remove them").toEqual([]);
+    const copiedEnglish = keys.filter(
+        (key) => key.startsWith("drift.") && localized.every((catalog) => catalog[key] === english[key]),
+    );
     expect(unknownInvariant, "invariantTranslation names keys that do not exist in en.ts").toEqual([]);
-    expect(copiedInvariant, "invariant translations must use the English fallback").toEqual([]);
-    expect(copiedEnglish, "English copies must be pending fallbacks or explicit invariants").toEqual([]);
+    expect(copiedEnglish, "English copies must be explicit invariants").toEqual([]);
 
     for (const language of nonEnglish) {
         const source = await Bun.file(`src/i18n/${language.id}.ts`).text();

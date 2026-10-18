@@ -87,7 +87,7 @@ test("tools are classed by grouping setting; delegation, questions and reads nev
 });
 
 test("the edited-files card lists a turn's files once with summed counts, its subagents' files by name", async () => {
-    const { editedFiles, turnOf } = await import("../src/ui/edited-files");
+    const { editedFiles, turnOf, turnStartsEarlier } = await import("../src/ui/edited-files");
     const diff = (add: number, del: number) =>
         [
             `@@ -1,${del} +1,${add} @@`,
@@ -107,10 +107,58 @@ test("the edited-files card lists a turn's files once with summed counts, its su
     const turn = turnOf([prompt, ...steps], "msg_2");
     expect(turn.prompt).toBe(prompt);
     expect(turn.replies).toEqual(steps);
+    expect(turnStartsEarlier(turn, "msg_0")).toBe(false);
+
+    const paged = turnOf(steps, "msg_2");
+    expect(paged.prompt).toBeUndefined();
+    expect(turnStartsEarlier(paged, "msg_1"), "a turn longer than the loaded page").toBe(true);
+    expect(turnStartsEarlier(paged, null), "the whole session is loaded").toBe(false);
 
     const files = editedFiles(turn.replies, [{ name: "Fix paths", entries: worker }]);
     expect(files.map((file) => [file.name, file.additions, file.deletions, file.by])).toEqual([
         ["a.ts", 3, 1, undefined],
         ["c.ts", 0, 3, "Fix paths"],
     ]);
+});
+
+test("every file icon a name can get has its SVG, so no row shows an empty image", async () => {
+    const { fileIconName } = await import("../src/ui/file-icons");
+    const source = await Bun.file("src/ui/file-icons.ts").text();
+    const names = new Set([...source.matchAll(/:\s*"([a-z_]+)"/g)].map((match) => match[1]!));
+    names.add(fileIconName("notes.unknown"));
+    for (const name of names) expect(await Bun.file(`src/assets/file-icons/${name}.svg`).exists(), name).toBe(true);
+    expect(fileIconName("src/ui/edited-files.ts")).toBe("typescript");
+    expect(fileIconName("C:/repo/Cargo.toml")).toBe("rust");
+});
+
+test("a writing call is titled by what it does to its files, not by the tool's name", async () => {
+    const { fileChangeKind } = await import("../src/ui/tool-labels");
+    const { addedLines } = await import("../src/ui/tool-body");
+    const call = (name: string, input: Record<string, unknown>, metadata: Record<string, unknown> = {}) =>
+        ({ type: "tool_call", name, input, metadata, status: "done" }) as never;
+    expect(fileChangeKind(call("write", { filePath: "a.ts" }, { created: true }))).toBe("create");
+    expect(fileChangeKind(call("write", { filePath: "a.ts" }, { created: false }))).toBe("edit");
+    expect(fileChangeKind(call("edit", { filePath: "a.ts" }))).toBe("edit");
+    const patch = (type: string) => ({ filePath: "a.ts", type, patch: "", additions: 0, deletions: 0 });
+    expect(fileChangeKind(call("apply_patch", {}, { fileChanges: [patch("add"), patch("add")] }))).toBe("create");
+    expect(fileChangeKind(call("apply_patch", {}, { fileChanges: [patch("delete")] }))).toBe("delete");
+    expect(fileChangeKind(call("apply_patch", {}, { fileChanges: [patch("add"), patch("update")] }))).toBe("edit");
+    expect(fileChangeKind(call("apply_patch", { patchText: "*** Begin Patch\n*** Delete File: a.ts\n" }))).toBe(
+        "delete",
+    );
+    expect(addedLines("one\ntwo\n")).toBe("@@ -0,0 +1,2 @@\n+one\n+two");
+});
+
+test("a background job's result or exit carries on the turn, so the edited files card waits for the turn's end", async () => {
+    const { continuesTurn, turnOf } = await import("../src/ui/edited-files");
+    const user = (id: string, parts: unknown[]) => ({ info: { id, role: "user" }, parts }) as never;
+    const prompt = user("msg_0", [{ type: "text", text: "go" }]);
+    const exit = user("msg_2", [{ type: "process_exit", processId: "p", code: 0 }]);
+    const steps = [reply("msg_1", []), exit, reply("msg_3", [])];
+    expect(continuesTurn(exit)).toBeTrue();
+    expect(continuesTurn(prompt)).toBeFalse();
+    expect(continuesTurn(user("msg_x", []))).toBeFalse();
+    const turn = turnOf([prompt, ...steps], "msg_3");
+    expect(turn.prompt).toBe(prompt);
+    expect(turn.replies).toEqual(steps);
 });

@@ -2,14 +2,19 @@ import { t } from "../state/i18n";
 
 import type { CustomSound } from "../state/prefs";
 
-const sources =
-    typeof import.meta.glob === "function"
-        ? (import.meta.glob("../assets/audio/*.aac", {
-              eager: true,
-              query: "?no-inline",
-              import: "default",
-          }) as Record<string, string>)
-        : {};
+// Vite replaces the call, never a check for the function, so try it; Bun's test runner throws.
+function soundUrls(): Record<string, string> {
+    try {
+        return import.meta.glob<string>("../assets/audio/*.aac", {
+            eager: true,
+            query: "?no-inline",
+            import: "default",
+        });
+    } catch {
+        return {};
+    }
+}
+const sources = soundUrls();
 const soundSources = Object.fromEntries(
     Object.entries(sources).map(([path, url]) => [path.split("/").pop()?.replace(".aac", ""), url]),
 );

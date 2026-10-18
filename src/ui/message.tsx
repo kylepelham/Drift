@@ -71,8 +71,7 @@ export function MessageView(props: {
 
 /** A turn that paused itself says why; a plain stop reads as interrupted. */
 function interruptionText(error: MessageProblem) {
-    const reason = error.text;
-    return reason && reason !== "Interrupted" ? reason : t("drift.message.interrupted");
+    return error.text || t("drift.message.interrupted");
 }
 
 export function messageVisible(entry: MessageEntry) {

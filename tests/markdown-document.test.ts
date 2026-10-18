@@ -3,6 +3,7 @@ import { classifyMarkdownLink } from "../src/ui/markdown-links";
 import { previewParentDirectory } from "../src/file-preview";
 import { afterEach, expect, mock, test } from "bun:test";
 import * as solid from "solid-js/dist/solid.js";
+import { t } from "../src/state/i18n";
 import * as ts from "typescript";
 
 const source = await Bun.file(new URL("../src/ui/markdown-document.tsx", import.meta.url)).text();
@@ -37,6 +38,7 @@ const compile = new Function(
     "requestAnimationFrame",
     "cancelAnimationFrame",
     "openLightbox",
+    "t",
     `
   const { createEffect, onCleanup } = solid;
   ${
@@ -189,6 +191,7 @@ function setup(
         requestFrame,
         cancelFrame,
         open,
+        t,
     );
     let dispose!: () => void;
     solid.createRoot((cleanup: () => void) => {
@@ -745,6 +748,7 @@ test("preview sanitizer hooks strip forged markers and generate collision-safe h
         "window",
         "document",
         "classifyMarkdownLink",
+        "t",
         `
     const markdownImageAttribute = "data-document-image";
     ${ts.transpileModule(sanitizer.getText(ast).replace(/^export /, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText}
@@ -755,6 +759,7 @@ test("preview sanitizer hooks strip forged markers and generate collision-safe h
         { Element },
         { createElement: () => ({ content: { append() {} }, innerHTML: "safe" }) },
         classifyMarkdownLink,
+        t,
     );
     run("untrusted");
     expect(headings.map((heading) => heading.id)).toEqual([
@@ -832,13 +837,14 @@ test("chat sanitizer replaces only local image sources with trusted reader marke
         "window",
         "classifyMarkdownLink",
         "sanitizeMarkdownDocumentHtml",
+        "t",
         `
     let markdownPurifier;
     const markdownImageAttribute = "data-document-image";
     ${ts.transpileModule(sanitizer.getText(ast).replace(/^export /, ""), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } }).outputText}
     return sanitizeMarkdownHtml;
   `,
-    )(createPurifier, { Element }, classifyMarkdownLink, documentSanitizer);
+    )(createPurifier, { Element }, classifyMarkdownLink, documentSanitizer, t);
     run("first");
     run("streaming update");
     expect(createPurifier).toHaveBeenCalledTimes(1);
