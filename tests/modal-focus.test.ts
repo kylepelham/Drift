@@ -123,7 +123,7 @@ class FakeDocument extends EventTarget {
 }
 
 let doc: FakeDocument;
-const globalNames = ["document", "HTMLElement", "getComputedStyle"] as const;
+const globalNames = ["document", "HTMLElement", "getComputedStyle", "matchMedia"] as const;
 let originalGlobals: (PropertyDescriptor | undefined)[];
 let cleanups: (() => void)[];
 
@@ -131,7 +131,7 @@ beforeEach(() => {
     originalGlobals = globalNames.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
     doc = new FakeDocument();
     cleanups = [];
-    const values = [doc, FakeElement, (element: FakeElement) => ({ zIndex: element.zIndex })];
+    const values = [doc, FakeElement, (element: FakeElement) => ({ zIndex: element.zIndex }), undefined];
     globalNames.forEach((name, index) => {
         Object.defineProperty(globalThis, name, { configurable: true, writable: true, value: values[index] });
     });
@@ -451,4 +451,21 @@ test("cleanup before initial focus and out-of-order disposal cannot steal top-mo
     expect(lower.children).toHaveLength(1);
     expect(doc.listeners.get("keydown")?.size).toBe(1);
     expect(doc.listeners.get("focusin")?.size).toBe(1);
+});
+
+test("touch dialogs focus the panel without opening a text keyboard unless autofocus is explicit", async () => {
+    Object.defineProperty(globalThis, "matchMedia", { configurable: true, value: () => ({ matches: true }) });
+    const button = new FakeElement("button");
+    const element = dialog(button);
+    const cleanup = activate(element);
+    await Promise.resolve();
+    expect(doc.activeElement).toBe(element);
+    cleanup();
+    await Promise.resolve();
+    const input = new FakeElement("input");
+    input.setAttribute("autofocus", "");
+    const explicit = dialog(input);
+    activate(explicit);
+    await Promise.resolve();
+    expect(doc.activeElement).toBe(input);
 });

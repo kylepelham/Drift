@@ -1,12 +1,16 @@
 import { sourceProblem, validSourceUrl } from "../src/state/registry-sources";
 import { describe, expect, test } from "bun:test";
 import {
+    bundleAsks,
+    bundleRunsCode,
     buildConfig,
     fieldText,
     fieldValue,
     installedPath,
+    isBundle,
     loadRegistries,
     matchesRegistryQuery,
+    type BundleContents,
     type ConfigField,
     type RegistryPlugin,
 } from "../src/state/plugin-registry";
@@ -15,6 +19,33 @@ const list: ConfigField = { key: "test", label: "Test", type: "list", default: [
 const flag: ConfigField = { key: "on", label: "On", type: "boolean", default: true };
 const count: ConfigField = { key: "n", label: "N", type: "number", default: 5 };
 const json: ConfigField = { key: "map", label: "Map", type: "json", default: { a: 1 } };
+
+const contents = (servers: BundleContents["servers"], programs: string[] = []): BundleContents => ({
+    skills: [],
+    agents: [],
+    commands: [],
+    servers,
+    programs,
+    hooks: [],
+});
+
+describe("bundles in the registry", () => {
+    test("a bundle asks once for each value its servers name", () => {
+        const both = contents([
+            { name: "fal", type: "http", asks: ["FAL_KEY"] },
+            { name: "relay", type: "sse", asks: ["ORG", "FAL_KEY"] },
+        ]);
+        expect(bundleAsks(both)).toEqual(["FAL_KEY", "ORG"]);
+        expect(bundleAsks(undefined)).toEqual([]);
+        expect(isBundle({ kind: "bundle" }) && !isBundle({ kind: "skills" })).toBe(true);
+    });
+
+    test("only programs or a server Drift starts itself count as code that runs here", () => {
+        expect(bundleRunsCode(contents([{ name: "fal", type: "http", asks: [] }]))).toBe(false);
+        expect(bundleRunsCode(contents([{ name: "local", type: "stdio", asks: [] }]))).toBe(true);
+        expect(bundleRunsCode(contents([], ["um"]))).toBe(true);
+    });
+});
 
 describe("plugin registry config fields", () => {
     test("typed values are read by type and the default stands in for nothing or nonsense", () => {

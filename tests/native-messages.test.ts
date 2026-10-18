@@ -17,7 +17,7 @@ test.each([
     [{ status: "error" }, { text: "The turn failed", interrupted: false }],
     [
         { status: "error", error: "" },
-        { text: "UnknownError", interrupted: false },
+        { text: "An error occurred", interrupted: false },
     ],
     [
         { status: "aborted", error: "Cancelled" },

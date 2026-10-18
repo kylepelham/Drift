@@ -57,7 +57,8 @@ test("settings, model manager, and split MCP dialogs use the shared modal lifecy
     const mcp = await Bun.file("src/ui/mcp.tsx").text();
     const editor = await Bun.file("src/ui/mcp/editor.tsx").text();
     expect(settings).toContain("<Portal>");
-    expect(settings).toContain("activateModal(dialog, props.onClose)");
+    expect(settings).toContain("activateModal(dialog,");
+    expect(settings).toContain("{ history: false }");
     expect(settings).not.toContain('document.addEventListener("keydown", escape)');
     expect(models).toContain("<Portal>");
     expect(models).toContain("w-[min(35rem,calc(100vw-1rem))]");

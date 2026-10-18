@@ -14,4 +14,6 @@ export default defineConfig({
     server: { port: 5180, strictPort: true, watch: { ignored: ["**/examples/**"] } },
     // `app.html` is the Drift app's computers page, served on the phone by its local proxy.
     build: { target: "es2022", rollupOptions: { input: { main: "index.html", app: "app.html" } } },
+    // The syntax worker loads Shiki's languages and themes as chunks, which only module workers can.
+    worker: { format: "es" },
 });

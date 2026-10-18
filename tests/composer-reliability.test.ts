@@ -50,7 +50,7 @@ test("composer submission clears text, mentions, and files only after admission"
 
     expect(await submit()).toBe("submitted");
     expect(history).toEqual({ ...snapshot, text: "inspect this" });
-    expect(composerDraft(key)).toEqual({ text: "", mentions: [], staged: [] });
+    expect(composerDraft(key)).toEqual({ text: "", mentions: [], staged: [], comments: [] });
 });
 
 test("failed composer submissions retain text, mentions, and attachment-only drafts", async () => {
@@ -187,7 +187,7 @@ test("new-session submits are single-flight during transform and session creatio
         const workspaceId = `single-flight-${delayed}`;
         const source = composerScope(null, workspaceId);
         const target = composerScope(`created-${delayed}`);
-        setComposerDraft(source, { text: "create one thread", mentions: [], staged: [] });
+        setComposerDraft(source, { text: "create one thread", mentions: [], staged: [], comments: [] });
         let currentScope = source;
         let transforms = 0;
         let sessions = 0;
@@ -249,7 +249,7 @@ test("new-session submit preserves navigation and drafts when creation resolves 
     const sourceA = composerScope(null, workspaceA.id);
     const sourceB = composerScope(null, workspaceB.id);
     const draftA = { text: "send from A", mentions: ["src/a.ts"], staged: [attachment] };
-    const draftB = { text: "keep B", mentions: ["src/b.ts"], staged: [] };
+    const draftB = { text: "keep B", mentions: ["src/b.ts"], staged: [], comments: [] };
     setComposerDraft(sourceA, draftA);
     setComposerDraft(sourceB, draftB);
     let currentScope = sourceA;
@@ -309,7 +309,7 @@ test("existing-session submits are single-flight while prompt admission is pendi
     const { clearComposerDraft, composerDraft, composerScope, setComposerDraft } =
         await import("../src/state/composer");
     const key = composerScope("pending-send-session", "pending-send-workspace");
-    setComposerDraft(key, { text: "send once", mentions: [], staged: [] });
+    setComposerDraft(key, { text: "send once", mentions: [], staged: [], comments: [] });
     const admission = deferred<void>();
     const started = deferred<void>();
     const guard = createComposerSubmissionGuard();
@@ -405,7 +405,7 @@ test("composer submission guard releases after thrown failures", async () => {
     const { clearComposerDraft, composerDraft, composerScope, setComposerDraft } =
         await import("../src/state/composer");
     const key = composerScope("release-session", "release-workspace");
-    setComposerDraft(key, { text: "retry me", mentions: [], staged: [] });
+    setComposerDraft(key, { text: "retry me", mentions: [], staged: [], comments: [] });
     const guard = createComposerSubmissionGuard();
     let sends = 0;
     const submit = createComposerSubmit(

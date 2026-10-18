@@ -1,5 +1,6 @@
 import { backendInvoke } from "../backend";
 import { createSignal } from "solid-js";
+import { t } from "./i18n";
 
 type TableUsage = { table: string; rows: number; bytes: number };
 type SessionCounts = { total: number; topLevel: number; subagent: number; archived: number };
@@ -23,7 +24,7 @@ export { stats as storageStats, busy as storageBusy, error as storageError };
 async function run<T>(kind: NonNullable<ReturnType<typeof busy>>, command: string) {
     const invoke = backendInvoke();
     if (!invoke) {
-        setError("Storage management needs the Drift host backend");
+        setError(t("drift.host.storageRequired"));
         return undefined;
     }
     setBusy(kind);

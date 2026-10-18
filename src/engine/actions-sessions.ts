@@ -3,6 +3,7 @@ import { sessionInWorkspace } from "./sessions";
 import { EngineError } from "./native/client";
 import { produce } from "solid-js/store";
 import { putSession } from "./store";
+import { t } from "../state/i18n";
 
 import type { ArchivePurge, PromptSendResult, SessionMoveResult } from "./actions";
 import type { ActionContext } from "./actions-context";
@@ -78,7 +79,7 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         } catch (cause) {
             notice({
                 id: `fork-${id}`,
-                title: "Couldn't fork",
+                title: t("drift.session.forkFailed"),
                 message: errorMessage(cause),
                 variant: "error",
                 duration: 10_000,
@@ -95,7 +96,7 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         } catch (cause) {
             notice({
                 id: `compact-${id}`,
-                title: "Couldn't compact",
+                title: t("drift.session.compactFailed"),
                 message: errorMessage(cause),
                 variant: "error",
                 duration: 10_000,
@@ -124,8 +125,8 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
             if (kept.length)
                 notice({
                     id: `revert-kept-${id}`,
-                    title: "Kept your changes",
-                    message: `Left as you changed them: ${kept.join(", ")}`,
+                    title: t("drift.session.undo.kept"),
+                    message: t("drift.session.undo.kept.message", { files: fileSummary(kept) }),
                     variant: "info",
                     duration: 10_000,
                 });
@@ -133,8 +134,8 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
             if (unattributed.length)
                 notice({
                     id: `revert-unattributed-${id}`,
-                    title: "Left files changed during commands",
-                    message: `Changed while a command ran, so not undone: ${unattributed.join(", ")}`,
+                    title: t("drift.session.undo.unattributed"),
+                    message: t("drift.session.undo.unattributed.message", { files: fileSummary(unattributed) }),
                     variant: "info",
                     duration: 10_000,
                 });
@@ -142,8 +143,8 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
             if (unrecorded.length)
                 notice({
                     id: `revert-unrecorded-${id}`,
-                    title: "Some imported edits were not undone",
-                    message: `No undo record, left as they are: ${unrecorded.join(", ")}`,
+                    title: t("drift.session.undo.unrecorded"),
+                    message: t("drift.session.undo.unrecorded.message", { files: fileSummary(unrecorded) }),
                     variant: "info",
                     duration: 10_000,
                 });
@@ -151,7 +152,7 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         } catch (cause) {
             notice({
                 id: `revert-${id}`,
-                title: "Couldn't undo",
+                title: t("drift.session.undoFailed"),
                 message: errorMessage(cause),
                 variant: "error",
                 duration: 10_000,
@@ -185,7 +186,7 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
     /** Moves a session with its subagents; the engine refuses while any of them is running. */
     async function moveSession(id: string, destination: string): Promise<SessionMoveResult> {
         const workspaceId = workspaces().id(destination);
-        if (!workspaceId) return { ok: false, moved: [], error: "That workspace is not registered with the engine" };
+        if (!workspaceId) return { ok: false, moved: [], error: t("drift.session.workspaceUnregistered") };
         try {
             return { ok: true, moved: (await requireClient().moveSession(id, workspaceId)).moved };
         } catch (cause) {
@@ -198,7 +199,12 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         try {
             return await requireClient().exportSessions(ids);
         } catch (cause) {
-            notice({ id: "backup-export", title: "Couldn't back up", message: errorMessage(cause), variant: "error" });
+            notice({
+                id: "backup-export",
+                title: t("drift.session.backupFailed"),
+                message: errorMessage(cause),
+                variant: "error",
+            });
         }
     }
 
@@ -210,7 +216,12 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
             const { sessions } = await allPages({ workspace });
             return await exportSessions(sessions.map((session) => session.id));
         } catch (cause) {
-            notice({ id: "backup-export", title: "Couldn't back up", message: errorMessage(cause), variant: "error" });
+            notice({
+                id: "backup-export",
+                title: t("drift.session.backupFailed"),
+                message: errorMessage(cause),
+                variant: "error",
+            });
         }
     }
 
@@ -218,10 +229,15 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
     async function importSessions(directory: string, backup: Backup) {
         const workspaceId = workspaces().id(directory);
         try {
-            if (!workspaceId) throw new Error("That workspace is not registered with the engine");
+            if (!workspaceId) throw new Error(t("drift.session.workspaceUnregistered"));
             return await requireClient().importSessions(workspaceId, backup);
         } catch (cause) {
-            notice({ id: "backup-import", title: "Couldn't import", message: errorMessage(cause), variant: "error" });
+            notice({
+                id: "backup-import",
+                title: t("drift.session.importFailed"),
+                message: errorMessage(cause),
+                variant: "error",
+            });
         }
     }
 
@@ -238,7 +254,7 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
                 return {
                     ok: false,
                     moved: [],
-                    error: "Stop the running threads in this workspace first; they keep the folder they started in.",
+                    error: t("drift.session.moveRunning"),
                 };
             return { ok: true, moved: [] };
         } catch (cause) {
@@ -255,7 +271,7 @@ export function createSessionActions(context: ActionContext, allPages: SessionLi
         } catch (cause) {
             notice({
                 id: `spawn-${id}`,
-                title: "Couldn't spawn the thread",
+                title: t("drift.session.spawnFailed"),
                 message: errorMessage(cause),
                 variant: "error",
                 duration: 10_000,
@@ -292,4 +308,10 @@ function purge(draft: EngineState, id: string) {
     delete draft.errors[id];
     delete draft.cursors[id];
     delete draft.tasks[id];
+}
+
+/** A notice names a few files and counts the rest, so an undo across many files stays one short line. */
+export function fileSummary(paths: string[], shown = 3) {
+    const names = paths.slice(0, shown).join(", ");
+    return paths.length > shown ? t("drift.session.undo.more", { names, count: paths.length - shown }) : names;
 }

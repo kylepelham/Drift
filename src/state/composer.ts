@@ -6,11 +6,22 @@ import { persisted } from "./persist";
 import type { MessageEntry } from "../engine/store";
 
 export type StagedFile = StagedAttachment;
-export type ComposerDraft = { text: string; staged: StagedFile[]; mentions: string[] };
+/** A note on one line of the review panel's diff, sent with the next message. */
+export type ReviewComment = {
+    id: string;
+    path: string;
+    /** The line's number on its side: the old file's for a removed line, the new one's otherwise. */
+    line: number;
+    side: "add" | "del" | "ctx";
+    /** The line itself, so the note finds its line again in another comparison and the model sees it. */
+    code: string;
+    text: string;
+};
+export type ComposerDraft = { text: string; staged: StagedFile[]; mentions: string[]; comments: ReviewComment[] };
 export type ComposerHistoryEntry = Pick<ComposerDraft, "text" | "mentions">;
 export type ComposerHistoryNavigation = { index: number; saved: ComposerDraft | null };
 
-const emptyDraft: ComposerDraft = { text: "", staged: [], mentions: [] };
+const emptyDraft: ComposerDraft = { text: "", staged: [], mentions: [], comments: [] };
 export const maxComposerHistory = 100;
 const [drafts, setDrafts] = createSignal<Record<string, ComposerDraft>>({});
 const [history, setHistory] = persisted<ComposerHistoryEntry[]>("drift.composer.history", [], normalizeComposerHistory);
@@ -146,15 +157,20 @@ export function draftFromMessage(entry: MessageEntry): ComposerDraft {
             meta: {},
         });
     }
-    return { text, staged, mentions: [...new Set(mentions)] };
+    return { text, staged, mentions: [...new Set(mentions)], comments: [] };
 }
 
 function historyDraft(entry: ComposerHistoryEntry): ComposerDraft {
-    return { text: entry.text, staged: [], mentions: [...entry.mentions] };
+    return { text: entry.text, staged: [], mentions: [...entry.mentions], comments: [] };
 }
 
 function cloneDraft(draft: ComposerDraft): ComposerDraft {
-    return { text: draft.text, staged: [...draft.staged], mentions: [...draft.mentions] };
+    return {
+        text: draft.text,
+        staged: [...draft.staged],
+        mentions: [...draft.mentions],
+        comments: [...draft.comments],
+    };
 }
 
 function sameStrings(left: string[], right: string[]) {

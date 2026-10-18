@@ -3,9 +3,10 @@ import { handOverAutoAccept } from "../state/prefs";
 import { sessionInWorkspace } from "./sessions";
 import { EngineError } from "./native/client";
 import { putSession } from "./store";
+import { t } from "../state/i18n";
 
+import type { BundlePartKind, InstallBundle, PermissionGrant, PermissionRule, Client } from "./native/client";
 import type { AgentInfo, CommandInfo, McpServerConfig, McpServerStatus } from "./store";
-import type { PermissionGrant, PermissionRule, Client } from "./native/client";
 import type { ActionContext } from "./actions-context";
 
 /**
@@ -116,7 +117,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         for (const problem of config.problems ?? [])
             notice({
                 id: `config-${workspace}`,
-                title: "Couldn't read the workspace config",
+                title: t("drift.config.unreadable"),
                 message: problem,
                 variant: "error",
                 duration: 15_000,
@@ -124,7 +125,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         for (const warning of config.warnings ?? [])
             notice({
                 id: `config-warning-${workspace}-${warning}`,
-                title: "Part of the workspace config is ignored",
+                title: t("drift.config.ignored"),
                 message: warning,
                 variant: "warning",
                 duration: 10_000,
@@ -133,7 +134,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         for (const agent of agents.filter((agent) => agent.problem))
             notice({
                 id: `agent-${workspace}-${agent.name}`,
-                title: `The ${agent.name} agent can't run`,
+                title: t("drift.config.agentBroken", { agent: agent.name }),
                 message: agent.problem!,
                 variant: "warning",
                 duration: 15_000,
@@ -245,6 +246,12 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
             registry?: string;
         }) => requireClient().installSkillPack(body),
         removeSkillPack: (id: string) => requireClient().removeSkillPack(id),
+        bundles: () => requireClient().bundles(),
+        installBundle: (body: InstallBundle) => requireClient().installBundle(body),
+        removeBundle: (id: string) => requireClient().removeBundle(id),
+        setBundleEnabled: (id: string, enabled: boolean) => requireClient().setBundleEnabled(id, enabled),
+        setBundlePart: (id: string, kind: BundlePartKind, name: string, enabled: boolean) =>
+            requireClient().setBundlePart(id, kind, name, enabled),
         saveBasePrompt: (id: string, text: string) => requireClient().saveBasePrompt(id, text),
         resetBasePrompt: (id: string) => requireClient().resetBasePrompt(id),
         permissionRules: () => requireClient().permissionRules(),

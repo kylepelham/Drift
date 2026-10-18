@@ -1,6 +1,5 @@
 import { errorMessage, type ActionContext, type NoticeInput } from "./actions-context";
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
-import { EngineError, maxRequestBytes, type Client } from "./native/client";
 import { produce, type SetStoreFunction } from "solid-js/store";
 import { createProviderActions } from "./actions-providers";
 import { createSessionActions } from "./actions-sessions";
@@ -24,6 +23,14 @@ import {
     type MessageEntry,
     type ModelRef,
 } from "./store";
+import {
+    EngineError,
+    maxRequestBytes,
+    type Client,
+    type GitSource,
+    type Review,
+    type ReviewRefs,
+} from "./native/client";
 
 // Engine actions own HTTP requests; message, part and catalog views still use the adapter.
 import type { Session, WorkspaceIndex } from "./sessions";
@@ -139,7 +146,7 @@ export function createActions(
             .catch((cause) => {
                 notice({
                     id: `transcript-load-${id}`,
-                    title: "Transcript load failed",
+                    title: t("drift.session.transcriptFailed"),
                     message: errorMessage(cause),
                     variant: "error",
                 });
@@ -195,7 +202,7 @@ export function createActions(
             .catch((cause) => {
                 notice({
                     id: `transcript-load-${id}`,
-                    title: "Transcript load failed",
+                    title: t("drift.session.transcriptFailed"),
                     message: errorMessage(cause),
                     variant: "error",
                 });
@@ -312,7 +319,7 @@ export function createActions(
                 url: file.url,
             })),
         ];
-        if (parts.length === 0) return fail(id, "Prompt failed: the prompt is empty");
+        if (parts.length === 0) return fail(id, t("drift.prompt.failed", { reason: t("drift.prompt.empty") }));
 
         // Named only when they change what runs next; an unchanged follow-up steers into the running turn.
         const saved = savedChoice(state, id);
@@ -345,7 +352,7 @@ export function createActions(
             return { ok: true };
         } catch (cause) {
             if (definite(cause)) unsettled.delete(key);
-            return fail(id, `Prompt failed: ${errorMessage(cause)}`);
+            return fail(id, t("drift.prompt.failed", { reason: errorMessage(cause) }));
         }
     }
 
@@ -364,12 +371,23 @@ export function createActions(
         return workspace ? requireClient().findFiles(workspace, text) : [];
     }
 
+    /** The current workspace's changes against git, or nothing without a workspace. */
+    async function reviewWorkspace(source: GitSource, target?: string): Promise<Review | undefined> {
+        const workspace = workspaces().id(state.directory);
+        return workspace ? requireClient().reviewWorkspace(workspace, source, target) : undefined;
+    }
+
+    async function reviewRefs(): Promise<ReviewRefs | undefined> {
+        const workspace = workspaces().id(state.directory);
+        return workspace ? requireClient().reviewRefs(workspace) : undefined;
+    }
+
     async function runCommand(id: string, command: string, args: string) {
         set("errors", id, undefined!);
         try {
             await requireClient().runCommand(id, command, args);
         } catch (cause) {
-            fail(id, `Command failed: ${errorMessage(cause)}`);
+            fail(id, t("drift.command.failed", { reason: errorMessage(cause) }));
         }
     }
 
@@ -392,6 +410,10 @@ export function createActions(
         stopProcess,
         notice,
         findFiles,
+        reviewWorkspace,
+        reviewRefs,
+        reviewTurn: (sessionId: string, messageId: string): Promise<Review> =>
+            requireClient().reviewTurn(sessionId, messageId),
         steer: async (id: string, text: string, options: PromptOptions) => send(id, text, options),
         runCommand,
     };

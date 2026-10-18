@@ -95,6 +95,8 @@ change the plan there when a decision changes.
   - [x] Undo and redo are all or nothing: a failed write puts back the files already changed, so a retry reports nothing as kept
   - [x] A replacement is marked `swapped` once its swap succeeds, so a stale backup is removed, never restored over a deliberate deletion
 - [x] Fork: bounded (`atMessage`) and active (stable history, in-flight turn left out)
+- [x] Forks ignore stale unfinished work before the current turn; copied orphaned calls become interrupted errors without changing the source
+- [x] Restart recovery saves an interrupted foreground task's result into its parent call before acknowledging it, including old acknowledged-but-running calls in finished messages
 - [x] Move with busy guard (subagents move along, branches stay; retarget refuses while running)
 - [x] Per-action models from Settings > Agents: title (small model default, generated in the background), compaction, subagent pins
 - [x] Compaction with recovery: automatic (meter threshold, Settings off switch, stops after 3 failures), overflow compact-and-retry, `/compact`; summary plus a 2-turn tail of a quarter of the compaction point (2k to 15k), nothing deleted
@@ -272,8 +274,10 @@ change the plan there when a decision changes.
 - [x] Settings > Plugins lists loaded plugins with their errors, a switch for each and a Reload button
 - [x] Plugin events: prompt submit (refuse, rewrite, add context) and turn end (continue with a prompt, three at most); host interfaces `store`, `files`, `process`, `http` and per-plugin config, each shown as a capability in Settings
 - [x] Plugin events: permission (answers only an ask the rules leave to the user), compaction (instructions for the summary, then a `compacted` session event); `notify` host interface shown as a toast
+- [x] Secret masking: the `masking` world's `replacements()` export (optional; older plugins load as before), applied by the engine to every request (`llm::mask`) and reversed in every tool call the model makes; `plugins/secrets` names the pairs from its config
 - [x] Plugin registry: nine plugins at github.com/kylepelham/Drift-Plugins (guard, protect-files, auto-format, lint-check, test-gate, notify, git-autocommit, git-context, tool-log), Settings > Plugins > Registry with cards and an install sheet in the MCP registry's style, install with a hash check, remove, config; custom registry sources for plugins and MCP servers (`registrySources` setting) so a team publishes its own at one URL; a source is a URL, a GitHub or Azure DevOps repository (private with a token in the credential store) or a folder on a share, may allow http or trust an internal CA, and is read by the engine so the webview never holds a token
 - [x] Settings > Skills: every skill the engine offers (workspace, user, packs) with a switch each (the engine's `disabledSkills` list; the files are never renamed); a registry of single skills and packs (Superpowers, Matt Pocock, Addy Osmani, Karpathy, Erik Darling) with the skills to take chosen before install, unpacked from a pinned archive under `~/.config/drift/skills`
+- [x] Bundles in Settings > Plugins: a Claude Code plugin folder (skills, commands, agents, `.mcp.json` servers, `bin/` programs) installed from an archive pinned to a commit under `~/.config/drift/bundles/<id>`, one switch for the bundle and one per part (`bundles` setting), its MCP servers saved as rows the bundle owns and hidden from the MCP list, `bin/` first on the shell's PATH, `${CLAUDE_PLUGIN_ROOT}` filled in, hooks listed and never run; Universal Modder is the first in the registry
 - [ ] Background task controls: move a running foreground task to the background; add a follow-up to a running background task
 - [x] A background task waiting for a slot says so: the transcript row shows "queued" rather than running with a ticking timer (`delegatedRecordStatus` and `taskTiming` treat queued as active), a resumed task does not show the earlier run's tool count and time, and the sidebar and child view show the queued invocation instead of the finished earlier run
 - [ ] Measure `edit` miss rates per model family before considering any fuzzy fallback
@@ -324,6 +328,7 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, fingerprint words, all reachable addresses and the LAN MAC
 - [ ] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, discovery, QR and typed-code linking
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
+- [x] Small-screen UI: labeled settings navigation, touch-sized controls, picker sheets, multiline composer, bounded approvals, fitting search/previews, scrollable pairing, and Back dismissal
 - [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN
 - [ ] Background notification service, CI signing, release APKs, update prompt
 
@@ -333,6 +338,7 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 - [ ] Plugins add tools: a WIT export declaring tools (name, description, input schema) and a call entry, offered and permission-checked like built-in tools
 - [ ] `/review`: diff against a chosen ref (default the merge-base with the default branch) reviewed by a read-only agent
 - [ ] `/security-review`: the same flow with a security-focused prompt
+- [x] Review panel beside the chat: a turn's changes, uncommitted changes, against a branch or one commit, as unified diffs with foldable unchanged lines; the edited files card opens it
 - [ ] Headless one-shot mode: run one prompt against a workspace from the command line and exit (as `claude -p`, `codex exec`, `opencode run`), with plain text or JSON event output for scripts and CI
 - [ ] `/init` that interviews instead of generating: asks the user for build and test commands, conventions and no-go areas, and writes only their answers to `AGENTS.md`, about 30 lines at most, with no summary of the codebase (generated instruction files tend to be long and make results worse)
 
