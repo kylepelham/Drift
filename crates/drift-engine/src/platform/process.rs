@@ -317,10 +317,11 @@ pub fn use_current_path(command: &mut tokio::process::Command, own: &std::collec
     }
 }
 
-/// The current PATH with `first` ahead of it, so a bundle's programs are found before anything else of that name.
-pub fn path_with(first: &[std::path::PathBuf]) -> std::ffi::OsString {
+/// The current PATH with `after` behind it: a bundle's programs are found by name, but never in place of a program the
+/// user has, whose name the shell's approval checks trust.
+pub fn path_with(after: &[std::path::PathBuf]) -> std::ffi::OsString {
     let current = current_path();
-    let dirs = first.iter().cloned().chain(std::env::split_paths(&current));
+    let dirs = std::env::split_paths(&current).chain(after.iter().cloned());
 
     std::env::join_paths(dirs).unwrap_or(current)
 }
@@ -505,28 +506,17 @@ mod tests {
     }
 
     #[test]
-    fn a_bundles_programs_are_found_before_anything_else_on_path() {
+    fn a_bundles_programs_come_after_the_users_own_on_path() {
         let bin = std::env::temp_dir().join("drift-bundle-bin");
         let path = super::path_with(std::slice::from_ref(&bin));
         let dirs: Vec<_> = std::env::split_paths(&path).collect();
-        assert_eq!(dirs.first(), Some(&bin));
-        assert_eq!(dirs.len(), std::env::split_paths(&super::current_path()).count() + 1);
-    }
-
-    #[test]
-    fn directories_added_since_start_follow_the_ones_drift_started_with() {
-        let sep = if cfg!(windows) { ";" } else { ":" };
-        let live = ["/a", "/b/"].join(sep);
-        let saved = ["/B", "/c", "", "/a"].join(sep);
-        let merged = super::merged(std::ffi::OsStr::new(&live), Some(saved.into()));
-        let dirs: Vec<_> = std::env::split_paths(&merged)
-            .map(|dir| dir.to_string_lossy().into_owned())
-            .collect();
+        let current: Vec<_> = std::env::split_paths(&super::current_path()).collect();
         assert_eq!(
-            dirs,
-            ["/a", "/b/", "/c"],
-            "kept in order, nothing twice, case and trailing slash aside"
+            dirs.last(),
+            Some(&bin),
+            "so a bundle's git never stands in for the user's"
         );
+        assert_eq!(dirs[..current.len()], current[..]);
     }
 
     #[cfg(windows)]

@@ -432,6 +432,13 @@ impl Store {
         connection
             .prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
             .execute([id])?;
+        // Its folder is remembered as it goes, so an opencode import never offers it again, even one that never ran before.
+        connection
+            .prepare_cached(
+                "INSERT OR IGNORE INTO imported_folder(path)
+                 SELECT LOWER(REPLACE(path, '\\', '/')) FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL",
+            )?
+            .execute([id])?;
         let removed = connection
             .prepare_cached("DELETE FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL")?
             .execute([id])?;

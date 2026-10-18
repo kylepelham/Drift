@@ -20,8 +20,15 @@ impl crate::hook::Hook for Secrets {
 async fn the_model_never_sees_a_secret_and_its_tools_only_ever_get_the_real_one() {
     let h = harness().await;
     h.engine.hooks.set(vec![Arc::new(Secrets)], Vec::new());
-    rule(&h, "edit", "*", Decision::Allow);
-    rule(&h, "bash", "*", Decision::Allow);
+    let allow = |kind: &str| Rule {
+        kind: kind.into(),
+        pattern: "*".into(),
+        decision: Decision::Allow,
+    };
+    // One policy for both: a second `rule` call would replace the first.
+    h.engine.permissions.set_policy(Policy {
+        rules: vec![allow("edit"), allow("bash")],
+    });
     std::fs::write(h._dir.join("ws/AGENTS.md"), format!("Deploy with {SECRET}.\n")).unwrap();
     h.provider
         .push(tool_call(

@@ -148,8 +148,39 @@ async fn a_wait_ends_when_a_message_arrives_in_the_conversation() {
         .await
         .unwrap();
     arriving.await.unwrap();
+    // Stopped before the asserts, so a failed one never leaves the sleep running into later tests.
+    sandbox.ctx.engine.processes.stop_session(&sandbox.ctx.session_id);
 
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
     assert!(waited.output.starts_with("A new message arrived"), "{}", waited.output);
-    sandbox.ctx.engine.processes.stop_session(&sandbox.ctx.session_id);
+}
+
+#[tokio::test]
+async fn a_process_started_before_a_stop_is_not_waited_for_since_its_end_will_not_wake_the_session() {
+    let mut sandbox = Sandbox::new("process-stopped-wait");
+    let store = &sandbox.ctx.engine.store;
+    let workspace = store
+        .add_workspace(&sandbox.ctx.workspace.to_string_lossy(), "ws", "")
+        .unwrap();
+    let session = store
+        .create_session(crate::store::NewSession {
+            workspace_id: &workspace.id,
+            parent_id: None,
+            visibility: crate::session::types::Visibility::Sibling,
+            title: "Stopped",
+            agent: "orchestrator",
+            model: None,
+        })
+        .unwrap();
+    sandbox.ctx.session_id = session.id.clone();
+    background(&sandbox, "sleep 30", "Start-Sleep 30").await;
+    let engine = &sandbox.ctx.engine;
+
+    let before = engine.background_running(&session.id);
+    engine.abort(&session.id);
+    let after = engine.background_running(&session.id);
+    engine.processes.stop_session(&session.id);
+
+    assert!(before, "running and able to wake the session");
+    assert!(!after, "after Stop its end is not told, so nothing should wait on it");
 }

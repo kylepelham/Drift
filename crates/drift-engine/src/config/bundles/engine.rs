@@ -59,6 +59,8 @@ impl Engine {
     pub async fn install_bundle(self: &Arc<Self>, install: InstallBundle) -> Result<Vec<Bundle>, BundleError> {
         let source = install.registry.as_deref().and_then(|id| self.registry_source(id));
         let mut installed = super::install(&self.fetcher(), source.as_ref(), &install).await?;
+        // Listed at once, so a failure saving its servers still leaves a bundle that can be seen and removed.
+        super::write_marker(&installed)?;
         let root = super::bundles_dir()?.join(&installed.id);
         let data = super::data_dir(&installed.id)?;
         self.save_bundle_servers(&mut installed, &install.values, &root, &data)
@@ -144,8 +146,10 @@ impl Engine {
         };
 
         installed.servers.clear();
+        let mut assigned = std::collections::HashSet::new();
         for (declared, value) in &Layout::read(root).servers {
-            let name = servers::row_name(declared, &id, taken);
+            let name = servers::row_name(declared, &id, |name| taken(name) || assigned.contains(name));
+            assigned.insert(name.clone());
             let kept = owned(&name).map(|row| &row.config);
             let Some(config) = servers::config(value, &vars).map(|config| keep_secrets(config, kept, value)) else {
                 continue;

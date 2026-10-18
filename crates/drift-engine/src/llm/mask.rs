@@ -61,28 +61,32 @@ pub struct Masks {
 }
 
 impl Masks {
-    /// Pairs of secret and placeholder. An empty or unchanged pair, a repeated secret, and a placeholder
-    /// that contains any secret (the model would read that secret inside it) are left out.
+    /// Pairs of secret and placeholder. An empty or unchanged pair, a repeated secret or placeholder (the model's
+    /// placeholder could only ever become one of the secrets), and a placeholder that contains any secret (the model
+    /// would read that secret inside it) are left out. Problems name a pair by its place, never by what it holds.
     pub fn new(pairs: Vec<(String, String)>) -> (Self, Vec<String>) {
-        let mut kept: Vec<(String, String)> = Vec::new();
+        let mut kept: Vec<(usize, String, String)> = Vec::new();
         let mut problems = Vec::new();
-        for (secret, placeholder) in pairs {
+        for (index, (secret, placeholder)) in pairs.into_iter().enumerate() {
+            let number = index + 1;
             if secret.is_empty() || placeholder.is_empty() || secret == placeholder {
                 problems.push(format!(
-                    "a pair needs a secret and a different, non-empty placeholder ({placeholder:?})"
+                    "pair {number} needs a secret and a different, non-empty placeholder"
                 ));
-            } else if kept.iter().any(|(known, _)| *known == secret) {
-                problems.push(format!("the secret behind {placeholder:?} is listed twice"));
+            } else if kept.iter().any(|(_, known, _)| *known == secret) {
+                problems.push(format!("pair {number} repeats a secret listed before it"));
+            } else if kept.iter().any(|(_, _, known)| *known == placeholder) {
+                problems.push(format!("pair {number} repeats a placeholder listed before it"));
             } else {
-                kept.push((secret, placeholder));
+                kept.push((number, secret, placeholder));
             }
         }
-        let secrets: Vec<String> = kept.iter().map(|(secret, _)| secret.clone()).collect();
-        kept.retain(|(_, placeholder)| {
+        let secrets: Vec<String> = kept.iter().map(|(_, secret, _)| secret.clone()).collect();
+        kept.retain(|(number, _, placeholder)| {
             let leaks = secrets.iter().any(|secret| placeholder.contains(secret.as_str()));
             if leaks {
                 problems.push(format!(
-                    "the placeholder {placeholder:?} contains a secret, so it was dropped"
+                    "pair {number}'s placeholder contains a secret, so it was dropped"
                 ));
             }
             !leaks
@@ -91,8 +95,8 @@ impl Masks {
             return (Self::default(), problems);
         }
 
-        let secrets: Vec<&str> = kept.iter().map(|(secret, _)| secret.as_str()).collect();
-        let placeholders: Vec<&str> = kept.iter().map(|(_, placeholder)| placeholder.as_str()).collect();
+        let secrets: Vec<&str> = kept.iter().map(|(_, secret, _)| secret.as_str()).collect();
+        let placeholders: Vec<&str> = kept.iter().map(|(_, _, placeholder)| placeholder.as_str()).collect();
         let masks = Self {
             hide: Swap::new(&secrets, placeholders.iter().map(ToString::to_string).collect()),
             reveal: Swap::new(&placeholders, secrets.iter().map(ToString::to_string).collect()),

@@ -82,7 +82,7 @@ pub(super) async fn fetch(
     Ok(fetcher.read(&drift, location, limit).await?)
 }
 
-/// What to unpack: where to, which entries (by their path inside the archive, mapped to where they land), and
+/// What to unpack: where it will go, which entries (by their path inside the archive, mapped to where they land), and
 /// the largest file kept; a larger one is skipped when set, kept otherwise.
 pub(super) struct Unpack<'a> {
     pub(super) into: &'a Path,
@@ -90,30 +90,70 @@ pub(super) struct Unpack<'a> {
     pub(super) max_file: Option<u64>,
 }
 
-/// Replaces `into` with the kept entries; returns where each landed, relative to `into`. Nothing climbs out.
-pub(super) fn unpack(bytes: &[u8], plan: &Unpack) -> Result<Vec<PathBuf>, ArchiveError> {
-    let into = plan.into;
-    if into.exists() {
-        std::fs::remove_dir_all(into).map_err(|error| file_error("replace", into, error))?;
-    }
-    std::fs::create_dir_all(into).map_err(|error| file_error("create", into, error))?;
+/// An archive unpacked beside where it goes. Nothing there changes until [`Staged::commit`], so a failed or
+/// rejected install leaves what was installed before; dropped uncommitted, it is removed.
+pub(super) struct Staged {
+    dir: PathBuf,
+    /// Where each kept entry landed, relative to the folder.
+    pub(super) paths: Vec<PathBuf>,
+}
 
-    let written = if bytes.starts_with(b"PK") {
-        unpack_zip(bytes, plan)
+impl Staged {
+    /// Swaps the unpacked folder in for `into`, whatever was there before going.
+    pub(super) fn commit(self, into: &Path) -> Result<(), ArchiveError> {
+        let old = sibling(into, "old");
+        let _ = std::fs::remove_dir_all(&old);
+        if into.exists() {
+            std::fs::rename(into, &old).map_err(|error| file_error("replace", into, error))?;
+        }
+        if let Err(error) = std::fs::rename(&self.dir, into) {
+            let _ = std::fs::rename(&old, into);
+            return Err(file_error("replace", into, error));
+        }
+        let _ = std::fs::remove_dir_all(&old);
+
+        Ok(())
+    }
+}
+
+impl Drop for Staged {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// A hidden folder beside `into` for one stage of a swap.
+fn sibling(into: &Path, stage: &str) -> PathBuf {
+    let name = into
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    into.with_file_name(format!(".{name}.{stage}"))
+}
+
+/// Unpacks the kept entries beside `plan.into`; nothing climbs out, and `plan.into` is untouched until committed.
+pub(super) fn unpack(bytes: &[u8], plan: &Unpack) -> Result<Staged, ArchiveError> {
+    let dir = sibling(plan.into, "partial");
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|error| file_error("replace", &dir, error))?;
+    }
+    std::fs::create_dir_all(&dir).map_err(|error| file_error("create", &dir, error))?;
+    let mut staged = Staged { dir, paths: Vec::new() };
+
+    let mut written = Writer::under(&staged.dir);
+    if bytes.starts_with(b"PK") {
+        unpack_zip(bytes, plan, &mut written)?;
     } else {
-        unpack_tar(bytes, plan)
-    };
-    if written.is_err() {
-        let _ = std::fs::remove_dir_all(into);
+        unpack_tar(bytes, plan, &mut written)?;
     }
+    staged.paths = written.paths;
 
-    written
+    Ok(staged)
 }
 
 /// Azure's zip has no top-level folder, so paths are taken as they are.
-fn unpack_zip(bytes: &[u8], plan: &Unpack) -> Result<Vec<PathBuf>, ArchiveError> {
+fn unpack_zip(bytes: &[u8], plan: &Unpack, written: &mut Writer) -> Result<(), ArchiveError> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(ArchiveError::InvalidZip)?;
-    let mut written = Writer::under(plan.into);
 
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index)?;
@@ -123,18 +163,17 @@ fn unpack_zip(bytes: &[u8], plan: &Unpack) -> Result<Vec<PathBuf>, ArchiveError>
         let Some(relative) = entry.enclosed_name().and_then(|name| (plan.keep)(&name)) else {
             continue;
         };
-        let (size, mode) = (entry.size(), entry.unix_mode());
-        written.write(relative, &mut entry, size, mode)?;
+        let mode = entry.unix_mode();
+        written.write(relative, &mut entry, mode)?;
     }
 
-    Ok(written.paths)
+    Ok(())
 }
 
 /// GitHub's tar.gz holds everything under one top folder, which is dropped.
-fn unpack_tar(bytes: &[u8], plan: &Unpack) -> Result<Vec<PathBuf>, ArchiveError> {
+fn unpack_tar(bytes: &[u8], plan: &Unpack, written: &mut Writer) -> Result<(), ArchiveError> {
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
     let entries = archive.entries().map_err(ArchiveError::InvalidTar)?;
-    let mut written = Writer::under(plan.into);
 
     for entry in entries {
         let mut entry = entry.map_err(ArchiveError::Entry)?;
@@ -147,10 +186,10 @@ fn unpack_tar(bytes: &[u8], plan: &Unpack) -> Result<Vec<PathBuf>, ArchiveError>
             continue;
         };
         let mode = entry.header().mode().ok();
-        written.write(relative, &mut entry, size, mode)?;
+        written.write(relative, &mut entry, mode)?;
     }
 
-    Ok(written.paths)
+    Ok(())
 }
 
 /// An archive path without its top folder; none for the folder itself or a path that climbs.
@@ -182,28 +221,23 @@ impl<'a> Writer<'a> {
         }
     }
 
-    fn write(
-        &mut self,
-        relative: PathBuf,
-        entry: &mut impl Read,
-        size: u64,
-        mode: Option<u32>,
-    ) -> Result<(), ArchiveError> {
+    /// Streams the entry to disk, counting the bytes it really holds rather than what its header claims.
+    fn write(&mut self, relative: PathBuf, entry: &mut impl Read, mode: Option<u32>) -> Result<(), ArchiveError> {
         if !safe(&relative) {
             return Ok(());
-        }
-        self.total += size;
-        if self.total > MAX_UNPACKED_BYTES {
-            return Err(ArchiveError::TooLarge);
         }
 
         let target = self.into.join(&relative);
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|error| file_error("create", parent, error))?;
         }
-        let mut content = Vec::with_capacity(size as usize);
-        entry.read_to_end(&mut content).map_err(ArchiveError::Entry)?;
-        std::fs::write(&target, content).map_err(|error| file_error("write", &target, error))?;
+        let mut file = std::fs::File::create(&target).map_err(|error| file_error("write", &target, error))?;
+        let room = MAX_UNPACKED_BYTES - self.total;
+        let copied = std::io::copy(&mut entry.take(room + 1), &mut file).map_err(ArchiveError::Entry)?;
+        self.total += copied;
+        if copied > room {
+            return Err(ArchiveError::TooLarge);
+        }
         keep_executable(&target, mode);
 
         self.paths.push(relative);

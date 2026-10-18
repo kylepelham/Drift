@@ -105,8 +105,8 @@ fn entries(value: &Value, vars: &Vars) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// The name a bundle's server is saved under: its own, made a valid server name, unless a server the bundle
-/// does not own already has it; then the bundle's id goes in front.
+/// The name a bundle's server is saved under: its own, made a valid server name, unless something has it; then the
+/// bundle's id goes in front, and a number after that when that is taken too.
 pub(super) fn row_name(declared: &str, bundle: &str, taken: impl Fn(&str) -> bool) -> String {
     let clean: String = declared
         .chars()
@@ -119,9 +119,10 @@ pub(super) fn row_name(declared: &str, bundle: &str, taken: impl Fn(&str) -> boo
         })
         .collect();
 
-    if taken(&clean) {
-        format!("{bundle}-{clean}")
-    } else {
-        clean
-    }
+    // Every candidate is checked, so a name another server or this install already has is never reused.
+    std::iter::once(clean.clone())
+        .chain(std::iter::once(format!("{bundle}-{clean}")))
+        .chain((2..).map(|number| format!("{bundle}-{clean}-{number}")))
+        .find(|name| !taken(name))
+        .unwrap_or(clean)
 }

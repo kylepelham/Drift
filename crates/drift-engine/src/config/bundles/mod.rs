@@ -248,7 +248,14 @@ fn unpack(bytes: &[u8], into: &Path, folder: &Path) -> Result<usize, ArchiveErro
         max_file: None,
     };
 
-    Ok(archive::unpack(bytes, &plan)?.len())
+    let staged = archive::unpack(bytes, &plan)?;
+    let count = staged.paths.len();
+    // An archive with nothing under the folder leaves what was installed before as it was.
+    if count > 0 {
+        staged.commit(into)?;
+    }
+
+    Ok(count)
 }
 
 fn write_marker(installed: &Installed) -> Result<(), BundleError> {

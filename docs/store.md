@@ -28,7 +28,9 @@ preserving workspaces explicitly added through Drift, including empty ones.
 
 The import runs at every start, so `imported_folder` remembers each opencode folder that is or was
 a workspace, and the import never offers one again. Without it, a workspace the user removed came
-back on the next start after the seven-day purge deleted its removed row.
+back on the next start after the seven-day purge deleted its removed row. The purge records the
+folder too, as it forgets the row, so a workspace removed before its folder was ever imported stays
+removed as well.
 
 ## Archive lifecycle
 

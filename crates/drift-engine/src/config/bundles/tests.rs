@@ -65,9 +65,11 @@ fn plugin(root: &Path) {
 
 #[test]
 fn a_plugin_folder_reads_as_claude_code_lays_it_out() {
-    let root = temp("layout");
+    // The plugin sits one level down in its own folder, so the escape it must not follow stays inside that folder too.
+    let outer = temp("layout");
+    let root = outer.join("plugin");
     plugin(&root);
-    write(&root.join(".."), "escape/x/SKILL.md", "outside");
+    write(&outer, "escape/x/SKILL.md", "outside");
 
     let layout = Layout::read(&root);
     assert_eq!(
@@ -90,7 +92,7 @@ fn a_plugin_folder_reads_as_claude_code_lays_it_out() {
         "a plugin that is one skill"
     );
 
-    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&outer);
     let _ = std::fs::remove_dir_all(&lone);
 }
 
@@ -134,6 +136,11 @@ fn server_definitions_take_the_bundles_paths_and_the_values_the_user_gave() {
         "a name the user's own server has"
     );
     assert_eq!(servers::row_name("my server", "kit", |_| false), "my-server");
+    assert_eq!(
+        servers::row_name("fal", "kit", |name| name == "fal" || name == "kit-fal"),
+        "kit-fal-2",
+        "the prefixed name is checked too, so the user's kit-fal is never taken over"
+    );
 }
 
 fn tarball(files: &[(&str, &str)]) -> Vec<u8> {
@@ -177,6 +184,22 @@ fn a_bundle_unpacks_only_its_folder_moved_to_the_top() {
         "an empty folder keeps everything"
     );
     assert_eq!(unpack(&bytes, &into, Path::new("missing")).unwrap(), 0);
+    assert!(
+        into.join("README.md").is_file(),
+        "an archive with nothing to keep leaves the install as it was"
+    );
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut gz, b"junk").unwrap();
+    assert!(unpack(&gz.finish().unwrap(), &into, Path::new("")).is_err());
+    assert!(
+        into.join("README.md").is_file(),
+        "a corrupt download leaves the install as it was"
+    );
+    assert!(
+        !into
+            .with_file_name(format!(".{}.partial", into.file_name().unwrap().to_string_lossy()))
+            .exists()
+    );
     let _ = std::fs::remove_dir_all(&into);
 }
 

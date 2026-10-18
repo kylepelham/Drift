@@ -97,7 +97,8 @@ impl Tool for ApplyPatch {
 
             plan.apply(&ctx.engine.store).await?;
             let written: Vec<&Step> = plan.steps.iter().filter(|step| step.after.is_some()).collect();
-            for step in &written {
+            // A hunk proves the text it changed, not the rest of the file: only a file written whole counts as read.
+            for step in written.iter().filter(|step| step.whole) {
                 ctx.files.mark_read(&step.path);
             }
 
@@ -123,6 +124,8 @@ struct Step {
     path: PathBuf,
     before: Option<Vec<u8>>,
     after: Option<Vec<u8>>,
+    /// The call wrote every line of it (an added file), so the session knows it as if it had read it.
+    whole: bool,
 }
 
 #[derive(Default)]
@@ -185,6 +188,7 @@ impl Plan {
                 path: target.to_path_buf(),
                 before: Some(raw),
                 after: Some(written),
+                whole: false,
             });
             return Ok(());
         }
@@ -200,11 +204,13 @@ impl Plan {
             path: target.to_path_buf(),
             before: displaced,
             after: Some(written),
+            whole: false,
         });
         self.steps.push(Step {
             path: path.to_path_buf(),
             before: Some(raw),
             after: None,
+            whole: false,
         });
 
         Ok(())
@@ -230,6 +236,7 @@ impl Plan {
             path: path.to_path_buf(),
             before: existing,
             after: Some(format.apply(content).into_bytes()),
+            whole: true,
         });
 
         Ok(())
@@ -251,6 +258,7 @@ impl Plan {
             path: path.to_path_buf(),
             before: Some(before),
             after: None,
+            whole: false,
         });
 
         Ok(())
