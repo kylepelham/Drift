@@ -678,7 +678,7 @@ export const drift = {
     "drift.bundles.offNote":
         "已关闭：它的技能、智能体、命令、服务器和程序都不生效。各自的开关会保留，供重新打开时使用。",
     "drift.bundles.runsCode":
-        "此套件包含会在智能体或 Drift 启动时于本机运行的程序或 MCP 服务器。请只从你信任的来源安装。",
+        "此套件包含程序或 MCP 服务器，智能体或 Drift 启动它们时会在本机运行。请只从你信任的来源安装。",
     "drift.bundles.values": "其 MCP 服务器需要的值",
     "drift.bundles.valuesHint": "与服务器一同保存，不会再次显示。留空则省略使用它的项；自带登录的服务器可以改为登录。",
     "drift.bundles.note": "解压到 {{folder}}。移除会删除它的文件、数据和 MCP 服务器。",

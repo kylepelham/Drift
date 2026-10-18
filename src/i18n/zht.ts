@@ -678,7 +678,7 @@ export const drift = {
     "drift.bundles.offNote":
         "已關閉：它的技能、代理、指令、伺服器和程式都不會生效。各自的開關會保留，供重新開啟時使用。",
     "drift.bundles.runsCode":
-        "此套件包含會在代理或 Drift 啟動時於本機執行的程式或 MCP 伺服器。請只從你信任的來源安裝。",
+        "此套件包含程式或 MCP 伺服器，代理或 Drift 啟動它們時會在本機執行。請只從你信任的來源安裝。",
     "drift.bundles.values": "其 MCP 伺服器需要的值",
     "drift.bundles.valuesHint":
         "與伺服器一同儲存，不會再次顯示。留空即可省略使用它的項目；自帶登入的伺服器可以改為登入。",

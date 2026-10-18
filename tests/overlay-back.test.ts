@@ -1,4 +1,4 @@
-import { replaceRemoteSelection } from "../src/state/navigation";
+import { closeMobileDrawer, openMobileDrawer, replaceRemoteSelection } from "../src/state/navigation";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { bindOverlayBack } from "../src/state/overlay-back";
 
@@ -103,4 +103,20 @@ test("mirrored selection updates preserve the settings route and top dialog's Ba
     expect(history.state.driftOverlay).toBe(marker);
     expect(window.location.hash).toBe("#/workspace=workspace&session=session&overlay=settings");
     cleanup();
+});
+
+test("a page loaded on the drawer gets an entry under it, so closing the drawer stays on the page", () => {
+    const at = (hash: string) =>
+        Object.assign(win, { location: { pathname: "/app", origin: "http://localhost", hash } });
+    at("#/overlay=drawer");
+    history.pushState = (state: Record<string, unknown>, _title: string, url: string) => {
+        entries.push(state);
+        at(url);
+    };
+    openMobileDrawer();
+    expect(entries.length).toBe(2);
+    expect(window.location.hash).toContain("overlay=drawer");
+    closeMobileDrawer();
+    expect(backs).toBe(1);
+    expect(entries.length).toBe(1);
 });
