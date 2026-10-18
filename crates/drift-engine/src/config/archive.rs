@@ -98,10 +98,18 @@ pub(super) struct Staged {
     pub(super) paths: Vec<PathBuf>,
 }
 
+/// One swap at a time, so two installs of the same folder never interleave their renames.
+static SWAP: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 impl Staged {
     /// Swaps the unpacked folder in for `into`, whatever was there before going.
     pub(super) fn commit(self, into: &Path) -> Result<(), ArchiveError> {
+        let _swap = SWAP.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let old = sibling(into, "old");
+        // A swap cut short between its renames left the only copy of the previous install here.
+        if old.exists() && !into.exists() {
+            std::fs::rename(&old, into).map_err(|error| file_error("restore", into, error))?;
+        }
         let _ = std::fs::remove_dir_all(&old);
         if into.exists() {
             std::fs::rename(into, &old).map_err(|error| file_error("replace", into, error))?;
@@ -132,11 +140,9 @@ fn sibling(into: &Path, stage: &str) -> PathBuf {
 }
 
 /// Unpacks the kept entries beside `plan.into`; nothing climbs out, and `plan.into` is untouched until committed.
+/// Each attempt stages in its own folder, so a concurrent install of the same folder never writes into it.
 pub(super) fn unpack(bytes: &[u8], plan: &Unpack) -> Result<Staged, ArchiveError> {
-    let dir = sibling(plan.into, "partial");
-    if dir.exists() {
-        std::fs::remove_dir_all(&dir).map_err(|error| file_error("replace", &dir, error))?;
-    }
+    let dir = sibling(plan.into, &format!("partial-{}", crate::random_hex(4)));
     std::fs::create_dir_all(&dir).map_err(|error| file_error("create", &dir, error))?;
     let mut staged = Staged { dir, paths: Vec::new() };
 

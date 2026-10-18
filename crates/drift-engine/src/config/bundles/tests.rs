@@ -195,11 +195,31 @@ fn a_bundle_unpacks_only_its_folder_moved_to_the_top() {
         into.join("README.md").is_file(),
         "a corrupt download leaves the install as it was"
     );
+    let staging = format!(".{}.partial", into.file_name().unwrap().to_string_lossy());
+    let parent = std::fs::read_dir(into.parent().unwrap()).unwrap();
     assert!(
-        !into
-            .with_file_name(format!(".{}.partial", into.file_name().unwrap().to_string_lossy()))
-            .exists()
+        !parent
+            .flatten()
+            .any(|entry| entry.file_name().to_string_lossy().starts_with(&staging))
     );
+    let _ = std::fs::remove_dir_all(&into);
+}
+
+#[test]
+fn two_installs_of_one_folder_stage_apart_and_the_last_to_commit_wins() {
+    let into = temp("concurrent");
+    let keep = |relative: &Path| Some(relative.to_path_buf());
+    let plan = crate::config::archive::Unpack {
+        into: &into,
+        keep: &keep,
+        max_file: None,
+    };
+    let first = crate::config::archive::unpack(&tarball(&[("repo/one.md", "1")]), &plan).unwrap();
+    let second = crate::config::archive::unpack(&tarball(&[("repo/two.md", "2")]), &plan).unwrap();
+    first.commit(&into).unwrap();
+    second.commit(&into).unwrap();
+    assert!(into.join("two.md").is_file() && !into.join("one.md").exists());
+
     let _ = std::fs::remove_dir_all(&into);
 }
 

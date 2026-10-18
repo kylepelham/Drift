@@ -276,23 +276,8 @@ async fn commit_id(root: &Path, name: &str) -> Option<String> {
 /// `base` against the files on disk, untracked ones included.
 async fn working_tree(root: &Path, base: &str) -> Result<Review, ReviewError> {
     let raw = git_bytes(root, &["diff-index", "--no-renames", "-z", "--relative", base]).await?;
-    let changes = parse_raw(&raw);
-    let ids = changes
-        .iter()
-        .take(MAX_FILES)
-        .filter_map(|change| change.before.as_deref())
-        .collect();
-    let blobs = stored_all(root, ids).await;
     let mut review = Review::default();
-    for change in changes {
-        if review.full() {
-            review.omitted += 1;
-            continue;
-        }
-        let before = stored(&blobs, change.before.as_deref());
-        let after = on_disk(root, &change.path).await;
-        review.push(change.path, before, after);
-    }
+    push_changes(root, &mut review, parse_raw(&raw), Source::Disk).await;
 
     let untracked = git_bytes(root, &["ls-files", "--others", "--exclude-standard", "-z"]).await?;
     for path in String::from_utf8_lossy(&untracked)
@@ -316,26 +301,55 @@ async fn commit(root: &Path, parent: &str, target: &str) -> Result<Review, Revie
         &["diff-tree", "-r", "--no-renames", "-z", "--relative", parent, target],
     )
     .await?;
-    let changes = parse_raw(&raw);
-    let ids = changes
-        .iter()
-        .take(MAX_FILES)
-        .flat_map(|change| [change.before.as_deref(), change.after.as_deref()])
-        .flatten()
-        .collect();
-    let blobs = stored_all(root, ids).await;
     let mut review = Review::default();
-    for change in changes {
-        if review.full() {
-            review.omitted += 1;
-            continue;
-        }
-        let before = stored(&blobs, change.before.as_deref());
-        let after = stored(&blobs, change.after.as_deref());
-        review.push(change.path, before, after);
-    }
+    push_changes(root, &mut review, parse_raw(&raw), Source::Blobs).await;
 
     Ok(review)
+}
+
+/// Where a change's new side is read from.
+#[derive(Clone, Copy, PartialEq)]
+enum Source {
+    Disk,
+    Blobs,
+}
+
+/// Adds changes a batch of blobs at a time, so changes that turn out to be equal never leave later files unread.
+async fn push_changes(root: &Path, review: &mut Review, changes: Vec<RawChange>, source: Source) {
+    // Only the mode changed: the same blob on both sides.
+    let changes: Vec<_> = changes
+        .into_iter()
+        .filter(|change| change.before.is_none() || change.before != change.after)
+        .collect();
+    for batch in changes.chunks(MAX_FILES) {
+        if review.full() {
+            review.omitted += batch.len();
+            continue;
+        }
+        let ids = batch
+            .iter()
+            .flat_map(|change| {
+                [
+                    change.before.as_deref(),
+                    change.after.as_deref().filter(|_| source == Source::Blobs),
+                ]
+            })
+            .flatten()
+            .collect();
+        let blobs = stored_all(root, ids).await;
+        for change in batch {
+            if review.full() {
+                review.omitted += 1;
+                continue;
+            }
+            let before = stored(&blobs, change.before.as_deref());
+            let after = match source {
+                Source::Disk => on_disk(root, &change.path).await,
+                Source::Blobs => stored(&blobs, change.after.as_deref()),
+            };
+            review.push(change.path.clone(), before, after);
+        }
+    }
 }
 
 struct RawChange {
@@ -444,19 +458,19 @@ fn parse_batch(output: &[u8]) -> HashMap<String, Vec<u8>> {
     found
 }
 
-/// A file in the working tree, its size looked at first so a large one is never read.
+/// A file in the working tree, read no further than one byte past the limit, so a large one is never held whole.
 async fn on_disk(root: &Path, path: &str) -> Side {
-    let file = root.join(path);
-    let missing = |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound;
-    match tokio::fs::metadata(&file).await {
-        Ok(meta) if meta.len() > MAX_DIFF_BYTES as u64 => return Side::Large,
-        Ok(_) => {}
-        Err(error) if missing(&error) => return Side::Absent,
-        Err(_) => return Side::Unavailable,
-    }
+    use tokio::io::AsyncReadExt;
 
-    match tokio::fs::read(&file).await {
-        Ok(bytes) => Side::Present(bytes),
+    let missing = |error: &std::io::Error| error.kind() == std::io::ErrorKind::NotFound;
+    let mut bytes = Vec::new();
+    let read = match tokio::fs::File::open(root.join(path)).await {
+        Ok(file) => file.take(MAX_DIFF_BYTES as u64 + 1).read_to_end(&mut bytes).await,
+        Err(error) => Err(error),
+    };
+    match read {
+        Ok(_) if bytes.len() > MAX_DIFF_BYTES => Side::Large,
+        Ok(_) => Side::Present(bytes),
         Err(error) if missing(&error) => Side::Absent,
         Err(_) => Side::Unavailable,
     }

@@ -18,9 +18,9 @@ const compiled = ts.transpileModule(pieces.map((node) => node.getText(parsed).re
 
 type Node = { type: string; props: { onClick?: () => void }; children: Node[] };
 
-function setup() {
+function setup(current = "workspace") {
     let selection = "source";
-    let workspace = "workspace";
+    let workspace = current;
     let finish!: (session: { id: string } | undefined) => void;
     const pending = new Promise<{ id: string } | undefined>((resolve) => {
         finish = resolve;
@@ -61,6 +61,7 @@ function setup() {
     return {
         fork,
         selectSession,
+        workspace: () => workspace,
         finish,
         click: buttons(tree)[0].props.onClick!,
         navigate: (id: string) => {
@@ -99,4 +100,20 @@ test("a failed sidebar fork can be retried", async () => {
     expect(view.selectSession).not.toHaveBeenCalled();
     view.click();
     expect(view.fork).toHaveBeenCalledTimes(2);
+});
+
+test("forking a row in another workspace moves there only once the copy exists", async () => {
+    const failed = setup("elsewhere");
+    failed.click();
+    expect(failed.workspace()).toBe("elsewhere");
+    failed.finish(undefined);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(failed.workspace()).toBe("elsewhere");
+
+    const forked = setup("elsewhere");
+    forked.click();
+    forked.finish({ id: "forked" });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(forked.workspace()).toBe("workspace");
+    expect(forked.selectSession).toHaveBeenCalledWith("forked");
 });

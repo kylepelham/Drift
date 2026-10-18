@@ -226,3 +226,38 @@ fn a_batch_reply_is_read_object_by_object_even_when_content_holds_newlines() {
         "a cut-off reply is not trusted"
     );
 }
+
+#[tokio::test]
+async fn files_touched_but_unchanged_never_leave_a_later_change_unread() {
+    let root = repo();
+    for index in 0..MAX_FILES {
+        std::fs::write(root.join(format!("a{index:03}.txt")), "same\n").unwrap();
+    }
+    std::fs::write(root.join("z.txt"), "old\n").unwrap();
+    git(&root, &["add", "."]);
+    git(&root, &["commit", "-q", "-m", "many"]);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    for index in 0..MAX_FILES {
+        std::fs::write(root.join(format!("a{index:03}.txt")), "same\n").unwrap();
+    }
+    std::fs::write(root.join("z.txt"), "new\n").unwrap();
+
+    let review = git_review(&root, GitSource::Uncommitted, None).await.unwrap();
+    assert_eq!(file(&review, "z.txt").lines, ["-old", "+new"]);
+    assert_eq!(review.files.len(), 1);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[tokio::test]
+async fn a_commit_that_only_changes_a_files_mode_lists_nothing() {
+    let root = repo();
+    std::fs::write(root.join("big.txt"), "x\n".repeat(MAX_DIFF_BYTES)).unwrap();
+    git(&root, &["add", "big.txt"]);
+    git(&root, &["commit", "-q", "-m", "big"]);
+    git(&root, &["update-index", "--chmod=+x", "big.txt", "kept.txt"]);
+    git(&root, &["commit", "-q", "-m", "mode"]);
+
+    let review = git_review(&root, GitSource::Commit, Some("HEAD")).await.unwrap();
+    assert!(review.files.is_empty(), "{review:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
