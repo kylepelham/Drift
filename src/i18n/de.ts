@@ -924,6 +924,7 @@ export const drift = {
     "drift.shell.omitted": "{{size}} ausgelassen",
     "drift.shell.openFull": "Vollständige Ausgabe öffnen",
     "drift.path.copied": "{{path}} kopiert",
+    "drift.path.copyFailed": "{{path}} konnte nicht kopiert werden",
     "drift.mcp.form.showValue": "Wert anzeigen",
     "drift.mcp.form.hideValue": "Wert ausblenden",
     "drift.shell.output": "Shell-Ausgabe",

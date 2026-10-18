@@ -1700,6 +1700,11 @@ export interface components {
             path?: string;
             /** @description The registry source it was listed by; its token and trust apply to the archive. */
             registry?: string | null;
+            /**
+             * @description Hex SHA-256 of the archive, checked before anything is unpacked when the registry gives one. Drift's own registry
+             *     pins a commit instead, since GitHub does not promise the same archive bytes for it over time.
+             */
+            sha256?: string | null;
             source?: string | null;
             /** @description What the bundle's MCP servers name as `${NAME}`, as the user typed them; one left out drops the header or env entry using it. */
             values?: {

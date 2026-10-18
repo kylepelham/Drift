@@ -911,6 +911,7 @@ export const drift = {
     "drift.shell.omitted": "{{size}} を省略",
     "drift.shell.openFull": "全出力を開く",
     "drift.path.copied": "{{path}} をコピーしました",
+    "drift.path.copyFailed": "{{path}} をコピーできませんでした",
     "drift.mcp.form.showValue": "値を表示",
     "drift.mcp.form.hideValue": "値を隠す",
     "drift.shell.output": "シェル出力",

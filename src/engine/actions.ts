@@ -372,13 +372,17 @@ export function createActions(
     }
 
     /** The current workspace's changes against git, or nothing without a workspace. */
-    async function reviewWorkspace(source: GitSource, target?: string): Promise<Review | undefined> {
-        const workspace = workspaces().id(state.directory);
+    async function reviewWorkspace(
+        source: GitSource,
+        target?: string,
+        directory?: string,
+    ): Promise<Review | undefined> {
+        const workspace = workspaces().id(directory ?? state.directory);
         return workspace ? requireClient().reviewWorkspace(workspace, source, target) : undefined;
     }
 
-    async function reviewRefs(): Promise<ReviewRefs | undefined> {
-        const workspace = workspaces().id(state.directory);
+    async function reviewRefs(directory?: string): Promise<ReviewRefs | undefined> {
+        const workspace = workspaces().id(directory ?? state.directory);
         return workspace ? requireClient().reviewRefs(workspace) : undefined;
     }
 

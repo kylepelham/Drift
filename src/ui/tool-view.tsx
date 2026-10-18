@@ -159,9 +159,12 @@ export function ToolView(props: { part: ToolPart }) {
     };
 
     const error = () => (state().status === "error" ? (state() as { error: string }).error : null);
+    const shellStart = createMemo(() => ({ status: state().status, start: state().time.start }), undefined, {
+        equals: (left, right) => left.status === right.status && left.start === right.start,
+    });
     const shellWait = () => {
         if (props.part.name !== "bash" || commandRows() !== "running") return;
-        return shellOpenWait(state().status, state().time.start, Date.now());
+        return shellOpenWait(shellStart().status, shellStart().start, Date.now());
     };
     const [open, setOpen] = createSignal(
         untrack(() =>
@@ -180,7 +183,8 @@ export function ToolView(props: { part: ToolPart }) {
     );
     createEffect(() => {
         const wait = shellWait();
-        if (!wait || explicitToolOpen.has(props.part.id)) return;
+        if (wait === undefined || explicitToolOpen.has(props.part.id)) return;
+        if (wait === 0) return setOpen(true);
 
         const timer = setTimeout(() => {
             if (!explicitToolOpen.has(props.part.id)) setOpen(true);

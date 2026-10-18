@@ -947,6 +947,7 @@ export const drift = {
     "drift.shell.omitted": "{{size}} atlandı",
     "drift.shell.openFull": "Tüm çıktıyı aç",
     "drift.path.copied": "{{path}} kopyalandı",
+    "drift.path.copyFailed": "{{path}} kopyalanamadı",
     "drift.mcp.form.showValue": "Değeri göster",
     "drift.mcp.form.hideValue": "Değeri gizle",
     "drift.shell.output": "Kabuk çıktısı",

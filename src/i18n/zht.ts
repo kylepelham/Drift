@@ -907,6 +907,7 @@ export const drift = {
     "drift.shell.omitted": "已省略 {{size}}",
     "drift.shell.openFull": "開啟完整輸出",
     "drift.path.copied": "已複製 {{path}}",
+    "drift.path.copyFailed": "無法複製 {{path}}",
     "drift.mcp.form.showValue": "顯示值",
     "drift.mcp.form.hideValue": "隱藏值",
     "drift.shell.output": "Shell 輸出",

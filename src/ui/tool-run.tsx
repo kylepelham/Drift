@@ -1,4 +1,3 @@
-import { awaitingPermission, commandLabel, patchFiles, toolFilename, toolGroupKind, toolInfo } from "./tool-labels";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toolDisplay } from "./tool-presentation";
 import { ToolDuration } from "./tool-duration";
@@ -8,6 +7,15 @@ import { ToolView } from "./tool-view";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
 import { t } from "../state/i18n";
+import {
+    awaitingPermission,
+    commandLabel,
+    patchFiles,
+    patchInputPaths,
+    toolFilename,
+    toolGroupKind,
+    toolInfo,
+} from "./tool-labels";
 
 import type { ToolGroupKind } from "../state/prefs";
 import type { EngineState } from "../engine/store";
@@ -24,8 +32,11 @@ function editedPaths(part: ToolPart) {
     const patched = patchFiles(part).map((file) => file.filePath);
     if (patched.length) return patched;
 
+    const named = patchInputPaths(part);
+    if (named.length) return named;
+
     const path = toolInput(part).filePath;
-    return typeof path === "string" ? [path] : [];
+    return typeof path === "string" ? [path] : [part.id];
 }
 
 /** How many of each kind a run holds; edits count distinct files. */

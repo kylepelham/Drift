@@ -388,3 +388,16 @@ async fn follows_its_switches(engine: &std::sync::Arc<crate::Engine>, kit: &Inst
         "back on, each follows its own"
     );
 }
+
+#[test]
+fn an_archive_is_checked_against_the_registrys_hash_when_it_gives_one() {
+    // SHA-256 of "abc".
+    let abc = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+    assert!(verify(b"abc", Some(abc)).is_ok());
+    assert!(verify(b"abc", Some(&abc.to_uppercase())).is_ok());
+    assert!(matches!(verify(b"abd", Some(abc)), Err(BundleError::HashMismatch)));
+    assert!(
+        verify(b"anything", None).is_ok() && verify(b"anything", Some(" ")).is_ok(),
+        "a pinned commit needs none"
+    );
+}

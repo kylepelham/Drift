@@ -1,10 +1,21 @@
 import { mcpConfigFromForm, mcpFormState, updatePair, type McpFormState, type McpPair } from "../../state/mcp-form";
-import { createSignal, Index, onCleanup, onMount, Show, untrack, type JSX, type Setter } from "solid-js";
 import { activateModal, closeOnBackdropPointerDown } from "../modal";
 import { IconEye, IconEyeOff, IconPlus, IconX } from "../icons";
 import { Portal } from "solid-js/web";
 import { t } from "../../state/i18n";
 import { Toggle } from "../controls";
+import {
+    createEffect,
+    createSignal,
+    Index,
+    on,
+    onCleanup,
+    onMount,
+    Show,
+    untrack,
+    type JSX,
+    type Setter,
+} from "solid-js";
 
 import type { McpServerConfig, McpServerConfigView } from "../../engine/store";
 
@@ -278,6 +289,8 @@ function LocalFields(props: { form: McpFormState; setForm: Setter<McpFormState> 
 }
 
 function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: McpPair[]) => void }) {
+    // Rows are kept by position, so a removal moves another pair under a row whose value may be shown.
+    const [removals, setRemovals] = createSignal(0);
     return (
         <Field label={props.label}>
             <div class="space-y-2">
@@ -297,12 +310,16 @@ function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: 
                                 onInput={(value) => props.onChange(updatePair(props.pairs, index, { value }))}
                                 label={t("drift.mcp.form.value")}
                                 placeholder={pair().saved ? t("drift.mcp.form.savedValue") : undefined}
+                                hideOn={removals()}
                                 mono
                             />
                             <button
                                 class="flex size-8 shrink-0 items-center justify-center rounded-md border border-edge text-ink-muted transition-colors hover:border-danger hover:text-danger"
                                 title={t("drift.mcp.form.removePair")}
-                                onClick={() => props.onChange(props.pairs.filter((_, item) => item !== index))}
+                                onClick={() => {
+                                    setRemovals(removals() + 1);
+                                    props.onChange(props.pairs.filter((_, item) => item !== index));
+                                }}
                             >
                                 <IconX class="size-3.5" />
                             </button>
@@ -360,9 +377,18 @@ function SecretInput(props: {
     onInput: (value: string) => void;
     label: string;
     placeholder?: string;
+    /** Hides the value again whenever it changes. */
+    hideOn?: number;
     mono?: boolean;
 }) {
     const [shown, setShown] = createSignal(false);
+    createEffect(
+        on(
+            () => props.hideOn,
+            () => setShown(false),
+            { defer: true },
+        ),
+    );
     const toggle = () => (shown() ? t("drift.mcp.form.hideValue") : t("drift.mcp.form.showValue"));
 
     return (

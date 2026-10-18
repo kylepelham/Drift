@@ -945,6 +945,7 @@ export const drift = {
     "drift.shell.omitted": "{{size}} izostavljeno",
     "drift.shell.openFull": "Otvori cijeli izlaz",
     "drift.path.copied": "Kopirano {{path}}",
+    "drift.path.copyFailed": "Nije moguće kopirati {{path}}",
     "drift.mcp.form.showValue": "Prikaži vrijednost",
     "drift.mcp.form.hideValue": "Sakrij vrijednost",
     "drift.shell.output": "Izlaz shella",

@@ -947,6 +947,7 @@ export const drift = {
     "drift.shell.omitted": "Пропущено {{size}}",
     "drift.shell.openFull": "Открыть весь вывод",
     "drift.path.copied": "Скопировано: {{path}}",
+    "drift.path.copyFailed": "Не удалось скопировать {{path}}",
     "drift.mcp.form.showValue": "Показать значение",
     "drift.mcp.form.hideValue": "Скрыть значение",
     "drift.shell.output": "Вывод оболочки",

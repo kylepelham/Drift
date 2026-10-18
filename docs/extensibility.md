@@ -241,7 +241,10 @@ or agent's text names them. A bundle's agents and commands come before the user'
 workspace's own, which replace any of the same name; its skills come after every other skill folder.
 
 The registry lists a bundle as `kind: "bundle"`: the archive of a pinned commit (never a branch, so
-nothing changes under the user until the registry is rebuilt), the plugin's folder inside it
+nothing changes under the user until the registry is rebuilt), an optional `sha256` of that archive
+(checked before anything is unpacked; Drift's own registry leaves it out, since GitHub does not
+promise the same archive bytes for a commit over time, and a team's registry serving fixed files can
+set it), the plugin's folder inside it
 (`path`, empty for the root), and `contents` (its skills, agents and commands with their
 descriptions, each MCP server with how it is reached and the values it asks for, its programs and
 its hook events), read from the repository when the registry is built. The install sheet shows all

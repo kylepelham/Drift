@@ -57,7 +57,7 @@ function caretAt(x: number, y: number): { node: Text; offset: number } | undefin
 }
 
 /** Listens for double-clicks on paths; `copied` hears each path copied, as written to the clipboard. */
-export function bindPathCopy(copied: (path: string) => void) {
+export function bindPathCopy(copied: (path: string) => void, failed: (path: string) => void) {
     const onDoubleClick = (event: MouseEvent) => {
         // Editable text and controls keep their own double-click.
         if (event.target instanceof Element && event.target.closest("input, textarea, [contenteditable], button, a"))
@@ -76,7 +76,7 @@ export function bindPathCopy(copied: (path: string) => void) {
         const native = nativePath(found.path, windows);
         void navigator.clipboard.writeText(native).then(
             () => copied(native),
-            () => undefined,
+            () => failed(native),
         );
     };
 

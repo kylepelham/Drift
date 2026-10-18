@@ -886,6 +886,7 @@ export const drift = {
     "drift.shell.omitted": "تم حذف {{size}}",
     "drift.shell.openFull": "فتح المخرجات كاملة",
     "drift.path.copied": "تم نسخ {{path}}",
+    "drift.path.copyFailed": "تعذّر نسخ {{path}}",
     "drift.mcp.form.showValue": "إظهار القيمة",
     "drift.mcp.form.hideValue": "إخفاء القيمة",
     "drift.shell.output": "مخرجات Shell",

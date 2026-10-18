@@ -1111,6 +1111,7 @@ export const drift = {
     "drift.shell.omitted": "{{size}} omitted",
     "drift.shell.openFull": "Open full output",
     "drift.path.copied": "Copied {{path}}",
+    "drift.path.copyFailed": "Could not copy {{path}}",
     "drift.shell.output": "Shell output",
     "drift.search.archived": "Archived",
     "drift.search.clear": "Clear search",

@@ -132,7 +132,14 @@ type WorkerReply = { id: number; tokens?: SyntaxToken[][]; error?: string };
 let worker: Worker | undefined;
 let workerBroken = false;
 let nextRequest = 0;
-const waiting = new Map<number, { resolve: (tokens: SyntaxToken[][]) => void; reject: (error: Error) => void }>();
+type Waiting = {
+    resolve: (tokens: SyntaxToken[][]) => void;
+    reject: (error: Error) => void;
+    code: string;
+    lang: string;
+    theme: BundledTheme;
+};
+const waiting = new Map<number, Waiting>();
 
 /** Tokens from the syntax worker; none where workers are unavailable (the test runner), so the main thread does it. */
 function workerTokens(code: string, lang: string, theme: BundledTheme): Promise<SyntaxToken[][]> | undefined {
@@ -142,7 +149,7 @@ function workerTokens(code: string, lang: string, theme: BundledTheme): Promise<
 
     const id = ++nextRequest;
     return new Promise((resolve, reject) => {
-        waiting.set(id, { resolve, reject });
+        waiting.set(id, { resolve, reject, code, lang, theme });
         worker!.postMessage({ id, code, lang, theme });
     });
 }
@@ -160,7 +167,8 @@ function startWorker() {
         started.onerror = () => {
             workerBroken = true;
             worker = undefined;
-            for (const request of waiting.values()) request.reject(new Error("syntax worker failed"));
+            for (const request of waiting.values())
+                mainThreadTokens(request.code, request.lang, request.theme).then(request.resolve, request.reject);
             waiting.clear();
         };
         return started;

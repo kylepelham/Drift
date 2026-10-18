@@ -927,6 +927,7 @@ export const drift = {
     "drift.shell.omitted": "ละไว้ {{size}}",
     "drift.shell.openFull": "เปิดเอาต์พุตทั้งหมด",
     "drift.path.copied": "คัดลอก {{path}} แล้ว",
+    "drift.path.copyFailed": "คัดลอก {{path}} ไม่ได้",
     "drift.mcp.form.showValue": "แสดงค่า",
     "drift.mcp.form.hideValue": "ซ่อนค่า",
     "drift.shell.output": "ผลลัพธ์เชลล์",

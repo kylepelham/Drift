@@ -30,6 +30,8 @@ pub enum BundleError {
     NoBundle,
     #[error("the archive holds nothing under {0}")]
     Empty(String),
+    #[error("the download does not match the registry's hash; nothing was installed")]
+    HashMismatch,
     #[error("could not {operation} {}: {source}", path.display())]
     File {
         operation: &'static str,
@@ -80,6 +82,10 @@ pub struct InstallBundle {
     /// The registry source it was listed by; its token and trust apply to the archive.
     #[serde(default)]
     pub registry: Option<String>,
+    /// Hex SHA-256 of the archive, checked before anything is unpacked when the registry gives one. Drift's own registry
+    /// pins a commit instead, since GitHub does not promise the same archive bytes for it over time.
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 /// What install wrote, kept beside the files.
@@ -216,6 +222,7 @@ async fn install(
     }
 
     let bytes = archive::fetch(fetcher, source, &bundle.archive, MAX_ARCHIVE_BYTES).await?;
+    verify(&bytes, bundle.sha256.as_deref())?;
     let into = bundles_dir()?.join(&bundle.id);
     let folder = PathBuf::from(bundle.path.trim_matches('/'));
     let written = tokio::task::spawn_blocking(move || unpack(&bytes, &into, &folder)).await??;
@@ -234,6 +241,20 @@ async fn install(
         installed_at: crate::id::now_ms(),
         servers: BTreeMap::new(),
     })
+}
+
+/// The archive matches the registry's hash, when it gives one.
+fn verify(bytes: &[u8], expected: Option<&str>) -> Result<(), BundleError> {
+    let Some(expected) = expected.map(str::trim).filter(|hash| !hash.is_empty()) else {
+        return Ok(());
+    };
+    let digest = crate::hex_bytes(ring::digest::digest(&ring::digest::SHA256, bytes).as_ref());
+
+    if digest.eq_ignore_ascii_case(expected) {
+        Ok(())
+    } else {
+        Err(BundleError::HashMismatch)
+    }
 }
 
 /// Every file under `folder` (all of them when it is empty), moved up so `folder` becomes `into`.

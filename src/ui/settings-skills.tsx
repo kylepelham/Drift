@@ -56,7 +56,7 @@ export function SkillsSection(props: { onBundle?: (id: string) => void }) {
         const [list, installed, bundled] = await Promise.all([
             engine.actions.skills(here()),
             engine.actions.skillPacks(),
-            engine.actions.bundles(),
+            engine.actions.bundles().catch(() => []),
         ]);
 
         setSkills(list);

@@ -426,6 +426,7 @@ export function Chat() {
         // Something else moved the transcript (the scrollbar, a snap to the bottom): it owns the position now.
         if (Math.abs(scroller.scrollTop - wheel.written) > 2) return stopWheel();
 
+        gesture();
         wheel.position = wheelStep(wheel.position, wheel.target, now - wheel.at);
         wheel.at = now;
         scroller.scrollTop = wheel.position;

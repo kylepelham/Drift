@@ -50,11 +50,11 @@ function ReviewPanelView(props: { panel: ReviewPanel }) {
 
     const [refs] = createResource(
         () => ({ workspace: activeWorkspace()?.path, refresh: refresh() }),
-        () => engine.actions.reviewRefs(),
+        ({ workspace }) => engine.actions.reviewRefs(workspace),
     );
     const [review] = createResource(
-        () => ({ source: props.panel.source, refresh: refresh() }),
-        ({ source }) => loadReview(engine.actions, source),
+        () => ({ source: props.panel.source, workspace: activeWorkspace()?.path, refresh: refresh() }),
+        ({ source, workspace }) => loadReview(engine.actions, source, workspace),
     );
 
     const [fold, setFold] = createSignal<Fold>();
@@ -131,11 +131,15 @@ function ReviewSummary(props: { review: Review; onFold: (fold: Fold) => void }) 
     );
 }
 
-async function loadReview(actions: ReviewActions, source: ReviewSource): Promise<Review | undefined> {
+async function loadReview(
+    actions: ReviewActions,
+    source: ReviewSource,
+    workspace?: string,
+): Promise<Review | undefined> {
     if (source.kind === "turn") return actions.reviewTurn(source.sessionId, source.messageId);
-    if (source.kind === "uncommitted") return actions.reviewWorkspace("uncommitted");
+    if (source.kind === "uncommitted") return actions.reviewWorkspace("uncommitted", undefined, workspace);
 
-    return actions.reviewWorkspace(source.kind, source.target);
+    return actions.reviewWorkspace(source.kind, source.target, workspace);
 }
 
 function errorText(error: unknown) {

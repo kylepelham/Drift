@@ -903,6 +903,7 @@ export const drift = {
     "drift.shell.omitted": "{{size}} 생략됨",
     "drift.shell.openFull": "전체 출력 열기",
     "drift.path.copied": "{{path}} 복사됨",
+    "drift.path.copyFailed": "{{path}}을(를) 복사할 수 없습니다",
     "drift.mcp.form.showValue": "값 표시",
     "drift.mcp.form.hideValue": "값 숨기기",
     "drift.shell.output": "셸 출력",
