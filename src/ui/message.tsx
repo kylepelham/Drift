@@ -131,8 +131,11 @@ function CompactionRetry(props: { entry: MessageEntry }) {
 
     const retry = async () => {
         setSending(true);
-        await retryCompaction(engine, session(), props.entry.info.id);
-        setSending(false);
+        try {
+            await retryCompaction(engine, session(), props.entry.info.id);
+        } finally {
+            setSending(false);
+        }
     };
 
     return (

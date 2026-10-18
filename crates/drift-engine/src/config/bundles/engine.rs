@@ -58,14 +58,27 @@ impl Engine {
     /// Fetches the bundle, unpacks it, saves its MCP servers (keeping the switches of an earlier install) and starts them.
     pub async fn install_bundle(self: &Arc<Self>, install: InstallBundle) -> Result<Vec<Bundle>, BundleError> {
         let source = install.registry.as_deref().and_then(|id| self.registry_source(id));
+        // Read before the unpack replaces the folder its marker is in.
+        let previous = super::find(&install.id)
+            .map(|earlier| earlier.servers)
+            .unwrap_or_default();
         let mut installed = super::install(&self.fetcher(), source.as_ref(), &install).await?;
-        // Listed at once, so a failure saving its servers still leaves a bundle that can be seen and removed.
+        // Listed at once, keeping an earlier install's servers until the new ones are saved, so a failure
+        // still leaves a bundle that can be seen, switched off and removed.
+        installed.servers.clone_from(&previous);
         super::write_marker(&installed)?;
         let root = super::bundles_dir()?.join(&installed.id);
         let data = super::data_dir(&installed.id)?;
-        self.save_bundle_servers(&mut installed, &install.values, &root, &data)
-            .await?;
+        let saved = self
+            .save_bundle_servers(&mut installed, &install.values, &root, &data)
+            .await;
+        if saved.is_err() {
+            for (declared, name) in previous {
+                installed.servers.entry(declared).or_insert(name);
+            }
+        }
         super::write_marker(&installed)?;
+        saved?;
 
         Ok(self.bundles())
     }

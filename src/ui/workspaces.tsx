@@ -461,20 +461,22 @@ const hues = [212, 262, 330, 24, 96, 168];
 const forksUnderWay = new Map<string, Promise<void>>();
 
 /**
- * Forks a thread and selects the copy, but only if the user is still where they were when they asked: the same
- * workspace and the same thread. Both the row's button and its menu fork through here.
+ * Forks a thread and opens the copy in the row's workspace, but only if the user is still where they were when they
+ * asked; until then nothing moves, so a failed fork leaves them on the thread they had open. Both the row's button
+ * and its menu fork through here.
  */
 export function forkThread(engine: Engine, sessionId: string, workspaceId: string) {
     const underWay = forksUnderWay.get(sessionId);
     if (underWay) return underWay;
 
-    selectWorkspace(workspaceId);
+    const from = activeWorkspaceId();
     const selection = selectedSession();
     const forking = engine.actions
         .fork(sessionId)
         .then((session) => {
-            if (session && activeWorkspaceId() === workspaceId && selectedSession() === selection)
-                selectSession(session.id);
+            if (!session || activeWorkspaceId() !== from || selectedSession() !== selection) return;
+            selectWorkspace(workspaceId);
+            selectSession(session.id);
         })
         .finally(() => forksUnderWay.delete(sessionId));
     forksUnderWay.set(sessionId, forking);
