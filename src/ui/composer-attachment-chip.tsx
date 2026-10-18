@@ -4,7 +4,7 @@ import { t } from "../state/i18n";
 import { IconX } from "./icons";
 import { Show } from "solid-js";
 
-import type { StagedFile } from "../state/composer";
+import type { ReviewComment, StagedFile } from "../state/composer";
 
 /** A staged upload above the composer: an image thumbnail, or its kind, name and size. */
 export function AttachmentChip(props: { file: StagedFile; remove: () => void }) {
@@ -72,7 +72,7 @@ export function AttachmentChip(props: { file: StagedFile; remove: () => void }) 
                     </div>
                     <button
                         title={t("prompt.attachment.remove")}
-                        class="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
+                        class="touch-reveal absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-edge bg-overlay text-ink-muted opacity-0 transition-opacity group-hover/chip:opacity-100 hover:bg-raised hover:text-ink"
                         onClick={() => props.remove()}
                     >
                         <IconX class="size-3" />
@@ -80,5 +80,34 @@ export function AttachmentChip(props: { file: StagedFile; remove: () => void }) 
                 </div>
             )}
         </Show>
+    );
+}
+
+/** A note from the review panel, waiting to go with the next message; removing it here removes it there too. */
+export function CommentChip(props: { comment: ReviewComment; remove: () => void }) {
+    const name = () => props.comment.path.split("/").at(-1) ?? props.comment.path;
+
+    return (
+        <span
+            class="flex max-w-64 items-center gap-2 rounded-md border border-edge bg-raised py-1 pr-1 pl-1.5 text-xs text-ink-muted"
+            title={`${props.comment.path}:${props.comment.line}\n\n${props.comment.text}`}
+        >
+            <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
+                {t("drift.review.comment.chip")}
+            </span>
+            <span class="min-w-0">
+                <span class="block truncate">{props.comment.text}</span>
+                <span class="block truncate text-[0.65rem] text-ink-faint">
+                    {name()}:{props.comment.line}
+                </span>
+            </span>
+            <button
+                title={t("drift.review.comment.remove")}
+                class="flex size-4 shrink-0 items-center justify-center rounded text-ink-faint hover:bg-overlay hover:text-ink"
+                onClick={() => props.remove()}
+            >
+                <IconX class="size-3" />
+            </button>
+        </span>
     );
 }

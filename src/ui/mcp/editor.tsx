@@ -1,7 +1,7 @@
 import { mcpConfigFromForm, mcpFormState, updatePair, type McpFormState, type McpPair } from "../../state/mcp-form";
 import { createSignal, Index, onCleanup, onMount, Show, untrack, type JSX, type Setter } from "solid-js";
 import { activateModal, closeOnBackdropPointerDown } from "../modal";
-import { IconPlus, IconX } from "../icons";
+import { IconEye, IconEyeOff, IconPlus, IconX } from "../icons";
 import { Portal } from "solid-js/web";
 import { t } from "../../state/i18n";
 import { Toggle } from "../controls";
@@ -148,8 +148,7 @@ export function McpEditor(props: {
                                         />
                                     </Field>
                                     <Field label={t("drift.mcp.form.clientSecret")}>
-                                        <TextInput
-                                            type="password"
+                                        <SecretInput
                                             value={form().clientSecret}
                                             onInput={(clientSecret) => setForm((value) => ({ ...value, clientSecret }))}
                                             label={t("drift.mcp.form.clientSecret")}
@@ -293,8 +292,7 @@ function PairFields(props: { label: string; pairs: McpPair[]; onChange: (pairs: 
                                 mono
                             />
                             {/* Values are often keys or tokens: masked while typed, and a saved one is never shown at all. */}
-                            <TextInput
-                                type="password"
+                            <SecretInput
                                 value={pair().value}
                                 onInput={(value) => props.onChange(updatePair(props.pairs, index, { value }))}
                                 label={t("drift.mcp.form.value")}
@@ -353,6 +351,44 @@ function TextInput(props: {
             value={props.value}
             onInput={(event) => props.onInput(event.currentTarget.value)}
         />
+    );
+}
+
+/** A masked value with an eye to show it while it is typed, to check it; a saved value is never sent back, so it stays empty. */
+function SecretInput(props: {
+    value: string;
+    onInput: (value: string) => void;
+    label: string;
+    placeholder?: string;
+    mono?: boolean;
+}) {
+    const [shown, setShown] = createSignal(false);
+    const toggle = () => (shown() ? t("drift.mcp.form.hideValue") : t("drift.mcp.form.showValue"));
+
+    return (
+        <div class="relative w-full min-w-0">
+            <input
+                type={shown() ? "text" : "password"}
+                aria-label={props.label}
+                class="secret-input h-8 w-full min-w-0 rounded-md border border-edge bg-raised/45 pr-8 pl-2.5 text-sm text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-accent"
+                classList={{ "font-mono text-xs": props.mono }}
+                placeholder={props.placeholder}
+                value={props.value}
+                onInput={(event) => props.onInput(event.currentTarget.value)}
+            />
+            <button
+                type="button"
+                class="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-ink-faint transition-colors hover:text-ink"
+                title={toggle()}
+                aria-label={toggle()}
+                aria-pressed={shown()}
+                onClick={() => setShown(!shown())}
+            >
+                <Show when={shown()} fallback={<IconEye class="size-3.5" />}>
+                    <IconEyeOff class="size-3.5" />
+                </Show>
+            </button>
+        </div>
     );
 }
 

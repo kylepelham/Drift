@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { activeWorkspace, workspacesReady } from "../state/workspaces";
+import { nativeFrame, WindowControls } from "./titlebar";
 import { pluginsSettled } from "../plugins";
-import { hasNativeWindow } from "../shell";
 import { useEngine } from "../engine";
 import { DriftLogo } from "./logo";
 import { t } from "../state/i18n";
@@ -34,7 +34,6 @@ function startupReady(input: {
 
 export function StartupSplash() {
     const engine = useEngine();
-    const nativeTitlebar = hasNativeWindow();
     const [visible, setVisible] = createSignal(true);
     const [washing, setWashing] = createSignal(false);
     let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -89,7 +88,7 @@ export function StartupSplash() {
         <Show when={splashEnabled() && visible()}>
             <div
                 class="startup-splash"
-                classList={{ "startup-splash-native": nativeTitlebar }}
+                data-tauri-drag-region={nativeFrame() ? "" : undefined}
                 data-mascot={splashMascotAnimation()}
                 data-exit={splashExitAnimation()}
                 data-phase={washing() ? "washing" : "swimming"}
@@ -101,19 +100,24 @@ export function StartupSplash() {
                     if (washing() && event.target === event.currentTarget) finish();
                 }}
             >
-                <div class="startup-backdrop" />
+                <div class="startup-backdrop" data-tauri-drag-region={nativeFrame() ? "" : undefined} />
                 <div class="startup-wash" aria-hidden="true">
                     <span class="startup-wave startup-wave-back" />
                     <span class="startup-wave startup-wave-middle" />
                     <span class="startup-wave startup-wave-front" />
                 </div>
-                <div class="startup-scene" aria-hidden="true">
+                <div class="startup-scene" aria-hidden="true" data-tauri-drag-region={nativeFrame() ? "" : undefined}>
                     <DriftLogo class="startup-jelly" />
                     <div class="startup-copy">
                         <div class="startup-name">Drift</div>
                         <div class="startup-status">{status()}</div>
                     </div>
                 </div>
+                <Show when={nativeFrame()}>
+                    <div class="startup-controls">
+                        <WindowControls offerUpdate={false} />
+                    </div>
+                </Show>
             </div>
         </Show>
     );

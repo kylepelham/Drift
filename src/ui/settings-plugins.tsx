@@ -1,15 +1,18 @@
-import { loadRegistrySources, registrySources, sourcesOf } from "../state/registry-sources";
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
+import { BundleInstallSheet, BundleRow, BundleScreen } from "./settings-bundle";
+import { loadRegistrySources, sourcesOf } from "../state/registry-sources";
 import { ConfigFields, EditSheet } from "./settings-plugin-config";
 import { RegistrySourcesSheet } from "./registry-sources";
+import { takeFocusedBundle } from "../state/bundle-focus";
+import { Badge, Toggle } from "./controls";
 import { openExternal } from "../shell";
 import { LogoTile } from "./logo-tile";
 import { useEngine } from "../engine";
-import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 import {
     buildConfig,
     installedPath,
+    isBundle,
     isSkillEntry,
     loadRegistries,
     matchesRegistryQuery,
@@ -28,7 +31,7 @@ import {
     IconTrash,
 } from "./icons";
 
-import type { PluginInfo } from "../engine/native/client";
+import type { Bundle, BundlePartKind, PluginInfo } from "../engine/native/client";
 
 type View = "installed" | "registry";
 const configFile = "~/.config/drift/drift.json";
@@ -38,6 +41,8 @@ export function PluginsSection() {
     const engine = useEngine();
     const [view, setView] = createSignal<View>("installed");
     const [plugins, setPlugins] = createSignal<PluginInfo[]>([]);
+    const [bundles, setBundles] = createSignal<Bundle[]>([]);
+    const [openBundle, setOpenBundle] = createSignal(takeFocusedBundle());
     const [loading, setLoading] = createSignal(false);
     const [busy, setBusy] = createSignal("");
     const [failure, setFailure] = createSignal("");
@@ -46,13 +51,13 @@ export function PluginsSection() {
     const [editing, setEditing] = createSignal<PluginInfo>();
     const locked = () => engine.state.connection !== "online" || loading() || !!busy();
 
-    const run = async (action: () => Promise<PluginInfo[]>, success?: string) => {
+    const act = async <T,>(action: () => Promise<T>, apply: (value: T) => void, success?: string) => {
         setLoading(true);
         setFailure("");
         setMessage("");
 
         try {
-            setPlugins(await action());
+            apply(await action());
             if (success) setMessage(success);
             return true;
         } catch (error) {
@@ -62,7 +67,11 @@ export function PluginsSection() {
             setLoading(false);
         }
     };
-    onMount(() => void run(() => engine.actions.plugins()));
+    const run = (action: () => Promise<PluginInfo[]>, success?: string) => act(action, setPlugins, success);
+    const runBundles = (action: () => Promise<Bundle[]>, success?: string) => act(action, setBundles, success);
+    const reload = () =>
+        run(() => engine.actions.reloadPlugins()).then(() => runBundles(() => engine.actions.bundles()));
+    onMount(() => void run(() => engine.actions.plugins()).then(() => runBundles(() => engine.actions.bundles())));
 
     const install = async (plugin: RegistryPlugin, config: Record<string, unknown>) => {
         setBusy(plugin.id);
@@ -93,7 +102,53 @@ export function PluginsSection() {
         setConfirmRemove("");
     };
 
+    const installBundle = async (plugin: RegistryPlugin, values: Record<string, string>) => {
+        setBusy(plugin.id);
+
+        const done = await runBundles(
+            () =>
+                engine.actions.installBundle({
+                    id: plugin.id,
+                    name: plugin.name,
+                    version: plugin.version,
+                    archive: plugin.archive ?? "",
+                    path: plugin.path ?? "",
+                    source: plugin.source,
+                    image: plugin.image,
+                    values,
+                    registry: plugin.sourceId,
+                }),
+            t("drift.bundles.installed", { name: plugin.name }),
+        );
+
+        setBusy("");
+        if (done) {
+            setView("installed");
+            setOpenBundle(plugin.id);
+        }
+        return done;
+    };
+
+    const removeBundle = async (bundle: Bundle) => {
+        if (confirmRemove() !== bundle.id) return setConfirmRemove(bundle.id);
+
+        setBusy(bundle.id);
+        const done = await runBundles(
+            () => engine.actions.removeBundle(bundle.id),
+            t("drift.plugins.removed", { name: bundle.name }),
+        );
+        setBusy("");
+        setConfirmRemove("");
+        if (done) setOpenBundle("");
+    };
+    const setBundleEnabled = (id: string, enabled: boolean) =>
+        void runBundles(() => engine.actions.setBundleEnabled(id, enabled));
+    const setBundlePart = (id: string, kind: BundlePartKind, name: string, enabled: boolean) =>
+        void runBundles(() => engine.actions.setBundlePart(id, kind, name, enabled));
+    const shownBundle = () => bundles().find((bundle) => bundle.id === openBundle());
+
     const installedPaths = createMemo(() => new Set(plugins().map((plugin) => plugin.path)));
+    const installedBundles = createMemo(() => new Set(bundles().map((bundle) => bundle.id)));
     // Registry metadata supplies images and editable config fields for installed plugins.
     const [known, setKnown] = createSignal<Record<string, RegistryPlugin>>({});
     onMount(() => {
@@ -131,11 +186,11 @@ export function PluginsSection() {
                         {t("drift.plugins.tab.registry")}
                     </Tab>
                 </div>
-                <Show when={view() === "installed"}>
+                <Show when={view() === "installed" && !shownBundle()}>
                     <button
                         class="rounded-md border border-edge px-3 py-1.5 text-xs text-ink-muted transition-colors hover:border-edge-strong hover:text-ink disabled:opacity-40"
                         disabled={locked()}
-                        onClick={() => void run(() => engine.actions.reloadPlugins())}
+                        onClick={() => void reload()}
                     >
                         {t("drift.plugins.reload")}
                     </button>
@@ -164,8 +219,33 @@ export function PluginsSection() {
                     />
                 )}
             </Show>
-            <Show when={view() === "installed" && !editing()}>
+            <Show when={view() === "installed" && shownBundle()}>
+                {(bundle) => (
+                    <BundleScreen
+                        bundle={bundle()}
+                        disabled={locked()}
+                        confirming={confirmRemove() === bundle().id}
+                        onBack={() => setOpenBundle("")}
+                        onEnabled={(enabled) => setBundleEnabled(bundle().id, enabled)}
+                        onPart={(kind, name, enabled) => setBundlePart(bundle().id, kind, name, enabled)}
+                        onRemove={() => void removeBundle(bundle())}
+                    />
+                )}
+            </Show>
+            <Show when={view() === "installed" && !editing() && !shownBundle()}>
                 <div class="border-y border-edge/80" aria-busy={loading()}>
+                    <For each={bundles()}>
+                        {(bundle) => (
+                            <BundleRow
+                                bundle={bundle}
+                                disabled={locked()}
+                                confirming={confirmRemove() === bundle.id}
+                                onEnabled={(enabled) => setBundleEnabled(bundle.id, enabled)}
+                                onOpen={() => setOpenBundle(bundle.id)}
+                                onRemove={() => void removeBundle(bundle)}
+                            />
+                        )}
+                    </For>
                     <For each={plugins()}>
                         {(plugin) => (
                             <PluginRow
@@ -181,7 +261,7 @@ export function PluginsSection() {
                             />
                         )}
                     </For>
-                    <Show when={!loading() && !plugins().length}>
+                    <Show when={!loading() && !plugins().length && !bundles().length}>
                         <div class="px-3 py-5 text-sm text-ink-faint">
                             {t("drift.plugins.empty", { path: configFile })}
                         </div>
@@ -189,7 +269,14 @@ export function PluginsSection() {
                 </div>
             </Show>
             <Show when={view() === "registry"}>
-                <PluginRegistry installed={installedPaths()} disabled={locked()} busy={busy()} onInstall={install} />
+                <PluginRegistry
+                    installed={installedPaths()}
+                    installedBundles={installedBundles()}
+                    disabled={locked()}
+                    busy={busy()}
+                    onInstall={install}
+                    onInstallBundle={installBundle}
+                />
             </Show>
         </div>
     );
@@ -267,9 +354,11 @@ function PluginRow(props: {
 
 function PluginRegistry(props: {
     installed: Set<string>;
+    installedBundles: Set<string>;
     disabled: boolean;
     busy: string;
     onInstall: (plugin: RegistryPlugin, config: Record<string, unknown>) => Promise<boolean>;
+    onInstallBundle: (plugin: RegistryPlugin, values: Record<string, string>) => Promise<boolean>;
 }) {
     const engine = useEngine();
     const [query, setQuery] = createSignal("");
@@ -314,10 +403,15 @@ function PluginRegistry(props: {
                 (category() === "all" || plugin.category === category()) && matchesRegistryQuery(plugin, query()),
         ),
     );
-    const installed = (plugin: RegistryPlugin) => props.installed.has(installedPath(plugin.id));
+    const installed = (plugin: RegistryPlugin) =>
+        isBundle(plugin) ? props.installedBundles.has(plugin.id) : props.installed.has(installedPath(plugin.id));
 
     async function installSelected(plugin: RegistryPlugin, config: Record<string, unknown>) {
         if (await props.onInstall(plugin, config)) setSelected();
+    }
+
+    async function installSelectedBundle(plugin: RegistryPlugin, values: Record<string, string>) {
+        if (await props.onInstallBundle(plugin, values)) setSelected();
     }
 
     return (
@@ -369,13 +463,6 @@ function PluginRegistry(props: {
                                 <IconSliders class="size-3.5" />
                                 <Show when={sourcesOf("plugins").length}>{(count) => <span>{count()}</span>}</Show>
                             </button>
-                        </div>
-                        <div class="text-[0.7rem] text-ink-faint">
-                            {t(
-                                registrySources().some((source) => source.kind === "plugins")
-                                    ? "drift.plugins.registrySourceWithOwn"
-                                    : "drift.plugins.registrySource",
-                            )}
                         </div>
                         <For each={failures()}>
                             {(failure) => (
@@ -430,14 +517,28 @@ function PluginRegistry(props: {
                 }
             >
                 {(plugin) => (
-                    <InstallSheet
-                        plugin={plugin()}
-                        installed={installed(plugin())}
-                        disabled={props.disabled}
-                        busy={props.busy === plugin().id}
-                        onBack={() => setSelected()}
-                        onInstall={(config) => installSelected(plugin(), config)}
-                    />
+                    <Show
+                        when={isBundle(plugin())}
+                        fallback={
+                            <InstallSheet
+                                plugin={plugin()}
+                                installed={installed(plugin())}
+                                disabled={props.disabled}
+                                busy={props.busy === plugin().id}
+                                onBack={() => setSelected()}
+                                onInstall={(config) => installSelected(plugin(), config)}
+                            />
+                        }
+                    >
+                        <BundleInstallSheet
+                            plugin={plugin()}
+                            installed={installed(plugin())}
+                            disabled={props.disabled}
+                            busy={props.busy === plugin().id}
+                            onBack={() => setSelected()}
+                            onInstall={(values) => installSelectedBundle(plugin(), values)}
+                        />
+                    </Show>
                 )}
             </Show>
         </Show>
@@ -471,6 +572,9 @@ function RegistryCard(props: { plugin: RegistryPlugin; installed: boolean; onOpe
             <div class="line-clamp-2 text-xs leading-relaxed text-ink-muted">{props.plugin.description}</div>
             <div class="mt-auto flex flex-wrap gap-1">
                 <Show when={props.plugin.sourceName}>{(name) => <Badge tone="warn">{name()}</Badge>}</Show>
+                <Show when={isBundle(props.plugin)}>
+                    <Badge tone="accent">{t("drift.bundles.badge")}</Badge>
+                </Show>
                 <Badge tone="accent">{t(`drift.plugins.category.${props.plugin.category}`)}</Badge>
                 <For each={props.plugin.hooks}>{(hook) => <Badge>{hook}</Badge>}</For>
             </div>
@@ -542,21 +646,6 @@ function InstallSheet(props: {
                 </button>
             </div>
         </div>
-    );
-}
-
-export function Badge(props: { tone?: "accent" | "warn"; children: JSX.Element }) {
-    return (
-        <span
-            class="rounded px-1.5 py-0.5 text-[0.65rem]"
-            classList={{
-                "bg-raised text-ink-muted": !props.tone,
-                "bg-accent/12 text-accent": props.tone === "accent",
-                "bg-warn/12 text-warn": props.tone === "warn",
-            }}
-        >
-            {props.children}
-        </span>
     );
 }
 

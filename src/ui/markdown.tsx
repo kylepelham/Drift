@@ -69,7 +69,7 @@ export async function openMarkdownLink(
         scrollMarkdownFragment(event.currentTarget as HTMLElement, link.hash);
         return;
     }
-    if (link.kind === "unsupported") throw new Error("The link is invalid or its workspace directory is unavailable");
+    if (link.kind === "unsupported") throw new Error(t("drift.markdown.linkUnavailable"));
     if (fileGroups) link = resolveMarkdownCitation(href, directory, fileGroups());
     if (link.kind !== "file") return;
 

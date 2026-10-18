@@ -73,32 +73,27 @@ export function diffHighlightKey(
     return `${theme}\0${language.value}\0${code}`;
 }
 
-export function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
-    const rows = createMemo(() => parseDiff(props.diff));
-    const code = createMemo(() =>
-        rows()
-            .map((row) => row.text)
-            .join("\n"),
-    );
+/** Syntax tokens per line of `code`, kept while new content for the same file is highlighted. */
+export function createDiffHighlight(filename: () => string, code: () => string) {
     const [language, setLanguage] = createSignal<{ filename: string; value: string }>();
     const [highlight, setHighlight] = createSignal<{ key: string; tokens: SyntaxToken[][] }>();
     let languageRequest = 0;
     let request = 0;
 
     createEffect(() => {
-        const filename = props.filename;
+        const name = filename();
         const current = ++languageRequest;
 
         setLanguage(undefined);
-        void resolveFileLanguage(filename)
+        void resolveFileLanguage(name)
             // A failed catalog load must degrade to plain text, not leave the panel unhighlighted forever.
             .catch(() => "text")
             .then((value) => {
-                if (current === languageRequest) setLanguage({ filename, value });
+                if (current === languageRequest) setLanguage({ filename: name, value });
             });
     });
 
-    const highlightKey = createMemo(() => diffHighlightKey(syntaxTheme(), language(), props.filename, code()));
+    const highlightKey = createMemo(() => diffHighlightKey(syntaxTheme(), language(), filename(), code()));
     createEffect(() => {
         const key = highlightKey();
         const resolved = language();
@@ -114,7 +109,17 @@ export function DiffPanel(props: { diff: string; filename: string; bare?: boolea
             });
     });
 
-    const visibleTokens = () => (highlight()?.key === highlightKey() ? (highlight()?.tokens ?? []) : []);
+    return () => (highlight()?.key === highlightKey() ? (highlight()?.tokens ?? []) : []);
+}
+
+export function DiffPanel(props: { diff: string; filename: string; bare?: boolean }) {
+    const rows = createMemo(() => parseDiff(props.diff));
+    const code = createMemo(() =>
+        rows()
+            .map((row) => row.text)
+            .join("\n"),
+    );
+    const visibleTokens = createDiffHighlight(() => props.filename, code);
 
     return (
         <div class="diff-view overflow-hidden" classList={{ "rounded-lg border border-edge": !props.bare }}>
@@ -189,7 +194,7 @@ export function DiffPanel(props: { diff: string; filename: string; bare?: boolea
     );
 }
 
-function SyntaxTokenView(props: { token: SyntaxToken }) {
+export function SyntaxTokenView(props: { token: SyntaxToken }) {
     const style = () => {
         const fontStyle = props.token.fontStyle ?? 0;
         return {

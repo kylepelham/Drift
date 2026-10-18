@@ -1,6 +1,7 @@
 import { parseSlash, runSlash, slashItem, slashItems, slashPresets, type SlashItem, type SlashPreset } from "./slash";
 import { createEffect, createMemo, createSignal, createUniqueId, on } from "solid-js";
 import { isDesktopShell } from "../shell";
+import { t } from "../state/i18n";
 
 import type { Engine } from "../engine";
 
@@ -98,7 +99,7 @@ export function createSlashMenu(options: SlashMenuOptions) {
             await runSlash(options.engine, item, args);
         } catch (error) {
             options.engine.actions.notice({
-                title: "Command failed",
+                title: t("drift.slash.failed"),
                 message: error instanceof Error ? error.message : String(error),
                 variant: "error",
             });

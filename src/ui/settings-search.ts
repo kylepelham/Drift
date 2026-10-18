@@ -76,6 +76,9 @@ const settingsSearchDefinitions = {
             description: "settings.general.row.reasoningSummaries.description",
         },
         { title: "drift.settings.toolErrors.title", description: "drift.settings.toolErrors.description" },
+        { title: "drift.settings.collapseCommands.title", description: "drift.settings.collapseCommands.description" },
+        { title: "drift.settings.groupTools.title", description: "drift.settings.groupTools.description" },
+        { title: "drift.settings.editedFiles.title", description: "drift.settings.editedFiles.description" },
         { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
         {
             title: "drift.settings.summaries.collapsible.title",

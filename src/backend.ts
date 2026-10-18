@@ -1,5 +1,6 @@
 import { shellInvoke, type ShellInvoke } from "./shell";
 import { isRemoteRuntime, signInPath } from "./runtime";
+import { t } from "./state/i18n";
 
 export function backendRoute(desktop: boolean, remote: boolean) {
     if (desktop) return "tauri";
@@ -27,7 +28,7 @@ export function backendInvoke(): ShellInvoke | undefined {
         const value = (await response.json().catch(() => null)) as T | { error?: string } | null;
         if (!response.ok) {
             const message = value && typeof value === "object" && "error" in value ? value.error : undefined;
-            throw new Error(message || `Backend request failed (${response.status})`);
+            throw new Error(message || t("drift.host.requestFailed", { status: response.status }));
         }
 
         return value as T;

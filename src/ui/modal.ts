@@ -1,3 +1,6 @@
+import { bindOverlayBack } from "../state/overlay-back";
+import { touchInput } from "../state/screen";
+
 type ModalEntry = {
     element: HTMLElement;
     onClose: () => void;
@@ -58,7 +61,11 @@ function modalIsTopmost(element: HTMLElement) {
     return !top || top.element === element;
 }
 
-export function activateModal(element: HTMLElement, onClose: () => void, options: { nativeTabOrder?: boolean } = {}) {
+export function activateModal(
+    element: HTMLElement,
+    onClose: () => void,
+    options: { nativeTabOrder?: boolean; history?: boolean } = {},
+) {
     const overlay = element.closest<HTMLElement>("[data-modal-layer]") ?? element;
     const entry: ModalEntry = {
         element,
@@ -68,6 +75,7 @@ export function activateModal(element: HTMLElement, onClose: () => void, options
     };
     modalStack.push(entry);
     syncModalInert();
+    const unbindBack = options.history === false ? () => {} : bindOverlayBack(onClose);
 
     // Browser tab order reaches shadow-DOM media controls; guards only redirect at the modal boundaries.
     const guards = options.nativeTabOrder ? [document.createElement("span"), document.createElement("span")] : [];
@@ -145,14 +153,17 @@ export function activateModal(element: HTMLElement, onClose: () => void, options
     document.addEventListener("keydown", onKeyDown, true);
     queueMicrotask(() => {
         if (!modalStack.isTop(entry)) return;
-        const target = element.querySelector<HTMLElement>("[autofocus]") ?? modalFocusable(element)[0] ?? element;
-        target.focus();
+        const target =
+            element.querySelector<HTMLElement>("[autofocus]") ??
+            (touchInput() ? element : (modalFocusable(element)[0] ?? element));
+        target.focus({ preventScroll: true });
     });
 
     let active = true;
     return () => {
         if (!active) return;
         active = false;
+        unbindBack();
         document.removeEventListener("keydown", onKeyDown, true);
         if (options.nativeTabOrder) document.removeEventListener("focusin", onFocusIn, true);
         for (const guard of guards) guard.remove();

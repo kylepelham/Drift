@@ -6,10 +6,10 @@ import { selectedSession } from "../state/selection";
 import { refreshUsage } from "../state/usage-limits";
 import { lightTheme } from "../state/theme";
 import { prefsFor } from "../state/prefs";
+import { SidePanel } from "./side-panel";
 import { useEngine } from "../engine";
 import DOMPurify from "dompurify";
 import { t } from "../state/i18n";
-import { IconX } from "./icons";
 
 export function DebugPanel() {
     const engine = useEngine();
@@ -29,25 +29,20 @@ export function DebugPanel() {
 
     return (
         <Show when={debugPanelOpen() && selectedSession()}>
-            <div class="debug-panel flex min-h-0 min-w-0 w-[26rem] shrink-0 flex-col overflow-hidden border-l border-edge bg-surface">
-                <div class="flex items-center justify-between border-b border-edge px-3 py-2.5">
-                    <span class="text-sm font-semibold text-ink">{t("drift.debug.context")}</span>
-                    <button
-                        title={t("common.close")}
-                        class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
-                        onClick={() => setDebugPanelOpen(false)}
-                    >
-                        <IconX />
-                    </button>
-                </div>
+            <SidePanel
+                name="debug"
+                defaultWidth={420}
+                onClose={() => setDebugPanelOpen(false)}
+                title={<span class="px-2.5 text-[0.82rem] text-ink">{t("drift.debug.context")}</span>}
+            >
                 <div class="debug-panel-scroll min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
-                    <div class="border-b border-edge select-text">
+                    <div class="border-b border-edge/60 select-text">
                         <ContextSection sessionId={selectedSession()!} />
                         <Show when={provider()}>{(id) => <UsageSection provider={id()} />}</Show>
                     </div>
                     <For each={entries()}>{(entry) => <DebugRow entry={entry} />}</For>
                 </div>
-            </div>
+            </SidePanel>
         </Show>
     );
 }
@@ -59,7 +54,7 @@ function DebugRow(props: { entry: MessageEntry }) {
     return (
         <div class="border-b border-edge/60">
             <button
-                class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-raised/60"
+                class="flex w-full items-center gap-2 px-4 py-1.5 text-left text-xs transition-colors hover:bg-raised/60"
                 onClick={() => setExpanded(!expanded())}
             >
                 <span

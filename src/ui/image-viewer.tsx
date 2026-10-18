@@ -201,7 +201,7 @@ function ImageCanvas(props: ImageViewerProps) {
             }}
         >
             <div
-                class="flex min-w-0 shrink-0 items-center gap-1 border-b border-edge bg-surface px-2 py-1.5 text-xs"
+                class="image-viewer-toolbar flex min-w-0 shrink-0 items-center gap-1 border-b border-edge bg-surface px-2 py-1.5 text-xs"
                 classList={{
                     "flex-wrap justify-center": !compactToolbar,
                     "flex-nowrap whitespace-nowrap": compactToolbar,

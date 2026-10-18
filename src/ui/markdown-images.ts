@@ -2,6 +2,7 @@ import { filePreviewLimits, filePreviewMime, filePreviewType } from "../file-pre
 import { classifyMarkdownLink } from "./markdown-links";
 import { readFilePreview } from "../file-preview";
 import { openLightbox } from "./lightbox";
+import { t } from "../state/i18n";
 
 export const markdownImageAttribute = "data-document-image";
 
@@ -147,7 +148,7 @@ export function observeMarkdownImages(
             link.path.startsWith("//") ||
             filePreviewType(link.path) !== "image"
         ) {
-            image.title = "Only enabled local workspace images can be previewed";
+            image.title = t("drift.markdown.image.disabled");
             return;
         }
 
@@ -157,7 +158,7 @@ export function observeMarkdownImages(
     function reserveImage(path: string, image: HTMLImageElement) {
         // Reserve the reader's worst-case allocation once per path, including failed reads.
         if (cache.size >= 12 || remaining < filePreviewLimits.image) {
-            image.title = "Document image preview limit reached";
+            image.title = t("drift.markdown.image.limit");
             return;
         }
         const cached: CachedMarkdownImage = {};
@@ -201,7 +202,7 @@ export function observeMarkdownImages(
             image.onload = null;
             image.onerror = null;
             image.removeAttribute("src");
-            image.title = cached.error = "Image could not be previewed";
+            image.title = cached.error = t("drift.markdown.image.failed");
             urls.delete(image);
             restoreControl(image);
             settleAlignment();
@@ -236,7 +237,7 @@ export function observeMarkdownImages(
                         if (disposed) return;
                         storeImage(path, cached, result);
                     } catch {
-                        cached.error = "Image could not be read within the workspace preview limits";
+                        cached.error = t("drift.markdown.image.unreadable");
                     }
                 }
                 if (disposed) return;

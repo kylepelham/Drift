@@ -19,6 +19,7 @@ export function Computers() {
 
     /** Runs one action at a time; its failure is shown above the list. */
     async function act(name: string, action: () => Promise<unknown>) {
+        if (busy()) return;
         setBusy(name);
         setProblem("");
         try {
@@ -47,7 +48,7 @@ export function Computers() {
     const discover = () => act("discover", async () => setFound(await appApi.discover()));
 
     return (
-        <main class="mx-auto flex min-h-full max-w-lg flex-col gap-5 bg-bg px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] text-ink">
+        <main class="app-computers mx-auto flex min-h-full max-w-lg flex-col gap-5 bg-bg px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] text-ink">
             <h1 class="text-lg font-semibold">{t("drift.app.title")}</h1>
 
             <Show when={problem()}>
@@ -55,13 +56,26 @@ export function Computers() {
                     {problem()}
                 </div>
             </Show>
+            <Show when={computers.error}>
+                <div class="rounded-lg border border-danger/40 px-3 py-2 text-sm" role="alert">
+                    <p class="break-words text-danger">{String(computers.error)}</p>
+                    <button class={secondary} onClick={() => void refetch()}>
+                        {t("drift.preview.retry")}
+                    </button>
+                </div>
+            </Show>
+            <Show when={computers.loading}>
+                <p role="status" class="text-sm text-ink-muted">
+                    {t("common.loading")}
+                </p>
+            </Show>
 
             <Show
                 when={linking()}
                 fallback={
                     <>
                         <Linked
-                            computers={computers() ?? []}
+                            computers={computers.error ? [] : (computers() ?? [])}
                             busy={busy()}
                             onOpen={(computer) => void open(computer)}
                             onForget={(computer) => void forget(computer)}
@@ -76,7 +90,8 @@ export function Computers() {
 
                         <Nearby
                             found={found()}
-                            busy={busy() === "discover"}
+                            busy={!!busy()}
+                            searching={busy() === "discover"}
                             onDiscover={() => void discover()}
                             onLink={(entry) => setLinking({ address: entry.found.address, port: entry.found.port })}
                         />
@@ -84,20 +99,24 @@ export function Computers() {
                         <section class="space-y-2">
                             <div class="text-xs text-ink-muted">{t("drift.app.byAddress")}</div>
                             <form
-                                class="flex gap-2"
+                                class="app-address-form flex gap-2"
                                 onSubmit={(event) => {
                                     event.preventDefault();
-                                    if (address().trim()) setLinking({ address: address().trim() });
+                                    if (!busy() && address().trim()) setLinking({ address: address().trim() });
                                 }}
                             >
                                 <input
                                     class="h-9 min-w-0 flex-1 rounded-md border border-edge bg-surface px-2.5 font-mono text-sm outline-none focus:border-edge-strong"
-                                    inputmode="decimal"
+                                    inputmode="url"
+                                    aria-label={t("drift.app.byAddress")}
+                                    autocomplete="off"
+                                    autocapitalize="off"
+                                    spellcheck={false}
                                     placeholder="192.168.1.20"
                                     value={address()}
                                     onInput={(event) => setAddress(event.currentTarget.value)}
                                 />
-                                <button type="submit" class={secondary} disabled={!address().trim()}>
+                                <button type="submit" class={secondary} disabled={!!busy() || !address().trim()}>
                                     {t("drift.app.linkWithCode")}
                                 </button>
                             </form>
@@ -124,6 +143,7 @@ function Linked(props: {
     onOpen: (computer: Computer) => void;
     onForget: (computer: Computer) => void;
 }) {
+    const [confirming, setConfirming] = createSignal<string>();
     return (
         <Show when={props.computers.length > 0}>
             <section class="space-y-2">
@@ -140,9 +160,35 @@ function Linked(props: {
                                     {props.busy === computer.id ? t("drift.app.connecting") : computer.address}
                                 </div>
                             </button>
-                            <button class={secondary} disabled={!!props.busy} onClick={() => props.onForget(computer)}>
-                                {t("drift.app.forget")}
-                            </button>
+                            <Show
+                                when={confirming() === computer.id}
+                                fallback={
+                                    <button
+                                        class={secondary}
+                                        disabled={!!props.busy}
+                                        onClick={() => setConfirming(computer.id)}
+                                    >
+                                        {t("drift.app.forget")}
+                                    </button>
+                                }
+                            >
+                                <div class="flex shrink-0 flex-col gap-1">
+                                    <button
+                                        class={`${secondary} border-danger/40 text-danger`}
+                                        disabled={!!props.busy}
+                                        onClick={() => props.onForget(computer)}
+                                    >
+                                        {t("drift.app.forget")}
+                                    </button>
+                                    <button
+                                        class={secondary}
+                                        disabled={!!props.busy}
+                                        onClick={() => setConfirming(undefined)}
+                                    >
+                                        {t("common.cancel")}
+                                    </button>
+                                </div>
+                            </Show>
                         </div>
                     )}
                 </For>
@@ -155,6 +201,7 @@ function Linked(props: {
 function Nearby(props: {
     found: Found[] | null;
     busy: boolean;
+    searching: boolean;
     onDiscover: () => void;
     onLink: (entry: Found) => void;
 }) {
@@ -163,7 +210,7 @@ function Nearby(props: {
     return (
         <section class="space-y-2">
             <button class={secondary} disabled={props.busy} onClick={() => props.onDiscover()}>
-                {props.busy ? t("drift.app.searching") : t("drift.app.discover")}
+                {props.searching ? t("drift.app.searching") : t("drift.app.discover")}
             </button>
             <Show when={props.found && unlinked().length === 0}>
                 <p class="text-xs text-ink-faint">{t("drift.app.noneFound")}</p>
@@ -175,7 +222,7 @@ function Nearby(props: {
                             <div class="truncate text-sm">{entry.found.name}</div>
                             <div class="truncate font-mono text-xs text-ink-faint">{entry.found.address}</div>
                         </div>
-                        <button class={secondary} onClick={() => props.onLink(entry)}>
+                        <button class={secondary} disabled={props.busy} onClick={() => props.onLink(entry)}>
                             {t("drift.app.linkWithCode")}
                         </button>
                     </div>

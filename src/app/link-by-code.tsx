@@ -1,4 +1,5 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
+import { bindOverlayBack } from "../state/overlay-back";
 import { appApi, type Linking } from "./api";
 import { t } from "../state/i18n";
 
@@ -12,14 +13,21 @@ export function LinkByCode(props: { address: string; port?: number; onCancel: ()
     const [linking, setLinking] = createSignal<Linking | null>(null);
     const [problem, setProblem] = createSignal("");
     let timer: ReturnType<typeof setTimeout> | undefined;
-    onCleanup(() => clearTimeout(timer));
+    let disposed = false;
+    onMount(() => onCleanup(bindOverlayBack(props.onCancel)));
+    onCleanup(() => {
+        disposed = true;
+        clearTimeout(timer);
+    });
 
     async function poll(id: string) {
         try {
             const status = await appApi.poll(id);
+            if (disposed) return;
             if (status === "linked") return props.onLinked();
             if (status === "expired") return setProblem(t("drift.app.codeExpired"));
         } catch (cause) {
+            if (disposed) return;
             setProblem(cause instanceof Error ? cause.message : String(cause));
         }
         timer = setTimeout(() => void poll(id), pollMs);
@@ -28,9 +36,11 @@ export function LinkByCode(props: { address: string; port?: number; onCancel: ()
     onMount(async () => {
         try {
             const started = await appApi.link(props.address, props.port);
+            if (disposed) return;
             setLinking(started);
             timer = setTimeout(() => void poll(started.id), pollMs);
         } catch (cause) {
+            if (disposed) return;
             setProblem(cause instanceof Error ? cause.message : String(cause));
         }
     });
@@ -42,7 +52,16 @@ export function LinkByCode(props: { address: string; port?: number; onCancel: ()
                     {problem()}
                 </div>
             </Show>
-            <Show when={linking()} fallback={<p class="text-sm text-ink-muted">{t("drift.app.connecting")}</p>}>
+            <Show
+                when={linking()}
+                fallback={
+                    <Show when={!problem()}>
+                        <p role="status" class="text-sm text-ink-muted">
+                            {t("drift.app.connecting")}
+                        </p>
+                    </Show>
+                }
+            >
                 {(started) => (
                     <div class="space-y-4">
                         <p class="text-sm text-ink-muted">{t("drift.app.typeCode", { name: started().name })}</p>

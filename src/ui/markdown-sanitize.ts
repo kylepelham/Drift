@@ -1,6 +1,7 @@
 import { citationHref, classifyMarkdownLink } from "./markdown-links";
 import { markdownImageAttribute } from "./markdown-images";
 import DOMPurify from "dompurify";
+import { t } from "../state/i18n";
 
 let markdownPurifier: ReturnType<typeof DOMPurify> | undefined;
 
@@ -35,7 +36,7 @@ export function sanitizeMarkdownDocumentHtml(html: string) {
     purifier.addHook("afterSanitizeAttributes", (node) => {
         const raw = images.get(node);
         if (raw !== undefined) node.setAttribute(markdownImageAttribute, raw);
-        else if (node.nodeName === "IMG") node.setAttribute("title", "Only local workspace images can be previewed");
+        else if (node.nodeName === "IMG") node.setAttribute("title", t("drift.markdown.image.localOnly"));
     });
 
     const clean = purifier.sanitize(html, {

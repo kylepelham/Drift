@@ -182,7 +182,6 @@ export function McpRegistry(props: {
                                 <Show when={sourcesOf("mcp").length}>{(count) => <span>{count()}</span>}</Show>
                             </button>
                         </div>
-                        <div class="text-[0.7rem] text-ink-faint">{t("drift.mcp.registrySource")}</div>
                         <For each={ownFailures()}>
                             {(name) => (
                                 <div

@@ -1,13 +1,13 @@
 import { toolInput, toolMetadata as toolMeta } from "../engine/parts";
 import { ShellOutput, splitNotes, stripAnsi } from "./shell-output";
-import { patchFiles, toolFilename, toolInfo } from "./tool-labels";
 import { createMemo, For, Match, Show, Switch } from "solid-js";
-import { Markdown, ProgressiveCodeView } from "./markdown";
 import { citationFileGroups } from "./citation-files";
+import { patchFiles, toolInfo } from "./tool-labels";
 import { DiffPanel, PatchPanel } from "./diff-panel";
 import { delegatedChildId } from "./tool-delegation";
 import { ShellProcessStatus } from "./process-row";
 import { toolDisplay } from "./tool-presentation";
+import { Markdown } from "./markdown";
 import { useEngine } from "../engine";
 import { IconInfo } from "./icons";
 
@@ -33,12 +33,11 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
     const shell = createMemo(() => splitNotes(shellOutput() ?? "", toolMeta(props.part)?.notes));
     const backgrounded = () => toolMeta(props.part)?.processId as string | undefined;
 
+    // Until the engine reports its diff, a write being streamed shows as the diff it will be: every line added.
     const written = () => {
-        if (props.part.name !== "write") return null;
-        const input = state().input as { content?: string; filePath?: string };
-        return typeof input.content === "string"
-            ? { content: input.content, name: toolFilename(input.filePath) }
-            : null;
+        if (props.part.name !== "write" || props.diff) return null;
+        const input = state().input as { content?: string };
+        return typeof input.content === "string" ? addedLines(input.content) : null;
     };
 
     const patched = () => (props.part.name === "apply_patch" ? patchFiles(props.part) : []);
@@ -66,7 +65,7 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
             <Switch fallback={<GenericBody part={props.part} />}>
                 <Match when={tasked()}>
                     {(task) => (
-                        <div class="space-y-2 border-l-2 border-edge pl-3">
+                        <div class="tool-card space-y-2">
                             <Show when={task().prompt}>
                                 <div class="transcript-tool-output max-h-40 overflow-auto text-[0.85rem] whitespace-pre-wrap text-ink-faint">
                                     {clip(task().prompt)}
@@ -113,15 +112,14 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
                         {(id) => <ShellProcessStatus sessionId={props.part.sessionId} processId={id()} />}
                     </Show>
                 </Match>
-                <Match when={written()}>
-                    {(file) => <ProgressiveCodeView code={file().content} filename={file().name ?? ""} />}
-                </Match>
                 <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>
-                <Match when={props.diff}>{(patch) => <DiffPanel diff={patch()} filename={diffFilename()} />}</Match>
+                <Match when={props.diff ?? written()}>
+                    {(patch) => <DiffPanel diff={patch()} filename={diffFilename()} />}
+                </Match>
             </Switch>
             <Show when={props.error}>
                 {(message) => (
-                    <div class="mt-1.5 border-l-2 border-danger py-0.5 pl-3 text-[0.85rem] break-words whitespace-pre-wrap text-ink-muted">
+                    <div class="tool-card tool-card-error mt-1.5 text-[0.85rem] break-words whitespace-pre-wrap text-ink-muted">
                         {clip(stripAnsi(message()))}
                     </div>
                 )}
@@ -163,6 +161,12 @@ function GenericBody(props: { part: ToolPart }) {
             </Show>
         </div>
     );
+}
+
+/** A new file's content as a unified diff that adds every line. */
+export function addedLines(content: string) {
+    const lines = content.replace(/\n$/, "").split("\n");
+    return [`@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`)].join("\n");
 }
 
 function clip(value: string) {
