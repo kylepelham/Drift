@@ -12,6 +12,7 @@ import { Toggle } from "../controls";
 import { McpEditor } from "./editor";
 
 import type { McpServerConfig, McpServerStatus } from "../../engine/store";
+import type { Bundle } from "../../engine/native/client";
 
 type RuntimeAction = "connect" | "disconnect";
 type RowKey = "ArrowUp" | "ArrowDown" | "Home" | "End";
@@ -52,7 +53,8 @@ export function nextMcpRowName(names: string[], current: string, key: RowKey) {
     return names[(index + 1) % names.length];
 }
 
-export function McpManagement(props: { embedded?: boolean }) {
+/** Servers a bundle brought are switched on its screen; `onBundle` opens it, where the page can. */
+export function McpManagement(props: { embedded?: boolean; onBundle?: (id: string) => void }) {
     const engine = useEngine();
     const [editor, setEditor] = createSignal<EditorEntry | null>(null);
     const [view, setView] = createSignal<"servers" | "registry">("servers");
@@ -67,7 +69,21 @@ export function McpManagement(props: { embedded?: boolean }) {
     const here = () => activeWorkspace()?.path;
     const hereId = () => activeWorkspace()?.id;
     const locked = () => offline() || !!busy();
-    const rowNames = createMemo(() => Object.keys(engine.state.mcpServers).sort((a, b) => a.localeCompare(b)));
+    const rowNames = createMemo(() =>
+        Object.values(engine.state.mcpServers)
+            .filter((server) => !server.bundle)
+            .map((server) => server.name)
+            .sort((a, b) => a.localeCompare(b)),
+    );
+    const [bundles, setBundles] = createSignal<Bundle[]>([]);
+    const bundleGroups = createMemo(() =>
+        bundles()
+            .map((bundle) => ({
+                bundle,
+                count: Object.values(engine.state.mcpServers).filter((server) => server.bundle === bundle.id).length,
+            }))
+            .filter((group) => group.count > 0),
+    );
     const moveRow = (key: RowKey, current = selected()) => {
         const next = nextMcpRowName(rowNames(), current, key);
         if (!next) return;
@@ -91,6 +107,7 @@ export function McpManagement(props: { embedded?: boolean }) {
         }
     };
     onMount(() => void refresh().then(fillLogos));
+    onMount(() => void engine.actions.bundles().then(setBundles, () => undefined));
     /** Servers installed before logos were remembered take theirs from the registry catalog, when it has them. */
     const fillLogos = async () => {
         const missing = rowNames().filter((name) => !mcpLogos()[name]);
@@ -275,7 +292,18 @@ export function McpManagement(props: { embedded?: boolean }) {
                             </Show>
                         )}
                     </For>
-                    <Show when={!loading() && !failure() && !rowNames().length}>
+                    <For each={bundleGroups()}>
+                        {(group) => (
+                            <BundleServersRow
+                                name={group.bundle.name}
+                                image={group.bundle.image ?? undefined}
+                                count={group.count}
+                                embedded={props.embedded}
+                                onOpen={props.onBundle && (() => props.onBundle?.(group.bundle.id))}
+                            />
+                        )}
+                    </For>
+                    <Show when={!loading() && !failure() && !rowNames().length && !bundleGroups().length}>
                         <div class="px-3 py-5 text-sm text-ink-faint">{t("dialog.mcp.empty")}</div>
                     </Show>
                 </div>
@@ -313,6 +341,43 @@ export function mcpProtocolLabel(server: Pick<McpServerStatus, "transport" | "pr
         server.era && t(`drift.mcp.era.${server.era}`),
     ];
     return parts.filter(Boolean).join(" · ");
+}
+
+/** One row for every server a bundle brought: they are switched on the bundle's screen, not here. */
+function BundleServersRow(props: {
+    name: string;
+    image?: string;
+    count: number;
+    embedded?: boolean;
+    onOpen?: () => void;
+}) {
+    return (
+        <div
+            class="flex items-center gap-3 px-3 py-2.5"
+            classList={{
+                "rounded-lg border border-transparent": !props.embedded,
+                "border-b border-edge/70 last:border-b-0": props.embedded,
+            }}
+        >
+            <LogoTile image={props.image} title={props.name} />
+            <div class="min-w-0 flex-1">
+                <div class="truncate text-sm font-medium text-ink">{props.name}</div>
+                <div class="truncate text-xs text-ink-faint">
+                    {t("drift.bundles.fromBundle", { count: props.count })}
+                </div>
+            </div>
+            <Show when={props.onOpen}>
+                {(open) => (
+                    <button
+                        class="rounded-md border border-edge px-2 py-1 text-xs text-ink-muted hover:text-ink"
+                        onClick={() => open()()}
+                    >
+                        {t("drift.bundles.manage")}
+                    </button>
+                )}
+            </Show>
+        </div>
+    );
 }
 
 function ServerRow(props: {

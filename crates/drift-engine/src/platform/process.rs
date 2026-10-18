@@ -317,6 +317,15 @@ pub fn use_current_path(command: &mut tokio::process::Command, own: &std::collec
     }
 }
 
+/// The current PATH with `after` behind it: a bundle's programs are found by name, but never in place of a program the
+/// user has, whose name the shell's approval checks trust.
+pub fn path_with(after: &[std::path::PathBuf]) -> std::ffi::OsString {
+    let current = current_path();
+    let dirs = std::env::split_paths(&current).chain(after.iter().cloned());
+
+    std::env::join_paths(dirs).unwrap_or(current)
+}
+
 fn merged(live: &std::ffi::OsStr, saved: Option<std::ffi::OsString>) -> std::ffi::OsString {
     let key = |dir: &std::path::Path| dir.to_string_lossy().trim_end_matches(['\\', '/']).to_lowercase();
     let mut dirs: Vec<std::path::PathBuf> = std::env::split_paths(live).collect();
@@ -443,7 +452,8 @@ mod tests {
         std::fs::write(root.join("parent.cmd"), "@echo off\r\nstart \"\" /b cmd.exe /c \"ping -n 30 127.0.0.1 > nul & echo late>late.txt\"\r\nexit /b 0\r\n").unwrap();
         let mut command = tokio::process::Command::new("cmd.exe");
         command
-            .args(["/c", "parent.cmd"])
+            .arg("/c")
+            .arg(root.join("parent.cmd"))
             .current_dir(&root)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -496,19 +506,17 @@ mod tests {
     }
 
     #[test]
-    fn directories_added_since_start_follow_the_ones_drift_started_with() {
-        let sep = if cfg!(windows) { ";" } else { ":" };
-        let live = ["/a", "/b/"].join(sep);
-        let saved = ["/B", "/c", "", "/a"].join(sep);
-        let merged = super::merged(std::ffi::OsStr::new(&live), Some(saved.into()));
-        let dirs: Vec<_> = std::env::split_paths(&merged)
-            .map(|dir| dir.to_string_lossy().into_owned())
-            .collect();
+    fn a_bundles_programs_come_after_the_users_own_on_path() {
+        let bin = std::env::temp_dir().join("drift-bundle-bin");
+        let path = super::path_with(std::slice::from_ref(&bin));
+        let dirs: Vec<_> = std::env::split_paths(&path).collect();
+        let current: Vec<_> = std::env::split_paths(&super::current_path()).collect();
         assert_eq!(
-            dirs,
-            ["/a", "/b/", "/c"],
-            "kept in order, nothing twice, case and trailing slash aside"
+            dirs.last(),
+            Some(&bin),
+            "so a bundle's git never stands in for the user's"
         );
+        assert_eq!(dirs[..current.len()], current[..]);
     }
 
     #[cfg(windows)]

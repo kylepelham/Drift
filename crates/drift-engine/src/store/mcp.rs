@@ -5,7 +5,7 @@ use super::sessions::transaction;
 use crate::id;
 use crate::mcp::{Era, Given, ServerConfig, ServerRow, WorkspaceChoice, wire_names};
 
-const COLUMNS: &str = "name, config_json, enabled, updated_at, era, read_only_trusted";
+const COLUMNS: &str = "name, config_json, enabled, updated_at, era, read_only_trusted, bundle";
 
 impl Store {
     /// The names the model calls these `(server, tool)` pairs by, keeping every name given before
@@ -70,6 +70,29 @@ impl Store {
              ON CONFLICT(name) DO UPDATE SET config_json = ?2, updated_at = ?3, era = NULL",
         )?
         .execute(params![name, json, id::now_ms()])?;
+
+        let row = conn
+            .prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?
+            .query_row([name], map_row)?;
+
+        choices_of(&conn, row)
+    }
+
+    /// A bundle's server, owned by the bundle, on or off as the bundle's state says; read-only trust starts on as for any new server.
+    pub fn save_bundle_mcp_server(
+        &self,
+        name: &str,
+        config: &ServerConfig,
+        bundle: &str,
+        enabled: bool,
+    ) -> rusqlite::Result<ServerRow> {
+        let json = serde_json::to_string(config).unwrap();
+        let conn = self.lock();
+        conn.prepare_cached(
+            "INSERT INTO mcp_config(name, config_json, enabled, updated_at, read_only_trusted, bundle) VALUES(?1, ?2, ?3, ?4, 1, ?5)
+             ON CONFLICT(name) DO UPDATE SET config_json = ?2, enabled = ?3, updated_at = ?4, bundle = ?5, era = NULL",
+        )?
+        .execute(params![name, json, enabled, id::now_ms(), bundle])?;
 
         let row = conn
             .prepare_cached(&format!("SELECT {COLUMNS} FROM mcp_config WHERE name = ?1"))?
@@ -250,6 +273,7 @@ fn map_row(row: &Row) -> rusqlite::Result<ServerRow> {
         era,
         read_only_trusted: row.get(5)?,
         workspaces: Vec::new(),
+        bundle: row.get(6)?,
     })
 }
 

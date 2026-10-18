@@ -18,7 +18,9 @@ export function modelDetail(providerID: string, model: { id: string; limit?: { c
     // A local model not yet loaded runs at whatever window its server picks, and compaction cannot plan for it.
     if (context === 0 && localProviders.includes(providerID)) return t("drift.model.unknownContext");
 
-    return providerID === "lmstudio" ? `${model.id} | ${formatModelContext(context)} context` : undefined;
+    return providerID === "lmstudio"
+        ? t("drift.model.lmStudioContext", { model: model.id, size: formatModelContext(context) })
+        : undefined;
 }
 
 /**

@@ -6,6 +6,7 @@ import { Picker, type PickerItem } from "./picker";
 import { messageModel } from "../engine/messages";
 import { variantNames } from "../engine/catalog";
 import { ProviderIcon } from "./provider-icon";
+import { continuesTurn } from "./edited-files";
 import { TextShimmer } from "./text-shimmer";
 import { MessageView } from "./message";
 import { useEngine } from "../engine";
@@ -92,7 +93,7 @@ export function Row(props: {
                 <MessageView
                     entry={props.entry}
                     hideError={!!props.retry || !!props.next}
-                    footer={props.next?.info.role !== "assistant"}
+                    footer={!continuesTurn(props.next)}
                     groups={props.groups}
                     thinking={compactionShimmer()}
                     spawned={props.instruction}

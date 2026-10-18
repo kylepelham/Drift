@@ -145,6 +145,38 @@ and a notice. Build it with
 `cargo build --release --target wasm32-wasip2` in that directory (the target installs with
 `rustup target add wasm32-wasip2`); the component is `target/wasm32-wasip2/release/guard.wasm`.
 
+### Keeping secrets from the model
+
+A plugin built for the `masking` world (the `plugin` world plus one export) also answers
+`replacements()`: pairs of a secret and the placeholder the model sees instead. Drift asks once,
+when the plugin loads (a config change reloads it). A plugin built for `plugin` alone loads as
+before and hides nothing.
+
+Drift does the swapping itself, at the two places everything passes, so no hook can be missed:
+
+- Every request to every model (turns, subagents, compaction summaries, titles) leaves through
+  `llm::mask::Masks::request`: the system prompt and instructions files, the user's prompts,
+  attached and mentioned files, tool calls replayed, tool output and errors, process exits,
+  subagent results and tool descriptions all carry the placeholder. Signatures, redacted reasoning
+  and image or PDF data are never changed, so a secret inside an image or PDF still reaches the
+  model.
+- Every tool call the model makes has its placeholders turned back into the secrets as its input
+  is parsed (`Assembler::revealing`), before permission checks, `before-tool` plugins, early reads
+  or the tool itself see it: shell commands, edits, writes, MCP servers and subagent prompts all get
+  the real value. The stored call keeps the real value; the next request hides it again.
+
+Matching is exact text, longest secret first, in one pass. A pair is skipped (and logged) when its
+secret or placeholder is empty, a secret or a placeholder is listed twice, or a placeholder contains
+any secret; the log names the pair by its place, never by its values.
+Choose placeholders that never occur on their own (`API_KEY_PLACEHOLDER`, not `key`): any
+occurrence the model writes in a tool call becomes the secret. What you see in Drift keeps the real
+values (your prompts, tool output, file contents); the model's own replies show the placeholder.
+Output cut at the engine's bound can end partway through a secret, and that fragment is not
+recognised.
+
+`plugins/secrets` is that plugin: its config is `{ "replacements": { "<secret>": "<placeholder>" } }`
+and it does nothing else.
+
 ## Skills
 
 Settings > Skills (before MCP in the list) shows every skill the engine offers and lets each be
@@ -168,7 +200,65 @@ the entry names and the skills chosen, drops anything that would climb out, and 
 runs no code, but its text reaches the model, which the sheet says. Registry sources are shared with
 plugins: one document lists both. The registry's packs today are the ones people install in Claude
 Code as plugins: Superpowers, Skills for Real Engineers, Agent Skills, Karpathy Guidelines and SQL
-Server Query Plans.
+Server Query Plans. A collection that brings more than skills (agents, MCP servers, programs) is a
+bundle, installed and switched from Settings > Plugins (below); its skills are listed here under
+Bundles with a link to its screen.
+
+### Bundles
+
+A bundle is a Claude Code plugin folder installed as one thing. Many tools ship skills together with
+the agents, MCP servers and programs those skills call, and taking only the skills leaves them
+pointing at things that are not there. Since that is the engine being extended, not a library of
+Markdown, bundles live in Settings > Plugins beside the WebAssembly plugins: one switch for the whole,
+and one screen with a switch for every part.
+
+Drift reads the folder as Claude Code lays a plugin out, so a plugin published for Claude Code
+installs unchanged (`config::bundles::layout`):
+
+- `skills/` (one `<name>/SKILL.md` each; a plugin that is just a root `SKILL.md` is one skill),
+  `commands/` and `agents/` (Markdown with front matter), plus any further paths
+  `.claude-plugin/plugin.json` lists under `skills`, `commands` and `agents`, never outside the folder.
+- `.mcp.json` (with or without its `mcpServers` wrapper) and the manifest's `mcpServers`, inline or
+  by path. Each server is saved as an ordinary MCP server owned by the bundle, under its own name
+  unless one of the user's servers has it, then as `<bundle>-<name>`. `${CLAUDE_PLUGIN_ROOT}` and
+  `${CLAUDE_PLUGIN_DATA}` become the bundle's folder and `~/.config/drift/bundle-data/<id>`
+  (forward slashes); any other `${NAME}` (`${NAME:-default}` too) is a value the install sheet asks
+  for, kept with the server like any header or env value and never shown again. A header or env
+  entry naming a value left blank is left out, so a server with its own sign-in signs in instead; a
+  reinstall without the value keeps the one saved before. A stdio server also gets
+  `CLAUDE_PLUGIN_ROOT` and `CLAUDE_PLUGIN_DATA` in its environment. WebSocket servers are skipped.
+- `bin/`: while the bundle and its Programs switch are on, the folder is on the PATH of every shell
+  the agent runs, after the user's own folders, so a skill can say `um scan` and it works. It never
+  comes first: the shell's approval checks trust a command by its name, so a bundle's own `git` or
+  `ls` must not stand in for the user's. Each command still goes through the permission rules like
+  any other.
+- `hooks/hooks.json` (and the manifest's `hooks`): the events are listed on the bundle's screen and
+  never run. A bundle is downloaded code, and hooks would run it on events without the agent or the
+  user asking; Drift's own hooks are sandboxed WebAssembly.
+
+The same `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` are filled in wherever a skill, command
+or agent's text names them. A bundle's agents and commands come before the user's and the
+workspace's own, which replace any of the same name; its skills come after every other skill folder.
+
+The registry lists a bundle as `kind: "bundle"`: the archive of a pinned commit (never a branch, so
+nothing changes under the user until the registry is rebuilt), an optional `sha256` of that archive
+(checked before anything is unpacked; Drift's own registry leaves it out, since GitHub does not
+promise the same archive bytes for a commit over time, and a team's registry serving fixed files can
+set it), the plugin's folder inside it
+(`path`, empty for the root), and `contents` (its skills, agents and commands with their
+descriptions, each MCP server with how it is reached and the values it asks for, its programs and
+its hook events), read from the repository when the registry is built. The install sheet shows all
+of it, says plainly when the bundle carries programs or a server Drift would start, and asks for the
+values. Install (`POST /bundles`) unpacks the folder to `~/.config/drift/bundles/<id>/` with a
+marker beside it, saves and starts its servers, and opens its screen. The Installed tab lists each
+bundle with its switch (`PUT /bundles/enabled`); its screen has a switch per skill, agent, command
+and server, one for its programs, each server's status and sign-in, and the hooks it will not run
+(`PUT /bundles/parts`, `GET /bundles`). Switches are the engine setting `bundles`; everything starts
+on. Off, a part is left out from the next turn, a server disconnects at once. Remove
+(`DELETE /bundles`) takes the files, the data folder, the servers and their sign-ins away.
+
+A bundle's servers and skills do not appear with their own switches on the MCP and Skills pages:
+each page shows one row per bundle with a link to its screen, so there is one place to manage them.
 
 ## Interface plugins
 

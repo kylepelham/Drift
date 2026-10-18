@@ -12,6 +12,9 @@ export type Target = { url: string; token: string };
 export const maxRequestBytes = 64 * 1024 * 1024;
 export type PluginInfo = components["schemas"]["PluginInfo"];
 export type SkillPack = components["schemas"]["Pack"];
+export type Bundle = components["schemas"]["Bundle"];
+export type InstallBundle = components["schemas"]["InstallBundle"];
+export type BundlePartKind = components["schemas"]["BundlePartKind"];
 export type UserSkill = components["schemas"]["UserSkill"];
 export type NewWorkspace = components["schemas"]["NewWorkspace"];
 export type Frame = components["schemas"]["Frame"];
@@ -31,6 +34,10 @@ export type McpServerConfigView = components["schemas"]["ServerConfigView"];
 /** Where a local server listens and the largest window its models run with. */
 export type LocalServer = components["schemas"]["LocalServer"];
 export type LocalServerInput = components["schemas"]["LocalServerInput"];
+export type Review = components["schemas"]["Review"];
+export type ReviewFile = components["schemas"]["ReviewFile"];
+export type ReviewRefs = components["schemas"]["ReviewRefs"];
+export type GitSource = operations["reviewWorkspace"]["parameters"]["query"]["source"];
 
 type Json<Op extends keyof operations, Status extends number> =
     operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never;
@@ -130,6 +137,14 @@ export function createClient(target: Target) {
             request<Json<"installSkillPack", 200>>("POST", "/skills/packs", body),
         removeSkillPack: (id: string) =>
             request<Json<"removeSkillPack", 200>>("DELETE", `/skills/packs?${new URLSearchParams({ id })}`),
+        bundles: () => request<Json<"listBundles", 200>>("GET", "/bundles"),
+        installBundle: (body: InstallBundle) => request<Json<"installBundle", 200>>("POST", "/bundles", body),
+        removeBundle: (id: string) =>
+            request<Json<"removeBundle", 200>>("DELETE", `/bundles?${new URLSearchParams({ id })}`),
+        setBundleEnabled: (id: string, enabled: boolean) =>
+            request<Json<"setBundleEnabled", 200>>("PUT", "/bundles/enabled", { id, enabled }),
+        setBundlePart: (id: string, kind: BundlePartKind, name: string, enabled: boolean) =>
+            request<Json<"setBundlePart", 200>>("PUT", "/bundles/parts", { id, kind, name, enabled }),
         configurePlugin: (path: string, config: unknown) =>
             request<Json<"configurePlugin", 200>>("PUT", "/plugins/config", { path, config }),
         tools: (workspaceId?: string) =>
@@ -227,6 +242,15 @@ export function createClient(target: Target) {
         stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
         processes: (id: string) => request<Json<"listProcesses", 200>>("GET", `/sessions/${id}/processes`),
         stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
+        reviewTurn: (sessionId: string, messageId: string) =>
+            request<Json<"reviewTurn", 200>>("GET", `/sessions/${sessionId}/review/${messageId}`),
+        reviewWorkspace: (workspaceId: string, source: GitSource, target?: string) =>
+            request<Json<"reviewWorkspace", 200>>(
+                "GET",
+                `/workspaces/${workspaceId}/review${query({ source, target })}`,
+            ),
+        reviewRefs: (workspaceId: string) =>
+            request<Json<"reviewRefs", 200>>("GET", `/workspaces/${workspaceId}/review/refs`),
     };
 }
 

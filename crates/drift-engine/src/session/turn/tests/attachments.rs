@@ -17,6 +17,7 @@ fn file(mime: &str, name: &str, url: &str) -> Part {
         name: name.into(),
         url: url.into(),
         path: None,
+        image: None,
     }
 }
 
@@ -75,6 +76,7 @@ async fn a_mentioned_workspace_file_is_read_into_the_prompt() {
         name: "x".into(),
         url: "data:text/plain;base64,eA==".into(),
         path: Some("../secret".into()),
+        image: None,
     };
     h.provider.push(text("ok"));
     h.engine
@@ -351,4 +353,49 @@ async fn a_steered_image_is_judged_against_the_model_the_next_request_runs_on() 
         other,
         "answered on the model it named"
     );
+}
+
+#[tokio::test]
+async fn pasted_images_are_numbered_across_the_conversation_and_save_image_writes_one() {
+    let h = harness().await;
+    let png = |name: &str| file("image/png", name, "data:image/png;base64,iVBORw0KGgo=");
+    h.provider.push(text("ok"));
+    h.engine
+        .submit(&h.session.id, with_files("two refs", vec![png("a.png"), png("b.png")]))
+        .await
+        .await_ok();
+    until_idle(&h).await;
+
+    // A later prompt's image continues the count, and the model sees each number right after its image.
+    h.provider
+        .push(tool_call(
+            "save_image",
+            &json!({ "image": 3, "path": "reference/c.png" }).to_string(),
+        ))
+        .push(text("saved"));
+    h.engine
+        .submit(&h.session.id, with_files("one more", vec![png("c.png")]))
+        .await
+        .await_ok();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap();
+    let blocks: Vec<_> = requests[1]
+        .messages
+        .iter()
+        .flat_map(|message| &message.blocks)
+        .collect();
+    let labels: Vec<_> = blocks
+        .windows(2)
+        .filter(|pair| matches!(pair[0], llm::Block::Image { .. }))
+        .map(|pair| match pair[1] {
+            llm::Block::Text(text) => text.clone(),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(labels, ["[Image 1]", "[Image 2]", "[Image 3]"]);
+    drop(requests);
+
+    let saved = std::fs::read(h._dir.join("ws/reference/c.png")).unwrap();
+    assert_eq!(saved, b"\x89PNG\r\n\x1a\n", "the bytes the user pasted");
 }

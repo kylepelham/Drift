@@ -1,5 +1,4 @@
 import { batch, createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
-import { accumulatedWheelTarget, chatWheelEvent, normalizedWheelDelta, type ForwardedWheel } from "./chat-wheel";
 import { compareMessages, messageRevisionKey, type MessageEntry } from "../engine/store";
 import { collapseCompaction, compactionCollapsed } from "../state/prefs";
 import { clearReveal, revealTarget } from "./session-search";
@@ -34,6 +33,14 @@ import {
     syncTranscriptMatches,
     transcriptFindNeedle,
 } from "./transcript-find";
+import {
+    accumulatedWheelTarget,
+    chatWheelEvent,
+    normalizedWheelDelta,
+    wheelNotch,
+    wheelStep,
+    type ForwardedWheel,
+} from "./chat-wheel";
 import {
     copiedCount,
     retryInFlight,
@@ -406,6 +413,27 @@ export function Chat() {
     const gesture = () => (gestureAt = Date.now());
     const nativeWheel = gesture;
     const releaseDrag = () => (dragging = false);
+    // Forwarded ticks run one animation of Drift's own: a browser smooth scroll restarted per tick jitters, and
+    // building on the rounded scrollTop it leaves loses distance.
+    let wheel: { position: number; target: number; written: number; at: number; frame: number } | undefined;
+    const smoothWheel = () => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const stopWheel = () => {
+        if (wheel) cancelAnimationFrame(wheel.frame);
+        wheel = undefined;
+    };
+    const wheelFrame = (now: number) => {
+        if (!wheel) return;
+        // Something else moved the transcript (the scrollbar, a snap to the bottom): it owns the position now.
+        if (Math.abs(scroller.scrollTop - wheel.written) > 2) return stopWheel();
+
+        gesture();
+        wheel.position = wheelStep(wheel.position, wheel.target, now - wheel.at);
+        wheel.at = now;
+        scroller.scrollTop = wheel.position;
+        wheel.written = scroller.scrollTop;
+        if (wheel.position === wheel.target) return stopWheel();
+        wheel.frame = requestAnimationFrame(wheelFrame);
+    };
     const forwardedWheel = (event: Event) => {
         const detail = (event as CustomEvent<ForwardedWheel>).detail;
 
@@ -413,12 +441,29 @@ export function Chat() {
 
         const delta = normalizedWheelDelta(detail.deltaY, detail.deltaMode, scroller.clientHeight);
         const max = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-        scroller.scrollTop = accumulatedWheelTarget(scroller.scrollTop, null, delta, max);
+        if (!smoothWheel() || Math.abs(delta) < wheelNotch) {
+            stopWheel();
+            scroller.scrollTop = accumulatedWheelTarget(scroller.scrollTop, null, delta, max);
+            return;
+        }
+        if (!wheel) {
+            const now = performance.now();
+            wheel = {
+                position: scroller.scrollTop,
+                target: scroller.scrollTop,
+                written: scroller.scrollTop,
+                at: now,
+                frame: 0,
+            };
+            wheel.frame = requestAnimationFrame(wheelFrame);
+        }
+        wheel.target = accumulatedWheelTarget(scroller.scrollTop, wheel.target, delta, max);
     };
     window.addEventListener("pointerup", releaseDrag);
     window.addEventListener(chatWheelEvent, forwardedWheel);
     onCleanup(() => {
         clearTimeout(scrollLatchReset);
+        stopWheel();
         window.removeEventListener("pointerup", releaseDrag);
         window.removeEventListener(chatWheelEvent, forwardedWheel);
     });
@@ -487,7 +532,7 @@ export function Chat() {
                 onTouchStart={gesture}
             >
                 <Show when={selectedSession()} keyed fallback={<EmptyState />}>
-                    <div class="fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
+                    <div class="transcript-column fade-in relative mx-auto box-content max-w-3xl px-4 pt-14 pb-6 select-text">
                         <Show
                             when={
                                 timeline().length === 0 &&
@@ -541,8 +586,8 @@ export function Chat() {
             </div>
             <button
                 type="button"
-                title="Scroll to latest message"
-                aria-label="Scroll to latest message"
+                title={t("drift.chat.scrollToLatest")}
+                aria-label={t("drift.chat.scrollToLatest")}
                 class="group absolute bottom-4 left-1/2 z-10 flex size-9 -translate-x-1/2 items-center justify-center rounded-full border border-edge-strong bg-overlay/95 text-ink-muted shadow-lg shadow-black/25 backdrop-blur transition-[opacity,translate,background-color,border-color,color,scale] duration-200 ease-out hover:border-accent/50 hover:bg-raised hover:text-ink active:scale-95"
                 classList={{
                     "pointer-events-auto translate-y-0 opacity-100": awayFromBottom(),

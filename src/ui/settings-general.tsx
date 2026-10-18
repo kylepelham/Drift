@@ -12,21 +12,30 @@ import {
     animateResponses,
     autoUpdate,
     collapseCompaction,
+    commandRowModes,
+    commandRowsFrom,
+    commandRows,
     compactionCollapsed,
+    editedFilesCard,
     responseAnimationSpeed,
     responseAnimationSpeedMax,
     responseAnimationSpeedMin,
     setAnimateResponses,
     setAutoUpdate,
     setCollapseCompaction,
+    setCommandRows,
     setCompactionCollapsed,
+    setEditedFilesCard,
     setResponseAnimationSpeed,
     setShowReasoning,
     setSidebarDayDividers,
     setToolErrorsExpanded,
+    setToolGroup,
     showReasoning,
     sidebarDayDividers,
     toolErrorsExpanded,
+    toolGroupKinds,
+    toolGroups,
 } from "../state/prefs";
 
 import type { LanguageId } from "../state/language";
@@ -127,6 +136,60 @@ export function GeneralSection() {
                         </div>
                     </SettingsRow>
                 </Show>
+            </SettingsGroup>
+
+            <SettingsGroup title={t("drift.settings.transcript")}>
+                <SettingsRow
+                    title={t("drift.settings.collapseCommands.title")}
+                    description={t("drift.settings.collapseCommands.description")}
+                >
+                    <Picker
+                        label={t("drift.settings.collapseCommands.title")}
+                        items={commandRowModes.map((mode) => ({
+                            id: mode,
+                            label: t(`drift.settings.collapseCommands.${mode}`),
+                        }))}
+                        selected={commandRows()}
+                        floating
+                        bordered
+                        chevronAtEnd
+                        placement="below"
+                        width="12rem"
+                        onPick={(mode) => setCommandRows(commandRowsFrom(mode))}
+                    />
+                </SettingsRow>
+                <SettingsRow
+                    title={t("drift.settings.groupTools.title")}
+                    description={t("drift.settings.groupTools.description")}
+                >
+                    <span />
+                </SettingsRow>
+                <For each={toolGroupKinds}>
+                    {(kind) => (
+                        <SettingsRow
+                            title={t(`drift.settings.groupTools.${kind}`)}
+                            description=""
+                            onClick={() => setToolGroup(kind, !toolGroups()[kind])}
+                        >
+                            <Toggle
+                                label={t(`drift.settings.groupTools.${kind}`)}
+                                checked={toolGroups()[kind]}
+                                onChange={() => setToolGroup(kind, !toolGroups()[kind])}
+                            />
+                        </SettingsRow>
+                    )}
+                </For>
+                <SettingsRow
+                    title={t("drift.settings.editedFiles.title")}
+                    description={t("drift.settings.editedFiles.description")}
+                    onClick={() => setEditedFilesCard(!editedFilesCard())}
+                >
+                    <Toggle
+                        label={t("drift.settings.editedFiles.title")}
+                        checked={editedFilesCard()}
+                        onChange={() => setEditedFilesCard(!editedFilesCard())}
+                    />
+                </SettingsRow>
             </SettingsGroup>
 
             <SettingsGroup title={t("drift.preview.settings.title")}>

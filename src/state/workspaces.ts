@@ -2,6 +2,7 @@ import { publishMirrorSelection, publishMirrorWorkspaceOrder } from "./mirror";
 import { driftStore, type ArchivedSession, type Workspace } from "./store";
 import { parseNavigationHash, pushRemoteSelection } from "./navigation";
 import { forgetCachedSessions } from "./session-cache";
+import { overlayBackPending } from "./overlay-back";
 import { applyMirroredSession } from "./selection";
 import { isRemoteRuntime } from "../runtime";
 import { createSignal } from "solid-js";
@@ -146,6 +147,7 @@ export async function addWorkspace(path: string) {
 
 if (typeof window !== "undefined" && isRemoteRuntime()) {
     window.addEventListener("popstate", () => {
+        if (overlayBackPending()) return;
         const workspace = parseNavigationHash(window.location.hash).workspace;
         if (workspace) setActiveWorkspaceId(workspace);
     });

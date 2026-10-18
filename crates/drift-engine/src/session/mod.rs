@@ -1,5 +1,6 @@
 //! Conversations: their shape, their storage and the turn loop that advances them.
 
+mod arrivals;
 mod assemble;
 mod attach;
 pub mod backup;
@@ -16,6 +17,7 @@ mod oneshot;
 mod processes;
 pub mod prompt;
 pub mod revert;
+pub mod review;
 pub mod snapshot;
 pub mod tasks;
 mod title;

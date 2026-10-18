@@ -215,7 +215,7 @@ export function TranscriptFindBar() {
 
     return (
         <Show when={open()}>
-            <div class="pointer-events-auto flex items-center gap-1 rounded-md border border-edge bg-overlay px-1.5 py-0.5 shadow-lg shadow-black/20">
+            <div class="transcript-find pointer-events-auto flex items-center gap-1 rounded-md border border-edge bg-overlay px-1.5 py-0.5 shadow-lg shadow-black/20">
                 <IconSearch class="size-3.5 shrink-0 text-ink-faint" />
                 <input
                     ref={input}

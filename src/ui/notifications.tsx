@@ -134,7 +134,7 @@ export function NoticeHost(props: { children?: JSX.Element }) {
     const dismiss = (id: string) => setDismissed((current) => new Set([...current, id]));
 
     return (
-        <div class="pointer-events-none fixed top-11 right-5 bottom-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))]">
+        <div class="notice-host pointer-events-none fixed top-11 right-5 bottom-5 z-[80] flex w-[min(24rem,calc(100vw-2.5rem))]">
             <div
                 class="pointer-events-auto mt-auto flex max-h-full min-h-0 w-full flex-col gap-2 overflow-y-auto overscroll-contain pr-1"
                 aria-live="polite"

@@ -3,12 +3,18 @@ export type RegistryPlugin = {
     /** The registry it came from; unset for Drift's own. */
     sourceName?: string;
     sourceId?: string;
-    /** A WebAssembly component (the default), one Markdown skill, or a pack of them, unpacked from an archive. */
-    kind?: "wasm" | "skill" | "skills";
-    /** For a skill or pack: the tar.gz to fetch, the folders inside it to keep, and the skills it holds. */
+    /**
+     * A WebAssembly component (the default), one Markdown skill, a pack of them, or a bundle: a Claude Code plugin
+     * folder whose skills, agents, commands, MCP servers and programs install together.
+     */
+    kind?: "wasm" | "skill" | "skills" | "bundle";
+    /** For a skill, pack or bundle: the archive to fetch (a bundle's pinned to a commit), and what it holds. */
     archive?: string;
     subdirs?: string[];
     skills?: { name: string; description: string }[];
+    /** For a bundle: the plugin's folder inside the archive, empty for its root, and what that folder holds. */
+    path?: string;
+    contents?: BundleContents;
     id: string;
     name: string;
     description: string;
@@ -23,6 +29,18 @@ export type RegistryPlugin = {
     download: string;
     sha256: string;
     size: number;
+};
+
+/** What a bundle holds, read from its repository when the registry is built. */
+export type BundleContents = {
+    skills: { name: string; description: string }[];
+    agents: { name: string; description: string }[];
+    commands: { name: string; description: string }[];
+    /** Each MCP server, how it is reached, and the `${NAME}` values it asks for. */
+    servers: { name: string; type: string; asks: string[] }[];
+    programs: string[];
+    /** Claude Code hook events; listed, never run. */
+    hooks: string[];
 };
 
 export type ConfigField = {
@@ -49,11 +67,35 @@ async function loadRegistry(url = registryUrl, fresh = false): Promise<Registry>
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`registry ${response.status}`);
 
-    const registry = (await response.json()) as Registry;
-    if (!Array.isArray(registry.plugins)) throw new Error("registry has no plugins");
+    const registry = checkedRegistry(await response.json());
     cached.set(url, { at: Date.now(), registry });
 
     return registry;
+}
+
+const listed = <T>(value: T[] | undefined) => (Array.isArray(value) ? value : []);
+
+/** A registry is anyone's JSON: a bundle missing a list reads as an empty one rather than breaking the page. */
+function checkedRegistry(value: unknown): Registry {
+    const registry = value as Registry | undefined;
+    if (!Array.isArray(registry?.plugins)) throw new Error("registry has no plugins");
+
+    const plugins = registry.plugins.map((plugin) => {
+        const contents = plugin.contents as Partial<BundleContents> | undefined;
+        if (!contents) return plugin;
+        return {
+            ...plugin,
+            contents: {
+                skills: listed(contents.skills),
+                agents: listed(contents.agents),
+                commands: listed(contents.commands),
+                servers: listed(contents.servers).map((server) => ({ ...server, asks: listed(server.asks) })),
+                programs: listed(contents.programs),
+                hooks: listed(contents.hooks),
+            },
+        };
+    });
+    return { ...registry, plugins };
 }
 
 export type RegistryFailure = { name: string; error: string };
@@ -68,8 +110,7 @@ async function loadSourceRegistry(
     const hit = cached.get(key);
     if (!fresh && hit && Date.now() - hit.at < CACHE_MS) return hit.registry;
 
-    const registry = (await fetchRegistry(source.id)) as Registry;
-    if (!Array.isArray(registry?.plugins)) throw new Error("registry has no plugins");
+    const registry = checkedRegistry(await fetchRegistry(source.id));
     cached.set(key, { at: Date.now(), registry });
 
     return registry;
@@ -112,6 +153,16 @@ export const installedPath = (id: string) => `plugins/${id}.wasm`;
 
 export const isSkillEntry = (plugin: Pick<RegistryPlugin, "kind">) =>
     plugin.kind === "skill" || plugin.kind === "skills";
+
+export const isBundle = (plugin: Pick<RegistryPlugin, "kind">) => plugin.kind === "bundle";
+
+/** Every value a bundle's MCP servers ask for, once each. */
+export const bundleAsks = (contents?: BundleContents) =>
+    [...new Set((contents?.servers ?? []).flatMap((server) => server.asks))].sort();
+
+/** Whether installing it puts something on this computer that runs: programs, or an MCP server it starts itself. */
+export const bundleRunsCode = (contents?: BundleContents) =>
+    !!contents?.programs.length || !!contents?.servers.some((server) => server.type === "stdio");
 
 /** Whether a plugin matches a search: name, description, category, hooks. */
 export function matchesRegistryQuery(plugin: RegistryPlugin, query: string) {

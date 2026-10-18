@@ -333,6 +333,7 @@ fn file(data: &Value) -> Option<Part> {
         name: data["filename"].as_str().unwrap_or_default().into(),
         url: data["url"].as_str()?.into(),
         path,
+        image: None,
     })
 }
 

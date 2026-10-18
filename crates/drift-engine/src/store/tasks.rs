@@ -10,6 +10,14 @@ use crate::session::types::{PartRow, Session};
 
 const COLUMNS: &str = "id, parent_session_id, session_id, call_id, description, agent, mode, reason, state, result, delivered, created_at, finished_at, generation, held, delivery_error";
 
+// Unary + removes TEXT affinity so SQLite can use both keys of the JSON-expression index.
+const REPAIR_INTERRUPTED_CALLS: &str =
+    "UPDATE task SET delivered = 0 WHERE state = 'interrupted' AND mode = 'foreground' AND delivered = 1
+     AND EXISTS (SELECT 1 FROM part p WHERE p.session_id = task.parent_session_id
+         AND json_extract(p.json, '$.callId') = +task.call_id
+         AND json_extract(p.json, '$.type') = 'tool_call'
+         AND json_extract(p.json, '$.status') IN ('pending', 'running'))";
+
 /// What launching a worker records before it starts.
 pub struct NewTask<'a> {
     pub parent_session_id: &'a str,
@@ -181,12 +189,16 @@ impl Store {
 
     /// At startup: workers of a process that is gone are interrupted, never rerun, and wake no one.
     pub fn interrupt_unfinished_tasks(&self) -> rusqlite::Result<usize> {
-        self.lock()
-            .prepare_cached(
-                "UPDATE task SET state = 'interrupted', result = 'Drift stopped while the subagent ran; it was not restarted.', finished_at = ?1, delivered = 1
+        transaction(&self.lock(), |conn| {
+            let changed = conn.execute(
+                "UPDATE task SET state = 'interrupted', result = 'Drift stopped while the subagent ran; it was not restarted.',
+                 finished_at = ?1, delivered = CASE WHEN mode = 'foreground' THEN 0 ELSE 1 END
                  WHERE state IN ('queued', 'running')",
-            )?
-            .execute([id::now_ms()])
+                [id::now_ms()],
+            )?;
+            conn.execute(REPAIR_INTERRUPTED_CALLS, [])?;
+            Ok(changed)
+        })
     }
 
     /// Finished workers whose result has not reached the parent and is not held back from waking it.
@@ -383,6 +395,24 @@ pub(crate) mod tests {
             "never rerun, and it wakes no one"
         );
         assert!(store.undelivered_tasks().unwrap().is_empty());
+    }
+
+    #[test]
+    fn interrupted_foreground_repair_looks_up_one_call_without_scanning_the_transcript() {
+        let store = store();
+        let plan: Vec<String> = store
+            .lock()
+            .prepare(&format!("EXPLAIN QUERY PLAN {REPAIR_INTERRUPTED_CALLS}"))
+            .unwrap()
+            .query_map([], |row| row.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert!(
+            plan.iter()
+                .any(|detail| detail.contains("idx_part_call (session_id=? AND <expr>=?)")),
+            "{plan:?}"
+        );
     }
 
     #[test]

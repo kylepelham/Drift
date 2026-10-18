@@ -121,4 +121,19 @@ impl Turns {
             }
         }
     }
+
+    /// Resolves once the session goes idle, its turn accepts prompts, or the caller is aborted.
+    pub(in crate::session) async fn wait_change(&self, session_id: &str, abort: &CancellationToken) {
+        // Both are registered before the checks, so a change in between is not missed.
+        let (finished, steerable) = (self.finished.notified(), self.steerable.notified());
+        if !self.is_running(session_id) || self.steering.lock().unwrap().contains_key(session_id) {
+            return;
+        }
+
+        tokio::select! {
+            () = finished => {}
+            () = steerable => {}
+            () = abort.cancelled() => {}
+        }
+    }
 }

@@ -1,6 +1,7 @@
 import { toolInput, toolMetadata } from "./engine/parts";
 import { activeWorkspace } from "./state/workspaces";
 import { backendInvoke } from "./backend";
+import { t } from "./state/i18n";
 
 import type { ToolPart } from "./engine/parts";
 
@@ -50,7 +51,7 @@ export function toolContextActions(part: ToolPart) {
 
 export function openFile(path: string, location?: FileLocation & { editorOnly?: boolean }) {
     const invoke = backendInvoke();
-    if (!invoke) return Promise.reject(new Error("Opening files requires the Drift host backend"));
+    if (!invoke) return Promise.reject(new Error(t("drift.host.openFileRequired")));
     return invoke<OpenFileResult>(location?.editorOnly ? "open_file_in_editor" : "open_file", {
         path,
         line: location?.line,
@@ -126,14 +127,14 @@ function fileActions(part: ToolPart) {
     return targets.flatMap<ToolContextAction>((file, index) => [
         {
             id: `open:${file.path}`,
-            label: multiple ? `Open ${file.label}` : "Open file",
+            label: multiple ? t("drift.tool.openNamed", { file: file.label }) : t("drift.tool.openFile"),
             separator: index > 0,
             run: () => openFile(file.path),
         },
         {
             id: `open-change:${file.path}:${file.line}`,
-            label: multiple ? `Open ${file.label} at change` : "Open at change",
-            detail: `Line ${file.line}`,
+            label: multiple ? t("drift.tool.openNamedAtChange", { file: file.label }) : t("drift.tool.openAtChange"),
+            detail: t("drift.tool.line", { line: file.line }),
             run: () => openFile(file.path, { line: file.line, column: 1 }),
         },
     ]);

@@ -1,24 +1,27 @@
 import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show, Switch } from "solid-js";
 import { groupParts, updatePartGroupSlots, type PartGroup, type PartGroupSlot } from "./message-groups";
+import { collapseCompaction, compactionCollapsed, editedFilesCard } from "../state/prefs";
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store";
 import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
 import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator";
-import { collapseCompaction, compactionCollapsed } from "../state/prefs";
 import { selectedSession, selectSession } from "../state/selection";
 import { messageModel, messageProblem } from "../engine/messages";
 import { PartView, partVisible, PluginRow } from "./parts";
 import { citationFileGroups } from "./citation-files";
+import { EditedFilesCard } from "./edited-files-card";
 import { emitMessageRendered } from "../plugins";
 import { ProcessExitRow } from "./process-row";
 import { agentLabel, t } from "../state/i18n";
 import { TextShimmer } from "./text-shimmer";
 import { ExploredGroup } from "./tool-view";
+import { retryCompaction } from "./revert";
 import { FilePartView } from "./file-part";
 import { RefusalNotice } from "./refusal";
 import { useEngine } from "../engine";
 import { Markdown } from "./markdown";
+import { ToolRun } from "./tool-run";
 import { NoteBox } from "./note-box";
 import { Chevron } from "./controls";
 
@@ -69,8 +72,7 @@ export function MessageView(props: {
 
 /** A turn that paused itself says why; a plain stop reads as interrupted. */
 function interruptionText(error: MessageProblem) {
-    const reason = error.text;
-    return reason && reason !== "Interrupted" ? reason : t("drift.message.interrupted");
+    return error.text || t("drift.message.interrupted");
 }
 
 export function messageVisible(entry: MessageEntry) {
@@ -87,7 +89,14 @@ export function messageVisible(entry: MessageEntry) {
 }
 
 function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; thinking?: boolean }) {
-    const [open, setOpen] = createSignal(!compactionCollapsed());
+    const failed = () => !!messageProblem(props.entry.info);
+    const [toggled, setOpen] = createSignal<boolean>();
+    // A failed summary stays open so its error and retry are seen.
+    const open = () => toggled() ?? (!compactionCollapsed() || failed());
+    const label = () => {
+        if (props.thinking) return t("drift.context.compacting");
+        return failed() ? t("drift.message.compactionFailed") : t("drift.message.compactedSummary");
+    };
     return (
         <div class="min-w-0 max-w-full">
             <button
@@ -98,10 +107,7 @@ function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; think
                 <div class="h-px flex-1 bg-edge" />
                 <span class="flex items-center gap-1.5">
                     <Chevron open={open()} />
-                    <TextShimmer
-                        text={props.thinking ? t("drift.context.compacting") : t("drift.message.compactedSummary")}
-                        active={!!props.thinking}
-                    />
+                    <TextShimmer text={label()} active={!!props.thinking} />
                 </span>
                 <div class="h-px flex-1 bg-edge" />
             </button>
@@ -111,6 +117,37 @@ function CompactionSummary(props: { entry: MessageEntry; footer?: boolean; think
                 </div>
             </Show>
         </div>
+    );
+}
+
+/** Offered while the failed summary is still the session's last word; later turns would go with the undo. */
+function CompactionRetry(props: { entry: MessageEntry }) {
+    const engine = useEngine();
+    const [sending, setSending] = createSignal(false);
+    const session = () => props.entry.info.sessionId;
+    const latest = () =>
+        !sessionBusy(engine.state, session()) &&
+        engine.state.transcripts[session()]?.at(-1)?.info.id === props.entry.info.id;
+
+    const retry = async () => {
+        setSending(true);
+        try {
+            await retryCompaction(engine, session(), props.entry.info.id);
+        } finally {
+            setSending(false);
+        }
+    };
+
+    return (
+        <Show when={latest()}>
+            <button
+                class="self-start rounded-md border border-edge px-2 py-1 text-xs text-ink-muted transition-colors hover:border-accent/50 hover:text-ink disabled:opacity-50"
+                disabled={sending()}
+                onClick={() => void retry()}
+            >
+                {t("drift.message.compactionRetry")}
+            </button>
+        </Show>
     );
 }
 
@@ -196,7 +233,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                                     </Show>
                                 </div>
                             </Show>
-                            <div class="flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
+                            <div class="message-actions touch-reveal flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
                                 <span>
                                     {agentLabel(info().agent ?? "build")} · {model()} · {time()}
                                 </span>
@@ -248,7 +285,7 @@ ${t("drift.message.revertKeepFiles")}`}
                             </For>
                         </Show>
                     </NoteBox>
-                    <div class="flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+                    <div class="touch-reveal flex shrink-0 items-center gap-1 py-1 text-ink-faint opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
                         <button
                             title={`${t("drift.message.revertHere")}
 ${t("drift.message.revertKeepFiles")}`}
@@ -326,6 +363,11 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
         return [...props.entry.parts].reverse().find((part) => part.type === "text")?.id;
     };
 
+    // A step that ends in tool calls finishes while the turn goes on; only the turn's last one is its end.
+    const turnOver = () =>
+        !sessionBusy(engine.state, info().sessionId) ||
+        engine.state.transcripts[info().sessionId]?.at(-1)?.info.id !== info().id;
+
     return (
         <Show when={visible()}>
             <div class="group flex min-w-0 max-w-full flex-col gap-3">
@@ -334,6 +376,9 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                         <Switch>
                             <Match when={"explored" in group.value && group.value}>
                                 {(explored) => <ExploredGroup parts={explored().explored} />}
+                            </Match>
+                            <Match when={"run" in group.value && group.value}>
+                                {(run) => <ToolRun parts={run().run} />}
                             </Match>
                             <Match when={"part" in group.value && group.value}>
                                 {(single) => (
@@ -374,11 +419,17 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                             >
                                 <RefusalNotice entry={props.entry} text={error().text} />
                             </Show>
+                            <Show when={info().summary}>
+                                <CompactionRetry entry={props.entry} />
+                            </Show>
                         </Show>
                     )}
                 </Show>
+                <Show when={props.footer && info().finishedAt && turnOver() && editedFilesCard()}>
+                    <EditedFilesCard entry={props.entry} />
+                </Show>
                 <Show when={props.footer && info().finishedAt}>
-                    <div class="flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
+                    <div class="message-actions touch-reveal flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
                         <span>{info().model?.model ?? ""}</span>
                         <span>{formatTokens(info())}</span>
                         <Show when={tokensPerSecond(props.entry)}>

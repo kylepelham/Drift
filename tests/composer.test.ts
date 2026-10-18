@@ -34,7 +34,20 @@ test("composer clipboard publishing uses the exact selected text", async () => {
 test("composer hides fractional textarea overflow until the autosize ceiling", async () => {
     const source = await Bun.file("src/ui/composer.tsx").text();
     expect(source).toContainCode("resize-none overflow-y-hidden");
-    expect(source).toContainCode('area.style.overflowY = scrollHeight > maxComposerHeightPx ? "auto" : "hidden"');
+    expect(source).toContainCode("Number.parseFloat(getComputedStyle(area).maxHeight) || maxComposerHeightPx");
+    expect(source).toContainCode('area.style.overflowY = scrollHeight > ceiling ? "auto" : "hidden"');
+});
+
+test("touch Enter inserts a line break, while desktop Enter and modified touch Enter send", async () => {
+    const { composerSendKey } = await import("../src/ui/composer");
+    const key = (patch = {}) =>
+        ({ key: "Enter", shiftKey: false, ctrlKey: false, metaKey: false, ...patch }) as KeyboardEvent;
+    expect(composerSendKey(key(), true)).toBeFalse();
+    expect(composerSendKey(key(), false)).toBeTrue();
+    expect(composerSendKey(key({ ctrlKey: true }), true)).toBeTrue();
+    expect(composerSendKey(key({ metaKey: true }), true)).toBeTrue();
+    expect(composerSendKey(key({ shiftKey: true }), false)).toBeFalse();
+    expect(composerSendKey(key({ key: "a" }), false)).toBeFalse();
 });
 
 test("slash parsing preserves command argument mode", async () => {
@@ -62,7 +75,7 @@ test("slash parsing preserves command argument mode", async () => {
 test("composer history is normalized, deduplicated, and bounded", async () => {
     const { maxComposerHistory, normalizeComposerHistory, prependComposerHistory } =
         await import("../src/state/composer");
-    const draft = { text: "  carry on  ", staged: [], mentions: ["src/app.tsx", "src/app.tsx"] };
+    const draft = { text: "  carry on  ", staged: [], mentions: ["src/app.tsx", "src/app.tsx"], comments: [] };
     const first = prependComposerHistory([], draft);
     expect(first).toEqual([{ text: "carry on", mentions: ["src/app.tsx"] }]);
     expect(prependComposerHistory(first, draft)).toBe(first);
@@ -71,7 +84,7 @@ test("composer history is normalized, deduplicated, and bounded", async () => {
         text: `prompt ${index}`,
         mentions: [],
     }));
-    const bounded = prependComposerHistory(entries, { text: "newest", staged: [], mentions: [] });
+    const bounded = prependComposerHistory(entries, { text: "newest", staged: [], mentions: [], comments: [] });
     expect(bounded).toHaveLength(maxComposerHistory);
     expect(bounded[0].text).toBe("newest");
     expect(bounded.at(-1)?.text).toBe("prompt 98");
@@ -90,9 +103,10 @@ test("composer history navigation restores the draft and attachments", async () 
         text: "",
         staged: [{ id: "f1", filename: "screen.png", mime: "image/png", dataUrl: "data:image/png;base64,x", size: 1 }],
         mentions: ["draft.ts"],
+        comments: [],
     };
     const newest = navigateComposerHistory(entries, { index: -1, saved: null }, current, "up");
-    expect(newest?.draft).toEqual({ text: "newest", staged: [], mentions: ["new.ts"] });
+    expect(newest?.draft).toEqual({ text: "newest", staged: [], mentions: ["new.ts"], comments: [] });
     expect(newest?.cursor).toBe("start");
 
     if (!newest) throw new Error("expected history navigation");
@@ -298,15 +312,40 @@ test("shell transcript preserves a visible command-output gap and normalizes out
         shellScrollTarget,
         shellTranscript,
     } = await import("../src/ui/shell-output");
-    const { initialToolOpen, initialToolOpenForPart, rememberToolOpen } = await import("../src/ui/tool-view");
+    const {
+        initialToolOpen,
+        initialToolOpenForPart,
+        nextShellOpen,
+        rememberToolOpen,
+        shellOpenDelayMs,
+        shellOpenWait,
+    } = await import("../src/ui/tool-view");
     const { shellTimeoutStatus } = await import("../src/ui/tool-labels");
     expect(shellTranscript("bun run build", "\u001b[32mok\u001b[0m\r\ndone")).toBe("$ bun run build\n\nok\ndone");
     const output = Array.from({ length: 10_000 }, (_, index) => `line ${index}`).join("\r\n");
     const transcript = shellTranscript("generate", output);
     expect(transcript.startsWith("$ generate\n\nline 0\nline 1")).toBeTrue();
     expect(transcript.endsWith("line 9999")).toBeTrue();
-    expect(initialToolOpen("bash", "completed", false)).toBeTrue();
-    expect(initialToolOpen("bash", "running", false)).toBeTrue();
+    expect(initialToolOpen("bash", "completed", false)).toBeFalse();
+    expect(initialToolOpen("bash", "running", false)).toBeFalse();
+    expect(initialToolOpen("bash", "pending", false)).toBeFalse();
+    expect(initialToolOpen("bash", "running", false, "running", shellOpenDelayMs)).toBeTrue();
+    expect(initialToolOpen("bash", "running", false, "collapsed", shellOpenDelayMs)).toBeFalse();
+    expect(initialToolOpen("bash", "completed", false, "open")).toBeTrue();
+    const { commandRowsFrom } = await import("../src/state/prefs");
+    expect([true, false, "collapsed", "nonsense"].map(commandRowsFrom)).toEqual([
+        "running",
+        "open",
+        "collapsed",
+        "running",
+    ]);
+    expect(shellOpenWait("running", 1_000, 1_000 + shellOpenDelayMs - 200)).toBe(200);
+    expect(shellOpenWait("running", 1_000, 1_000 + shellOpenDelayMs + 200)).toBe(0);
+    expect(shellOpenWait("pending", undefined, 1_000)).toBeUndefined();
+    expect(shellOpenWait("completed", 1_000, 2_000)).toBeUndefined();
+    expect(nextShellOpen(true, "running", "done", false)).toBeFalse();
+    expect(nextShellOpen(true, "running", "done", true)).toBeTrue();
+    expect(nextShellOpen(true, "done", "done", false)).toBeTrue();
     expect(initialToolOpen("read", "completed", true)).toBeFalse();
     expect(initialToolOpen("bash", "error", true)).toBeTrue();
     expect(initialToolOpen("bash", "error", false)).toBeFalse();
@@ -585,13 +624,13 @@ test("question card uses shared submission state and locks only answer editing f
     expect(source).toContainCode('if (event.key === "Escape") return; event.stopPropagation()');
 });
 
-test("question retry copy falls back to English in other languages", async () => {
+test("question retry copy is translated in other languages", async () => {
     const { loadDictionary, t } = await import("../src/state/i18n");
     try {
         await loadDictionary("es");
-        expect(t("session.question.retryOriginal")).toBe("Retry original answer");
+        expect(t("session.question.retryOriginal")).toBe("Reintentar respuesta original");
         expect(t("session.question.deliveryUnconfirmed")).toBe(
-            "Delivery is unconfirmed. Answers are locked; retry will send your original submitted answer.",
+            "Entrega sin confirmar. Las respuestas están bloqueadas; reintentar enviará tu respuesta original.",
         );
     } finally {
         await loadDictionary("en");

@@ -97,7 +97,8 @@ impl Tool for ApplyPatch {
 
             plan.apply(&ctx.engine.store).await?;
             let written: Vec<&Step> = plan.steps.iter().filter(|step| step.after.is_some()).collect();
-            for step in &written {
+            // A hunk proves the text it changed, not the rest of the file: only a file written whole counts as read.
+            for step in written.iter().filter(|step| step.whole) {
                 ctx.files.mark_read(&step.path);
             }
 
@@ -123,6 +124,8 @@ struct Step {
     path: PathBuf,
     before: Option<Vec<u8>>,
     after: Option<Vec<u8>>,
+    /// The call wrote every line of it (an added file), so the session knows it as if it had read it.
+    whole: bool,
 }
 
 #[derive(Default)]
@@ -157,7 +160,9 @@ impl Plan {
         target: &Path,
         chunks: &[Chunk],
     ) -> Result<(), ToolError> {
-        let raw = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
+        let raw = existing(ctx, path, false)
+            .await?
+            .ok_or(ToolError("does not exist".into()))?;
         // Lossy decoding would write every byte that is not UTF-8 back as U+FFFD.
         let text = String::from_utf8(raw.clone()).map_err(|_| {
             ToolError(
@@ -183,6 +188,7 @@ impl Plan {
                 path: target.to_path_buf(),
                 before: Some(raw),
                 after: Some(written),
+                whole: false,
             });
             return Ok(());
         }
@@ -193,23 +199,25 @@ impl Plan {
                 display(target, &ctx.workspace)
             )));
         }
-        let displaced = existing(ctx, target).await?;
+        let displaced = existing(ctx, target, true).await?;
         self.steps.push(Step {
             path: target.to_path_buf(),
             before: displaced,
             after: Some(written),
+            whole: false,
         });
         self.steps.push(Step {
             path: path.to_path_buf(),
             before: Some(raw),
             after: None,
+            whole: false,
         });
 
         Ok(())
     }
 
     async fn prepare_add(&mut self, ctx: &Context, path: &Path, content: &str) -> Result<(), ToolError> {
-        let existing = existing(ctx, path).await?;
+        let existing = existing(ctx, path, true).await?;
         let before_text = existing
             .as_ref()
             .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
@@ -228,13 +236,16 @@ impl Plan {
             path: path.to_path_buf(),
             before: existing,
             after: Some(format.apply(content).into_bytes()),
+            whole: true,
         });
 
         Ok(())
     }
 
     async fn prepare_delete(&mut self, ctx: &Context, path: &Path) -> Result<(), ToolError> {
-        let before = existing(ctx, path).await?.ok_or(ToolError("does not exist".into()))?;
+        let before = existing(ctx, path, true)
+            .await?
+            .ok_or(ToolError("does not exist".into()))?;
 
         self.changes.push(Change::new(
             path,
@@ -247,6 +258,7 @@ impl Plan {
             path: path.to_path_buf(),
             before: Some(before),
             after: None,
+            whole: false,
         });
 
         Ok(())
@@ -303,15 +315,16 @@ impl Plan {
     }
 }
 
-/// A file's bytes if it exists and was read this session; only a missing file is absent, any other read error stops the patch.
-async fn existing(ctx: &Context, path: &Path) -> Result<Option<Vec<u8>>, ToolError> {
+/// A file's bytes if it exists; only a missing file is absent, any other read error stops the patch. `whole` is a
+/// change to all of it (replacing, deleting, moving onto it), which needs a read this session; a hunk proves itself.
+async fn existing(ctx: &Context, path: &Path, whole: bool) -> Result<Option<Vec<u8>>, ToolError> {
     let bytes = match tokio::fs::read(path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(ToolError(format!("could not read it: {error}"))),
     };
 
-    if !ctx.files.was_read(path) {
+    if whole && !ctx.files.was_read(path) {
         return Err(ToolError(
             "exists and has not been read this session; read it before patching it".into(),
         ));

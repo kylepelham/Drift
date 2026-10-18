@@ -1,4 +1,5 @@
 import { toolInput, toolMetadata } from "../engine/parts";
+import { t } from "../state/i18n";
 
 import type { ToolPart } from "../engine/parts";
 
@@ -19,7 +20,7 @@ export function toolDisplay(part: ToolPart) {
         metadata,
         title: part.title ?? part.name,
         output: part.output ?? "",
-        error: part.output ?? "Failed",
+        error: part.output ?? t("drift.tool.failed"),
         time: { start, end },
     };
 }

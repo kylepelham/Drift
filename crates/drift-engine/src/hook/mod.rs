@@ -205,6 +205,11 @@ pub trait Hook: Send + Sync {
     }
 
     async fn session(&self, _event: &SessionEvent) {}
+
+    /// Secrets the model must never see, each with the placeholder it sees instead.
+    fn replacements(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
 }
 
 /// One `plugins` entry of drift.json: a path, or a path with the plugin's own config.
@@ -264,6 +269,8 @@ pub struct PluginInfo {
 pub struct Hooks {
     hooks: RwLock<Vec<Arc<dyn Hook>>>,
     loaded: RwLock<Vec<PluginInfo>>,
+    /// Every plugin's secrets together, rebuilt when the plugins change.
+    masks: RwLock<Arc<crate::llm::mask::Masks>>,
     #[cfg(feature = "wasm-plugins")]
     runtime: std::sync::OnceLock<Result<wasm::Runtime, Error>>,
 }
@@ -277,8 +284,20 @@ pub struct Loaded {
 
 impl Hooks {
     pub fn set(&self, hooks: Vec<Arc<dyn Hook>>, loaded: Vec<PluginInfo>) {
+        let pairs = hooks.iter().flat_map(|hook| hook.replacements()).collect();
+        let (masks, problems) = crate::llm::mask::Masks::new(pairs);
+        for problem in problems {
+            eprintln!("drift: a secret replacement was skipped: {problem}");
+        }
+
+        *self.masks.write().unwrap() = Arc::new(masks);
         *self.hooks.write().unwrap() = hooks;
         *self.loaded.write().unwrap() = loaded;
+    }
+
+    /// The secrets to hide from every request and reveal in every tool call.
+    pub fn masks(&self) -> Arc<crate::llm::mask::Masks> {
+        self.masks.read().unwrap().clone()
     }
 
     /// Replaces the loaded plugins; a failed one is reported with its error, a `disabled` one listed and left alone.

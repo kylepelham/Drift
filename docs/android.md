@@ -106,14 +106,21 @@ WebView  --http-->  proxy on 127.0.0.1:<random>  --https, PC's authority pinned-
   the WebView by the status bar, navigation bar, cutout and keyboard insets, so the page, its
   drawers and dialogs, and the composer while typing all sit in the space left; `env(safe-area-*)`
   is then 0 inside the page.
-- On a phone the composer's pickers take a row of their own above its buttons, and any question
-  card folds to its header like the Todos dock, in the desktop app too. The drawer follows a finger
-  anywhere on the page: rightward opens it, leftward over it or the page beside it closes it, and a
-  third of its width or a flick finishes the move. A rightward drag is left alone in a text field, a
-  dialog or menu, or content that can scroll back. A drag from the very left edge is still Android's
-  back gesture.
-- Settings rows keep a toggle beside its text and wrap only wider controls under it, and the
-  settings search takes focus on open only with a mouse, so a phone's keyboard does not cover it.
+- Below 720 CSS pixels, or on touch screens at most 500 pixels tall, settings use a full-screen labeled section list with Back navigation and
+  search. The desktop keeps its sidebar and dialog. Wider fields wrap under their labels, while
+  switches stay beside the text. Touch controls have 44-pixel targets and readable secondary text.
+- The phone composer gives its pickers a separate row. Pickers open as dismissible sheets without
+  opening the keyboard. Touch Enter inserts a newline; Send or Ctrl+Enter submits. Textarea height
+  follows the available viewport, and approval cards scroll above it instead of hiding Send.
+- The drawer follows horizontal drags, except from controls, dialogs, text selection surfaces, or
+  horizontally scrollable content. Its first 24 pixels are left to Android Back. Multiple fingers
+  cancel a drawer drag. Threads expose a visible menu rather than requiring hover or long-press.
+- Dialogs and picker sheets consume Android Back before the conversation route changes. File
+  previews fill the phone screen, image controls wrap, transcript search fits the header, and
+  notices stay above the composer. These layout changes do not apply to the desktop breakpoint.
+- The computers page scrolls with the keyboard open, shows loading and retry states, and confirms
+  Forget before unlinking a PC. Canceling typed-code linking stops its outstanding poll from
+  navigating away later.
 - `DriftPlugin.kt` is the only other Kotlin: Google's code scanner (`play-services-code-scanner`), which
   shows its own camera screen and needs no camera permission, and the phone's name for the PC's
   device list. Cleartext is allowed only to 127.0.0.1 (`network_security_config.xml`).

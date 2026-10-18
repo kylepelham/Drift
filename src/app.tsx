@@ -14,12 +14,14 @@ import { EngineProvider, useEngine } from "./engine";
 import { forwardWheelToChat } from "./ui/chat-wheel";
 import { selectedSession } from "./state/selection";
 import { FilePreviewHost } from "./ui/file-preview";
+import { ReviewPanelHost } from "./ui/review-panel";
 import { messageProblem } from "./engine/messages";
 import { bindCodePreferences } from "./state/code";
 import { hiddenParent } from "./engine/sessions";
 import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
-import { debugPanelOpen } from "./state/panels";
+import { rightPanelOpen } from "./state/panels";
+import { bindPathCopy } from "./ui/path-copy";
 import { messageText } from "./engine/store";
 import { SettingsHost } from "./ui/settings";
 import { StartupSplash } from "./ui/startup";
@@ -29,7 +31,6 @@ import { bindTheme } from "./state/theme";
 import { Composer } from "./ui/composer";
 import { ChatHeader } from "./ui/header";
 import { Lightbox } from "./ui/lightbox";
-import { Titlebar } from "./ui/titlebar";
 import { initZoom } from "./state/zoom";
 import { DebugPanel } from "./ui/debug";
 import { PluginHost } from "./plugins";
@@ -52,8 +53,8 @@ export function App() {
             <WorkspaceBinding />
             <OrchestratorBinding />
             <PluginBinding />
+            <PathCopyBinding />
             <div class="app-shell flex h-full flex-col bg-bg text-ink">
-                <Titlebar />
                 <div class="flex min-h-0 flex-1">
                     <Show when={mobileDrawerOpen()}>
                         <button
@@ -63,10 +64,10 @@ export function App() {
                         />
                     </Show>
                     <Sidebar />
-                    <main class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <main inert={mobileDrawerOpen()} class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                         <div
                             class="chat-pane flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                            classList={{ "chat-pane-covered": debugPanelOpen() && !!selectedSession() }}
+                            classList={{ "chat-pane-covered": rightPanelOpen() && !!selectedSession() }}
                         >
                             <div class="relative flex min-h-0 flex-1 flex-col">
                                 <ChatHeader />
@@ -80,6 +81,7 @@ export function App() {
                             </div>
                         </div>
                         <DebugPanel />
+                        <ReviewPanelHost />
                     </main>
                 </div>
                 <Lightbox />
@@ -107,7 +109,7 @@ function MirrorConnectionNotice() {
     });
     return (
         <Show when={error()}>
-            <div class="fixed right-3 bottom-3 z-20 max-w-sm rounded-md border border-danger/35 bg-surface px-3 py-2 text-xs text-danger shadow-lg">
+            <div class="mirror-notice fixed right-3 bottom-3 z-20 max-w-sm rounded-md border border-danger/35 bg-surface px-3 py-2 text-xs text-danger shadow-lg">
                 {error()}
             </div>
         </Show>
@@ -122,6 +124,23 @@ function PluginBinding() {
             <AttentionNotifier engine={engine} />
         </>
     );
+}
+
+/** Double-clicking a path copies it with this platform's separators, and says so. */
+function PathCopyBinding() {
+    const engine = useEngine();
+    onCleanup(
+        bindPathCopy(
+            (path) =>
+                engine.actions.notice({
+                    message: t("drift.path.copied", { path }),
+                    variant: "success",
+                    duration: 2000,
+                }),
+            (path) => engine.actions.notice({ message: t("drift.path.copyFailed", { path }), variant: "error" }),
+        ),
+    );
+    return null;
 }
 
 /** The engine drives orchestrator turns; this only says how one ended. */

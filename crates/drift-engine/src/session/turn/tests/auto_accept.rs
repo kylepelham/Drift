@@ -108,3 +108,26 @@ fn assert_auto_accept_policy(h: &Harness) {
         "or on for every session"
     );
 }
+
+#[tokio::test]
+async fn accept_all_survives_a_restart() {
+    let h = harness().await;
+    h.engine.set_auto_accept_all(true).unwrap();
+    let reopened = Engine::open_with(
+        &h._dir.join("data"),
+        crate::Options {
+            file_credentials: true,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    reopened.bind_permissions("ses_later", &h.session.workspace_id);
+    let ask = crate::tool::Ask {
+        default_allow: true,
+        ..crate::tool::Ask::shell(crate::tool::command::Dialect::Bash, "git push", "")
+    };
+    assert_eq!(
+        reopened.permissions.decide_now("ses_later", &Policy::default(), &ask),
+        Decision::Allow
+    );
+}

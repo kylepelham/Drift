@@ -1,7 +1,9 @@
 //! What a workspace tells the engine: drift.json, agents, commands, skills and instruction files.
 
 mod agent;
+mod archive;
 mod arguments;
+pub mod bundles;
 mod command;
 mod discovery;
 mod engine;
@@ -93,6 +95,9 @@ pub struct Config {
     /// The `skillPaths` the files list, resolved; read once the files are applied.
     #[serde(skip)]
     skill_paths: Vec<PathBuf>,
+    /// Folders of programs the shell finds after its own PATH: the `bin/` of each bundle whose programs are on.
+    #[serde(skip)]
+    pub programs: Vec<PathBuf>,
 }
 
 impl Config {
@@ -117,18 +122,28 @@ impl Config {
 
     /// As [`Self::load`], leaving out the skills in folders the user switched off.
     pub fn load_skipping(workspace: &Path, off: &[PathBuf]) -> Self {
-        Self::load_from(workspace, home().as_deref(), off)
+        Self::load_from(workspace, home().as_deref(), off, &[])
+    }
+
+    /// As [`Self::load_skipping`], with the bundles that are on: their agents and commands under the user's
+    /// and the workspace's own, their skills after every other skill folder.
+    pub fn load_with(workspace: &Path, off: &[PathBuf], bundles: &[bundles::Active]) -> Self {
+        Self::load_from(workspace, home().as_deref(), off, bundles)
     }
 
     pub fn load_with_home(workspace: &Path, home: Option<&Path>) -> Self {
-        Self::load_from(workspace, home, &[])
+        Self::load_from(workspace, home, &[], &[])
     }
 
-    fn load_from(workspace: &Path, home: Option<&Path>, off: &[PathBuf]) -> Self {
+    fn load_from(workspace: &Path, home: Option<&Path>, off: &[PathBuf], bundles: &[bundles::Active]) -> Self {
         let mut config = Self {
             agents: builtin_agents(),
+            programs: bundles.iter().filter_map(bundles::Active::programs).collect(),
             ..Self::default()
         };
+        for bundle in bundles {
+            config.apply_bundle(bundle);
+        }
         let mut roots = Vec::new();
         if let Some(home) = home {
             roots.push(home.join(".config").join("drift"));
@@ -149,6 +164,9 @@ impl Config {
         let listed = std::mem::take(&mut config.skill_paths);
         for directory in skill_folders(workspace, home, listed) {
             config.add_skills(&directory, off);
+        }
+        for bundle in bundles {
+            config.add_bundle_skills(bundle);
         }
         config.add_skill_commands();
         config.add_instructions(workspace, home);
@@ -326,20 +344,61 @@ impl Config {
         }
 
         for (name, document) in markdown_files(&dir.join("commands")) {
-            self.commands.retain(|command| command.name != name);
-            let mut command = Command::new(
-                name,
-                document.field("description").unwrap_or_default(),
-                document.body.trim().into(),
-            );
-            command.agent = document.field("agent");
-            command.model = document.field("model").and_then(|model| parse_model(&model));
-            command.subtask = document.field("subtask").and_then(|value| value.parse().ok());
-            command.arguments = (1..=highest_placeholder(&command.template))
-                .filter(|number| command.template.contains(&format!("${number}")))
-                .map(|number| format!("arg{number}"))
-                .collect();
-            self.commands.push(command);
+            self.apply_command(name, document);
+        }
+    }
+
+    fn apply_command(&mut self, name: String, document: frontmatter::Document) {
+        self.commands.retain(|command| command.name != name);
+        let mut command = Command::new(
+            name,
+            document.field("description").unwrap_or_default(),
+            document.body.trim().into(),
+        );
+        command.agent = document.field("agent");
+        command.model = document.field("model").and_then(|model| parse_model(&model));
+        command.subtask = document.field("subtask").and_then(|value| value.parse().ok());
+        command.arguments = (1..=highest_placeholder(&command.template))
+            .filter(|number| command.template.contains(&format!("${number}")))
+            .map(|number| format!("arg{number}"))
+            .collect();
+        self.commands.push(command);
+    }
+
+    /// A bundle's agents and commands that are on, before the user's and the workspace's own replace any of them.
+    fn apply_bundle(&mut self, bundle: &bundles::Active) {
+        for item in bundle.agents() {
+            if let Some(text) = bundle.text(&item.path) {
+                self.apply_agent(item.name.clone(), frontmatter::parse(&text));
+            }
+        }
+        for item in bundle.commands() {
+            if let Some(text) = bundle.text(&item.path) {
+                self.apply_command(item.name.clone(), frontmatter::parse(&text));
+            }
+        }
+    }
+
+    /// A bundle's skills that are on, unless a skill nearer the workspace or the user's own has the name.
+    fn add_bundle_skills(&mut self, bundle: &bundles::Active) {
+        for item in bundle.skills() {
+            let Some(text) = bundle.text(&item.path.join("SKILL.md")) else {
+                continue;
+            };
+            if self.skills.iter().any(|skill| skill.name == item.name) {
+                continue;
+            }
+
+            let argument_hint = frontmatter::parse(&text)
+                .field("argument-hint")
+                .filter(|hint| !hint.trim().is_empty());
+            self.skills.push(Skill {
+                name: item.name.clone(),
+                description: item.description.clone(),
+                path: item.path.to_string_lossy().into_owned(),
+                instructions: body(&text),
+                argument_hint,
+            });
         }
     }
 

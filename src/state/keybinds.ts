@@ -1,4 +1,5 @@
 import { persisted } from "./persist";
+import { t } from "./i18n";
 
 export type KeybindAction =
     "palette" | "newThread" | "findInSession" | "autoAccept" | "zoomIn" | "zoomOut" | "zoomReset";
@@ -27,7 +28,7 @@ export function setCombo(action: KeybindAction, combo: string | null) {
 }
 
 export function formatCombo(combo: string | null) {
-    if (!combo) return "Unbound";
+    if (!combo) return t("drift.keybind.unbound");
     return combo
         .split("+")
         .map((part) => (part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1)))

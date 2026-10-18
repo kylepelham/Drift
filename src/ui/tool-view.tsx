@@ -1,9 +1,10 @@
 import { backgroundRun, delegatedChildId, delegatedTaskClickPolicy, delegatedTaskStatus } from "./tool-delegation";
-import { createEffect, createMemo, createSignal, For, on, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
+import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
+import { exploredDetail, exploredSummary } from "./tool-run";
 import { toolMetadata as toolMeta } from "../engine/parts";
 import { IconArrowUpRight, IconBranch } from "./icons";
-import { toolErrorsExpanded } from "../state/prefs";
 import { selectSession } from "../state/selection";
 import { toolDisplay } from "./tool-presentation";
 import { ToolDuration } from "./tool-duration";
@@ -22,13 +23,27 @@ export function nextToolOpen(current: boolean, hadError: boolean, hasError: bool
     return hasError && !hadError ? errorsExpanded : current;
 }
 
+/** How long a command runs before its live output opens, so quick ones never flash open. */
+export const shellOpenDelayMs = 5000;
+
 export function initialToolOpen(
     tool: string,
     status: ReturnType<typeof toolDisplay>["status"],
     errorsExpanded: boolean,
+    rows: CommandRows = "running",
+    runningMs = 0,
 ) {
     if (status === "error") return errorsExpanded;
-    return tool === "bash";
+    if (tool !== "bash" || rows === "collapsed") return false;
+
+    return rows === "open" || (status === "running" && runningMs >= shellOpenDelayMs);
+}
+
+/** Milliseconds until a running command should open, or nothing when it never will. */
+export function shellOpenWait(status: string, startedAt: number | undefined, now: number) {
+    if (status !== "running" || startedAt === undefined) return;
+
+    return Math.max(0, startedAt + shellOpenDelayMs - now);
 }
 
 const explicitToolOpen = new Map<string, boolean>();
@@ -39,8 +54,15 @@ export function initialToolOpenForPart(
     tool: string,
     status: ReturnType<typeof toolDisplay>["status"],
     errorsExpanded: boolean,
+    rows: CommandRows = "running",
+    runningMs = 0,
 ) {
-    return explicitToolOpen.get(partId) ?? initialToolOpen(tool, status, errorsExpanded);
+    return explicitToolOpen.get(partId) ?? initialToolOpen(tool, status, errorsExpanded, rows, runningMs);
+}
+
+export function nextShellOpen(current: boolean, previous: string | undefined, status: string, explicit: boolean) {
+    if (explicit || (previous !== "running" && previous !== "pending")) return current;
+    return status === "running" || status === "pending" ? current : false;
 }
 
 export function rememberToolOpen(partId: string, open: boolean) {
@@ -137,11 +159,46 @@ export function ToolView(props: { part: ToolPart }) {
     };
 
     const error = () => (state().status === "error" ? (state() as { error: string }).error : null);
+    const shellStart = createMemo(() => ({ status: state().status, start: state().time.start }), undefined, {
+        equals: (left, right) => left.status === right.status && left.start === right.start,
+    });
+    const shellWait = () => {
+        if (props.part.name !== "bash" || commandRows() !== "running") return;
+        return shellOpenWait(shellStart().status, shellStart().start, Date.now());
+    };
     const [open, setOpen] = createSignal(
-        untrack(() => initialToolOpenForPart(props.part.id, props.part.name, state().status, toolErrorsExpanded())),
+        untrack(() =>
+            initialToolOpenForPart(
+                props.part.id,
+                props.part.name,
+                state().status,
+                toolErrorsExpanded(),
+                commandRows(),
+                Date.now() - (state().time.start ?? Date.now()),
+            ),
+        ),
     );
     createEffect(
         on(error, (value, previous) => setOpen(nextToolOpen(open(), !!previous, !!value, toolErrorsExpanded()))),
+    );
+    createEffect(() => {
+        const wait = shellWait();
+        if (wait === undefined || explicitToolOpen.has(props.part.id)) return;
+        if (wait === 0) return setOpen(true);
+
+        const timer = setTimeout(() => {
+            if (!explicitToolOpen.has(props.part.id)) setOpen(true);
+        }, wait);
+        onCleanup(() => clearTimeout(timer));
+    });
+    createEffect(
+        on(
+            () => state().status,
+            (status, previous) => {
+                if (props.part.name === "bash" && status !== "error" && untrack(commandRows) !== "open")
+                    setOpen(nextShellOpen(open(), previous, status, explicitToolOpen.has(props.part.id)));
+            },
+        ),
     );
 
     const expanded = () => open();
@@ -170,13 +227,14 @@ export function ToolView(props: { part: ToolPart }) {
     const inlineExpanded = () => expanded() && delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand";
 
     return (
-        <div class="flex min-w-0 max-w-full flex-col gap-1 text-sm">
+        <div class="tool-row flex min-w-0 max-w-full flex-col gap-1 text-sm">
             <button
-                class="flex min-h-8 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
+                class="tool-row-header flex min-h-7 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1 text-left transition-colors hover:bg-raised/35"
                 classList={{
                     "delegate-tool border-accent/35": delegated(),
                     "delegate-tool-background": !!background(),
                 }}
+                aria-expanded={inlineExpanded()}
                 onClick={activate}
             >
                 <Show when={error()}>
@@ -201,25 +259,39 @@ export function ToolView(props: { part: ToolPart }) {
                     fallback={
                         <Show
                             when={info().called}
-                            fallback={<span class="shrink-0 font-semibold text-ink">{info().title}</span>}
+                            fallback={
+                                <span
+                                    class="tool-row-title"
+                                    classList={{
+                                        "shrink-0": props.part.name !== "bash",
+                                        "min-w-0 truncate": props.part.name === "bash",
+                                        "font-mono text-xs": !!info().titleMono,
+                                    }}
+                                >
+                                    {info().title}
+                                </span>
+                            }
                         >
-                            <span class="shrink-0 font-semibold text-ink">
+                            <span class="tool-row-title shrink-0">
                                 {t("drift.tool.called")}{" "}
-                                <code class="rounded bg-raised px-1 font-mono text-xs font-normal">
+                                <code class="rounded bg-raised/70 px-1 font-mono text-xs font-normal">
                                     {info().called}
                                 </code>
                             </span>
                         </Show>
                     }
                 >
-                    <TextShimmer text={title()} class="shrink-0 font-semibold" />
+                    <TextShimmer
+                        text={title()}
+                        class={`tool-row-title ${props.part.name === "bash" ? "min-w-0 truncate" : "shrink-0"}${info().titleMono ? " font-mono text-xs" : ""}`}
+                    />
                 </Show>
                 <Show when={background()}>
                     <BackgroundTag />
                 </Show>
                 <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
                     <span
-                        class="min-w-0 truncate text-ink-faint"
+                        class="tool-row-subtitle min-w-0 truncate"
                         classList={{ "font-mono text-xs": info().mono, "text-[0.85rem]": !info().mono }}
                     >
                         {info().subtitle}
@@ -275,11 +347,13 @@ export function ToolView(props: { part: ToolPart }) {
                         delegatedTaskClickPolicy(delegatedStatus(), spawnedId()) === "expand"
                     }
                 >
-                    <Chevron open={inlineExpanded()} />
+                    <span class="tool-row-chevron flex shrink-0">
+                        <Chevron open={inlineExpanded()} />
+                    </span>
                 </Show>
             </button>
             <Show when={inlineExpanded()}>
-                <div class="min-w-0 max-w-full">
+                <div class="tool-row-body min-w-0 max-w-full">
                     <ToolBody part={props.part} diff={diff()} error={error()} />
                 </div>
             </Show>
@@ -290,9 +364,10 @@ export function ToolView(props: { part: ToolPart }) {
 export function ExploredGroup(props: { parts: ToolPart[] }) {
     const engine = useEngine();
     const [open, setOpen] = createSignal(false);
-    const label = () => `${t("settings.permissions.tool.read.title")} · ${props.parts.length}`;
     const waiting = () => props.parts.some((part) => awaitingPermission(engine.state, part));
     const running = () => props.parts.some((part) => part.status === "running" || part.status === "pending");
+    const summary = createMemo(() => exploredSummary(props.parts, running()));
+    const detail = createMemo(() => exploredDetail(props.parts));
 
     const activePart = () => {
         for (let index = props.parts.length - 1; index >= 0; index--) {
@@ -304,9 +379,10 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
     const expanded = () => open() || waiting();
 
     return (
-        <div class="flex flex-col gap-1.5 text-sm">
+        <div class="tool-row flex flex-col gap-1.5 text-sm">
             <button
-                class="flex min-h-8 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-raised/40"
+                class="tool-row-header flex min-h-7 min-w-0 items-center gap-2 overflow-hidden rounded-md px-1 text-left transition-colors hover:bg-raised/35"
+                aria-expanded={expanded()}
                 onClick={() => setOpen(!open())}
             >
                 <Show when={waiting()}>
@@ -314,19 +390,23 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
                 </Show>
                 <Show
                     when={!waiting() && running()}
-                    fallback={<span class="font-semibold text-ink">{t("settings.permissions.tool.read.title")}</span>}
+                    fallback={<span class="tool-row-title shrink-0">{summary()}</span>}
                 >
-                    <TextShimmer text={t("settings.permissions.tool.read.title")} class="font-semibold" />
+                    <TextShimmer text={summary()} class="tool-row-title shrink-0" />
                 </Show>
-                <span class="text-ink-faint">{label()}</span>
+                <Show when={detail()}>
+                    <span class="tool-row-subtitle min-w-0 truncate">· {detail()}</span>
+                </Show>
                 <Show when={waiting()}>
                     <span class="text-xs text-warn/90">{t("notification.permission.title")}</span>
                 </Show>
                 <Show when={activePart()}>{(part) => <ToolDuration state={toolDisplay(part())} />}</Show>
-                <Chevron open={expanded()} />
+                <span class="tool-row-chevron flex shrink-0">
+                    <Chevron open={expanded()} />
+                </span>
             </button>
             <Show when={expanded()}>
-                <div class="ml-2 flex flex-col gap-0.5 border-l-2 border-edge pl-3">
+                <div class="tool-children">
                     <For each={props.parts}>{(part) => <ToolView part={part} />}</For>
                 </div>
             </Show>

@@ -18,6 +18,7 @@ mod repository;
 
 #[cfg(test)]
 use capture::large_files;
+pub(crate) use git::plain_git;
 use repository::{find_source, unconverted_changes};
 
 /// One shadow repository per workspace, kept out of the workspace so it never shows up in git status.

@@ -1,10 +1,15 @@
 import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { shellInvoke, shellWindow } from "../shell";
 import { autoUpdate } from "../state/prefs";
-import { DriftLogo } from "./logo";
 import { t } from "../state/i18n";
 
-export function Titlebar() {
+/** Whether Drift draws its own window frame: the chat header holds the controls, the sidebar the brand. */
+export function nativeFrame() {
+    return !!shellWindow();
+}
+
+/** The update offer and the minimize, maximize and close buttons, at the right end of the chat header. */
+export function WindowControls(props: { offerUpdate?: boolean }) {
     const shell = shellWindow();
     // eslint-disable-next-line solid/components-return-once -- Shell availability is fixed at webview startup.
     if (!shell) return null;
@@ -26,7 +31,7 @@ export function Titlebar() {
             .catch(() => {});
 
         const check = () => {
-            if (!autoUpdate() || update()) return;
+            if (props.offerUpdate === false || !autoUpdate() || update()) return;
 
             void shellInvoke()?.("check_update")
                 .then((version) => typeof version === "string" && setUpdate(version))
@@ -43,49 +48,40 @@ export function Titlebar() {
     };
 
     return (
-        <header
-            data-tauri-drag-region
-            class="flex h-9 shrink-0 items-center justify-between border-b border-edge bg-surface select-none"
-        >
-            <div class="pointer-events-none flex items-center gap-2 px-3.5">
-                <DriftLogo class="size-[18px] text-ink-muted" />
-                <span class="drift-wordmark">drift</span>
-            </div>
-            <div class="flex h-full items-center">
-                <Show when={update()}>
-                    {(version) => (
-                        <button
-                            class="mr-2 flex h-6 items-center rounded-full border border-accent/40 bg-accent/10 px-2.5 text-[0.68rem] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-60"
-                            disabled={installing()}
-                            onClick={install}
-                        >
-                            {installing()
-                                ? t("settings.updates.action.installing")
-                                : t("error.page.action.updateTo", { version: version() })}
-                        </button>
-                    )}
-                </Show>
-                <div class="flex h-full">
-                    <WindowButton label={t("drift.titlebar.minimize")} onClick={() => shell.minimize()}>
-                        <path d="M3 8h10" />
-                    </WindowButton>
-                    <WindowButton
-                        label={maximized() ? t("drift.titlebar.restore") : t("drift.titlebar.maximize")}
-                        onClick={() => shell.toggleMaximize()}
+        <div class="window-controls flex items-center self-stretch" data-tauri-drag-region>
+            <Show when={update()}>
+                {(version) => (
+                    <button
+                        class="mr-2 flex h-6 items-center rounded-full border border-accent/40 bg-accent/10 px-2.5 text-[0.68rem] font-medium text-accent transition-colors hover:bg-accent/20 disabled:opacity-60"
+                        disabled={installing()}
+                        onClick={install}
                     >
-                        <Show when={maximized()} fallback={<rect x="4" y="4" width="8" height="8" rx="1" />}>
-                            <>
-                                <rect x="3" y="5.5" width="7.5" height="7.5" rx="1" />
-                                <path d="M5.5 5.5V4a1 1 0 0 1 1-1H12a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1h-1.5" />
-                            </>
-                        </Show>
-                    </WindowButton>
-                    <WindowButton label={t("common.close")} danger onClick={() => shell.close()}>
-                        <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
-                    </WindowButton>
-                </div>
+                        {installing()
+                            ? t("settings.updates.action.installing")
+                            : t("error.page.action.updateTo", { version: version() })}
+                    </button>
+                )}
+            </Show>
+            <div class="flex h-full">
+                <WindowButton label={t("drift.titlebar.minimize")} onClick={() => shell.minimize()}>
+                    <path d="M3 8h10" />
+                </WindowButton>
+                <WindowButton
+                    label={maximized() ? t("drift.titlebar.restore") : t("drift.titlebar.maximize")}
+                    onClick={() => shell.toggleMaximize()}
+                >
+                    <Show when={maximized()} fallback={<rect x="4" y="4" width="8" height="8" rx="1" />}>
+                        <>
+                            <rect x="3" y="5.5" width="7.5" height="7.5" rx="1" />
+                            <path d="M5.5 5.5V4a1 1 0 0 1 1-1H12a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1h-1.5" />
+                        </>
+                    </Show>
+                </WindowButton>
+                <WindowButton label={t("common.close")} danger onClick={() => shell.close()}>
+                    <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+                </WindowButton>
             </div>
-        </header>
+        </div>
     );
 }
 

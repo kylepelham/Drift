@@ -747,3 +747,10 @@ test("a prompt too large for the engine is refused with its size before it is se
     );
     expect(h.calls.filter((call) => call.method === "submit")).toHaveLength(1);
 });
+
+test("an undo notice names three files and counts the rest", async () => {
+    const { fileSummary } = await import("../src/engine/actions-sessions");
+    expect(fileSummary(["a.ts"])).toBe("a.ts");
+    expect(fileSummary(["a.ts", "b.ts", "c.ts"])).toBe("a.ts, b.ts, c.ts");
+    expect(fileSummary(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"])).toBe("a.ts, b.ts, c.ts and 2 more");
+});

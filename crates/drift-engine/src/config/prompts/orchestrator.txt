@@ -12,4 +12,4 @@ Status protocol (mandatory): end EVERY reply with exactly one status block as th
 <orchestrator_status>
 {"state": "working", "headline": "under 80 chars: what happens next"}
 </orchestrator_status>
-Valid states: "working" (there is more to do; you will be told to proceed), "done" (the goal is verifiably complete), "blocked" (user input is required; explain exactly what you need above the block). Never claim done without verification evidence from this session.
+Valid states: "working" (there is more to do; you will be told to proceed, or, while subagents you started in the background are still running, your turn ends and their results wake you, so never wait for them with task_output when you have nothing else to do), "done" (the goal is verifiably complete), "blocked" (user input is required; explain exactly what you need above the block). Never claim done without verification evidence from this session.

@@ -1,9 +1,24 @@
 use super::Store;
 use crate::id;
 use crate::session::types::{Part, PartRow};
-use rusqlite::{Connection, Row, params};
+use rusqlite::{Connection, OptionalExtension, Row, params};
 
 impl Store {
+    /// Finds one call through its session/call-id index, without loading the transcript.
+    pub fn call_part(&self, session_id: &str, call_id: &str) -> rusqlite::Result<Option<PartRow>> {
+        self.lock()
+            .prepare_cached(
+                "SELECT id, session_id, json, message_id, provider_signature FROM part
+                 WHERE session_id = ?1 AND json_extract(json, '$.callId') = ?2
+                 AND json_extract(json, '$.type') = 'tool_call' ORDER BY id LIMIT 1",
+            )?
+            .query_row(params![session_id, call_id], |row| {
+                let message_id: String = row.get(3)?;
+                map_part(row, &message_id)
+            })
+            .optional()
+    }
+
     /// A tool call whose id is empty or already used in the session gets an engine id: tasks, spilled
     /// output and recovery all find a call by its id.
     pub fn add_part(&self, message_id: &str, session_id: &str, mut part: Part) -> rusqlite::Result<PartRow> {
@@ -36,6 +51,31 @@ impl Store {
     /// Writes a still-streaming part as it stands, so a crash loses at most what came since.
     pub fn checkpoint_part(&self, row: &PartRow) -> rusqlite::Result<()> {
         save_part_in(&self.lock(), row)
+    }
+
+    /// The highest number a pasted image of the session was given; 0 before the first.
+    pub fn last_image_number(&self, session_id: &str) -> rusqlite::Result<u32> {
+        // The tag is serialized first, so the prefix keeps the scan to file parts.
+        self.lock()
+            .prepare_cached(
+                "SELECT COALESCE(MAX(json_extract(json, '$.image')), 0) FROM part
+                 WHERE session_id = ?1 AND json LIKE '{\"type\":\"file\"%'",
+            )?
+            .query_row(params![session_id], |row| row.get(0))
+    }
+
+    /// The pasted image the session knows by `number`; the newest when a race gave two the same.
+    pub fn image_numbered(&self, session_id: &str, number: u32) -> rusqlite::Result<Option<Part>> {
+        let json: Option<String> = self
+            .lock()
+            .prepare_cached(
+                "SELECT json FROM part WHERE session_id = ?1 AND json LIKE '{\"type\":\"file\"%'
+                 AND json_extract(json, '$.image') = ?2 ORDER BY id DESC LIMIT 1",
+            )?
+            .query_row(params![session_id, number], |row| row.get(0))
+            .optional()?;
+
+        Ok(json.and_then(|json| serde_json::from_str(&json).ok()))
     }
 
     /// The session's messages with a tool call still pending or running.

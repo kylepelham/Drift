@@ -30,6 +30,7 @@ mod processes;
 mod project_commands;
 mod retry_waits;
 mod routes;
+mod secret_masks;
 mod steering;
 mod streaming;
 mod subagent_endings;

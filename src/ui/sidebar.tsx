@@ -1,19 +1,30 @@
-import { addWorkspace, removedWorkspaces, selectWorkspace, updateWorkspace, workspaces } from "../state/workspaces";
-import { closeMobileDrawer, isNarrowWidth, mobileDrawerOpen, openMobileDrawer } from "../state/navigation";
+import { closeMobileDrawer, mobileDrawerOpen, openMobileDrawer } from "../state/navigation";
+import { createEffect, createSignal, For, onCleanup, Show, untrack } from "solid-js";
 import { listenOpencodeImport, opencodeImport } from "../state/opencode-import";
-import { createSignal, For, onCleanup, Show, untrack } from "solid-js";
+import { archiveFailed, forkThread, WorkspaceGroup } from "./workspaces";
 import { IconArchive, IconGear, IconPlus, IconSearch } from "./icons";
+import { createMediaQuery, smallScreenQuery } from "../state/screen";
 import { selectedSession, selectSession } from "../state/selection";
 import { pickBackup, saveBackup } from "./session-backup";
+import { emitThreadArchived } from "../plugins";
 import { normalizeDir } from "../engine/store";
-import { WorkspaceGroup } from "./workspaces";
 import { drawerSwipe } from "./drawer-swipe";
 import { pickFolder } from "../state/dialog";
 import { persisted } from "../state/persist";
 import { openSettings } from "./settings";
 import { ArchiveModal } from "./archive";
+import { nativeFrame } from "./titlebar";
 import { useEngine } from "../engine";
+import { DriftLogo } from "./logo";
 import { t } from "../state/i18n";
+import {
+    addWorkspace,
+    archiveSession,
+    removedWorkspaces,
+    selectWorkspace,
+    updateWorkspace,
+    workspaces,
+} from "../state/workspaces";
 import {
     SessionSearchBar,
     SessionSearchResults,
@@ -42,6 +53,10 @@ export function sidebarWidthFromDrag(startWidth: number, deltaX: number, scale: 
 
 export function Sidebar() {
     const engine = useEngine();
+    const narrow = createMediaQuery(smallScreenQuery);
+    createEffect(() => {
+        if (!narrow() && mobileDrawerOpen()) closeMobileDrawer();
+    });
     const [menu, setMenu] = createSignal<WorkspaceMenuState | null>(null);
     const [sessionMenu, setSessionMenu] = createSignal<SessionMenuState | null>(null);
     const [editing, setEditing] = createSignal<string | null>(null);
@@ -176,7 +191,7 @@ export function Sidebar() {
                         open: mobileDrawerOpen,
                         show: openMobileDrawer,
                         hide: () => closeMobileDrawer(),
-                        narrow: () => isNarrowWidth(window.innerWidth),
+                        narrow,
                     }),
                 )
             }
@@ -184,18 +199,28 @@ export function Sidebar() {
             classList={{ "mobile-sidebar-open": mobileDrawerOpen() }}
             style={{ width: `${width()}px` }}
             onClick={(event) => {
-                if (
-                    isNarrowWidth(window.innerWidth) &&
-                    event.target instanceof Element &&
-                    event.target.closest("[data-sidebar-navigation]")
-                )
+                if (narrow() && event.target instanceof Element && event.target.closest("[data-sidebar-navigation]"))
                     queueMicrotask(() => closeMobileDrawer());
             }}
         >
-            <div class="flex shrink-0 items-center justify-between pt-2.5 pb-1.5 pr-3.5 pl-4">
-                <span class="min-w-0 truncate text-[0.68rem] tracking-wider text-ink-faint uppercase">
-                    {t("drift.sidebar.workspaces")}
-                </span>
+            <div
+                class="sidebar-top flex shrink-0 items-center justify-between pr-3.5 pl-4"
+                classList={{ "h-11": nativeFrame(), "pt-2.5 pb-1.5": !nativeFrame() }}
+                data-tauri-drag-region={nativeFrame() ? "" : undefined}
+            >
+                <Show
+                    when={nativeFrame()}
+                    fallback={
+                        <span class="sidebar-heading min-w-0 truncate text-xs font-medium text-ink-faint">
+                            {t("drift.sidebar.workspaces")}
+                        </span>
+                    }
+                >
+                    <div class="pointer-events-none flex min-w-0 items-center gap-2 text-ink-faint">
+                        <DriftLogo class="size-4 shrink-0" />
+                        <span class="truncate text-xs font-medium">Drift</span>
+                    </div>
+                </Show>
                 <div class="flex items-center gap-0.5">
                     <button
                         class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink"
@@ -224,7 +249,7 @@ export function Sidebar() {
             <Show when={sessionSearchOpen()}>
                 <SessionSearchBar />
             </Show>
-            <nav class="app-sidebar-scroll min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-2 pb-2">
+            <nav class="app-sidebar-scroll min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2 pb-2">
                 <Show when={!sessionSearchActive()} fallback={<SessionSearchResults />}>
                     <For each={workspaces()}>
                         {(workspace) => (
@@ -257,6 +282,14 @@ export function Sidebar() {
                         workspaces={workspaces()}
                         onMove={(workspace) => void moveSessionTo(state(), workspace)}
                         onBackup={() => void backupThread(state().sessionId)}
+                        onFork={() => void forkThread(engine, state().sessionId, state().workspaceId)}
+                        onArchive={() => {
+                            const id = state().sessionId;
+                            if (selectedSession() === id) selectSession(null);
+                            void archiveSession(id, state().workspaceId, engine.actions.setArchived)
+                                .then(() => emitThreadArchived(id))
+                                .catch((cause: unknown) => archiveFailed(engine, cause));
+                        }}
                         onClose={() => setSessionMenu(null)}
                     />
                 )}

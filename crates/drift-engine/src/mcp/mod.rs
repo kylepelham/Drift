@@ -131,6 +131,7 @@ fn unreadable(name: String) -> ServerStatus {
         read_only_trusted: false,
         updated_at: 0,
         workspaces: Vec::new(),
+        bundle: None,
     };
     let error = concat!(
         "Its saved definition could not be read, probably because a newer Drift wrote it. ",
@@ -169,6 +170,9 @@ pub struct ServerRow {
     pub read_only_trusted: bool,
     /// Workspaces that chose otherwise than `enabled`, which is the choice everywhere else.
     pub workspaces: Vec<WorkspaceChoice>,
+    /// The bundle that brought it; that bundle's state decides its switch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bundle: Option<String>,
 }
 
 /// A workspace's own choice for a server: on there though off elsewhere, or the reverse.

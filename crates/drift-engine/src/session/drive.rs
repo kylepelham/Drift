@@ -1,5 +1,6 @@
 //! Drives orchestrator turns from their final `<orchestrator_status>` block, without a client watching.
-//! Working sends another prompt; done, blocked, failure or [`MAX_ROUNDS`] nudges ends the turn.
+//! Working sends another prompt, unless work it started is still running, whose result wakes it instead;
+//! done, blocked, failure or [`MAX_ROUNDS`] nudges ends the turn.
 //! The engine reads the status directly, rather than asking another model to judge the reply.
 
 use serde::Deserialize;
@@ -43,8 +44,8 @@ fn state(text: &str) -> Option<State> {
 }
 
 /// The nudge to send after `reply`, the last reply of a top-level orchestrator turn, given the
-/// nudges already sent for this prompt; `None` ends the turn.
-pub(super) fn next(session: &Session, reply: &MessageWithParts, rounds: usize) -> Option<&'static str> {
+/// nudges already sent for this prompt and whether background work it started still runs; `None` ends the turn.
+pub(super) fn next(session: &Session, reply: &MessageWithParts, rounds: usize, waiting: bool) -> Option<&'static str> {
     let info = &reply.info;
     let answered = info.status == MessageStatus::Done && info.error.is_none() && info.ending.is_none() && !info.summary;
     if session.agent != AGENT || session.parent_id.is_some() || !answered || rounds >= MAX_ROUNDS {
@@ -61,6 +62,8 @@ pub(super) fn next(session: &Session, reply: &MessageWithParts, rounds: usize) -
         .collect();
 
     match state(&text) {
+        // A nudge now could only wait for that work; its result starts the next turn by itself.
+        Some(State::Working) if waiting => None,
         Some(State::Working) => Some(PROCEED),
         None => Some(REMINDER),
         Some(State::Done | State::Blocked) => None,

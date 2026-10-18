@@ -81,6 +81,15 @@ headings roll over at midnight without a restart.
 
 ## Tool rendering
 
+Double-clicking a path anywhere in the window (prose, inline code, code blocks, shell output)
+selects all of it and copies it written for this platform: backslashes on Windows, where Git
+Bash's `/c/Users` becomes `C:\Users`, slashes elsewhere; a `:line` suffix is left off
+(`src/ui/path-copy.ts`). One document listener reads the text under the pointer when the
+double-click happens, so nothing is rendered differently. A path is a drive or root prefix, a
+file name with an extension, or two or more separators with a letter somewhere, so `and/or`,
+dates and web addresses still select a word. Inputs, buttons and links keep their own
+double-click.
+
 `src/ui/tool-labels.ts` owns tool titles, subtitles, patch-file selection and permission
 wait detection. Tool rows and message grouping share it rather than coupling these
 descriptions to the transcript renderer.
@@ -231,8 +240,11 @@ notification and sound choices, custom sound data, and global permission auto-ac
 Built-in sounds are Vite-managed URLs from OpenCode's MIT sound catalog, kept in `src/assets/audio`;
 audio bytes load only when played and require no asset-copy build step. Custom audio is
 stored locally as a capped data URL. Drift owns its English and 17 localized catalogs;
-only the selected non-English catalog loads as a cached Vite chunk. Custom CSS
-persistence and application are debounced.
+only the selected non-English catalog loads as a cached Vite chunk. Every locale carries
+every key in `en.ts`; the only exceptions are the invariants listed in
+`tests/settings.test.ts` (product names, `URL`, `GPU`), which fall back to English. UI text,
+notices and errors the frontend writes itself all go through `t()`; error text the engine
+sends is shown as it arrives. Custom CSS persistence and application are debounced.
 
 The About section shows the app version, the live engine version, whether this copy can
 update itself, a link to driftagent.dev, and credit to OpenCode. Update capability loads
@@ -282,6 +294,56 @@ Tool errors use the same clickable disclosure as successful tool rows. A prefere
 controls whether a newly failed tool starts expanded or collapsed; it never locks the
 row in that state.
 
+Settings > General > Transcript shapes tool rows. A command row shows the model's
+`description` (the command itself when there is none). "Command output" chooses how its output
+shows: Always collapsed (only the row, open one by clicking it), Open while running (the default:
+live output opens once a command has run for five seconds, so quick ones never flash open, and
+folds again when it finishes), or Always open. The setting was a switch before; on reads as Open
+while running and off as Always open. "Group consecutive tool
+calls" has a switch per kind (commands, edits, fetches, MCP tools, other; commands on by
+default): two or more consecutive calls of enabled kinds, across the steps of one turn,
+fold into one row such as `Ran 2 commands, edited 1 file`, which names the call in
+progress while one runs and, once finished, shows how long its longest command took. Any
+tool row leaves out a duration under a second. A
+disabled kind ends the run; reads, searches and listings group as `Read 4 files, searched
+2 patterns · <latest target>`; delegation and questions never group. The row stays
+collapsed while it runs, counts background commands still
+alive, and says Failed when any call failed. An opened group indents its calls with their
+own disclosure and no rule line. The edited files card ends a finished turn, never a step
+that only paused for its tools: up to three files with their language icon and summed
+counts (a subagent's files marked with its description), See all for the rest, and Undo,
+which on a second click reverts to the turn's prompt like the prompt's own undo. A file or
+See all opens the review panel on that turn.
+
+The review panel shares the slot right of the chat with the debug panel (opening one
+closes the other), is resizable by its left edge, and fills the screen with Back on a
+phone. Its source menu offers the turn it was opened from and, inside a git repository, All
+changes (the working tree against where the current branch left the main line: `main`,
+`master` or `develop`), uncommitted changes (untracked files included), Compare against
+(any other branch, searched) and Commits (one recent commit, searched); its button reads
+`base → current` for a branch. The header's diff button opens it on uncommitted changes.
+"This turn" folds every recorded call of the turn and its subagents into one change per
+file, from before its first change to after its last, so it includes what commands saw
+change while they ran. Files are unified diffs whose headers stay pinned while their lines
+scroll, with three lines of context, expandable "N unmodified lines" bars and Collapse all /
+Expand all; a file's lines are built only once it scrolls near the view, since the engine
+sends both versions merged line by line (read from git in one `cat-file --batch`). While it
+is open on the desktop, the window controls move to its header.
+
+The + beside a diff line opens a note on it (Enter saves, Shift+Enter breaks the line,
+Escape gives up). Notes belong to the composer draft of the conversation beside the panel:
+each shows under its line with Edit and Delete and as a Comment chip in the composer, and
+removing it in either place removes it from both. Sending turns them into one
+`review-comments.md` text attachment naming each file, line number and side with the line
+itself, so the sent message shows a chip rather than the notes; a draft of only notes can
+be sent.
+
+On the desktop Drift draws its own frame. The sidebar runs to the top of the window with
+the logo and its search, archive and add buttons; the chat header is the title bar, with
+the thread title, search, context meter and window controls. Empty header space drags the
+window and double-click maximizes it; double-clicking the title renames the thread. The
+companion and the phone keep the sidebar's Workspaces heading and no window controls.
+
 An adjacent compaction-only user boundary and its assistant summary become one
 collapsible transcript row. Session-level engine errors defensively end busy activity
 and render after the virtualized transcript unless the assistant message already owns
@@ -296,7 +358,8 @@ overflow recovery continues from that summary without duplicating the failed req
 User prompts carry a hover-only footer with their agent, friendly model name, time,
 copy, and revert action. Revert state comes from the engine session record; the chat
 filters messages at that marker while `/undo` and `/redo` move it one user prompt at a
-time. Reverted prompt text is returned to the composer for editing.
+time; a compaction's boundary counts as one, so `/undo` takes back a compaction. Reverted
+prompt text is returned to the composer for editing.
 
 Human-typed prompts render with conservative Markdown: backslashes stay literal, and the
 markers people paste by accident stay visible rather than becoming structure. A leading

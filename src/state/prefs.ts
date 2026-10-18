@@ -1,6 +1,7 @@
 import { backendInvoke } from "../backend";
 import { shellEvents } from "../shell";
 import { persisted } from "./persist";
+import { t } from "./i18n";
 
 import type { ModelRef } from "../engine/store";
 
@@ -72,7 +73,7 @@ function reportShellTimeoutError(error: string) {
 
 export async function setShellTimeoutMs(value: number | null) {
     const timeoutMs = normalizeShellTimeout(value);
-    if (value !== null && timeoutMs === null) throw new Error("Invalid shell timeout");
+    if (value !== null && timeoutMs === null) throw new Error(t("drift.shellTimeout.invalid"));
 
     const invoke = backendInvoke();
     if (!invoke) {
@@ -120,6 +121,42 @@ export const [compactionCollapsed, setCompactionCollapsed] = persisted<boolean>(
 export const [autoUpdate, setAutoUpdate] = persisted<boolean>("drift.autoUpdate", true);
 /** Day headings (Today, Yesterday, a weekday, a date) between a workspace's threads in the sidebar. */
 export const [sidebarDayDividers, setSidebarDayDividers] = persisted<boolean>("drift.sidebar.dayDividers", false);
+/** How a command's row shows its output: always folded, open only while it runs, or always open. */
+export const commandRowModes = ["collapsed", "running", "open"] as const;
+export type CommandRows = (typeof commandRowModes)[number];
+/** The setting was a switch first: on folded finished commands, off kept them open. */
+export function commandRowsFrom(value: unknown): CommandRows {
+    if (value === true) return "running";
+    if (value === false) return "open";
+    return commandRowModes.find((mode) => mode === value) ?? "running";
+}
+export const [commandRows, setCommandRows] = persisted<CommandRows>(
+    "drift.transcript.collapseCommands",
+    "running",
+    commandRowsFrom,
+);
+export const toolGroupKinds = ["commands", "edits", "fetches", "mcp", "other"] as const;
+export type ToolGroupKind = (typeof toolGroupKinds)[number];
+const toolGroupDefaults: Record<ToolGroupKind, boolean> = {
+    commands: true,
+    edits: false,
+    fetches: false,
+    mcp: false,
+    other: false,
+};
+const [storedToolGroups, setStoredToolGroups] = persisted<Record<ToolGroupKind, boolean>>(
+    "drift.transcript.groups",
+    toolGroupDefaults,
+);
+/** Which kinds of consecutive tool calls fold into one row. */
+export function toolGroups(): Record<ToolGroupKind, boolean> {
+    return { ...toolGroupDefaults, ...storedToolGroups() };
+}
+export function setToolGroup(kind: ToolGroupKind, on: boolean) {
+    setStoredToolGroups({ ...toolGroups(), [kind]: on });
+}
+/** The card at the end of a turn listing the files it changed. */
+export const [editedFilesCard, setEditedFilesCard] = persisted<boolean>("drift.transcript.editedFiles", true);
 export type KeptAutoAccept = { all: boolean; sessions: string[] };
 
 function keptAutoAccept(): KeptAutoAccept {

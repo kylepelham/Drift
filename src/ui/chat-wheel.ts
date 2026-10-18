@@ -41,3 +41,14 @@ export function normalizedWheelDelta(deltaY: number, deltaMode: number, viewport
 export function accumulatedWheelTarget(scrollTop: number, pendingTarget: number | null, delta: number, max: number) {
     return Math.min(max, Math.max(0, (pendingTarget ?? scrollTop) + delta));
 }
+
+/** A notch from a mouse wheel is animated; a touchpad's small, frequent deltas already are, so they apply at once. */
+export const wheelNotch = 50;
+/** How quickly the animation closes on its target, as Chromium's own wheel smoothing feels. */
+const wheelEaseMs = 70;
+
+/** Where the animated position is after `elapsed` ms: most of the way there each frame, exactly there once within half a pixel. */
+export function wheelStep(position: number, target: number, elapsed: number) {
+    const next = position + (target - position) * (1 - Math.exp(-elapsed / wheelEaseMs));
+    return Math.abs(target - next) < 0.5 ? target : next;
+}

@@ -1,10 +1,11 @@
 //! Skill packs, unpacked from a pinned tarball under the user's skills folder, and the per-skill switch.
 
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
+
+use super::archive::{self, ArchiveError};
 
 const SKILLS_DIR: &str = "skills";
 const MARKER: &str = ".drift-pack.json";
@@ -15,8 +16,6 @@ const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 pub enum SkillError {
     #[error("a pack id is letters, digits, dashes and underscores")]
     InvalidId,
-    #[error("a pack is fetched over https only")]
-    RequiresHttps,
     #[error("the archive holds no SKILL.md in the folders asked for")]
     NoSkills,
     #[error("not one of your skills")]
@@ -29,24 +28,14 @@ pub enum SkillError {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("not a zip archive: {0}")]
-    InvalidZip(zip::result::ZipError),
-    #[error("not a tar.gz archive: {0}")]
-    InvalidTar(std::io::Error),
-    #[error("could not read the archive: {0}")]
-    ArchiveEntry(std::io::Error),
     #[error(transparent)]
-    Zip(#[from] zip::result::ZipError),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
+    Archive(#[from] ArchiveError),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Worker(#[from] tokio::task::JoinError),
     #[error(transparent)]
     Config(#[from] super::plugins::PluginError),
-    #[error(transparent)]
-    Source(#[from] super::sources::SourceError),
 }
 
 fn file_error(operation: &'static str, path: &Path, source: std::io::Error) -> SkillError {
@@ -137,50 +126,12 @@ pub async fn install(
         return Err(SkillError::InvalidId);
     }
 
-    let bytes = match source {
-        Some(source) => {
-            let token = fetcher.token(source);
-            let location = if pack.archive.trim().is_empty() {
-                source.archive(token.as_deref())?
-            } else {
-                source.file(&pack.archive, token.as_deref())?
-            };
-            fetcher.read(source, location, MAX_ARCHIVE_BYTES).await?
-        }
-        None => {
-            if !pack.archive.starts_with("https://") {
-                return Err(SkillError::RequiresHttps);
-            }
-            let drift = super::sources::RegistrySource {
-                id: String::new(),
-                name: "Drift".into(),
-                kind: super::sources::RegistryKind::Plugins,
-                source: Default::default(),
-                url: pack.archive.clone(),
-                r#ref: String::new(),
-                path: String::new(),
-                has_token: false,
-                allow_http: false,
-                ca_pem: None,
-            };
-            fetcher
-                .read(
-                    &drift,
-                    super::sources::Location::Http {
-                        url: pack.archive.clone(),
-                        headers: Vec::new(),
-                    },
-                    MAX_ARCHIVE_BYTES,
-                )
-                .await?
-        }
-    };
-
+    let bytes = archive::fetch(fetcher, source, &pack.archive, MAX_ARCHIVE_BYTES).await?;
     let dir = packs_dir()?.join(&pack.id);
     let into = dir.clone();
     let subdirs = pack.subdirs.clone();
     let wanted = pack.skills.clone();
-    let skills = tokio::task::spawn_blocking(move || unpack_any(&bytes, &into, &subdirs, &wanted)).await??;
+    let skills = tokio::task::spawn_blocking(move || unpack(&bytes, &into, &subdirs, &wanted)).await??;
 
     let installed = Pack {
         id: pack.id,
@@ -197,126 +148,45 @@ pub async fn install(
     Ok(installed)
 }
 
-/// GitHub serves tar.gz; Azure DevOps serves zip. Either is told apart by its first bytes.
-fn unpack_any(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, SkillError> {
-    if bytes.starts_with(b"PK") {
-        return unpack_zip(bytes, into, subdirs, wanted);
-    }
-
-    unpack(bytes, into, subdirs, wanted)
-}
-
-/// A zip archive the same way: Azure's has no top-level folder, so paths are taken as they are.
-fn unpack_zip(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, SkillError> {
-    if into.exists() {
-        std::fs::remove_dir_all(into).map_err(|error| file_error("replace", into, error))?;
-    }
-    std::fs::create_dir_all(into).map_err(|error| file_error("create", into, error))?;
-    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(SkillError::InvalidZip)?;
-    let mut skills = Vec::new();
-
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index)?;
-        if entry.is_dir() || entry.size() > MAX_FILE_BYTES {
-            continue;
-        }
-        let Some(name) = entry.enclosed_name() else { continue };
-        let relative = name.clone();
-        if !subdirs.is_empty() && !subdirs.iter().any(|sub| relative.starts_with(sub.trim_matches('/'))) {
-            continue;
-        }
-        if !wanted.is_empty()
-            && !relative
-                .components()
-                .any(|part| wanted.iter().any(|skill| part.as_os_str() == skill.as_str()))
-        {
-            continue;
-        }
-        let target = into.join(&relative);
-        let capacity = entry.size();
-        write_archive_file(&target, &mut entry, capacity)?;
-        note_skill(&relative, &mut skills);
-    }
-    if skills.is_empty() {
-        let _ = std::fs::remove_dir_all(into);
-        return Err(SkillError::NoSkills);
-    }
-
-    skills.sort();
-    Ok(skills)
-}
-
-/// Writes the archive's files under `into` without its top folder, keeping only `subdirs` and `wanted` skills when given.
+/// Writes the archive's files under `into`, keeping only `subdirs` and `wanted` skills when given; the skills it holds.
 fn unpack(bytes: &[u8], into: &Path, subdirs: &[String], wanted: &[String]) -> Result<Vec<String>, SkillError> {
-    if into.exists() {
-        std::fs::remove_dir_all(into).map_err(|error| file_error("replace", into, error))?;
-    }
-    std::fs::create_dir_all(into).map_err(|error| file_error("create", into, error))?;
-    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(bytes));
-    let entries = archive.entries().map_err(SkillError::InvalidTar)?;
-    let mut skills = Vec::new();
-
-    for entry in entries {
-        let mut entry = entry.map_err(SkillError::ArchiveEntry)?;
-        if !entry.header().entry_type().is_file() || entry.size() > MAX_FILE_BYTES {
-            continue;
-        }
-        let path = entry.path()?.into_owned();
-        let Some(relative) = inner_path(&path, subdirs) else {
-            continue;
-        };
-        if !wanted.is_empty()
-            && !relative
-                .components()
-                .any(|part| wanted.iter().any(|skill| part.as_os_str() == skill.as_str()))
-        {
-            continue;
-        }
-        let target = into.join(&relative);
-        let capacity = entry.size();
-        write_archive_file(&target, &mut entry, capacity)?;
-        note_skill(&relative, &mut skills);
-    }
+    let keep = |relative: &Path| kept(relative, subdirs, wanted).then(|| relative.to_path_buf());
+    let plan = archive::Unpack {
+        into,
+        keep: &keep,
+        max_file: Some(MAX_FILE_BYTES),
+    };
+    let staged = archive::unpack(bytes, &plan)?;
+    let mut skills: Vec<String> = staged.paths.iter().filter_map(|relative| skill_of(relative)).collect();
     if skills.is_empty() {
-        let _ = std::fs::remove_dir_all(into);
         return Err(SkillError::NoSkills);
     }
+    staged.commit(into)?;
 
     skills.sort();
     Ok(skills)
 }
 
-fn write_archive_file(target: &Path, entry: &mut impl Read, capacity: u64) -> Result<(), SkillError> {
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| file_error("create", parent, error))?;
-    }
+/// Inside one of `subdirs` when any are given, and inside a wanted skill's folder when any are named.
+fn kept(relative: &Path, subdirs: &[String], wanted: &[String]) -> bool {
+    let in_subdir = subdirs.is_empty() || subdirs.iter().any(|sub| relative.starts_with(sub.trim_matches('/')));
+    let in_skill = wanted.is_empty()
+        || relative
+            .components()
+            .any(|part| wanted.iter().any(|skill| part.as_os_str() == skill.as_str()));
 
-    let mut content = Vec::with_capacity(capacity as usize);
-    entry.read_to_end(&mut content)?;
-    std::fs::write(target, content).map_err(|error| file_error("write", target, error))
+    in_subdir && in_skill
 }
 
-fn note_skill(relative: &Path, skills: &mut Vec<String>) {
-    if relative.file_name().is_some_and(|name| name == "SKILL.md")
-        && let Some(skill) = relative.parent().and_then(Path::file_name)
-    {
-        skills.push(skill.to_string_lossy().into_owned());
-    }
-}
-
-/// Where an archive entry lands: its path without the top folder, inside `subdirs` when given, never climbing out.
-fn inner_path(path: &Path, subdirs: &[String]) -> Option<PathBuf> {
-    let mut parts = path.components();
-    parts.next()?;
-    let relative: PathBuf = parts.as_path().to_path_buf();
-    if relative.as_os_str().is_empty() || relative.components().any(|part| !matches!(part, Component::Normal(_))) {
-        return None;
-    }
-    if !subdirs.is_empty() && !subdirs.iter().any(|sub| relative.starts_with(sub.trim_matches('/'))) {
+fn skill_of(relative: &Path) -> Option<String> {
+    if relative.file_name()? != "SKILL.md" {
         return None;
     }
 
-    Some(relative)
+    relative
+        .parent()
+        .and_then(Path::file_name)
+        .map(|skill| skill.to_string_lossy().into_owned())
 }
 
 /// Every pack installed this way, by its marker.
@@ -495,12 +365,12 @@ body",
         assert!(into.join("skills/grill-me/notes.md").is_file());
         assert!(!into.join("README.md").exists() && !into.join("docs").exists());
         assert_eq!(
-            inner_path(Path::new("repo-main/skills/../../escape.md"), &[]),
+            archive::without_top_folder(Path::new("repo-main/skills/../../escape.md")),
             None,
             "a climbing path is dropped"
         );
         assert_eq!(
-            inner_path(Path::new("repo-main"), &[]),
+            archive::without_top_folder(Path::new("repo-main")),
             None,
             "the top folder itself is nothing"
         );

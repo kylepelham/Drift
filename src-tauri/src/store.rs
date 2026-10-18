@@ -123,6 +123,9 @@ pub(crate) fn attach(engine: Arc<drift_engine::store::Store>) -> rusqlite::Resul
             original_json TEXT,
             updated_at INTEGER NOT NULL
         ) STRICT;
+        CREATE TABLE IF NOT EXISTS imported_folder(
+            path TEXT PRIMARY KEY
+        ) STRICT;
         CREATE TABLE IF NOT EXISTS app_setting(
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -268,12 +271,23 @@ impl Store {
                    SELECT 1 FROM workspace existing
                    WHERE LOWER(REPLACE(existing.path, '\\', '/')) = LOWER(REPLACE(project.worktree, '\\', '/'))
                )
+                AND LOWER(REPLACE(project.worktree, '\\', '/')) NOT IN (SELECT path FROM imported_folder)
              GROUP BY project.id, project.worktree, project.name",
             params![temp_prefix],
         );
+        // A folder that is or was a workspace is offered once: one removed stays removed, even after its row is purged.
+        let remembered = connection.execute(
+            "INSERT OR IGNORE INTO imported_folder(path)
+             SELECT LOWER(REPLACE(project.worktree, '\\', '/')) FROM opencode_import.project project
+             WHERE EXISTS (
+                 SELECT 1 FROM workspace existing
+                 WHERE LOWER(REPLACE(existing.path, '\\', '/')) = LOWER(REPLACE(project.worktree, '\\', '/'))
+             )",
+            [],
+        );
         let _ = connection.execute_batch("DETACH DATABASE opencode_import");
 
-        result
+        result.and_then(|added| remembered.map(|_| added))
     }
 
     /// Workspaces still in use, most recently opened first.
@@ -417,6 +431,13 @@ impl Store {
         let connection = self.0.lock();
         connection
             .prepare_cached("DELETE FROM session_meta WHERE workspace_id = ?1")?
+            .execute([id])?;
+        // Its folder is remembered as it goes, so an opencode import never offers it again, even one that never ran before.
+        connection
+            .prepare_cached(
+                "INSERT OR IGNORE INTO imported_folder(path)
+                 SELECT LOWER(REPLACE(path, '\\', '/')) FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL",
+            )?
             .execute([id])?;
         let removed = connection
             .prepare_cached("DELETE FROM workspace WHERE id = ?1 AND removed_at IS NOT NULL")?

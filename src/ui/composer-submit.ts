@@ -132,7 +132,7 @@ export function createComposerSubmit<Prepared>(
 }
 
 function emptySubmission(text: string, snapshot: ComposerDraft) {
-    return !text && snapshot.staged.length === 0;
+    return !text && snapshot.staged.length === 0 && snapshot.comments.length === 0;
 }
 
 function staleSubmission<Prepared>(environment: ComposerSubmitEnvironment<Prepared>, scope: string) {

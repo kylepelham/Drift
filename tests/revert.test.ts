@@ -50,7 +50,7 @@ test("redo with no next user message unreverts and clears the draft", async () =
     const { composerDraft, composerScope, setComposerDraft } = await import("../src/state/composer");
     const engine = fakeEngine(transcript);
     engine.setMarker("05");
-    setComposerDraft(composerScope("s1"), { text: "third", staged: [], mentions: [] });
+    setComposerDraft(composerScope("s1"), { text: "third", staged: [], mentions: [], comments: [] });
     expect(await restoreReverted(engine, "s1", "05")).toBeTrue();
     expect(engine.calls).toEqual(["unrevert:s1"]);
     expect(engine.getMarker()).toBeUndefined();
@@ -62,7 +62,7 @@ test("repeated redo advances one user turn then unreverts", async () => {
     const { composerDraft, composerScope, setComposerDraft } = await import("../src/state/composer");
     const engine = fakeEngine(transcript);
     engine.setMarker("03");
-    setComposerDraft(composerScope("s1"), { text: "second", staged: [], mentions: [] });
+    setComposerDraft(composerScope("s1"), { text: "second", staged: [], mentions: [], comments: [] });
     await restoreReverted(engine, "s1", engine.getMarker()!);
     expect(engine.calls).toEqual(["revert:s1:05"]);
     expect(engine.getMarker()).toBe("05");
@@ -78,7 +78,7 @@ test("failed revert leaves the composer draft untouched", async () => {
     const { composerDraft, composerScope, setComposerDraft } = await import("../src/state/composer");
     const engine = fakeEngine(transcript);
     engine.actions.revert = () => Promise.resolve(false);
-    setComposerDraft(composerScope("s1"), { text: "kept", staged: [], mentions: [] });
+    setComposerDraft(composerScope("s1"), { text: "kept", staged: [], mentions: [], comments: [] });
     expect(await restoreReverted(engine, "s1", "03")).toBeFalse();
     expect(composerDraft(composerScope("s1")).text).toBe("kept");
 });
@@ -88,7 +88,7 @@ test("failed unrevert leaves the composer draft untouched", async () => {
     const { composerDraft, composerScope, setComposerDraft } = await import("../src/state/composer");
     const engine = fakeEngine(transcript);
     engine.actions.unrevert = () => Promise.resolve(false);
-    setComposerDraft(composerScope("s1"), { text: "kept", staged: [], mentions: [] });
+    setComposerDraft(composerScope("s1"), { text: "kept", staged: [], mentions: [], comments: [] });
     expect(await restoreReverted(engine, "s1", "05")).toBeFalse();
     expect(composerDraft(composerScope("s1")).text).toBe("kept");
 });
@@ -184,4 +184,33 @@ test("the transcript shows a loading row while reverted history backfills", asyn
     expect(source).toContainCode("timeline().length === 0 && (revertBackfill() ||");
     // Each finished page re-runs the effect, so paging continues past a fully reverted page.
     expect(backfill).toContainCode(".finally(() => setRevertBackfill(false))");
+});
+
+function boundary(id: string): MessageEntry {
+    return { info: { id, role: "user" } as Message, parts: [{ id: `${id}-part`, type: "compaction" } as Part] };
+}
+
+test("retrying a failed compaction undoes its boundary and summarises again", async () => {
+    const { retryCompaction, revertPreview } = await import("../src/ui/revert");
+    const { composerDraft, composerScope, setComposerDraft } = await import("../src/state/composer");
+    const engine = fakeEngine([...transcript, assistant("06"), boundary("07"), assistant("08")]);
+    const summarize = (id: string) => (engine.calls.push(`summarize:${id}`), Promise.resolve());
+    setComposerDraft(composerScope("s1"), { text: "typing", staged: [], mentions: [], comments: [] });
+
+    expect(await retryCompaction({ ...engine, actions: { ...engine.actions, summarize } }, "s1", "08")).toBeTrue();
+    expect(engine.calls).toEqual(["revert:s1:07", "summarize:s1"]);
+    expect(composerDraft(composerScope("s1")).text).toBe("typing");
+    expect(revertPreview(boundary("07"))).toBe("Context compacted");
+});
+
+test("retry never undoes a prompt, and a failed undo does not summarise", async () => {
+    const { retryCompaction } = await import("../src/ui/revert");
+    const engine = fakeEngine([...transcript, assistant("06"), boundary("07"), assistant("08")]);
+    const summarize = (id: string) => (engine.calls.push(`summarize:${id}`), Promise.resolve());
+    const host = { ...engine, actions: { ...engine.actions, summarize } };
+
+    expect(await retryCompaction(host, "s1", "06")).toBeFalse();
+    host.actions.revert = () => Promise.resolve(false);
+    expect(await retryCompaction(host, "s1", "08")).toBeFalse();
+    expect(engine.calls).toEqual([]);
 });

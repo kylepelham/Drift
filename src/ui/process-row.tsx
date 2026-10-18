@@ -108,10 +108,14 @@ export function ProcessExitRow(props: { part: ProcessExitPart }) {
 /** A span of milliseconds as a person would say it. */
 export function processSpan(milliseconds: number) {
     const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-    if (seconds < 60) return `${seconds} s`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+    if (seconds < 60) return t("drift.process.span.seconds", { seconds });
+    if (seconds < 3600)
+        return t("drift.process.span.minutes", { minutes: Math.floor(seconds / 60), seconds: seconds % 60 });
 
-    return `${Math.floor(seconds / 3600)} h ${Math.floor((seconds % 3600) / 60)} min`;
+    return t("drift.process.span.hours", {
+        hours: Math.floor(seconds / 3600),
+        minutes: Math.floor((seconds % 3600) / 60),
+    });
 }
 
 /** Under a shell call that went on in the background: how that process is now, its newest line, Open and Stop. */

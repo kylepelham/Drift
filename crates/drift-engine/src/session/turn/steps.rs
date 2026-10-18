@@ -334,8 +334,15 @@ impl Engine {
         }
     }
 
-    /// Opens the response. A refused sign-in is renewed once and the request sent again; the turn keeps the new token.
-    async fn open_response(&self, plan: &mut Plan, request: &Request) -> Result<llm::ChunkStream, llm::Error> {
+    /// Opens the response with `masks` hiding the secrets. A refused sign-in is renewed once and the request sent
+    /// again; the turn keeps the new token.
+    async fn open_response(
+        &self,
+        plan: &mut Plan,
+        request: &Request,
+        masks: &crate::llm::mask::Masks,
+    ) -> Result<llm::ChunkStream, llm::Error> {
+        let request = &*masks.request(request);
         let refused = match plan.provider.stream(request, &plan.credential).await {
             Err(llm::Error::Unauthenticated(words)) if matches!(plan.credential, Credential::OAuth { .. }) => words,
             opened => return opened,
@@ -362,11 +369,13 @@ impl Engine {
         request: &Request,
         abort: &CancellationToken,
     ) -> Result<Streamed, StreamError> {
+        // One snapshot for the whole response: a reload while it streams must not reveal by other pairs than it hid by.
+        let masks = self.hooks.masks();
         let mut chunks = tokio::select! {
-            opened = self.open_response(plan, request) => opened.map_err(StreamError::Provider)?,
+            opened = self.open_response(plan, request, &masks) => opened.map_err(StreamError::Provider)?,
             () = abort.cancelled() => return Err(StreamError::Aborted),
         };
-        let mut assembler = Assembler::new(&self.store, &self.hub, message);
+        let mut assembler = Assembler::new(&self.store, &self.hub, message).revealing(masks);
         let files = self.turns.files_for(&self.store, &plan.session.id);
         let mut early = early::Early::new(abort);
         let scope = early::ReadScope {

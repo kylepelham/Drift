@@ -113,15 +113,69 @@ export async function codeTokens(code: string, lang: string): Promise<SyntaxToke
     const cached = tokenCache.get(key);
     if (cached) return cached.catch(() => []);
 
-    const result = (shikiModule ??= import("shiki"))
+    const result = workerTokens(code, lang, theme) ?? mainThreadTokens(code, lang, theme);
+
+    return tokenCache.set(key, shikiSourceSize(key, code), result).catch(() => []);
+}
+
+function mainThreadTokens(code: string, lang: string, theme: BundledTheme) {
+    return (shikiModule ??= import("shiki"))
         .then((shiki) => shiki.codeToTokens(code, { lang: lang as BundledLanguage | SpecialLanguage, theme }))
         .then((value) =>
             value.tokens.map((line) =>
                 line.map((token) => ({ content: token.content, color: token.color, fontStyle: token.fontStyle })),
             ),
         );
+}
 
-    return tokenCache.set(key, shikiSourceSize(key, code), result).catch(() => []);
+type WorkerReply = { id: number; tokens?: SyntaxToken[][]; error?: string };
+let worker: Worker | undefined;
+let workerBroken = false;
+let nextRequest = 0;
+type Waiting = {
+    resolve: (tokens: SyntaxToken[][]) => void;
+    reject: (error: Error) => void;
+    code: string;
+    lang: string;
+    theme: BundledTheme;
+};
+const waiting = new Map<number, Waiting>();
+
+/** Tokens from the syntax worker; none where workers are unavailable (the test runner), so the main thread does it. */
+function workerTokens(code: string, lang: string, theme: BundledTheme): Promise<SyntaxToken[][]> | undefined {
+    if (workerBroken || typeof Worker === "undefined") return undefined;
+    worker ??= startWorker();
+    if (!worker) return undefined;
+
+    const id = ++nextRequest;
+    return new Promise((resolve, reject) => {
+        waiting.set(id, { resolve, reject, code, lang, theme });
+        worker!.postMessage({ id, code, lang, theme });
+    });
+}
+
+function startWorker() {
+    try {
+        const started = new Worker(new URL("./syntax-worker.ts", import.meta.url), { type: "module" });
+        started.onmessage = (event: MessageEvent<WorkerReply>) => {
+            const request = waiting.get(event.data.id);
+            waiting.delete(event.data.id);
+            if (event.data.tokens) request?.resolve(event.data.tokens);
+            else request?.reject(new Error(event.data.error ?? "highlighting failed"));
+        };
+        // A worker that cannot start leaves highlighting to the main thread from then on.
+        started.onerror = () => {
+            workerBroken = true;
+            worker = undefined;
+            for (const request of waiting.values())
+                mainThreadTokens(request.code, request.lang, request.theme).then(request.resolve, request.reject);
+            waiting.clear();
+        };
+        return started;
+    } catch {
+        workerBroken = true;
+        return undefined;
+    }
 }
 
 export function highlightedCode(code: string, lang: string, theme: BundledTheme) {

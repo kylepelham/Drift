@@ -200,6 +200,7 @@ fn files(h: &Harness) -> (Part, String) {
             name: "shot.png".into(),
             url: format!("data:image/png;base64,{png}"),
             path: None,
+            image: None,
         },
         lines,
     )

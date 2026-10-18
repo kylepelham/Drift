@@ -4,17 +4,23 @@ import * as ts from "typescript";
 
 const source = await Bun.file(new URL("../src/ui/workspaces.tsx", import.meta.url)).text();
 const parsed = ts.createSourceFile("workspaces.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const component = parsed.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "ThreadItem")!;
-const compiled = ts.transpileModule(component.getText(parsed), {
+// The row and the fork helper it shares with the thread menu, with what they import supplied below.
+const named = (node: ts.Statement, name: string) =>
+    (ts.isFunctionDeclaration(node) && node.name?.text === name) ||
+    (ts.isVariableStatement(node) &&
+        node.declarationList.declarations.some((item) => ts.isIdentifier(item.name) && item.name.text === name));
+const wanted = ["forksUnderWay", "forkThread", "ThreadItem"];
+const pieces = parsed.statements.filter((node) => wanted.some((name) => named(node, name)));
+const compiled = ts.transpileModule(pieces.map((node) => node.getText(parsed).replace(/^export /, "")).join("\n"), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React, jsxFactory: "jsx" },
     fileName: "workspaces.tsx",
 }).outputText;
 
 type Node = { type: string; props: { onClick?: () => void }; children: Node[] };
 
-function setup() {
+function setup(current = "workspace") {
     let selection = "source";
-    let workspace = "workspace";
+    let workspace = current;
     let finish!: (session: { id: string } | undefined) => void;
     const pending = new Promise<{ id: string } | undefined>((resolve) => {
         finish = resolve;
@@ -38,6 +44,7 @@ function setup() {
         StatusDot: "status",
         IconBranch: "branch",
         IconArchive: "archive",
+        IconDots: "dots",
         jsx: (type: string, props: Node["props"], ...children: Node[]): Node => ({ type, props, children }),
     };
     const render = new Function(
@@ -54,6 +61,7 @@ function setup() {
     return {
         fork,
         selectSession,
+        workspace: () => workspace,
         finish,
         click: buttons(tree)[0].props.onClick!,
         navigate: (id: string) => {
@@ -92,4 +100,20 @@ test("a failed sidebar fork can be retried", async () => {
     expect(view.selectSession).not.toHaveBeenCalled();
     view.click();
     expect(view.fork).toHaveBeenCalledTimes(2);
+});
+
+test("forking a row in another workspace moves there only once the copy exists", async () => {
+    const failed = setup("elsewhere");
+    failed.click();
+    expect(failed.workspace()).toBe("elsewhere");
+    failed.finish(undefined);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(failed.workspace()).toBe("elsewhere");
+
+    const forked = setup("elsewhere");
+    forked.click();
+    forked.finish({ id: "forked" });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(forked.workspace()).toBe("workspace");
+    expect(forked.selectSession).toHaveBeenCalledWith("forked");
 });

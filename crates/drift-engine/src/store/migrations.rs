@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 39] = [
+pub(super) const MIGRATIONS: [&str; 40] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -188,6 +188,8 @@ pub(super) const MIGRATIONS: [&str; 39] = [
     "ALTER TABLE message ADD COLUMN account TEXT;",
     // What the provider said about a safety refusal: its category, explanation and suggested model.
     "ALTER TABLE message ADD COLUMN refusal_json TEXT;",
+    // The bundle that brought the server; its switch belongs to the bundle's screen.
+    "ALTER TABLE mcp_config ADD COLUMN bundle TEXT;",
 ];
 
 #[cfg(test)]

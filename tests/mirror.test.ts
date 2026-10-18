@@ -155,5 +155,5 @@ test("startup replaces its host placeholder after workspace hydration", async ()
     const source = await Bun.file("src/main.tsx").text();
     expect(source.indexOf("await workspaces.initWorkspaces()")).toBeLessThan(source.indexOf("render(() => <App />"));
     expect(source.lastIndexOf("root.replaceChildren()")).toBeLessThan(source.indexOf("render(() => <App />"));
-    expect(source).toContain("Connecting to Drift host...");
+    expect(source).toContain('t("drift.host.connecting")');
 });

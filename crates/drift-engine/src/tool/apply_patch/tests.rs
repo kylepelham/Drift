@@ -104,14 +104,13 @@ fn read_all(sandbox: &Sandbox, names: &[&str]) {
 }
 
 #[tokio::test]
-async fn an_unread_existing_file_is_never_patched() {
+async fn an_unread_file_is_never_replaced_deleted_or_moved_onto() {
     let sandbox = Sandbox::new("apply-patch-unread");
     sandbox.file("kept.txt", "mine\n");
     sandbox.file("source.txt", "s\n");
     read_all(&sandbox, &["source.txt"]);
     for patch in [
         "*** Begin Patch\n*** Add File: kept.txt\n+replaced\n*** End Patch\n",
-        "*** Begin Patch\n*** Update File: kept.txt\n-mine\n+theirs\n*** End Patch\n",
         "*** Begin Patch\n*** Delete File: kept.txt\n*** End Patch\n",
         "*** Begin Patch\n*** Update File: source.txt\n*** Move to: kept.txt\n-s\n+t\n*** End Patch\n",
     ] {
@@ -255,4 +254,33 @@ async fn a_failed_hunk_names_the_file_and_changes_nothing() {
         std::fs::read_to_string(sandbox.ctx.workspace.join("a.txt")).unwrap(),
         "one\n"
     );
+}
+
+#[tokio::test]
+async fn a_hunk_patches_an_unread_file_since_its_context_must_match() {
+    let sandbox = Sandbox::new("apply-patch-unread-hunk");
+    let path = sandbox.file("kept.txt", "mine\n");
+
+    ApplyPatch
+        .run(
+            &sandbox.ctx,
+            json!({ "patch": "*** Begin Patch\n*** Update File: kept.txt\n-mine\n+theirs\n*** End Patch\n" }),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs\n");
+    assert!(
+        !sandbox.ctx.files.was_read(&path),
+        "a hunk proves the lines it changed, not the whole file"
+    );
+    let deleted = ApplyPatch
+        .run(
+            &sandbox.ctx,
+            json!({ "patch": "*** Begin Patch\n*** Delete File: kept.txt\n*** End Patch\n" }),
+        )
+        .await
+        .unwrap_err();
+    assert!(deleted.0.contains("has not been read"), "{}", deleted.0);
+    assert!(path.exists(), "deleting it still needs a read");
 }

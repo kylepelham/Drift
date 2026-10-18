@@ -48,6 +48,9 @@ a remote device see the same servers.
   filled word by word.
 - Instructions a server sends when it connects go into the system prompt, but only for a turn
   that is offered that server's tools.
+- A server a bundle brought (`bundle` on the server) is switched on the bundle's screen in
+  Settings > Plugins, not here: the list shows one row per bundle with a link to it, and the
+  bundle's state sets the server's switch (see Bundles in [extensibility.md](extensibility.md)).
 
 ## Registry
 

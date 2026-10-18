@@ -3,6 +3,7 @@
  * (`crates/drift-engine/src/session/drive.rs`): it keeps a turn going while the agent's status
  * block says `working`. The UI only reports how a driven turn ended.
  */
+import { t } from "./i18n";
 
 export const ORCHESTRATOR_AGENT = "orchestrator";
 
@@ -95,20 +96,20 @@ function orchestratorTurnEnded(input: OrchestratorEndInput) {
 function orchestratorEndNotice(status: OrchestratorStatus | undefined, rounds: number): OrchestratorNotice | null {
     if (status?.state === "done")
         return {
-            title: "Orchestrator finished",
-            message: status.headline ?? "The goal was reported complete.",
+            title: t("drift.orchestrator.finished"),
+            message: status.headline ?? t("drift.orchestrator.finished.message"),
             variant: "success",
         };
     if (status?.state === "blocked")
         return {
-            title: "Orchestrator blocked",
-            message: status.headline ?? "The orchestrator needs your input to continue.",
+            title: t("drift.orchestrator.blocked"),
+            message: status.headline ?? t("drift.orchestrator.blocked.message"),
             variant: "warning",
         };
     if (rounds < ORCHESTRATOR_MAX_ROUNDS) return null;
     return {
-        title: "Orchestrator paused",
-        message: "The round limit was reached for this goal. Send a message to keep going.",
+        title: t("drift.orchestrator.paused"),
+        message: t("drift.orchestrator.paused.message"),
         variant: "warning",
     };
 }

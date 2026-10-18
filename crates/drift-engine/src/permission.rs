@@ -141,6 +141,11 @@ impl Permissions {
         }
     }
 
+    /// Records the stored accept-all setting at startup, when nothing is waiting to settle.
+    pub fn load_auto_accept_all(&self, on: bool) {
+        self.auto_all.store(on, std::sync::atomic::Ordering::SeqCst);
+    }
+
     fn auto_accepts(&self, session_id: &str) -> bool {
         if self.auto_all.load(std::sync::atomic::Ordering::SeqCst) {
             return true;

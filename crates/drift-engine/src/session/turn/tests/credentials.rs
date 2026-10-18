@@ -18,6 +18,15 @@ impl Drop for FakeTokenEndpoint {
 
 /// A slow Anthropic token endpoint answering every refresh with `status` and `body`; counts the refreshes.
 async fn token_endpoint(status: u16, body: serde_json::Value) -> (FakeTokenEndpoint, Arc<AtomicUsize>) {
+    token_endpoint_taking(Duration::from_millis(100), status, body).await
+}
+
+/// As [`token_endpoint`], each refresh taking `delay`.
+async fn token_endpoint_taking(
+    delay: Duration,
+    status: u16,
+    body: serde_json::Value,
+) -> (FakeTokenEndpoint, Arc<AtomicUsize>) {
     let held = TOKEN_ENDPOINT.lock().await;
     let hits = Arc::new(AtomicUsize::new(0));
     let counter = hits.clone();
@@ -27,7 +36,7 @@ async fn token_endpoint(status: u16, body: serde_json::Value) -> (FakeTokenEndpo
             let (counter, body) = (counter.clone(), body.clone());
             async move {
                 counter.fetch_add(1, Ordering::SeqCst);
-                tokio::time::sleep(Duration::from_millis(100)).await;
+                tokio::time::sleep(delay).await;
                 (axum::http::StatusCode::from_u16(status).unwrap(), axum::Json(body))
             }
         }),
@@ -295,4 +304,49 @@ async fn an_account_that_cannot_be_renewed_is_listed_without_a_credential() {
     assert!(matches!(&listed[1].1, Some(Credential::OAuth { access, .. }) if access == "ann"));
     assert!(h.engine.current_credential("anthropic").await.is_none());
     assert!(h.engine.account_credentials("openrouter").await.is_empty());
+}
+
+#[tokio::test]
+async fn a_prompt_sent_while_a_turn_is_still_planning_joins_it_as_soon_as_it_runs() {
+    // Renewing the expired sign-in makes the first turn's planning slow.
+    let (_held, _) = token_endpoint_taking(
+        Duration::from_millis(1200),
+        200,
+        json!({ "access_token": "fresh", "refresh_token": "r2", "expires_in": 3600 }),
+    )
+    .await;
+    let h = harness().await;
+    h.engine
+        .credentials
+        .set(
+            "anthropic",
+            &Credential::OAuth {
+                access: "stale".into(),
+                refresh: "r1".into(),
+                expires_at: 1,
+                account: None,
+            },
+        )
+        .unwrap();
+    h.provider.push_stall();
+
+    let first = {
+        let (engine, session) = (h.engine.clone(), h.session.id.clone());
+        tokio::spawn(async move { engine.submit(&session, prompt("start")).await })
+    };
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(h.engine.turns.is_running(&h.session.id), "the first turn is planning");
+
+    let started = std::time::Instant::now();
+    let steered = h.engine.submit(&h.session.id, prompt("and also")).await;
+
+    assert!(steered.is_ok(), "{steered:?}");
+    assert!(
+        started.elapsed() < Duration::from_millis(1800),
+        "{:?}",
+        started.elapsed()
+    );
+    first.await.unwrap().await_ok();
+    h.engine.abort(&h.session.id);
+    until_idle(&h).await;
 }

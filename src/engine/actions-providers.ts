@@ -25,21 +25,15 @@ type Event = components["schemas"]["Event"];
 /** Sign-in methods per provider, in the order the settings page lists them. */
 const authMethods: Record<
     string,
-    { type: "oauth" | "api"; label: string; mode?: "max" | "console" | "chatgpt" | "supergrok" }[]
+    { type: "oauth" | "api"; label?: string; mode?: "max" | "console" | "chatgpt" | "supergrok" }[]
 > = {
     anthropic: [
         { type: "oauth", label: "Claude Pro/Max", mode: "max" },
         { type: "oauth", label: "Anthropic Console", mode: "console" },
-        { type: "api", label: "API key" },
+        { type: "api" },
     ],
-    openai: [
-        { type: "oauth", label: "ChatGPT (Plus, Pro, Team)", mode: "chatgpt" },
-        { type: "api", label: "API key" },
-    ],
-    xai: [
-        { type: "oauth", label: "SuperGrok", mode: "supergrok" },
-        { type: "api", label: "API key" },
-    ],
+    openai: [{ type: "oauth", label: "ChatGPT (Plus, Pro, Team)", mode: "chatgpt" }, { type: "api" }],
+    xai: [{ type: "oauth", label: "SuperGrok", mode: "supergrok" }, { type: "api" }],
 };
 
 /** Provider catalog refresh, API keys and OAuth sign-in. */
@@ -119,7 +113,7 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         return Object.fromEntries(
             Object.entries(authMethods).map(([id, methods]) => [
                 id,
-                methods.map(({ type, label }) => ({ type, label })),
+                methods.map(({ type, label }) => ({ type, label: label ?? t("provider.connect.method.apiKey") })),
             ]),
         );
     }
@@ -152,7 +146,7 @@ export function createProviderActions({ requireClient, state, set, notice }: Act
         } catch (cause) {
             notice({
                 id: `oauth-${id}`,
-                title: "Sign-in failed",
+                title: t("drift.provider.signInFailed"),
                 message: errorMessage(cause),
                 variant: "error",
                 duration: 10_000,

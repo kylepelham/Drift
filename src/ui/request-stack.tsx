@@ -45,7 +45,7 @@ export function RequestStackStrip(props: { stack?: RequestStack }) {
                     });
 
                 return (
-                    <div class="flex min-w-0 items-center gap-1 border-b border-edge bg-raised/40 px-2 py-1">
+                    <div class="request-stack-strip flex min-w-0 items-center gap-1 border-b border-edge bg-raised/40 px-2 py-1">
                         <StepButton
                             label={t("drift.question.stack.previous")}
                             target={previous()}

@@ -70,7 +70,6 @@ fn skill_validation_errors_keep_their_messages() {
             SkillError::InvalidId,
             "a pack id is letters, digits, dashes and underscores",
         ),
-        (SkillError::RequiresHttps, "a pack is fetched over https only"),
         (
             SkillError::NoSkills,
             "the archive holds no SKILL.md in the folders asked for",
@@ -82,6 +81,10 @@ fn skill_validation_errors_keep_their_messages() {
     for (error, expected) in errors {
         assert_eq!(error.to_string(), expected);
     }
+    assert_eq!(
+        super::archive::ArchiveError::RequiresHttps.to_string(),
+        "an archive is fetched over https only"
+    );
     let error = SkillError::File {
         operation: "write",
         path: "skill-pack".into(),

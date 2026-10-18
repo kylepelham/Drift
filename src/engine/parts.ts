@@ -1,3 +1,5 @@
+import { t } from "../state/i18n";
+
 import type { components } from "./native/types";
 
 export type Part = components["schemas"]["PartRow"];
@@ -11,7 +13,9 @@ export type ReasoningPart = Extract<Part, { type: "reasoning" }>;
 export function promptPartText(part: Part) {
     if (part.type === "text" || part.type === "nudge") return part.text;
     if (part.type === "clarification") {
-        return part.items.map((item) => `${item.question}\nAnswer: ${item.answers.join(", ")}`).join("\n\n");
+        return part.items
+            .map((item) => `${item.question}\n${t("drift.clarification.answer", { answers: item.answers.join(", ") })}`)
+            .join("\n\n");
     }
 
     return undefined;

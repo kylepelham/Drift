@@ -10,7 +10,6 @@ import { emitThreadArchived } from "../plugins";
 import { TextShimmer } from "./text-shimmer";
 import { dragReorder } from "./drag-reorder";
 import { BackgroundTag } from "./task-dock";
-import { Chevron } from "./controls";
 import { t } from "../state/i18n";
 import {
     activeWorkspaceId,
@@ -111,7 +110,7 @@ export function WorkspaceGroup(props: {
         <div ref={root} data-workspace={props.workspace.id}>
             <div
                 class="group sticky top-0 z-[1] flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
-                classList={{ "bg-raised": active(), "bg-surface hover:bg-raised/60": !active() }}
+                classList={{ "bg-raised/55": active(), "bg-surface hover:bg-raised/45": !active() }}
                 onPointerDown={(event) => {
                     cancelDrag();
                     cancelDrag = dragReorder(event, root, {
@@ -134,16 +133,15 @@ export function WorkspaceGroup(props: {
                 <button
                     title={collapsed() ? t("drift.workspace.showThreads") : t("drift.workspace.hideThreads")}
                     aria-expanded={!collapsed()}
-                    class="-mr-1 -ml-1 flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+                    class="flex shrink-0 rounded-[5px]"
                     onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => {
                         event.stopPropagation();
                         toggleWorkspaceCollapsed(props.workspace.id);
                     }}
                 >
-                    <Chevron open={!collapsed()} />
+                    <WorkspaceIcon workspace={props.workspace} />
                 </button>
-                <WorkspaceIcon workspace={props.workspace} />
                 <span
                     class="min-w-0 flex-1 truncate text-sm"
                     classList={{ "text-ink": active(), "text-ink-muted": !active() }}
@@ -173,7 +171,7 @@ export function WorkspaceGroup(props: {
                 </div>
             </div>
             <Show when={!collapsed()}>
-                <div class="mt-0.5 ml-4 space-y-0.5 border-l border-edge pl-1.5">
+                <div class="mt-0.5 space-y-0.5">
                     <For each={visibleIds()}>
                         {(id) => (
                             <>
@@ -288,7 +286,7 @@ function ThreadItem(props: {
         <div
             data-sidebar-navigation
             class="group flex h-8 cursor-pointer items-center gap-2 rounded-md py-1 pr-1 pl-2 transition-colors"
-            classList={{ "bg-raised": active(), "hover:bg-raised/60": !active() }}
+            classList={{ "bg-raised/80": active(), "hover:bg-raised/45": !active() }}
             onClick={() => {
                 selectWorkspace(props.workspace.id);
                 selectSession(props.sessionId);
@@ -305,13 +303,15 @@ function ThreadItem(props: {
         >
             <StatusDot sessionId={props.sessionId} />
             <span
-                class="min-w-0 flex-1 truncate text-[0.8rem]"
+                class="min-w-0 flex-1 truncate text-[0.84rem]"
                 classList={{ "text-ink": active(), "text-ink-muted": !active() }}
             >
                 {props.title || t("drift.thread.untitled")}
             </span>
-            <span class="shrink-0 text-[0.65rem] text-ink-faint group-hover:hidden">{ago(props.updated)}</span>
-            <span class="hidden shrink-0 items-center group-hover:flex">
+            <span class="thread-age shrink-0 text-[0.65rem] text-ink-faint/75 group-hover:hidden">
+                {ago(props.updated)}
+            </span>
+            <span class="thread-hover-actions hidden shrink-0 items-center group-hover:flex">
                 <RowButton
                     title={forking() ? t("common.loading") : t("drift.slash.fork.active.description")}
                     disabled={forking()}
@@ -319,19 +319,7 @@ function ThreadItem(props: {
                         if (forking()) return;
 
                         setForking(true);
-                        selectWorkspace(props.workspace.id);
-
-                        const selection = selectedSession();
-                        void engine.actions
-                            .fork(props.sessionId)
-                            .then(
-                                (session) =>
-                                    session &&
-                                    activeWorkspaceId() === props.workspace.id &&
-                                    selectedSession() === selection &&
-                                    selectSession(session.id),
-                            )
-                            .finally(() => setForking(false));
+                        void forkThread(engine, props.sessionId, props.workspace.id).finally(() => setForking(false));
                     }}
                 >
                     <IconBranch />
@@ -346,6 +334,22 @@ function ThreadItem(props: {
                     }}
                 >
                     <IconArchive />
+                </RowButton>
+            </span>
+            <span class="touch-thread-menu hidden shrink-0">
+                <RowButton
+                    title={t("common.moreOptions")}
+                    onClick={(event) => {
+                        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                        props.onMenu({
+                            x: rect.left,
+                            y: rect.bottom,
+                            sessionId: props.sessionId,
+                            workspaceId: props.workspace.id,
+                        });
+                    }}
+                >
+                    <IconDots />
                 </RowButton>
             </span>
         </div>
@@ -431,11 +435,54 @@ function ChildThreadItem(props: {
             <Show when={background()}>
                 <BackgroundTag />
             </Show>
+            <span class="touch-thread-menu hidden shrink-0">
+                <RowButton
+                    title={t("common.moreOptions")}
+                    onClick={(event) => {
+                        const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                        props.onMenu({
+                            x: rect.left,
+                            y: rect.bottom,
+                            sessionId: props.sessionId,
+                            workspaceId: props.workspace.id,
+                        });
+                    }}
+                >
+                    <IconDots />
+                </RowButton>
+            </span>
         </div>
     );
 }
 
 const hues = [212, 262, 330, 24, 96, 168];
+
+/** Forks a thread already being forked, once: a repeated tap waits for the first. */
+const forksUnderWay = new Map<string, Promise<void>>();
+
+/**
+ * Forks a thread and opens the copy in the row's workspace, but only if the user is still where they were when they
+ * asked; until then nothing moves, so a failed fork leaves them on the thread they had open. Both the row's button
+ * and its menu fork through here.
+ */
+export function forkThread(engine: Engine, sessionId: string, workspaceId: string) {
+    const underWay = forksUnderWay.get(sessionId);
+    if (underWay) return underWay;
+
+    const from = activeWorkspaceId();
+    const selection = selectedSession();
+    const forking = engine.actions
+        .fork(sessionId)
+        .then((session) => {
+            if (!session || activeWorkspaceId() !== from || selectedSession() !== selection) return;
+            selectWorkspace(workspaceId);
+            selectSession(session.id);
+        })
+        .finally(() => forksUnderWay.delete(sessionId));
+    forksUnderWay.set(sessionId, forking);
+
+    return forking;
+}
 
 export function WorkspaceIcon(props: { workspace: Workspace }) {
     const hue = () => {
@@ -448,14 +495,14 @@ export function WorkspaceIcon(props: { workspace: Workspace }) {
             when={props.workspace.icon.startsWith("data:")}
             fallback={
                 <span
-                    class="flex size-6 shrink-0 items-center justify-center rounded-md text-[0.65rem] font-semibold text-white/90"
-                    style={{ background: `hsl(${hue()} 40% 34%)` }}
+                    class="workspace-icon flex size-5 shrink-0 items-center justify-center rounded-[5px] text-[0.58rem] font-semibold text-white/85"
+                    style={{ background: `hsl(${hue()} 24% 31%)` }}
                 >
                     {workspaceInitials(props.workspace.name)}
                 </span>
             }
         >
-            <img src={props.workspace.icon} alt="" class="size-6 shrink-0 rounded-md object-cover" />
+            <img src={props.workspace.icon} alt="" class="workspace-icon size-5 shrink-0 rounded-[5px] object-cover" />
         </Show>
     );
 }
