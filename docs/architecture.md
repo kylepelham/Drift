@@ -358,7 +358,8 @@ overflow recovery continues from that summary without duplicating the failed req
 User prompts carry a hover-only footer with their agent, friendly model name, time,
 copy, and revert action. Revert state comes from the engine session record; the chat
 filters messages at that marker while `/undo` and `/redo` move it one user prompt at a
-time. Reverted prompt text is returned to the composer for editing.
+time; a compaction's boundary counts as one, so `/undo` takes back a compaction. Reverted
+prompt text is returned to the composer for editing.
 
 Human-typed prompts render with conservative Markdown: backslashes stay literal, and the
 markers people paste by accident stay visible rather than becoming structure. A leading

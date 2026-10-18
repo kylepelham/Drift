@@ -821,6 +821,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "Planlama ve Keşif salt okunur araçlarını kullanabilir",
     "drift.mcp.status.connecting": "bağlanıyor...",
     "drift.message.compactedSummary": "Bağlam sıkıştırıldı · özet",
+    "drift.message.compactionFailed": "Sıkıştırma başarısız oldu",
+    "drift.message.compactionRetry": "Sıkıştırmayı yeniden dene",
     "drift.message.copy": "Mesajı kopyala",
     "drift.message.copyResponse": "Yanıtı kopyala",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

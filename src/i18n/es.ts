@@ -821,6 +821,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "Planificación y Exploración pueden usar sus herramientas de solo lectura",
     "drift.mcp.status.connecting": "conectando...",
     "drift.message.compactedSummary": "Contexto compactado · resumen",
+    "drift.message.compactionFailed": "La compactación falló",
+    "drift.message.compactionRetry": "Reintentar compactación",
     "drift.message.copy": "Copiar mensaje",
     "drift.message.copyResponse": "Copiar respuesta",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

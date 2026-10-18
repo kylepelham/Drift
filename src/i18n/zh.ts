@@ -782,6 +782,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "规划和探索可以使用其只读工具",
     "drift.mcp.status.connecting": "正在连接...",
     "drift.message.compactedSummary": "上下文已压缩 · 摘要",
+    "drift.message.compactionFailed": "压缩失败",
+    "drift.message.compactionRetry": "重试压缩",
     "drift.message.copy": "复制消息",
     "drift.message.copyResponse": "复制回复",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

@@ -775,6 +775,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "계획과 탐색이 이 서버의 읽기 전용 도구를 사용할 수 있음",
     "drift.mcp.status.connecting": "연결 중...",
     "drift.message.compactedSummary": "컨텍스트 압축됨 · 요약",
+    "drift.message.compactionFailed": "압축 실패",
+    "drift.message.compactionRetry": "압축 다시 시도",
     "drift.message.copy": "메시지 복사",
     "drift.message.copyResponse": "응답 복사",
     "drift.message.duration.hours": "{{hours}}시간 {{minutes}}분",

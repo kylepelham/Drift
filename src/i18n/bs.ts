@@ -816,6 +816,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "Planiranje i Istraživanje smiju koristiti njegove alate samo za čitanje",
     "drift.mcp.status.connecting": "povezivanje...",
     "drift.message.compactedSummary": "Kontekst sažet · sažetak",
+    "drift.message.compactionFailed": "Sažimanje konteksta nije uspjelo",
+    "drift.message.compactionRetry": "Ponovi sažimanje",
     "drift.message.copy": "Kopiraj poruku",
     "drift.message.copyResponse": "Kopiraj odgovor",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

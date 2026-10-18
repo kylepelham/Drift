@@ -801,6 +801,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "วางแผนและสำรวจใช้เครื่องมือแบบอ่านอย่างเดียวของเซิร์ฟเวอร์นี้ได้",
     "drift.mcp.status.connecting": "กำลังเชื่อมต่อ...",
     "drift.message.compactedSummary": "ย่อบริบทแล้ว · สรุป",
+    "drift.message.compactionFailed": "ย่อบริบทไม่สำเร็จ",
+    "drift.message.compactionRetry": "ลองย่ออีกครั้ง",
     "drift.message.copy": "คัดลอกข้อความ",
     "drift.message.copyResponse": "คัดลอกคำตอบ",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

@@ -383,3 +383,72 @@ async fn a_fork_of_a_compacted_conversation_sees_the_same_history() {
     assert_eq!(shape(&copy), shape(&source));
     assert_eq!(shape(&copy).1, ["second", "two", "third", "three"]);
 }
+
+fn boundary_id(transcript: &[MessageWithParts]) -> String {
+    transcript
+        .iter()
+        .rfind(|message| {
+            message
+                .parts
+                .iter()
+                .any(|row| matches!(row.part, Part::Compaction { .. }))
+        })
+        .unwrap()
+        .info
+        .id
+        .clone()
+}
+
+#[tokio::test]
+async fn undoing_a_compaction_brings_the_whole_history_back() {
+    let h = harness().await;
+    for (ask, reply) in [
+        ("first ORIGINAL_REQUIREMENT", "one"),
+        ("second", "two"),
+        ("third", "three"),
+    ] {
+        h.provider.push(text(reply));
+        turn(&h, ask).await;
+    }
+    h.provider.push(text("SUMMARY"));
+    h.engine.start_compaction(&h.session.id).unwrap();
+    until_idle(&h).await;
+
+    let boundary = boundary_id(&h.engine.store.transcript(&h.session.id).unwrap());
+    h.engine.revert(&h.session.id, &boundary).await.unwrap();
+    h.provider.push(text("four"));
+    turn(&h, "fourth").await;
+
+    let request = requests(&h).last().unwrap().clone();
+    assert!(mentions(&request, "ORIGINAL_REQUIREMENT"));
+    assert!(!mentions(&request, "SUMMARY"));
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert!(
+        transcript.iter().all(|message| !message.info.summary),
+        "the undone compaction is gone"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_compaction_can_be_undone_and_run_again() {
+    let h = harness().await;
+    for (ask, reply) in [("first", "one"), ("second", "two"), ("third", "three")] {
+        h.provider.push(text(reply));
+        turn(&h, ask).await;
+    }
+    h.provider.push(vec![Chunk::Stop(StopReason::Refused)]);
+    h.engine.start_compaction(&h.session.id).unwrap();
+    until_idle(&h).await;
+
+    let boundary = boundary_id(&h.engine.store.transcript(&h.session.id).unwrap());
+    h.engine.revert(&h.session.id, &boundary).await.unwrap();
+    h.provider.push(text("SUMMARY"));
+    h.engine.start_compaction(&h.session.id).unwrap();
+    until_idle(&h).await;
+
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    let summaries: Vec<_> = transcript.iter().filter(|message| message.info.summary).collect();
+    assert_eq!(summaries.len(), 1, "the refused attempt went with the undo");
+    assert_eq!(summaries[0].info.status, MessageStatus::Done);
+    assert_eq!(view(&transcript).summary.as_deref(), Some("SUMMARY"));
+}

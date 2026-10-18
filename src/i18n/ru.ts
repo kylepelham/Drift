@@ -817,6 +817,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "Планирование и Исследование могут использовать его инструменты только для чтения",
     "drift.mcp.status.connecting": "подключение...",
     "drift.message.compactedSummary": "Контекст сжат · сводка",
+    "drift.message.compactionFailed": "Не удалось сжать контекст",
+    "drift.message.compactionRetry": "Повторить сжатие",
     "drift.message.copy": "Копировать сообщение",
     "drift.message.copyResponse": "Копировать ответ",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

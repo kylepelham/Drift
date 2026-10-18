@@ -815,6 +815,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "Планування і Дослідження можуть використовувати його інструменти лише для читання",
     "drift.mcp.status.connecting": "підключення...",
     "drift.message.compactedSummary": "Контекст стиснено · підсумок",
+    "drift.message.compactionFailed": "Не вдалося стиснути контекст",
+    "drift.message.compactionRetry": "Повторити стиснення",
     "drift.message.copy": "Копіювати повідомлення",
     "drift.message.copyResponse": "Копіювати відповідь",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

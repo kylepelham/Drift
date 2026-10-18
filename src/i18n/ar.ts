@@ -760,6 +760,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "يمكن لوكيلَي التخطيط والاستكشاف استخدام أدواته للقراءة فقط",
     "drift.mcp.status.connecting": "جارٍ الاتصال...",
     "drift.message.compactedSummary": "تم ضغط السياق · ملخص",
+    "drift.message.compactionFailed": "فشل ضغط السياق",
+    "drift.message.compactionRetry": "أعد محاولة الضغط",
     "drift.message.copy": "نسخ الرسالة",
     "drift.message.copyResponse": "نسخ الاستجابة",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

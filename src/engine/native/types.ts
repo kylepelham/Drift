@@ -769,8 +769,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Undoes the conversation back to a prompt, and the files its turns and subagents changed. Files
-         *     changed by someone else since are kept and listed. Again while undone moves the point.
+         * Undoes the conversation back to a prompt or compaction, and the files its turns and subagents
+         *     changed. Files changed by someone else since are kept and listed. Again while undone moves the point.
          */
         post: operations["revertSession"];
         delete?: never;

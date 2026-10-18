@@ -817,6 +817,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "Plan og Utforsk kan bruke de skrivebeskyttede verktøyene",
     "drift.mcp.status.connecting": "kobler til...",
     "drift.message.compactedSummary": "Kontekst komprimert · sammendrag",
+    "drift.message.compactionFailed": "Komprimeringen mislyktes",
+    "drift.message.compactionRetry": "Prøv komprimering igjen",
     "drift.message.copy": "Kopier melding",
     "drift.message.copyResponse": "Kopier svar",
     "drift.message.duration.hours": "{{hours}} t {{minutes}} min",

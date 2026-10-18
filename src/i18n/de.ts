@@ -793,6 +793,8 @@ export const drift = {
     "drift.mcp.readOnlyTrusted": "Planen und Erkunden dürfen seine schreibgeschützten Werkzeuge nutzen",
     "drift.mcp.status.connecting": "Verbindung wird hergestellt...",
     "drift.message.compactedSummary": "Kontext komprimiert · Zusammenfassung",
+    "drift.message.compactionFailed": "Komprimierung fehlgeschlagen",
+    "drift.message.compactionRetry": "Komprimierung wiederholen",
     "drift.message.copy": "Nachricht kopieren",
     "drift.message.copyResponse": "Antwort kopieren",
     "drift.message.duration.hours": "{{hours}}h {{minutes}}m",

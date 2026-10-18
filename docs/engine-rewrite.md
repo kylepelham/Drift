@@ -666,7 +666,8 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   taken as observed and its undo lost), and the chain never crosses steps.
 - Undo and redo stop a running turn first (as Stop does, workers included) and wait up to 15 s for
   it to end, then go ahead; only a job that does not stop in time makes them 409 `busy`.
-- `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent. It hides that prompt and
+- `POST /sessions/{id}/revert { messageId }` takes a prompt the user sent or a compaction's boundary
+  (undoing a compaction brings the history it summarised back into view). It hides that message and
   everything after it (`session.revert.messageId`, the UI filters) and puts each file the hidden
   turns changed, subagents included, back to
   its state before the first of those changes. Only if the file still holds what the session last
@@ -1610,6 +1611,8 @@ Settled after the first external review of M1; each has a regression test.
 - One-shot titles and compaction summaries require a normal `EndTurn` and no attempted tool calls.
   Length-limited, refused, context-exhausted, unknown and unterminated replies fail instead of
   publishing partial text. A failed summary leaves the previous valid model-visible context intact.
+  While it is the session's last message the UI offers a retry: an undo to its boundary, then
+  `/compact`, which commits the undo so the failed attempt is removed.
 - A turn captures its workspace config, model/provider catalog, MCP tools and MCP instructions.
   Steering validates against that captured generation; new agents and models take effect on the
   next turn. Model-profile and agent changes rebuild the offer from the same captured tool set,

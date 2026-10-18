@@ -236,8 +236,8 @@ pub(super) struct RevertBody {
     pub keep_files: bool,
 }
 
-/// Undoes the conversation back to a prompt, and the files its turns and subagents changed. Files
-/// changed by someone else since are kept and listed. Again while undone moves the point.
+/// Undoes the conversation back to a prompt or compaction, and the files its turns and subagents
+/// changed. Files changed by someone else since are kept and listed. Again while undone moves the point.
 #[utoipa::path(post, path = "/sessions/{id}/revert", operation_id = "revertSession", request_body = RevertBody, responses((status = 200, body = Undone), (status = 400), (status = 404), (status = 409)))]
 pub(super) async fn revert(
     State(engine): State<Arc<Engine>>,
