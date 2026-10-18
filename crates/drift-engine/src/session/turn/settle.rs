@@ -119,11 +119,20 @@ impl Engine {
             .iter()
             .filter_map(|row| match &row.part {
                 Part::ToolCall {
-                    name, input, output, ..
+                    name,
+                    input,
+                    output,
+                    metadata,
+                    ..
                 } => Some(CallTrace {
                     name: name.clone(),
                     input: input.to_string(),
                     output: output.clone().unwrap_or_default(),
+                    images: metadata
+                        .iter()
+                        .flat_map(|metadata| metadata.images.iter().flatten())
+                        .filter_map(|image| image.hash.clone().or_else(|| image.data.clone()))
+                        .collect(),
                 }),
                 _ => None,
             })

@@ -474,7 +474,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - Loop limits (`config::Limits`, drift.json `limits: { repeats, polls }`, later files override
   field by field):
   - `repeats` (default 3): steps in a row whose calls, inputs and results are all identical. A
-    different result is progress, so a poll whose answer changes never counts. The step after it
+    different result is progress, so a poll whose answer changes never counts. A result's images
+    are part of it, compared by content hash, so screenshots of a changing screen under the same
+    caption are progress too. The step after it
     trips is a wrap-up (`WrapUp`): tools are off for it (`no_tool_calls`) and a reminder asks the
     model to say the turn stops, summarise what it found and did, and list what is undone. Early
     reads do not start on that reply, and a call the model makes anyway (a local server may ignore
@@ -482,9 +484,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
     swaps the `ending` column to widen its CHECK, keeping every stored value). A conversation then
     pauses with the reason; a subagent ends on that reply, and its parent gets the write-up as an
     `incomplete` result (the task fails, saying it kept repeating), never as a finished answer.
-  - `polls` (default 30): the same for repeated steps whose shell commands wait on purpose
-    (`sleep`, `Start-Sleep`, `timeout`, `wait`, `watch`), so deliberate polling is not taken for a
-    loop.
+  - `polls` (default 30): the same for repeated steps that wait or watch on purpose: a shell
+    command that sleeps (`sleep`, `Start-Sleep`, `timeout`, `wait`, `watch`), a tool asked to wait
+    (`action: "wait"`, as `process` takes, or a `wait_seconds` above 0, as `task_output` takes),
+    or a call that returns an image, such as a screenshot of something still loading. Deliberate
+    polling is not taken for a loop.
   - A pause is a reply-less message with status `paused` and the reason in `error`; it is never
     replayed to the model, the UI draws it as a quiet interruption line with the reason, a subagent
     that pauses reports it to its parent as a failure with that reason, and the next message

@@ -49,10 +49,17 @@ impl Repeats {
     }
 }
 
+/// Waits on purpose: a shell sleep, a tool asked to wait, or an image of something still loading.
 pub(super) fn waits(call: &CallTrace) -> bool {
+    if !call.images.is_empty() {
+        return true;
+    }
     let Ok(input) = serde_json::from_str::<serde_json::Value>(&call.input) else {
         return false;
     };
+    if input["action"] == "wait" || input["wait_seconds"].as_u64().is_some_and(|seconds| seconds > 0) {
+        return true;
+    }
 
     let command = input["command"].as_str().unwrap_or_default().to_ascii_lowercase();
     let mut words = command.split(|character: char| !character.is_ascii_alphanumeric() && character != '-');
