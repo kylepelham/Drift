@@ -55,7 +55,7 @@ utoipa-axum = "0.3"
 flate2 = "1"
 tar = "0.4"
 # Azure DevOps serves repository archives as zip; already in the tree.
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 # Plugins are WebAssembly components; compiled code is cached on disk so each loads once.
 wasmtime = { version = "48", optional = true, default-features = false, features = ["cranelift", "component-model", "cache", "runtime", "std", "async", "parallel-compilation"] }
 wasmtime-wasi = { version = "48", optional = true, default-features = false, features = ["p2"] }
