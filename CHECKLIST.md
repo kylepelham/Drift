@@ -333,8 +333,8 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [ ] Prompt delivery `queue` beside the default `steer`: Alt+Enter, edit, discard, send now
   - [ ] `drift-engined --acp` serves the Agent Client Protocol on stdio
 - Voice and media:
-  - [ ] Cloud transcription for dictation (OpenAI, Groq, Deepgram, ElevenLabs Scribe, AssemblyAI) beside local whisper
-  - [ ] Read aloud: play button per reply and an auto-read switch, OpenAI and ElevenLabs plus one local voice
+  - [x] Cloud transcription for dictation (OpenAI, Groq, Deepgram, ElevenLabs Scribe, AssemblyAI) beside local whisper
+  - [x] Read aloud: play button per reply and an auto-read switch, OpenAI and ElevenLabs plus one local voice
   - [ ] `generate_image` tool (OpenAI, Google, xAI), off until enabled, asking by default
 - Design first, proposal for Kyle, no code:
   - [x] Voice mode: realtime model or transcription, turn and read-aloud pipeline

@@ -108,7 +108,7 @@ pub struct SpokenAudio {
 
 #[derive(Debug, PartialEq, thiserror::Error)]
 pub enum VoiceError {
-    #[error("{0} is not a voice provider for this")]
+    #[error("{0} does not offer this in Drift")]
     Unknown(String),
     #[error("{0} has no key; add one in Settings > Voice")]
     NoKey(&'static str),

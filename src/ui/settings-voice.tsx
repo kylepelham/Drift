@@ -1,7 +1,10 @@
+import { ReadAloudGroup, VoiceKeyRow, type VoiceKeys, type VoiceProvider } from "./settings-read-aloud";
 import { audioInputDevices, selectedDeviceMissing, watchAudioInputDevices } from "../voice/devices";
 import { setDictationEnabled, syncDictationConsent } from "../voice/dictation";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { watchLocalVoices } from "../voice/read-aloud";
+import { useEngine } from "../engine";
 import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
@@ -13,14 +16,18 @@ import {
     dictationLanguages,
     dictationModel,
     dictationModels,
+    dictationProvider,
+    dictationProviders,
     formatKeyterms,
     parseKeyterms,
     setDictationInputDeviceId,
     setDictationKeyterms,
     setDictationLanguage,
     setDictationModel,
+    setDictationProvider,
     type DictationLanguage,
     type DictationModel,
+    type DictationProvider,
 } from "../state/voice";
 import {
     cancelVoiceModelDownload,
@@ -65,16 +72,51 @@ function storageDescription(model: VoiceModelInfo | undefined) {
     return t("drift.voice.model.storage.missing", { size: formatBytes(model.bytes) });
 }
 
+/** The cloud voice providers and their keys, kept by the engine. */
+function createVoiceKeys(): VoiceKeys & { error: () => string; load: () => void } {
+    const engine = useEngine();
+    const [providers, setProviders] = createSignal<VoiceProvider[]>([]);
+    const [error, setError] = createSignal("");
+    const run = async (action: Promise<{ providers: VoiceProvider[] }>) => {
+        setError("");
+        try {
+            setProviders((await action).providers);
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : String(cause));
+        }
+    };
+
+    return {
+        get providers() {
+            return providers();
+        },
+        error,
+        load: () => void run(engine.actions.voice()),
+        save: (provider, key) => run(engine.actions.setVoiceKey(provider, key)),
+        remove: (provider) => run(engine.actions.removeVoiceKey(provider)),
+    };
+}
+
 export function VoiceSection() {
     const [keyterms, setKeyterms] = createSignal(formatKeyterms(dictationKeyterms()));
+    const keys = createVoiceKeys();
     onMount(() => {
         void refreshVoiceModels();
         void syncDictationConsent().catch(() => undefined);
+        keys.load();
         onCleanup(watchAudioInputDevices());
+        onCleanup(watchLocalVoices());
     });
 
     const selected = () => modelInfo(dictationModel());
     const downloading = () => voiceModelBusy() === "downloading";
+    const local = () => dictationProvider() === "local";
+    const cloud = () =>
+        keys.providers.find((provider) => provider.id === dictationProvider() && provider.transcription);
+    const providerLabel = (id: DictationProvider) =>
+        id === "local"
+            ? t("drift.voice.provider.local")
+            : (keys.providers.find((provider) => provider.id === id)?.name ?? id);
 
     function commitKeyterms(value: string) {
         const parsed = parseKeyterms(value);
@@ -123,73 +165,101 @@ export function VoiceSection() {
                             onPick={(value) => setDictationInputDeviceId(value || null)}
                         />
                     </SettingsRow>
-                    <SettingsRow title={t("drift.voice.model.title")} description={t("drift.voice.model.description")}>
+                    <SettingsRow
+                        title={t("drift.voice.provider.title")}
+                        description={t("drift.voice.provider.description")}
+                    >
                         <Picker
-                            label={t("drift.voice.model.title")}
-                            items={dictationModels.map((id) => ({
-                                id,
-                                label: t(modelLabels[id]),
-                                detail: formatBytes(modelInfo(id)?.bytes ?? 0),
-                            }))}
-                            selected={dictationModel()}
+                            label={t("drift.voice.provider.title")}
+                            items={dictationProviders
+                                .filter((id) => id === "local" || keys.providers.some((provider) => provider.id === id))
+                                .map((id) => ({ id, label: providerLabel(id) }))}
+                            selected={dictationProvider()}
                             floating
                             bordered
                             chevronAtEnd
                             placement="below"
                             width="14rem"
-                            onPick={(value) => setDictationModel(value as DictationModel)}
+                            onPick={(value) => setDictationProvider(value as DictationProvider)}
                         />
                     </SettingsRow>
-                    <SettingsRow
-                        title={t("drift.voice.model.storage.title")}
-                        description={storageDescription(selected())}
-                    >
-                        <Show
-                            when={!downloading()}
-                            fallback={
-                                <button
-                                    class="h-8 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
-                                    onClick={cancelVoiceModelDownload}
-                                >
-                                    {t("common.cancel")}
-                                </button>
-                            }
+                    <Show when={cloud()}>{(provider) => <VoiceKeyRow provider={provider()} keys={keys} />}</Show>
+                    <Show when={local()}>
+                        <SettingsRow
+                            title={t("drift.voice.model.title")}
+                            description={t("drift.voice.model.description")}
+                        >
+                            <Picker
+                                label={t("drift.voice.model.title")}
+                                items={dictationModels.map((id) => ({
+                                    id,
+                                    label: t(modelLabels[id]),
+                                    detail: formatBytes(modelInfo(id)?.bytes ?? 0),
+                                }))}
+                                selected={dictationModel()}
+                                floating
+                                bordered
+                                chevronAtEnd
+                                placement="below"
+                                width="14rem"
+                                onPick={(value) => setDictationModel(value as DictationModel)}
+                            />
+                        </SettingsRow>
+                        <SettingsRow
+                            title={t("drift.voice.model.storage.title")}
+                            description={storageDescription(selected())}
                         >
                             <Show
-                                when={selected()?.installed}
+                                when={!downloading()}
                                 fallback={
                                     <button
-                                        class="h-8 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
-                                        disabled={!!voiceModelBusy() || !voiceSupported()}
-                                        onClick={() => void downloadVoiceModel(dictationModel())}
+                                        class="h-8 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger"
+                                        onClick={cancelVoiceModelDownload}
                                     >
-                                        {t("drift.voice.model.download")}
+                                        {t("common.cancel")}
                                     </button>
                                 }
                             >
-                                <button
-                                    class="h-8 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger disabled:opacity-40"
-                                    disabled={!!voiceModelBusy()}
-                                    onClick={() => void removeVoiceModel(dictationModel())}
+                                <Show
+                                    when={selected()?.installed}
+                                    fallback={
+                                        <button
+                                            class="h-8 rounded-md bg-accent px-3 text-xs font-medium text-accent-ink transition-opacity disabled:opacity-40"
+                                            disabled={!!voiceModelBusy() || !voiceSupported()}
+                                            onClick={() => void downloadVoiceModel(dictationModel())}
+                                        >
+                                            {t("drift.voice.model.download")}
+                                        </button>
+                                    }
                                 >
-                                    {t("drift.voice.model.remove")}
-                                </button>
+                                    <button
+                                        class="h-8 rounded-md border border-edge px-3 text-xs text-ink-muted transition-colors hover:border-danger hover:text-danger disabled:opacity-40"
+                                        disabled={!!voiceModelBusy()}
+                                        onClick={() => void removeVoiceModel(dictationModel())}
+                                    >
+                                        {t("drift.voice.model.remove")}
+                                    </button>
+                                </Show>
                             </Show>
-                        </Show>
-                    </SettingsRow>
-                    <SettingsRow
-                        title={t("drift.voice.acceleration.title")}
-                        description={
-                            voiceAccelerated() ? t("drift.voice.acceleration.gpu") : t("drift.voice.acceleration.cpu")
-                        }
-                    >
-                        <span
-                            class="text-[0.75rem]"
-                            classList={{ "text-ok": voiceAccelerated(), "text-ink-faint": !voiceAccelerated() }}
+                        </SettingsRow>
+                        <SettingsRow
+                            title={t("drift.voice.acceleration.title")}
+                            description={
+                                voiceAccelerated()
+                                    ? t("drift.voice.acceleration.gpu")
+                                    : t("drift.voice.acceleration.cpu")
+                            }
                         >
-                            {voiceAccelerated() ? t("drift.voice.acceleration.on") : t("drift.voice.acceleration.off")}
-                        </span>
-                    </SettingsRow>
+                            <span
+                                class="text-[0.75rem]"
+                                classList={{ "text-ok": voiceAccelerated(), "text-ink-faint": !voiceAccelerated() }}
+                            >
+                                {voiceAccelerated()
+                                    ? t("drift.voice.acceleration.on")
+                                    : t("drift.voice.acceleration.off")}
+                            </span>
+                        </SettingsRow>
+                    </Show>
                     <SettingsRow
                         title={t("drift.voice.dictation.language.title")}
                         description={t("drift.voice.dictation.language.description")}
@@ -244,19 +314,23 @@ export function VoiceSection() {
                 )}
             </Show>
 
-            <Show when={!voiceSupported()}>
+            <Show when={!voiceSupported() && local()}>
                 <div class="rounded-md border border-warn/30 bg-warn/10 px-2.5 py-2 text-xs text-warn">
                     {t("drift.voice.error.unsupported")}
                 </div>
             </Show>
-            <Show when={voiceModelError()}>
-                <div class="px-1 text-xs text-danger">{voiceModelError()}</div>
+            <Show when={voiceModelError() || keys.error()}>
+                <div class="px-1 text-xs text-danger">{voiceModelError() || keys.error()}</div>
             </Show>
             <Show when={dictationEnabled()}>
                 <div class="px-1 text-[0.72rem] leading-relaxed text-ink-faint">
-                    {t("drift.voice.dictation.privacy")}
+                    {cloud()
+                        ? t("drift.voice.cloud.privacy", { provider: cloud()!.name })
+                        : t("drift.voice.dictation.privacy")}
                 </div>
             </Show>
+
+            <ReadAloudGroup keys={keys} />
         </div>
     );
 }

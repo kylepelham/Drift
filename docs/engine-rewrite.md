@@ -1617,11 +1617,26 @@ which choices send audio or text off the machine.
   says why and leaves the recorded audio for a retry; it never falls back to another provider by
   itself. Keys live in the credential store and the request is made by the shell or engine, never
   the webview. Tests with a recorded response per provider.
+  - Built (2.4.0). The engine makes the request (`voice/transcribe.rs`, `POST /voice/transcribe`),
+    with keys under `voice:<provider>` (`PUT/DELETE /voice/keys`), so the phone and browser get it
+    through the engine connection; local whisper stays a shell command. Every provider transcribes
+    per phrase; streaming is left for voice mode. A failed phrase is kept with Retry and Discard,
+    and later phrases wait behind it. Tests replay each provider's recorded answer from a stand-in
+    server. Decisions taken while Kyle slept, with reasons in `docs/voice.md`: one fixed model per
+    provider, voice keys never borrowed from Models sign-ins or the environment, ElevenLabs gets no
+    vocabulary (surcharged), choices kept per device.
 - **Read aloud.** A play button on every finished reply, and an optional "read replies aloud" switch.
   Providers: OpenAI and ElevenLabs speech, plus a local voice that needs no account (pick one that
   builds like whisper does and say why in `docs/voice.md`). What is spoken is the reply's prose:
   code blocks, tables and file references are named, not read. Playback stops on a new prompt,
   Stop or switching conversations.
+  - Built (2.4.0). `POST /voice/speak` (`voice/speech.rs`) speaks one piece with OpenAI
+    `gpt-4o-mini-tts` or ElevenLabs `eleven_flash_v2_5` as MP3; `src/voice/speakable.ts` turns
+    Markdown into prose and cuts it into 2,500-character pieces; `src/voice/read-aloud.ts` plays
+    them and stops on a new prompt, Stop, a conversation switch or the button. The local voice is
+    the webview's `speechSynthesis` limited to `localService` voices: no model, no build step, no
+    dependency, where Piper, Kokoro or sherpa-onnx would add ONNX Runtime and a model download.
+    Read aloud and auto-read are both off by default.
 - **Image generation.** A `generate_image` tool, offered only when Settings turns it on and a
   provider is chosen: OpenAI, Google and xAI image models to start. Input: prompt, size, optional
   reference images from the workspace, and an output path inside the workspace or scratch. The
