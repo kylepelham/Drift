@@ -94,6 +94,7 @@ failures, and records the user's disable-versus-reconnect decision.
 
 | Report | What it establishes |
 | --- | --- |
+| [opencode v2](opencode-v2-comparison.md) | Native engine against opencode v2.0.32 from our 1.18.33 base: twelve weaknesses found in Drift's code with the v2 change and source for each, wire fixes to sweep, v2 features, Code Mode and provider compaction with the evidence for each, how models use `todowrite` in Kyle's sessions, and why v2 dropped LSP, outside-path asks and the todo tool. |
 | [Capability gating](claude-capability-gating-2.26454.md) | Current desktop/runtime source evidence for offer/prompt/discovery/execution gates and limits; small controllable capability groups, context/lifetime contracts and baseline-preserving rollout requirements for Drift. |
 | [Host-native versatility](drift-versatility-2.0.2.md) | User direction and optional-worktree inheritance; traced computer/terminal contracts and verified stdin/media/effect limits; task coverage across apps, assets, games, training and RE without replacing existing CLI/MCP strengths. |
 | [Claude Desktop 2.19675](claude-desktop-2.19675.md) | Actual installed desktop archive and IDA evidence for native VM boundaries; traced live-browser verification, lazy task worktrees, PR monitoring and side replies, excluding already-covered Drift capabilities and opaque remote review. |

@@ -301,6 +301,47 @@ Decided after the 2.0.2 research pass; the plan is "After 2.0.2" in `docs/engine
 
 - [ ] After the summary, carry the background tasks still running or owed, the todo list and the skills invoked at their current version
 
+## After the opencode v2 review
+
+Decided on 2026-10-19; the plan is "After the opencode v2 review" in `docs/engine-rewrite.md`, the
+evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
+
+- Quick fixes:
+  - [ ] `~` in tool paths expands to home before resolving, for every path-taking tool
+  - [ ] Stream idle limit 900 s by default on every route
+  - [ ] Tool input repaired where its schema allows one reading, before validation (built-in and MCP)
+  - [ ] Gemini `MALFORMED_*` finishes retried; wire-fix sweep done, each fix tested or recorded as not affecting Drift
+  - [ ] Cache key is the session tree's root (workers, forks, spawned threads); WebSocket continuations stay per session
+  - [ ] `edit` checked against v2's cases: folding and trailing-whitespace tiers after exact, per-region line endings
+  - [ ] `todowrite` answers in one line instead of echoing the list; description asks for items done as they finish
+- Cache stability:
+  - [ ] Cache-prefix diagnostics log the first changed segment when cache reads drop
+  - [ ] Instruction baseline: frozen system prompt, `instruction_update` parts for changed sources, re-baseline on family switch, compaction and undo, forks share their source's prefix
+  - [ ] Reasoning level changes sent as per-message effort on models with the catalog capability
+  - [ ] Newer Claude features confirmed in Anthropic's docs and adopted: mid-conversation system messages, thinking `block_binding`, `between_tools`
+  - [ ] Settings > Execution > Prompt cache: warming (interval, window, prompt) and Anthropic one-hour cache where the route accepts it, all off by default
+- Turn robustness:
+  - [ ] A length stop continues the turn with a note, at most twice in a row; cut-off calls carry an input excerpt
+  - [ ] Interrupted top-level turns resume after a restart (switch, on by default, two resumes per prompt)
+- [ ] Importer reads opencode v2 conversations, sign-ins and config shapes
+- Features:
+  - [ ] `websearch` with Firecrawl, Exa and Tavily over one provider trait, key lists rotated on 401, 402 and 429, `auto` routing, plugin providers through a `searching` WIT world
+  - [ ] MCP elicitation answered through a blocking question card
+  - [ ] References: named outside paths and git repositories, listed in the baseline, read unasked, project references approved first
+  - [ ] Worktrees (the M6 item) with `worktree_create`, `worktree_list`, `worktree_remove`, `session_move` and `worktree.setup`
+  - [ ] Plan agent writes only under `<data>/plans/<workspace id>/`, discusses first, plan paths survive compaction
+  - [ ] Prompt delivery `queue` beside the default `steer`: Alt+Enter, edit, discard, send now
+  - [ ] `drift-engined --acp` serves the Agent Client Protocol on stdio
+- Voice and media:
+  - [ ] Cloud transcription for dictation (OpenAI, Groq, Deepgram, ElevenLabs Scribe, AssemblyAI) beside local whisper
+  - [ ] Read aloud: play button per reply and an auto-read switch, OpenAI and ElevenLabs plus one local voice
+  - [ ] `generate_image` tool (OpenAI, Google, xAI), off until enabled, asking by default
+- Design first, proposal for Kyle, no code:
+  - [ ] Voice mode: realtime model or transcription, turn and read-aloud pipeline
+  - [ ] Code Mode: measurements and the four paths compared
+  - [ ] Compaction by the provider (OpenAI `/responses/compact`, Anthropic `compact_20260112`)
+  - [ ] Models choosing a worker's model, against Settings pins and accounts
+
 ## M6: capabilities
 
 - [ ] One settings mechanism decides the tools, instruction sections and settings a session is offered; new capabilities off by default, and a session with them off is unchanged

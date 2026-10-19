@@ -1258,6 +1258,288 @@ tool results in the request (it breaks the prompt cache), and moving Explore to 
 (its model can already be pinned in Settings). Deferred tool schemas wait until a workspace still
 sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
 
+### After the opencode v2 review
+
+Decided with Kyle on 2026-10-19 after comparing the native engine with opencode v2.0.32
+(`docs/research/opencode-v2-comparison.md`, which names the v2 source for each item and how to
+clone it). Read v2 for its edge cases and tests, then build Drift's version in Drift's own terms;
+nothing is ported line for line. Work in the order below. Each item ends when its tests pass and its
+row in `CHECKLIST.md` is ticked. The "Design first" items get a written proposal for Kyle and no code.
+
+**Quick fixes.**
+
+- **`~` in tool paths.** `Context::resolve` expands a leading `~`, `~/` or `~\` to the user's home
+  before folding, for every tool that takes a path (`read`, `write`, `edit`, `glob` and `grep` paths,
+  `apply_patch` headers, `bash` `workdir`, `save_image`). Permission checks see the expanded path, so
+  an outside path asks as before. Tests: `write ~/x` asks for the home path and never creates
+  `<workspace>/~`; a file literally named `~x` inside the workspace still resolves there.
+- **Stream idle limit.** The default idle limit between stream chunks rises from 300 s to 900 s on
+  every route (`llm/http.rs` `Timeouts`); `drift.json` `timeouts` still overrides it and Stop still
+  cancels at once while waiting. The header limit is unchanged.
+- **Tool input repair.** Before `tool::schema::problems` runs, the call's input is repaired where its
+  schema allows exactly one reading: a stringified object or array parsed, `"20"` to a number or
+  integer, `"true"`/`"false"` to a boolean, `null` or `{}` for an optional field removed, extra keys
+  on a closed object dropped, nested fields and local `$ref`s followed to depth six. Anything
+  ambiguous (unions with more than one candidate, `anyOf` plus `oneOf`) is left for validation to
+  report. MCP tools get the same treatment from their own schemas. The repaired input is what runs,
+  what plugins see and what history stores. Tests: the cases in v2's
+  `test/plugin/tool-input-repair.test.ts`, each as a Drift test, and one ambiguous union left alone.
+- **Gemini malformed finishes and the wire sweep.** `MALFORMED_FUNCTION_CALL` and
+  `MALFORMED_RESPONSE` become retryable within a turn's normal retry budget, keeping no partial
+  output. Then go through the "Wire fixes to sweep" list in the report, and the rest of
+  `git log 7f964bbb00..501b15af2 -- packages/ai`, for the wires Drift has (Anthropic, Responses over
+  HTTP and WebSocket, Chat Completions, Gemini, Bedrock, Vertex, Ollama). Each fix either gets a
+  Drift test that failed before the change or a line in the report saying Drift is not affected and
+  why.
+- **Cache affinity.** The cache key a request carries (`prompt_cache_key`, the Codex `session-id`
+  header) is the root of the session's tree: a task worker uses its parent's root, a fork or spawned
+  thread its source's root. The Responses WebSocket connection, and its `previous_response_id`
+  continuation, stay keyed by the session itself; check `llm/openai/websocket` before changing the
+  key, because two sessions must never share a continuation. Tests: a fork's first request carries
+  the parent's key; a worker and its parent hold separate sockets with the same key.
+- **Edit matching against v2's cases.** Drift's `edit` stays exact first. Port the cases in v2's
+  `test/tool-edit.test.ts` as Drift tests and adopt what fails: the same quote, dash and space
+  folding `apply_patch` already does (one character for one, so offsets map back to the original
+  bytes), then trailing whitespace per line, and per-region line endings in a mixed CRLF and LF
+  file. A tier is used only when the exact match finds nothing, and more than one match is still a
+  miss. Record which cases Drift already passed in the report, and bring the `edit` row of "Trade-offs
+  kept on purpose" in line with what lands.
+- **`todowrite` answers in one line.** The tool is kept (the report's usage numbers show models use
+  it to plan long turns). Its result stops echoing the whole list as pretty JSON, which is 54% of
+  the tool's tokens and stays in every later request; it answers "Todo list updated: 3 of 5 done,
+  now: <current item>". Its description asks for an item to be marked done as it finishes, not in a
+  batch at the end. The list itself stays in the call's metadata for the UI.
+
+**Cache stability.** These four are one piece of work; land diagnostics first so the others can be
+measured.
+
+- **Cache-prefix diagnostics.** For each request, hash the tool definitions, each system block and
+  each message as sent (after masking). Keep the last request's hashes per session in memory. When a
+  reply reports a cache read far below the previous request's shared prefix, log one line at info
+  with the session, the first segment that changed and the expected and actual cache reads. No UI.
+  Test with the scripted provider: changing AGENTS.md mid-session logs the instruction segment.
+- **Instruction baseline.** A session's system prompt is frozen when its first request is built,
+  and changes arrive as updates in the conversation instead of a rebuilt prompt.
+  - Sources, each with a key: the base prompt (family prompt or the user's override) with the shared
+    rules, a subagent's own prompt, the skills list, the subagents list, each MCP server's
+    instructions, each instruction file (AGENTS.md or CLAUDE.md chain, `instructions` entries), the
+    environment (working directory, git, platform, scratch directory), the model name and the date.
+  - The baseline renders them most shared first: base and shared rules, agent prompt, skills,
+    subagents, MCP instructions, instruction files, environment, model, date last.
+  - Before each request, every source is read once and hashed. A changed, added or removed source
+    becomes one engine-made `instruction_update` part, saved in the transcript ahead of the input it
+    precedes, so every later request replays the same bytes. It lists what changed in a
+    `<system-reminder>`: the new text, or for a removed source that it no longer applies. A source
+    that fails to read keeps its last value. Values are stored once, content-addressed, through the
+    existing blob store; a session keeps its baseline and current hashes in a new table.
+  - Two failures v2 shipped and fixed later. An update must sit where every wire accepts it: the
+    Responses API refuses developer or system context straight after a tool output (opencode issue
+    #55389), so on that wire an update rides in the next user message, and a mid-conversation
+    system message (below) is used only where it is accepted. A source follows configuration, not
+    connection state: an enabled MCP server that is reconnecting keeps its last instructions, so
+    reconnects, tab switches and app restarts announce nothing (#55529 counted 419 needless
+    re-announcements in 22 days).
+  - Switching the model to another prompt family, a finished compaction and a committed undo start a
+    new baseline from current values. A fork or spawned thread copies its source's baseline and the
+    update parts in its copied range, so its prefix matches its source's byte for byte. A worker gets
+    its own baseline when created.
+  - The UI shows an update part folded, like other engine notes: "Instructions changed" and the
+    source names. The context meter counts it as system prompt.
+  - Tests: a date change, an AGENTS.md edit, an MCP server connecting and a skill switched off each
+    produce one update and an unchanged system prompt; the same request built twice is identical; a
+    fork's first request shares its source's prefix; compaction and undo re-baseline.
+- **Reasoning level changes keep the cache.** On models that accept a per-message effort, a level
+  change keeps the request's top-level effort as it was and adds a system message carrying
+  `output_config.effort` at the change, saved like an instruction update; v2 does this for Claude
+  Opus 5+, every Claude 5.1+, and GPT-6 Sol and Luna on Responses. Which models qualify is a catalog
+  capability, never a model id check at request time. Confirm the wire shape in Anthropic's and
+  OpenAI's current docs before building it. Tests: switching a Claude 5.1 session from high to low
+  sends an unchanged prefix plus the marker; a model without the capability changes the top-level
+  value as today; an undo past a marker drops it.
+- **Newer Claude request features.** Confirm each in Anthropic's current docs first (context7
+  `/websites/platform_claude_en_api` lists mid-conversation system messages and
+  `compact_20260112`), then adopt what checks out, each behind a catalog capability:
+  - Mid-conversation `role: "system"` messages for engine reminders and instruction updates (Opus
+    4.8+ and Claude 5+ in v2). One must follow a user turn or tool results and never split a
+    `tool_use` from its `tool_result`; v2's `lowerMessages` in `protocols/anthropic-messages.ts`
+    shows where they move otherwise. Models without it keep `<system-reminder>` text.
+  - Thinking `block_binding` with `prefix_mismatch_behavior: "drop_block"` and its beta header as the
+    default on the models v2 enables it for.
+  - `between_tools` thinking: find out what it does, then decide whether it is a reasoning variant.
+- **Warming and cache lifetime.** Settings > Execution gains a Prompt cache group, all off by
+  default and kept by the engine:
+  - Warming: after a conversation's last real request, send a keep-alive request every interval
+    (default 4 minutes) until the window (default 30 minutes) has passed. It is the session's next
+    request as it would be built, plus a transient prompt (default: do no work, use no tools, reply
+    OK), with calls forbidden as one-shots already do (`Request::no_tool_calls`), on the same account.
+    Nothing is saved to the transcript; its usage is charged to the session's cost. Any real request
+    restarts both timers. Never for workers, archived sessions or while a turn runs; a failure is
+    logged and the next interval tries again.
+  - Interval, window and prompt are editable under the switch.
+  - A one-hour cache option for Anthropic routes that accept `ttl: "1h"`, with the doubled write
+    price shown beside it. Check which routes accept it (API key, subscription OAuth, Bedrock,
+    Vertex) before offering it on each.
+  - Tests: a keep-alive goes out after the interval and stops at the window; a real prompt resets
+    both; none for a worker.
+
+**Turn robustness.**
+
+- **Continue past the output limit.** A reply that stops at the output limit with no complete tool
+  call no longer ends the turn: an engine-made note ("Your last reply hit the output limit. Do not
+  apologise, recap or repeat yourself. Break the remaining work into smaller pieces.") is saved and
+  the turn takes another step. A third length stop in a row ends the turn with the current error. A
+  tool call cut off by the limit is still not run; its error now includes the first 2,048 characters
+  of its input and tells the model to split the payload. A turn already in its wrap-up step
+  (`tool_choice: none`) ends as today. Tests: one length stop then a normal reply finishes the turn;
+  three in a row stop it; a cut-off `write` gets the excerpt.
+- **Resume after a restart.** A Settings > Execution switch, on by default: "Resume interrupted
+  turns after Drift restarts". On startup, each top-level conversation whose turn was running when
+  Drift stopped (and not stopped by the user) has its unfinished calls settled as interrupted, as
+  now, then gets an engine-made note that Drift restarted mid-turn and that interrupted calls may or
+  may not have taken effect and must be checked before repeating, and its turn starts again on its
+  saved agent, model and level. At most two automatic resumes per user prompt. Workers keep today's
+  recovery. With the switch off nothing resumes. Tests: a turn killed mid-stream resumes once with
+  the note; a turn the user stopped does not; a third crash in the same prompt does not resume.
+
+**Importer.** `drift-migrate` understands opencode v2. v2 keeps the `opencode.db` name and adds its
+own tables beside v1's; confirm from `packages/core/src/database/migration/` which v1 tables
+survive. Conversations made in v2 (`session_v2`, `session_message`) are imported like v1 ones, each
+whole or not at all, with unmapped parts kept raw; v2 sign-ins in the database's `credential` table
+are imported like `auth.json`. Config: `permissions` (ordered, last match wins, actions `shell`,
+`subagent` and `edit` mapped back to Drift's kinds), `agents`, `commands`, `mcp.servers` with
+`disabled`, `providers` with `settings.baseURL`, `snapshots`, `compaction.keep.tokens`, with v1
+and v2 keys allowed side by side in one file as v2 allows. Anything without a Drift equivalent goes
+in the import report. Tests: fixture databases and configs in both shapes.
+
+**Features.**
+
+- **Web search.** A `websearch` tool (`query`, optional `limit`) returning url, title and snippet
+  per result, permission kind `websearch` with the query as its resource, run unasked by default
+  like `webfetch`. Every provider, built-in or plugin, implements one engine trait (`search`,
+  plus how it reports a rate limit), so routing never knows which kind it called.
+  - Built-in providers: Firecrawl (`POST /v2/search`; confirm the shape in Firecrawl's docs), Exa
+    and Tavily. Each takes a list of keys, from Settings > Web search into the credential store, or
+    the usual environment variables. A key answering 401 or 402 is set aside and the next is
+    tried; a 429 cools that key for its `Retry-After`. This covers the key rotation Kyle's balancer
+    does, inside the engine, with no local proxy.
+  - Plugin providers: a `searching` world in `wit/drift.wit` that includes `plugin` and exports
+    `search-providers` (id, name) and `search` (query in, results or an error out, the error able to
+    say "rate limited, retry after N seconds"). The engine calls the plugin directly; a plugin that
+    needs the network uses the existing `http` host interface. Plugins built for `plugin` alone keep
+    loading, as with `masking`.
+  - Routing: `websearch.provider` in drift.json and Settings is a provider id, `auto` (the first
+    available in the user's order, moving to the next when every key of one is cooling or it fails)
+    or off, which removes the tool. A session keeps the provider that last answered it. Cooldowns
+    are shared by every session in the workspace.
+  - Provider-native search (Anthropic's `web_search` server tool, the Responses `web_search` tool)
+    is a later step; do not build it here.
+  - The firecrawl-balancer plugin (in `Drift-Plugins-Private`, outside this repository) keeps
+    serving the firecrawl MCP server's scrape and crawl calls; web search no longer needs it. Leave
+    it alone.
+  - Tests: a 402 moves to the next key; a provider with every key cooling hands over to the next
+    provider and comes back after the cooldown; a plugin provider answers through the example
+    plugin build; off removes the tool.
+- **MCP elicitation.** Drift advertises the spec's elicitation capability and answers
+  `elicitation/create` (and the 2026-07-28 era's `input_required` requests) through the question
+  card: each schema property becomes a question, an enum becomes options, a boolean yes or no,
+  strings and numbers free text checked against the schema. Accept, decline and cancel map to the
+  card's answer, dismissal and Stop. The MCP call waits for the answer, so this card blocks, unlike
+  the async questions the model asks, and it names the server. A worker's elicitation is attributed
+  to the worker like its other asks. Tests against a stand-in server for form, decline, cancel and
+  a bad answer refused before it is sent.
+- **References.** `references` in drift.json maps a name to a path (relative to the file, absolute,
+  or `~/`), `{ path, description }`, or `{ repository, branch }`. A git reference is cloned shallow
+  under Drift's data directory and fetched at most once a day when used. The instruction baseline
+  lists each reference's name, description and local path. Reads and searches inside a reference
+  run without asking (secrets still ask); writes ask as for any outside path. A project's drift.json
+  may declare references, but a project reference outside the workspace takes effect only once the
+  user approves it, like a project's check commands. The composer's `@` picker offers references.
+  Tests: a reference read runs unasked; a write into it asks; an unapproved project reference
+  grants nothing.
+- **Worktrees.** Build the M6 worktree item, and give the model `worktree_create` (name),
+  `worktree_list` and `worktree_remove` (name, `force` to drop uncommitted changes, which asks), plus
+  `session_move` (directory), which takes effect when the current step ends, never mid-call. A
+  drift.json `worktree.setup` list of commands runs in a new worktree, each asking like `bash` unless
+  allowed; it is how a project copies `.env` or installs dependencies. Drift never merges. Tests:
+  create, move, list and remove through a real turn on a temporary repository.
+- **Plan files.** The plan agent may write and edit Markdown under
+  `<data>/plans/<workspace id>/` and nowhere else; an edit elsewhere fails with a message naming
+  that folder. Its reminder says to discuss the plan in the conversation and write a file only when
+  the user asks. Other agents read plan files without asking, and compaction carries the paths of
+  the session's plan files beside 2.1.2's carried state. Tests: plan writes there, is refused
+  elsewhere, and build reads it after a switch.
+- **Queue as an option.** A prompt is delivered as `steer` (the default, today's behaviour) or
+  `queue`. The composer queues with Alt+Enter and a choice in the send button's menu. A queued
+  prompt is saved durably, outside the transcript, and shown above the composer with edit, discard
+  and "send now", which steers it. When the turn ends, steers waiting are delivered first, then one
+  queued prompt starts the next turn; the next one waits for that turn to end. After Stop, queued
+  prompts stay and start only when the user sends one. The prompt queue removed in the app test pass (`git log --grep='remove the prompt queue'`)
+  queued agent and level changes, which is a different job; reuse its admission fencing, not its
+  rules. Tests: two queued prompts run as two turns in order; a steer sent meanwhile lands first;
+  Stop starts none.
+- **ACP.** `drift-engined --acp` serves the Agent Client Protocol on stdio, so an editor such as
+  Zed can drive a Drift session: new session, prompt, streamed updates, cancel, permission requests,
+  and the tool call view. Read the current spec at agentclientprotocol.com first and v2's
+  `packages/cli/src/acp` for what editors exercise. The engine stays the authority; ACP is a
+  translation over the in-process API. Tests drive it over a pipe with recorded JSON-RPC.
+
+**Voice and media.** Settings > Voice grows from dictation into speech in both directions; each
+cloud option is off until the user picks it and adds a key, and `docs/voice.md` says plainly
+which choices send audio or text off the machine.
+
+- **Cloud transcription for dictation.** Beside the local whisper models, the user can pick a
+  transcription provider: OpenAI, Groq, Deepgram, ElevenLabs Scribe or AssemblyAI (confirm each
+  one's current endpoint and model names in its docs). Streaming providers fill the composer as
+  the user speaks; the rest transcribe each segment the existing segmenter cuts. A failed request
+  says why and leaves the recorded audio for a retry; it never falls back to another provider by
+  itself. Keys live in the credential store and the request is made by the shell or engine, never
+  the webview. Tests with a recorded response per provider.
+- **Read aloud.** A play button on every finished reply, and an optional "read replies aloud" switch.
+  Providers: OpenAI and ElevenLabs speech, plus a local voice that needs no account (pick one that
+  builds like whisper does and say why in `docs/voice.md`). What is spoken is the reply's prose:
+  code blocks, tables and file references are named, not read. Playback stops on a new prompt,
+  Stop or switching conversations.
+- **Image generation.** A `generate_image` tool, offered only when Settings turns it on and a
+  provider is chosen: OpenAI, Google and xAI image models to start. Input: prompt, size, optional
+  reference images from the workspace, and an output path inside the workspace or scratch. The
+  saved file is returned to the model as an image so it can check the result, shows in the
+  transcript, and its cost is charged to the session. Permission kind `generate_image`, asking by
+  default because every call is billed.
+
+**Design first.** A short proposal in `docs/research/` for Kyle covering the questions below; no
+code until he picks.
+
+- **Voice mode.** A spoken conversation with the agent: either a realtime speech model (OpenAI
+  Realtime, Gemini Live) that hands coding work to a normal Drift turn and speaks the outcome, or a
+  pipeline of transcription, a normal turn and read-aloud. Cover latency, interruption, what
+  happens during long tool runs, cost per minute, permission asks by voice, and the Android app.
+  v2 has a realtime voice session endpoint and voice delegations from its iOS app to read
+  (`packages/core/src/voice.ts`).
+- **Code Mode.** The report's "Code Mode in practice" has what is known. First measure: the
+  tool-definition bytes and tool count per request across real workspaces (Kyle's chrome-devtools,
+  firecrawl and context7 set included), and how many turns chain three or more MCP calls whose
+  middle results the model only passes along. Then compare four paths: nothing; Anthropic's own
+  tool search with deferred tool definitions where the wire offers it; deferred MCP schemas behind
+  a Drift search tool on every wire; an `execute` tool running a JavaScript subset in an embedded
+  engine (name the crate and its size) with typed signatures in the instruction baseline. Cover
+  permissions inside a program, a hard time limit, Stop, how the UI shows nested calls, MCP servers
+  that already wrap their tools in their own code mode, and what each costs on a cache-warm
+  conversation, where tool schemas are already cheap.
+- **Compaction by the provider.** The report's "Compaction by the provider" has what is known.
+  Answer: whether `/responses/compact` or in-request `context_management` works on ChatGPT
+  sign-ins as well as API keys; whether an encrypted compaction item survives Drift's move to
+  another account of the same provider; how undo, fork and the context meter treat a window that
+  cannot be measured locally; whether Anthropic's readable compaction block can stand in for
+  Drift's summary on Claude, including on a model switch; and a measured comparison on two long
+  real sessions (cost, and whether the next turns lose track of the work) against Drift's own
+  summary.
+- **Models choosing a worker's model.** How a `model` argument on `task` would sit with Settings >
+  Agents pins, an agent file's model, a command's model and the accounts that can serve it; whether
+  the model may only pass a model the user named in this conversation (v2's rule) or may pick a
+  cheaper one itself, and under what budget; whether a `models` listing tool is needed; what the
+  sidebar shows. Today's rule, that the model can never send a worker to a provider of its
+  choosing, stays until Kyle decides.
+
 ### Trade-offs kept on purpose
 
 - Undo restores only what Drift's own file tools wrote; changes made by shell commands (`sed -i`,
