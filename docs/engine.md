@@ -31,8 +31,8 @@ uses it.
   `commands/` and `skills/`. A project adds its own `drift.json`, `.drift/{agents,commands,skills}`
   and `AGENTS.md` (or `CLAUDE.md`) files; it can never add providers or language servers.
 - On first launch `crates/drift-migrate` imports opencode's conversations, sign-ins, MCP
-  servers and config once, in the background ("Importing opencode conversations" in
-  engine-rewrite.md).
+  servers and config once, in the background, from opencode v1 and v2 alike ("Importing opencode
+  conversations" in engine-rewrite.md).
 
 Tool-call metadata uses `ToolMetadata` in `session/types.rs`, shared by tool results,
 running progress, history capture and replay. Its OpenAPI schema gives the generated

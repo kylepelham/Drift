@@ -9,6 +9,7 @@ mod undo;
 
 pub use settings::{
     LeftOut, McpConfigError, OcConfig, OcServer, REPORT, Settings, SettingsReport, import_settings, mcp_config,
+    sign_ins,
 };
 
 use drift_engine::session::types::Session;

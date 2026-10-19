@@ -1047,29 +1047,72 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
   - `auth.json`: an API key goes in for a provider Drift has (a local server's placeholder is
     ignored); an Anthropic, OpenAI or xAI sign-in goes in with its refresh token and expiry, since
     Drift renews those itself. Other sign-ins and unknown providers are reported. A provider already
-    signed in to Drift keeps its own.
+    signed in to Drift keeps its own. opencode v2 keeps sign-ins in `opencode.db`'s `credential`
+    table (`drift_migrate::sign_ins`), one row per credential with `integration_id` naming the
+    provider; the one v2 would use is taken (the active row, else the newest), a `key` read as an
+    API key and an `oauth` as a sign-in with `metadata.accountID` as its account. v2 copied
+    `auth.json` into the table once and renews sign-ins there, so for a provider in both the table
+    wins. An `external` credential (Azure CLI's own sign-in) and a row with no provider (an older v2
+    connector row) are reported or skipped like any sign-in Drift cannot read. Only the shared
+    `opencode.db` is read for sign-ins.
   - MCP servers, from the shell's `mcp_server` table (Drift's old manager) and then opencode's
-    `mcp`: `local` becomes stdio (command split from its arguments), `remote` streamable HTTP with
-    its headers and any pre-registered OAuth app. `{env:NAME}` and `{file:path}` are read at import;
-    one that cannot be read refuses the server rather than save a blank secret. A server is left on
-    only when it was enabled in opencode and approved in Drift's old approval step (its exact
-    fingerprint, `mcp_external::fingerprint`), so nothing the user never allowed starts by itself.
+    config (`OcConfig::servers`): v1's directly under `mcp`, v2's under `mcp.servers`, which wins
+    for a name in both (a v1 server named `servers` or `timeout` is told apart by its `type`, as v2
+    does; `mcp.timeout` and per-server timeouts are not read, as before). `local` becomes stdio (command split from its
+    arguments), `remote` streamable HTTP with its headers and any pre-registered OAuth app (v1's
+    `clientId`, v2's `client_id`). `{env:NAME}` and `{file:path}` are read at import; one that
+    cannot be read refuses the server rather than save a blank secret. A server is left on only
+    when it was on in opencode (not `enabled: false`, not v2's `disabled: true`) and approved in
+    Drift's old approval step (its exact fingerprint, `mcp_external::fingerprint`), so nothing the
+    user never allowed starts by itself; a v2 server was never approved there, so it arrives off.
     A name Drift already has, or one with characters a server name cannot hold, is reported.
   - opencode's config folder: its global `AGENTS.md`, `agents/` (or `agent/`), `commands/` (or
     `command/`) and `skills/` are copied to `~/.config/drift`, where Drift reads the user's own
     instructions, agents, commands and skills; a file already there is kept. Its `plugins/` are
     named in the report and not copied. Once copied, a file the user deletes stays deleted.
-  - opencode's global config: `model` (`provider/model`), `instructions` (made absolute) and
-    `permission` (`read`, `edit`, `bash`, `webfetch`, a decision or a pattern map) become
-    `~/.config/drift/drift.json`, written only when it does not exist yet. opencode lets the last
-    matching rule win and drift.json the first, so the rules are read in the order written
-    (`OcConfig`, not a sorted JSON object) and the whole list reversed: `{ "*": "ask", "git *":
-    "allow" }` still allows `git status`, and a `"*"` key (every permission, kind `*` in Drift)
-    written before `bash` still loses to it. A single decision (`"permission": "allow"`) is
-    opencode's `{ "*": decision }`; any other value is named in the report. `opencode.json` is read
-    first and `opencode.jsonc` when it is missing or does not parse. Everything else
-    (`tools`, `plugin`, `agent`, `provider`, ...) is named in the report; plugins are JavaScript and
-    Drift runs none. Project-level opencode files are not read.
+  - opencode's global config, v1 and v2 keys side by side in one file as v2 allows: for a value
+    both set v2's wins, as in v2 (`config::convert`). `model` (`provider/model`; v2's `#variant`
+    or `{ providerID, model, variant }` form too, the variant reported since drift.json's model has
+    none), `default_agent`, `instructions` (made absolute), the permission rules and `providers`
+    become `~/.config/drift/drift.json`, written only when it does not exist yet. `opencode.json` is
+    read first and `opencode.jsonc` when it is missing or does not parse. Project-level opencode
+    files are not read.
+    - Permissions (`settings::permissions`): v1's `permission` (a decision, or a decision or pattern
+      map per kind) and v2's `permissions` (an ordered list of `{ action, resource, effect }`). Kinds
+      map to Drift's: `bash` and v2's `shell` to `bash`, `task` and v2's `subagent` to `task`,
+      `edit`, `write` and `patch` to `edit`, and `read`, `glob`, `grep`, `webfetch`, `skill` and `*`
+      as they are; any other (`external_directory`, `doom_loop`, `websearch`, ...) is reported.
+      opencode lets the last matching rule win and drift.json the first, so v1's rules are read in
+      the order written (`OcConfig`, not a sorted JSON object), v2's follow them as v2 appends
+      them, and the whole list is reversed: `{ "*": "ask", "git *": "allow" }` still allows
+      `git status`, a `"*"` key written before `bash` still loses to it, and a v2 rule beats a v1
+      rule it overlaps. A single decision (`"permission": "allow"`) is opencode's
+      `{ "*": decision }`; any other value is named in the report.
+    - Agents and commands (`settings::definitions`): v1's `agent` and `mode` (each a primary agent)
+      and v2's `agents`, and v1's `command` and v2's `commands`, become Markdown files in
+      `~/.config/drift/agents/` and `commands/` (`<name>.md`), the shape Drift reads; a file already
+      there is kept, and a name that cannot be a file name is reported. An agent keeps its prompt
+      (v1 `prompt`, v2 `system`, with `{file:...}` read as opencode reads it), `description`,
+      `mode`, `hidden`, `disable` (v2 `disabled`), model and level (v1 `variant`, v2 `#variant`),
+      v1's `tools` map (`false` entries) and its rules in written order, since Drift reads an
+      agent's rules as opencode does, the last match winning. A command keeps its template,
+      `description`, `agent`, model and `subtask` (v2 `subagent`); a model level is reported, since a
+      Drift command has none. Anything else (`temperature`, `steps`, `color`, `request`, ...) is
+      reported by name. A definition in opencode's config wins over a file of the same name in its
+      config folder, which is copied after.
+    - Providers (`settings::providers`): v1's `provider` and v2's `providers` (v2's wins for an id
+      in both) become drift.json `providers`: `name`, the address (v1 `api` or `options.baseURL`, v2
+      `settings.baseURL`) as `baseUrl`, the key variable (`env`'s first, or an `apiKey` written
+      `{env:NAME}`) as `apiKeyEnv`, and each model's `name`, `limit.context`, `limit.output` and
+      whether it takes images. A key written out is reported (Drift keeps keys with its sign-ins),
+      as is every other field (`npm`, `package`, `headers`, costs, variants, ...).
+    - `compaction.auto` sets Drift's own switch (`autoCompact`) unless the user already set it in
+      Drift. `compaction.keep.tokens` (v1 `preserve_recent_tokens`) is reported: Drift sizes the
+      history it keeps to each model. `snapshot` or `snapshots` set to `false` is reported, since
+      Drift always keeps its undo history; `true` is what Drift does. The other compaction fields
+      (`buffer`, `reserved`, `tail_turns`, `prune`) are reported.
+    - Everything else (`tools`, `skills`, `plugin` and v2's `plugins`, `share`, ...) is named in the
+      report; plugins are JavaScript and Drift runs none.
 - **Queued prompts.** opencode keeps prompts it queued but never ran in `session_input` (v2:
   `session_inbox` rows of type `user`); the import names the conversations holding any
   (`Report.pending`, `source::pending_inputs`) instead of running them, since they were meant for a
@@ -1101,6 +1144,31 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
     drops its metadata, as an oversized v1 call does.
   - v2 calls get no undo records (only v1's diffs are rebuilt), and v2 conversations bring no todos,
     since v2 has no todo list.
+  - Decisions made for v2 on 2026-10-19 while Kyle was away, each open to change:
+    - A conversation in both shapes comes from v1 unless v2 has a row newer than its last v1
+      message; v2 bumps no v1 table when a conversation goes on, so this is the one signal.
+    - v2's tool names and inputs are kept as written (`shell`, `subagent`, `patch`, `path`) rather
+      than renamed to Drift's; they show as calls of tools Drift does not have and replay as written.
+    - Bookkeeping rows (`idle`, the three `*-switched`) are dropped; every other row without a
+      Drift shape becomes its own user message holding it raw, rather than riding on a neighbour.
+    - A v2 compaction becomes a boundary keeping nothing plus a summary carrying v2's `recent` text,
+      since v2 keeps its tail as text, not as message ids.
+    - v2 calls get no undo records, and a v2 row past 8 MB is cut down as an oversized v1 call is.
+    - Sign-ins: the `credential` table beats `auth.json` for a provider in both, and only
+      `opencode.db` is read for them, not channel databases.
+    - The kind map serves v1 as well: v1's `task`, `glob`, `grep`, `skill`, `write` and `patch`
+      rules, reported before, now come in.
+    - Agents and commands from either shape are written as Markdown files, since drift.json has no
+      agents or commands; v1's `agent`, `mode`, `command` and `provider`, reported before, now come
+      in too. A definition from opencode's config wins over its folder's file of the same name.
+    - `compaction.auto` sets Drift's `autoCompact`, an equivalent the plan did not list; Drift's own
+      setting wins. `snapshots: true` is not reported, since it is what Drift does.
+    - A provider's key written out is reported, not saved as a sign-in; provider ids keep their
+      spelling (v2's renames of `azure-cognitive-services` and `google-vertex-anthropic` are not
+      applied).
+    - v2 MCP servers go through the same approval as v1's, so they arrive off unless Drift's old
+      approval step allowed that exact definition.
+    - A model's level is reported for drift.json's `model` and for commands, which have no level.
 - **Summary, once.** A run that brought anything in, or left anything out, keeps a summary in the
   shell (conversations, undoable edits, queued prompts, folders waiting for a workspace with temp
   folders dropped, sign-ins, servers, copied files, `LeftOut`) and emits `opencode-import-done`.
@@ -1442,7 +1510,9 @@ are imported like `auth.json`. Config: `permissions` (ordered, last match wins, 
 `subagent` and `edit` mapped back to Drift's kinds), `agents`, `commands`, `mcp.servers` with
 `disabled`, `providers` with `settings.baseURL`, `snapshots`, `compaction.keep.tokens`, with v1
 and v2 keys allowed side by side in one file as v2 allows. Anything without a Drift equivalent goes
-in the import report. Tests: fixture databases and configs in both shapes.
+in the import report. Tests: fixture databases and configs in both shapes. Built as "opencode v2"
+and the Settings bullets under "Importing opencode conversations" describe, with the decisions
+listed there.
 
 **Features.**
 

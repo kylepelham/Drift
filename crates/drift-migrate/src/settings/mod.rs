@@ -11,11 +11,17 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 mod config;
+mod definitions;
 mod files;
+mod ordered;
+mod permissions;
+mod providers;
 mod servers;
+mod sign_ins;
 
-pub use config::OcConfig;
+pub use ordered::OcConfig;
 pub use servers::{McpConfigError, mcp_config};
+pub use sign_ins::sign_ins;
 
 /// Tracks earlier imports so a credential or server the user removed stays removed.
 const LEDGER: &str = "opencodeImported";
@@ -26,7 +32,7 @@ const KEYLESS: [&str; 2] = ["lmstudio", "ollama"];
 /// Providers whose OAuth sign-ins Drift can refresh; other sign-ins would expire without renewal.
 const SIGN_INS: [&str; 3] = ["anthropic", "openai", "xai"];
 
-/// opencode's auth.json, global config and MCP servers.
+/// opencode's sign-ins in `auth.json`'s shape ([`sign_ins`]), global config and MCP servers.
 /// The config directory supplies the base for file substitutions.
 pub struct Settings {
     pub auth: Option<Value>,
@@ -99,6 +105,13 @@ impl SettingsReport {
         group(&mut self.left_out).push(item.to_string());
         self.skipped.push(line);
     }
+
+    /// Names a config setting with no Drift equivalent once, however often it comes up.
+    fn setting(&mut self, name: &str, reason: &str) {
+        if !self.left_out.settings.iter().any(|known| known == name) {
+            self.left(name, format!("config {name}: {reason}"), |left| &mut left.settings);
+        }
+    }
 }
 
 pub fn import_settings(
@@ -119,6 +132,9 @@ pub fn import_settings(
     {
         let file = config::convert(config, &settings.config_dir, &mut report);
         report.config_written = files::write_config(home, file, &mut report);
+        let drift_dir = home.join(".config").join("drift");
+        definitions::write(config, &settings.config_dir, &drift_dir, &mut report);
+        config::compaction_switch(store, config, &mut report)?;
         ledger.config = true;
     }
 
