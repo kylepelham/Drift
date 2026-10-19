@@ -65,6 +65,8 @@ async fn a_turn_the_user_stopped_and_a_third_restart_in_one_prompt_do_not_resume
         .store
         .set_setting(crate::session::turn::resume::RESUME_KEY, &false)
         .unwrap();
-    restarted.resume_turns().await;
+    let off = reopen(&h);
+    off.resume_turns().await;
     assert_eq!(sent(&h).len(), 1, "the switch off resumes nothing");
+    assert!(off.store.claimed_turns().unwrap().is_empty());
 }
