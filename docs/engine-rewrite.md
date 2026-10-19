@@ -1464,6 +1464,14 @@ in the import report. Tests: fixture databases and configs in both shapes.
   the async questions the model asks, and it names the server. A worker's elicitation is attributed
   to the worker like its other asks. Tests against a stand-in server for form, decline, cancel and
   a bad answer refused before it is sent.
+  - Built (2.4.0): `mcp/elicit.rs` and `mcp/elicit/form.rs`; user-facing behaviour in
+    `docs/mcp.md`. rmcp drives both eras' requests through `ClientHandler::create_elicitation`,
+    so one handler answers both. Each connection's client keeps the calls in flight on it, and a
+    question goes to the newest. The protocol has no field naming which call a 2025-era request
+    belongs to, and two of Drift's calls on one connection at once are rare. A rejected answer
+    asks the card again with the problem shown, rather than sending it and letting the server
+    refuse. The tests use the stateless HTTP stand-in; the 2025 stdio path goes through the same
+    handler and is not tested separately.
 - **References.** `references` in drift.json maps a name to a path (relative to the file, absolute,
   or `~/`), `{ path, description }`, or `{ repository, branch }`. A git reference is cloned shallow
   under Drift's data directory and fetched at most once a day when used. The instruction baseline

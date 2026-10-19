@@ -326,7 +326,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [ ] Importer reads opencode v2 conversations, sign-ins and config shapes
 - Features:
   - [x] `websearch` with Firecrawl, Exa and Tavily over one provider trait, key lists rotated on 401, 402 and 429, `auto` routing, plugin providers through a `searching` WIT world
-  - [ ] MCP elicitation answered through a blocking question card
+  - [x] MCP elicitation answered through a blocking question card
   - [ ] References: named outside paths and git repositories, listed in the baseline, read unasked, project references approved first
   - [ ] Worktrees (the M6 item) with `worktree_create`, `worktree_list`, `worktree_remove`, `session_move` and `worktree.setup`
   - [ ] Plan agent writes only under `<data>/plans/<workspace id>/`, discusses first, plan paths survive compaction

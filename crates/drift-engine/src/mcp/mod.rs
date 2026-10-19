@@ -3,6 +3,7 @@
 mod catalog;
 mod client;
 mod connect;
+mod elicit;
 mod error;
 mod oauth;
 mod registry;
@@ -299,6 +300,8 @@ impl Era {
 #[derive(Clone)]
 struct DriftClient {
     root: Option<String>,
+    /// The calls in flight on this connection, so a server's question reaches the session that called it.
+    callers: Arc<elicit::Callers>,
 }
 
 type Client = RunningService<RoleClient, DriftClient>;

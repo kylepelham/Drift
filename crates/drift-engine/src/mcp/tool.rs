@@ -67,6 +67,7 @@ impl McpTool {
             }
         };
 
+        let _asking = client.service.service().callers.enter(ctx, &self.server);
         tokio::select! {
             result = client.call(&self.tool.name, input) => result,
             () = ctx.abort.cancelled() => Err(CallError::Failed("aborted".into())),

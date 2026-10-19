@@ -352,7 +352,7 @@ export function QuestionCard(props: {
                         disabled={sending()}
                     >
                         <fieldset class="min-w-0 px-4 pt-3.5 pb-4" disabled={editingDisabled()}>
-                            <div class="text-sm font-medium text-ink">{question().question}</div>
+                            <div class="text-sm font-medium whitespace-pre-wrap text-ink">{question().question}</div>
                             <div class="mt-1 text-xs text-ink-faint">
                                 {question().multiple
                                     ? t("drift.question.selectMultiple")

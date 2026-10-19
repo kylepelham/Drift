@@ -7,6 +7,7 @@ use crate::event::{Event, Hub};
 use crate::tool::{Context, SessionFiles};
 
 mod calls;
+mod elicitation;
 mod oauth;
 mod protocol;
 mod resources;
