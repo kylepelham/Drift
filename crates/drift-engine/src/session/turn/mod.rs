@@ -171,6 +171,8 @@ pub struct Turns {
     began: Mutex<HashMap<String, String>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
+    /// The turns under way when the engine last stopped, as the store said at open; taken once, by resume.
+    pub(crate) cut_off: Mutex<Vec<crate::store::TurnClaim>>,
     /// Each session's prompt cache warming loop.
     warmers: warming::Warmers,
     /// Each session's last request by segment, to say what broke its prompt cache.

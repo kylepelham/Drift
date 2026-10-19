@@ -121,6 +121,8 @@ impl Engine {
         store.abandon_streaming_messages()?;
         store.interrupt_unfinished_tasks()?;
         tool::stage::recover_leftovers(&store);
+        // Taken before anything can run, so a turn started during startup is never mistaken for a cut-off one.
+        let cut_off = store.claimed_turns()?;
         let _ = std::fs::create_dir_all(std::env::temp_dir().join("Drift"));
 
         let credentials = Arc::new(Credentials::open(data_dir, options.file_credentials));
@@ -138,7 +140,7 @@ impl Engine {
         let mcp = mcp::Servers::new(credentials.clone(), store.clone());
         let background_limit = session::tasks::stored_background_limit(&store);
 
-        Ok(Arc::new_cyclic(|me| Self {
+        let engine = Arc::new_cyclic(|me| Self {
             me: me.clone(),
             data_dir: data_dir.to_path_buf(),
             store,
@@ -166,7 +168,10 @@ impl Engine {
             processes: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
-        }))
+        });
+        *engine.turns.cut_off.lock().unwrap() = cut_off;
+
+        Ok(engine)
     }
 
     /// A changed agent model or prompt may be what an owed result was waiting for.

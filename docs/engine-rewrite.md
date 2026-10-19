@@ -1960,7 +1960,8 @@ Settled after the first external review of M1; each has a regression test.
   engine setting `resumeTurns`, Settings > Execution > Turns, on by default, after opencode v2's
   execution claims). A top-level turn writes a `turn_claim` row (migration 43) when it starts and
   removes it when it ends, a Stop included, so a row left at startup means Drift stopped, not the
-  user. After workers are recovered, each such conversation that is not archived gets an
+  user. The rows are read when the store opens, before any turn can start, so a turn the user starts
+  while startup recovery still waits is never taken for a cut-off one. After workers are recovered, each such conversation that is not archived gets an
   engine-made prompt (a `continuation` part, folded in the UI as "Resumed after Drift restarted")
   saying Drift restarted mid-turn and that interrupted calls may or may not have taken effect and
   must be checked before repeating one, and its turn starts on its saved agent, model and level.

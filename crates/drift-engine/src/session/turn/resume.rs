@@ -21,8 +21,12 @@ impl Engine {
 
     /// Starts again each turn Drift stopped in the middle of, once on startup.
     pub async fn resume_turns(self: &Arc<Self>) {
-        for claim in self.store.claimed_turns().unwrap_or_default() {
+        let cut_off = std::mem::take(&mut *self.turns.cut_off.lock().unwrap());
+        for claim in cut_off {
             let id = claim.session_id;
+            if self.turns.is_running(&id) {
+                continue;
+            }
             let session = self.store.session(&id).ok().flatten();
             let resumable = session
                 .is_some_and(|session| session.visibility != Visibility::Hidden && session.archived_at.is_none());
