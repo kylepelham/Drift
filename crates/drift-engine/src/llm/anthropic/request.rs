@@ -51,7 +51,7 @@ pub(super) fn body(request: &Request) -> Value {
 }
 
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
-    json!({ "name": tool.name, "description": tool.description, "input_schema": tool.input_schema })
+    json!({ "name": tool.name, "description": tool.description, "input_schema": tool.parameters() })
 }
 
 fn ephemeral() -> Value {

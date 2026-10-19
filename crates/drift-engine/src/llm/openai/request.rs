@@ -43,7 +43,7 @@ pub(super) fn body(request: &Request, subscription: bool) -> Value {
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
     json!({
         "type": "function", "name": tool.name, "description": tool.description,
-        "parameters": tool.input_schema, "strict": false,
+        "parameters": tool.parameters(), "strict": false,
     })
 }
 

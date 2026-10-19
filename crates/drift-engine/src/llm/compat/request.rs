@@ -33,7 +33,7 @@ pub(super) fn body(request: &Request) -> Value {
 
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
     let function = json!({
-        "name": tool.name, "description": tool.description, "parameters": tool.input_schema,
+        "name": tool.name, "description": tool.description, "parameters": tool.parameters(),
     });
 
     json!({ "type": "function", "function": function })

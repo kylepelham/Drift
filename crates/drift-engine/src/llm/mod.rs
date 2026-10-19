@@ -89,6 +89,37 @@ pub struct ToolSpec {
     pub input_schema: Value,
 }
 
+impl ToolSpec {
+    /// The input schema as every wire sends it: with an object root, which providers require of a tool's arguments
+    /// while an MCP server may declare `{}` or a bare `properties` map.
+    pub(crate) fn parameters(&self) -> Value {
+        let Some(fields) = self.input_schema.as_object() else {
+            return serde_json::json!({ "type": "object" });
+        };
+        if fields.contains_key("type") {
+            return self.input_schema.clone();
+        }
+
+        // An empty struct's schema is an object-or-array union; every object matches its bare object branch.
+        let bare_object = |branch: &Value| {
+            branch
+                .as_object()
+                .is_some_and(|branch| branch.len() == 1 && branch.get("type") == Some(&Value::from("object")))
+        };
+        let mut root = fields.clone();
+        if root
+            .get("anyOf")
+            .and_then(Value::as_array)
+            .is_some_and(|branches| branches.iter().any(bare_object))
+        {
+            root.remove("anyOf");
+        }
+        root.insert("type".into(), Value::from("object"));
+
+        Value::Object(root)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Role {
     User,

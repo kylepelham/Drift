@@ -115,7 +115,7 @@ fn body(request: &Request) -> Value {
                 json!({
                     "name": tool.name,
                     "description": tool.description,
-                    "parametersJsonSchema": tool.input_schema
+                    "parametersJsonSchema": tool.parameters()
                 })
             })
             .collect();
