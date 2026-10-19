@@ -487,11 +487,36 @@ export const drift = {
     "drift.settings.imageGeneration": "Génération d'images",
     "drift.settings.imageGeneration.provider.title": "Fournisseur",
     "drift.settings.imageGeneration.provider.description":
-        "Permet à l'agent de créer des images. Chaque image est facturée sur votre clé API chez le fournisseur et demande d'abord l'autorisation, sauf si vous l'autorisez toujours. Désactivé retire l'outil.",
+        "Permet à l'agent de créer des images. Chacune coûte quelque chose : une facture du fournisseur, le quota d'images de votre forfait ChatGPT ou le temps de votre propre machine, donc il demande d'abord, sauf si vous l'autorisez toujours. Désactivé retire l'outil.",
     "drift.settings.imageGeneration.off": "Désactivé",
     "drift.settings.imageGeneration.needsKey": "Nécessite une clé API",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} n'a pas encore de clé API. Ajoutez-en une dans Fournisseurs ; une connexion par abonnement ne peut pas créer d'images.",
+        "{{provider}} n'est pas encore configuré : ajoutez une clé d'API ci-dessous ou dans Fournisseurs. Une connexion par abonnement ne paie que les images OpenAI.",
+    "drift.settings.imageGeneration.planOnly":
+        "Les images viennent du quota de votre forfait ChatGPT via votre connexion. Ajoutez une clé d'API ci-dessous pour prendre le relais quand le forfait est épuisé.",
+    "drift.settings.imageGeneration.payFirst.title": "Payer d'abord avec",
+    "drift.settings.imageGeneration.payFirst.description":
+        "Votre connexion ChatGPT et une clé d'API peuvent toutes deux payer les images OpenAI. L'autre prend le relais quand la première est refusée ou à court de quota.",
+    "drift.settings.imageGeneration.payFirst.plan": "Forfait ChatGPT",
+    "drift.settings.imageGeneration.payFirst.apiKey": "Clé d'API",
+    "drift.settings.imageGeneration.key.title": "Clé d'API",
+    "drift.settings.imageGeneration.key.description": "Enregistrée pour la génération d'images uniquement.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Facultatif : une clé réservée aux images, utilisée avant celle de Fournisseurs. Pratique quand Fournisseurs contient une connexion.",
+    "drift.settings.imageGeneration.key.serverDescription": "Seulement si votre serveur en demande une.",
+    "drift.settings.imageGeneration.key.environment":
+        "La clé de l'environnement est utilisée. Une clé enregistrée ici passe en premier.",
+    "drift.settings.imageGeneration.key.placeholder": "Collez une clé d'API",
+    "drift.settings.imageGeneration.key.save": "Enregistrer",
+    "drift.settings.imageGeneration.key.remove": "Retirer",
+    "drift.settings.imageGeneration.server.title": "Adresse du serveur",
+    "drift.settings.imageGeneration.server.description": "Où écoute votre serveur {{provider}}.",
+    "drift.settings.imageGeneration.model.typedDefault": "Le point d'accès à appeler. Vide utilise {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "Le fichier de checkpoint à charger. Vide utilise le premier que ComfyUI liste.",
+    "drift.settings.imageGeneration.model.loaded":
+        "Le checkpoint vers lequel basculer. Vide garde celui que la WebUI a chargé.",
+    "drift.settings.imageGeneration.model.required": "Le modèle d'image, tel que votre serveur le nomme.",
     "drift.settings.imageGeneration.model.title": "Modèle",
     "drift.settings.imageGeneration.model.description": "Le modèle d'image utilisé par chaque appel.",
     "drift.settings.imageGeneration.size.title": "Taille par défaut",

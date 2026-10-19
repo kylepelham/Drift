@@ -471,11 +471,34 @@ export const drift = {
     "drift.settings.imageGeneration": "이미지 생성",
     "drift.settings.imageGeneration.provider.title": "공급자",
     "drift.settings.imageGeneration.provider.description":
-        "에이전트가 이미지를 만들 수 있게 합니다. 이미지마다 공급자의 API 키로 요금이 청구되며, 항상 허용하지 않으면 먼저 묻습니다. 끄면 도구가 제거됩니다.",
+        "에이전트가 이미지를 만들 수 있게 합니다. 이미지마다 비용이 듭니다: 제공자의 청구, ChatGPT 플랜의 이미지 한도, 또는 내 컴퓨터의 시간입니다. 그래서 항상 허용하지 않는 한 먼저 묻습니다. 끄면 도구가 제거됩니다.",
     "drift.settings.imageGeneration.off": "끔",
     "drift.settings.imageGeneration.needsKey": "API 키 필요",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}}에 아직 API 키가 없습니다. 공급자에서 추가하세요. 구독 로그인으로는 이미지를 만들 수 없습니다.",
+        "{{provider}}이(가) 아직 설정되지 않았습니다: 아래나 제공자에서 API 키를 추가하세요. 구독 로그인은 OpenAI 이미지에만 쓸 수 있습니다.",
+    "drift.settings.imageGeneration.planOnly":
+        "이미지는 로그인을 통해 ChatGPT 플랜의 이미지 한도에서 만들어집니다. 플랜을 다 쓰면 대신 쓸 API 키를 아래에 추가하세요.",
+    "drift.settings.imageGeneration.payFirst.title": "먼저 결제할 수단",
+    "drift.settings.imageGeneration.payFirst.description":
+        "ChatGPT 로그인과 API 키 모두 OpenAI 이미지를 결제할 수 있습니다. 첫 번째가 거부되거나 한도를 다 쓰면 다른 쪽이 이어받습니다.",
+    "drift.settings.imageGeneration.payFirst.plan": "ChatGPT 플랜",
+    "drift.settings.imageGeneration.payFirst.apiKey": "API 키",
+    "drift.settings.imageGeneration.key.title": "API 키",
+    "drift.settings.imageGeneration.key.description": "이미지 생성에만 쓰도록 저장됩니다.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "선택 사항: 이미지 전용 키로, 제공자의 키보다 먼저 쓰입니다. 제공자에 로그인이 저장돼 있을 때 유용합니다.",
+    "drift.settings.imageGeneration.key.serverDescription": "서버가 요구할 때만.",
+    "drift.settings.imageGeneration.key.environment": "환경 변수의 키를 쓰고 있습니다. 여기에 저장한 키가 우선합니다.",
+    "drift.settings.imageGeneration.key.placeholder": "API 키 붙여넣기",
+    "drift.settings.imageGeneration.key.save": "저장",
+    "drift.settings.imageGeneration.key.remove": "제거",
+    "drift.settings.imageGeneration.server.title": "서버 주소",
+    "drift.settings.imageGeneration.server.description": "{{provider}} 서버가 수신 대기하는 곳.",
+    "drift.settings.imageGeneration.model.typedDefault": "호출할 엔드포인트. 비워 두면 {{model}}을(를) 씁니다.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "불러올 체크포인트 파일. 비워 두면 ComfyUI 목록의 첫 번째를 씁니다.",
+    "drift.settings.imageGeneration.model.loaded": "전환할 체크포인트. 비워 두면 WebUI가 불러온 것을 그대로 씁니다.",
+    "drift.settings.imageGeneration.model.required": "서버에서 부르는 이름 그대로의 이미지 모델.",
     "drift.settings.imageGeneration.model.title": "모델",
     "drift.settings.imageGeneration.model.description": "모든 호출에 쓰이는 이미지 모델입니다.",
     "drift.settings.imageGeneration.size.title": "기본 크기",

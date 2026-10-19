@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::image::{Image, sniff};
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, ToolMetadata, display, required_str, scratch_dir};
-use crate::imagegen::{Generated, ImageRequest, MAX_REFERENCES, Size};
+use crate::imagegen::{Generated, ImageRequest, MAX_REFERENCES, Paid, Size};
 use crate::llm::ToolSpec;
 use crate::session::types::MetadataFile;
 
@@ -127,13 +127,16 @@ impl Tool for GenerateImage {
 
     fn ask(&self, ctx: &Context, input: &Value) -> Option<Ask> {
         let prompt = input["prompt"].as_str()?;
-        let provider = ctx.engine.image_provider_name().unwrap_or("the image provider");
+        let provider = ctx
+            .engine
+            .image_ask_label()
+            .unwrap_or_else(|| "the image provider".into());
 
-        // Every call is billed, so it asks unless a rule or an earlier "always" allows it.
+        // A call is billed or spends a plan's allowance, so it asks unless a rule or an earlier "always" allows it.
         Some(Ask::new(
             "generate_image",
             prompt,
-            format!("Generate an image with {provider} (billed): {prompt}"),
+            format!("Generate an image with {provider}: {prompt}"),
         ))
     }
 
@@ -257,13 +260,24 @@ fn described(generated: &Generated, name: &str, width: u32, height: u32) -> Stri
         "Generated with {} {} and saved to {name} ({width}x{height}).",
         generated.provider, generated.model
     );
-    let _ = match generated.cost {
-        Some(cost) => write!(text, " It cost ${cost:.3}, added to this conversation's cost."),
-        None => write!(
+    let _ = match (generated.paid, generated.cost) {
+        (Paid::Plan, _) => write!(
+            text,
+            " It used your ChatGPT plan's image allowance, so nothing was added to this conversation's cost."
+        ),
+        (Paid::Local, _) => write!(
+            text,
+            " It ran on your own server, so nothing was added to this conversation's cost."
+        ),
+        (Paid::Billed, Some(cost)) => write!(text, " It cost ${cost:.3}, added to this conversation's cost."),
+        (Paid::Billed, None) => write!(
             text,
             " Drift does not know this model's price, so nothing was added to this conversation's cost."
         ),
     };
+    if let Some(note) = &generated.handed_over {
+        let _ = write!(text, " ({note}.)");
+    }
     if let Some(note) = &generated.revised_prompt {
         let _ = write!(text, "\n\nThe provider's note on the prompt: {note}");
     }

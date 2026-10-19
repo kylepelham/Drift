@@ -1719,8 +1719,8 @@ which choices send audio or text off the machine.
   saved file is returned to the model as an image so it can check the result, shows in the
   transcript, and its cost is charged to the session. Permission kind `generate_image`, asking by
   default because every call is billed.
-  - Built (2.4.0). `imagegen/` holds the settings, key lookup and charging; `imagegen/providers.rs`
-    the three wire shapes and prices; `imagegen/size.rs` reads `size` (`auto`, a ratio such as
+  - Built (2.4.0). `imagegen/` holds the settings, who pays and charging; `imagegen/providers/`
+    one module per wire with its prices; `imagegen/size.rs` reads `size` (`auto`, a ratio such as
     `16:9`, or `WIDTHxHEIGHT`) into each provider's terms. The tool is `tool/generate_image.rs`,
     offered only while `image_generation_available()` (a provider chosen and an API key for it).
     Settings > Execution > Image generation picks Off (the default), OpenAI, Google or xAI, the
@@ -1739,10 +1739,11 @@ which choices send audio or text off the machine.
     URLs), `response_format: b64_json`, `aspect_ratio` from its list and `resolution` from pixels.
     Defaults: `gpt-image-2`, `gemini-3.1-flash-image`, `grok-imagine-image-2.0`. At most five
     references per call, xAI's limit, each scaled as tool images are; PNG, JPEG and WebP only.
-  - Keys: the user's existing provider sign-ins, but only API keys (`Credentials::api_key`: the
-    first stored API-key account, else the catalog's environment variables). A ChatGPT, Grok or
-    other subscription sign-in is passed over, because it pays for chat and the image APIs do not
-    take it; Settings says a key is needed. No separate key entry.
+  - Keys: first a key saved for images in Settings > Image generation (`imagegen:<id>` in the
+    credential store), then the provider's API key from Settings > Providers or its environment
+    variable. The image-only key exists because the credential store keeps a sign-in or an API
+    key per provider, never both. A Grok or other subscription sign-in pays for nothing here; a
+    ChatGPT sign-in pays for OpenAI images (below).
   - Paths: references and the output must resolve inside the workspace or the scratch directory;
     anything else is refused before a request is sent, and such a call asks nothing (it cannot
     cost anything). Without `path` the image goes to `<scratch>/images/<call id>.png`, named for
@@ -1761,7 +1762,7 @@ which choices send audio or text off the machine.
     `message.updated`; it is charged as soon as the provider answers, before the file is written,
     since the image is billed either way. xAI reports `usage.cost_in_usd_ticks` (1e10 to the
     dollar), used as is. OpenAI and Google report tokens, priced per million from a table in
-    `providers.rs` (OpenAI: text in, image in, image out, text out; Google: input, text and
+    `providers/` (OpenAI: text in, image in, image out, text out; Google: input, text and
     thinking out, image out), the longest model-name prefix winning so a dated snapshot is priced
     as its model. A model with no table entry and no reported cost is charged nothing and the
     result says so; xAI falls back to its lowest per-image price only when an answer names no
@@ -1772,6 +1773,36 @@ which choices send audio or text off the machine.
     quality is not shared by the three; xAI's lowest-tier per-image price as its fallback, an
     underestimate for higher resolutions; the image is not offered to read-only agents (it writes a
     file).
+  - ChatGPT plan and more providers (2.4.0, after Kyle asked). A ChatGPT sign-in pays for OpenAI
+    images from the plan's allowance: `POST {codex}/images/generations` and `/images/edits` on
+    the Codex backend, the dedicated routes Codex itself has used since openai/codex#23989, signed
+    as the model list is (`llm::openai::signed_by_subscription`), with the Images API body minus
+    `output_format`. Not the hosted `image_generation` tool on `/responses`: that path rejects
+    `tool_choice`, depends on a chat model choosing to call it, and runs `gpt-image-2-codex` whatever
+    is asked. Reported by others probing it: the backend may ignore `size`, and an image's cost is
+    not returned, so the plan's images cost the conversation nothing. Settings picks which pays
+    first when both can (`openaiFirst`, plan by default); the second takes over only when the
+    first answers 401 to 403 or 429 (refused or spent), never on a bad prompt or a server error,
+    which the second would repeat or may already have billed. The result says when it handed over.
+  - Added providers: Recraft (OpenAI-shaped generations, `imageToImage` on V3 for one reference,
+    `credits` units a thousand to the dollar; vector models left out, an SVG is not saved),
+    Black Forest Labs FLUX.2 (submit, poll `polling_url`, fetch the signed result; `cost` in
+    credits a cent each; up to the tool's five references as `input_image..`), Stability AI
+    (multipart to `core`, `ultra` or `sd3` with its model; published credits per model; Core takes
+    no reference), Ideogram 3.0 (multipart `generate` or `remix`; the model picked is its
+    rendering speed; no price is reported or published per call, so none is charged), fal.ai (any
+    endpoint path typed as the model, sync mode; references as `image_url`/`image_urls`; no price),
+    and three servers the user runs, which bill nothing: ComfyUI (a built-in checkpoint workflow,
+    the first listed checkpoint by default, a reference uploaded and encoded as the start), Stable
+    Diffusion WebUI (`/sdapi/v1/txt2img` or `img2img`, the checkpoint as an override; needs
+    `--api`), and any OpenAI-compatible server (address, model and an optional key; with a key its
+    images count as billed at an unknown price). Ollama's image generation was dropped upstream
+    (v0.32.6), so it is not offered. Each provider states the references it takes and a call over
+    it is refused before anything is sent. The ask names who pays: "OpenAI on your ChatGPT plan",
+    "Recraft (billed)", "ComfyUI at <address>". `PUT /image-generation/keys` saves a key.
+  - Not verified against the real services: every wire is tested against a stand-in server only.
+    ComfyUI's built-in workflow suits SD 1.5 and SDXL checkpoints; models needing their own loaders
+    (FLUX, SD3 in split files) need a workflow Drift does not build.
 
 **Design first.** A short proposal in `docs/research/` for Kyle covering the questions below; no
 code until he picks.

@@ -480,11 +480,36 @@ export const drift = {
     "drift.settings.imageGeneration": "Image generation",
     "drift.settings.imageGeneration.provider.title": "Provider",
     "drift.settings.imageGeneration.provider.description":
-        "Lets the agent make images. Every image is billed to your API key with the provider and asks first unless you allow it always. Off removes the tool.",
+        "Lets the agent make images. Each one costs something: a bill from the provider, your ChatGPT plan's image allowance, or your own machine's time, so it asks first unless you allow it always. Off removes the tool.",
     "drift.settings.imageGeneration.off": "Off",
     "drift.settings.imageGeneration.needsKey": "Needs an API key",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} has no API key yet. Add one in Providers; a subscription sign-in cannot make images.",
+        "{{provider}} is not set up yet: add an API key below or in Providers. A subscription sign-in pays only for OpenAI images.",
+    "drift.settings.imageGeneration.planOnly":
+        "Images come from your ChatGPT plan's allowance through your sign-in. Add an API key below to fall back on when the plan runs out.",
+    "drift.settings.imageGeneration.payFirst.title": "Pay first with",
+    "drift.settings.imageGeneration.payFirst.description":
+        "Your ChatGPT sign-in and an API key can both pay for OpenAI images. The other takes over when the first is refused or out of allowance.",
+    "drift.settings.imageGeneration.payFirst.plan": "ChatGPT plan",
+    "drift.settings.imageGeneration.payFirst.apiKey": "API key",
+    "drift.settings.imageGeneration.key.title": "API key",
+    "drift.settings.imageGeneration.key.description": "Saved for image generation only.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Optional: a key just for images, used before the one in Providers. Handy when Providers holds a sign-in.",
+    "drift.settings.imageGeneration.key.serverDescription": "Only if your server asks for one.",
+    "drift.settings.imageGeneration.key.environment":
+        "Using the key from the environment. A key saved here comes first.",
+    "drift.settings.imageGeneration.key.placeholder": "Paste an API key",
+    "drift.settings.imageGeneration.key.save": "Save",
+    "drift.settings.imageGeneration.key.remove": "Remove",
+    "drift.settings.imageGeneration.server.title": "Server address",
+    "drift.settings.imageGeneration.server.description": "Where your {{provider}} server listens.",
+    "drift.settings.imageGeneration.model.typedDefault": "The endpoint to call. Empty uses {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "The checkpoint file to load. Empty uses the first one ComfyUI lists.",
+    "drift.settings.imageGeneration.model.loaded":
+        "The checkpoint to switch to. Empty keeps the one the WebUI has loaded.",
+    "drift.settings.imageGeneration.model.required": "The image model, as your server names it.",
     "drift.settings.imageGeneration.model.title": "Model",
     "drift.settings.imageGeneration.model.description": "The image model every call uses.",
     "drift.settings.imageGeneration.size.title": "Default size",

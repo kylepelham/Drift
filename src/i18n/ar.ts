@@ -466,11 +466,35 @@ export const drift = {
     "drift.settings.imageGeneration": "توليد الصور",
     "drift.settings.imageGeneration.provider.title": "الموفر",
     "drift.settings.imageGeneration.provider.description":
-        "يتيح للوكيل إنشاء الصور. تُحتسب كل صورة على مفتاح API الخاص بك لدى الموفر، ويُطلب الإذن أولًا ما لم تسمح بذلك دائمًا. الإيقاف يزيل الأداة.",
+        "يتيح للوكيل إنشاء الصور. لكل صورة كلفة: فاتورة من المزوّد، أو حصة الصور في خطة ChatGPT، أو وقت جهازك، لذا يسأل أولًا ما لم تسمح بذلك دائمًا. الإيقاف يزيل الأداة.",
     "drift.settings.imageGeneration.off": "إيقاف",
     "drift.settings.imageGeneration.needsKey": "يحتاج إلى مفتاح API",
     "drift.settings.imageGeneration.noKey":
-        "لا يوجد مفتاح API لـ {{provider}} بعد. أضف واحدًا في الموفرون؛ تسجيل الدخول بالاشتراك لا يمكنه إنشاء الصور.",
+        "{{provider}} غير مُعَدّ بعد: أضف مفتاح API أدناه أو في المزوّدين. تسجيل الدخول بالاشتراك يدفع لصور OpenAI فقط.",
+    "drift.settings.imageGeneration.planOnly":
+        "تأتي الصور من حصة الصور في خطة ChatGPT عبر تسجيل دخولك. أضف مفتاح API أدناه ليُستخدم عند نفاد الخطة.",
+    "drift.settings.imageGeneration.payFirst.title": "ادفع أولًا عبر",
+    "drift.settings.imageGeneration.payFirst.description":
+        "يمكن لتسجيل دخولك إلى ChatGPT ولمفتاح API الدفع لصور OpenAI. يتولى الآخر عندما يُرفض الأول أو تنفد حصته.",
+    "drift.settings.imageGeneration.payFirst.plan": "خطة ChatGPT",
+    "drift.settings.imageGeneration.payFirst.apiKey": "مفتاح API",
+    "drift.settings.imageGeneration.key.title": "مفتاح API",
+    "drift.settings.imageGeneration.key.description": "محفوظ لإنشاء الصور فقط.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "اختياري: مفتاح للصور فقط، يُستخدم قبل المفتاح الموجود في المزوّدين. مفيد عندما يحمل المزوّدون تسجيل دخول.",
+    "drift.settings.imageGeneration.key.serverDescription": "فقط إذا طلبه الخادم.",
+    "drift.settings.imageGeneration.key.environment":
+        "يُستخدم المفتاح من متغيرات البيئة. المفتاح المحفوظ هنا يأتي أولًا.",
+    "drift.settings.imageGeneration.key.placeholder": "الصق مفتاح API",
+    "drift.settings.imageGeneration.key.save": "حفظ",
+    "drift.settings.imageGeneration.key.remove": "إزالة",
+    "drift.settings.imageGeneration.server.title": "عنوان الخادم",
+    "drift.settings.imageGeneration.server.description": "حيث يستمع خادم {{provider}} لديك.",
+    "drift.settings.imageGeneration.model.typedDefault": "نقطة النهاية المطلوب استدعاؤها. الفراغ يستخدم {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "ملف نقطة الحفظ المطلوب تحميله. الفراغ يستخدم أول ما يسرده ComfyUI.",
+    "drift.settings.imageGeneration.model.loaded": "نقطة الحفظ المطلوب التبديل إليها. الفراغ يُبقي ما حمّلته WebUI.",
+    "drift.settings.imageGeneration.model.required": "نموذج الصور كما يسمّيه خادمك.",
     "drift.settings.imageGeneration.model.title": "النموذج",
     "drift.settings.imageGeneration.model.description": "نموذج الصور الذي تستخدمه كل عملية.",
     "drift.settings.imageGeneration.size.title": "الحجم الافتراضي",

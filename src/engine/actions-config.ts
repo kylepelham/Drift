@@ -231,6 +231,8 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         imageGeneration: () => requireClient().imageGeneration(),
         putImageGeneration: (body: Parameters<Client["putImageGeneration"]>[0]) =>
             requireClient().putImageGeneration(body),
+        /** Saves a key a provider's images are paid with; an empty key removes it. */
+        setImageKey: (provider: string, key: string) => requireClient().setImageKey(provider, key),
         /** An image a tool call returned, by the hash its metadata names. */
         toolImage: (hash: string) => requireClient().blob(hash),
         voice: () => requireClient().voice(),

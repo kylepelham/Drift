@@ -112,6 +112,7 @@ fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
 fn media_routes() -> OpenApiRouter<Arc<Engine>> {
     OpenApiRouter::new()
         .routes(routes!(images::get, images::put))
+        .routes(routes!(images::set_key))
         .routes(routes!(images::blob))
         .routes(routes!(voice::get))
         .routes(routes!(voice::set_key, voice::remove_key))

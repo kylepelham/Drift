@@ -1,5 +1,5 @@
-//! One way to ask for a size, read by each provider in its own terms: OpenAI takes pixels, Google and
-//! xAI an aspect ratio from a fixed list and a resolution tier.
+//! One way to ask for a size, read by each provider in its own terms: pixels (OpenAI, FLUX, local servers),
+//! an aspect ratio from a fixed list (Google, xAI, Stability, Ideogram, Recraft), and a resolution tier.
 
 /// `auto`, a ratio such as `16:9`, or `WIDTHxHEIGHT` in pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -20,6 +20,29 @@ pub(super) const GOOGLE_RATIOS: [&str; 14] = [
     "1:1", "1:4", "4:1", "1:8", "8:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9",
 ];
 pub(super) const GOOGLE_TIERS: [(u32, &str); 4] = [(512, "512"), (1024, "1K"), (2048, "2K"), (u32::MAX, "4K")];
+pub(super) const STABILITY_RATIOS: [&str; 9] = ["16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21"];
+/// Ideogram writes its ratios with an `x`, as `16x9`; these are converted when sent.
+pub(super) const IDEOGRAM_RATIOS: [&str; 15] = [
+    "1:3", "3:1", "1:2", "2:1", "9:16", "16:9", "10:16", "16:10", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "1:1",
+];
+/// Recraft's sizes for its standard models.
+pub(super) const RECRAFT_SIZES: [&str; 15] = [
+    "1024x1024",
+    "1365x1024",
+    "1024x1365",
+    "1536x1024",
+    "1024x1536",
+    "1820x1024",
+    "1024x1820",
+    "1024x2048",
+    "2048x1024",
+    "1434x1024",
+    "1024x1434",
+    "1024x1280",
+    "1280x1024",
+    "1024x1707",
+    "1707x1024",
+];
 
 /// `a:b` or `axb` as two positive numbers.
 fn pair(text: &str, separator: char) -> Option<(f64, f64)> {
@@ -83,6 +106,19 @@ impl Size {
             .min_by(|a, b| distance(a).total_cmp(&distance(b)))
     }
 
+    /// Width and height in multiples of `step`: pixels as given, a ratio with its longer side `long`; none for `auto`.
+    pub(super) fn pixels(self, long: u32, step: u32) -> Option<(u32, u32)> {
+        let (width, height) = match self {
+            Self::Auto => return None,
+            Self::Pixels(width, height) => (f64::from(width), f64::from(height)),
+            Self::Ratio(ratio) if ratio >= 1.0 => (f64::from(long), f64::from(long) / ratio),
+            Self::Ratio(ratio) => (f64::from(long) * ratio, f64::from(long)),
+        };
+        let fit = |side: f64| ((side / f64::from(step)).round() as u32).max(1) * step;
+
+        Some((fit(width), fit(height)))
+    }
+
     /// The first tier as large as the longest side asked for; none unless pixels were named.
     pub(super) fn tier(self, tiers: &[(u32, &'static str)]) -> Option<&'static str> {
         let Self::Pixels(width, height) = self else {
@@ -122,5 +158,20 @@ mod tests {
         assert_eq!(tall.ratio_among(&GOOGLE_RATIOS), Some("9:16"));
         assert_eq!(tall.tier(&GOOGLE_TIERS), Some("2K"));
         assert_eq!(Size::Pixels(5000, 5000).tier(&XAI_TIERS), Some("2k"));
+    }
+
+    #[test]
+    fn servers_get_pixels_in_their_step_and_fixed_lists_their_nearest_shape() {
+        let wide = Size::parse("16:9").unwrap();
+        assert_eq!(wide.pixels(1024, 16), Some((1024, 576)));
+        assert_eq!(Size::Ratio(0.5).pixels(1024, 64), Some((512, 1024)));
+        assert_eq!(
+            Size::Pixels(1000, 700).pixels(1024, 16),
+            Some((1008, 704)),
+            "rounded to the step"
+        );
+        assert_eq!(Size::Auto.pixels(1024, 16), None);
+        assert_eq!(wide.ratio_among(&RECRAFT_SIZES), Some("1820x1024"));
+        assert_eq!(wide.ratio_among(&IDEOGRAM_RATIOS), Some("16:9"));
     }
 }

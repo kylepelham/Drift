@@ -476,11 +476,35 @@ export const drift = {
     "drift.settings.imageGeneration": "Görsel üretimi",
     "drift.settings.imageGeneration.provider.title": "Sağlayıcı",
     "drift.settings.imageGeneration.provider.description":
-        "Ajanın görsel üretmesini sağlar. Her görsel sağlayıcıdaki API anahtarınızdan ücretlendirilir ve her zaman izin vermediğiniz sürece önce sorar. Kapalı aracı kaldırır.",
+        "Ajanın görsel üretmesine izin verir. Her görselin bir bedeli var: sağlayıcının faturası, ChatGPT planınızın görsel kotası ya da kendi makinenizin zamanı; bu yüzden her zaman izin vermediğiniz sürece önce sorar. Kapalı aracı kaldırır.",
     "drift.settings.imageGeneration.off": "Kapalı",
     "drift.settings.imageGeneration.needsKey": "API anahtarı gerekir",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} için henüz API anahtarı yok. Sağlayıcılar bölümünden ekleyin; abonelik girişi görsel üretemez.",
+        "{{provider}} henüz kurulmadı: aşağıya ya da Sağlayıcılar'a bir API anahtarı ekleyin. Abonelik girişi yalnızca OpenAI görsellerini öder.",
+    "drift.settings.imageGeneration.planOnly":
+        "Görseller, girişiniz üzerinden ChatGPT planınızın görsel kotasından gelir. Plan bittiğinde devreye girmesi için aşağıya bir API anahtarı ekleyin.",
+    "drift.settings.imageGeneration.payFirst.title": "Önce şununla öde",
+    "drift.settings.imageGeneration.payFirst.description":
+        "ChatGPT girişiniz ve bir API anahtarı OpenAI görsellerini ödeyebilir. İlki reddedildiğinde ya da kotası bittiğinde diğeri devralır.",
+    "drift.settings.imageGeneration.payFirst.plan": "ChatGPT planı",
+    "drift.settings.imageGeneration.payFirst.apiKey": "API anahtarı",
+    "drift.settings.imageGeneration.key.title": "API anahtarı",
+    "drift.settings.imageGeneration.key.description": "Yalnızca görsel üretimi için kaydedildi.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "İsteğe bağlı: yalnızca görseller için bir anahtar, Sağlayıcılar'dakinden önce kullanılır. Sağlayıcılar'da bir giriş varken işe yarar.",
+    "drift.settings.imageGeneration.key.serverDescription": "Yalnızca sunucunuz isterse.",
+    "drift.settings.imageGeneration.key.environment":
+        "Ortamdaki anahtar kullanılıyor. Burada kaydedilen anahtar önce gelir.",
+    "drift.settings.imageGeneration.key.placeholder": "Bir API anahtarı yapıştırın",
+    "drift.settings.imageGeneration.key.save": "Kaydet",
+    "drift.settings.imageGeneration.key.remove": "Kaldır",
+    "drift.settings.imageGeneration.server.title": "Sunucu adresi",
+    "drift.settings.imageGeneration.server.description": "{{provider}} sunucunuzun dinlediği yer.",
+    "drift.settings.imageGeneration.model.typedDefault": "Çağrılacak uç nokta. Boş bırakılırsa {{model}} kullanılır.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "Yüklenecek checkpoint dosyası. Boş bırakılırsa ComfyUI'nin listelediği ilki kullanılır.",
+    "drift.settings.imageGeneration.model.loaded": "Geçilecek checkpoint. Boş bırakılırsa WebUI'nin yüklediği kalır.",
+    "drift.settings.imageGeneration.model.required": "Sunucunuzun adlandırdığı şekliyle görsel modeli.",
     "drift.settings.imageGeneration.model.title": "Model",
     "drift.settings.imageGeneration.model.description": "Her çağrının kullandığı görsel modeli.",
     "drift.settings.imageGeneration.size.title": "Varsayılan boyut",

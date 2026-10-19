@@ -145,6 +145,22 @@ impl OpenAi {
     }
 }
 
+/// A request to the Codex backend signed by a ChatGPT sign-in, outside a conversation: the model list, images.
+pub(crate) fn signed_by_subscription(
+    request: reqwest::RequestBuilder,
+    access: &str,
+    account: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let mut request = request.bearer_auth(access).header("originator", CODEX_ORIGINATOR);
+    if let Some(account) = account {
+        request = request.header("chatgpt-account-id", account);
+    }
+    match residency(access) {
+        Some(residency) => request.header("x-openai-internal-codex-residency", residency),
+        None => request,
+    }
+}
+
 /// The compute residency a ChatGPT sign-in's access token claims, unless it is unconstrained.
 fn residency(access: &str) -> Option<String> {
     use base64::Engine as _;

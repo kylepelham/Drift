@@ -474,11 +474,36 @@ export const drift = {
     "drift.settings.imageGeneration": "Generisanje slika",
     "drift.settings.imageGeneration.provider.title": "Provajder",
     "drift.settings.imageGeneration.provider.description":
-        "Omogućava agentu da pravi slike. Svaka slika se naplaćuje na vaš API ključ kod provajdera i prvo traži dozvolu, osim ako je uvijek ne dozvolite. Isključeno uklanja alat.",
+        "Omogućava agentu da pravi slike. Svaka nešto košta: račun pružatelja, kvotu slika vašeg ChatGPT plana ili vrijeme vašeg računara, pa prvo pita osim ako to uvijek dozvolite. Isključeno uklanja alat.",
     "drift.settings.imageGeneration.off": "Isključeno",
     "drift.settings.imageGeneration.needsKey": "Potreban je API ključ",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} još nema API ključ. Dodajte ga u Provajderi; prijava pretplatom ne može praviti slike.",
+        "{{provider}} još nije postavljen: dodajte API ključ ispod ili u Pružateljima. Prijava pretplatom plaća samo OpenAI slike.",
+    "drift.settings.imageGeneration.planOnly":
+        "Slike dolaze iz kvote vašeg ChatGPT plana preko vaše prijave. Dodajte API ključ ispod koji uskače kada se plan potroši.",
+    "drift.settings.imageGeneration.payFirst.title": "Prvo plati sa",
+    "drift.settings.imageGeneration.payFirst.description":
+        "Vaša ChatGPT prijava i API ključ mogu oboje plaćati OpenAI slike. Drugi preuzima kada je prvi odbijen ili ostane bez kvote.",
+    "drift.settings.imageGeneration.payFirst.plan": "ChatGPT plan",
+    "drift.settings.imageGeneration.payFirst.apiKey": "API ključ",
+    "drift.settings.imageGeneration.key.title": "API ključ",
+    "drift.settings.imageGeneration.key.description": "Sačuvano samo za pravljenje slika.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Neobavezno: ključ samo za slike, koristi se prije onog u Pružateljima. Korisno kada Pružatelji drže prijavu.",
+    "drift.settings.imageGeneration.key.serverDescription": "Samo ako ga vaš server traži.",
+    "drift.settings.imageGeneration.key.environment":
+        "Koristi se ključ iz okruženja. Ključ sačuvan ovdje ima prednost.",
+    "drift.settings.imageGeneration.key.placeholder": "Zalijepite API ključ",
+    "drift.settings.imageGeneration.key.save": "Sačuvaj",
+    "drift.settings.imageGeneration.key.remove": "Ukloni",
+    "drift.settings.imageGeneration.server.title": "Adresa servera",
+    "drift.settings.imageGeneration.server.description": "Gdje sluša vaš {{provider}} server.",
+    "drift.settings.imageGeneration.model.typedDefault": "Krajnja tačka koju treba pozvati. Prazno koristi {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "Checkpoint datoteka koju treba učitati. Prazno koristi prvu koju ComfyUI navodi.",
+    "drift.settings.imageGeneration.model.loaded":
+        "Checkpoint na koji treba preći. Prazno zadržava onaj koji WebUI ima učitan.",
+    "drift.settings.imageGeneration.model.required": "Model za slike, kako ga vaš server naziva.",
     "drift.settings.imageGeneration.model.title": "Model",
     "drift.settings.imageGeneration.model.description": "Model za slike koji koristi svaki poziv.",
     "drift.settings.imageGeneration.size.title": "Zadana veličina",

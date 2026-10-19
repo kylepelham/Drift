@@ -480,11 +480,36 @@ export const drift = {
     "drift.settings.imageGeneration": "Generación de imágenes",
     "drift.settings.imageGeneration.provider.title": "Proveedor",
     "drift.settings.imageGeneration.provider.description":
-        "Permite que el agente cree imágenes. Cada imagen se cobra a tu clave de API del proveedor y pide permiso antes, salvo que lo permitas siempre. Desactivado quita la herramienta.",
+        "Permite al agente crear imágenes. Cada una cuesta algo: un cobro del proveedor, la cuota de imágenes de tu plan de ChatGPT o el tiempo de tu propio equipo, así que pregunta antes salvo que lo permitas siempre. Desactivado quita la herramienta.",
     "drift.settings.imageGeneration.off": "Desactivado",
     "drift.settings.imageGeneration.needsKey": "Necesita una clave de API",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} aún no tiene clave de API. Añade una en Proveedores; un inicio de sesión por suscripción no puede crear imágenes.",
+        "{{provider}} aún no está configurado: añade una clave de API abajo o en Proveedores. Una sesión de suscripción solo paga imágenes de OpenAI.",
+    "drift.settings.imageGeneration.planOnly":
+        "Las imágenes salen de la cuota de tu plan de ChatGPT a través de tu sesión. Añade una clave de API abajo para usarla cuando el plan se agote.",
+    "drift.settings.imageGeneration.payFirst.title": "Pagar primero con",
+    "drift.settings.imageGeneration.payFirst.description":
+        "Tu sesión de ChatGPT y una clave de API pueden pagar imágenes de OpenAI. La otra entra cuando la primera es rechazada o se queda sin cuota.",
+    "drift.settings.imageGeneration.payFirst.plan": "Plan de ChatGPT",
+    "drift.settings.imageGeneration.payFirst.apiKey": "Clave de API",
+    "drift.settings.imageGeneration.key.title": "Clave de API",
+    "drift.settings.imageGeneration.key.description": "Guardada solo para generar imágenes.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Opcional: una clave solo para imágenes, usada antes que la de Proveedores. Útil cuando Proveedores tiene una sesión iniciada.",
+    "drift.settings.imageGeneration.key.serverDescription": "Solo si tu servidor la pide.",
+    "drift.settings.imageGeneration.key.environment":
+        "Se usa la clave del entorno. Una clave guardada aquí va primero.",
+    "drift.settings.imageGeneration.key.placeholder": "Pega una clave de API",
+    "drift.settings.imageGeneration.key.save": "Guardar",
+    "drift.settings.imageGeneration.key.remove": "Quitar",
+    "drift.settings.imageGeneration.server.title": "Dirección del servidor",
+    "drift.settings.imageGeneration.server.description": "Dónde escucha tu servidor de {{provider}}.",
+    "drift.settings.imageGeneration.model.typedDefault": "El endpoint al que llamar. Vacío usa {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "El archivo de checkpoint que cargar. Vacío usa el primero que lista ComfyUI.",
+    "drift.settings.imageGeneration.model.loaded":
+        "El checkpoint al que cambiar. Vacío mantiene el que tiene cargado la WebUI.",
+    "drift.settings.imageGeneration.model.required": "El modelo de imagen, como lo llama tu servidor.",
     "drift.settings.imageGeneration.model.title": "Modelo",
     "drift.settings.imageGeneration.model.description": "El modelo de imagen que usa cada llamada.",
     "drift.settings.imageGeneration.size.title": "Tamaño predeterminado",

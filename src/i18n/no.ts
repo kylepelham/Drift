@@ -474,11 +474,35 @@ export const drift = {
     "drift.settings.imageGeneration": "Bildegenerering",
     "drift.settings.imageGeneration.provider.title": "Leverandør",
     "drift.settings.imageGeneration.provider.description":
-        "Lar agenten lage bilder. Hvert bilde faktureres til API-nøkkelen din hos leverandøren og spør først, med mindre du alltid tillater det. Av fjerner verktøyet.",
+        "Lar agenten lage bilder. Hvert bilde koster noe: en regning fra leverandøren, bildekvoten i ChatGPT-abonnementet ditt eller tiden til din egen maskin, så den spør først med mindre du alltid tillater det. Av fjerner verktøyet.",
     "drift.settings.imageGeneration.off": "Av",
     "drift.settings.imageGeneration.needsKey": "Trenger en API-nøkkel",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} har ingen API-nøkkel ennå. Legg til en under Leverandører; en abonnementspålogging kan ikke lage bilder.",
+        "{{provider}} er ikke satt opp ennå: legg til en API-nøkkel nedenfor eller under Leverandører. En abonnementspålogging betaler bare for OpenAI-bilder.",
+    "drift.settings.imageGeneration.planOnly":
+        "Bildene kommer fra bildekvoten i ChatGPT-abonnementet ditt via påloggingen din. Legg til en API-nøkkel nedenfor å falle tilbake på når abonnementet er brukt opp.",
+    "drift.settings.imageGeneration.payFirst.title": "Betal først med",
+    "drift.settings.imageGeneration.payFirst.description":
+        "ChatGPT-påloggingen din og en API-nøkkel kan begge betale for OpenAI-bilder. Den andre tar over når den første avvises eller går tom for kvote.",
+    "drift.settings.imageGeneration.payFirst.plan": "ChatGPT-abonnement",
+    "drift.settings.imageGeneration.payFirst.apiKey": "API-nøkkel",
+    "drift.settings.imageGeneration.key.title": "API-nøkkel",
+    "drift.settings.imageGeneration.key.description": "Lagret bare for bildegenerering.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Valgfritt: en nøkkel bare for bilder, brukt før den under Leverandører. Nyttig når Leverandører har en pålogging.",
+    "drift.settings.imageGeneration.key.serverDescription": "Bare hvis serveren din ber om en.",
+    "drift.settings.imageGeneration.key.environment": "Bruker nøkkelen fra miljøet. En nøkkel lagret her går først.",
+    "drift.settings.imageGeneration.key.placeholder": "Lim inn en API-nøkkel",
+    "drift.settings.imageGeneration.key.save": "Lagre",
+    "drift.settings.imageGeneration.key.remove": "Fjern",
+    "drift.settings.imageGeneration.server.title": "Serveradresse",
+    "drift.settings.imageGeneration.server.description": "Hvor {{provider}}-serveren din lytter.",
+    "drift.settings.imageGeneration.model.typedDefault": "Endepunktet som skal kalles. Tomt bruker {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "Checkpoint-filen som skal lastes. Tomt bruker den første ComfyUI viser.",
+    "drift.settings.imageGeneration.model.loaded":
+        "Checkpointet det skal byttes til. Tomt beholder det WebUI har lastet.",
+    "drift.settings.imageGeneration.model.required": "Bildemodellen, slik serveren din kaller den.",
     "drift.settings.imageGeneration.model.title": "Modell",
     "drift.settings.imageGeneration.model.description": "Bildemodellen hvert kall bruker.",
     "drift.settings.imageGeneration.size.title": "Standardstørrelse",

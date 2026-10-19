@@ -4,7 +4,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use base64::Engine as _;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::error::ApiError;
@@ -45,7 +45,39 @@ pub(super) async fn put(
         ));
     }
     Size::parse(&body.size).map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "size", error))?;
+    let unreachable = body.servers.iter().find(|(_, address)| {
+        let address = address.trim();
+        !address.is_empty() && !address.starts_with("http://") && !address.starts_with("https://")
+    });
+    if let Some((provider, address)) = unreachable {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "server",
+            format!("{provider}'s address {address} should start with http:// or https://"),
+        ));
+    }
     engine.store.set_setting(SETTINGS_KEY, &body)?;
+
+    Ok(state(&engine))
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ImageKey {
+    pub provider: String,
+    /// Empty to remove the saved key.
+    pub key: String,
+}
+
+/// Saves the API key a provider without a Settings > Providers entry is paid with, or a server's key.
+#[utoipa::path(put, path = "/image-generation/keys", operation_id = "setImageKey", request_body = ImageKey, responses((status = 200, body = ImageGenerationState), (status = 400)))]
+pub(super) async fn set_key(
+    State(engine): State<Arc<Engine>>,
+    Json(body): Json<ImageKey>,
+) -> Result<Json<ImageGenerationState>, ApiError> {
+    engine
+        .set_image_key(&body.provider, &body.key)
+        .map_err(|error| ApiError::new(StatusCode::BAD_REQUEST, "key", error))?;
 
     Ok(state(&engine))
 }

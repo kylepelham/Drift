@@ -475,11 +475,36 @@ export const drift = {
     "drift.settings.imageGeneration": "画像生成",
     "drift.settings.imageGeneration.provider.title": "プロバイダー",
     "drift.settings.imageGeneration.provider.description":
-        "エージェントが画像を作成できるようにします。画像は1枚ごとにプロバイダーのAPIキーに課金され、常に許可しない限り毎回確認します。オフにするとツールが外れます。",
+        "エージェントが画像を作れるようにします。画像には必ずコストがかかります: プロバイダーの請求、ChatGPT プランの画像枠、または自分のマシンの時間です。そのため、常に許可しない限り先に確認します。オフにするとツールが外れます。",
     "drift.settings.imageGeneration.off": "オフ",
     "drift.settings.imageGeneration.needsKey": "APIキーが必要",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} にはまだAPIキーがありません。プロバイダーで追加してください。サブスクリプションのサインインでは画像を作成できません。",
+        "{{provider}} はまだ設定されていません: 下またはプロバイダーで API キーを追加してください。サブスクリプションのサインインで払えるのは OpenAI の画像だけです。",
+    "drift.settings.imageGeneration.planOnly":
+        "画像はサインインを通じて ChatGPT プランの画像枠から作られます。プランを使い切ったときの予備として、下に API キーを追加できます。",
+    "drift.settings.imageGeneration.payFirst.title": "先に支払う方法",
+    "drift.settings.imageGeneration.payFirst.description":
+        "ChatGPT のサインインと API キーのどちらでも OpenAI の画像を支払えます。最初の方法が拒否されるか枠を使い切ると、もう一方が引き継ぎます。",
+    "drift.settings.imageGeneration.payFirst.plan": "ChatGPT プラン",
+    "drift.settings.imageGeneration.payFirst.apiKey": "API キー",
+    "drift.settings.imageGeneration.key.title": "API キー",
+    "drift.settings.imageGeneration.key.description": "画像生成専用に保存されます。",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "任意: 画像専用のキー。プロバイダーのキーより先に使われます。プロバイダーにサインインが保存されているときに便利です。",
+    "drift.settings.imageGeneration.key.serverDescription": "サーバーが求める場合のみ。",
+    "drift.settings.imageGeneration.key.environment":
+        "環境変数のキーを使っています。ここに保存したキーが優先されます。",
+    "drift.settings.imageGeneration.key.placeholder": "API キーを貼り付け",
+    "drift.settings.imageGeneration.key.save": "保存",
+    "drift.settings.imageGeneration.key.remove": "削除",
+    "drift.settings.imageGeneration.server.title": "サーバーのアドレス",
+    "drift.settings.imageGeneration.server.description": "{{provider}} サーバーが待ち受ける場所。",
+    "drift.settings.imageGeneration.model.typedDefault": "呼び出すエンドポイント。空なら {{model}} を使います。",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "読み込むチェックポイントファイル。空なら ComfyUI が最初に挙げるものを使います。",
+    "drift.settings.imageGeneration.model.loaded":
+        "切り替え先のチェックポイント。空なら WebUI が読み込んでいるものをそのまま使います。",
+    "drift.settings.imageGeneration.model.required": "サーバーでの名前どおりの画像モデル。",
     "drift.settings.imageGeneration.model.title": "モデル",
     "drift.settings.imageGeneration.model.description": "各呼び出しで使う画像モデル。",
     "drift.settings.imageGeneration.size.title": "既定のサイズ",

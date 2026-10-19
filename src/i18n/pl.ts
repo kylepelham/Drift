@@ -476,11 +476,36 @@ export const drift = {
     "drift.settings.imageGeneration": "Generowanie obrazów",
     "drift.settings.imageGeneration.provider.title": "Dostawca",
     "drift.settings.imageGeneration.provider.description":
-        "Pozwala agentowi tworzyć obrazy. Każdy obraz jest rozliczany z Twojego klucza API u dostawcy i najpierw pyta o zgodę, chyba że zezwolisz zawsze. Wyłączone usuwa narzędzie.",
+        "Pozwala agentowi tworzyć obrazy. Każdy coś kosztuje: rachunek od dostawcy, limit obrazów w planie ChatGPT albo czas Twojego komputera, więc najpierw pyta, chyba że zawsze na to pozwolisz. Wyłączone usuwa narzędzie.",
     "drift.settings.imageGeneration.off": "Wyłączone",
     "drift.settings.imageGeneration.needsKey": "Wymaga klucza API",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} nie ma jeszcze klucza API. Dodaj go w sekcji Dostawcy; logowanie subskrypcją nie może tworzyć obrazów.",
+        "{{provider}} nie jest jeszcze skonfigurowany: dodaj klucz API poniżej lub w sekcji Dostawcy. Logowanie przez subskrypcję opłaca tylko obrazy OpenAI.",
+    "drift.settings.imageGeneration.planOnly":
+        "Obrazy pochodzą z limitu Twojego planu ChatGPT przez Twoje logowanie. Dodaj poniżej klucz API, który przejmie, gdy limit planu się skończy.",
+    "drift.settings.imageGeneration.payFirst.title": "Najpierw płać przez",
+    "drift.settings.imageGeneration.payFirst.description":
+        "Twoje logowanie ChatGPT i klucz API mogą opłacać obrazy OpenAI. Drugie przejmuje, gdy pierwsze zostanie odrzucone lub wyczerpie limit.",
+    "drift.settings.imageGeneration.payFirst.plan": "Plan ChatGPT",
+    "drift.settings.imageGeneration.payFirst.apiKey": "Klucz API",
+    "drift.settings.imageGeneration.key.title": "Klucz API",
+    "drift.settings.imageGeneration.key.description": "Zapisany tylko do generowania obrazów.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Opcjonalnie: klucz tylko do obrazów, używany przed tym z sekcji Dostawcy. Przydatny, gdy w Dostawcach jest logowanie.",
+    "drift.settings.imageGeneration.key.serverDescription": "Tylko jeśli serwer go wymaga.",
+    "drift.settings.imageGeneration.key.environment":
+        "Używany jest klucz ze środowiska. Klucz zapisany tutaj ma pierwszeństwo.",
+    "drift.settings.imageGeneration.key.placeholder": "Wklej klucz API",
+    "drift.settings.imageGeneration.key.save": "Zapisz",
+    "drift.settings.imageGeneration.key.remove": "Usuń",
+    "drift.settings.imageGeneration.server.title": "Adres serwera",
+    "drift.settings.imageGeneration.server.description": "Gdzie nasłuchuje Twój serwer {{provider}}.",
+    "drift.settings.imageGeneration.model.typedDefault": "Endpoint do wywołania. Puste używa {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "Plik checkpointu do wczytania. Puste używa pierwszego z listy ComfyUI.",
+    "drift.settings.imageGeneration.model.loaded":
+        "Checkpoint, na który przełączyć. Puste zostawia ten, który WebUI ma wczytany.",
+    "drift.settings.imageGeneration.model.required": "Model obrazów, tak jak nazywa go Twój serwer.",
     "drift.settings.imageGeneration.model.title": "Model",
     "drift.settings.imageGeneration.model.description": "Model obrazów używany przy każdym wywołaniu.",
     "drift.settings.imageGeneration.size.title": "Domyślny rozmiar",

@@ -467,11 +467,34 @@ export const drift = {
     "drift.settings.imageGeneration": "การสร้างรูปภาพ",
     "drift.settings.imageGeneration.provider.title": "ผู้ให้บริการ",
     "drift.settings.imageGeneration.provider.description":
-        "ให้เอเจนต์สร้างรูปภาพได้ ทุกรูปจะคิดเงินกับคีย์ API ของคุณที่ผู้ให้บริการ และจะถามก่อนเสมอเว้นแต่คุณอนุญาตตลอด ปิดจะเอาเครื่องมือออก",
+        "ให้เอเจนต์สร้างภาพได้ แต่ละภาพมีต้นทุน: ค่าบริการจากผู้ให้บริการ โควตาภาพในแผน ChatGPT หรือเวลาของเครื่องคุณเอง จึงถามก่อนเสมอเว้นแต่คุณอนุญาตไว้ตลอด ปิดจะนำเครื่องมือออก",
     "drift.settings.imageGeneration.off": "ปิด",
     "drift.settings.imageGeneration.needsKey": "ต้องมีคีย์ API",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} ยังไม่มีคีย์ API เพิ่มได้ที่ ผู้ให้บริการ การลงชื่อเข้าใช้แบบสมัครสมาชิกสร้างรูปภาพไม่ได้",
+        "{{provider}} ยังไม่ได้ตั้งค่า: เพิ่มคีย์ API ด้านล่างหรือในผู้ให้บริการ การลงชื่อเข้าใช้แบบสมัครสมาชิกจ่ายได้เฉพาะภาพของ OpenAI",
+    "drift.settings.imageGeneration.planOnly":
+        "ภาพมาจากโควตาภาพในแผน ChatGPT ผ่านการลงชื่อเข้าใช้ของคุณ เพิ่มคีย์ API ด้านล่างเพื่อใช้แทนเมื่อโควตาหมด",
+    "drift.settings.imageGeneration.payFirst.title": "จ่ายก่อนด้วย",
+    "drift.settings.imageGeneration.payFirst.description":
+        "ทั้งการลงชื่อเข้าใช้ ChatGPT และคีย์ API จ่ายค่าภาพของ OpenAI ได้ อีกทางจะรับช่วงเมื่อทางแรกถูกปฏิเสธหรือโควตาหมด",
+    "drift.settings.imageGeneration.payFirst.plan": "แผน ChatGPT",
+    "drift.settings.imageGeneration.payFirst.apiKey": "คีย์ API",
+    "drift.settings.imageGeneration.key.title": "คีย์ API",
+    "drift.settings.imageGeneration.key.description": "บันทึกไว้สำหรับสร้างภาพเท่านั้น",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "ไม่บังคับ: คีย์สำหรับภาพโดยเฉพาะ ใช้ก่อนคีย์ในผู้ให้บริการ เหมาะเมื่อผู้ให้บริการเก็บการลงชื่อเข้าใช้ไว้",
+    "drift.settings.imageGeneration.key.serverDescription": "เฉพาะเมื่อเซิร์ฟเวอร์ของคุณขอ",
+    "drift.settings.imageGeneration.key.environment": "กำลังใช้คีย์จากตัวแปรสภาพแวดล้อม คีย์ที่บันทึกที่นี่จะใช้ก่อน",
+    "drift.settings.imageGeneration.key.placeholder": "วางคีย์ API",
+    "drift.settings.imageGeneration.key.save": "บันทึก",
+    "drift.settings.imageGeneration.key.remove": "ลบ",
+    "drift.settings.imageGeneration.server.title": "ที่อยู่เซิร์ฟเวอร์",
+    "drift.settings.imageGeneration.server.description": "ที่ที่เซิร์ฟเวอร์ {{provider}} ของคุณรอรับ",
+    "drift.settings.imageGeneration.model.typedDefault": "ปลายทางที่จะเรียก เว้นว่างไว้จะใช้ {{model}}",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "ไฟล์เช็กพอยต์ที่จะโหลด เว้นว่างไว้จะใช้ไฟล์แรกที่ ComfyUI แสดง",
+    "drift.settings.imageGeneration.model.loaded": "เช็กพอยต์ที่จะสลับไป เว้นว่างไว้จะใช้ตัวที่ WebUI โหลดอยู่",
+    "drift.settings.imageGeneration.model.required": "โมเดลภาพตามชื่อที่เซิร์ฟเวอร์ของคุณใช้",
     "drift.settings.imageGeneration.model.title": "โมเดล",
     "drift.settings.imageGeneration.model.description": "โมเดลรูปภาพที่ทุกการเรียกใช้",
     "drift.settings.imageGeneration.size.title": "ขนาดเริ่มต้น",

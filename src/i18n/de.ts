@@ -482,11 +482,36 @@ export const drift = {
     "drift.settings.imageGeneration": "Bildgenerierung",
     "drift.settings.imageGeneration.provider.title": "Anbieter",
     "drift.settings.imageGeneration.provider.description":
-        "Lässt den Agenten Bilder erstellen. Jedes Bild wird über deinen API-Schlüssel beim Anbieter abgerechnet und fragt zuerst nach, außer du erlaubst es immer. Aus entfernt das Werkzeug.",
+        "Lässt den Agenten Bilder erstellen. Jedes kostet etwas: eine Rechnung des Anbieters, das Bildkontingent deines ChatGPT-Abos oder die Zeit deines eigenen Rechners. Daher fragt er vorher, außer du erlaubst es immer. Aus entfernt das Werkzeug.",
     "drift.settings.imageGeneration.off": "Aus",
     "drift.settings.imageGeneration.needsKey": "Braucht einen API-Schlüssel",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} hat noch keinen API-Schlüssel. Füge einen unter Anbieter hinzu; eine Abo-Anmeldung kann keine Bilder erstellen.",
+        "{{provider}} ist noch nicht eingerichtet: Füge unten oder unter Anbieter einen API-Schlüssel hinzu. Eine Abo-Anmeldung bezahlt nur OpenAI-Bilder.",
+    "drift.settings.imageGeneration.planOnly":
+        "Bilder kommen über deine Anmeldung aus dem Bildkontingent deines ChatGPT-Abos. Füge unten einen API-Schlüssel hinzu, der einspringt, wenn das Kontingent aufgebraucht ist.",
+    "drift.settings.imageGeneration.payFirst.title": "Zuerst bezahlen mit",
+    "drift.settings.imageGeneration.payFirst.description":
+        "Deine ChatGPT-Anmeldung und ein API-Schlüssel können beide OpenAI-Bilder bezahlen. Das andere springt ein, wenn das erste abgelehnt wird oder sein Kontingent aufgebraucht ist.",
+    "drift.settings.imageGeneration.payFirst.plan": "ChatGPT-Abo",
+    "drift.settings.imageGeneration.payFirst.apiKey": "API-Schlüssel",
+    "drift.settings.imageGeneration.key.title": "API-Schlüssel",
+    "drift.settings.imageGeneration.key.description": "Nur für die Bilderzeugung gespeichert.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Optional: ein Schlüssel nur für Bilder, der vor dem unter Anbieter verwendet wird. Praktisch, wenn dort eine Anmeldung hinterlegt ist.",
+    "drift.settings.imageGeneration.key.serverDescription": "Nur, wenn dein Server einen verlangt.",
+    "drift.settings.imageGeneration.key.environment":
+        "Der Schlüssel aus der Umgebung wird verwendet. Ein hier gespeicherter Schlüssel hat Vorrang.",
+    "drift.settings.imageGeneration.key.placeholder": "API-Schlüssel einfügen",
+    "drift.settings.imageGeneration.key.save": "Speichern",
+    "drift.settings.imageGeneration.key.remove": "Entfernen",
+    "drift.settings.imageGeneration.server.title": "Serveradresse",
+    "drift.settings.imageGeneration.server.description": "Wo dein {{provider}}-Server lauscht.",
+    "drift.settings.imageGeneration.model.typedDefault": "Der aufzurufende Endpunkt. Leer verwendet {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "Die zu ladende Checkpoint-Datei. Leer verwendet die erste, die ComfyUI auflistet.",
+    "drift.settings.imageGeneration.model.loaded":
+        "Der Checkpoint, zu dem gewechselt wird. Leer behält den, den die WebUI geladen hat.",
+    "drift.settings.imageGeneration.model.required": "Das Bildmodell, so wie dein Server es nennt.",
     "drift.settings.imageGeneration.model.title": "Modell",
     "drift.settings.imageGeneration.model.description": "Das Bildmodell, das jeder Aufruf nutzt.",
     "drift.settings.imageGeneration.size.title": "Standardgröße",

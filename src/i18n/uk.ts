@@ -476,11 +476,36 @@ export const drift = {
     "drift.settings.imageGeneration": "Генерування зображень",
     "drift.settings.imageGeneration.provider.title": "Провайдер",
     "drift.settings.imageGeneration.provider.description":
-        "Дозволяє агенту створювати зображення. Кожне зображення оплачується з вашого API-ключа у провайдера і спершу просить дозволу, якщо ви не дозволили завжди. Вимкнено прибирає інструмент.",
+        "Дозволяє агенту створювати зображення. Кожне чогось коштує: рахунок від провайдера, ліміт зображень вашого плану ChatGPT або час вашого комп'ютера, тож він спершу питає, якщо ви не дозволили завжди. Вимк. прибирає інструмент.",
     "drift.settings.imageGeneration.off": "Вимкнено",
     "drift.settings.imageGeneration.needsKey": "Потрібен API-ключ",
     "drift.settings.imageGeneration.noKey":
-        "{{provider}} ще не має API-ключа. Додайте його в розділі Провайдери; вхід за підпискою не може створювати зображення.",
+        "{{provider}} ще не налаштовано: додайте ключ API нижче або в розділі «Провайдери». Вхід за підпискою оплачує лише зображення OpenAI.",
+    "drift.settings.imageGeneration.planOnly":
+        "Зображення створюються з ліміту вашого плану ChatGPT через ваш вхід. Додайте нижче ключ API на випадок, коли ліміт закінчиться.",
+    "drift.settings.imageGeneration.payFirst.title": "Спершу платити через",
+    "drift.settings.imageGeneration.payFirst.description":
+        "Ваш вхід у ChatGPT і ключ API можуть оплачувати зображення OpenAI. Другий спосіб вмикається, коли перший відхилено або вичерпано ліміт.",
+    "drift.settings.imageGeneration.payFirst.plan": "План ChatGPT",
+    "drift.settings.imageGeneration.payFirst.apiKey": "Ключ API",
+    "drift.settings.imageGeneration.key.title": "Ключ API",
+    "drift.settings.imageGeneration.key.description": "Збережено лише для створення зображень.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Необов'язково: ключ лише для зображень, використовується раніше за ключ із «Провайдерів». Зручно, коли там виконано вхід.",
+    "drift.settings.imageGeneration.key.serverDescription": "Лише якщо ваш сервер його вимагає.",
+    "drift.settings.imageGeneration.key.environment":
+        "Використовується ключ із середовища. Ключ, збережений тут, має пріоритет.",
+    "drift.settings.imageGeneration.key.placeholder": "Вставте ключ API",
+    "drift.settings.imageGeneration.key.save": "Зберегти",
+    "drift.settings.imageGeneration.key.remove": "Вилучити",
+    "drift.settings.imageGeneration.server.title": "Адреса сервера",
+    "drift.settings.imageGeneration.server.description": "Де слухає ваш сервер {{provider}}.",
+    "drift.settings.imageGeneration.model.typedDefault": "Ендпоінт для виклику. Порожньо: використовується {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "Файл чекпойнта для завантаження. Порожньо: перший зі списку ComfyUI.",
+    "drift.settings.imageGeneration.model.loaded":
+        "Чекпойнт, на який перемкнути. Порожньо: лишається той, що завантажено у WebUI.",
+    "drift.settings.imageGeneration.model.required": "Модель зображень, як її називає ваш сервер.",
     "drift.settings.imageGeneration.model.title": "Модель",
     "drift.settings.imageGeneration.model.description": "Модель зображень для кожного виклику.",
     "drift.settings.imageGeneration.size.title": "Типовий розмір",

@@ -16,6 +16,7 @@ pub mod http;
 pub mod limits;
 pub mod local;
 pub mod mask;
+pub(crate) mod multipart;
 mod oauth_error;
 pub mod ollama;
 pub mod openai;

@@ -479,11 +479,36 @@ export const drift = {
     "drift.settings.imageGeneration": "Генерация изображений",
     "drift.settings.imageGeneration.provider.title": "Провайдер",
     "drift.settings.imageGeneration.provider.description":
-        "Позволяет агенту создавать изображения. Каждое изображение оплачивается с вашего API-ключа у провайдера и сначала запрашивает разрешение, если вы не разрешили всегда. Выключено убирает инструмент.",
+        "Позволяет агенту создавать изображения. Каждое чего-то стоит: счёт от провайдера, лимит изображений вашего плана ChatGPT или время вашего компьютера, поэтому он спрашивает заранее, если вы не разрешили всегда. Выкл. убирает инструмент.",
     "drift.settings.imageGeneration.off": "Выключено",
     "drift.settings.imageGeneration.needsKey": "Нужен API-ключ",
     "drift.settings.imageGeneration.noKey":
-        "У {{provider}} пока нет API-ключа. Добавьте его в разделе Провайдеры; вход по подписке не может создавать изображения.",
+        "{{provider}} ещё не настроен: добавьте ключ API ниже или в разделе «Провайдеры». Вход по подписке оплачивает только изображения OpenAI.",
+    "drift.settings.imageGeneration.planOnly":
+        "Изображения создаются из лимита вашего плана ChatGPT через ваш вход. Добавьте ниже ключ API на случай, когда лимит закончится.",
+    "drift.settings.imageGeneration.payFirst.title": "Сначала платить через",
+    "drift.settings.imageGeneration.payFirst.description":
+        "Ваш вход в ChatGPT и ключ API могут оплачивать изображения OpenAI. Второй способ включается, когда первый отклонён или исчерпал лимит.",
+    "drift.settings.imageGeneration.payFirst.plan": "План ChatGPT",
+    "drift.settings.imageGeneration.payFirst.apiKey": "Ключ API",
+    "drift.settings.imageGeneration.key.title": "Ключ API",
+    "drift.settings.imageGeneration.key.description": "Сохранён только для создания изображений.",
+    "drift.settings.imageGeneration.key.catalogDescription":
+        "Необязательно: ключ только для изображений, используется раньше ключа из «Провайдеров». Удобно, когда там выполнен вход.",
+    "drift.settings.imageGeneration.key.serverDescription": "Только если ваш сервер его запрашивает.",
+    "drift.settings.imageGeneration.key.environment":
+        "Используется ключ из окружения. Ключ, сохранённый здесь, имеет приоритет.",
+    "drift.settings.imageGeneration.key.placeholder": "Вставьте ключ API",
+    "drift.settings.imageGeneration.key.save": "Сохранить",
+    "drift.settings.imageGeneration.key.remove": "Удалить",
+    "drift.settings.imageGeneration.server.title": "Адрес сервера",
+    "drift.settings.imageGeneration.server.description": "Где слушает ваш сервер {{provider}}.",
+    "drift.settings.imageGeneration.model.typedDefault": "Эндпоинт для вызова. Пусто: используется {{model}}.",
+    "drift.settings.imageGeneration.model.firstCheckpoint":
+        "Файл чекпойнта для загрузки. Пусто: первый из списка ComfyUI.",
+    "drift.settings.imageGeneration.model.loaded":
+        "Чекпойнт, на который переключиться. Пусто: остаётся тот, что загружен в WebUI.",
+    "drift.settings.imageGeneration.model.required": "Модель изображений, как её называет ваш сервер.",
     "drift.settings.imageGeneration.model.title": "Модель",
     "drift.settings.imageGeneration.model.description": "Модель изображений для каждого вызова.",
     "drift.settings.imageGeneration.size.title": "Размер по умолчанию",

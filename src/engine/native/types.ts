@@ -118,6 +118,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/image-generation/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Saves the API key a provider without a Settings > Providers entry is paid with, or a server's key. */
+        put: operations["setImageKey"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/mcp": {
         parameters: {
             query?: never;
@@ -1878,10 +1895,22 @@ export interface components {
              */
             model: string;
             /**
-             * @description `off`, which removes the tool, or a provider's id: `openai`, `google` or `xai`.
+             * @description For OpenAI with both a ChatGPT sign-in and an API key: which pays first.
+             * @default plan
+             */
+            openaiFirst: components["schemas"]["Payment"];
+            /**
+             * @description `off`, which removes the tool, or a provider's id.
              * @default off
              */
             provider: string;
+            /**
+             * @description Each server provider's address, by id; one left out uses its default.
+             * @default {}
+             */
+            servers: {
+                [key: string]: string;
+            };
             /**
              * @description The size a call that names none gets: `auto`, a ratio such as `16:9`, or `WIDTHxHEIGHT`.
              * @default auto
@@ -1893,14 +1922,35 @@ export interface components {
             providers: components["schemas"]["ImageProvider"][];
             settings: components["schemas"]["ImageGeneration"];
         };
+        ImageKey: {
+            /** @description Empty to remove the saved key. */
+            key: string;
+            provider: string;
+        };
         /** @description A provider as Settings lists it. */
         ImageProvider: {
-            /** @description Whether an API key for it is saved or in the environment. */
+            /** @description `catalog` (a key under Settings > Providers, or one saved here for images), `key` (saved here) or `server`. */
+            access: string;
+            /** @description Whether its key comes from the environment instead. */
+            fromEnvironment: boolean;
+            /** @description Whether an API key for it is found. */
             hasKey: boolean;
+            /** @description OpenAI only: whether a ChatGPT sign-in can pay for its images. */
+            hasPlan: boolean;
             id: string;
+            /** @description The key saved here, by its last four characters. */
+            key?: string | null;
             /** @description Its image models, the default first. */
             models: string[];
             name: string;
+            /** @description Whether it could make an image now. */
+            ready: boolean;
+            /** @description The most reference images one call takes. */
+            references: number;
+            /** @description A server provider's address. */
+            server?: string | null;
+            /** @description The model is typed rather than picked. */
+            typed: boolean;
         };
         ImportBody: {
             backup: components["schemas"]["Backup"];
@@ -2307,6 +2357,11 @@ export interface components {
             model?: components["schemas"]["ModelRef"] | null;
             title?: string | null;
         };
+        /**
+         * @description Which pays first for OpenAI images when both can.
+         * @enum {string}
+         */
+        Payment: "plan" | "apiKey";
         PermissionRequest: components["schemas"]["Ask"] & {
             /** @description What answering "always" would allow from now on, for the client to show before it is chosen. */
             always?: components["schemas"]["Grant"][];
@@ -3333,6 +3388,35 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ImageGeneration"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageGenerationState"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setImageKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageKey"];
             };
         };
         responses: {

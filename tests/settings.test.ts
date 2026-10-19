@@ -561,17 +561,29 @@ test("web search lists providers in the order auto tries them, saved order first
     expect(orderedProviders(state).map((p) => p.id)).toEqual(["tavily", "searxng", "firecrawl", "exa"]);
     expect(grantGroup({ grant: "pattern", kind: "websearch", pattern: "*", decision: "allow" })).toBe("web");
 });
-test("image generation says when the chosen provider still needs an API key", async () => {
+test("image generation says what the chosen provider still needs, and when the ChatGPT plan alone pays", async () => {
     const { imageProviderNote } = await import("../src/ui/settings-image-generation");
-    const provider = (id: string, hasKey: boolean) => ({ id, name: id.toUpperCase(), models: ["m"], hasKey });
+    const provider = (id: string, ready: boolean, hasPlan = false) => ({
+        id,
+        name: id.toUpperCase(),
+        models: ["m"],
+        typed: false,
+        access: "catalog",
+        references: 5,
+        hasKey: ready && !hasPlan,
+        fromEnvironment: false,
+        hasPlan,
+        ready,
+    });
     const state = (chosen: string) => ({
-        settings: { provider: chosen, model: "", size: "auto" },
-        providers: [provider("openai", true), provider("xai", false)],
+        settings: { provider: chosen, model: "", size: "auto", openaiFirst: "plan" as const, servers: {} },
+        providers: [provider("openai", true), provider("xai", false), provider("plan", true, true)],
     });
 
     expect(imageProviderNote(state("xai"))).toContain("XAI");
     expect(imageProviderNote(state("openai"))).not.toContain("OPENAI");
     expect(imageProviderNote(state("off"))).toBe(imageProviderNote(state("openai")));
+    expect(imageProviderNote(state("plan"))).toContain("ChatGPT plan");
 });
 
 test("tool grouping is one multi-select list and Code settings preview a diff with every setting applied", async () => {

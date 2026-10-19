@@ -136,6 +136,8 @@ export function createClient(target: Target) {
         imageGeneration: () => request<Json<"getImageGeneration", 200>>("GET", "/image-generation"),
         putImageGeneration: (body: components["schemas"]["ImageGeneration"]) =>
             request<Json<"putImageGeneration", 200>>("PUT", "/image-generation", body),
+        setImageKey: (provider: string, key: string) =>
+            request<Json<"setImageKey", 200>>("PUT", "/image-generation/keys", { provider, key }),
         blob: (hash: string) => request<Json<"getBlob", 200>>("GET", `/blobs/${encodeURIComponent(hash)}`),
         voice: () => request<Json<"getVoice", 200>>("GET", "/voice"),
         setVoiceKey: (provider: string, key: string) =>

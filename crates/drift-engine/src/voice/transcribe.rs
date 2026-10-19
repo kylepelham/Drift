@@ -6,65 +6,13 @@ use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::{Value, json};
 
 use super::{Phrase, Provider, VoiceError, answer_json};
+use crate::llm::multipart::Form;
 
 /// AssemblyAI transcribes after upload; a short phrase is ready within seconds.
 const POLL: Duration = Duration::from_millis(500);
 const MAX_POLLS: usize = 240;
 /// Query values keep the characters URLs leave alone.
 const QUERY: &AsciiSet = &NON_ALPHANUMERIC.remove(b'-').remove(b'_').remove(b'.').remove(b'~');
-
-/// A multipart form, built by hand so the HTTP client needs no extra feature for five small bodies.
-struct Form {
-    boundary: String,
-    body: Vec<u8>,
-}
-
-impl Form {
-    fn new() -> Self {
-        Self {
-            boundary: format!("drift-{}", crate::random_hex(12)),
-            body: Vec::new(),
-        }
-    }
-
-    fn head(&mut self, disposition: &str, mime: Option<&str>) {
-        let kind = mime.map(|mime| format!("Content-Type: {mime}\r\n")).unwrap_or_default();
-        let head = format!(
-            "--{}\r\nContent-Disposition: form-data; {disposition}\r\n{kind}\r\n",
-            self.boundary
-        );
-        self.body.extend_from_slice(head.as_bytes());
-    }
-
-    fn text(mut self, name: &str, value: &str) -> Self {
-        self.head(&format!("name=\"{name}\""), None);
-        self.body.extend_from_slice(value.as_bytes());
-        self.body.extend_from_slice(b"\r\n");
-        self
-    }
-
-    fn texts<'a>(self, name: &str, values: impl IntoIterator<Item = &'a String>) -> Self {
-        values.into_iter().fold(self, |form, value| form.text(name, value))
-    }
-
-    fn wav(mut self, wav: &[u8]) -> Self {
-        self.head("name=\"file\"; filename=\"phrase.wav\"", Some("audio/wav"));
-        self.body.extend_from_slice(wav);
-        self.body.extend_from_slice(b"\r\n");
-        self
-    }
-
-    fn attach(mut self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        self.body
-            .extend_from_slice(format!("--{}--\r\n", self.boundary).as_bytes());
-        request
-            .header(
-                "content-type",
-                format!("multipart/form-data; boundary={}", self.boundary),
-            )
-            .body(self.body)
-    }
-}
 
 fn url(base: Option<&str>, host: &str, path: &str) -> String {
     format!("{}{path}", base.unwrap_or(host))
@@ -100,7 +48,7 @@ async fn openai(key: &str, phrase: &Phrase, base: Option<&str>) -> Result<String
         .text("model", "gpt-transcribe")
         .texts("keywords[]", &phrase.keyterms)
         .texts("languages[]", &phrase.language)
-        .wav(&phrase.wav);
+        .file("file", "phrase.wav", "audio/wav", &phrase.wav);
     let request = crate::llm::http::client()
         .post(url(base, "https://api.openai.com", "/v1/audio/transcriptions"))
         .bearer_auth(key);
@@ -117,7 +65,7 @@ async fn groq(key: &str, phrase: &Phrase, base: Option<&str>) -> Result<String, 
         .text("response_format", "json")
         .texts("language", &phrase.language)
         .texts("prompt", &prompt)
-        .wav(&phrase.wav);
+        .file("file", "phrase.wav", "audio/wav", &phrase.wav);
     let request = crate::llm::http::client()
         .post(url(base, "https://api.groq.com", "/openai/v1/audio/transcriptions"))
         .bearer_auth(key);
@@ -155,7 +103,7 @@ async fn elevenlabs(key: &str, phrase: &Phrase, base: Option<&str>) -> Result<St
         .text("model_id", "scribe_v2")
         .text("tag_audio_events", "false")
         .texts("language_code", &phrase.language)
-        .wav(&phrase.wav);
+        .file("file", "phrase.wav", "audio/wav", &phrase.wav);
     let request = crate::llm::http::client()
         .post(url(base, "https://api.elevenlabs.io", "/v1/speech-to-text"))
         .header("xi-api-key", key);
