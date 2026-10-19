@@ -354,6 +354,7 @@ impl Engine {
         };
         let setting = prompt::Setting {
             base: &base,
+            family: plan.model.prompt,
             workspace: &plan.workspace,
             config: &plan.config,
             agent: agent.as_ref(),
