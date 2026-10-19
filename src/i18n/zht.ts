@@ -1283,7 +1283,7 @@ export const drift = {
     "drift.settings.collapseCommands.running": "執行時展開",
     "drift.settings.collapseCommands.open": "一律展開",
     "drift.settings.groupTools.title": "合併連續的工具呼叫",
-    "drift.settings.groupTools.description": "所選類型的連續呼叫會摺疊成同一列。",
+    "drift.settings.groupTools.description": "所選類型的連續呼叫將會摺疊成一列。",
     "drift.settings.groupTools.none": "無",
     "drift.settings.groupTools.all": "全部",
     "drift.settings.groupTools.commands": "命令",

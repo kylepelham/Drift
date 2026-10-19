@@ -1353,7 +1353,7 @@ export const drift = {
     "drift.settings.collapseCommands.running": "Otwarty podczas działania",
     "drift.settings.collapseCommands.open": "Zawsze otwarty",
     "drift.settings.groupTools.title": "Grupuj kolejne wywołania narzędzi",
-    "drift.settings.groupTools.description": "Kolejne wywołania wybranych typów zwijają się w jeden wiersz.",
+    "drift.settings.groupTools.description": "Kolejne wywołania wybranych rodzajów zwijają się w jeden wiersz.",
     "drift.settings.groupTools.none": "Brak",
     "drift.settings.groupTools.all": "Wszystkie",
     "drift.settings.groupTools.commands": "Polecenia",

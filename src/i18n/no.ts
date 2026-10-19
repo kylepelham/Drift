@@ -1343,7 +1343,7 @@ export const drift = {
     "drift.settings.collapseCommands.running": "Åpen mens den kjører",
     "drift.settings.collapseCommands.open": "Alltid åpen",
     "drift.settings.groupTools.title": "Grupper verktøykall på rad",
-    "drift.settings.groupTools.description": "Kall på rad av typene du velger, slås sammen til én rad.",
+    "drift.settings.groupTools.description": "Kall på rad av typene du velger, foldes sammen til én rad.",
     "drift.settings.groupTools.none": "Ingen",
     "drift.settings.groupTools.all": "Alle",
     "drift.settings.groupTools.commands": "Kommandoer",

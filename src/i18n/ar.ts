@@ -976,7 +976,7 @@ export const drift = {
     "drift.permissions.autoGlobal": "قبول الأذونات تلقائيًا بشكل عام",
     "drift.permissions.autoThread": "قبول الأذونات تلقائيًا لهذه المحادثة",
     "drift.prompt.steer": "توجيه",
-    "drift.prompt.steerHint": "توجيه (اضغط مطولاً على Alt للإضافة إلى الطابور بعد هذا الدور)",
+    "drift.prompt.steerHint": "توجيه (اضغط مطولاً على Alt للإضافة إلى الطابور لما بعد هذا الدور)",
     "drift.provider.browser": "المتصفح",
     "drift.provider.connectFailed": "تعذر الاتصال بـ {{provider}}. تحقق من بيانات الاعتماد وحاول مجددًا.",
     "drift.provider.connected": "تم توصيل {{provider}}. حُفظت بيانات الاعتماد.",

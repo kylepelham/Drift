@@ -1019,7 +1019,7 @@ export const drift = {
     "drift.permissions.autoGlobal": "Autorisations acceptées automatiquement partout",
     "drift.permissions.autoThread": "Autorisations acceptées automatiquement pour cette discussion",
     "drift.prompt.steer": "Orienter",
-    "drift.prompt.steerHint": "Orienter (maintenir Alt pour mettre en file après ce tour)",
+    "drift.prompt.steerHint": "Orienter (maintenir Alt pour mettre en file pour après ce tour)",
     "drift.provider.browser": "navigateur",
     "drift.provider.connectFailed": "Impossible de connecter {{provider}}. Vérifiez l'identifiant et réessayez.",
     "drift.provider.connected": "{{provider}} connecté. Identifiant enregistré.",
@@ -1377,7 +1377,7 @@ export const drift = {
     "drift.settings.collapseCommands.open": "Toujours ouverte",
     "drift.settings.groupTools.title": "Regrouper les appels d'outils consécutifs",
     "drift.settings.groupTools.description":
-        "Les appels consécutifs des types choisis sont regroupés sur une seule ligne.",
+        "Les appels consécutifs des types que vous choisissez se replient sur une seule ligne.",
     "drift.settings.groupTools.none": "Aucun",
     "drift.settings.groupTools.all": "Tous",
     "drift.settings.groupTools.commands": "Commandes",

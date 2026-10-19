@@ -1368,7 +1368,7 @@ export const drift = {
     "drift.settings.collapseCommands.open": "Immer offen",
     "drift.settings.groupTools.title": "Aufeinanderfolgende Werkzeugaufrufe gruppieren",
     "drift.settings.groupTools.description":
-        "Aufeinanderfolgende Aufrufe der gewählten Arten werden in einer Zeile zusammengefasst.",
+        "Aufeinanderfolgende Aufrufe der ausgewählten Arten werden in einer Zeile zusammengeklappt.",
     "drift.settings.groupTools.none": "Keine",
     "drift.settings.groupTools.all": "Alle",
     "drift.settings.groupTools.commands": "Befehle",

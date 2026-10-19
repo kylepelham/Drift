@@ -1346,7 +1346,7 @@ export const drift = {
     "drift.settings.collapseCommands.running": "実行中のみ開く",
     "drift.settings.collapseCommands.open": "常に開く",
     "drift.settings.groupTools.title": "連続するツール呼び出しをまとめる",
-    "drift.settings.groupTools.description": "選択した種類の連続する呼び出しを 1 行にまとめます。",
+    "drift.settings.groupTools.description": "選択した種類の連続する呼び出しを 1 行に折りたたみます。",
     "drift.settings.groupTools.none": "なし",
     "drift.settings.groupTools.all": "すべて",
     "drift.settings.groupTools.commands": "コマンド",
