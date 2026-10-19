@@ -84,14 +84,7 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
 #[tokio::test]
 async fn arguments_with_one_reading_are_repaired_and_the_rest_refused_before_the_call_runs() {
     let h = harness().await;
-    std::fs::write(
-        h._dir.join("ws/a.txt"),
-        "a
-b
-c
-",
-    )
-    .unwrap();
+    std::fs::write(h._dir.join("ws/a.txt"), "a\nb\nc\n").unwrap();
     h.provider
         .push(tool_call("read", r#"{"path": "a.txt", "limit": "1", "offset": null}"#))
         .push(tool_call("read", r#"{"path": "a.txt", "limit": "twenty"}"#))
