@@ -119,6 +119,11 @@ export function ToolView(props: { part: ToolPart }) {
         return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null;
     });
     const background = createMemo(() => backgroundRun(engine.state, props.part));
+    // A call that failed or finished before it made a child still stops orbiting.
+    const orbitStatus = () => {
+        const status = state().status;
+        return delegatedStatus() ?? (status === "pending" ? "running" : status);
+    };
 
     // A background launch returns at once; its time is the worker's own.
     const timing = () => {
@@ -252,7 +257,7 @@ export function ToolView(props: { part: ToolPart }) {
                     />
                 </Show>
                 <Show when={delegated()}>
-                    <DelegateOrbit status={delegatedStatus() ?? "running"} />
+                    <DelegateOrbit status={orbitStatus()} />
                 </Show>
                 <Show
                     when={active()}

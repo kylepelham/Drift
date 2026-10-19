@@ -1099,7 +1099,7 @@ export const drift = {
     "drift.explored.read.running.single": "чтение {{target}}",
     "drift.explored.read.done.single": "прочитан {{target}}",
     "drift.explored.search.running.single": "поиск {{target}}",
-    "drift.explored.search.done.single": "найдено {{target}}",
+    "drift.explored.search.done.single": "выполнен поиск {{target}}",
     "drift.explored.list.running.single": "просмотр {{target}}",
     "drift.explored.list.done.single": "просмотрена {{target}}",
     "drift.review.open": "Просмотреть изменения",

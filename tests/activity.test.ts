@@ -1160,7 +1160,8 @@ test("a subagent is one line: orbiting dots, its description, then a background 
 
     const view = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
     const sidebar = await Bun.file(new URL("../src/ui/workspaces.tsx", import.meta.url)).text();
-    expect(view).toContainCode('<DelegateOrbit status={delegatedStatus() ?? "running"} />');
+    expect(view).toContainCode("<DelegateOrbit status={orbitStatus()} />");
+    expect(view).toContainCode('delegatedStatus() ?? (status === "pending" ? "running" : status)');
     expect(view).toContainCode("background={!!background()}");
     expect(sidebar).toContainCode('<IconLayers class="size-3" />');
     for (const source of [view, sidebar]) expect(source).not.toContain("background-mark");
@@ -1187,4 +1188,8 @@ test("a run that read one file names it instead of counting it", async () => {
     const two = [read("p1", "a/x.ts"), read("p2", "a/y.ts")];
     expect(exploredSingle(two, false)).toBeUndefined();
     expect(exploredSummary(two, false)).toBe("Read 2 files");
+
+    const namesakes = [read("p1", "a/x.ts"), read("p2", "b/x.ts")];
+    expect(exploredSingle(namesakes, false)).toBeUndefined();
+    expect(exploredSummary(namesakes, false)).toBe("Read 2 files");
 });

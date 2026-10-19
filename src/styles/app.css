@@ -1013,8 +1013,8 @@ textarea {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .thinking-indicator :is(.thinking-figure, .thinking-piece, .thinking-label) {
-        animation: none;
+    .thinking-indicator :is(.thinking-figure, .thinking-piece, .thinking-label, [data-component="text-shimmer"]) {
+        animation: none !important;
     }
 
     .thinking-indicator[data-style="float"] .thinking-piece {

@@ -1096,7 +1096,7 @@ export const drift = {
     "drift.explored.read.running.single": "читання {{target}}",
     "drift.explored.read.done.single": "прочитано {{target}}",
     "drift.explored.search.running.single": "пошук {{target}}",
-    "drift.explored.search.done.single": "знайдено {{target}}",
+    "drift.explored.search.done.single": "виконано пошук {{target}}",
     "drift.explored.list.running.single": "перегляд {{target}}",
     "drift.explored.list.done.single": "переглянуто {{target}}",
     "drift.review.open": "Переглянути зміни",
