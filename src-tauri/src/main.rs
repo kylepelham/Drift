@@ -5,6 +5,7 @@ mod commands;
 mod config;
 mod editor;
 mod file_preview;
+mod fonts;
 mod native;
 mod opencode_import;
 mod permissions;
@@ -90,6 +91,7 @@ fn main() {
         // generate_handler! resolves command helper macros in their defining module, not through ordinary re-exports.
         .invoke_handler(tauri::generate_handler![
             native::native_engine_status,
+            fonts::system_fonts,
             opencode_import::opencode_import_summary,
             updater::check_update,
             updater::install_update,
