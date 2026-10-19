@@ -247,7 +247,9 @@ function EditorHeader(props: { title: string; description?: string; actions: JSX
             <div class="min-w-0 flex-1">
                 <div class="truncate text-base font-semibold text-ink">{props.title}</div>
                 <Show when={props.description}>
-                    <div class="mt-1 text-[0.78rem] leading-relaxed text-ink-faint">{props.description}</div>
+                    <div class="mt-1 text-[length:calc(0.78rem*var(--settings-scale,1))] leading-relaxed text-ink-faint">
+                        {props.description}
+                    </div>
                 </Show>
             </div>
             {props.actions}
@@ -444,7 +446,7 @@ function AgentEditor(props: {
                             onChange={(tools) => props.onChange({ tools })}
                         />
                         <Show when={!props.draft.tools.length}>
-                            <div class="px-1 py-2.5 text-[0.72rem] text-warn">
+                            <div class="px-1 py-2.5 text-[length:calc(0.72rem*var(--settings-scale,1))] text-warn">
                                 {t("drift.settings.prompts.tools.none")}
                             </div>
                         </Show>

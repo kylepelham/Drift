@@ -1245,9 +1245,16 @@ export const drift = {
     "drift.corners.round": "ラウンド",
     "drift.font.defaultNamed": "デフォルト ({{font}})",
     "drift.font.reset": "リセット",
+    "drift.textSize.title": "サイズ",
     "drift.textSize.interface": "インターフェースのサイズ",
     "drift.textSize.interface.description":
         "Ctrl とプラスまたはマイナスで変更するように、Drift 内のすべてを一度に変更します。",
+    "drift.textSize.ui": "インターフェースのテキスト",
+    "drift.textSize.ui.description": "ボタン、ラベル、メニュー、ツールの行、その他のウィンドウ内のテキスト。",
+    "drift.textSize.settings": "設定のテキスト",
+    "drift.textSize.settings.description": "これらのページ内のテキスト。",
+    "drift.textSize.icons": "アイコンのサイズ",
+    "drift.textSize.icons.description": "すべてのボタンや行のアイコン。",
     "drift.textSize.conversation": "会話のテキスト",
     "drift.textSize.conversation.description":
         "あなたのメッセージと返信。コードは「コード」で設定したサイズを維持します。",

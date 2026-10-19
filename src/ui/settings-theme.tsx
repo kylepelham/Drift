@@ -212,7 +212,7 @@ export function CustomColors() {
                             />
                             <span class="min-w-0">
                                 <span class="block text-xs text-ink">{t(color.label)}</span>
-                                <span class="block font-mono text-[0.68rem] text-ink-faint uppercase">
+                                <span class="block font-mono text-[length:calc(0.68rem*var(--settings-scale,1))] text-ink-faint uppercase">
                                     {customTheme()[color.id]}
                                 </span>
                             </span>

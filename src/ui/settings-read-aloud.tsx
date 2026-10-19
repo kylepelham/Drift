@@ -175,7 +175,7 @@ export function ReadAloudGroup(props: { keys: VoiceKeys }) {
                 </Show>
             </SettingsGroup>
             <Show when={readAloudEnabled()}>
-                <div class="px-1 text-[0.72rem] leading-relaxed text-ink-faint">
+                <div class="px-1 text-[length:calc(0.72rem*var(--settings-scale,1))] leading-relaxed text-ink-faint">
                     {chosen()
                         ? t("drift.voice.read.privacy.cloud", { provider: chosen()!.name })
                         : t("drift.voice.read.privacy.local")}

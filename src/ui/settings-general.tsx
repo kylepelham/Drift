@@ -135,7 +135,7 @@ export function GeneralSection() {
                             />
                             <output
                                 for="response-reveal-speed"
-                                class="w-7 text-right text-[0.68rem] tabular-nums text-ink-faint"
+                                class="w-7 text-right text-[length:calc(0.68rem*var(--settings-scale,1))] tabular-nums text-ink-faint"
                                 title={t("drift.settings.responseAnimation.speed.value", {
                                     speed: responseAnimationSpeed(),
                                 })}

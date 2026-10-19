@@ -115,7 +115,7 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                                             <span class="min-w-0 flex-1 truncate text-sm font-medium text-ink">
                                                 {provider.label}
                                             </span>
-                                            <span class="shrink-0 rounded-full bg-raised px-2 py-0.5 text-[0.65rem] tabular-nums text-ink-faint">
+                                            <span class="shrink-0 rounded-full bg-raised px-2 py-0.5 text-[length:calc(0.65rem*var(--ui-text-scale,1))] tabular-nums text-ink-faint">
                                                 {t("drift.model.enabledCount", {
                                                     enabled: enabledCount(),
                                                     total: all().length,
@@ -149,7 +149,7 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                                                                     {item.label}
                                                                 </span>
                                                                 <Show when={item.detail}>
-                                                                    <span class="block truncate text-[0.68rem] text-ink-faint">
+                                                                    <span class="block truncate text-[length:calc(0.68rem*var(--ui-text-scale,1))] text-ink-faint">
                                                                         {item.detail}
                                                                     </span>
                                                                 </Show>

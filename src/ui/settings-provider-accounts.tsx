@@ -86,7 +86,7 @@ export function ProviderAccounts(props: {
 
             {/* The first account is the one requests go to. */}
             <Show when={index() === 0 && props.accounts.length > 1}>
-                <span class="shrink-0 rounded-full border border-ok/35 bg-ok/10 px-2 py-0.5 text-[0.68rem] text-ok">
+                <span class="shrink-0 rounded-full border border-ok/35 bg-ok/10 px-2 py-0.5 text-[length:calc(0.68rem*var(--settings-scale,1))] text-ok">
                     {t("drift.provider.accounts.inUse")}
                 </span>
             </Show>
@@ -163,7 +163,7 @@ export function ProviderAccounts(props: {
 
     return (
         <div class="space-y-1.5">
-            <div class="text-[0.68rem] tracking-wider text-ink-faint uppercase">
+            <div class="text-[length:calc(0.68rem*var(--settings-scale,1))] tracking-wider text-ink-faint uppercase">
                 {t("drift.provider.accounts.title")}
             </div>
             <For each={props.accounts}>{row}</For>

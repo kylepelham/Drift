@@ -81,7 +81,7 @@ export function OllamaConnect(props: { onNotice: (notice: ProviderNotice) => voi
                         {(model) => (
                             <div class="flex items-center gap-2 rounded-md border border-edge bg-overlay/35 px-2.5 py-2">
                                 <span class="min-w-0 flex-1 truncate text-xs text-ink">{model.name}</span>
-                                <span class="shrink-0 text-[0.65rem] tabular-nums text-ink-faint">
+                                <span class="shrink-0 text-[length:calc(0.65rem*var(--settings-scale,1))] tabular-nums text-ink-faint">
                                     {model.limit?.context
                                         ? formatModelContext(model.limit.context)
                                         : t("drift.ollama.windowUnknown")}
@@ -114,7 +114,9 @@ export function OllamaConnect(props: { onNotice: (notice: ProviderNotice) => voi
             <div class="flex items-center gap-3">
                 <span class="min-w-0 flex-1">
                     <span class="block text-xs text-ink">{t("drift.ollama.limit.title")}</span>
-                    <span class="block text-[0.68rem] text-ink-faint">{t("drift.ollama.limit.description")}</span>
+                    <span class="block text-[length:calc(0.68rem*var(--settings-scale,1))] text-ink-faint">
+                        {t("drift.ollama.limit.description")}
+                    </span>
                 </span>
                 <Picker
                     label={t("drift.ollama.limit.title")}

@@ -1262,8 +1262,16 @@ export const drift = {
     "drift.corners.round": "Rund",
     "drift.font.defaultNamed": "Standard ({{font}})",
     "drift.font.reset": "Zurücksetzen",
+    "drift.textSize.title": "Größen",
     "drift.textSize.interface": "Größe der Oberfläche",
     "drift.textSize.interface.description": "Alles in Drift auf einmal, so wie Strg und Plus oder Minus es ändern.",
+    "drift.textSize.ui": "Text der Oberfläche",
+    "drift.textSize.ui.description":
+        "Schaltflächen, Beschriftungen, Menüs, Werkzeugzeilen und der restliche Text des Fensters.",
+    "drift.textSize.settings": "Einstellungstext",
+    "drift.textSize.settings.description": "Der Text auf diesen Seiten.",
+    "drift.textSize.icons": "Icon-Größe",
+    "drift.textSize.icons.description": "Icons auf Schaltflächen und Zeilen überall.",
     "drift.textSize.conversation": "Unterhaltungstext",
     "drift.textSize.conversation.description":
         "Deine Nachrichten und die Antworten. Code behält die unter Code eingestellte Größe.",

@@ -64,7 +64,7 @@ export function ContextMeter(props: { sessionId: string }) {
                 onClick={toggleDebugPanel}
             >
                 <MeterRing percent={percent()} />
-                <span class="text-[0.68rem] leading-none font-medium tabular-nums">
+                <span class="text-[length:calc(0.68rem*var(--ui-text-scale,1))] leading-none font-medium tabular-nums">
                     {stats() ? `${percent()}%` : "--"}
                 </span>
             </button>
@@ -164,7 +164,7 @@ function BreakdownBar(props: { segments: BreakdownSegment[]; context: number }) 
             <Show when={tip()}>
                 {(current) => (
                     <div
-                        class="pointer-events-none absolute bottom-full z-10 mb-1 -translate-x-1/2 rounded-md border border-edge bg-raised px-2 py-1 text-[0.68rem] whitespace-nowrap text-ink shadow-lg shadow-black/30"
+                        class="pointer-events-none absolute bottom-full z-10 mb-1 -translate-x-1/2 rounded-md border border-edge bg-raised px-2 py-1 text-[length:calc(0.68rem*var(--ui-text-scale,1))] whitespace-nowrap text-ink shadow-lg shadow-black/30"
                         style={{ left: `${current().center}%` }}
                     >
                         {t(segmentLabel[current().segment.key])}

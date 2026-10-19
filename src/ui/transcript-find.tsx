@@ -238,7 +238,7 @@ export function TranscriptFindBar() {
                         stepTranscriptFind(event.shiftKey ? -1 : 1);
                     }}
                 />
-                <span class="shrink-0 tabular-nums text-[0.65rem] text-ink-faint">
+                <span class="shrink-0 tabular-nums text-[length:calc(0.65rem*var(--ui-text-scale,1))] text-ink-faint">
                     {needle().trim() ? `${position()}/${total()}` : ""}
                 </span>
                 <button

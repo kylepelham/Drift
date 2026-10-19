@@ -372,7 +372,7 @@ function ImageCanvas(props: ImageViewerProps) {
             </div>
             <p
                 id={hintID}
-                class="shrink-0 border-t border-edge bg-surface px-3 py-1.5 text-center text-[0.65rem] text-ink-muted"
+                class="shrink-0 border-t border-edge bg-surface px-3 py-1.5 text-center text-[length:calc(0.65rem*var(--ui-text-scale,1))] text-ink-muted"
             >
                 {t("drift.lightbox.controls")}
             </p>

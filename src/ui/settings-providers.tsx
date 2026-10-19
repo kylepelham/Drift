@@ -125,13 +125,13 @@ export function ProvidersSection() {
                 )}
             </Show>
             <Show when={groups().connected.length > 0}>
-                <div class="px-3 pt-1 pb-1 text-[0.68rem] tracking-wider text-ink-faint uppercase">
+                <div class="px-3 pt-1 pb-1 text-[length:calc(0.68rem*var(--settings-scale,1))] tracking-wider text-ink-faint uppercase">
                     {t("settings.providers.section.connected")}
                 </div>
                 <For each={groups().connected}>{row}</For>
             </Show>
             <Show when={groups().rest.length > 0}>
-                <div class="px-3 pt-3 pb-1 text-[0.68rem] tracking-wider text-ink-faint uppercase">
+                <div class="px-3 pt-3 pb-1 text-[length:calc(0.68rem*var(--settings-scale,1))] tracking-wider text-ink-faint uppercase">
                     {t("drift.settings.providers.notConnected")}
                 </div>
                 <For each={groups().rest}>{row}</For>

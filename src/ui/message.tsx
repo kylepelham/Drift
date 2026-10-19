@@ -249,7 +249,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                                     </Show>
                                 </div>
                             </Show>
-                            <div class="message-actions touch-reveal flex items-center gap-2 text-[0.7rem] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
+                            <div class="message-actions touch-reveal flex items-center gap-2 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity select-none group-focus-within:opacity-100 group-hover:opacity-100">
                                 <span>
                                     {agentLabel(info().agent ?? "build")} · {model()} · {time()}
                                 </span>
@@ -449,7 +449,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                     <EditedFilesCard entry={props.entry} />
                 </Show>
                 <Show when={props.footer && info().finishedAt}>
-                    <div class="message-actions touch-reveal flex items-center gap-3 text-[0.7rem] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
+                    <div class="message-actions touch-reveal flex items-center gap-3 text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint opacity-0 transition-opacity duration-200 select-none group-hover:opacity-100">
                         <span>{info().model?.model ?? ""}</span>
                         <span>{formatTokens(info())}</span>
                         <Show when={tokensPerSecond(props.entry)}>

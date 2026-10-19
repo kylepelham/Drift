@@ -33,7 +33,11 @@ export function DebugPanel() {
                 name="debug"
                 defaultWidth={420}
                 onClose={() => setDebugPanelOpen(false)}
-                title={<span class="px-2.5 text-[0.82rem] text-ink">{t("drift.debug.context")}</span>}
+                title={
+                    <span class="px-2.5 text-[length:calc(0.82rem*var(--ui-text-scale,1))] text-ink">
+                        {t("drift.debug.context")}
+                    </span>
+                }
             >
                 <div class="debug-panel-scroll min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain">
                     <div class="border-b border-edge/60 select-text">
@@ -99,11 +103,13 @@ function JsonView(props: { value: unknown }) {
         <Show
             when={html()}
             fallback={
-                <pre class="font-mono text-[0.7rem] leading-relaxed whitespace-pre-wrap text-ink-muted">{text()}</pre>
+                <pre class="font-mono text-[length:calc(0.7rem*var(--ui-text-scale,1))] leading-relaxed whitespace-pre-wrap text-ink-muted">
+                    {text()}
+                </pre>
             }
         >
             <div
-                class="font-mono text-[0.7rem] leading-relaxed [&_pre]:!bg-transparent [&_pre]:whitespace-pre-wrap"
+                class="font-mono text-[length:calc(0.7rem*var(--ui-text-scale,1))] leading-relaxed [&_pre]:!bg-transparent [&_pre]:whitespace-pre-wrap"
                 // eslint-disable-next-line solid/no-innerhtml -- Shiki output is sanitised with DOMPurify before setHtml.
                 innerHTML={html()}
             />

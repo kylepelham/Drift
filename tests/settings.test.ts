@@ -619,3 +619,28 @@ test("each area's text size is kept within its range and reaches the CSS for tha
     expect(styles).toContainCode("--text-xs: calc(0.75rem * var(--sidebar-scale, 1));");
     expect(await Bun.file("src/ui/composer.tsx").text()).toContain("var(--composer-scale,1)");
 });
+
+test("the interface size applies when its slider is let go, so dragging it never rescales the slider under the pointer", async () => {
+    const appearance = await Bun.file("src/ui/settings-appearance.tsx").text();
+    expect(appearance).toContainCode("onInput={setInterfaceZoom} settleOnRelease");
+    expect(appearance).toContainCode("onDragging={props.settleOnRelease ? setDragged : undefined}");
+
+    const controls = await Bun.file("src/ui/controls.tsx").text();
+    expect(controls).toContainCode("if (dragging()) props.onDragging?.(value); else props.onInput(value);");
+    expect(controls).toContainCode("onPointerUp={(event) => dragging() && settle(Number(event.currentTarget.value))}");
+});
+
+test("the interface, Settings and icons each have a size of their own, read by their part of the page alone", async () => {
+    const styles = await Bun.file("src/styles/app.css").text();
+    expect(styles).toContainCode("--text-xs: calc(0.75rem * var(--ui-text-scale, 1));");
+    expect(styles).toContainCode(".settings-scale { --text-xs: calc(0.75rem * var(--settings-scale, 1));");
+    expect(styles).toContainCode(".app-icon { scale: var(--icon-scale, 1); }");
+    expect(await Bun.file("src/ui/settings.tsx").text()).toContain("settings-dialog settings-scale");
+    expect(await Bun.file("src/ui/icons.tsx").text()).toContain("app-icon");
+
+    const { setIconScale, iconScale, maxIconScale } = await import("../src/state/text-size");
+    setIconScale(1.2);
+    expect(iconScale()).toBe(1.2);
+    expect(maxIconScale).toBeLessThan(1.5);
+    setIconScale(1);
+});

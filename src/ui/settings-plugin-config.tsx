@@ -34,7 +34,11 @@ export function ConfigFields(props: {
                                 <div class="min-w-0">
                                     <div class="text-xs font-medium text-ink">{field.label}</div>
                                     <Show when={field.description}>
-                                        {(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}
+                                        {(text) => (
+                                            <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                                                {text()}
+                                            </div>
+                                        )}
                                     </Show>
                                 </div>
                                 <Toggle
@@ -71,7 +75,11 @@ export function ConfigFields(props: {
                                 />
                             </Show>
                             <Show when={field.description}>
-                                {(text) => <div class="text-[0.7rem] text-ink-faint">{text()}</div>}
+                                {(text) => (
+                                    <div class="text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                                        {text()}
+                                    </div>
+                                )}
                             </Show>
                         </label>
                     </Show>
@@ -133,7 +141,9 @@ export function EditSheet(props: {
                 <LogoTile image={props.registry?.image} title={props.plugin.name} large />
                 <div class="min-w-0 flex-1">
                     <div class="text-base font-semibold text-ink">{props.plugin.name}</div>
-                    <div class="font-mono text-[0.7rem] text-ink-faint">{props.plugin.path}</div>
+                    <div class="font-mono text-[length:calc(0.7rem*var(--settings-scale,1))] text-ink-faint">
+                        {props.plugin.path}
+                    </div>
                     <Show when={props.registry?.description}>
                         {(text) => <div class="mt-2 text-sm text-ink-muted">{text()}</div>}
                     </Show>

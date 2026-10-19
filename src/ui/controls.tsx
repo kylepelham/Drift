@@ -6,7 +6,7 @@
  * that do not exist.
  */
 
-import { For } from "solid-js";
+import { createSignal, For } from "solid-js";
 
 import type { JSX } from "solid-js";
 
@@ -84,7 +84,7 @@ export function ToggleTrack(props: { checked: boolean }) {
 export function Badge(props: { tone?: "accent" | "warn"; children: JSX.Element }) {
     return (
         <span
-            class="rounded px-1.5 py-0.5 text-[0.65rem]"
+            class="rounded px-1.5 py-0.5 text-[length:calc(0.65rem*var(--ui-text-scale,1))]"
             classList={{
                 "bg-raised text-ink-muted": !props.tone,
                 "bg-accent/12 text-accent": props.tone === "accent",
@@ -129,7 +129,10 @@ export function Segmented<T extends string>(props: {
     );
 }
 
-/** A range from `min` to `max`, its filled part in the accent. */
+/**
+ * A range from `min` to `max`, its filled part in the accent. With `onDragging`, a pointer drag reports each value
+ * there and `onInput` only the one it is let go at: for a value that resizes the slider itself, such as the zoom.
+ */
 export function Slider(props: {
     label: string;
     min: number;
@@ -137,8 +140,15 @@ export function Slider(props: {
     step: number;
     value: number;
     onInput: (value: number) => void;
+    onDragging?: (value: number | undefined) => void;
 }) {
+    const [dragging, setDragging] = createSignal(false);
     const fill = () => `${((props.value - props.min) / (props.max - props.min)) * 100}%`;
+    const settle = (value: number) => {
+        setDragging(false);
+        props.onDragging?.(undefined);
+        props.onInput(value);
+    };
 
     return (
         <input
@@ -150,7 +160,14 @@ export function Slider(props: {
             step={props.step}
             value={props.value}
             style={{ "--fill": fill() }}
-            onInput={(event) => props.onInput(Number(event.currentTarget.value))}
+            onPointerDown={() => props.onDragging && setDragging(true)}
+            onInput={(event) => {
+                const value = Number(event.currentTarget.value);
+                if (dragging()) props.onDragging?.(value);
+                else props.onInput(value);
+            }}
+            onPointerUp={(event) => dragging() && settle(Number(event.currentTarget.value))}
+            onPointerCancel={(event) => dragging() && settle(Number(event.currentTarget.value))}
         />
     );
 }

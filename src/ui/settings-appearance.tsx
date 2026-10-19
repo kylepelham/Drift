@@ -9,6 +9,23 @@ import { createSignal, Show } from "solid-js";
 import { firstFamily } from "../state/fonts";
 import { t } from "../state/i18n";
 import {
+    composerScale,
+    conversationScale,
+    iconScale,
+    interfaceTextScale,
+    maxIconScale,
+    maxTextScale,
+    minTextScale,
+    setComposerScale,
+    setConversationScale,
+    setIconScale,
+    setInterfaceTextScale,
+    setSettingsScale,
+    setSidebarScale,
+    settingsScale,
+    sidebarScale,
+} from "../state/text-size";
+import {
     setSplashDuration,
     setSplashEnabled,
     setSplashExitAnimation,
@@ -23,16 +40,6 @@ import {
     splashMascotAnimation,
     splashMascotAnimations,
 } from "../state/startup";
-import {
-    composerScale,
-    conversationScale,
-    maxTextScale,
-    minTextScale,
-    setComposerScale,
-    setConversationScale,
-    setSidebarScale,
-    sidebarScale,
-} from "../state/text-size";
 import {
     backdropBlur,
     backdropDim,
@@ -75,7 +82,9 @@ export function AppearanceSection() {
 
             <SettingsGroup title={t("drift.accent.title")}>
                 <div class="space-y-2 py-3">
-                    <div class="text-[0.75rem] leading-relaxed text-ink-muted">{t("drift.accent.description")}</div>
+                    <div class="text-[length:calc(0.75rem*var(--settings-scale,1))] leading-relaxed text-ink-muted">
+                        {t("drift.accent.description")}
+                    </div>
                     <AccentPicker />
                 </div>
             </SettingsGroup>
@@ -94,6 +103,9 @@ export function AppearanceSection() {
                         fallback={defaultFonts.ui}
                     />
                 </SettingsRow>
+            </SettingsGroup>
+
+            <SettingsGroup title={t("drift.textSize.title")}>
                 <SizeRow
                     title={t("drift.textSize.interface")}
                     description={t("drift.textSize.interface.description")}
@@ -102,6 +114,13 @@ export function AppearanceSection() {
                     step={0.1}
                     value={interfaceZoom()}
                     onInput={setInterfaceZoom}
+                    settleOnRelease
+                />
+                <SizeRow
+                    title={t("drift.textSize.ui")}
+                    description={t("drift.textSize.ui.description")}
+                    value={interfaceTextScale()}
+                    onInput={setInterfaceTextScale}
                 />
                 <SizeRow
                     title={t("drift.textSize.conversation")}
@@ -120,6 +139,20 @@ export function AppearanceSection() {
                     description={t("drift.textSize.composer.description")}
                     value={composerScale()}
                     onInput={setComposerScale}
+                />
+                <SizeRow
+                    title={t("drift.textSize.settings")}
+                    description={t("drift.textSize.settings.description")}
+                    value={settingsScale()}
+                    onInput={setSettingsScale}
+                    settleOnRelease
+                />
+                <SizeRow
+                    title={t("drift.textSize.icons")}
+                    description={t("drift.textSize.icons.description")}
+                    max={maxIconScale}
+                    value={iconScale()}
+                    onInput={setIconScale}
                 />
             </SettingsGroup>
 
@@ -213,7 +246,8 @@ export function AppearanceSection() {
     );
 }
 
-/** A size as a slider with its percentage, dragged back to 100% for the default. */
+/** A size as a slider with its percentage, dragged back to 100% for the default. `settleOnRelease` waits for the
+ * drag to end before applying, for a size that rescales the slider under the pointer. */
 function SizeRow(props: {
     title: string;
     description: string;
@@ -222,7 +256,11 @@ function SizeRow(props: {
     step?: number;
     value: number;
     onInput: (value: number) => void;
+    settleOnRelease?: boolean;
 }) {
+    const [dragged, setDragged] = createSignal<number>();
+    const shown = () => dragged() ?? props.value;
+
     return (
         <SettingsRow title={props.title} description={props.description}>
             <div class="flex items-center gap-3">
@@ -231,15 +269,16 @@ function SizeRow(props: {
                     min={props.min ?? minTextScale}
                     max={props.max ?? maxTextScale}
                     step={props.step ?? 0.05}
-                    value={props.value}
+                    value={shown()}
                     onInput={props.onInput}
+                    onDragging={props.settleOnRelease ? setDragged : undefined}
                 />
                 <button
                     class="w-11 rounded-md py-0.5 text-right text-xs text-ink-muted tabular-nums transition-colors hover:text-ink"
                     title={t("drift.textSize.reset")}
                     onClick={() => props.onInput(1)}
                 >
-                    {Math.round(props.value * 100)}%
+                    {Math.round(shown() * 100)}%
                 </button>
             </div>
         </SettingsRow>

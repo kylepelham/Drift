@@ -101,7 +101,7 @@ function AttachmentFileLabel(props: { filename?: string; kind: string; bare?: bo
                 "rounded-md border border-edge bg-raised py-1 pr-2 pl-1.5 text-xs text-ink-muted": !props.bare,
             }}
         >
-            <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[0.6rem] font-semibold text-accent uppercase">
+            <span class="rounded bg-overlay px-1 py-0.5 font-mono text-[length:calc(0.6rem*var(--ui-text-scale,1))] font-semibold text-accent uppercase">
                 {t(`drift.attachment.kind.${props.kind}`)}
             </span>
             <span class="truncate">{props.filename ?? t("common.attachment")}</span>

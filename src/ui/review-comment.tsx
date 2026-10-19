@@ -37,12 +37,14 @@ export function CommentEditor(props: {
     return (
         <div class={boxClass}>
             <div class="rounded-lg border border-accent/70 bg-surface px-3 py-2">
-                <div class="text-[0.7rem] text-ink-faint">{lineLabel(props.side, props.line)}</div>
+                <div class="text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint">
+                    {lineLabel(props.side, props.line)}
+                </div>
                 <div class="flex items-end gap-2">
                     <textarea
                         ref={area}
                         rows={1}
-                        class="mt-1 min-w-0 flex-1 resize-none bg-transparent text-[0.82rem] text-ink outline-none placeholder:text-ink-faint"
+                        class="mt-1 min-w-0 flex-1 resize-none bg-transparent text-[length:calc(0.82rem*var(--ui-text-scale,1))] text-ink outline-none placeholder:text-ink-faint"
                         placeholder={t("drift.review.comment.placeholder")}
                         value={text()}
                         onInput={(event) => {
@@ -82,8 +84,10 @@ export function SavedComment(props: { comment: ReviewComment; onEdit: () => void
         <div class={boxClass}>
             <div class="group/note flex items-start gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
                 <div class="min-w-0 flex-1">
-                    <div class="text-[0.7rem] text-ink-faint">{lineLabel(props.comment.side, props.comment.line)}</div>
-                    <div class="mt-1 text-[0.82rem] whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">
+                    <div class="text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint">
+                        {lineLabel(props.comment.side, props.comment.line)}
+                    </div>
+                    <div class="mt-1 text-[length:calc(0.82rem*var(--ui-text-scale,1))] whitespace-pre-wrap text-ink [overflow-wrap:anywhere]">
                         {props.comment.text}
                     </div>
                 </div>

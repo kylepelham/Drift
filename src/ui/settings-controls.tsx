@@ -10,7 +10,9 @@ export function SettingsGroup(props: { title: string; action?: JSX.Element; chil
     return (
         <section>
             <div class="mb-1.5 flex items-center justify-between gap-3">
-                <div class="text-[0.68rem] font-semibold tracking-wide text-ink-faint uppercase">{props.title}</div>
+                <div class="text-[length:calc(0.68rem*var(--settings-scale,1))] font-semibold tracking-wide text-ink-faint uppercase">
+                    {props.title}
+                </div>
                 {props.action}
             </div>
             <div class="border-y border-edge/80">{props.children}</div>
@@ -36,8 +38,12 @@ export function SettingsRow(props: {
             onClick={() => !props.disabled && props.onClick?.()}
         >
             <div class="settings-row-copy min-w-0 flex-[1_1_12rem]">
-                <div class="text-[0.82rem] font-medium text-ink">{props.title}</div>
-                <div class="mt-0.5 text-[0.72rem] leading-relaxed text-ink-faint">{props.description}</div>
+                <div class="text-[length:calc(0.82rem*var(--settings-scale,1))] font-medium text-ink">
+                    {props.title}
+                </div>
+                <div class="mt-0.5 text-[length:calc(0.72rem*var(--settings-scale,1))] leading-relaxed text-ink-faint">
+                    {props.description}
+                </div>
             </div>
             <div class="settings-row-control ml-auto shrink-0">{props.children}</div>
         </div>

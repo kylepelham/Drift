@@ -231,7 +231,7 @@ function FileDiff(props: { file: ReviewFile; fold?: Fold }) {
     return (
         <div ref={root} class="review-file border-b border-edge/60" data-review-path={props.file.path}>
             <button
-                class="review-file-header sticky top-0 z-[1] flex w-full min-w-0 items-center gap-2 border-b border-transparent bg-bg px-4 py-2 text-left text-[0.82rem] transition-colors hover:bg-raised"
+                class="review-file-header sticky top-0 z-[1] flex w-full min-w-0 items-center gap-2 border-b border-transparent bg-bg px-4 py-2 text-left text-[length:calc(0.82rem*var(--ui-text-scale,1))] transition-colors hover:bg-raised"
                 classList={{ "border-edge/60": open() }}
                 aria-expanded={open()}
                 title={props.file.path}
@@ -431,7 +431,7 @@ function FoldBar(props: { row: ReviewRow; onOpen: (start: number) => void }) {
 
     return (
         <button
-            class="review-fold flex h-[19.5px] w-full items-center gap-2 bg-raised/30 pl-14 text-left font-sans text-[0.7rem] text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+            class="review-fold flex h-[19.5px] w-full items-center gap-2 bg-raised/30 pl-14 text-left font-sans text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint transition-colors hover:bg-raised hover:text-ink"
             onClick={() => props.onOpen(fold().start)}
         >
             {t(fold().count === 1 ? "drift.review.unmodified.one" : "drift.review.unmodified.other", {

@@ -5,7 +5,7 @@ type IconProps = { class?: string };
 function frame(props: IconProps, children: JSX.Element) {
     return (
         <svg
-            class={props.class ?? "size-4"}
+            class={`app-icon ${props.class ?? "size-4"}`}
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"

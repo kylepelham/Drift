@@ -40,27 +40,35 @@ export function AboutSection() {
             <div class="flex flex-col items-center gap-2 text-center">
                 <Jellyfish class="size-32" />
                 <div class="drift-wordmark text-base">drift</div>
-                <p class="max-w-xs text-[0.76rem] leading-relaxed text-ink-muted">{t("drift.about.description")}</p>
+                <p class="max-w-xs text-[length:calc(0.76rem*var(--settings-scale,1))] leading-relaxed text-ink-muted">
+                    {t("drift.about.description")}
+                </p>
             </div>
 
             <SettingsGroup title={t("drift.about.group.build")}>
                 <SettingsRow title={t("drift.about.row.app.title")} description={t("drift.about.row.app.description")}>
-                    <span class="font-mono text-[0.75rem] text-ink-muted">{__DRIFT_VERSION__}</span>
+                    <span class="font-mono text-[length:calc(0.75rem*var(--settings-scale,1))] text-ink-muted">
+                        {__DRIFT_VERSION__}
+                    </span>
                 </SettingsRow>
                 <SettingsRow
                     title={t("drift.about.row.native.title")}
                     description={t("drift.about.row.native.description")}
                 >
-                    <span class="font-mono text-[0.75rem] text-ink-muted">{nativeVersion()}</span>
+                    <span class="font-mono text-[length:calc(0.75rem*var(--settings-scale,1))] text-ink-muted">
+                        {nativeVersion()}
+                    </span>
                 </SettingsRow>
                 <SettingsRow
                     title={t("drift.about.row.updates.title")}
                     description={t(updateSupportLabel(updateSupported(), true))}
                 >
-                    <span class="text-[0.75rem] text-ink-muted">{t(updateSupportLabel(updateSupported(), false))}</span>
+                    <span class="text-[length:calc(0.75rem*var(--settings-scale,1))] text-ink-muted">
+                        {t(updateSupportLabel(updateSupported(), false))}
+                    </span>
                 </SettingsRow>
                 <Show when={engine.state.startupError}>
-                    <div class="px-1 py-2.5 text-[0.72rem] leading-relaxed text-danger">
+                    <div class="px-1 py-2.5 text-[length:calc(0.72rem*var(--settings-scale,1))] leading-relaxed text-danger">
                         {engine.state.startupError}
                     </div>
                 </Show>
@@ -72,7 +80,7 @@ export function AboutSection() {
                     description={t("drift.about.row.website.description")}
                 >
                     <button
-                        class="rounded border border-edge px-2 py-1 text-[0.72rem] text-accent hover:bg-raised"
+                        class="rounded border border-edge px-2 py-1 text-[length:calc(0.72rem*var(--settings-scale,1))] text-accent hover:bg-raised"
                         onClick={() => openExternal(websiteUrl)}
                     >
                         driftagent.dev

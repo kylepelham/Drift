@@ -46,7 +46,7 @@ export function ComposerSlashMenu(props: { menu: ReturnType<typeof createSlashMe
                                         {item.description}
                                     </span>
                                     <Show when={!item.engine && item.usage}>
-                                        <span class="ml-auto shrink-0 font-mono text-[0.65rem] text-ink-faint">
+                                        <span class="ml-auto shrink-0 font-mono text-[length:calc(0.65rem*var(--ui-text-scale,1))] text-ink-faint">
                                             {item.usage}
                                         </span>
                                     </Show>

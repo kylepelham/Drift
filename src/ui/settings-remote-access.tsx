@@ -94,7 +94,7 @@ function EnableRow() {
             <SettingsRow title={t("drift.remote.enable")} description={t("drift.remote.enableDescription")}>
                 <div class="flex items-center gap-3">
                     <Show when={starting() || remoteStatusTone(status()) === "error"}>
-                        <span class="text-[0.72rem] text-ink-faint">
+                        <span class="text-[length:calc(0.72rem*var(--settings-scale,1))] text-ink-faint">
                             {remoteStatusTone(status()) === "error"
                                 ? t("drift.remote.statusError")
                                 : t("drift.remote.statusStarting")}
@@ -115,7 +115,7 @@ function EnableRow() {
 function Step(props: { number: number; children: JSX.Element }) {
     return (
         <li class="flex gap-2.5">
-            <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-raised text-[0.68rem] font-semibold text-ink-muted">
+            <span class="flex size-5 shrink-0 items-center justify-center rounded-full bg-raised text-[length:calc(0.68rem*var(--settings-scale,1))] font-semibold text-ink-muted">
                 {props.number}
             </span>
             <div class="min-w-0 flex-1 space-y-1.5 text-xs leading-relaxed text-ink-muted">{props.children}</div>
@@ -254,12 +254,12 @@ function ConnectDevice() {
                     <Step number={1}>
                         <div>{t("drift.remote.connect.open")}</div>
                         <div class="flex flex-wrap items-center gap-2">
-                            <span class="font-mono text-[0.75rem] text-ink select-all">
+                            <span class="font-mono text-[length:calc(0.75rem*var(--settings-scale,1))] text-ink select-all">
                                 {url() ?? t("drift.remote.noLanAddress")}
                             </span>
                             <Show when={url()}>
                                 <button
-                                    class="text-[0.72rem] text-ink-faint underline-offset-2 hover:text-ink hover:underline"
+                                    class="text-[length:calc(0.72rem*var(--settings-scale,1))] text-ink-faint underline-offset-2 hover:text-ink hover:underline"
                                     onClick={() => void copyAddress()}
                                 >
                                     {t(addressCopyLabel(copyError(), copied()))}
@@ -426,7 +426,9 @@ function PasswordSignIn() {
                             </label>
                         )}
                     </For>
-                    <p class="text-[0.72rem] text-ink-faint">{t("drift.remote.password.note")}</p>
+                    <p class="text-[length:calc(0.72rem*var(--settings-scale,1))] text-ink-faint">
+                        {t("drift.remote.password.note")}
+                    </p>
                     <Show when={error()}>
                         <p class="text-xs text-danger" role="alert">
                             {error()}
@@ -453,8 +455,10 @@ function Certificate() {
             <div class="mt-2 space-y-2 leading-relaxed text-ink-faint">
                 <p>{t("drift.remote.certificate.description")}</p>
                 <div>
-                    <div class="text-[0.72rem]">{t("drift.remote.encryption.fingerprint")}</div>
-                    <div class="mt-1 font-mono text-[0.68rem] break-all text-ink-muted select-all">
+                    <div class="text-[length:calc(0.72rem*var(--settings-scale,1))]">
+                        {t("drift.remote.encryption.fingerprint")}
+                    </div>
+                    <div class="mt-1 font-mono text-[length:calc(0.68rem*var(--settings-scale,1))] break-all text-ink-muted select-all">
                         {remoteAccessStatus()?.certificateFingerprint}
                     </div>
                 </div>

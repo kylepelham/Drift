@@ -191,7 +191,9 @@ export function Picker(props: {
                                         {item.label}
                                     </span>
                                     <Show when={item.detail}>
-                                        <span class="block truncate text-[0.68rem] text-ink-faint">{item.detail}</span>
+                                        <span class="block truncate text-[length:calc(0.68rem*var(--ui-text-scale,1))] text-ink-faint">
+                                            {item.detail}
+                                        </span>
                                     </Show>
                                 </span>
                                 <Show when={props.checked && isOn(item)}>

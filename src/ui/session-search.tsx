@@ -141,7 +141,7 @@ export function SessionSearchBar() {
                 </Show>
             </div>
             <Show when={sessionSearchActive()}>
-                <div class="mt-1.5 flex items-center gap-1 rounded-md border border-edge bg-overlay/40 p-0.5 text-[0.7rem]">
+                <div class="mt-1.5 flex items-center gap-1 rounded-md border border-edge bg-overlay/40 p-0.5 text-[length:calc(0.7rem*var(--ui-text-scale,1))]">
                     <For each={["name", "content"] as SessionSearchMode[]}>
                         {(option) => (
                             <button
@@ -191,12 +191,12 @@ export function SessionSearchResults() {
                         <div class="flex items-center gap-1.5">
                             <span class="min-w-0 flex-1 truncate text-sm text-ink">{hit.title}</span>
                             <Show when={hit.archived}>
-                                <span class="shrink-0 rounded-full border border-edge px-1.5 text-[0.6rem] text-ink-faint">
+                                <span class="shrink-0 rounded-full border border-edge px-1.5 text-[length:calc(0.6rem*var(--ui-text-scale,1))] text-ink-faint">
                                     {t("drift.search.archived")}
                                 </span>
                             </Show>
                         </div>
-                        <div class="flex items-center gap-1.5 text-[0.65rem] text-ink-faint">
+                        <div class="flex items-center gap-1.5 text-[length:calc(0.65rem*var(--ui-text-scale,1))] text-ink-faint">
                             <span class="min-w-0 truncate">{hit.workspaceName}</span>
                             <Show when={updatedLabel(hit.updatedAt)}>
                                 <span class="shrink-0">{updatedLabel(hit.updatedAt)}</span>
@@ -204,7 +204,7 @@ export function SessionSearchResults() {
                         </div>
                         <Show when={hit.excerpt}>
                             {(excerpt) => (
-                                <div class="mt-0.5 line-clamp-2 text-[0.68rem] leading-snug text-ink-muted">
+                                <div class="mt-0.5 line-clamp-2 text-[length:calc(0.68rem*var(--ui-text-scale,1))] leading-snug text-ink-muted">
                                     <For each={highlightSegments(excerpt(), results.query)}>
                                         {(segment) => (
                                             <span classList={{ "rounded bg-accent/25 text-ink": segment.match }}>

@@ -586,10 +586,43 @@ textarea {
     background: linear-gradient(to bottom, color-mix(in srgb, black 11%, transparent), transparent 72%);
 }
 
-/* Sidebar text follows Settings' size for it: Tailwind's text steps read these, and the sidebar's own sizes scale too. */
+/* Text sizes per area. Tailwind's text steps read these variables, so an area sets its own and its text follows;
+   one-off sizes in its components multiply by the same scale. Everything outside an area takes the interface's. */
+:root {
+    --text-xs: calc(0.75rem * var(--ui-text-scale, 1));
+    --text-sm: calc(0.875rem * var(--ui-text-scale, 1));
+    --text-base: calc(1rem * var(--ui-text-scale, 1));
+    --text-lg: calc(1.125rem * var(--ui-text-scale, 1));
+    --text-2xl: calc(1.5rem * var(--ui-text-scale, 1));
+    --text-3xl: calc(1.875rem * var(--ui-text-scale, 1));
+}
+
 .app-sidebar {
     --text-xs: calc(0.75rem * var(--sidebar-scale, 1));
     --text-sm: calc(0.875rem * var(--sidebar-scale, 1));
+    --text-base: calc(1rem * var(--sidebar-scale, 1));
+    --text-lg: calc(1.125rem * var(--sidebar-scale, 1));
+    --text-2xl: calc(1.5rem * var(--sidebar-scale, 1));
+    --text-3xl: calc(1.875rem * var(--sidebar-scale, 1));
+}
+
+.settings-scale {
+    --text-xs: calc(0.75rem * var(--settings-scale, 1));
+    --text-sm: calc(0.875rem * var(--settings-scale, 1));
+    --text-base: calc(1rem * var(--settings-scale, 1));
+    --text-lg: calc(1.125rem * var(--settings-scale, 1));
+    --text-2xl: calc(1.5rem * var(--settings-scale, 1));
+    --text-3xl: calc(1.875rem * var(--settings-scale, 1));
+}
+
+/* Icons grow from their centre, so a larger one never moves the button around it. */
+.app-icon {
+    scale: var(--icon-scale, 1);
+}
+
+/* Settings' nav sits a shade apart from its pages: a little of the conversation's background in the panel's. */
+.settings-nav-panel {
+    background: color-mix(in srgb, var(--overlay) 72%, var(--bg));
 }
 
 /* The chosen accent's ring is a shadow around the dot itself, so it stays centred at any display scale. */

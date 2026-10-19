@@ -171,7 +171,9 @@ export function PluginRow(props: { part: ContextPart; end?: boolean }) {
         >
             <IconPlug class="size-3.5 shrink-0 text-ink-faint" />
             <span class="shrink-0 font-medium text-ink-muted">{props.part.plugin}</span>
-            <span class="min-w-0 truncate text-[0.85rem] text-ink-faint">{props.part.text}</span>
+            <span class="min-w-0 truncate text-[length:calc(0.85rem*var(--ui-text-scale,1))] text-ink-faint">
+                {props.part.text}
+            </span>
         </div>
     );
 }

@@ -304,7 +304,10 @@ export function ToolView(props: { part: ToolPart }) {
                 <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
                     <span
                         class="tool-row-subtitle min-w-0 truncate"
-                        classList={{ "font-mono text-xs": info().mono, "text-[0.85rem]": !info().mono }}
+                        classList={{
+                            "font-mono text-xs": info().mono,
+                            "text-[length:calc(0.85rem*var(--ui-text-scale,1))]": !info().mono,
+                        }}
                     >
                         {info().subtitle}
                     </span>

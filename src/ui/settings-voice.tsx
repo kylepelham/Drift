@@ -251,7 +251,7 @@ export function VoiceSection() {
                             }
                         >
                             <span
-                                class="text-[0.75rem]"
+                                class="text-[length:calc(0.75rem*var(--settings-scale,1))]"
                                 classList={{ "text-ok": voiceAccelerated(), "text-ink-faint": !voiceAccelerated() }}
                             >
                                 {voiceAccelerated()
@@ -298,7 +298,7 @@ export function VoiceSection() {
             <Show when={voiceProgress()}>
                 {(value) => (
                     <div class="space-y-1.5 px-1">
-                        <div class="flex items-center justify-between text-[0.72rem] text-ink-faint">
+                        <div class="flex items-center justify-between text-[length:calc(0.72rem*var(--settings-scale,1))] text-ink-faint">
                             <span>{t("drift.voice.model.downloading")}</span>
                             <span class="font-mono">
                                 {formatBytes(value().received)} / {formatBytes(value().total)}
@@ -323,7 +323,7 @@ export function VoiceSection() {
                 <div class="px-1 text-xs text-danger">{voiceModelError() || keys.error()}</div>
             </Show>
             <Show when={dictationEnabled()}>
-                <div class="px-1 text-[0.72rem] leading-relaxed text-ink-faint">
+                <div class="px-1 text-[length:calc(0.72rem*var(--settings-scale,1))] leading-relaxed text-ink-faint">
                     {cloud()
                         ? t("drift.voice.cloud.privacy", { provider: cloud()!.name })
                         : t("drift.voice.dictation.privacy")}

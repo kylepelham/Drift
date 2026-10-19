@@ -1270,9 +1270,16 @@ export const drift = {
     "drift.corners.round": "Arrondis",
     "drift.font.defaultNamed": "Défaut ({{font}})",
     "drift.font.reset": "Réinitialiser",
+    "drift.textSize.title": "Tailles",
     "drift.textSize.interface": "Taille de l'interface",
     "drift.textSize.interface.description":
         "Tout dans Drift en même temps, tel que Ctrl et plus ou moins le modifient.",
+    "drift.textSize.ui": "Texte de l'interface",
+    "drift.textSize.ui.description": "Boutons, étiquettes, menus, lignes d'outils et le reste du texte de la fenêtre.",
+    "drift.textSize.settings": "Texte des paramètres",
+    "drift.textSize.settings.description": "Le texte sur ces pages.",
+    "drift.textSize.icons": "Taille des icônes",
+    "drift.textSize.icons.description": "Icônes sur les boutons et les lignes partout.",
     "drift.textSize.conversation": "Texte des conversations",
     "drift.textSize.conversation.description":
         "Vos messages et les réponses. Le code conserve la taille définie sous Code.",
