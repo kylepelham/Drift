@@ -7,7 +7,13 @@ const CONVERSATION_BREAKPOINTS: usize = 2;
 
 /// Shared by every Anthropic route (key, subscription, gateway base URLs), so all of them cache.
 pub(super) fn body(request: &Request) -> Value {
-    let mut messages: Vec<Value> = request.messages.iter().map(message).collect();
+    // Anthropic refuses empty content and joins the same-role turns either side of a dropped message.
+    let mut messages: Vec<Value> = request
+        .messages
+        .iter()
+        .map(message)
+        .filter(|message| message["content"].as_array().is_some_and(|content| !content.is_empty()))
+        .collect();
     mark_conversation(&mut messages);
     let mut body = json!({
         "model": request.model,

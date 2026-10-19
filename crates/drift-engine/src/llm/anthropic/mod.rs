@@ -411,6 +411,15 @@ mod tests {
                 redacted: None,
             };
             assert_eq!(body(&request)["messages"][1]["content"][0]["type"], "tool_use");
+
+            request.messages[1].blocks.truncate(1);
+            request.messages.truncate(2);
+            let messages = body(&request)["messages"].clone();
+            assert_eq!(
+                messages.as_array().map(Vec::len),
+                Some(1),
+                "a message left with nothing to send is left out: {messages}"
+            );
         }
 
         fn breakpoints(body: &Value) -> usize {
