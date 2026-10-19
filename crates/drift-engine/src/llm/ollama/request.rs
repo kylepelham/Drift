@@ -114,7 +114,7 @@ pub(super) fn message_values(message: &ChatMessage, names: &HashMap<&str, &str>)
                 let name = names.get(call_id.as_str()).copied().unwrap_or_default();
                 messages.push(json!({ "role": "tool", "tool_name": name, "content": content }));
             }
-            Block::Pdf { .. } | Block::Stored { .. } => {}
+            Block::Pdf { .. } | Block::Stored { .. } | Block::Effort(_) => {}
         }
     }
 

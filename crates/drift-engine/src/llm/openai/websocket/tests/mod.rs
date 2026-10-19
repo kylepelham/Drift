@@ -247,6 +247,7 @@ fn request() -> Request {
         temperature: None,
         cache_key: Some("session".into()),
         connection: Some("session".into()),
+        effort_marks: Vec::new(),
         no_tool_calls: false,
         verbosity: None,
         show_thinking: false,

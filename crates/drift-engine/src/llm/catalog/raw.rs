@@ -64,6 +64,9 @@ struct RawModel {
     /// Already derived, as a cached catalog stores it.
     #[serde(default)]
     variants: Option<Vec<Variant>>,
+    /// Already derived, as a cached catalog stores it.
+    #[serde(default)]
+    effort_updates: Option<bool>,
     #[serde(default)]
     experimental: Option<RawExperimental>,
     /// Already derived, as a cached catalog stores it.
@@ -175,6 +178,10 @@ fn model_from_raw(model: RawModel, provider_id: &str) -> Model {
         None => Vec::new(),
     };
 
+    let effort_updates = model
+        .effort_updates
+        .unwrap_or_else(|| super::effort_updates_for(provider_id, &model.id));
+
     Model {
         id: model.id,
         name: model.name,
@@ -189,6 +196,7 @@ fn model_from_raw(model: RawModel, provider_id: &str) -> Model {
         profile,
         prompt,
         variants,
+        effort_updates,
         mode: model.mode,
     }
 }

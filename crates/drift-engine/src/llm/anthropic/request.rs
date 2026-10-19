@@ -9,6 +9,11 @@ const CONVERSATION_BREAKPOINTS: usize = 2;
 pub(super) fn body(request: &Request) -> Value {
     let mut messages: Vec<Value> = request.messages.iter().map(message).collect();
     mark_conversation(&mut messages);
+    // Accepted at any position; an empty system message carries only the turn's effort.
+    for mark in request.effort_marks.iter().rev() {
+        let update = json!({ "role": "system", "content": [], "output_config": { "effort": mark.effort } });
+        messages.insert((mark.after + 1).min(messages.len()), update);
+    }
     let mut body = json!({
         "model": request.model,
         "max_tokens": request.max_tokens,
@@ -157,5 +162,7 @@ pub(super) fn block(block: &Block) -> Value {
             json!({ "type": "document", "source": source })
         }
         Block::Stored { .. } => json!({ "type": "text", "text": "[file not loaded]" }),
+        // Lifted into `effort_marks` before any adapter runs.
+        Block::Effort(effort) => json!({ "type": "text", "text": format!("[reasoning effort: {effort}]") }),
     }
 }

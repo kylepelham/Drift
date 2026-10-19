@@ -261,6 +261,7 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         prompt: Default::default(),
         variants: Vec::new(),
         mode: None,
+        effort_updates: false,
     })
 }
 

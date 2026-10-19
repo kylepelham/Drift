@@ -154,3 +154,22 @@ fn the_bundled_snapshot_carries_each_models_reasoning_levels() {
     assert_eq!(names("anthropic", "claude-sonnet-4-5"), ["high", "max"]);
     assert!(names("google", "gemini-3.8-flash").contains(&"high".to_string()));
 }
+
+#[test]
+fn per_message_effort_follows_opencode_v2s_model_rule() {
+    use crate::llm::catalog::effort_updates_for;
+    for (provider, id, takes) in [
+        ("anthropic", "claude-opus-5", true),
+        ("anthropic", "claude-sonnet-5-1", true),
+        ("anthropic", "claude-haiku-5-5", true),
+        ("anthropic", "claude-sonnet-5", false),
+        ("anthropic", "claude-opus-4-8", false),
+        ("anthropic", "claude-sonnet-4-5-20250929", false),
+        ("amazon-bedrock", "claude-opus-5", false),
+        ("openai", "gpt-6-sol", true),
+        ("openai", "gpt-5.5", false),
+        ("openrouter", "gpt-6-sol", false),
+    ] {
+        assert_eq!(effort_updates_for(provider, id), takes, "{provider} {id}");
+    }
+}

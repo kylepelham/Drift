@@ -279,6 +279,12 @@ pub enum Part {
         generation: String,
         changes: Vec<InstructionChange>,
     },
+    /// The reasoning level the user switched to, sent as a per-message effort on models that take one
+    /// (`Model::effort_updates`), so the request's top-level effort and its cache stay as they were.
+    EffortUpdate {
+        generation: String,
+        effort: String,
+    },
     /// A stored part this build cannot read (imported, or written by a newer Drift), kept exactly as stored.
     Unknown {
         raw: String,

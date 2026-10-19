@@ -175,7 +175,7 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
             Block::Pdf { base64 } => {
                 parts.push(json!({ "inlineData": { "mimeType": "application/pdf", "data": base64 } }));
             }
-            Block::Stored { .. } => {}
+            Block::Stored { .. } | Block::Effort(_) => {}
             Block::ToolUse { id, name, input } => {
                 names.insert(id.clone(), name.clone());
                 parts.push(json!({ "functionCall": { "id": id, "name": name, "args": input } }));

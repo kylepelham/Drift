@@ -142,7 +142,7 @@ pub(super) fn message(message: &ChatMessage) -> Vec<Value> {
                 let file_data = format!("data:application/pdf;base64,{base64}");
                 content.push(json!({ "type": "file", "file": { "filename": "document.pdf", "file_data": file_data } }));
             }
-            Block::Stored { .. } => {}
+            Block::Stored { .. } | Block::Effort(_) => {}
         }
     }
 

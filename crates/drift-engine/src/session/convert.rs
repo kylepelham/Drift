@@ -61,6 +61,7 @@ pub(crate) fn append<'a>(
                 // An update saved between steps follows the results it came after.
                 results.extend(message.parts.iter().filter_map(|row| match &row.part {
                     Part::InstructionUpdate { changes, .. } => Some(Block::Text(instruction_text(changes))),
+                    Part::EffortUpdate { effort, .. } => Some(Block::Effort(effort.clone())),
                     _ => None,
                 }));
                 push(out, LlmRole::Assistant, calls);
@@ -180,6 +181,7 @@ fn user_block(part: &Part) -> Option<Block> {
         Part::Clarification { request_id, items } => Some(Block::Text(clarification_text(request_id, items))),
         Part::ProcessExit { .. } => Some(Block::Text(super::processes::exit_text(part))),
         Part::InstructionUpdate { changes, .. } => Some(Block::Text(instruction_text(changes))),
+        Part::EffortUpdate { effort, .. } => Some(Block::Effort(effort.clone())),
         _ => None,
     }
 }

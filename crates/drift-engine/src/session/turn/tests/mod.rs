@@ -19,6 +19,7 @@ mod check_history;
 mod check_reports;
 mod conversation;
 mod credentials;
+mod effort_marks;
 mod file_history;
 mod grants;
 mod images;

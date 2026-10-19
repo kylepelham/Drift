@@ -55,7 +55,7 @@ impl Anthropic {
             .header("anthropic-version", API_VERSION)
             .header("accept", "text/event-stream");
 
-        let (http, betas) = match credential {
+        let (http, mut betas) = match credential {
             Credential::ApiKey { key } => (
                 http.header("x-api-key", key),
                 if interleaves(request) {
@@ -73,6 +73,9 @@ impl Anthropic {
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
+        if !request.effort_marks.is_empty() {
+            betas.push(EFFORT_MARKS);
+        }
 
         stream_from(
             super::mode_headers(http, request, betas).json(&body),
@@ -82,6 +85,9 @@ impl Anthropic {
         .await
     }
 }
+
+/// Lets a system message in the conversation carry the turn's effort (`Request::effort_marks`).
+pub(super) const EFFORT_MARKS: &str = "mid-conversation-output-config-2026-07-01";
 
 /// Lets a model with a thinking budget think again between tool calls, not only before the first.
 pub(super) const INTERLEAVED_THINKING: &str = "interleaved-thinking-2025-05-14";
@@ -361,6 +367,7 @@ mod tests {
                 temperature: Some(0.5),
                 cache_key: None,
                 connection: None,
+                effort_marks: Vec::new(),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,
@@ -369,6 +376,24 @@ mod tests {
                 mode: None,
                 context_window: None,
             }
+        }
+
+        #[test]
+        fn an_effort_mark_is_a_system_message_with_only_its_output_config() {
+            let mut marked = request();
+            marked.effort_marks = vec![crate::llm::EffortMark {
+                after: 0,
+                effort: "low".into(),
+            }];
+            let built = body(&marked);
+            assert_eq!(
+                built["messages"][1],
+                json!({ "role": "system", "content": [], "output_config": { "effort": "low" } })
+            );
+            assert_eq!(
+                built["messages"].as_array().unwrap().len(),
+                request().messages.len() + 1
+            );
         }
 
         #[test]

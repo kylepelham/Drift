@@ -94,6 +94,19 @@ impl Store {
         })
     }
 
+    /// Adds `key` to the session's current baseline, as heard from the start.
+    pub fn add_to_instruction_baseline(&self, session_id: &str, key: &str, text: &str) -> rusqlite::Result<()> {
+        transaction(&self.lock(), |conn| {
+            let hash = put_value(conn, text)?;
+            conn.prepare_cached(
+                "INSERT OR REPLACE INTO instruction(session_id, key, position, baseline, current, generation)
+                 SELECT ?1, ?2, COALESCE(MAX(position), -1) + 1, ?3, ?3, generation FROM instruction WHERE session_id = ?1",
+            )?
+            .execute(params![session_id, key, hash])?;
+            Ok(())
+        })
+    }
+
     /// The text a hash names, as `put_value` kept it.
     pub fn instruction_text(&self, hash: &str) -> rusqlite::Result<Option<String>> {
         Ok(self

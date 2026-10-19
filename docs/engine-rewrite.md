@@ -1974,6 +1974,19 @@ Settled after the first external review of M1; each has a regression test.
   first prompt and a branch's seed carry the parent's or source's variant, and switching a
   waiting retry to another model may name one (`POST /sessions/{id}/retry {model, variant}`),
   which the session then keeps.
+- A level switch keeps the prompt cache on models that take a per-message effort
+  (`Model::effort_updates`, derived when the catalog loads, after opencode v2: Claude Opus 5 and
+  every Claude 5.1 or later on Anthropic's own route, GPT-6 or later on OpenAI). There the
+  request's top-level effort stays at the level the session's instruction baseline began with
+  (kept beside the baseline as its `effort` row), and each switch since is an `effort_update`
+  part saved on the prompt that made it, stamped with the baseline's generation and replayed
+  where it was (`session::turn::effort`). On the wire it is an empty `role: "system"` message
+  carrying `output_config.effort`, with the `mid-conversation-output-config-2026-07-01` beta, or
+  a Responses `configuration_update` input item (both confirmed in the providers' docs on
+  2026-10-19). Any other model, a budget variant or no level gets the current level at the top
+  as before and no marks; an undo past a mark takes it away with its prompt, and a compaction or
+  committed undo starts a new baseline at the current level. Bedrock and Vertex Claude are not
+  included until their routes are confirmed to accept the beta.
 - Each wire sends a variant its own way:
   - Anthropic, Bedrock and Vertex Claude: a budget is `thinking: {type: "enabled", budget_tokens}`;
     an effort is `thinking: {type: "adaptive", display: "summarized"}` plus `output_config.effort`

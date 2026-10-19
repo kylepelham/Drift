@@ -268,6 +268,7 @@ mod tests {
             let request = Request {
                 cache_key: Some("ses_1".into()),
                 connection: Some("ses_1".into()),
+                effort_marks: Vec::new(),
                 ..request()
             };
 
@@ -395,6 +396,7 @@ mod tests {
                 temperature: None,
                 cache_key: Some("ses_1".into()),
                 connection: Some("ses_1".into()),
+                effort_marks: Vec::new(),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,
@@ -403,6 +405,30 @@ mod tests {
                 mode: None,
                 context_window: None,
             }
+        }
+
+        #[test]
+        fn an_effort_mark_is_a_configuration_update_after_its_message() {
+            let mut marked = request();
+            marked.effort_marks = vec![crate::llm::EffortMark {
+                after: 0,
+                effort: "low".into(),
+            }];
+            let built = body(&marked, false);
+            let input = built["input"].as_array().unwrap();
+            let at = input
+                .iter()
+                .position(|item| item["type"] == "configuration_update")
+                .unwrap();
+            assert_eq!(
+                input[at],
+                json!({ "type": "configuration_update", "reasoning": { "effort": "low" } })
+            );
+            assert_eq!(
+                at,
+                super::request::items(&marked.messages[0]).len(),
+                "right after the first message's items"
+            );
         }
 
         #[test]

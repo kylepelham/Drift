@@ -1833,6 +1833,8 @@ export interface components {
         Model: {
             attachment?: boolean;
             cost?: components["schemas"]["Cost"];
+            /** @description Takes a reasoning effort change inside the conversation, so a level switch keeps the prompt cache. */
+            effort_updates?: boolean;
             family?: string;
             id: string;
             limit?: components["schemas"]["Limit"];
@@ -2023,6 +2025,11 @@ export interface components {
             generation: string;
             /** @enum {string} */
             type: "instruction_update";
+        } | {
+            effort: string;
+            generation: string;
+            /** @enum {string} */
+            type: "effort_update";
         } | {
             raw: string;
             /** @enum {string} */

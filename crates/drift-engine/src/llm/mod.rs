@@ -134,6 +134,9 @@ pub enum Block {
         mime: String,
         hash: String,
     },
+    /// A reasoning effort change at this point of the conversation; request building lifts it into
+    /// `Request::effort_marks`, so no adapter ever sees one.
+    Effort(String),
 }
 
 impl Block {
@@ -149,6 +152,13 @@ impl Block {
 pub struct ChatMessage {
     pub role: Role,
     pub blocks: Vec<Block>,
+}
+
+/// From after `messages[after]` on, the model reasons at `effort`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffortMark {
+    pub after: usize,
+    pub effort: String,
 }
 
 #[derive(Clone, Debug)]
@@ -167,6 +177,9 @@ pub struct Request {
     /// The session itself, which keys a provider's live connection and its continuation; two
     /// sessions never share one, whatever cache they share.
     pub connection: Option<String>,
+    /// Reasoning effort changes inside the conversation, each in effect after the message it follows,
+    /// so the top-level effort and the cached prefix stay as they were (`Model::effort_updates`).
+    pub effort_marks: Vec<EffortMark>,
     /// Tools stay defined so history with calls is valid, but the model may not call one.
     pub no_tool_calls: bool,
     /// OpenAI `text.verbosity`, from `catalog::verbosity`.

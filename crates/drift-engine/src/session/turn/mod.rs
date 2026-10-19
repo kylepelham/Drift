@@ -39,6 +39,7 @@ mod approval;
 mod cache_watch;
 mod calls;
 mod checks;
+mod effort;
 mod history;
 mod hooks;
 mod images;

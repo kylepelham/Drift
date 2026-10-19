@@ -3,7 +3,14 @@ use crate::llm::{Block, ChatMessage, Request, Role};
 use serde_json::{Value, json};
 
 pub(super) fn body(request: &Request, subscription: bool) -> Value {
-    let input: Vec<Value> = request.messages.iter().flat_map(items).collect();
+    let mut input = Vec::new();
+    for (index, message) in request.messages.iter().enumerate() {
+        input.extend(items(message));
+        // In effect for the responses after it, until another replaces it.
+        for mark in request.effort_marks.iter().filter(|mark| mark.after == index) {
+            input.push(json!({ "type": "configuration_update", "reasoning": { "effort": mark.effort } }));
+        }
+    }
     let mut body = json!({
         "model": request.model,
         "instructions": request.system,
@@ -84,7 +91,7 @@ pub(super) fn items(message: &ChatMessage) -> Vec<Value> {
                 let file_data = format!("data:application/pdf;base64,{base64}");
                 content.push(json!({ "type": "input_file", "filename": "document.pdf", "file_data": file_data }));
             }
-            Block::Reasoning { .. } | Block::Stored { .. } => {}
+            Block::Reasoning { .. } | Block::Stored { .. } | Block::Effort(_) => {}
             Block::ToolUse { id, name, input } => {
                 flush(&mut content, &mut items);
                 let arguments = input.to_string();

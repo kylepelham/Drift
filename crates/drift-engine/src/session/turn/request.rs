@@ -29,6 +29,7 @@ impl Engine {
         let reasoning = plan
             .reasoning()
             .or_else(|| catalog::default_reasoning(provider, &plan.model));
+        let reasoning = self.top_level_effort(plan, reasoning, &mut transcript);
         let (max_tokens, reasoning) = budgets(&plan.model, reasoning);
         let sampling = catalog::sampling(&plan.model);
         let target = convert::OnCatalog {
@@ -37,6 +38,7 @@ impl Engine {
             account: plan.account.as_deref(),
         };
         let mut messages = compaction::request_messages(&transcript, &target, &lead);
+        let effort_marks = super::effort::lift_marks(&mut messages);
         let no_tool_calls = closing.is_some();
         if let Some(text) = closing {
             convert::push(&mut messages, llm::Role::User, vec![llm::Block::Text(text)]);
@@ -56,6 +58,7 @@ impl Engine {
                     .unwrap_or_else(|_| plan.session.id.clone()),
             ),
             connection: Some(plan.session.id.clone()),
+            effort_marks,
             no_tool_calls,
             verbosity: catalog::verbosity(provider, &plan.model),
             show_thinking: catalog::shows_thinking(provider, &plan.model),

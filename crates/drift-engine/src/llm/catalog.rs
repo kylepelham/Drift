@@ -137,6 +137,9 @@ pub struct Model {
     /// Set on an entry that runs another model a different way (`<id>-fast`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<ModelMode>,
+    /// Takes a reasoning effort change inside the conversation, so a level switch keeps the prompt cache.
+    #[serde(default)]
+    pub effort_updates: bool,
 }
 
 /// A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
@@ -472,6 +475,7 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
         prompt: PromptFamily::Default,
         variants: Vec::new(),
         mode: None,
+        effort_updates: false,
     }
 }
 
@@ -604,6 +608,31 @@ fn takes_budget(provider: &str) -> bool {
         provider,
         "anthropic" | "google-vertex-anthropic" | "amazon-bedrock" | "google" | "google-vertex" | "openrouter"
     )
+}
+
+/// Per-message effort, after opencode v2: Claude Opus 5 and every Claude 5.1 or later on Anthropic's own
+/// route, and GPT-6 or later on OpenAI's Responses.
+pub(crate) fn effort_updates_for(provider: &str, id: &str) -> bool {
+    let numbers = |rest: &str| -> Vec<u32> { rest.split(['-', '.']).map_while(|piece| piece.parse().ok()).collect() };
+    match provider {
+        "anthropic" => {
+            let Some(rest) = id.strip_prefix("claude-") else {
+                return false;
+            };
+            let (family, version) = rest.split_once('-').unwrap_or((rest, ""));
+            let version = numbers(version);
+            let (major, minor) = (
+                version.first().copied().unwrap_or(0),
+                version.get(1).copied().unwrap_or(0),
+            );
+            (family == "opus" && major >= 5) || major > 5 || (major == 5 && minor >= 1)
+        }
+        "openai" => id
+            .strip_prefix("gpt-")
+            .and_then(|rest| numbers(rest).first().copied())
+            .is_some_and(|major| major >= 6),
+        _ => false,
+    }
 }
 
 /// OpenAI trains its GPT-5 generation on the apply_patch format; everything else gets search/replace.

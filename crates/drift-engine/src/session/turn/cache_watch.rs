@@ -119,6 +119,7 @@ mod tests {
             temperature: None,
             cache_key: None,
             connection: None,
+            effort_marks: Vec::new(),
             no_tool_calls: false,
             verbosity: None,
             show_thinking: false,

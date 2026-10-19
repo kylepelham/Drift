@@ -14,6 +14,9 @@ use crate::session::prompt::{self, Source};
 use crate::session::types::{InstructionChange, MessageStatus, MessageWithParts, Part, Role};
 use crate::store::{Instruction, InstructionValue};
 
+/// The row beside the prompt's sources that holds the reasoning level the baseline began with.
+pub(super) const EFFORT_KEY: &str = "effort";
+
 fn hash(text: &str) -> String {
     crate::hex_bytes(&sha2::Sha256::digest(text.as_bytes()))
 }
@@ -35,10 +38,21 @@ fn title(key: &str) -> String {
 fn drop_stale(transcript: &mut [MessageWithParts], generation: &str) {
     for message in transcript {
         message.parts.retain(|row| match &row.part {
-            Part::InstructionUpdate { generation: made, .. } => made == generation,
+            Part::InstructionUpdate { generation: made, .. } | Part::EffortUpdate { generation: made, .. } => {
+                made == generation
+            }
             _ => true,
         });
     }
+}
+
+/// The last message the request replays, which carries anything the engine adds before it.
+pub(super) fn carrier(transcript: &mut [MessageWithParts]) -> Option<&mut MessageWithParts> {
+    let replayed = |message: &MessageWithParts| {
+        message.info.role == Role::User || matches!(message.info.status, MessageStatus::Done | MessageStatus::Aborted)
+    };
+
+    transcript.iter_mut().rev().find(|message| replayed(message))
 }
 
 /// What changed since the model last heard each source.
@@ -67,7 +81,8 @@ fn diff<'a>(known: &[Instruction], sources: &'a [Source], keeps: &dyn Fn(&str) -
     let offered: Vec<&str> = sources.iter().map(|source| source.key.as_str()).collect();
     let gone = known
         .iter()
-        .filter(|known| known.current.is_some() && !offered.contains(&known.key.as_str()) && !keeps(&known.key))
+        .filter(|known| known.key != EFFORT_KEY && known.current.is_some())
+        .filter(|known| !offered.contains(&known.key.as_str()) && !keeps(&known.key))
         .map(|known| known.key.clone())
         .collect();
 
@@ -133,11 +148,7 @@ impl Engine {
         diff: &Diff,
         transcript: &mut [MessageWithParts],
     ) -> bool {
-        let replayed = |message: &MessageWithParts| {
-            message.info.role == Role::User
-                || matches!(message.info.status, MessageStatus::Done | MessageStatus::Aborted)
-        };
-        let Some(carrier) = transcript.iter_mut().rev().find(|message| replayed(message)) else {
+        let Some(carrier) = carrier(transcript) else {
             return false;
         };
 
@@ -175,6 +186,7 @@ impl Engine {
     fn frozen(&self, known: &[Instruction]) -> Option<String> {
         let texts: Option<Vec<String>> = known
             .iter()
+            .filter(|known| known.key != EFFORT_KEY)
             .filter_map(|known| known.baseline.as_deref())
             .map(|hash| self.store.instruction_text(hash).ok().flatten())
             .collect();
