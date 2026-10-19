@@ -1622,6 +1622,18 @@ listed there.
   and the tool call view. Read the current spec at agentclientprotocol.com first and v2's
   `packages/cli/src/acp` for what editors exercise. The engine stays the authority; ACP is a
   translation over the in-process API. Tests drive it over a pipe with recorded JSON-RPC.
+  - Built (2.4.0), in `crates/drift-engined/src/acp/`, documented in [acp.md](acp.md). JSON-RPC is
+    hand-written over `serde_json` rather than the `agent-client-protocol` crate (six methods, a
+    fast-moving crate twenty times the size). The engine only gained `drift_engine::start`, the
+    background work `listen` ran, for hosts without HTTP. `--model provider/model` picks new
+    sessions' model, since ACP v1 has no stable model choice. A `cwd` is added as a workspace when
+    Drift lacks one; `session/load` replays history and refuses another directory. Asks from the
+    session and its subagents go to the editor; "always" is offered only when it would widen the
+    grant, and a cancelled answer rejects. The editor's MCP servers, fs and terminal are not used;
+    model questions are declined; no modes, config options, list or fork. A prompt is registered
+    as its request is read, so an immediate cancel is never lost; a hang-up stops its turns.
+    Tests: initialize and new session, a streamed read call and reply, an allowed edit with its
+    diff, a rejected edit, a subagent's ask, cancel, hang-up, and load.
 
 **Voice and media.** Settings > Voice grows from dictation into speech in both directions; each
 cloud option is off until the user picks it and adds a key, and `docs/voice.md` says plainly

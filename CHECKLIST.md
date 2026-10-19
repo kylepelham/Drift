@@ -331,7 +331,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [ ] Worktrees (the M6 item) with `worktree_create`, `worktree_list`, `worktree_remove`, `session_move` and `worktree.setup`
   - [x] Plan agent writes only under `<data>/plans/<workspace id>/`, discusses first, plan paths survive compaction
   - [ ] Prompt delivery `queue` beside the default `steer`: Alt+Enter, edit, discard, send now
-  - [ ] `drift-engined --acp` serves the Agent Client Protocol on stdio
+  - [x] `drift-engined --acp` serves the Agent Client Protocol on stdio
 - Voice and media:
   - [ ] Cloud transcription for dictation (OpenAI, Groq, Deepgram, ElevenLabs Scribe, AssemblyAI) beside local whisper
   - [ ] Read aloud: play button per reply and an auto-read switch, OpenAI and ElevenLabs plus one local voice

@@ -592,6 +592,20 @@ impl Server {
 const RECOVERY_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Error> {
+    start(&engine);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let addr = listener.local_addr()?;
+    let router = api::router(engine);
+    let task = tokio::spawn(async move {
+        let _ = axum::serve(listener, router).await;
+    });
+
+    Ok(Server { addr, task })
+}
+
+/// The engine's background work without the HTTP listener; `listen` runs it, other hosts call it themselves.
+pub fn start(engine: &Arc<Engine>) {
     let _ = engine.runtime.set(tokio::runtime::Handle::current());
     let starting = engine.clone();
     tokio::spawn(engine.clone().watch_local());
@@ -608,13 +622,4 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
         starting.resume_turns().await;
         starting.maintain().await;
     });
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    let addr = listener.local_addr()?;
-    let router = api::router(engine);
-    let task = tokio::spawn(async move {
-        let _ = axum::serve(listener, router).await;
-    });
-
-    Ok(Server { addr, task })
 }
