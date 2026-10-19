@@ -3,6 +3,7 @@ import { reduce } from "../src/engine/events";
 import { expect, test } from "bun:test";
 
 import type { components } from "../src/engine/native/types";
+import type { ToolPart } from "../src/engine/parts";
 import type * as SolidStore from "solid-js/store";
 import type * as Solid from "solid-js";
 
@@ -1147,17 +1148,25 @@ test("a running command's shimmering title keeps to one line however long the co
     );
 });
 
-test("background work is marked by a dotted squiggle under its title, and agents sit in a bordered card", async () => {
+test("a subagent is one line: orbiting dots, its description, then a background mark and its details", async () => {
+    const { delegateLabels } = await import("../src/ui/delegate-row");
+    const task = (input: Record<string, unknown>) => ({ name: "task", input }) as unknown as ToolPart;
+    expect(delegateLabels(task({ description: "Generalise: J1-J5", subagent_type: "general" }))).toEqual({
+        description: "Generalise: J1-J5",
+        agent: "general",
+    });
+    expect(delegateLabels(task({ description: " " }))).toEqual({ description: undefined, agent: undefined });
+    expect(delegateLabels({ name: "spawn_thread", input: {} } as unknown as ToolPart)).toEqual({});
+
     const view = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
     const sidebar = await Bun.file(new URL("../src/ui/workspaces.tsx", import.meta.url)).text();
-    for (const source of [view, sidebar]) {
-        expect(source).not.toContain("BackgroundTag");
-        expect(source).toContain('"background-mark": ');
-    }
-    expect(view).toContainCode('<span class="delegate-avatar" data-status={delegatedStatus() ?? "running"}>');
+    expect(view).toContainCode('<DelegateOrbit status={delegatedStatus() ?? "running"} />');
+    expect(view).toContainCode("background={!!background()}");
+    expect(sidebar).toContainCode('<IconLayers class="size-3" />');
+    for (const source of [view, sidebar]) expect(source).not.toContain("background-mark");
 
     const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
-    expect(css).toMatch(/\.background-mark::after \{[^}]*mask: url\("data:image\/svg\+xml,[^"]*stroke-dasharray/s);
-    expect(css).toMatch(/\.delegate-card \{[^}]*border: 1px solid/s);
-    expect(css).not.toContain("border-inline-start-style: dashed");
+    expect(css).toMatch(/\.delegate-orbit\[data-status="running"\] \{[^}]*animation: thinking-spin/s);
+    expect(css).not.toContain("background-mark");
+    expect(css).not.toContain("delegate-card");
 });

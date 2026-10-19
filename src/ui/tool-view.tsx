@@ -2,14 +2,15 @@ import { backgroundRun, delegatedChildId, delegatedTaskClickPolicy, delegatedTas
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
 import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
+import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
 import { exploredDetail, exploredSummary } from "./tool-run";
 import { toolMetadata as toolMeta } from "../engine/parts";
-import { IconArrowUpRight, IconBranch } from "./icons";
 import { selectSession } from "../state/selection";
 import { toolDisplay } from "./tool-presentation";
 import { ToolDuration } from "./tool-duration";
 import { taskTiming } from "../engine/store";
 import { TextShimmer } from "./text-shimmer";
+import { IconArrowUpRight } from "./icons";
 import { parseDiff } from "./diff-panel";
 import { ToolBody } from "./tool-body";
 import { useEngine } from "../engine";
@@ -131,8 +132,12 @@ export function ToolView(props: { part: ToolPart }) {
         return state().status === "running" || state().status === "pending";
     };
 
-    const title = () =>
-        info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.name);
+    // A task leads with what it is doing; its agent moves to the details after it.
+    const labels = () => delegateLabels(props.part);
+    const title = () => {
+        if (info().called) return `${t("drift.tool.called")} ${info().called}`;
+        return labels().description ?? info().title ?? props.part.name;
+    };
 
     const progress = () => {
         if (props.part.name !== "task") return null;
@@ -229,7 +234,6 @@ export function ToolView(props: { part: ToolPart }) {
         <div class="tool-row flex min-w-0 max-w-full flex-col gap-1 text-sm">
             <button
                 class="tool-row-header flex min-h-7 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1 text-left transition-colors hover:bg-raised/35"
-                classList={{ "delegate-card": delegated() }}
                 aria-expanded={inlineExpanded()}
                 onClick={activate}
             >
@@ -248,9 +252,7 @@ export function ToolView(props: { part: ToolPart }) {
                     />
                 </Show>
                 <Show when={delegated()}>
-                    <span class="delegate-avatar" data-status={delegatedStatus() ?? "running"}>
-                        <IconBranch class="delegate-tool-icon size-3" />
-                    </span>
+                    <DelegateOrbit status={delegatedStatus() ?? "running"} />
                 </Show>
                 <Show
                     when={active()}
@@ -264,11 +266,9 @@ export function ToolView(props: { part: ToolPart }) {
                                         "shrink-0": props.part.name !== "bash" && !delegated(),
                                         "min-w-0 truncate": props.part.name === "bash" || delegated(),
                                         "font-mono text-xs": !!info().titleMono,
-                                        "background-mark": !!background(),
                                     }}
-                                    title={background() ? t("drift.task.background") : undefined}
                                 >
-                                    {info().title}
+                                    {title()}
                                 </span>
                             }
                         >
@@ -283,7 +283,16 @@ export function ToolView(props: { part: ToolPart }) {
                 >
                     <TextShimmer
                         text={title()}
-                        class={`tool-row-title ${props.part.name === "bash" || delegated() ? "min-w-0 truncate" : "shrink-0"}${info().titleMono ? " font-mono text-xs" : ""}${background() ? " background-mark" : ""}`}
+                        class={`tool-row-title ${props.part.name === "bash" || delegated() ? "min-w-0 truncate" : "shrink-0"}${info().titleMono ? " font-mono text-xs" : ""}`}
+                    />
+                </Show>
+                <Show when={delegated()}>
+                    <DelegateDetails
+                        agent={labels().agent}
+                        background={!!background()}
+                        queued={delegatedStatus() === "queued"}
+                        progress={progress()}
+                        timing={timing()}
                     />
                 </Show>
                 <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
@@ -302,9 +311,7 @@ export function ToolView(props: { part: ToolPart }) {
                         </span>
                     )}
                 </Show>
-                <Show when={progress()}>
-                    {(text) => <span class="ms-auto shrink-0 text-xs text-ink-faint tabular-nums">{text()}</span>}
-                </Show>
+
                 <Show when={timeout()}>
                     {(status) => (
                         <span
@@ -318,12 +325,9 @@ export function ToolView(props: { part: ToolPart }) {
                 <Show when={awaitingPermission(engine.state, props.part)}>
                     <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
                 </Show>
-                <Show when={delegatedStatus() === "queued"}>
-                    <span class="shrink-0 text-xs text-ink-faint" title={t("drift.task.queued.description")}>
-                        {t("drift.task.queued")}
-                    </span>
+                <Show when={!delegated()}>
+                    <ToolDuration state={timing()} maxMs={timeout()?.timedOut ? timeout()?.timeoutMs : undefined} />
                 </Show>
-                <ToolDuration state={timing()} maxMs={timeout()?.timedOut ? timeout()?.timeoutMs : undefined} />
                 <Show when={spawnedId()}>
                     {(childId) => (
                         <span
@@ -331,7 +335,7 @@ export function ToolView(props: { part: ToolPart }) {
                             title={t(
                                 props.part.name === "task" ? "drift.thread.openSubagent" : "drift.thread.openSpawned",
                             )}
-                            class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+                            class="ms-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
                             onClick={(event) => openSpawnedThread(event, childId(), selectSession)}
                         >
                             <IconArrowUpRight class="size-3.5" />

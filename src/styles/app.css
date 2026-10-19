@@ -1460,83 +1460,41 @@ html[dir="rtl"] .context-meter-popover {
     left: 0;
 }
 
-.delegate-card {
-    min-height: 2.1rem;
-    border: 1px solid color-mix(in srgb, var(--edge) 85%, transparent);
-    border-radius: 0.65rem;
-    background: color-mix(in srgb, var(--raised) 28%, transparent);
-    padding: 0.3rem 0.6rem 0.3rem 0.35rem;
-    gap: 0.55rem;
-}
-
-.delegate-card:hover {
-    background: color-mix(in srgb, var(--raised) 55%, transparent);
-}
-
-.delegate-avatar {
+/* A subagent's row: three dots orbit while it works and rest once it stops. */
+.delegate-orbit {
     position: relative;
-    display: grid;
     flex: none;
-    place-items: center;
-    width: 1.4rem;
-    height: 1.4rem;
+    width: 1.1rem;
+    height: 1.1rem;
+}
+
+.delegate-orbit i {
+    position: absolute;
+    top: calc(50% - 0.14rem);
+    left: calc(50% - 0.14rem);
+    width: 0.28rem;
+    height: 0.28rem;
     border-radius: 9999px;
-    background: color-mix(in srgb, var(--accent) 14%, transparent);
-    color: var(--accent);
+    background: var(--accent);
+    opacity: calc(1 - var(--i) * 0.28);
+    transform: rotate(calc(var(--i) * 120deg)) translateY(-0.32rem);
 }
 
-.delegate-avatar::after {
-    position: absolute;
-    inset: -2px;
-    border: 1.5px solid transparent;
-    border-radius: inherit;
-    content: "";
+.delegate-orbit[data-status="running"] {
+    animation: thinking-spin 1.6s linear infinite;
 }
 
-.delegate-avatar[data-status="running"]::after {
-    border-top-color: var(--accent);
-    border-right-color: color-mix(in srgb, var(--accent) 35%, transparent);
-    animation: thinking-spin 1.1s linear infinite;
+.delegate-orbit[data-status="queued"] i,
+.delegate-orbit[data-status="completed"] i {
+    background: var(--ink-faint);
 }
 
-.delegate-avatar[data-status="queued"]::after {
-    border: 1px dashed color-mix(in srgb, var(--ink-faint) 80%, transparent);
-}
-
-.delegate-avatar[data-status="completed"] {
-    background: color-mix(in srgb, var(--raised) 80%, transparent);
-    color: var(--ink-muted);
-}
-
-.delegate-avatar[data-status="error"] {
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
-    color: var(--danger);
-}
-
-/* Work that runs in the background: a dotted squiggle under its title, in place of a tag. */
-.background-mark {
-    position: relative;
-    padding-bottom: 4px;
-}
-
-.background-mark::after {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    height: 4px;
-    background: color-mix(in srgb, var(--accent) 75%, transparent);
-    content: "";
-    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='4' viewBox='0 0 8 4'%3E%3Cpath d='M0 2 Q2 0.2 4 2 T8 2' fill='none' stroke='black' stroke-width='1.1' stroke-linecap='round' stroke-dasharray='0.1 1.9'/%3E%3C/svg%3E")
-        repeat-x left center / 8px 4px;
+.delegate-orbit[data-status="error"] i {
+    background: var(--danger);
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .delegate-avatar[data-status="running"]::after {
+    .delegate-orbit[data-status="running"] {
         animation: none;
     }
-}
-
-html[dir="rtl"] .delegate-tool-icon {
-    transform: scaleX(-1);
 }

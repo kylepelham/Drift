@@ -911,11 +911,11 @@ What is built (`session::tasks`, `store::tasks`, `tool::task`):
   scroll independently within viewport-relative height limits, so a long history never pushes
   active workers or the composer off screen. Switching conversations closes both disclosures.
   Foreground workers are not listed there; their row in the transcript already waits for them.
-  In the transcript a subagent is a bordered card whose avatar shows its state: a spinning ring
-  while it runs, a dashed ring while queued, muted once done, red on failure. A background worker
-  (and a background command) is marked by a dotted squiggle under its title, in the transcript
-  and in the sidebar, where its arrow is also accent; hovering the title says "background". Its
-  row times the worker (launch to end, from the record), not the launch call's instant.
+  In the transcript a subagent is one line: three dots that orbit while it works (grey once queued
+  or done, red on failure), its description, shimmering while it runs, then its agent, progress
+  and time in faint text. A background worker has a small layers icon before those details, and
+  in the sidebar the same icon replaces its arrow; hovering it says "background". Its row times
+  the worker (launch to end, from the record), not the launch call's instant.
 
 Initial async mode is selected at launch. Foreground-to-background promotion and
 adding to a running background task (opencode's `waitForPromotion` and
