@@ -5,8 +5,8 @@ import { t } from "./i18n";
 
 /** Theme names a snapshot may carry: the bases, and the names earlier versions saved. */
 const themeNameList = [
-    "drift-default",
     "drift-charcoal",
+    "drift-claude",
     "drift-black",
     "drift-dim",
     "drift-mocha",
@@ -17,6 +17,7 @@ const themeNameList = [
     "drift-paper",
     "drift-custom",
     "drift-dark",
+    "drift-default",
     "drift-graphite",
     "drift-slate",
     "drift-aubergine",
@@ -52,7 +53,7 @@ type MirrorApplier = {
 type MirrorPatch = { theme?: MirrorTheme; selection?: MirrorSelection; workspaceOrder?: string[] };
 
 const defaults: MirrorTheme = {
-    name: "drift-default",
+    name: "drift-charcoal",
     accent: "",
     corners: "",
     custom: { background: "#161616", surface: "#1e1e1e", text: "#ececec", accent: "#a78bfa" },

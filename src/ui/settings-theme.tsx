@@ -18,8 +18,8 @@ import type { CustomTheme, ThemeName } from "../state/theme";
 
 /** Each base's name, for its card and for settings search. */
 export const themeLabels: Record<ThemeName, string> = {
-    "drift-default": "drift.theme.default",
     "drift-charcoal": "drift.theme.charcoal",
+    "drift-claude": "drift.theme.claude",
     "drift-black": "drift.theme.black",
     "drift-dim": "drift.theme.dim",
     "drift-mocha": "drift.theme.mocha",
@@ -101,15 +101,18 @@ export function AccentPicker() {
             <span class="mx-1 h-5 w-px bg-edge" aria-hidden="true" />
             <For each={accents}>{(name) => <AccentSwatch id={name} label={t(`drift.accent.${name}`)} />}</For>
             <label
-                class="relative flex size-7 cursor-pointer items-center justify-center rounded-full border-2 transition-transform hover:scale-110"
-                classList={{ "border-ink": !!own(), "border-transparent": !own() }}
+                class="relative flex size-7 cursor-pointer items-center justify-center rounded-full transition-transform hover:scale-110"
                 title={t("drift.accent.custom")}
-                style={{
-                    background:
-                        own() ||
-                        "conic-gradient(#f2797c, #f3a25f, #e8c170, #7ccf8e, #5ec7c2, #7aa2f7, #a78bfa, #ec8fc6, #f2797c)",
-                }}
             >
+                <span
+                    class="accent-dot size-5 rounded-full"
+                    classList={{ "accent-dot-chosen": !!own() }}
+                    style={{
+                        background:
+                            own() ||
+                            "conic-gradient(#f2797c, #f3a25f, #e8c170, #7ccf8e, #5ec7c2, #7aa2f7, #a78bfa, #ec8fc6, #f2797c)",
+                    }}
+                />
                 <input
                     type="color"
                     class="absolute inset-0 cursor-pointer opacity-0"
@@ -154,14 +157,14 @@ function AccentSwatch(props: { id: string; label: string }) {
             aria-checked={active()}
             aria-label={props.label}
             title={props.label}
-            class="flex size-7 items-center justify-center rounded-full border-2 transition-transform hover:scale-110"
-            classList={{ "border-ink": active(), "border-transparent": !active() }}
+            class="flex size-7 items-center justify-center rounded-full transition-transform hover:scale-110"
             onClick={() => setAccent(props.id)}
         >
             <span
                 data-theme-preview={theme()}
                 data-accent={look()["data-accent"]}
-                class="size-5 rounded-full bg-accent"
+                class="accent-dot size-5 rounded-full bg-accent"
+                classList={{ "accent-dot-chosen": active() }}
             />
         </button>
     );

@@ -1200,7 +1200,6 @@ export const drift = {
     "drift.sound.group.mechanical": "Mekanisk",
     "drift.sound.group.success": "Succes",
     "drift.status.waitingForPermission": "Venter på tilladelse",
-    "drift.theme.default": "Drift",
     "drift.theme.charcoal": "Drift Trækul",
     "drift.theme.black": "Drift Sort",
     "drift.theme.dim": "Drift Dæmpet",

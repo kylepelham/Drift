@@ -1201,7 +1201,6 @@ export const drift = {
     "drift.sound.group.mechanical": "Механічні",
     "drift.sound.group.success": "Успіх",
     "drift.status.waitingForPermission": "Очікування дозволу",
-    "drift.theme.default": "Drift",
     "drift.theme.charcoal": "Drift Вугілля",
     "drift.theme.black": "Drift Чорна",
     "drift.theme.dim": "Drift Тьмяна",

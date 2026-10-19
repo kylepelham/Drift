@@ -1188,7 +1188,6 @@ export const drift = {
     "drift.sound.group.mechanical": "기계음",
     "drift.sound.group.success": "성공",
     "drift.status.waitingForPermission": "권한 대기 중",
-    "drift.theme.default": "Drift",
     "drift.theme.charcoal": "Drift 차콜",
     "drift.theme.black": "Drift 블랙",
     "drift.theme.dim": "Drift 딤",

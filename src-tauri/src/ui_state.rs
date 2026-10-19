@@ -69,9 +69,9 @@ pub(crate) struct UiTheme {
 }
 
 /// Every base a theme names, and the names earlier versions saved, which the window maps onto them.
-const THEME_NAMES: [&str; 15] = [
-    "drift-default",
+const THEME_NAMES: [&str; 16] = [
     "drift-charcoal",
+    "drift-claude",
     "drift-black",
     "drift-dim",
     "drift-mocha",
@@ -82,6 +82,7 @@ const THEME_NAMES: [&str; 15] = [
     "drift-paper",
     "drift-custom",
     "drift-dark",
+    "drift-default",
     "drift-graphite",
     "drift-slate",
     "drift-aubergine",

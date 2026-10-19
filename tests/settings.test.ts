@@ -235,8 +235,8 @@ test("General settings expose preview modes and custom-only per-type toggles", a
 
 test("appearance offers bases with a custom one, light or dark by its background", async () => {
     const { setCustomTheme, setTheme, lightTheme, themes } = await import("../src/state/theme");
-    expect(themes[0]).toBe("drift-default");
-    expect(themes).toContain("drift-charcoal");
+    expect(themes[0]).toBe("drift-charcoal");
+    expect(themes).toContain("drift-claude");
     expect(themes).toContain("drift-mocha");
     expect(themes.at(-1)).toBe("drift-custom");
     setTheme("drift-paper");
@@ -594,11 +594,12 @@ test("tool grouping is one multi-select list and Code settings preview a diff wi
 test("a theme saved before bases and accents became its base and the accent it showed", async () => {
     const { migratedTheme } = await import("../src/state/theme");
 
-    expect(migratedTheme("drift-dark", "")).toEqual(["drift-default", ""]);
+    expect(migratedTheme("drift-dark", "")).toEqual(["drift-charcoal", ""]);
+    expect(migratedTheme("drift-default", "")).toEqual(["drift-charcoal", ""]);
     expect(migratedTheme("drift-graphite", "")).toEqual(["drift-charcoal", "silver"]);
     expect(migratedTheme("drift-slate", "")).toEqual(["drift-midnight", "teal"]);
     expect(migratedTheme("drift-aubergine", "")).toEqual(["drift-plum", ""]);
     expect(migratedTheme("drift-slate", "clay"), "an accent already chosen stays").toEqual(["drift-midnight", "clay"]);
     expect(migratedTheme("drift-paper", "green")).toEqual(["drift-paper", "green"]);
-    expect(migratedTheme("someone-elses-theme", "")).toEqual(["drift-default", ""]);
+    expect(migratedTheme("someone-elses-theme", "")).toEqual(["drift-charcoal", ""]);
 });

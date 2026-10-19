@@ -1151,7 +1151,6 @@ export const drift = {
     "drift.sound.group.mechanical": "機械",
     "drift.sound.group.success": "成功",
     "drift.status.waitingForPermission": "等待權限",
-    "drift.theme.default": "Drift",
     "drift.theme.charcoal": "炭黑",
     "drift.theme.black": "純黑",
     "drift.theme.dim": "微暗",

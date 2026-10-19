@@ -4,8 +4,8 @@ import { persisted } from "./persist";
 
 /** The bases a theme is built on: surfaces and text; the accent is chosen apart. */
 export const themes = [
-    "drift-default",
     "drift-charcoal",
+    "drift-claude",
     "drift-black",
     "drift-dim",
     "drift-mocha",
@@ -27,7 +27,8 @@ export type CustomTheme = { background: string; surface: string; text: string; a
 
 /** Names saved before 2.4.0 and the base and accent each became. */
 const renamed: Record<string, [ThemeName, string]> = {
-    "drift-dark": ["drift-default", ""],
+    "drift-dark": ["drift-charcoal", ""],
+    "drift-default": ["drift-charcoal", ""],
     "drift-graphite": ["drift-charcoal", "silver"],
     "drift-slate": ["drift-midnight", "teal"],
     "drift-aubergine": ["drift-plum", ""],
@@ -40,11 +41,11 @@ export function migratedTheme(name: string, accent: string): [ThemeName, string]
     const known = themes.find((base) => base === name);
     if (known) return [known, accent];
 
-    const [base, implied] = renamed[name] ?? ["drift-default", ""];
+    const [base, implied] = renamed[name] ?? ["drift-charcoal", ""];
     return [base, accent || implied];
 }
 
-const [theme, setThemeValue] = persisted<ThemeName>("drift.theme", "drift-default");
+const [theme, setThemeValue] = persisted<ThemeName>("drift.theme", "drift-charcoal");
 const [accent, setAccentValue] = persisted<string>("drift.theme.accent", "");
 const [corners, setCornersValue] = persisted<CornerStyle>("drift.theme.corners", "");
 const [uiFont, setUiFontValue] = persisted("drift.theme.uiFont", "");

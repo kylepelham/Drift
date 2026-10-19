@@ -19,4 +19,5 @@ export const invariantKeys: ReadonlySet<string> = new Set([
     "drift.mcp.form.url",
     "drift.voice.dictation.keyterms.placeholder",
     "drift.voice.acceleration.on",
+    "drift.theme.claude",
 ]);
