@@ -14,6 +14,7 @@ pub mod drive;
 mod early;
 mod generation;
 mod oneshot;
+pub(crate) mod plans;
 mod processes;
 pub mod prompt;
 pub mod references;

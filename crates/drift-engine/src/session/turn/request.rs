@@ -19,7 +19,8 @@ impl Engine {
         closing: Option<String>,
     ) -> (Request, Option<String>) {
         branch::frame_spawned(&plan.session, &mut transcript);
-        let lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
+        let mut lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
+        lead.extend(self.plans_note(&plan.session.workspace_id));
         let system = self.instruction_system(plan, &mut transcript);
         convert::drop_earlier_reasoning(&mut transcript, started);
         let answered = transcript.iter().rev().find(|message| message.info.role == Role::User);

@@ -362,6 +362,7 @@ impl Engine {
             rules.explicit(&crate::tool::Ask::new(kind, name, "")) == Some(crate::permission::Decision::Deny)
         };
         let references = self.references_for_turn(&plan.config.references);
+        let plans = self.plans_dir(&plan.session.workspace_id);
         let setting = prompt::Setting {
             base: &base,
             family: plan.model.prompt,
@@ -374,6 +375,7 @@ impl Engine {
             model: &plan.model.name,
             servers: &servers,
             references: &references,
+            plans: Some(&plans),
         };
         let sources = prompt::sources(&setting);
 

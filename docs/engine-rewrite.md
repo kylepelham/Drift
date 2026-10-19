@@ -1599,6 +1599,15 @@ listed there.
   the user asks. Other agents read plan files without asking, and compaction carries the paths of
   the session's plan files beside 2.1.2's carried state. Tests: plan writes there, is refused
   elsewhere, and build reads it after a switch.
+  - Built (2.4.0): `session/plans.rs`, the refusal in `session/turn/calls.rs`
+    (`read_only_refusal`), the read and write defaults in `tool/context.rs`; user-facing in
+    `docs/engine.md` "Plan files". Decisions taken while Kyle slept: the exception covers any
+    read-only primary agent, not only the one named plan (subagents such as explore stay fully
+    read-only); a write needs the tool to name every path it touches, so `bash` never writes a
+    plan; the plans folder is named in the environment block rather than a per-turn reminder, so
+    the cached prefix stays stable; 2.1.2's carried state is not built yet, so after a summary the
+    workspace's plan files are listed on their own, by name and at most ten, which also keeps that
+    note stable; it lists the workspace's plans rather than tracking which session wrote each.
 - **Queue as an option.** A prompt is delivered as `steer` (the default, today's behaviour) or
   `queue`. The composer queues with Alt+Enter and a choice in the send button's menu. A queued
   prompt is saved durably, outside the transcript, and shown above the composer with edit, discard

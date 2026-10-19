@@ -27,6 +27,7 @@ mod instruction_baseline;
 mod loop_limits;
 mod orchestrator;
 mod permissions;
+mod plans;
 mod plugin_hooks;
 mod pricing;
 mod processes;

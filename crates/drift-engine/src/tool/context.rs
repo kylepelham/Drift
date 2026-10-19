@@ -166,7 +166,9 @@ impl Context {
             &self.workspace,
             format!("{verb} {}", display(path, &self.workspace)),
         );
-        ask.default_allow = in_scratch(path) || (self.inside_workspace(path) && !guarded(path, &self.workspace));
+        ask.default_allow = in_scratch(path)
+            || self.is_plan_file(path)
+            || (self.inside_workspace(path) && !guarded(path, &self.workspace));
 
         Some(ask)
     }
@@ -180,7 +182,20 @@ impl Context {
             .filter(|reference| !reference.project)
             .any(|reference| path.starts_with(self.engine.reference_path(reference)));
 
-        in_reference || self.in_skill(path)
+        in_reference || self.in_skill(path) || self.is_plan_file(path)
+    }
+
+    /// The plans folder of this session's workspace, where the plan agent writes.
+    pub(crate) fn plans_dir(&self) -> Option<PathBuf> {
+        let session = self.engine.store.session(&self.session_id).ok()??;
+
+        Some(self.engine.plans_dir(&session.workspace_id))
+    }
+
+    /// A Markdown plan in this session's workspace's plans folder.
+    pub(crate) fn is_plan_file(&self, path: &Path) -> bool {
+        self.plans_dir()
+            .is_some_and(|plans| crate::session::plans::is_plan_file(&plans, path))
     }
 
     /// Inside the folder of a skill this session's config offers, as opencode allows skill directories.

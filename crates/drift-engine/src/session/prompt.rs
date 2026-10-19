@@ -76,6 +76,8 @@ pub struct Setting<'a> {
     pub servers: &'a [(String, String)],
     /// The references the turn's config names, where they are and why one cannot be read freely.
     pub references: &'a [crate::session::references::Listed],
+    /// The workspace's plans folder, which the environment names.
+    pub plans: Option<&'a Path>,
 }
 
 /// One part of the system prompt, keyed so a session can tell which part changed.
@@ -111,6 +113,7 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
         model,
         servers,
         references,
+        plans,
         ..
     } = *setting;
     let mut found = vec![Source::new(
@@ -154,8 +157,16 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
     } else {
         "no"
     };
+    let plans = plans
+        .map(|plans| {
+            format!(
+                "\nPlans directory: {} (Markdown plans written in planning; read them without asking)",
+                plans.display()
+            )
+        })
+        .unwrap_or_default();
     let environment = format!(
-        "# Environment\n\nWorking directory: {}\nGit repository: {git}\nPlatform: {}\nScratch directory: {} (read and write there without asking; put temporary files there, not in the workspace)",
+        "# Environment\n\nWorking directory: {}\nGit repository: {git}\nPlatform: {}\nScratch directory: {} (read and write there without asking; put temporary files there, not in the workspace){plans}",
         workspace.display(),
         std::env::consts::OS,
         crate::tool::scratch_dir().display()
@@ -385,6 +396,7 @@ mod tests {
             model: "Claude Opus",
             servers: &servers,
             references: &[],
+            plans: None,
         };
 
         let prompt = system(&setting("plan", false));
@@ -465,6 +477,7 @@ mod tests {
                 model: "m",
                 servers: &[],
                 references: &[],
+                plans: None,
             })
         };
 
@@ -503,6 +516,7 @@ mod tests {
                 model: "m",
                 servers: &[],
                 references: &[],
+                plans: None,
             })
         };
         let prompts: Vec<String> = PromptFamily::ALL.into_iter().map(built).collect();
@@ -541,6 +555,7 @@ mod tests {
             model: "m",
             servers: &[],
             references: &[],
+            plans: None,
         });
         assert!(
             replaced.starts_with("You are my agent.\n\n# Tools") && replaced.contains("`<system-reminder>` blocks"),

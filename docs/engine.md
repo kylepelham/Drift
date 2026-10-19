@@ -88,6 +88,18 @@ model may consult, such as another project's code, a spec, or a library's source
   can never make Drift fetch from the network. A project reference never replaces one of yours of
   the same name.
 
+## Plan files
+
+The plan agent reads and changes nothing, with one exception: it may write and edit Markdown files
+in its workspace's plans folder, `<data>/plans/<workspace id>/`, which the environment block of
+every agent's system prompt names. Any other change it attempts is refused with a message naming
+that folder. Its prompt says to discuss the plan in the conversation and write a file only when the
+user asks for one.
+
+Every agent reads plan files without asking, so after switching to build the plan is there to read.
+After a summary, the request lists the workspace's plan files (at most ten, by name, so editing
+one never changes the cached request) beside the summary.
+
 ## Context meter and plan usage limits
 
 The context meter in the chat header shows the context window as one bar split by
