@@ -174,7 +174,10 @@ under it is true, not before.
 - OpenAI: Responses API, Codex OAuth, `apply_patch` profile. Gemini. OpenAI-compatible
   generic with presets.
 - MCP through rmcp: stdio and HTTP; reconnect/reload are M3 lifecycle work.
-- `todowrite`, `skill`, blocking `question`, `webfetch`. Async questions are M3 work.
+- `todowrite`, `skill`, blocking `question`, `webfetch`. Async questions are M3 work. `todowrite`
+  answers in one line ("Todo list updated: 3 of 5 done, now: <item>", or `next:` when nothing is
+  in progress): the list is in the call the model just made, so echoing it back only costs tokens
+  in every later request.
 - Formatter hooks.
 - Config loading: `drift.json`, agents, commands, skills, instruction files.
 
