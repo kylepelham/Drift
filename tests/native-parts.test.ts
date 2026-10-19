@@ -164,3 +164,19 @@ test("file changes supply tool subtitles, file actions and single-file diffs whi
     expect(patched.metadata?.files).toEqual(["C:/repo/notes.txt"]);
     expect(toolInput(tool("docs_lookup", { path: "/api/users" }))).toEqual({ path: "/api/users" });
 });
+
+test("a generated image shows under its row by the hash the engine keeps, with its prompt beside the title", async () => {
+    const { generatedImage } = await import("../src/ui/tool-image");
+    const made = tool(
+        "generate_image",
+        { prompt: "a red square" },
+        { images: [{ mime: "image/png", hash: "abc" }], files: ["C:/repo/art/red.png"] },
+    );
+
+    expect(toolInfo(made).subtitle).toBe("a red square");
+    expect(generatedImage(made)).toEqual({ hash: "abc", filename: "red.png" });
+    expect(generatedImage(tool("generate_image", { prompt: "refused" }))).toBeNull();
+    expect(
+        generatedImage(tool("read", { path: "a.png" }, { images: [{ mime: "image/png", hash: "abc" }] })),
+    ).toBeNull();
+});

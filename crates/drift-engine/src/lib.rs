@@ -7,6 +7,7 @@ pub mod edit;
 pub mod event;
 pub mod hook;
 pub mod id;
+pub mod imagegen;
 pub mod llm;
 pub mod lsp;
 pub mod mcp;

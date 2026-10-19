@@ -6,6 +6,7 @@ pub mod bash;
 pub mod command;
 mod context;
 pub mod edit;
+pub mod generate_image;
 pub mod glob;
 pub mod grep;
 pub mod image;

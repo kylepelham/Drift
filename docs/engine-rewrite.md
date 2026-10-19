@@ -1628,6 +1628,59 @@ which choices send audio or text off the machine.
   saved file is returned to the model as an image so it can check the result, shows in the
   transcript, and its cost is charged to the session. Permission kind `generate_image`, asking by
   default because every call is billed.
+  - Built (2.4.0). `imagegen/` holds the settings, key lookup and charging; `imagegen/providers.rs`
+    the three wire shapes and prices; `imagegen/size.rs` reads `size` (`auto`, a ratio such as
+    `16:9`, or `WIDTHxHEIGHT`) into each provider's terms. The tool is `tool/generate_image.rs`,
+    offered only while `image_generation_available()` (a provider chosen and an API key for it).
+    Settings > Execution > Image generation picks Off (the default), OpenAI, Google or xAI, the
+    model and a default size; it is the engine setting `imageGeneration`. API:
+    `GET/PUT /image-generation`, and `GET /blobs/{hash}` so the transcript can show the image a
+    call returned (base64 and its sniffed type).
+  - Wires, checked against each provider's docs on 2026-10-19. OpenAI: `POST /v1/images/generations`,
+    or `/v1/images/edits` in its JSON form with `images: [{image_url: data URL}]` when references
+    are given (no multipart, so reqwest needs no new feature); `output_format: png`; a ratio maps
+    to the nearest of 1024x1024, 1536x1024 and 1024x1536, pixels pass as given. Google: Gemini
+    `models/{model}:generateContent` with the references as `inlineData` parts before the prompt,
+    `responseModalities: ["TEXT", "IMAGE"]` and `imageConfig {aspectRatio, imageSize}`, the
+    nearest listed ratio and the tier (`512`, `1K`, `2K`, `4K`) that holds the longest side asked
+    for; text beside the image is returned to the model as the provider's note. xAI:
+    `/v1/images/generations` or `/v1/images/edits` (one `image`, or `images` for several, as data
+    URLs), `response_format: b64_json`, `aspect_ratio` from its list and `resolution` from pixels.
+    Defaults: `gpt-image-2`, `gemini-3.1-flash-image`, `grok-imagine-image-2.0`. At most five
+    references per call, xAI's limit, each scaled as tool images are; PNG, JPEG and WebP only.
+  - Keys: the user's existing provider sign-ins, but only API keys (`Credentials::api_key`: the
+    first stored API-key account, else the catalog's environment variables). A ChatGPT, Grok or
+    other subscription sign-in is passed over, because it pays for chat and the image APIs do not
+    take it; Settings says a key is needed. No separate key entry.
+  - Paths: references and the output must resolve inside the workspace or the scratch directory;
+    anything else is refused before a request is sent, and such a call asks nothing (it cannot
+    cost anything). Without `path` the image goes to `<scratch>/images/<call id>.png`, named for
+    the call so its asks, its undo record and its run agree. The output's extension picks the
+    format (.png, .jpg, .jpeg, .webp) and the image is re-encoded when the provider sent another.
+    Asks: a read ask per reference, an edit ask for the output (workspace and scratch allowed as
+    usual, guarded files asked), then the `generate_image` ask with the prompt as its pattern and
+    the provider named in its title. "Always" grants `generate_image *`, as for `websearch`.
+    Auto-accept answers it like any other ask; that is the user's own switch.
+  - Result: the saved file goes back as the call's image (`metadata.images`), so the turn stores
+    it as a blob and the model sees it; `metadata.files`, `provider` and `cost` are set. The
+    transcript shows it under the call's row (`src/ui/tool-image.tsx`), fetched by hash, opening
+    in the lightbox.
+  - Cost: added to the reply that made the call with one `UPDATE ... cost = cost + ?`
+    (`Store::add_cost`), so parallel calls never undo each other, and published as
+    `message.updated`; it is charged as soon as the provider answers, before the file is written,
+    since the image is billed either way. xAI reports `usage.cost_in_usd_ticks` (1e10 to the
+    dollar), used as is. OpenAI and Google report tokens, priced per million from a table in
+    `providers.rs` (OpenAI: text in, image in, image out, text out; Google: input, text and
+    thinking out, image out), the longest model-name prefix winning so a dated snapshot is priced
+    as its model. A model with no table entry and no reported cost is charged nothing and the
+    result says so; xAI falls back to its lowest per-image price only when an answer names no
+    cost. A call stopped mid-request is not charged, though the provider may still bill it.
+  - Decisions taken while Kyle slept: Gemini `generateContent` over Imagen `predict` (current docs
+    centre on Gemini image models, and it takes references); the model picker lists only the known
+    models, though the API accepts any name; one size setting rather than a quality setting, since
+    quality is not shared by the three; xAI's lowest-tier per-image price as its fallback, an
+    underestimate for higher resolutions; the image is not offered to read-only agents (it writes a
+    file).
 
 **Design first.** A short proposal in `docs/research/` for Kyle covering the questions below; no
 code until he picks.

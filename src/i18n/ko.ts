@@ -384,6 +384,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "키 추가",
     "drift.settings.webSearch.removeKey": "키 {{key}} 제거",
     "drift.settings.webSearch.moveUp": "먼저 시도",
+    "drift.settings.imageGeneration": "이미지 생성",
+    "drift.settings.imageGeneration.provider.title": "공급자",
+    "drift.settings.imageGeneration.provider.description":
+        "에이전트가 이미지를 만들 수 있게 합니다. 이미지마다 공급자의 API 키로 요금이 청구되며, 항상 허용하지 않으면 먼저 묻습니다. 끄면 도구가 제거됩니다.",
+    "drift.settings.imageGeneration.off": "끔",
+    "drift.settings.imageGeneration.needsKey": "API 키 필요",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}}에 아직 API 키가 없습니다. 공급자에서 추가하세요. 구독 로그인으로는 이미지를 만들 수 없습니다.",
+    "drift.settings.imageGeneration.model.title": "모델",
+    "drift.settings.imageGeneration.model.description": "모든 호출에 쓰이는 이미지 모델입니다.",
+    "drift.settings.imageGeneration.size.title": "기본 크기",
+    "drift.settings.imageGeneration.size.description":
+        "에이전트가 크기를 지정하지 않을 때 사용합니다. 자동은 모델이 고릅니다.",
+    "drift.settings.imageGeneration.size.auto": "자동",
+    "drift.tool.generateImage": "이미지 생성",
+    "drift.tool.generatedImage": "생성된 이미지",
     "drift.settings.promptCache": "프롬프트 캐시",
     "drift.settings.promptCache.warming.title": "유휴 대화를 따뜻하게 유지",
     "drift.settings.promptCache.warming.description":

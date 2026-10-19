@@ -124,6 +124,10 @@ export function createClient(target: Target) {
                 "DELETE",
                 `/websearch/keys?${new URLSearchParams({ provider, index: String(index) })}`,
             ),
+        imageGeneration: () => request<Json<"getImageGeneration", 200>>("GET", "/image-generation"),
+        putImageGeneration: (body: components["schemas"]["ImageGeneration"]) =>
+            request<Json<"putImageGeneration", 200>>("PUT", "/image-generation", body),
+        blob: (hash: string) => request<Json<"getBlob", 200>>("GET", `/blobs/${encodeURIComponent(hash)}`),
         fetchRegistry: (source: string) =>
             request<unknown>("GET", `/registries/fetch?${new URLSearchParams({ source })}`),
         basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),

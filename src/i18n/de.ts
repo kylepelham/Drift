@@ -391,6 +391,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Schlüssel hinzufügen",
     "drift.settings.webSearch.removeKey": "Schlüssel {{key}} entfernen",
     "drift.settings.webSearch.moveUp": "Früher versuchen",
+    "drift.settings.imageGeneration": "Bildgenerierung",
+    "drift.settings.imageGeneration.provider.title": "Anbieter",
+    "drift.settings.imageGeneration.provider.description":
+        "Lässt den Agenten Bilder erstellen. Jedes Bild wird über deinen API-Schlüssel beim Anbieter abgerechnet und fragt zuerst nach, außer du erlaubst es immer. Aus entfernt das Werkzeug.",
+    "drift.settings.imageGeneration.off": "Aus",
+    "drift.settings.imageGeneration.needsKey": "Braucht einen API-Schlüssel",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} hat noch keinen API-Schlüssel. Füge einen unter Anbieter hinzu; eine Abo-Anmeldung kann keine Bilder erstellen.",
+    "drift.settings.imageGeneration.model.title": "Modell",
+    "drift.settings.imageGeneration.model.description": "Das Bildmodell, das jeder Aufruf nutzt.",
+    "drift.settings.imageGeneration.size.title": "Standardgröße",
+    "drift.settings.imageGeneration.size.description":
+        "Gilt, wenn der Agent keine Größe nennt. Automatisch überlässt die Wahl dem Modell.",
+    "drift.settings.imageGeneration.size.auto": "Automatisch",
+    "drift.tool.generateImage": "Bild erzeugen",
+    "drift.tool.generatedImage": "Erzeugtes Bild",
     "drift.settings.promptCache": "Prompt-Cache",
     "drift.settings.promptCache.warming.title": "Ruhende Unterhaltungen warm halten",
     "drift.settings.promptCache.warming.description":

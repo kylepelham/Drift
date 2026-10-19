@@ -385,6 +385,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "キーを追加",
     "drift.settings.webSearch.removeKey": "キー {{key}} を削除",
     "drift.settings.webSearch.moveUp": "先に試す",
+    "drift.settings.imageGeneration": "画像生成",
+    "drift.settings.imageGeneration.provider.title": "プロバイダー",
+    "drift.settings.imageGeneration.provider.description":
+        "エージェントが画像を作成できるようにします。画像は1枚ごとにプロバイダーのAPIキーに課金され、常に許可しない限り毎回確認します。オフにするとツールが外れます。",
+    "drift.settings.imageGeneration.off": "オフ",
+    "drift.settings.imageGeneration.needsKey": "APIキーが必要",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} にはまだAPIキーがありません。プロバイダーで追加してください。サブスクリプションのサインインでは画像を作成できません。",
+    "drift.settings.imageGeneration.model.title": "モデル",
+    "drift.settings.imageGeneration.model.description": "各呼び出しで使う画像モデル。",
+    "drift.settings.imageGeneration.size.title": "既定のサイズ",
+    "drift.settings.imageGeneration.size.description":
+        "エージェントがサイズを指定しないときに使います。自動ではモデルが選びます。",
+    "drift.settings.imageGeneration.size.auto": "自動",
+    "drift.tool.generateImage": "画像を生成",
+    "drift.tool.generatedImage": "生成された画像",
     "drift.settings.promptCache": "プロンプトキャッシュ",
     "drift.settings.promptCache.warming.title": "待機中の会話を温めておく",
     "drift.settings.promptCache.warming.description":

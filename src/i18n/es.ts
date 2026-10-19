@@ -422,6 +422,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Añadir clave",
     "drift.settings.webSearch.removeKey": "Quitar la clave {{key}}",
     "drift.settings.webSearch.moveUp": "Probar antes",
+    "drift.settings.imageGeneration": "Generación de imágenes",
+    "drift.settings.imageGeneration.provider.title": "Proveedor",
+    "drift.settings.imageGeneration.provider.description":
+        "Permite que el agente cree imágenes. Cada imagen se cobra a tu clave de API del proveedor y pide permiso antes, salvo que lo permitas siempre. Desactivado quita la herramienta.",
+    "drift.settings.imageGeneration.off": "Desactivado",
+    "drift.settings.imageGeneration.needsKey": "Necesita una clave de API",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} aún no tiene clave de API. Añade una en Proveedores; un inicio de sesión por suscripción no puede crear imágenes.",
+    "drift.settings.imageGeneration.model.title": "Modelo",
+    "drift.settings.imageGeneration.model.description": "El modelo de imagen que usa cada llamada.",
+    "drift.settings.imageGeneration.size.title": "Tamaño predeterminado",
+    "drift.settings.imageGeneration.size.description":
+        "Se usa cuando el agente no indica un tamaño. Automático deja elegir al modelo.",
+    "drift.settings.imageGeneration.size.auto": "Automático",
+    "drift.tool.generateImage": "Generar imagen",
+    "drift.tool.generatedImage": "Imagen generada",
     "drift.settings.promptCache": "Caché de prompt",
     "drift.settings.promptCache.warming.title": "Mantener calientes las conversaciones inactivas",
     "drift.settings.promptCache.warming.description":

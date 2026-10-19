@@ -421,6 +421,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Anahtar ekle",
     "drift.settings.webSearch.removeKey": "{{key}} anahtarını kaldır",
     "drift.settings.webSearch.moveUp": "Daha önce dene",
+    "drift.settings.imageGeneration": "Görsel üretimi",
+    "drift.settings.imageGeneration.provider.title": "Sağlayıcı",
+    "drift.settings.imageGeneration.provider.description":
+        "Ajanın görsel üretmesini sağlar. Her görsel sağlayıcıdaki API anahtarınızdan ücretlendirilir ve her zaman izin vermediğiniz sürece önce sorar. Kapalı aracı kaldırır.",
+    "drift.settings.imageGeneration.off": "Kapalı",
+    "drift.settings.imageGeneration.needsKey": "API anahtarı gerekir",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} için henüz API anahtarı yok. Sağlayıcılar bölümünden ekleyin; abonelik girişi görsel üretemez.",
+    "drift.settings.imageGeneration.model.title": "Model",
+    "drift.settings.imageGeneration.model.description": "Her çağrının kullandığı görsel modeli.",
+    "drift.settings.imageGeneration.size.title": "Varsayılan boyut",
+    "drift.settings.imageGeneration.size.description":
+        "Ajan boyut belirtmediğinde kullanılır. Otomatik seçimi modele bırakır.",
+    "drift.settings.imageGeneration.size.auto": "Otomatik",
+    "drift.tool.generateImage": "Görsel üret",
+    "drift.tool.generatedImage": "Üretilen görsel",
     "drift.settings.promptCache": "İstem önbelleği",
     "drift.settings.promptCache.warming.title": "Boştaki konuşmaları sıcak tut",
     "drift.settings.promptCache.warming.description":

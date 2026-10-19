@@ -420,6 +420,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Додати ключ",
     "drift.settings.webSearch.removeKey": "Вилучити ключ {{key}}",
     "drift.settings.webSearch.moveUp": "Пробувати раніше",
+    "drift.settings.imageGeneration": "Генерування зображень",
+    "drift.settings.imageGeneration.provider.title": "Провайдер",
+    "drift.settings.imageGeneration.provider.description":
+        "Дозволяє агенту створювати зображення. Кожне зображення оплачується з вашого API-ключа у провайдера і спершу просить дозволу, якщо ви не дозволили завжди. Вимкнено прибирає інструмент.",
+    "drift.settings.imageGeneration.off": "Вимкнено",
+    "drift.settings.imageGeneration.needsKey": "Потрібен API-ключ",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} ще не має API-ключа. Додайте його в розділі Провайдери; вхід за підпискою не може створювати зображення.",
+    "drift.settings.imageGeneration.model.title": "Модель",
+    "drift.settings.imageGeneration.model.description": "Модель зображень для кожного виклику.",
+    "drift.settings.imageGeneration.size.title": "Типовий розмір",
+    "drift.settings.imageGeneration.size.description":
+        "Використовується, коли агент не вказує розмір. Авто залишає вибір моделі.",
+    "drift.settings.imageGeneration.size.auto": "Авто",
+    "drift.tool.generateImage": "Створити зображення",
+    "drift.tool.generatedImage": "Створене зображення",
     "drift.settings.promptCache": "Кеш промпту",
     "drift.settings.promptCache.warming.title": "Тримати неактивні розмови теплими",
     "drift.settings.promptCache.warming.description":

@@ -393,6 +393,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Ajouter une clé",
     "drift.settings.webSearch.removeKey": "Retirer la clé {{key}}",
     "drift.settings.webSearch.moveUp": "Essayer plus tôt",
+    "drift.settings.imageGeneration": "Génération d'images",
+    "drift.settings.imageGeneration.provider.title": "Fournisseur",
+    "drift.settings.imageGeneration.provider.description":
+        "Permet à l'agent de créer des images. Chaque image est facturée sur votre clé API chez le fournisseur et demande d'abord l'autorisation, sauf si vous l'autorisez toujours. Désactivé retire l'outil.",
+    "drift.settings.imageGeneration.off": "Désactivé",
+    "drift.settings.imageGeneration.needsKey": "Nécessite une clé API",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} n'a pas encore de clé API. Ajoutez-en une dans Fournisseurs ; une connexion par abonnement ne peut pas créer d'images.",
+    "drift.settings.imageGeneration.model.title": "Modèle",
+    "drift.settings.imageGeneration.model.description": "Le modèle d'image utilisé par chaque appel.",
+    "drift.settings.imageGeneration.size.title": "Taille par défaut",
+    "drift.settings.imageGeneration.size.description":
+        "Utilisée quand l'agent n'indique pas de taille. Automatique laisse le modèle choisir.",
+    "drift.settings.imageGeneration.size.auto": "Automatique",
+    "drift.tool.generateImage": "Générer une image",
+    "drift.tool.generatedImage": "Image générée",
     "drift.settings.promptCache": "Cache de prompt",
     "drift.settings.promptCache.warming.title": "Garder au chaud les conversations inactives",
     "drift.settings.promptCache.warming.description":

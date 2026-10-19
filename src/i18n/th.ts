@@ -414,6 +414,21 @@ export const drift = {
     "drift.settings.webSearch.addKey": "เพิ่มคีย์",
     "drift.settings.webSearch.removeKey": "ลบคีย์ {{key}}",
     "drift.settings.webSearch.moveUp": "ลองก่อน",
+    "drift.settings.imageGeneration": "การสร้างรูปภาพ",
+    "drift.settings.imageGeneration.provider.title": "ผู้ให้บริการ",
+    "drift.settings.imageGeneration.provider.description":
+        "ให้เอเจนต์สร้างรูปภาพได้ ทุกรูปจะคิดเงินกับคีย์ API ของคุณที่ผู้ให้บริการ และจะถามก่อนเสมอเว้นแต่คุณอนุญาตตลอด ปิดจะเอาเครื่องมือออก",
+    "drift.settings.imageGeneration.off": "ปิด",
+    "drift.settings.imageGeneration.needsKey": "ต้องมีคีย์ API",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} ยังไม่มีคีย์ API เพิ่มได้ที่ ผู้ให้บริการ การลงชื่อเข้าใช้แบบสมัครสมาชิกสร้างรูปภาพไม่ได้",
+    "drift.settings.imageGeneration.model.title": "โมเดล",
+    "drift.settings.imageGeneration.model.description": "โมเดลรูปภาพที่ทุกการเรียกใช้",
+    "drift.settings.imageGeneration.size.title": "ขนาดเริ่มต้น",
+    "drift.settings.imageGeneration.size.description": "ใช้เมื่อเอเจนต์ไม่ระบุขนาด อัตโนมัติให้โมเดลเลือกเอง",
+    "drift.settings.imageGeneration.size.auto": "อัตโนมัติ",
+    "drift.tool.generateImage": "สร้างรูปภาพ",
+    "drift.tool.generatedImage": "รูปภาพที่สร้างขึ้น",
     "drift.settings.promptCache": "แคชพรอมต์",
     "drift.settings.promptCache.warming.title": "รักษาบทสนทนาที่ว่างให้อุ่น",
     "drift.settings.promptCache.warming.description":

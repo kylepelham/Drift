@@ -17,6 +17,7 @@ const groupKinds: Record<string, ToolGroupKind> = {
     websearch: "fetches",
     process: "other",
     save_image: "other",
+    generate_image: "other",
     skill: "other",
     task_output: "other",
     task_stop: "other",
@@ -96,6 +97,8 @@ export function toolInfo(part: ToolPart): ToolInfo {
             return { title: changeTitle(part), subtitle: patchSubtitle(part) };
         case "webfetch":
             return { title: t("drift.tool.fetch"), subtitle: text("url"), mono: true };
+        case "generate_image":
+            return { title: t("drift.tool.generateImage"), subtitle: text("prompt") };
         default:
             return delegatedToolInfo(part, input, meta);
     }

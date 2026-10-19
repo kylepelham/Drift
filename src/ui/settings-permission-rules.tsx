@@ -16,6 +16,7 @@ const permissionKinds = [
     "grep",
     "webfetch",
     "websearch",
+    "generate_image",
     "mcp",
     "skill",
     "task",

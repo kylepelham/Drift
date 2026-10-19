@@ -419,6 +419,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Legg til nøkkel",
     "drift.settings.webSearch.removeKey": "Fjern nøkkelen {{key}}",
     "drift.settings.webSearch.moveUp": "Prøv tidligere",
+    "drift.settings.imageGeneration": "Bildegenerering",
+    "drift.settings.imageGeneration.provider.title": "Leverandør",
+    "drift.settings.imageGeneration.provider.description":
+        "Lar agenten lage bilder. Hvert bilde faktureres til API-nøkkelen din hos leverandøren og spør først, med mindre du alltid tillater det. Av fjerner verktøyet.",
+    "drift.settings.imageGeneration.off": "Av",
+    "drift.settings.imageGeneration.needsKey": "Trenger en API-nøkkel",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} har ingen API-nøkkel ennå. Legg til en under Leverandører; en abonnementspålogging kan ikke lage bilder.",
+    "drift.settings.imageGeneration.model.title": "Modell",
+    "drift.settings.imageGeneration.model.description": "Bildemodellen hvert kall bruker.",
+    "drift.settings.imageGeneration.size.title": "Standardstørrelse",
+    "drift.settings.imageGeneration.size.description":
+        "Brukes når agenten ikke oppgir en størrelse. Auto lar modellen velge.",
+    "drift.settings.imageGeneration.size.auto": "Auto",
+    "drift.tool.generateImage": "Generer bilde",
+    "drift.tool.generatedImage": "Generert bilde",
     "drift.settings.promptCache": "Prompt-hurtigbuffer",
     "drift.settings.promptCache.warming.title": "Hold inaktive samtaler varme",
     "drift.settings.promptCache.warming.description":

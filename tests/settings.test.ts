@@ -579,3 +579,15 @@ test("web search lists providers in the order auto tries them, saved order first
     expect(orderedProviders(state).map((p) => p.id)).toEqual(["tavily", "searxng", "firecrawl", "exa"]);
     expect(grantGroup({ grant: "pattern", kind: "websearch", pattern: "*", decision: "allow" })).toBe("web");
 });
+test("image generation says when the chosen provider still needs an API key", async () => {
+    const { imageProviderNote } = await import("../src/ui/settings-image-generation");
+    const provider = (id: string, hasKey: boolean) => ({ id, name: id.toUpperCase(), models: ["m"], hasKey });
+    const state = (chosen: string) => ({
+        settings: { provider: chosen, model: "", size: "auto" },
+        providers: [provider("openai", true), provider("xai", false)],
+    });
+
+    expect(imageProviderNote(state("xai"))).toContain("XAI");
+    expect(imageProviderNote(state("openai"))).not.toContain("OPENAI");
+    expect(imageProviderNote(state("off"))).toBe(imageProviderNote(state("openai")));
+});
