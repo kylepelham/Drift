@@ -19,7 +19,7 @@ mod request;
 
 #[cfg(test)]
 use request::message;
-use request::{body, is_claude, mark_breakpoints, reason};
+use request::{body, claude_call_ids, is_claude, mark_breakpoints, reason};
 
 #[derive(Clone, Debug)]
 pub struct Compat {
@@ -72,6 +72,9 @@ impl Compat {
         }
         if self.claude_breakpoints && is_claude(&request.model) {
             mark_breakpoints(&mut body);
+        }
+        if request.model.contains("claude") {
+            claude_call_ids(&mut body);
         }
 
         super::apply_mode(&mut body, request);
@@ -136,8 +139,11 @@ fn api_error(status: u16, text: &str) -> Error {
         .as_u64()
         .and_then(|code| u16::try_from(code).ok())
         .filter(|_| status == super::STREAMED);
+    // xAI refuses a bad key with 400 and a generic code, said only in words.
+    let bad_key = message.contains("Incorrect API key provided");
     match named.unwrap_or(status) {
         401 | 403 => Error::Unauthenticated(message),
+        400 if bad_key => Error::Unauthenticated(message),
         status => Error::api(status, kind, message),
     }
 }
@@ -176,7 +182,7 @@ impl StreamState {
             return Err(api_error(super::STREAMED, data));
         }
 
-        if let Some(usage) = value.get("usage").filter(|u| u.is_object()) {
+        if let Some(usage) = usage_of(&value) {
             self.usage = Some(usage_from(usage));
         }
         let mut out = Vec::new();
@@ -289,10 +295,26 @@ impl StreamState {
     }
 }
 
+/// Top-level `usage`, or the choice's where Moonshot puts it.
+fn usage_of(chunk: &Value) -> Option<&Value> {
+    [&chunk["usage"], &chunk["choices"][0]["usage"]]
+        .into_iter()
+        .find(|usage| usage.is_object())
+}
+
+/// Cache hits are `prompt_tokens_details.cached_tokens` (OpenAI), top-level `cached_tokens` (Z.ai) or
+/// `prompt_cache_hit_tokens` (DeepSeek).
 fn usage_from(usage: &Value) -> Usage {
     let count = |key: &str| usage[key].as_u64().unwrap_or(0);
     let details = &usage["prompt_tokens_details"];
-    let cache_read = details["cached_tokens"].as_u64().unwrap_or(0);
+    let cache_read = [
+        &details["cached_tokens"],
+        &usage["cached_tokens"],
+        &usage["prompt_cache_hit_tokens"],
+    ]
+    .into_iter()
+    .find_map(Value::as_u64)
+    .unwrap_or(0);
     let cache_write = details["cache_write_tokens"].as_u64().unwrap_or(0);
     Usage {
         input: count("prompt_tokens").saturating_sub(cache_read + cache_write),

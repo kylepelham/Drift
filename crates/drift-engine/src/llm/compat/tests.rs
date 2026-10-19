@@ -322,3 +322,65 @@ fn an_error_message_is_read_from_whichever_layout_the_server_used() {
         "a streamed error given as text fails the reply: {streamed:?}"
     );
 }
+
+#[test]
+fn xais_refusal_of_a_key_is_refused_credentials() {
+    let refused = api_error(
+        400,
+        r#"{"code":"Client specified an invalid argument","error":"Incorrect API key provided: xa***. You can obtain an API key from https://console.x.ai."}"#,
+    );
+    assert!(
+        matches!(refused, Error::Unauthenticated(ref words) if words.starts_with("Incorrect API key")),
+        "{refused:?}"
+    );
+    assert!(matches!(
+        api_error(400, r#"{"error":"bad argument"}"#),
+        Error::Api { .. }
+    ));
+}
+
+#[test]
+fn usage_is_read_where_each_server_puts_it() {
+    let usage = |chunk: &str| {
+        let mut state = StreamState::default();
+        state.chunks(chunk).unwrap();
+        state.usage.take()
+    };
+    let expected = Some(Usage {
+        input: 70,
+        output: 5,
+        cache_read: 30,
+        cache_write: 0,
+    });
+    for chunk in [
+        r#"{"choices":[{"delta":{},"usage":{"prompt_tokens":100,"completion_tokens":5,"cached_tokens":30}}]}"#,
+        r#"{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_cache_hit_tokens":30}}"#,
+        r#"{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":30}}}"#,
+    ] {
+        assert_eq!(usage(chunk), expected, "{chunk}");
+    }
+}
+
+#[test]
+fn call_ids_replayed_to_claude_through_a_gateway_take_anthropics_characters() {
+    let mut request = request();
+    request.model = "anthropic/claude-sonnet-4.5".into();
+    request.messages[1].blocks[2] = Block::ToolUse {
+        id: "functions.read:0".into(),
+        name: "read".into(),
+        input: json!({}),
+    };
+    request.messages[2].blocks[0] = Block::ToolResult {
+        call_id: "functions.read:0".into(),
+        content: "ok".into(),
+        is_error: false,
+    };
+    let built = Compat::openrouter("https://openrouter.example").shaped(&request);
+    assert_eq!(built["messages"][2]["tool_calls"][0]["id"], "functions_read_0");
+    assert_eq!(built["messages"][3]["tool_call_id"], "functions_read_0");
+    assert!(built["messages"][1].get("tool_call_id").is_none(), "no field is added");
+
+    request.model = "moonshotai/kimi-k2".into();
+    let kept = Compat::openrouter("https://openrouter.example").shaped(&request);
+    assert_eq!(kept["messages"][2]["tool_calls"][0]["id"], "functions.read:0");
+}

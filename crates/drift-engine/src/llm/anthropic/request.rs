@@ -111,7 +111,7 @@ fn sendable(block: &Block) -> bool {
 }
 
 /// Maps call ids to Anthropic's `[a-zA-Z0-9_-]+` characters on both calls and results.
-fn wire_id(id: &str) -> String {
+pub(crate) fn wire_id(id: &str) -> String {
     let id: String = id
         .chars()
         .map(|character| match character {

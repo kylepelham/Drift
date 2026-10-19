@@ -16,6 +16,7 @@ use crate::session::types::{Refusal, Usage};
 #[cfg(test)]
 use request::block;
 use request::body;
+pub(crate) use request::wire_id;
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const API_VERSION: &str = "2023-06-01";
