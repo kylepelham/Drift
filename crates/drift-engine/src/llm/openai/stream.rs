@@ -2,16 +2,25 @@ use crate::llm::limits::Limits;
 use crate::llm::{Chunk, Error, STREAMED, StopReason};
 use crate::session::types::Usage;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::api_error;
 
-/// Which streamed items are open, so item-level events map to the right block kind.
+/// The item kinds a reply is made of; others (hosted tools, compaction) carry nothing Drift shows.
+const SHOWN: [&str; 3] = ["message", "reasoning", "function_call"];
+
+/// Which streamed items are open and which had deltas, so item-level events map to the right block kind and an
+/// item given whole only at its end is neither lost nor doubled.
 #[derive(Default)]
 pub(super) struct StreamState {
-    reasoning: HashSet<String>,
-    messages: HashSet<String>,
-    calls_with_deltas: HashSet<String>,
+    /// Each item's key by every name an event gave it: its id and `#output_index`.
+    aliases: HashMap<String, String>,
+    /// Items opened by `output_item.added`.
+    begun: HashSet<String>,
+    /// Items whose content arrived in deltas.
+    streamed: HashSet<String>,
+    /// The item opened last, for a delta that names none.
+    last: String,
     called_tools: bool,
 }
 
@@ -23,23 +32,17 @@ impl StreamState {
 
     pub(super) fn chunks_value(&mut self, value: &Value) -> Result<Vec<Chunk>, Error> {
         let kind = kind(value);
-        let item_id = value["item_id"].as_str().unwrap_or_default();
-        let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
 
         Ok(match kind {
-            "response.output_item.added" => self.item_added(&value["item"]),
-            "response.output_text.delta" => vec![Chunk::TextDelta(text("delta"))],
+            "response.output_item.added" => self.item_added(value),
+            "response.output_text.delta"
+            | "response.reasoning_summary_text.delta"
+            | "response.reasoning_text.delta"
+            | "response.function_call_arguments.delta" => self.delta(kind, value),
             "response.reasoning_summary_part.added" if value["summary_index"].as_u64().unwrap_or(0) > 0 => {
                 vec![Chunk::ReasoningDelta("\n\n".into())]
             }
-            "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
-                vec![Chunk::ReasoningDelta(text("delta"))]
-            }
-            "response.function_call_arguments.delta" => {
-                self.calls_with_deltas.insert(item_id.into());
-                vec![Chunk::ToolInputDelta(text("delta"))]
-            }
-            "response.output_item.done" => self.item_done(&value["item"]),
+            "response.output_item.done" => self.item_done(value),
             "response.completed" | "response.incomplete" => {
                 self.finished(&value["response"], kind == "response.incomplete")
             }
@@ -57,22 +60,66 @@ impl StreamState {
         })
     }
 
-    fn item_added(&mut self, item: &Value) -> Vec<Chunk> {
-        let id = item["id"].as_str().unwrap_or_default().to_string();
+    /// One name for an item however an event refers to it: gateways leave out its id on some events and its index
+    /// on others.
+    fn key(&mut self, id: Option<&str>, event: &Value) -> String {
+        let names: Vec<String> = [
+            id.filter(|id| !id.is_empty()).map(str::to_string),
+            event["output_index"].as_u64().map(|index| format!("#{index}")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let key = names
+            .iter()
+            .find_map(|name| self.aliases.get(name).cloned())
+            .or_else(|| names.first().cloned())
+            .unwrap_or_else(|| self.last.clone());
 
+        for name in names {
+            self.aliases.entry(name).or_insert_with(|| key.clone());
+        }
+
+        key
+    }
+
+    fn delta(&mut self, kind: &str, event: &Value) -> Vec<Chunk> {
+        let key = self.key(event["item_id"].as_str(), event);
+        self.streamed.insert(key);
+        let delta = event["delta"].as_str().unwrap_or_default().to_string();
+
+        vec![match kind {
+            "response.output_text.delta" => Chunk::TextDelta(delta),
+            "response.function_call_arguments.delta" => Chunk::ToolInputDelta(delta),
+            _ => Chunk::ReasoningDelta(delta),
+        }]
+    }
+
+    fn item_added(&mut self, event: &Value) -> Vec<Chunk> {
+        let item = &event["item"];
+        let key = self.key(item["id"].as_str(), event);
+        let start = self.start(item);
+        if !start.is_empty() {
+            self.last.clone_from(&key);
+            self.begun.insert(key);
+        }
+
+        start
+    }
+
+    /// The chunk that opens an item of a kind Drift shows.
+    fn start(&mut self, item: &Value) -> Vec<Chunk> {
         match item["type"].as_str().unwrap_or_default() {
-            "message" => {
-                self.messages.insert(id);
-                vec![Chunk::TextStart]
-            }
-            "reasoning" => {
-                self.reasoning.insert(id);
-                vec![Chunk::ReasoningStart]
-            }
+            "message" => vec![Chunk::TextStart],
+            "reasoning" => vec![Chunk::ReasoningStart],
             "function_call" => {
                 self.called_tools = true;
+                let id = item["call_id"]
+                    .as_str()
+                    .filter(|id| !id.is_empty())
+                    .map_or_else(|| crate::id::new("call"), str::to_string);
                 vec![Chunk::ToolUseStart {
-                    id: item["call_id"].as_str().unwrap_or_default().into(),
+                    id,
                     name: item["name"].as_str().unwrap_or_default().into(),
                 }]
             }
@@ -80,37 +127,27 @@ impl StreamState {
         }
     }
 
-    fn item_done(&mut self, item: &Value) -> Vec<Chunk> {
-        let id = item["id"].as_str().unwrap_or_default();
-
-        match item["type"].as_str().unwrap_or_default() {
-            "message" => {
-                self.messages.remove(id);
-                vec![Chunk::BlockStop]
-            }
-            "reasoning" => {
-                self.reasoning.remove(id);
-                let mut chunks = Vec::new();
-                if let Some(encrypted) = item["encrypted_content"].as_str() {
-                    chunks.push(Chunk::ReasoningSignature(encrypted.into()));
-                }
-                chunks.push(Chunk::BlockStop);
-
-                chunks
-            }
-            "function_call" => {
-                let mut chunks = Vec::new();
-                if !self.calls_with_deltas.remove(id)
-                    && let Some(arguments) = item["arguments"].as_str().filter(|arguments| !arguments.is_empty())
-                {
-                    chunks.push(Chunk::ToolInputDelta(arguments.into()));
-                }
-                chunks.push(Chunk::BlockStop);
-
-                chunks
-            }
-            _ => Vec::new(),
+    /// Closes the item, opening it first and giving its whole content when its start or deltas never came.
+    fn item_done(&mut self, event: &Value) -> Vec<Chunk> {
+        let item = &event["item"];
+        let key = self.key(item["id"].as_str(), event);
+        let kind = item["type"].as_str().unwrap_or_default();
+        let begun = self.begun.remove(&key);
+        let nameless = kind == "function_call" && item["name"].as_str().is_none_or(str::is_empty);
+        if !SHOWN.contains(&kind) || (!begun && nameless) {
+            return Vec::new();
         }
+
+        let mut chunks = if begun { Vec::new() } else { self.start(item) };
+        if !self.streamed.remove(&key) {
+            chunks.extend(whole(item));
+        }
+        if let Some(encrypted) = item["encrypted_content"].as_str().filter(|_| kind == "reasoning") {
+            chunks.push(Chunk::ReasoningSignature(encrypted.into()));
+        }
+        chunks.push(Chunk::BlockStop);
+
+        chunks
     }
 
     pub(super) fn finished(&self, response: &Value, incomplete: bool) -> Vec<Chunk> {
@@ -138,6 +175,27 @@ impl StreamState {
             Chunk::Stop(stop),
         ]
     }
+}
+
+/// An item's whole content as its `output_item.done` gives it, for an item whose deltas never came.
+fn whole(item: &Value) -> Option<Chunk> {
+    let joined = |parts: &Value, kind: &str, separator: &str| {
+        let texts: Vec<&str> = parts
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|part| part["type"] == kind)
+            .filter_map(|part| part["text"].as_str())
+            .collect();
+        texts.join(separator)
+    };
+    let (text, chunk): (String, fn(String) -> Chunk) = match item["type"].as_str()? {
+        "message" => (joined(&item["content"], "output_text", ""), Chunk::TextDelta),
+        "reasoning" => (joined(&item["summary"], "summary_text", "\n\n"), Chunk::ReasoningDelta),
+        _ => (item["arguments"].as_str()?.to_string(), Chunk::ToolInputDelta),
+    };
+
+    (!text.is_empty()).then(|| chunk(text))
 }
 
 /// The event's `type`. Gateways send untyped frames: keep-alives, ignored, and bare `{"error": ...}` envelopes,

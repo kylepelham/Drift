@@ -618,6 +618,100 @@ mod tests {
         }
 
         #[test]
+        fn an_item_is_followed_by_its_output_index_when_the_gateway_leaves_out_its_id() {
+            let mut state = StreamState::default();
+            let mut feed = |value: Value| state.chunks(&value.to_string()).unwrap();
+            let call = json!({ "type": "function_call", "call_id": "c", "name": "read" });
+
+            feed(json!({ "type": "response.output_item.added", "output_index": 0, "item": with_arguments(&call, "") }));
+            let delta = json!({ "type": "response.function_call_arguments.delta", "item_id": "fc_1", "output_index": 0, "delta": "{}" });
+            assert_eq!(feed(delta), vec![Chunk::ToolInputDelta("{}".into())]);
+            let done =
+                json!({ "type": "response.output_item.done", "output_index": 0, "item": with_arguments(&call, "{}") });
+            assert_eq!(feed(done), vec![Chunk::BlockStop], "the arguments are not sent twice");
+        }
+
+        #[test]
+        fn an_item_given_whole_only_at_its_end_is_not_lost_or_doubled() {
+            let mut state = StreamState::default();
+            let mut feed = |value: Value| state.chunks(&value.to_string()).unwrap();
+            let done = |item: Value| json!({ "type": "response.output_item.done", "item": item });
+            let parts = json!([{ "type": "output_text", "text": "Hel" }, { "type": "output_text", "text": "lo" }]);
+            let message = json!({ "type": "message", "id": "msg_1", "role": "assistant", "content": parts });
+            assert_eq!(
+                feed(done(message)),
+                vec![Chunk::TextStart, Chunk::TextDelta("Hello".into()), Chunk::BlockStop]
+            );
+
+            feed(json!({ "type": "response.output_item.added", "item": { "type": "reasoning", "id": "rs_1" } }));
+            let summary = json!([{ "type": "summary_text", "text": "a" }, { "type": "summary_text", "text": "b" }]);
+            let reasoning =
+                json!({ "type": "reasoning", "id": "rs_1", "summary": summary, "encrypted_content": "enc" });
+            assert_eq!(
+                feed(done(reasoning)),
+                vec![
+                    Chunk::ReasoningDelta("a\n\nb".into()),
+                    Chunk::ReasoningSignature("enc".into()),
+                    Chunk::BlockStop
+                ]
+            );
+
+            let call =
+                json!({ "type": "function_call", "id": "fc_2", "call_id": "c2", "name": "read", "arguments": "{}" });
+            let started = Chunk::ToolUseStart {
+                id: "c2".into(),
+                name: "read".into(),
+            };
+            assert_eq!(
+                feed(done(call)),
+                vec![started, Chunk::ToolInputDelta("{}".into()), Chunk::BlockStop]
+            );
+            let nameless =
+                json!({ "type": "function_call", "id": "fc_3", "call_id": null, "name": null, "arguments": "{}" });
+            assert_eq!(feed(done(nameless)), vec![], "a call without a name cannot run");
+
+            let streamed =
+                json!({ "type": "message", "id": "msg_2", "content": [{ "type": "output_text", "text": "Hi" }] });
+            feed(json!({ "type": "response.output_item.added", "item": { "type": "message", "id": "msg_2" } }));
+            feed(json!({ "type": "response.output_text.delta", "delta": "Hi" }));
+            assert_eq!(
+                feed(done(streamed)),
+                vec![Chunk::BlockStop],
+                "streamed text is not repeated"
+            );
+        }
+
+        #[test]
+        fn null_fields_in_a_responses_stream_are_absent_fields() {
+            let mut state = StreamState::default();
+            let mut feed = |value: Value| state.chunks(&value.to_string()).unwrap();
+            assert_eq!(feed(json!({ "type": "response.created", "response": null })), vec![]);
+            let call =
+                json!({ "type": "function_call", "id": null, "call_id": null, "name": "lookup", "arguments": null });
+            let started = feed(json!({ "type": "response.output_item.added", "output_index": 1, "item": call }));
+            assert!(
+                matches!(&started[..], [Chunk::ToolUseStart { id, name }] if id.starts_with("call_") && name == "lookup"),
+                "a call without an id gets one of its own: {started:?}"
+            );
+            let done =
+                json!({ "type": "response.output_item.done", "output_index": 1, "item": with_arguments(&call, "{}") });
+            assert_eq!(feed(done), vec![Chunk::ToolInputDelta("{}".into()), Chunk::BlockStop]);
+            let finished = json!({
+                "type": "response.completed",
+                "response": { "id": null, "output": null, "incomplete_details": { "reason": null },
+                    "usage": { "input_tokens": 5, "output_tokens": null, "input_tokens_details": { "cached_tokens": null } } }
+            });
+            let usage = Usage {
+                input: 5,
+                ..Usage::default()
+            };
+            assert_eq!(
+                feed(finished),
+                vec![Chunk::Usage(usage), Chunk::Stop(StopReason::ToolUse)]
+            );
+        }
+
+        #[test]
         fn untyped_frames_are_ignored_unless_they_carry_an_error() {
             let mut state = StreamState::default();
             for frame in ["{}", r#"{"gateway":"keep-alive"}"#, r#"{"error":null}"#] {
