@@ -745,6 +745,7 @@ fn estimate(messages: &[&MessageWithParts]) -> usize {
             Part::Clarification { request_id, items } => super::convert::clarification_text(request_id, items).len(),
             Part::ProcessExit { .. } => super::processes::exit_text(&row.part).len(),
             Part::InstructionUpdate { changes, .. } => super::convert::instruction_text(changes).len(),
+            Part::Continuation { text } => text.len(),
             Part::Compaction { .. } | Part::EffortUpdate { .. } | Part::Unknown { .. } => 0,
         })
         .sum();

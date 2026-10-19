@@ -62,6 +62,9 @@ pub(crate) fn append<'a>(
                 results.extend(message.parts.iter().filter_map(|row| match &row.part {
                     Part::InstructionUpdate { changes, .. } => Some(Block::Reminder(instruction_text(changes))),
                     Part::EffortUpdate { effort, .. } => Some(Block::Effort(effort.clone())),
+                    Part::Continuation { text } => Some(Block::Reminder(format!(
+                        "<system-reminder>\n{text}\n</system-reminder>"
+                    ))),
                     _ => None,
                 }));
                 push(out, LlmRole::Assistant, calls);

@@ -459,7 +459,10 @@ mod tests {
         fn an_hour_cache_sets_every_breakpoints_ttl() {
             let mut sent = body(&request());
             super::request::cache_for_an_hour(&mut sent);
-            assert_eq!(sent["system"][0]["cache_control"], json!({ "type": "ephemeral", "ttl": "1h" }));
+            assert_eq!(
+                sent["system"][0]["cache_control"],
+                json!({ "type": "ephemeral", "ttl": "1h" })
+            );
             assert_eq!(sent["tools"][0]["cache_control"]["ttl"], "1h");
         }
 

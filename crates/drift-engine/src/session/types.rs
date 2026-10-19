@@ -279,6 +279,10 @@ pub enum Part {
         generation: String,
         changes: Vec<InstructionChange>,
     },
+    /// The engine's word to keep going after a reply stopped at its output limit; replayed after that reply.
+    Continuation {
+        text: String,
+    },
     /// The reasoning level the user switched to, sent as a per-message effort on models that take one
     /// (`Model::effort_updates`), so the request's top-level effort and its cache stay as they were.
     EffortUpdate {

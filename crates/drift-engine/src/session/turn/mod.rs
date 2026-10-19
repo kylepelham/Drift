@@ -266,6 +266,8 @@ enum Step {
     Overflow,
     /// The provider could not read an image the request carried.
     UnreadableImage,
+    /// The reply, by its id, stopped at its output limit; the turn may go on after it.
+    Length(String),
 }
 
 /// Which content refusals a turn has already recovered from; each is tried once.

@@ -1,5 +1,9 @@
 use super::*;
 
+/// Replies cut off at their output limit that a turn goes on after, in a row; the next one ends it.
+const MAX_LENGTH_CONTINUES: u32 = 2;
+const LENGTH_NOTE: &str = "Your last reply hit the output limit. Do not apologise, recap or repeat yourself. Break the remaining work into smaller pieces.";
+
 impl Engine {
     /// Runs a command's calls (a skill, a delegated task or its shell lines) before the model answers.
     /// They share one message, and each passes the same permission check as the model's own calls.
@@ -81,6 +85,7 @@ impl Engine {
         let mut repeats = Repeats::default();
         let mut answered = None;
         let mut wrapping = None;
+        let mut lengths = 0;
 
         loop {
             if let Err(reason) = self.follow_session(plan).await {
@@ -114,7 +119,15 @@ impl Engine {
                     break;
                 }
                 Step::Done => break,
+                // A third stop at the output limit in a row ends the turn with that ending.
+                Step::Length(reply) if lengths < MAX_LENGTH_CONTINUES => {
+                    lengths += 1;
+                    attempts = 0;
+                    self.continue_after_length(&plan.session.id, &reply);
+                }
+                Step::Length(_) => break,
                 Step::Continue => {
+                    lengths = 0;
                     attempts = 0;
                     wrapping = repeats
                         .record(self.last_calls(&plan.session.id), &plan.config.limits)
@@ -144,6 +157,16 @@ impl Engine {
         }
 
         answered
+    }
+
+    /// Leaves a note under a reply cut off at its output limit, which the next step reads after it.
+    fn continue_after_length(&self, session_id: &str, reply: &str) {
+        let part = Part::Continuation {
+            text: LENGTH_NOTE.into(),
+        };
+        if let Ok(row) = self.store.add_part(reply, session_id, part) {
+            self.hub.publish(Event::PartCreated { part: row });
+        }
     }
 
     /// Recovers from a request the provider refused for what it carried; false ends the turn.
@@ -278,6 +301,10 @@ impl Engine {
         }
 
         if let Some((_, unrun)) = ending {
+            if streamed.stop == StopReason::MaxTokens && !request.no_tool_calls {
+                self.settle_cut_off(&message);
+                return Step::Length(message.id);
+            }
             self.settle_unrun(&message, unrun);
             return if streamed.stop == StopReason::ContextFull {
                 Step::Overflow

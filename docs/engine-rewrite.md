@@ -1948,7 +1948,14 @@ Settled after the first external review of M1; each has a regression test.
   instructions. Retry switches resolve routes from the same catalog; credentials can refresh.
 - A reply that stops at its output limit stays `done` but carries `error: "The reply stopped at the
   output limit (N tokens)."`, which the UI shows as `MessageOutputLengthError` with finish
-  `length`. The turn ends there.
+  `length` (hidden once a later reply follows it). The turn does not end there, after opencode
+  v2: a `continuation` part saved on that reply tells the model, replayed right after it, that
+  it hit the output limit and must not apologise, recap or repeat itself but break the remaining
+  work into smaller pieces, and the turn takes another step. A call the limit cut off is still
+  never run; its error now quotes the first 2,048 characters of the input it was writing and asks
+  for smaller pieces. A third stop at the limit in a row ends the turn with that ending, and a
+  wrap-up step (tools off) ends as before. A worker follows the same rule, so one whose third
+  reply is still cut off reports `incomplete`.
 - Output limit and thinking budget are computed together (`turn::budgets`): the output never
   exceeds the model's own limit; a thinking budget may raise it past the usual 32,000 cap but always
   leaves 1,024 tokens for the answer; a larger budget is reduced to fit, and one that cannot reach

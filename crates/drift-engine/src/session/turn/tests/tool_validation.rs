@@ -52,14 +52,21 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
         "the model sees its broken call and why: {replayed:?}"
     );
 
-    let mut cut = call_block("t2", "read", r#"{"path": "a.txt"}"#);
+    let mut cut = vec![
+        Chunk::ToolUseStart {
+            id: "t2".into(),
+            name: "write".into(),
+        },
+        Chunk::ToolInputDelta(r#"{"path": "big.txt", "content": "AAAA"#.into()),
+        Chunk::BlockStop,
+    ];
     cut.push(Chunk::Stop(StopReason::MaxTokens));
-    h.provider.push(cut);
+    h.provider.push(cut).push(text("split it up"));
     h.engine.submit(&h.session.id, prompt("again")).await.await_ok();
     until_idle(&h).await;
 
     let messages = transcript(&h);
-    let last = messages.last().unwrap();
+    let last = &messages[messages.len() - 2];
     let call = tool(&last.parts[0]);
     assert_eq!(
         call.status,
@@ -69,7 +76,7 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
     assert!(
         call.output
             .unwrap()
-            .starts_with("Not run: the reply hit its output limit"),
+            .starts_with("Not run: the reply hit its output limit while writing this call"),
         "{:?}",
         call.output
     );
@@ -79,6 +86,14 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
         "the ending is visible: {:?}",
         last.info.error
     );
+    assert!(
+        tool(&last.parts[0])
+            .output
+            .unwrap()
+            .contains(r#"{"path": "big.txt", "content": "AAAA"#),
+        "the cut-off input's start is quoted so the model can split it"
+    );
+    assert!(!h._dir.join("ws/big.txt").exists());
 }
 
 #[tokio::test]

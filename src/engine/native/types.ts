@@ -2037,6 +2037,10 @@ export interface components {
             /** @enum {string} */
             type: "instruction_update";
         } | {
+            text: string;
+            /** @enum {string} */
+            type: "continuation";
+        } | {
             effort: string;
             generation: string;
             /** @enum {string} */

@@ -196,18 +196,45 @@ async fn a_reply_that_fills_the_context_window_compacts_and_asks_again() {
     assert_eq!(cut.info.status, MessageStatus::Error, "the cut reply is never replayed");
 }
 
-#[tokio::test]
-async fn a_reply_cut_off_without_calls_still_says_so() {
-    let h = harness().await;
-    h.provider.push(vec![
+fn cut_off(text: &str) -> Vec<Chunk> {
+    vec![
         Chunk::TextStart,
-        Chunk::TextDelta("The answer is".into()),
+        Chunk::TextDelta(text.into()),
         Chunk::BlockStop,
         Chunk::Stop(StopReason::MaxTokens),
-    ]);
+    ]
+}
+
+#[tokio::test]
+async fn a_reply_cut_off_at_its_limit_goes_on_with_a_note_and_a_normal_reply_ends_the_turn() {
+    let h = harness().await;
+    h.provider.push(cut_off("The first half")).push(text("and the rest."));
     h.engine.submit(&h.session.id, prompt("long")).await.await_ok();
     until_idle(&h).await;
 
+    let messages = transcript(&h);
+    assert_eq!(messages.len(), 3, "the cut reply, then the one that finished");
+    assert!(format!("{:?}", messages.last().unwrap().parts).contains("and the rest."));
+    let next = h.provider.requests.lock().unwrap()[1].clone();
+    let sent = format!("{:?}", next.messages);
+    assert!(
+        sent.contains("The first half") && sent.contains("hit the output limit"),
+        "{sent}"
+    );
+}
+
+#[tokio::test]
+async fn a_third_stop_at_the_limit_in_a_row_ends_the_turn_and_says_so() {
+    let h = harness().await;
+    h.provider
+        .push(cut_off("one"))
+        .push(cut_off("two"))
+        .push(cut_off("The answer is"))
+        .push(text("never"));
+    h.engine.submit(&h.session.id, prompt("long")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(h.provider.responses_left(), 1);
     let last = transcript(&h).pop().unwrap();
     assert_eq!(last.info.status, MessageStatus::Done);
     assert!(
