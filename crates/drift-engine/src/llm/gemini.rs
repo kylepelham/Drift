@@ -1,6 +1,6 @@
 //! Gemini generateContent over SSE, for the Gemini API and, through `stream_from`, Vertex.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use futures_util::StreamExt;
 use serde_json::{Value, json};
@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::catalog::Reasoning;
 use super::sse;
 use super::{Block, ChatMessage, Chunk, ChunkStream, Credential, Error, Request, Role, StopReason};
-use crate::session::types::Usage;
+use crate::session::types::{Refusal, Usage};
 
 /// Finishes Gemini ends a sound request with now and then; a fresh attempt recovers, as opencode found.
 const MALFORMED: [&str; 2] = ["MALFORMED_FUNCTION_CALL", "MALFORMED_RESPONSE"];
@@ -99,8 +99,19 @@ pub(super) async fn stream_from(
 
 fn body(request: &Request) -> Value {
     let mut names: HashMap<String, String> = HashMap::new();
+    let mut contents: Vec<Value> = request
+        .messages
+        .iter()
+        .flat_map(|message| isolate_responses(content(message, &mut names)))
+        .collect();
+    if validates_call_signatures(&request.model) {
+        contents
+            .iter_mut()
+            .filter(|content| content["role"] == "model")
+            .for_each(sign_unsigned_calls);
+    }
     let mut body = json!({
-        "contents": request.messages.iter().map(|message| content(message, &mut names)).collect::<Vec<_>>(),
+        "contents": contents,
         "generationConfig": { "maxOutputTokens": request.max_tokens },
     });
 
@@ -199,12 +210,67 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
     json!({ "role": role, "parts": parts })
 }
 
+/// Gemini refuses a function-response turn that carries anything else, so the rest follows in a user turn of its own.
+fn isolate_responses(content: Value) -> Vec<Value> {
+    let parts = content["parts"].as_array().cloned().unwrap_or_default();
+    let (responses, rest): (Vec<Value>, Vec<Value>) = parts
+        .into_iter()
+        .partition(|part| part.get("functionResponse").is_some());
+    if responses.is_empty() || rest.is_empty() {
+        return vec![content];
+    }
+
+    let role = &content["role"];
+    vec![
+        json!({ "role": role, "parts": responses }),
+        json!({ "role": role, "parts": rest }),
+    ]
+}
+
+/// Google's documented placeholder for a call whose signature is unknown, such as one another model made.
+const SKIP_SIGNATURE: &str = "skip_thought_signature_validator";
+
+/// Gemini 3 and later refuse a replayed call without a thought signature; 1.x and 2.x take one.
+fn validates_call_signatures(model: &str) -> bool {
+    let name = model.rsplit('/').next().unwrap_or(model);
+    let version: String = name
+        .strip_prefix("gemini-")
+        .unwrap_or_default()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+
+    version.parse::<u32>().is_ok_and(|major| major >= 3)
+}
+
+/// Calls before the reply's first signed one get the placeholder; parallel calls after a signed one need none.
+fn sign_unsigned_calls(content: &mut Value) {
+    let calls = content["parts"]
+        .as_array_mut()
+        .into_iter()
+        .flatten()
+        .filter(|part| part.get("functionCall").is_some());
+    for call in calls {
+        if call.get("thoughtSignature").is_some() {
+            return;
+        }
+        call["thoughtSignature"] = json!(SKIP_SIGNATURE);
+    }
+}
+
 fn api_error(status: u16, text: &str) -> Error {
     let parsed: Value = serde_json::from_str(text).unwrap_or_default();
     let kind = parsed["error"]["status"].as_str().unwrap_or("api_error").to_string();
     let message = super::error_message(text);
+    // An invalid key comes as 400 INVALID_ARGUMENT, named only in the details.
+    let key_invalid = parsed["error"]["details"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|detail| detail["reason"] == "API_KEY_INVALID");
     match status {
         401 | 403 => Error::Unauthenticated(message),
+        _ if key_invalid => Error::Unauthenticated(message),
         _ => Error::api(status, kind, message),
     }
 }
@@ -213,6 +279,8 @@ fn api_error(status: u16, text: &str) -> Error {
 struct StreamState {
     open: Option<Open>,
     called_tools: bool,
+    /// Call ids this reply used; Gemini can repeat one, and each call needs its own.
+    call_ids: HashSet<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -233,17 +301,8 @@ impl StreamState {
         for part in candidate["content"]["parts"].as_array().into_iter().flatten() {
             out.extend(self.part(part));
         }
-
-        if let Some(usage) = value.get("usageMetadata").filter(|u| u.is_object()) {
-            let count = |key: &str| usage[key].as_u64().unwrap_or(0);
-            let cache_read = count("cachedContentTokenCount");
-            out.push(Chunk::Usage(Usage {
-                input: count("promptTokenCount").saturating_sub(cache_read),
-                output: count("candidatesTokenCount") + count("thoughtsTokenCount"),
-                cache_read,
-                cache_write: 0,
-            }));
-        }
+        out.extend(usage(&value["usageMetadata"]));
+        out.extend(blocked(&value["promptFeedback"]));
 
         if let Some(reason) = candidate["finishReason"].as_str() {
             if MALFORMED.contains(&reason) {
@@ -265,29 +324,12 @@ impl StreamState {
     }
 
     fn part(&mut self, part: &Value) -> Vec<Chunk> {
-        let mut out = Vec::new();
         let signature = part["thoughtSignature"].as_str();
-        if let Some(call) = part.get("functionCall") {
-            out.extend(self.close());
-            self.called_tools = true;
-            let id = call["id"]
-                .as_str()
-                .filter(|id| !id.is_empty())
-                .map_or_else(|| crate::id::new("call"), str::to_string);
-            out.push(Chunk::ToolUseStart {
-                id,
-                name: call["name"].as_str().unwrap_or_default().into(),
-            });
-            out.push(Chunk::ToolInputDelta(
-                call.get("args").cloned().unwrap_or_else(|| json!({})).to_string(),
-            ));
-            if let Some(signature) = signature {
-                out.push(Chunk::PartSignature(signature.into()));
-            }
-            out.push(Chunk::BlockStop);
-            return out;
+        if part["functionCall"].is_object() {
+            return self.call(&part["functionCall"], signature);
         }
 
+        let mut out = Vec::new();
         let text = match (part["text"].as_str(), signature) {
             (Some(text), _) => text,
             (None, Some(_)) => "",
@@ -321,6 +363,29 @@ impl StreamState {
         out
     }
 
+    /// A whole call: its id (a fresh one when Gemini gave none or repeated one), name, arguments and signature.
+    fn call(&mut self, call: &Value, signature: Option<&str>) -> Vec<Chunk> {
+        let mut out = self.close();
+        self.called_tools = true;
+        let id = match call["id"].as_str().filter(|id| !id.is_empty()) {
+            Some(id) if self.call_ids.insert(id.to_string()) => id.to_string(),
+            _ => crate::id::new("call"),
+        };
+        let arguments = Some(&call["args"]).filter(|args| !args.is_null());
+
+        out.push(Chunk::ToolUseStart {
+            id,
+            name: call["name"].as_str().unwrap_or_default().into(),
+        });
+        out.push(Chunk::ToolInputDelta(
+            arguments.map_or_else(|| "{}".into(), Value::to_string),
+        ));
+        out.extend(signature.map(|signature| Chunk::PartSignature(signature.into())));
+        out.push(Chunk::BlockStop);
+
+        out
+    }
+
     /// Closes only the open block; signatures have already been attached to their own parts.
     fn close(&mut self) -> Vec<Chunk> {
         let mut out = Vec::new();
@@ -330,6 +395,34 @@ impl StreamState {
 
         out
     }
+}
+
+fn usage(usage: &Value) -> Option<Chunk> {
+    let count = |key: &str| usage[key].as_u64().unwrap_or(0);
+    let cache_read = count("cachedContentTokenCount");
+
+    usage.is_object().then(|| {
+        Chunk::Usage(Usage {
+            input: count("promptTokenCount").saturating_sub(cache_read),
+            output: count("candidatesTokenCount") + count("thoughtsTokenCount"),
+            cache_read,
+            cache_write: 0,
+        })
+    })
+}
+
+/// A prompt Gemini's safety filter blocked comes with no candidate at all, only this feedback.
+fn blocked(feedback: &Value) -> Vec<Chunk> {
+    let Some(reason) = feedback["blockReason"].as_str() else {
+        return Vec::new();
+    };
+    let refusal = Refusal {
+        category: Some(reason.into()),
+        explanation: feedback["blockReasonMessage"].as_str().map(str::to_string),
+        model: None,
+    };
+
+    vec![Chunk::Refusal(refusal), Chunk::Stop(StopReason::Refused)]
 }
 
 #[cfg(test)]
