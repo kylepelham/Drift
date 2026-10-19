@@ -10,7 +10,7 @@ pub(super) use super::parts::save_part_in;
 #[path = "tests/sessions.rs"]
 mod tests;
 
-pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept";
+pub(super) const SESSION_COLUMNS: &str = "id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, archived_at, branch_cutoff, revert_json, variant, auto_accept, worktree";
 
 pub struct NewSession<'a> {
     pub workspace_id: &'a str,
@@ -43,8 +43,8 @@ impl Store {
 
     /// A session that records which source message it was cut from.
     pub fn create_branch(&self, new: NewSession, cutoff: Option<&str>) -> rusqlite::Result<Session> {
-        let session = session_from(new, cutoff);
-        insert_session(&self.lock(), &session)?;
+        let mut session = session_from(new, cutoff);
+        insert_session(&self.lock(), &mut session)?;
 
         Ok(session)
     }
@@ -148,6 +148,27 @@ impl Store {
         session_in(&connection, id)
     }
 
+    /// Moves the session into one of its workspace's worktrees by name, or back to the workspace folder with `None`.
+    pub fn set_session_worktree(&self, id: &str, worktree: Option<&str>) -> rusqlite::Result<Option<Session>> {
+        let connection = self.lock();
+        connection
+            .prepare_cached("UPDATE session SET worktree = ?2, updated_at = ?3 WHERE id = ?1")?
+            .execute(params![id, worktree, id::now_ms()])?;
+
+        session_in(&connection, id)
+    }
+
+    /// The sessions of a workspace working in its worktree `name`, archived ones included.
+    pub fn sessions_in_worktree(&self, workspace_id: &str, name: &str) -> rusqlite::Result<Vec<Session>> {
+        let connection = self.lock();
+        let mut statement = connection.prepare_cached(&format!(
+            "SELECT {SESSION_COLUMNS} FROM session WHERE workspace_id = ?1 AND worktree = ?2 ORDER BY id"
+        ))?;
+        let rows = statement.query_map(params![workspace_id, name], map_session)?;
+
+        rows.collect()
+    }
+
     /// Sets or clears the session's undo marker.
     pub fn set_revert(&self, session_id: &str, revert: Option<&Revert>) -> rusqlite::Result<Option<Session>> {
         let connection = self.lock();
@@ -217,6 +238,7 @@ pub(super) fn map_session(row: &Row) -> rusqlite::Result<Session> {
             .get::<_, Option<String>>(12)?
             .and_then(|json| serde_json::from_str(&json).ok()),
         auto_accept: row.get(14)?,
+        worktree: row.get(15)?,
         running: false,
     })
 }
@@ -246,17 +268,26 @@ pub(super) fn session_from(new: NewSession, cutoff: Option<&str>) -> Session {
         branch_cutoff: cutoff.map(Into::into),
         revert: None,
         auto_accept: false,
+        worktree: None,
         running: false,
     }
 }
 
-pub(super) fn insert_session(connection: &Connection, session: &Session) -> rusqlite::Result<()> {
+/// A session with a parent works where its parent does, in the same worktree.
+pub(super) fn insert_session(connection: &Connection, session: &mut Session) -> rusqlite::Result<()> {
+    if let Some(parent) = &session.parent_id {
+        session.worktree = connection
+            .prepare_cached("SELECT worktree FROM session WHERE id = ?1")?
+            .query_row([parent], |row| row.get(0))
+            .optional()?
+            .flatten();
+    }
     connection.prepare_cached(
-        "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, branch_cutoff)
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"
+        "INSERT INTO session(id, workspace_id, parent_id, visibility, title, agent, model_provider, model_id, created_at, updated_at, branch_cutoff, worktree)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
     )?.execute(params![session.id, session.workspace_id, session.parent_id, visibility_str(session.visibility), session.title,
         session.agent, session.model.as_ref().map(|model| &model.provider), session.model.as_ref().map(|model| &model.model),
-        session.created_at, session.updated_at, session.branch_cutoff])?;
+        session.created_at, session.updated_at, session.branch_cutoff, session.worktree])?;
 
     Ok(())
 }

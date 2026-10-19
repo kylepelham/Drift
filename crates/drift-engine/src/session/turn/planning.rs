@@ -57,10 +57,9 @@ impl Engine {
         self.bind_permissions(&session.id, &session.workspace_id);
         self.permissions.load_auto_accept(&session.id, session.auto_accept);
 
-        let workspace_path = crate::tool::canonical(Path::new(&workspace.path));
-        let config = config
-            .cloned()
-            .unwrap_or_else(|| self.workspace_config(&workspace_path));
+        let root = crate::tool::canonical(Path::new(&workspace.path));
+        let (workspace_path, owner) = self.working_place(&session, &workspace);
+        let config = config.cloned().unwrap_or_else(|| self.workspace_config(&root));
         if let Some(problem) = config.problems.first() {
             return Err(TurnError::Config(problem.clone()));
         }
@@ -94,6 +93,8 @@ impl Engine {
         let mut plan = Plan {
             session,
             workspace: workspace_path,
+            root,
+            owner,
             config: Arc::new(config),
             catalog,
             model_ref: resolved.model_ref,
@@ -118,19 +119,19 @@ impl Engine {
     async fn load_plan_tools(&self, plan: &mut Plan) {
         // Wait for workspace servers so a connecting server's tools are not omitted from this turn.
         if let Some(engine) = self.me.upgrade() {
-            engine.start_workspace_mcp(&plan.workspace);
+            engine.start_workspace_mcp(&plan.root);
         }
         self.mcp.wait_ready(crate::mcp::READY_WAIT).await;
         self.mcp.refresh_stale(&self.store, &self.hub).await;
 
         plan.mcp_tools = self
             .mcp
-            .tools(&self.store, Some(&plan.workspace))
+            .tools(&self.store, Some(&plan.root))
             .into_iter()
             .map(|tool| (tool.spec(), tool))
             .collect();
-        plan.mcp_servers = self.mcp.instructions(Some(&plan.workspace));
-        plan.mcp_commands = self.mcp.prompt_commands(Some(&plan.workspace));
+        plan.mcp_servers = self.mcp.instructions(Some(&plan.root));
+        plan.mcp_commands = self.mcp.prompt_commands(Some(&plan.root));
     }
 
     pub(super) async fn refresh_plan(&self, plan: &mut Plan) -> Result<(), TurnError> {
@@ -279,6 +280,7 @@ impl Engine {
         let Ok(Some(session)) = self.store.session(&plan.session.id) else {
             return Ok(());
         };
+        let moved = self.follow_move(plan, &session);
 
         let model = session.model.clone().filter(|model| *model != plan.model_ref);
         let variant = session.variant.clone().or_else(|| {
@@ -286,7 +288,7 @@ impl Engine {
                 .agent(&session.agent)
                 .and_then(|agent| agent.variant.clone())
         });
-        if model.is_none() && session.agent == plan.session.agent && variant == plan.variant {
+        if !moved && model.is_none() && session.agent == plan.session.agent && variant == plan.variant {
             return Ok(());
         }
         if session.agent != plan.session.agent {
@@ -321,11 +323,28 @@ impl Engine {
         Ok(())
     }
 
-    /// Built-in tools that a setting can take away: `process` with background processes, `websearch` with search.
-    fn built_in_available(&self, name: &str) -> bool {
+    /// A move `session_move` made takes effect here, between steps, never during a call: the next step's calls
+    /// run in the new folder. True when the session moved.
+    fn follow_move(&self, plan: &mut Plan, session: &Session) -> bool {
+        if session.worktree == plan.session.worktree {
+            return false;
+        }
+        let Ok(Some(workspace)) = self.store.workspace(&session.workspace_id) else {
+            return false;
+        };
+
+        (plan.workspace, plan.owner) = self.working_place(session, &workspace);
+        plan.session.worktree.clone_from(&session.worktree);
+        true
+    }
+
+    /// Built-in tools that a setting can take away: `process` with background processes, `websearch` with search,
+    /// and the worktree tools outside a git repository.
+    fn built_in_available(&self, name: &str, repository: bool) -> bool {
         match name {
             "process" => self.background_processes(),
             "websearch" => self.web_search_available(),
+            name if crate::worktree::TOOLS.contains(&name) => repository,
             _ => true,
         }
     }
@@ -338,12 +357,13 @@ impl Engine {
         let rules = self
             .permissions
             .compiled(&plan.config.policy(), &plan.config.agent_policy(&plan.session.agent));
+        let repository = crate::config::in_repository(&plan.root);
         let tools: Vec<_> = self
             .tools
             .offered(plan.model.profile)
             .into_iter()
             .map(|tool| (tool.spec_for(self), tool))
-            .filter(|(spec, _)| self.built_in_available(&spec.name))
+            .filter(|(spec, _)| self.built_in_available(&spec.name, repository))
             .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))

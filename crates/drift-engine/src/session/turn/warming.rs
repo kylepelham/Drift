@@ -134,6 +134,7 @@ impl Engine {
             variant: None,
             agent: None,
             submission_id: None,
+            worktree: false,
         };
         let Ok(plan) = self.plan(session_id, &prompt).await else {
             return;

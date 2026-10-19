@@ -25,6 +25,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 /// The longest a model may ask for, the same ceiling as the Settings choice (1,440 minutes).
 const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
+#[derive(Clone)]
 pub struct Bash {
     shell: Shell,
 }
@@ -113,7 +114,13 @@ impl Tool for Bash {
             let started = Started {
                 command: command.to_string(),
                 title: input["description"].as_str().unwrap_or(command).to_string(),
-                running: spawn(&self.shell, command, &directory, background, &context.config.programs)?,
+                running: spawn(shell_for(
+                    &self.shell,
+                    command,
+                    &directory,
+                    background,
+                    &context.config.programs,
+                ))?,
             };
 
             if background {
@@ -211,6 +218,38 @@ impl Bash {
         report(started.title, spool.finish(), ended, limit)
     }
 
+    /// Runs a line the engine itself was asked to run (a worktree's setup) in the foreground until it exits,
+    /// stopping it at the user's time limit; never moved to the background.
+    pub(crate) async fn run_to_end(
+        &self,
+        context: &Context,
+        line: &str,
+        directory: &Path,
+        env: &[(&str, &Path)],
+    ) -> Result<Output, ToolError> {
+        let mut process = shell_for(&self.shell, line, directory, false, &context.config.programs);
+        process.envs(env.iter().copied());
+        let mut running = spawn(process)?;
+        let limit = context.engine.shell_timeout();
+        let mut spool = Spool::new(None);
+        let unseen = super::Progress::default();
+        let ended = {
+            let collecting = bounded(
+                limit,
+                collect(&mut running.child, &mut running.pipes, &mut spool, &unseen),
+            );
+            tokio::select! {
+                ended = collecting => ended.unwrap_or(Ended::TimedOut),
+                () = context.abort.cancelled() => Ended::Stopped,
+            }
+        };
+        if !matches!(ended, Ended::Exited { lingering: false, .. }) {
+            kill_tree(&running.tree, &mut running.child).await;
+        }
+
+        Ok(report(line.to_string(), spool.finish(), ended, limit))
+    }
+
     /// Files a command that succeeded showed in full count as read, so an edit after `cat` is not blind.
     fn mark_files_read(&self, context: &Context, command: &str, directory: &Path) {
         for file in command::files_read(self.dialect(), command)
@@ -270,15 +309,15 @@ pub(crate) struct Started {
     pub running: Running,
 }
 
-/// Starts the shell; a background command gets an input pipe so the model can type into it. `programs` (the
+/// The shell for `line`; a background command gets an input pipe so the model can type into it. `programs` (the
 /// bin folders of bundles that are on) are on its PATH after the user's own.
-fn spawn(
+fn shell_for(
     shell: &Shell,
     line: &str,
     directory: &Path,
     background: bool,
     programs: &[std::path::PathBuf],
-) -> Result<Running, ToolError> {
+) -> tokio::process::Command {
     let mut process = shell_command(shell, line);
     let stdin = if background { Stdio::piped() } else { Stdio::null() };
     process
@@ -292,6 +331,12 @@ fn spawn(
     if std::env::var_os("PYTHONUNBUFFERED").is_none() {
         process.env("PYTHONUNBUFFERED", "1");
     }
+
+    process
+}
+
+/// Starts the shell in a job that holds everything it starts.
+fn spawn(mut process: tokio::process::Command) -> Result<Running, ToolError> {
     #[cfg(windows)]
     process.creation_flags(0x0800_0000 | 0x0000_0004);
     crate::platform::process::prepare(&mut process);

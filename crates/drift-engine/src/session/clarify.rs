@@ -48,6 +48,7 @@ impl Engine {
             variant: None,
             agent: None,
             submission_id: Some(format!("answer:{}", request.id)),
+            worktree: false,
         };
         self.deliver_answer(&request, prompt).await?;
         self.questions.settle_async(&self.hub, &request);

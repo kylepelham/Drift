@@ -104,7 +104,11 @@ fn registry_exposes_every_builtin_with_a_schema() {
             "task",
             "task_output",
             "task_stop",
-            "read_thread"
+            "read_thread",
+            "worktree_create",
+            "worktree_list",
+            "worktree_remove",
+            "session_move"
         ]
     );
     let patching: Vec<String> = registry
@@ -130,7 +134,11 @@ fn registry_exposes_every_builtin_with_a_schema() {
             "task",
             "task_output",
             "task_stop",
-            "read_thread"
+            "read_thread",
+            "worktree_create",
+            "worktree_list",
+            "worktree_remove",
+            "session_move"
         ]
     );
 

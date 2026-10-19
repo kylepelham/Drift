@@ -17,6 +17,7 @@ pub mod session;
 pub mod store;
 pub mod tool;
 pub mod websearch;
+pub mod worktree;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};

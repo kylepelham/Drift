@@ -45,6 +45,7 @@ mod tool_validation;
 mod unreadable_images;
 mod variants;
 mod warming;
+mod worktrees;
 
 pub(crate) struct Harness {
     pub(crate) engine: Arc<Engine>,
@@ -187,6 +188,7 @@ pub(crate) fn prompt(text: &str) -> Prompt {
         variant: None,
         agent: None,
         submission_id: None,
+        worktree: false,
     }
 }
 

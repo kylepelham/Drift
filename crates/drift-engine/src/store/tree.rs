@@ -48,9 +48,9 @@ impl Store {
         through: &str,
         cutoff: Option<&str>,
     ) -> rusqlite::Result<Option<Session>> {
-        let session = session_from(new, cutoff);
+        let mut session = session_from(new, cutoff);
         let messages: Vec<String> = transaction(&self.lock(), |conn| {
-            insert_session(conn, &session)?;
+            insert_session(conn, &mut session)?;
             conn.prepare_cached("UPDATE session SET variant = (SELECT variant FROM session WHERE id = ?2), archived_at = ?3, cache_root = ?4 WHERE id = ?1")?.execute(params![session.id, source_id, id::now_ms(), root_of(conn, source_id)?])?;
             conn.prepare_cached(
                 "SELECT id FROM message WHERE session_id = ?1 AND id <= ?2 AND status != 'streaming' ORDER BY id",
@@ -172,8 +172,9 @@ impl Store {
 
     pub fn move_sessions(&self, ids: &[String], workspace_id: &str) -> rusqlite::Result<()> {
         transaction(&self.lock(), |conn| {
-            let mut update =
-                conn.prepare_cached("UPDATE session SET workspace_id = ?2, updated_at = ?3 WHERE id = ?1")?;
+            let mut update = conn.prepare_cached(
+                "UPDATE session SET workspace_id = ?2, worktree = NULL, updated_at = ?3 WHERE id = ?1",
+            )?;
             let now = id::now_ms();
             for session in ids {
                 update.execute(params![session, workspace_id, now])?;

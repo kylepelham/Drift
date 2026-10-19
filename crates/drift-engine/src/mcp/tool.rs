@@ -160,12 +160,16 @@ fn behaves_alike(first: &rmcp::model::Tool, second: &rmcp::model::Tool) -> bool 
 const MAX_NAME: usize = 60;
 
 /// Built-in tool names a server's `<server>_<tool>` could spell; providers refuse two tools of one name.
-pub(crate) const RESERVED: [&str; 7] = [
+pub(crate) const RESERVED: [&str; 11] = [
     "apply_patch",
     "save_image",
     "task_output",
     "task_stop",
     "read_thread",
+    "worktree_create",
+    "worktree_list",
+    "worktree_remove",
+    "session_move",
     "mcp_resources",
     "mcp_read_resource",
 ];

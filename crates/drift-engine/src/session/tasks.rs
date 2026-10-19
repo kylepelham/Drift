@@ -597,6 +597,7 @@ impl Engine {
             variant: None,
             agent: None,
             submission_id: Some(format!("task:{}", task.id)),
+            worktree: false,
         };
         let wakes = matches!(task.state, TaskState::Replied | TaskState::Failed);
         let how = super::turn::Admission {

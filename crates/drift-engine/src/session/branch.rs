@@ -76,6 +76,7 @@ impl Engine {
             variant: Some(source.variant.clone()),
             agent: None,
             submission_id: None,
+            worktree: source.worktree.is_some(),
         };
         self.submit(&session.id, prompt).await.map_err(BranchError::Turn)?;
 

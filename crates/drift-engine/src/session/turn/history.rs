@@ -28,8 +28,7 @@ impl Engine {
         touches: Option<Option<Vec<PathBuf>>>,
     ) -> Result<Option<changes::Capture>, Outcome> {
         let Some(touches) = touches else { return Ok(None) };
-        self.snapshots
-            .bind(&scope.plan.session.workspace_id, &scope.plan.workspace);
+        self.snapshots.bind(&scope.plan.owner, &scope.plan.workspace);
 
         // Whole-tree calls reuse the preceding tree; a named-file write clears that chain.
         let chained = scope.tree.lock().unwrap().take().filter(|_| touches.is_none());
@@ -83,7 +82,7 @@ impl Engine {
         text: String,
     ) -> (ToolStatus, String, Option<ToolMetadata>) {
         let plan = scope.plan;
-        let owner = &plan.session.workspace_id;
+        let owner = &plan.owner;
         let recorded = self.record_call(&plan.workspace, capture).await;
 
         // The next whole-tree call begins at this call's after state, so it observes intervening changes.

@@ -28,6 +28,7 @@ mod text;
 pub mod todo;
 pub mod webfetch;
 pub mod websearch;
+pub mod worktree;
 pub mod write;
 
 #[cfg(test)]

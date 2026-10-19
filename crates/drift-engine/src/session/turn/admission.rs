@@ -71,7 +71,7 @@ impl Engine {
             return Err(TurnError::Stopped);
         }
         if !self.turns.claim(session_id, &abort) {
-            if !how.bootstrap.is_empty() || how.turn_only {
+            if !how.bootstrap.is_empty() || how.turn_only || prompt.worktree {
                 return Err(TurnError::Busy);
             }
             return self.steer_or_wait(session_id, prompt, how, &payload_hash).await;
@@ -88,6 +88,9 @@ impl Engine {
         match planned {
             Ok(mut plan) => {
                 plan.bootstrap = how.bootstrap.to_vec();
+                if prompt.worktree {
+                    plan.bootstrap.extend(command::worktree_calls(&prompt.parts));
+                }
                 let prompt = match self.hook_prompt(&plan, prompt, &how).await {
                     Ok(prompt) => prompt,
                     Err(error) => {

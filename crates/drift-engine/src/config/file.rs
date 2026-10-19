@@ -31,6 +31,17 @@ pub struct File {
     pub skill_paths: Vec<String>,
     /// WebAssembly plugins under this directory, each a path or a path with config; read from the user's own file only.
     pub plugins: Vec<crate::hook::PluginEntry>,
+    /// What a new worktree gets before anyone works in it.
+    pub worktree: WorktreeFile,
+}
+
+/// `worktree` in drift.json.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorktreeFile {
+    /// Shell commands run in a new worktree, in order, each asking like `bash` unless a rule allows it:
+    /// copying `.env`, installing dependencies. The nearest file that sets the list wins.
+    pub setup: Option<Vec<String>>,
 }
 
 /// A provider the user adds (any OpenAI-compatible server) or re-points (a gateway, a remote LM Studio).

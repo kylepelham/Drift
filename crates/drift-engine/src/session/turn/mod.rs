@@ -97,6 +97,10 @@ pub struct Prompt {
     /// Client-chosen id; resubmitting with the same id returns the original receipt instead of a second turn.
     #[serde(default)]
     pub submission_id: Option<String>,
+    /// Starts the turn in a new worktree named from the prompt's first words. Only for a prompt that starts a
+    /// turn: one sent while the session runs is refused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub worktree: bool,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -203,7 +207,12 @@ pub enum TurnEnd {
 /// The fixed admission plan for a queued worker, then the model and agent choices followed at each step.
 pub(crate) struct Plan {
     pub(super) session: Session,
+    /// Where the session works: the workspace folder, or its worktree after a move.
     pub(super) workspace: PathBuf,
+    /// The workspace folder itself, whose config and MCP servers the turn uses wherever it works.
+    pub(super) root: PathBuf,
+    /// Whose undo history the turn's writes join: the workspace's, or its worktree's.
+    pub(super) owner: String,
     pub(super) config: Arc<Config>,
     pub(super) catalog: Arc<crate::llm::catalog::Catalog>,
     pub(super) model_ref: ModelRef,
