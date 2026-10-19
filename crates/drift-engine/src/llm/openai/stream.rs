@@ -22,7 +22,7 @@ impl StreamState {
     }
 
     pub(super) fn chunks_value(&mut self, value: &Value) -> Result<Vec<Chunk>, Error> {
-        let kind = value["type"].as_str().unwrap_or_default();
+        let kind = kind(value);
         let item_id = value["item_id"].as_str().unwrap_or_default();
         let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
 
@@ -137,5 +137,15 @@ impl StreamState {
             }),
             Chunk::Stop(stop),
         ]
+    }
+}
+
+/// The event's `type`. Gateways send untyped frames: keep-alives, ignored, and bare `{"error": ...}` envelopes,
+/// which are errors.
+fn kind(value: &Value) -> &str {
+    match value["type"].as_str() {
+        Some(kind) => kind,
+        None if !value["error"].is_null() => "error",
+        None => "",
     }
 }

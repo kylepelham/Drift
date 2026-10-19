@@ -618,6 +618,21 @@ mod tests {
         }
 
         #[test]
+        fn untyped_frames_are_ignored_unless_they_carry_an_error() {
+            let mut state = StreamState::default();
+            for frame in ["{}", r#"{"gateway":"keep-alive"}"#, r#"{"error":null}"#] {
+                assert_eq!(state.chunks(frame).unwrap(), vec![], "{frame}");
+            }
+            let error = state
+                .chunks(r#"{"error":{"code":"server_error","message":"try again"}}"#)
+                .unwrap_err();
+            assert!(
+                matches!(error, Error::Api { ref kind, retryable: true, .. } if kind == "server_error"),
+                "{error:?}"
+            );
+        }
+
+        #[test]
         fn incomplete_and_errors_classify() {
             let state = StreamState::default();
             let out = state.finished(

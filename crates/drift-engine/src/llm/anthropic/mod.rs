@@ -161,7 +161,7 @@ pub(super) fn api_error(status: u16, text: &str) -> Error {
 pub(super) fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
     let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
 
-    let chunk = match event {
+    let chunk = match kind(event, &value) {
         "message_start" => Some(Chunk::Usage(usage(&value["message"]["usage"]))),
         "content_block_start" => block_start(&value["content_block"]),
         "content_block_delta" => block_delta(&value["delta"]),
@@ -172,6 +172,20 @@ pub(super) fn chunks(event: &str, data: &str) -> Result<Vec<Chunk>, Error> {
     };
 
     Ok(chunk.into_iter().collect())
+}
+
+/// The SSE event name, else the frame's own `type`. Gateways send untyped frames: keep-alives, ignored, and
+/// bare `{"error": ...}` envelopes, which are errors.
+fn kind<'a>(event: &'a str, value: &'a Value) -> &'a str {
+    if !event.is_empty() {
+        return event;
+    }
+
+    match value["type"].as_str() {
+        Some(kind) => kind,
+        None if !value["error"].is_null() => "error",
+        None => "",
+    }
 }
 
 /// Skips unknown block kinds such as server tools and citations.
@@ -621,6 +635,26 @@ mod tests {
             )
             .unwrap();
             assert!(!none.iter().any(|chunk| matches!(chunk, Chunk::Refusal(_))));
+        }
+
+        #[test]
+        fn untyped_frames_are_ignored_unless_they_carry_an_error() {
+            assert_eq!(chunks("", r#"{"gateway":"keep-alive"}"#).unwrap(), vec![]);
+            assert_eq!(chunks("", "{}").unwrap(), vec![]);
+            assert_eq!(
+                chunks(
+                    "",
+                    r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"OK"}}"#
+                )
+                .unwrap(),
+                vec![Chunk::TextDelta("OK".into())],
+                "a frame without an event name is read by its type"
+            );
+            let error = chunks("", r#"{"error":{"type":"overloaded_error","message":"Overloaded"}}"#).unwrap_err();
+            assert!(
+                matches!(error, Error::Api { ref kind, retryable: true, .. } if kind == "overloaded_error"),
+                "{error:?}"
+            );
         }
 
         #[test]
