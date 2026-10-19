@@ -6,6 +6,8 @@
  * that do not exist.
  */
 
+import { For } from "solid-js";
+
 import type { JSX } from "solid-js";
 
 /** Disclosure arrow that rotates to point down when its section is open. */
@@ -91,5 +93,64 @@ export function Badge(props: { tone?: "accent" | "warn"; children: JSX.Element }
         >
             {props.children}
         </span>
+    );
+}
+
+/** A choice among a few options shown side by side, as one radio group. */
+export function Segmented<T extends string>(props: {
+    label: string;
+    options: readonly { id: T; label: string }[];
+    value: T;
+    onChange: (id: T) => void;
+}) {
+    return (
+        <div
+            role="radiogroup"
+            aria-label={props.label}
+            class="inline-flex rounded-lg border border-edge bg-bg/60 p-0.5"
+        >
+            <For each={props.options}>
+                {(option) => (
+                    <button
+                        role="radio"
+                        aria-checked={option.id === props.value}
+                        class="rounded-md px-3 py-1 text-xs font-medium transition-colors"
+                        classList={{
+                            "bg-raised text-ink shadow-sm shadow-black/20": option.id === props.value,
+                            "text-ink-muted hover:text-ink": option.id !== props.value,
+                        }}
+                        onClick={() => props.onChange(option.id)}
+                    >
+                        {option.label}
+                    </button>
+                )}
+            </For>
+        </div>
+    );
+}
+
+/** A range from `min` to `max`, its filled part in the accent. */
+export function Slider(props: {
+    label: string;
+    min: number;
+    max: number;
+    step: number;
+    value: number;
+    onInput: (value: number) => void;
+}) {
+    const fill = () => `${((props.value - props.min) / (props.max - props.min)) * 100}%`;
+
+    return (
+        <input
+            type="range"
+            class="drift-slider"
+            aria-label={props.label}
+            min={props.min}
+            max={props.max}
+            step={props.step}
+            value={props.value}
+            style={{ "--fill": fill() }}
+            onInput={(event) => props.onInput(Number(event.currentTarget.value))}
+        />
     );
 }

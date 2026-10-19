@@ -1,5 +1,5 @@
 import { keybindLabels } from "./settings-shortcuts";
-import { themeMeta } from "./settings-appearance";
+import { themeLabels } from "./settings-theme";
 import { t } from "../state/i18n";
 
 export const sections = [
@@ -92,8 +92,11 @@ const settingsSearchDefinitions = {
     ],
     Appearance: [
         { title: "settings.general.row.theme.title" },
-        ...Object.values(themeMeta).map((item) => ({ title: item.label })),
+        ...Object.values(themeLabels).map((label) => ({ title: label })),
         { title: "drift.settings.customPalette" },
+        { title: "drift.accent.title", description: "drift.accent.description" },
+        { title: "drift.backdrop.title", description: "drift.backdrop.description" },
+        { title: "drift.corners.title", description: "drift.corners.description" },
         { title: "settings.general.row.uiFont.title", description: "settings.general.row.uiFont.description" },
         { title: "drift.settings.thinking", description: "drift.settings.thinking.preview.description" },
         { title: "startup.settings.show.title", description: "startup.settings.show.description" },

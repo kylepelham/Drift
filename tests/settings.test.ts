@@ -233,15 +233,18 @@ test("General settings expose preview modes and custom-only per-type toggles", a
     expect(general).toContainCode("setFilePreviewType(type, !filePreviewPrefs().types[type])");
 });
 
-test("appearance exposes static presets plus custom theming", async () => {
+test("appearance offers bases with a custom one, light or dark by its background", async () => {
     const { setCustomTheme, setTheme, lightTheme, themes } = await import("../src/state/theme");
-    expect(themes).toHaveLength(9);
+    expect(themes).toContain("drift-charcoal");
+    expect(themes).toContain("drift-mocha");
+    expect(themes.at(-1)).toBe("drift-custom");
     setTheme("drift-paper");
     expect(lightTheme()).toBeTrue();
     setCustomTheme({ background: "#ffffff", surface: "#f5f5f5", text: "#111111", accent: "#3366cc" });
     setTheme("drift-custom");
     expect(lightTheme()).toBeTrue();
-    setTheme("drift-dark");
+    setTheme("drift-charcoal");
+    expect(lightTheme()).toBeFalse();
 });
 
 test("settings elevation and toggle contrast follow their visual state", async () => {
@@ -585,4 +588,16 @@ test("tool grouping is one multi-select list and Code settings preview a diff wi
     const appearance = await Bun.file("src/ui/settings-appearance.tsx").text();
     expect(appearance).toContainCode("<ThinkingSettings />");
     expect(await Bun.file("src/ui/settings-general.tsx").text()).not.toContain("ThinkingSettings");
+});
+
+test("a theme saved before bases and accents became its base and the accent it showed", async () => {
+    const { migratedTheme } = await import("../src/state/theme");
+
+    expect(migratedTheme("drift-dark", "")).toEqual(["drift-charcoal", ""]);
+    expect(migratedTheme("drift-graphite", "")).toEqual(["drift-charcoal", "silver"]);
+    expect(migratedTheme("drift-slate", "")).toEqual(["drift-midnight", "teal"]);
+    expect(migratedTheme("drift-aubergine", "")).toEqual(["drift-plum", ""]);
+    expect(migratedTheme("drift-slate", "clay"), "an accent already chosen stays").toEqual(["drift-midnight", "clay"]);
+    expect(migratedTheme("drift-paper", "green")).toEqual(["drift-paper", "green"]);
+    expect(migratedTheme("someone-elses-theme", "")).toEqual(["drift-charcoal", ""]);
 });

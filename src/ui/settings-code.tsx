@@ -1,6 +1,6 @@
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { codeFont, setCodeFont } from "../state/theme";
-import { FontField } from "./settings-font";
+import { FontPicker } from "./settings-font";
 import { DiffPanel } from "./diff-panel";
 import { Toggle } from "./controls";
 import { t } from "../state/i18n";
@@ -87,7 +87,7 @@ export function CodeSection() {
                     title={t("settings.general.row.font.title")}
                     description={t("settings.general.row.font.description")}
                 >
-                    <FontField
+                    <FontPicker
                         label={t("settings.general.row.font.title")}
                         value={codeFont()}
                         onInput={setCodeFont}

@@ -16,6 +16,8 @@ export type PickerItem = {
     providerID?: string;
     family?: string;
     releaseDate?: string;
+    /** A CSS font list the label is shown in, so a font picker shows each font as it looks. */
+    font?: string;
 };
 
 export function Picker(props: {
@@ -185,7 +187,9 @@ export function Picker(props: {
                                 onClick={() => pick(item.id)}
                             >
                                 <span class="min-w-0 flex-1">
-                                    <span class="block truncate">{item.label}</span>
+                                    <span class="block truncate" style={{ "font-family": item.font }}>
+                                        {item.label}
+                                    </span>
                                     <Show when={item.detail}>
                                         <span class="block truncate text-[0.68rem] text-ink-faint">{item.detail}</span>
                                     </Show>
@@ -220,6 +224,7 @@ export function Picker(props: {
                 <span
                     class="picker-label min-w-0 max-w-40 truncate"
                     classList={{ "flex-1": !!props.chevronAtEnd, "picker-label-full": !!props.compactLabel }}
+                    style={{ "font-family": props.items.find((item) => item.id === props.selected)?.font }}
                 >
                     {selectedLabel()}
                 </span>
