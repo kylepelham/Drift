@@ -54,6 +54,17 @@ layouts (#52014), tool schema roots declared as objects (#51153), outbound surro
 visible text (#43984), unique Gemini call ids (#44051), PDFs as file parts on Chat Completions
 (#50933), `prompt_cache_key` clamped to 64 characters (#44571).
 
+### Edit against v2's cases
+
+The ten cases of v2's `test/tool-edit.test.ts` that apply to Drift are ported as
+`crates/drift-engine/src/tool/edit/cases.rs`. Before the change Drift passed three: refusing a no-op,
+empty, missing or ambiguous `old_string`; `replace_all`; and keeping a BOM and CRLF endings. It
+failed seven: typography folding, both trailing-whitespace cases, a mixed CRLF and LF file (Drift
+rewrote every ending to CRLF when the file held any), endings of unchanged lines inside a match,
+edits that change only `\r`, and refusing an edit that leaves the file unchanged. All ten pass
+with `tool::edit::matching`. v2's two concurrency cases are not ported: Drift's file reservations
+serialise writers above the tool.
+
 ## Features
 
 - **Web search.** One `websearch` tool over providers (Exa, Firecrawl, Parallel, Tavily, TinyFish).

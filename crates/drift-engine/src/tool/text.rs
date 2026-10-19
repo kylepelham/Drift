@@ -31,6 +31,17 @@ impl TextFormat {
     }
 }
 
+/// A typographic dash, quote or space as its ASCII form, one character for one, so offsets map back.
+pub(super) fn ascii(character: char) -> char {
+    match character {
+        '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
+        '\u{2018}'..='\u{201B}' => '\'',
+        '\u{201C}'..='\u{201F}' => '"',
+        '\u{00A0}' | '\u{2002}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => ' ',
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::tool::tests::Sandbox;

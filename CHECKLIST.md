@@ -312,7 +312,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] Tool input repaired where its schema allows one reading, before validation (built-in and MCP)
   - [ ] Gemini `MALFORMED_*` finishes retried; wire-fix sweep done, each fix tested or recorded as not affecting Drift
   - [ ] Cache key is the session tree's root (workers, forks, spawned threads); WebSocket continuations stay per session
-  - [ ] `edit` checked against v2's cases: folding and trailing-whitespace tiers after exact, per-region line endings
+  - [x] `edit` checked against v2's cases: folding and trailing-whitespace tiers after exact, per-region line endings
   - [ ] `todowrite` answers in one line instead of echoing the list; description asks for items done as they finish
 - Cache stability:
   - [ ] Cache-prefix diagnostics log the first changed segment when cache reads drop
