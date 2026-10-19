@@ -31,10 +31,12 @@ impl Store {
             .optional()
     }
 
-    /// Drops blobs no message names any more: a deleted message takes its references with it.
+    /// Drops blobs no message and no session's instructions name any more; a deleted message or session
+    /// takes its references with it.
     pub fn prune_blobs(&self) -> rusqlite::Result<usize> {
         self.lock().execute(
-            "DELETE FROM blob WHERE NOT EXISTS (SELECT 1 FROM blob_ref WHERE blob_ref.hash = blob.hash)",
+            "DELETE FROM blob WHERE NOT EXISTS (SELECT 1 FROM blob_ref WHERE blob_ref.hash = blob.hash)
+             AND NOT EXISTS (SELECT 1 FROM instruction WHERE instruction.baseline = blob.hash OR instruction.current = blob.hash)",
             [],
         )
     }

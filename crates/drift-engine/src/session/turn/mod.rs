@@ -42,6 +42,7 @@ mod checks;
 mod history;
 mod hooks;
 mod images;
+mod instructions;
 mod limits;
 mod planning;
 mod receipts;
@@ -323,7 +324,8 @@ struct Switch {
 #[derive(Default)]
 struct Offer {
     tools: Vec<(llm::ToolSpec, Arc<dyn crate::tool::Tool>)>,
-    system: String,
+    /// What the system prompt is made of now; a session sends its frozen baseline of them (`instructions`).
+    sources: Vec<crate::session::prompt::Source>,
 }
 
 struct CallScope<'a> {

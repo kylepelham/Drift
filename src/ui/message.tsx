@@ -2,6 +2,7 @@ import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show
 import { groupParts, updatePartGroupSlots, type PartGroup, type PartGroupSlot } from "./message-groups";
 import { collapseCompaction, compactionCollapsed, editedFilesCard } from "../state/prefs";
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store";
+import { InstructionUpdateRow, type InstructionUpdatePart } from "./instruction-update";
 import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
@@ -79,7 +80,9 @@ export function messageVisible(entry: MessageEntry) {
     if (entry.info.role === "user")
         return (
             !!messageText(entry) ||
-            entry.parts.some((part) => ["file", "compaction", "context", "process_exit"].includes(part.type))
+            entry.parts.some((part) =>
+                ["file", "compaction", "context", "process_exit", "instruction_update"].includes(part.type),
+            )
         );
 
     const info = entry.info;
@@ -180,6 +183,8 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     const files = () => props.entry.parts.filter((part) => part.type === "file");
     const plugins = () => props.entry.parts.filter((part): part is ContextPart => part.type === "context");
     const exits = () => props.entry.parts.filter((part): part is ProcessExitPart => part.type === "process_exit");
+    const updates = () =>
+        props.entry.parts.filter((part): part is InstructionUpdatePart => part.type === "instruction_update");
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
     const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
     const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -199,6 +204,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                 <>
                     <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
                     <For each={exits()}>{(part) => <ProcessExitRow part={part} />}</For>
+                    <For each={updates()}>{(part) => <InstructionUpdateRow part={part} />}</For>
                     <Show when={text() || files().length > 0}>
                         <div class="group flex flex-col items-end gap-1.5">
                             <Show when={files().length > 0}>

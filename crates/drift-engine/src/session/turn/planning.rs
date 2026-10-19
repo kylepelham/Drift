@@ -364,9 +364,9 @@ impl Engine {
             model: &plan.model.name,
             servers: &servers,
         };
-        let system = prompt::system(&setting);
+        let sources = prompt::sources(&setting);
 
-        Offer { tools, system }
+        Offer { tools, sources }
     }
 }
 

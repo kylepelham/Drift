@@ -234,6 +234,10 @@ fn discard_reverted(connection: &Connection, session_id: &str) -> rusqlite::Resu
     connection
         .prepare_cached("UPDATE session SET revert_json = NULL WHERE id = ?1")?
         .execute([session_id])?;
+    // The history the baseline's updates rode on is gone, so the next request freezes a new one.
+    connection
+        .prepare_cached("DELETE FROM instruction WHERE session_id = ?1")?
+        .execute([session_id])?;
 
     Ok(ids)
 }

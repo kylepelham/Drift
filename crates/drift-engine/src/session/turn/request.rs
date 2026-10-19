@@ -20,6 +20,7 @@ impl Engine {
     ) -> (Request, Option<String>) {
         branch::frame_spawned(&plan.session, &mut transcript);
         let lead = prompt::remind_agents(&plan.config, &plan.session.agent, &mut transcript);
+        let system = self.instruction_system(plan, &mut transcript);
         convert::drop_earlier_reasoning(&mut transcript, started);
         let answered = transcript.iter().rev().find(|message| message.info.role == Role::User);
         let answered = answered.map(|message| message.info.id.clone());
@@ -43,7 +44,7 @@ impl Engine {
 
         let request = Request {
             model: plan.model.wire(&plan.model_ref.model).to_string(),
-            system: plan.offer.system.clone(),
+            system,
             messages: llm::prepare_files(messages, &plan.model, |hash| self.store.blob(hash).ok().flatten()),
             tools: plan.offer.specs(),
             max_tokens,

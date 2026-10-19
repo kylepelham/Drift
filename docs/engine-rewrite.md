@@ -2499,6 +2499,29 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
   `Config.problems`, and every turn in that workspace refuses with 400 `config` until it is fixed,
   because running without its rules would drop its denies; the UI shows the problem when the
   workspace config loads.
+- **Instruction baseline** (`session::turn::instructions`, after opencode v2's instruction deltas).
+  The system prompt is built from keyed sources (`prompt::sources`), most shared first: the base
+  prompt with the shared rules (`base:<family>`), a subagent's own prompt (`agent`), the skills
+  and subagents lists, each MCP server's instructions (`mcp:<server>`), each instruction file
+  (`file:<name>`), the environment, the model and the date last. A session's first request
+  freezes them as its baseline (table `instruction`, migration 42: per source the hash it began
+  with and the one the model last heard, texts stored once as blobs, kept through blob pruning,
+  and a generation id). Every later request sends that same system prompt. Before each one every
+  source is read once and hashed; a changed, added or removed source becomes one engine-made
+  `instruction_update` part, saved on the last replayed message (the prompt being answered, or
+  between steps after that step's tool results) and replayed as saved, so each request is a
+  prefix of the next. The model reads it as a `<system-reminder>` with each source's new text, or
+  that it no longer applies; it always rides in a user turn, never as developer or system context
+  after a tool output, which the Responses API refuses (opencode #55389). A source follows
+  configuration, not connection state: an MCP server still switched on keeps its last
+  instructions while it reconnects, so reconnects and restarts announce nothing (#55529). A switch
+  to a model of another prompt family, a finished compaction and a committed undo start a new
+  baseline from current values, and an update made against an older baseline is left out of the
+  request, so a carried tail can never contradict the new one. A fork or spawned thread copies its
+  source's baseline and replays only the updates in its copied range, so its first request shares
+  its source's prefix and a change the source heard later is still news to the fork; a worker
+  gets its own baseline when created. The UI folds an update as "Instructions changed" with the
+  sources named; the context meter counts it as system prompt.
 - **Agents.** `build` and `plan` are built in. A project agent of the same name replaces a
   built-in. A session's `agent` is set on create or `PATCH`; its `tools` list filters the
   registry and its `model` is the default when the session has none. The filtered set is pinned

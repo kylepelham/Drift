@@ -48,8 +48,13 @@ async fn a_turn_keeps_the_tools_it_started_with_and_a_change_reaches_the_next_on
             .any(|tool| tool.name == "echo_echo"),
         "the next turn sees the change"
     );
+    assert_eq!(
+        requests.last().unwrap().system,
+        requests[0].system,
+        "the system prompt is frozen, and a server that is still switched on keeps its instructions while it reconnects"
+    );
     assert!(
-        !requests.last().unwrap().system.contains("echo MCP server"),
-        "and its instructions go with them"
+        !format!("{:?}", requests.last().unwrap().messages).contains("These instructions changed"),
+        "a lost connection announces nothing"
     );
 }

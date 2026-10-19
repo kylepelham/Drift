@@ -1735,6 +1735,13 @@ export interface components {
             name: string;
             text: string;
         };
+        /** @description One source of the system prompt that changed: its new text, or `None` when it no longer applies. */
+        InstructionChange: {
+            key: string;
+            text?: string | null;
+            /** @description How the user and the model hear it named. */
+            title: string;
+        };
         Limit: {
             /** Format: int64 */
             context: number;
@@ -2010,6 +2017,12 @@ export interface components {
             tailFrom?: string | null;
             /** @enum {string} */
             type: "compaction";
+        } | {
+            changes: components["schemas"]["InstructionChange"][];
+            /** @description The baseline it was made against; after a new one it is history, never replayed. */
+            generation: string;
+            /** @enum {string} */
+            type: "instruction_update";
         } | {
             raw: string;
             /** @enum {string} */

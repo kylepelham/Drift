@@ -3,6 +3,7 @@
 mod admission;
 mod blobs;
 mod import;
+mod instructions;
 mod mcp;
 mod messages;
 mod migrations;
@@ -17,6 +18,7 @@ mod tree;
 
 pub use admission::{Admission, Admit, Admitted, Handover, Pick};
 pub use import::ImportCheckpoints;
+pub use instructions::{Instruction, Value as InstructionValue};
 pub use mcp::Renamed;
 pub use sessions::{NewSession, Purge, SessionFilter};
 pub use staged::StagedReplacement;

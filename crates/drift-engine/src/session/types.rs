@@ -272,10 +272,27 @@ pub enum Part {
         #[serde(skip_serializing_if = "Option::is_none")]
         tail_from: Option<String>,
     },
+    /// What changed in the system prompt's sources since the model last heard them, written by the engine
+    /// before the request it precedes and replayed as saved, so the system prompt itself never changes.
+    InstructionUpdate {
+        /// The baseline it was made against; after a new one it is history, never replayed.
+        generation: String,
+        changes: Vec<InstructionChange>,
+    },
     /// A stored part this build cannot read (imported, or written by a newer Drift), kept exactly as stored.
     Unknown {
         raw: String,
     },
+}
+
+/// One source of the system prompt that changed: its new text, or `None` when it no longer applies.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+pub struct InstructionChange {
+    pub key: String,
+    /// How the user and the model hear it named.
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 /// One answered question: what was asked and what the user chose or typed.

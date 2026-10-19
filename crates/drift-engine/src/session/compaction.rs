@@ -259,8 +259,9 @@ impl Engine {
         if result.is_ok() {
             self.turns.files_for(&self.store, session_id).forget_shown();
             self.turns.forget_checked(session_id);
-            // A summary rewrites the history, so the next request's cache read starts over.
+            // A summary rewrites the history: the cache starts over and so does the instruction baseline.
             self.turns.cache_watch.forget(session_id);
+            let _ = self.store.clear_instructions(session_id);
         }
 
         if trigger != Trigger::Manual {
@@ -743,6 +744,7 @@ fn estimate(messages: &[&MessageWithParts]) -> usize {
             Part::File { url, .. } => url.len(),
             Part::Clarification { request_id, items } => super::convert::clarification_text(request_id, items).len(),
             Part::ProcessExit { .. } => super::processes::exit_text(&row.part).len(),
+            Part::InstructionUpdate { changes, .. } => super::convert::instruction_text(changes).len(),
             Part::Compaction { .. } | Part::Unknown { .. } => 0,
         })
         .sum();

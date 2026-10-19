@@ -58,6 +58,11 @@ pub(crate) fn append<'a>(
                 let mut calls = assistant_blocks(message, same_model);
                 let mut results = result_blocks(message);
                 unique_ids(&mut used, &mut calls, &mut results);
+                // An update saved between steps follows the results it came after.
+                results.extend(message.parts.iter().filter_map(|row| match &row.part {
+                    Part::InstructionUpdate { changes, .. } => Some(Block::Text(instruction_text(changes))),
+                    _ => None,
+                }));
                 push(out, LlmRole::Assistant, calls);
                 push(out, LlmRole::User, results);
             }
@@ -174,8 +179,32 @@ fn user_block(part: &Part) -> Option<Block> {
         ))),
         Part::Clarification { request_id, items } => Some(Block::Text(clarification_text(request_id, items))),
         Part::ProcessExit { .. } => Some(Block::Text(super::processes::exit_text(part))),
+        Part::InstructionUpdate { changes, .. } => Some(Block::Text(instruction_text(changes))),
         _ => None,
     }
+}
+
+/// What the model reads for changed instruction sources: each one's new text, or that it no longer applies.
+pub(super) fn instruction_text(changes: &[super::types::InstructionChange]) -> String {
+    let mut text = String::from(
+        "<system-reminder>\nThese instructions changed since this conversation began; they replace what the system prompt says about them.",
+    );
+    for change in changes {
+        match &change.text {
+            Some(now) => {
+                text.push_str("\n\n");
+                text.push_str(now.trim_end());
+            }
+            None => {
+                text.push_str("\n\n");
+                text.push_str(&change.title);
+                text.push_str(" no longer applies.");
+            }
+        }
+    }
+    text.push_str("\n</system-reminder>");
+
+    text
 }
 
 /// How the model reads an answer that arrives after it moved on.

@@ -61,6 +61,7 @@ impl Store {
 
         let result = self.finish_fork(source_id, &session.id, through, &messages);
         if matches!(&result, Ok(Some(_))) {
+            self.fork_instructions(source_id, &session.id)?;
             return result;
         }
 

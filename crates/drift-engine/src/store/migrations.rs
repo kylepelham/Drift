@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 41] = [
+pub(super) const MIGRATIONS: [&str; 42] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -192,6 +192,17 @@ pub(super) const MIGRATIONS: [&str; 41] = [
     "ALTER TABLE mcp_config ADD COLUMN bundle TEXT;",
     // The conversation whose prompt cache a fork shares; a worker or spawned thread follows its parent.
     "ALTER TABLE session ADD COLUMN cache_root TEXT;",
+    // Each session's frozen system prompt, by source: the hash it began with and the one the model last heard.
+    "CREATE TABLE instruction(
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        key TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        baseline TEXT,
+        current TEXT,
+        -- Which baseline the row belongs to; an update made against another one is not replayed.
+        generation TEXT NOT NULL,
+        PRIMARY KEY(session_id, key)
+    ) STRICT, WITHOUT ROWID;",
 ];
 
 #[cfg(test)]

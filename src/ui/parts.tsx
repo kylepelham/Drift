@@ -1,5 +1,6 @@
 import { hasPartRenderer, hasToolRenderer, PluginPartView, PluginToolView } from "../plugins";
 import { splitOrchestratorStatus, type OrchestratorStatus } from "../state/orchestrator";
+import { InstructionUpdateRow, type InstructionUpdatePart } from "./instruction-update";
 import { createMemo, createSignal, Match, Show, Switch, type JSX } from "solid-js";
 import { IconArrowUpRight, IconCheck, IconInfo, IconPlug } from "./icons";
 import { openToolContextMenu } from "./tool-context-menu";
@@ -108,6 +109,9 @@ export function PartView(props: {
                     <div class="h-px flex-1 bg-edge" />
                 </div>
             </Match>
+            <Match when={props.part.type === "instruction_update" && props.part}>
+                {(part) => <InstructionUpdateRow part={part() as InstructionUpdatePart} />}
+            </Match>
             <Match when={props.part.type === "file" && props.part}>
                 {(part) => <FilePartView part={part() as FilePart} />}
             </Match>
@@ -186,6 +190,7 @@ export function partVisible(part: Part) {
         case "compaction":
         case "file":
         case "context":
+        case "instruction_update":
             return true;
         default:
             return false;

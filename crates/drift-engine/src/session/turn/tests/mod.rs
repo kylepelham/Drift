@@ -22,6 +22,7 @@ mod credentials;
 mod file_history;
 mod grants;
 mod images;
+mod instruction_baseline;
 mod loop_limits;
 mod orchestrator;
 mod permissions;

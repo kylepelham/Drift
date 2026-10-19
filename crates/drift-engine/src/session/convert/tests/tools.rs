@@ -97,3 +97,27 @@ fn unfinished_and_denied_calls_still_produce_results() {
     assert!(*is_error && content.contains("interrupted"));
     assert!(matches!(&output[3].blocks[0], Block::ToolResult { content, .. } if content.contains("denied")));
 }
+
+#[test]
+fn an_instruction_update_saved_between_steps_follows_that_steps_tool_results() {
+    let update = Part::InstructionUpdate {
+        generation: "base_1".into(),
+        changes: vec![crate::session::types::InstructionChange {
+            key: "file:AGENTS.md".into(),
+            title: "AGENTS.md".into(),
+            text: Some("# Instructions from AGENTS.md\n\nBe thorough.".into()),
+        }],
+    };
+    let transcript = [
+        message(Role::User, vec![Part::Text { text: "go".into() }]),
+        message(Role::Assistant, vec![call(ToolStatus::Done, Some("ran")), update]),
+    ];
+
+    let sent = messages(&transcript, &target());
+    let results = &sent.last().unwrap().blocks;
+    assert!(matches!(results[0], Block::ToolResult { .. }), "{results:?}");
+    assert!(
+        matches!(&results[1], Block::Text(text) if text.contains("Be thorough.") && text.starts_with("<system-reminder>")),
+        "{results:?}"
+    );
+}

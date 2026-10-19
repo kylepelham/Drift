@@ -1188,3 +1188,15 @@ test("a run that read one file names it instead of counting it", async () => {
     expect(exploredSingle(two, false)).toBeUndefined();
     expect(exploredSummary(two, false)).toBe("Read 2 files");
 });
+
+test("an instruction update names its sources in the user's language, an MCP server or file by its own name", async () => {
+    const { instructionSource } = await import("../src/ui/instruction-update");
+    expect(instructionSource("base:claude")).toBe("Base prompt");
+    expect(instructionSource("skills")).toBe("Skills");
+    expect(instructionSource("mcp:context7")).toBe("context7");
+    expect(instructionSource("file:docs/AGENTS.md")).toBe("docs/AGENTS.md");
+    expect(instructionSource("odd")).toBe("odd");
+
+    const parts = await Bun.file(new URL("../src/ui/parts.tsx", import.meta.url)).text();
+    expect(parts).toContainCode('case "instruction_update":');
+});
