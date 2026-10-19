@@ -993,6 +993,13 @@ export const drift = {
     "drift.theme.paper": "Drift Papier",
     "drift.theme.slate": "Drift Schiefer",
     "drift.thread.backToParent": "Zurück zum Thread, aus dem dieser gestartet wurde",
+    "drift.worktree.start": "In einem neuen Worktree starten",
+    "drift.worktree.startOff":
+        "Diesen Thread in einem neuen Worktree starten: eigener Branch, drift/<name>, vom aktuellen Commit. Nicht committete Änderungen werden nicht kopiert.",
+    "drift.worktree.startOn":
+        "Dieser Thread startet in einem neuen Worktree. Klicken, um ihn stattdessen im Ordner des Arbeitsbereichs zu starten.",
+    "drift.worktree.branch":
+        "Dieser Thread arbeitet in einem eigenen Worktree auf diesem Branch. Drift führt ihn nie zurück zusammen.",
     "drift.thread.move": "Verschieben",
     "drift.thread.moveToWorkspace": "In Arbeitsbereich verschieben",
     "drift.thread.noOtherWorkspaces": "Keine anderen Arbeitsbereiche",

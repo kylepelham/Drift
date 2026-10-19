@@ -1013,6 +1013,11 @@ export const drift = {
     "drift.theme.paper": "Drift Papir",
     "drift.theme.slate": "Drift Škriljevac",
     "drift.thread.backToParent": "Nazad na razgovor iz kojeg je ovaj pokrenut",
+    "drift.worktree.start": "Počni u novom worktreeju",
+    "drift.worktree.startOff":
+        "Pokreni ovu nit u novom worktreeju: vlastita grana, drift/<name>, od trenutnog commita. Nesačuvane izmjene se ne kopiraju.",
+    "drift.worktree.startOn": "Ova nit počinje u novom worktreeju. Klikni da je pokreneš u folderu radnog prostora.",
+    "drift.worktree.branch": "Ova nit radi u vlastitom worktreeju na ovoj grani. Drift je nikad ne spaja nazad.",
     "drift.thread.move": "Premjesti",
     "drift.thread.moveToWorkspace": "Premjesti u radni prostor",
     "drift.thread.noOtherWorkspaces": "Nema drugih radnih prostora",

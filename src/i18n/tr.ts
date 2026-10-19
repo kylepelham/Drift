@@ -1015,6 +1015,12 @@ export const drift = {
     "drift.theme.paper": "Drift Kağıt",
     "drift.theme.slate": "Drift Kayrak",
     "drift.thread.backToParent": "Oluşturulduğu konuya geri dön",
+    "drift.worktree.start": "Yeni bir worktree'de başlat",
+    "drift.worktree.startOff":
+        "Bu konuşmayı yeni bir worktree'de başlat: geçerli commit'ten kendi dalı, drift/<name>. Commit edilmemiş değişiklikler kopyalanmaz.",
+    "drift.worktree.startOn":
+        "Bu konuşma yeni bir worktree'de başlar. Bunun yerine çalışma alanı klasöründe başlatmak için tıklayın.",
+    "drift.worktree.branch": "Bu konuşma bu dalda kendi worktree'sinde çalışır. Drift onu asla geri birleştirmez.",
     "drift.thread.move": "Taşı",
     "drift.thread.moveToWorkspace": "Çalışma alanına taşı",
     "drift.thread.noOtherWorkspaces": "Başka çalışma alanı yok",

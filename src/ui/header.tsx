@@ -1,7 +1,7 @@
 import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./transcript-find";
 import { closeReview, openReview, reviewPanel, rightPanelOpen } from "../state/panels";
+import { IconArrowUp, IconBranch, IconDiff, IconMenu, IconSearch } from "./icons";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
-import { IconArrowUp, IconDiff, IconMenu, IconSearch } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
 import { createSignal, onCleanup, Show } from "solid-js";
 import { nativeFrame, WindowControls } from "./titlebar";
@@ -96,6 +96,17 @@ export function ChatHeader() {
                                     )}
                                 </Show>
                                 <Title id={current().id} title={current().title} />
+                                <Show when={current().worktree}>
+                                    {(name) => (
+                                        <span
+                                            class="flex min-w-0 shrink items-center gap-1 rounded-md border border-edge px-1.5 py-0.5 text-xs text-ink-muted"
+                                            title={t("drift.worktree.branch")}
+                                        >
+                                            <IconBranch class="size-3 shrink-0" />
+                                            <span class="truncate">drift/{name()}</span>
+                                        </span>
+                                    )}
+                                </Show>
                             </>
                         )}
                     </Show>

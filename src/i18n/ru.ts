@@ -1015,6 +1015,13 @@ export const drift = {
     "drift.theme.paper": "Drift Бумага",
     "drift.theme.slate": "Drift Сланец",
     "drift.thread.backToParent": "Вернуться к исходной ветке",
+    "drift.worktree.start": "Начать в новом worktree",
+    "drift.worktree.startOff":
+        "Начать эту ветку разговора в новом worktree: своя ветка drift/<name> от текущего коммита. Незакоммиченные изменения не копируются.",
+    "drift.worktree.startOn":
+        "Эта ветка разговора начнётся в новом worktree. Нажмите, чтобы начать её в папке рабочего пространства.",
+    "drift.worktree.branch":
+        "Эта ветка разговора работает в своём worktree на этой ветке. Drift никогда не сливает её обратно.",
     "drift.thread.move": "Переместить",
     "drift.thread.moveToWorkspace": "Переместить в рабочее пространство",
     "drift.thread.noOtherWorkspaces": "Других рабочих пространств нет",

@@ -54,6 +54,8 @@ export type PromptOptions = {
     variant?: string | null;
     files?: PromptFile[];
     directory?: string;
+    /** Start the turn in a new worktree; only a thread's first prompt asks for one. */
+    worktree?: boolean;
 };
 export type PromptSendResult = { ok: true } | { ok: false; error: string };
 /** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
@@ -330,6 +332,7 @@ export function createActions(
                 ? { variant: options.variant }
                 : {}),
             ...(options.agent && options.agent !== saved.agent ? { agent: options.agent } : {}),
+            ...(options.worktree ? { worktree: true } : {}),
         };
         // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
         const key = `${id}\n${JSON.stringify(prompt)}`;

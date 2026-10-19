@@ -1585,6 +1585,16 @@ listed there.
   drift.json `worktree.setup` list of commands runs in a new worktree, each asking like `bash` unless
   allowed; it is how a project copies `.env` or installs dependencies. Drift never merges. Tests:
   create, move, list and remove through a real turn on a temporary repository.
+  - Built (2.4.0): `worktree.rs` (git, paths, removal and purge), the tools in `tool/worktree.rs`,
+    the session row's `worktree` (migration 44), and the composer's branch button with the header's
+    branch name; behaviour and decisions are in `docs/architecture.md` "Worktrees". Decisions taken
+    while Kyle slept: worktrees live under `<data>/worktrees/<workspace id>/<name>`; the tools are
+    offered only inside a git repository; permissions use the kind `worktree`, with only
+    `remove --force <name>` asking by default; setup commands are `bash` asks on the create call,
+    nearest file wins; a branch is deleted only by `git branch -d`; workers share their parent's
+    worktree and a spawned thread branches a new one from it; the purge removes a worktree only when
+    it is merged, clean and unused, and keeps it otherwise. The M6 row stays open: asking at purge
+    time, a switch for a thread already started, and removal from the UI are not built.
 - **Plan files.** The plan agent may write and edit Markdown under
   `<data>/plans/<workspace id>/` and nowhere else; an edit elsewhere fails with a message naming
   that folder. Its reminder says to discuss the plan in the conversation and write a file only when

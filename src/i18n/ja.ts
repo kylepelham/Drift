@@ -979,6 +979,13 @@ export const drift = {
     "drift.theme.paper": "Drift ペーパー",
     "drift.theme.slate": "Drift スレート",
     "drift.thread.backToParent": "このスレッドの作成元に戻る",
+    "drift.worktree.start": "新しいワークツリーで開始",
+    "drift.worktree.startOff":
+        "このスレッドを新しいワークツリーで開始します。現在のコミットから専用のブランチ drift/<name> を作ります。コミットされていない変更はコピーされません。",
+    "drift.worktree.startOn":
+        "このスレッドは新しいワークツリーで開始します。クリックするとワークスペースのフォルダーで開始します。",
+    "drift.worktree.branch":
+        "このスレッドはこのブランチの専用ワークツリーで作業します。Drift がマージし戻すことはありません。",
     "drift.thread.move": "移動",
     "drift.thread.moveToWorkspace": "ワークスペースに移動",
     "drift.thread.noOtherWorkspaces": "他のワークスペースはありません",

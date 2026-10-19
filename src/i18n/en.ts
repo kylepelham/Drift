@@ -1194,6 +1194,12 @@ export const drift = {
     "drift.theme.paper": "Drift Paper",
     "drift.theme.slate": "Drift Slate",
     "drift.thread.backToParent": "Back to the thread this was spawned from",
+    "drift.worktree.start": "Start in a new worktree",
+    "drift.worktree.startOff":
+        "Start this thread in a new worktree: its own branch, drift/<name>, from the current commit. Uncommitted changes are not copied.",
+    "drift.worktree.startOn":
+        "This thread starts in a new worktree. Click to start it in the workspace folder instead.",
+    "drift.worktree.branch": "This thread works in its own worktree on this branch. Drift never merges it back.",
     "drift.thread.empty": "No threads yet",
     "drift.thread.loadMore": "Load {{count}} more",
     "drift.thread.showLess": "Show less",
