@@ -3,7 +3,7 @@ import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untra
 import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
 import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
-import { exploredDetail, exploredSummary } from "./tool-run";
+import { exploredDetail, exploredSingle, exploredSummary } from "./tool-run";
 import { toolMetadata as toolMeta } from "../engine/parts";
 import { selectSession } from "../state/selection";
 import { toolDisplay } from "./tool-presentation";
@@ -369,6 +369,8 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
     const running = () => props.parts.some((part) => part.status === "running" || part.status === "pending");
     const summary = createMemo(() => exploredSummary(props.parts, running()));
     const detail = createMemo(() => exploredDetail(props.parts));
+    const single = createMemo(() => exploredSingle(props.parts, running()));
+    const heading = () => single()?.before ?? summary();
 
     const activePart = () => {
         for (let index = props.parts.length - 1; index >= 0; index--) {
@@ -391,12 +393,32 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
                 </Show>
                 <Show
                     when={!waiting() && running()}
-                    fallback={<span class="tool-row-title shrink-0">{summary()}</span>}
+                    fallback={
+                        <Show when={heading()}>
+                            <span class="tool-row-title shrink-0">{heading()}</span>
+                        </Show>
+                    }
                 >
-                    <TextShimmer text={summary()} class="tool-row-title shrink-0" />
+                    <Show when={heading()}>
+                        <TextShimmer text={heading()} class="tool-row-title shrink-0" />
+                    </Show>
                 </Show>
-                <Show when={detail()}>
-                    <span class="tool-row-subtitle min-w-0 truncate">· {detail()}</span>
+                <Show
+                    when={single()}
+                    fallback={
+                        <Show when={detail()}>
+                            <span class="tool-row-subtitle min-w-0 truncate">· {detail()}</span>
+                        </Show>
+                    }
+                >
+                    {(named) => (
+                        <>
+                            <span class="tool-row-subtitle min-w-0 truncate">{named().target}</span>
+                            <Show when={named().after}>
+                                <span class="tool-row-title shrink-0">{named().after}</span>
+                            </Show>
+                        </>
+                    )}
                 </Show>
                 <Show when={waiting()}>
                     <span class="text-xs text-warn/90">{t("notification.permission.title")}</span>

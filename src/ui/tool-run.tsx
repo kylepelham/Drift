@@ -81,7 +81,8 @@ function exploredTarget(part: ToolPart) {
 }
 
 /** `Read 2 files, searched 3 patterns`; files and folders count once however often they were read. */
-export function exploredSummary(parts: ToolPart[], running: boolean) {
+/** Each kind of exploring the run did, with the files, folders or searches it touched. */
+function exploredTargets(parts: ToolPart[]) {
     const seen = new Map<ExploredKind, Set<string>>();
     for (const part of parts) {
         const kind = exploredKinds[part.name as keyof typeof exploredKinds];
@@ -90,6 +91,14 @@ export function exploredSummary(parts: ToolPart[], running: boolean) {
         targets.add(kind === "search" ? part.id : exploredTarget(part) || part.id);
         seen.set(kind, targets);
     }
+
+    return seen;
+}
+
+const capitalized = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
+export function exploredSummary(parts: ToolPart[], running: boolean) {
+    const seen = exploredTargets(parts);
     const tense = running ? "running" : "done";
     const text = (["read", "search", "list"] as const)
         .filter((kind) => seen.has(kind))
@@ -99,7 +108,21 @@ export function exploredSummary(parts: ToolPart[], running: boolean) {
         })
         .join(", ");
 
-    return text.charAt(0).toLocaleUpperCase() + text.slice(1);
+    return capitalized(text);
+}
+
+/** A run that touched one file, folder or search names it: "Read drift.wit", split so the target keeps its style. */
+export function exploredSingle(parts: ToolPart[], running: boolean) {
+    const seen = exploredTargets(parts);
+    const [kind, targets] = [...seen][0] ?? [];
+    const target = exploredDetail(parts);
+    if (seen.size !== 1 || !kind || targets?.size !== 1 || !target) return undefined;
+
+    const marker = String.fromCharCode(0);
+    const tense = running ? "running" : "done";
+    const [before = "", after = ""] = t(`drift.explored.${kind}.${tense}.single`, { target: marker }).split(marker);
+
+    return { before: capitalized(before.trim()), target, after: after.trim() };
 }
 
 /** The file or pattern being read now, else the latest one. */

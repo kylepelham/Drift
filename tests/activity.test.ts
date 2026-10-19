@@ -1170,3 +1170,21 @@ test("a subagent is one line: orbiting dots, its description, then a background 
     expect(css).not.toContain("background-mark");
     expect(css).not.toContain("delegate-card");
 });
+
+test("a run that read one file names it instead of counting it", async () => {
+    const { exploredSingle, exploredSummary } = await import("../src/ui/tool-run");
+    const read = (id: string, path: string, status = "done") =>
+        ({ id, name: "read", status, input: { path } }) as unknown as ToolPart;
+
+    expect(exploredSingle([read("p1", "crates/drift-engine/wit/drift.wit")], false)).toEqual({
+        before: "Read",
+        target: "drift.wit",
+        after: "",
+    });
+    expect(exploredSingle([read("p1", "a/drift.wit", "running")], true)?.before).toBe("Reading");
+    expect(exploredSingle([read("p1", "a/x.ts"), read("p2", "a/x.ts")], false)?.target).toBe("x.ts");
+
+    const two = [read("p1", "a/x.ts"), read("p2", "a/y.ts")];
+    expect(exploredSingle(two, false)).toBeUndefined();
+    expect(exploredSummary(two, false)).toBe("Read 2 files");
+});
