@@ -491,8 +491,9 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
   - `polls` (default 30): the same for repeated steps that wait or watch on purpose: a shell
     command that sleeps (`sleep`, `Start-Sleep`, `timeout`, `wait`, `watch`), a tool asked to wait
     (`action: "wait"`, as `process` takes, or a `wait_seconds` above 0, as `task_output` takes),
-    or a call that returns an image, such as a screenshot of something still loading. Deliberate
-    polling is not taken for a loop.
+    or a call that returns an image, such as a screenshot of something still loading. Images from
+    `read` and `webfetch` are files and pages that do not change by waiting, so they keep the
+    `repeats` limit. Deliberate polling is not taken for a loop.
   - A pause is a reply-less message with status `paused` and the reason in `error`; it is never
     replayed to the model, the UI draws it as a quiet interruption line with the reason, a subagent
     that pauses reports it to its parent as a failure with that reason, and the next message

@@ -1,8 +1,13 @@
 import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show, untrack, type JSX } from "solid-js";
-import { thinkingIndicator, type ThinkingContext, type ThinkingDrawing } from "../thinking-indicators";
 import { pluginThinkingPrefix, thinkingPrefs, type ThinkingPrefs } from "../state/prefs";
 import { TextShimmer } from "./text-shimmer";
 import { t } from "../state/i18n";
+import {
+    thinkingIndicator,
+    type ThinkingContext,
+    type ThinkingDrawing,
+    type ThinkingIndicator as ThinkingIndicatorPlugin,
+} from "../thinking-indicators";
 
 const speedScale = { slow: 1.6, normal: 1, fast: 0.6 } as const;
 /** How many pieces each built-in figure is drawn from; Shimmer and Still have none. */
@@ -29,6 +34,7 @@ export function ThinkingIndicator(props: {
     const style = () => shownThinkingStyle(prefs().style, (id) => !!thinkingIndicator(id));
     const label = () => t("drift.chat.thinking");
     const plugin = () => (style().startsWith(pluginThinkingPrefix) ? style().slice(pluginThinkingPrefix.length) : "");
+    const registered = () => (plugin() ? thinkingIndicator(plugin()) : undefined);
     const context = createMemo<ThinkingContext>(() => ({
         sessionId: props.sessionId ?? null,
         label: label(),
@@ -45,10 +51,11 @@ export function ThinkingIndicator(props: {
             data-tint={prefs().tint}
             style={{ "--thinking-speed": String(speedScale[prefs().speed]) }}
         >
-            <Show when={plugin()} keyed fallback={builtIn()}>
-                {(id) => (
+            <Show when={registered()} keyed fallback={builtIn()}>
+                {(indicator) => (
                     <PluginIndicator
-                        id={id}
+                        id={plugin()}
+                        indicator={indicator}
                         context={context()}
                         fallback={<BuiltIn look="shimmer" label={label()} word />}
                     />
@@ -79,8 +86,13 @@ function BuiltIn(props: { look: string; label: string; word: boolean }) {
     );
 }
 
-/** A plugin's indicator in its own element; one that throws gives way to Shimmer, and is logged. */
-function PluginIndicator(props: { id: string; context: ThinkingContext; fallback: JSX.Element }) {
+/** A plugin's indicator in its own element, drawn afresh for each registration; one that throws gives way to Shimmer, and is logged. */
+function PluginIndicator(props: {
+    id: string;
+    indicator: ThinkingIndicatorPlugin;
+    context: ThinkingContext;
+    fallback: JSX.Element;
+}) {
     let host!: HTMLSpanElement;
     let drawing: ThinkingDrawing;
     const [failed, setFailed] = createSignal(false);
@@ -93,9 +105,7 @@ function PluginIndicator(props: { id: string; context: ThinkingContext; fallback
         }
     };
 
-    onMount(() =>
-        guarded("render", () => (drawing = untrack(() => thinkingIndicator(props.id)?.render(host, props.context)))),
-    );
+    onMount(() => guarded("render", () => (drawing = untrack(() => props.indicator.render(host, props.context)))));
     createEffect(
         on(
             () => props.context,

@@ -80,6 +80,13 @@ function exploredTarget(part: ToolPart) {
     return text("pattern");
 }
 
+/** What a read or list touched, by full path, so two files that share a name count apart. */
+function exploredKey(part: ToolPart) {
+    const key = toolInput(part)[part.name === "read" ? "filePath" : "path"];
+
+    return typeof key === "string" && key ? key : exploredTarget(part);
+}
+
 /** `Read 2 files, searched 3 patterns`; files and folders count once however often they were read. */
 /** Each kind of exploring the run did, with the files, folders or searches it touched. */
 function exploredTargets(parts: ToolPart[]) {
@@ -88,7 +95,7 @@ function exploredTargets(parts: ToolPart[]) {
         const kind = exploredKinds[part.name as keyof typeof exploredKinds];
         if (!kind) continue;
         const targets = seen.get(kind) ?? new Set<string>();
-        targets.add(kind === "search" ? part.id : exploredTarget(part) || part.id);
+        targets.add(kind === "search" ? part.id : exploredKey(part) || part.id);
         seen.set(kind, targets);
     }
 

@@ -2,6 +2,8 @@ use super::*;
 
 /// Words that mark a shell command as waiting on purpose, the way polling does.
 const WAITS: [&str; 5] = ["sleep", "start-sleep", "timeout", "wait", "watch"];
+/// Tools whose images are files or pages that stay the same however long they are watched.
+const STILL_IMAGES: [&str; 2] = ["read", "webfetch"];
 
 impl WrapUp {
     pub(super) fn instruction(self) -> String {
@@ -49,9 +51,9 @@ impl Repeats {
     }
 }
 
-/// Waits on purpose: a shell sleep, a tool asked to wait, or an image of something still loading.
+/// Waits on purpose: a shell sleep, a tool asked to wait, or a screenshot of something still loading.
 pub(super) fn waits(call: &CallTrace) -> bool {
-    if !call.images.is_empty() {
+    if !call.images.is_empty() && !STILL_IMAGES.contains(&call.name.as_str()) {
         return true;
     }
     let Ok(input) = serde_json::from_str::<serde_json::Value>(&call.input) else {

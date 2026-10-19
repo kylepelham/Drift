@@ -37,6 +37,13 @@ test("a plugin's indicator is listed while registered, and only its own unregist
     offSecond();
     expect(thinkingIndicator("aurora")).toBeUndefined();
 
+    const again = registerThinkingIndicator("aurora", first);
+    const offAgain = registerThinkingIndicator("aurora", first);
+    again();
+    expect(thinkingIndicator("aurora")).toBe(first);
+    offAgain();
+    expect(thinkingIndicator("aurora")).toBeUndefined();
+
     expect(() => registerThinkingIndicator("", first)).toThrow();
     expect(() => registerThinkingIndicator("broken", { name: "x" } as never)).toThrow();
 });
@@ -52,6 +59,11 @@ test("a missing plugin indicator draws as Shimmer, and only figures can drop the
     expect(thinkingWordShown("orbs", false)).toBeFalse();
     expect(thinkingWordShown("orbs", true)).toBeTrue();
     expect(thinkingWordShown("plugin:aurora", true)).toBeFalse();
+
+    const css = await Bun.file("src/styles/app.css").text();
+    expect(css).toMatch(
+        /\.thinking-piece, \.thinking-label, \[data-component="text-shimmer"\]\) \{\s*animation: none !important;/,
+    );
 });
 
 test("Settings offers every built-in style, then each plugin's, and plugins can register one", async () => {

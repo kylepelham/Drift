@@ -261,6 +261,22 @@ fn a_screen_being_watched_is_progress_while_it_changes_and_polling_while_it_does
         "an unchanged screen gets the polling allowance, not the repeat one"
     );
 
+    let image_file = vec![CallTrace {
+        name: "read".into(),
+        input: r#"{"path":"logo.png"}"#.into(),
+        output: "logo.png".into(),
+        images: vec!["logo".into()],
+    }];
+    let mut reread = Repeats::default();
+    for _ in 1..limits.repeats {
+        assert_eq!(reread.record(image_file.clone(), &limits), None);
+    }
+    assert_eq!(
+        reread.record(image_file, &limits),
+        Some(limits.repeats),
+        "an image file read again is a repeat, not a poll"
+    );
+
     let call = |name: &str, input: &str| CallTrace {
         name: name.into(),
         input: input.into(),

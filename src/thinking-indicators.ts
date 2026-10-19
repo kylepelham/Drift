@@ -21,17 +21,21 @@ export type ThinkingIndicator = {
     render: (host: HTMLElement, context: ThinkingContext) => ThinkingDrawing;
 };
 
-const indicators = new Map<string, ThinkingIndicator>();
+/** One registration; its own object, so each unregister removes only what it added. */
+type Registration = { indicator: ThinkingIndicator };
+
+const indicators = new Map<string, Registration>();
 // `indicators` is a plain Map; reading the version subscribes to register and unregister.
 const [version, setVersion] = createSignal(0);
 
 export function registerThinkingIndicator(id: string, indicator: ThinkingIndicator) {
     if (!id.trim() || typeof indicator?.render !== "function") throw new Error("an indicator needs an id and a render");
-    indicators.set(id, indicator);
+    const registration: Registration = { indicator };
+    indicators.set(id, registration);
     setVersion((value) => value + 1);
 
     return () => {
-        if (indicators.get(id) !== indicator) return;
+        if (indicators.get(id) !== registration) return;
         indicators.delete(id);
         setVersion((value) => value + 1);
     };
@@ -39,10 +43,10 @@ export function registerThinkingIndicator(id: string, indicator: ThinkingIndicat
 
 export function thinkingIndicator(id: string) {
     version();
-    return indicators.get(id);
+    return indicators.get(id)?.indicator;
 }
 
 export function thinkingIndicators() {
     version();
-    return [...indicators].map(([id, indicator]) => ({ id, name: indicator.name || id }));
+    return [...indicators].map(([id, { indicator }]) => ({ id, name: indicator.name || id }));
 }
