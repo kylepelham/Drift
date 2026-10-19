@@ -82,22 +82,33 @@ async fn malformed_call_arguments_and_max_tokens_stop_dispatch() {
 }
 
 #[tokio::test]
-async fn arguments_that_do_not_fit_the_schema_are_refused_before_the_call_runs() {
+async fn arguments_with_one_reading_are_repaired_and_the_rest_refused_before_the_call_runs() {
     let h = harness().await;
-    std::fs::write(h._dir.join("ws/a.txt"), "a\n").unwrap();
+    std::fs::write(h._dir.join("ws/a.txt"), "a
+b
+c
+").unwrap();
     h.provider
-        .push(tool_call("read", r#"{"path": "a.txt", "limit": "20"}"#))
+        .push(tool_call("read", r#"{"path": "a.txt", "limit": "1", "offset": null}"#))
+        .push(tool_call("read", r#"{"path": "a.txt", "limit": "twenty"}"#))
         .push(text("ok"));
     h.engine.submit(&h.session.id, prompt("read")).await.await_ok();
     until_idle(&h).await;
 
     let messages = transcript(&h);
-    let call = tool(&messages[1].parts[0]);
-    assert_eq!(call.status, ToolStatus::Error);
+    let repaired = tool(&messages[1].parts[0]);
+    assert_eq!(repaired.status, ToolStatus::Done, "{:?}", repaired.output);
+    assert_eq!(
+        *repaired.input,
+        json!({ "path": "a.txt", "limit": 1 }),
+        "the repaired input is what is kept and replayed"
+    );
+
+    let refused = tool(&messages[2].parts[0]);
+    assert_eq!(refused.status, ToolStatus::Error);
     assert!(
-        call.output.unwrap().contains("`limit` must be integer, not a string"),
-        "{:?}",
-        call.output
+        refused.output.unwrap().contains("`limit` must be integer, not a string"),
+        "a string with no number in it is still refused"
     );
 }
 

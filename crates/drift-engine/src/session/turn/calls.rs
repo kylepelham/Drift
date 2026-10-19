@@ -185,6 +185,11 @@ impl Engine {
         if let Part::ToolCall { name: stored, .. } = &mut row.part {
             stored.clone_from(&name);
         }
+        // Repaired where the schema leaves one reading; that input is what runs, what plugins see and what is kept.
+        let input = crate::tool::repair::repair(&tool.spec().input_schema, &input);
+        if let Part::ToolCall { input: stored, .. } = &mut row.part {
+            stored.clone_from(&input);
+        }
         if let Some(reason) = invalid_input(tool.as_ref(), &input) {
             self.settle(row, Settlement::error(reason));
             return Err(Outcome::Allowed);

@@ -1868,6 +1868,15 @@ Settled after the first external review of M1; each has a regression test.
   (`tool::schema`: `type`, `required`, `properties`, `items` and `enum` are checked, other keywords
   pass, and a `null` for an optional property counts as left out); the result names every problem
   (`` `limit` must be integer, not a string``), so a wrong type is never read as missing.
+  Before that check the input is repaired where its schema, built-in or an MCP server's, leaves
+  exactly one reading (`tool::repair`, after opencode v2's repair plugin): JSON text for an object
+  or array parsed, `"20"` read as a number, `"true"` and `"false"` as booleans, a lone value
+  wrapped as a one-item array, `null` or `{}` sent for an optional plain field dropped, unknown keys
+  dropped from an object closed with `additionalProperties: false`, nested fields, tuples, typed
+  dictionaries and local `$ref`s followed six levels down. A union with more than one candidate,
+  `anyOf` beside `oneOf`, an `enum`, a `const` or a nullable field is left as sent for the check to
+  report. The repaired input is what runs, what plugins see, what is stored and what later
+  requests replay, and a read started while the reply streams starts on it too.
 - A reply the provider's safety filter ended (Anthropic `refusal`, Chat Completions and OpenAI
   `content_filter`, Gemini `SAFETY` and its kin) runs none of its calls and stays `done` with
   `error: "The provider's safety filter ended the reply."`; the UI shows it with finish

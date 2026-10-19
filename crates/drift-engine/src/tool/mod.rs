@@ -17,6 +17,7 @@ pub mod question;
 pub mod read;
 mod registry;
 pub mod save_image;
+pub mod repair;
 pub mod schema;
 pub mod sensitive;
 pub mod skill;

@@ -309,7 +309,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - Quick fixes:
   - [x] `~` in tool paths expands to home before resolving, for every path-taking tool
   - [x] Stream idle limit 900 s by default on every route
-  - [ ] Tool input repaired where its schema allows one reading, before validation (built-in and MCP)
+  - [x] Tool input repaired where its schema allows one reading, before validation (built-in and MCP)
   - [ ] Gemini `MALFORMED_*` finishes retried; wire-fix sweep done, each fix tested or recorded as not affecting Drift
   - [ ] Cache key is the session tree's root (workers, forks, spawned threads); WebSocket continuations stay per session
   - [ ] `edit` checked against v2's cases: folding and trailing-whitespace tiers after exact, per-region line endings
