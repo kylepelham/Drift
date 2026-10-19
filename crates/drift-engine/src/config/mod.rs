@@ -13,6 +13,7 @@ pub mod jsonc;
 mod overrides;
 pub mod plugins;
 mod project_commands;
+pub mod references;
 pub mod skills;
 pub mod sources;
 mod user;
@@ -86,6 +87,9 @@ pub struct Config {
     pub project_commands: std::collections::BTreeSet<String>,
     pub limits: Limits,
     pub timeouts: BTreeMap<String, RouteTimeouts>,
+    /// Named folders and repositories outside the workspace, the user's before the project's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<references::Reference>,
     /// Config files that could not be read; a turn refuses to start rather than run without their rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
@@ -293,6 +297,7 @@ impl Config {
             (Some(relative), Some(home)) => home.join(relative),
             _ => root.join(listed),
         };
+        self.apply_references(&file.references, |listed| resolve(&listed.to_string()), project);
         for listed in &file.instructions {
             for (name, path) in instruction_files(listed, &resolve(listed)) {
                 if let Ok(text) = std::fs::read_to_string(&path) {

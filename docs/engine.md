@@ -57,6 +57,37 @@ making a stored tool call unreadable. No SQLite migration or Tauri IPC change is
 - Questions the agent asks (async by default), permission asks and their replies, tasks and
   workers, undo and redo, compaction and retries are all engine features; engine-rewrite.md
   documents each.
+
+## References
+
+`references` in drift.json names folders and git repositories outside the workspace that the
+model may consult, such as another project's code, a spec, or a library's source:
+
+```json
+{
+  "references": {
+    "notes": "~/notes",
+    "spec": { "path": "../wire-spec", "description": "The protocol spec" },
+    "rust": { "repository": "https://github.com/rust-lang/rust", "branch": "master" }
+  }
+}
+```
+
+- A path is relative to the drift.json naming it, absolute, or starts with `~/`.
+- A repository is cloned shallow under Drift's data directory (`references/<name>-<hash>`) the
+  first time a turn's config names it, in the background, and fetched again at most once a day
+  when a turn uses it. Drift never edits the clone; a fetch resets it to what was fetched.
+- The instruction baseline lists each reference: its name, description and local path, and a note
+  while a clone is still being made.
+- Reading and searching inside one of your own references (from `~/.config/drift/drift.json`) runs
+  without asking; files likely to hold secrets still ask, and writes ask as for any path outside the
+  workspace. Shell commands that read there ask as any outside path does.
+- A project's drift.json may name references too, but they grant nothing: reading in one outside the
+  workspace asks like any outside path, and answering that ask (Always leaves the usual folder grant)
+  is the approval. A project's repository reference is listed but never fetched, so a committed file
+  can never make Drift fetch from the network. A project reference never replaces one of yours of
+  the same name.
+
 ## Context meter and plan usage limits
 
 The context meter in the chat header shows the context window as one bar split by

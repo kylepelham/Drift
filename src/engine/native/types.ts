@@ -1414,6 +1414,8 @@ export interface components {
             problems?: string[];
             /** @description Formatters and checks whose command the project's own drift.json sets, as `formatter:<name>` or `check:<name>`. */
             projectCommands?: string[];
+            /** @description Named folders and repositories outside the workspace, the user's before the project's. */
+            references?: components["schemas"]["Reference"][];
             skills: components["schemas"]["Skill"][];
             timeouts: {
                 [key: string]: components["schemas"]["RouteTimeouts"];
@@ -2119,6 +2121,17 @@ export interface components {
             sessionId: string;
             tool: string;
         };
+        /** @description Where a reference's files are. */
+        Place: {
+            /** @enum {string} */
+            kind: "folder";
+            path: string;
+        } | {
+            branch?: string | null;
+            /** @enum {string} */
+            kind: "repository";
+            url: string;
+        };
         PluginConfig: {
             config: unknown;
             path: string;
@@ -2279,6 +2292,13 @@ export interface components {
         Receipt: {
             message: components["schemas"]["Message"];
             session: components["schemas"]["Session"];
+        };
+        Reference: {
+            description: string;
+            name: string;
+            place: components["schemas"]["Place"];
+            /** @description Named by the project's own drift.json, so it grants nothing until the user allows reading there. */
+            project: boolean;
         };
         /** @description The provider's account of a safety refusal. None of it names the text that triggered it. */
         Refusal: {

@@ -101,6 +101,8 @@ pub struct Engine {
     pub hooks: hook::Hooks,
     /// Which web search keys cool or were refused, and the provider each session last used.
     pub(crate) search_routing: websearch::Routing,
+    /// The reference repositories being cloned or fetched now.
+    pub(crate) reference_fetches: session::references::Fetches,
     /// The engine itself, for work started from a call that only borrows it (a workspace's MCP servers, from planning).
     me: std::sync::Weak<Engine>,
 }
@@ -172,6 +174,7 @@ impl Engine {
             lsp: Default::default(),
             hooks: Default::default(),
             search_routing: Default::default(),
+            reference_fetches: Default::default(),
         });
         *engine.turns.cut_off.lock().unwrap() = cut_off;
 

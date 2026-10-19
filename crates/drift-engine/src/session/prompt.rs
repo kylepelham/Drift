@@ -74,13 +74,15 @@ pub struct Setting<'a> {
     pub model: &'a str,
     /// Instructions from the MCP servers whose tools are offered, by server.
     pub servers: &'a [(String, String)],
+    /// The references the turn's config names, where they are and why one cannot be read freely.
+    pub references: &'a [crate::session::references::Listed],
 }
 
 /// One part of the system prompt, keyed so a session can tell which part changed.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Source {
     /// Stable across turns: `base:<family>`, `agent`, `skills`, `subagents`, `mcp:<server>`, `file:<name>`,
-    /// `environment`, `model`, `date`.
+    /// `references`, `environment`, `model`, `date`.
     pub key: String,
     /// How the user and the model hear it named.
     pub title: String,
@@ -108,6 +110,7 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
         agent,
         model,
         servers,
+        references,
         ..
     } = *setting;
     let mut found = vec![Source::new(
@@ -142,6 +145,10 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
         ));
     }
 
+    if let Some(listed) = references_text(references) {
+        found.push(Source::new("references", "the references", listed));
+    }
+
     let git = if crate::config::in_repository(workspace) {
         "yes"
     } else {
@@ -162,6 +169,39 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
     ));
 
     found
+}
+
+/// Folders and repositories outside the workspace the model may consult, each with where it is.
+fn references_text(references: &[crate::session::references::Listed]) -> Option<String> {
+    if references.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = references
+        .iter()
+        .map(|reference| {
+            let described = match reference.description.as_str() {
+                "" => String::new(),
+                description => format!(": {description}"),
+            };
+            let note = reference.note.map(|note| format!(" ({note})")).unwrap_or_default();
+            format!(
+                "- {}{described}
+  {}{note}",
+                reference.name,
+                reference.path.display()
+            )
+        })
+        .collect();
+
+    Some(format!(
+        "# References
+
+Folders outside the workspace to consult when the task needs them. Read and search in them without asking; writing there asks.
+
+{}",
+        lines.join("
+")
+    ))
 }
 
 /// The skills and subagents this agent may use; a denied skill or subagent is not listed.
@@ -344,6 +384,7 @@ mod tests {
             denied: &NONE_DENIED,
             model: "Claude Opus",
             servers: &servers,
+            references: &[],
         };
 
         let prompt = system(&setting("plan", false));
@@ -423,6 +464,7 @@ mod tests {
                 denied,
                 model: "m",
                 servers: &[],
+                references: &[],
             })
         };
 
@@ -460,6 +502,7 @@ mod tests {
                 denied: &NONE_DENIED,
                 model: "m",
                 servers: &[],
+                references: &[],
             })
         };
         let prompts: Vec<String> = PromptFamily::ALL.into_iter().map(built).collect();
@@ -497,6 +540,7 @@ mod tests {
             denied: &NONE_DENIED,
             model: "m",
             servers: &[],
+            references: &[],
         });
         assert!(
             replaced.starts_with("You are my agent.\n\n# Tools") && replaced.contains("`<system-reminder>` blocks"),

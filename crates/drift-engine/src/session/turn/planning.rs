@@ -361,6 +361,7 @@ impl Engine {
         let denied = |kind: &str, name: &str| {
             rules.explicit(&crate::tool::Ask::new(kind, name, "")) == Some(crate::permission::Decision::Deny)
         };
+        let references = self.references_for_turn(&plan.config.references);
         let setting = prompt::Setting {
             base: &base,
             family: plan.model.prompt,
@@ -372,6 +373,7 @@ impl Engine {
             denied: &denied,
             model: &plan.model.name,
             servers: &servers,
+            references: &references,
         };
         let sources = prompt::sources(&setting);
 

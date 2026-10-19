@@ -134,7 +134,8 @@ impl Context {
     /// Rules apply everywhere; workspace and scratch operations default to allow, as does reading a skill's folder.
     pub fn ask_if_outside(&self, kind: &str, path: &Path, verb: &str) -> Option<Ask> {
         let mut ask = Ask::path(kind, path, &self.workspace, format!("{verb} {}", path.display()));
-        ask.default_allow = self.inside_workspace(path) || in_scratch(path) || (kind == "read" && self.in_skill(path));
+        ask.default_allow =
+            self.inside_workspace(path) || in_scratch(path) || (kind == "read" && self.free_to_read(path));
 
         Some(ask)
     }
@@ -143,7 +144,7 @@ impl Context {
     /// inside it. Everything else in the workspace, the scratch directory and the folders of the
     /// skills this session was offered (which `skill` names by absolute path) is free to read.
     pub fn ask_to_read(&self, path: &Path, verb: &str) -> Option<Ask> {
-        if self.owns_output(path) || ((in_scratch(path) || self.in_skill(path)) && !sensitive::is_sensitive(path)) {
+        if self.owns_output(path) || ((in_scratch(path) || self.free_to_read(path)) && !sensitive::is_sensitive(path)) {
             let ask = Ask::path(
                 "read",
                 path,
@@ -168,6 +169,18 @@ impl Context {
         ask.default_allow = in_scratch(path) || (self.inside_workspace(path) && !guarded(path, &self.workspace));
 
         Some(ask)
+    }
+
+    /// Inside a skill's folder or one of the user's own references; a project's reference grants nothing.
+    fn free_to_read(&self, path: &Path) -> bool {
+        let in_reference = self
+            .config
+            .references
+            .iter()
+            .filter(|reference| !reference.project)
+            .any(|reference| path.starts_with(self.engine.reference_path(reference)));
+
+        in_reference || self.in_skill(path)
     }
 
     /// Inside the folder of a skill this session's config offers, as opencode allows skill directories.

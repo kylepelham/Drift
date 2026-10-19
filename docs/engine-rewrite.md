@@ -1579,6 +1579,14 @@ listed there.
   user approves it, like a project's check commands. The composer's `@` picker offers references.
   Tests: a reference read runs unasked; a write into it asks; an unapproved project reference
   grants nothing.
+  - Built (2.4.0): `config/references.rs`, `session/references.rs`; user-facing in
+    `docs/engine.md` "References". Decisions taken while Kyle slept: approving a project reference
+    is answering the ordinary outside-path read ask (Always leaves the usual folder grant), not a
+    separate card; a project's repository reference is listed but never fetched, since a committed
+    file must not make Drift fetch from the network; a project reference never replaces the
+    user's of the same name; clones are made and fetched in the background, so the first turn
+    lists a repository as still being cloned. Not done: the `@` picker offering references (the
+    mention reader would also need to treat a reference as free to read).
 - **Worktrees.** Build the M6 worktree item, and give the model `worktree_create` (name),
   `worktree_list` and `worktree_remove` (name, `force` to drop uncommitted changes, which asks), plus
   `session_move` (directory), which takes effect when the current step ends, never mid-call. A

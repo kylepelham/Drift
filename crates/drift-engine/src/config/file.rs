@@ -31,6 +31,8 @@ pub struct File {
     pub skill_paths: Vec<String>,
     /// WebAssembly plugins under this directory, each a path or a path with config; read from the user's own file only.
     pub plugins: Vec<crate::hook::PluginEntry>,
+    /// Named folders and git repositories the model may consult, by name.
+    pub references: BTreeMap<String, super::references::ReferenceEntry>,
 }
 
 /// A provider the user adds (any OpenAI-compatible server) or re-points (a gateway, a remote LM Studio).

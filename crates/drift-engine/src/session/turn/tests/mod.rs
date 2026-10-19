@@ -31,6 +31,7 @@ mod plugin_hooks;
 mod pricing;
 mod processes;
 mod project_commands;
+mod references;
 mod resume;
 mod retry_waits;
 mod routes;

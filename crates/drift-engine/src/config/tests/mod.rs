@@ -510,3 +510,58 @@ fn a_jsonc_drift_json_applies_and_a_broken_one_is_reported_not_ignored() {
 
     std::fs::remove_dir_all(workspace).ok();
 }
+
+#[test]
+fn references_come_in_three_shapes_and_a_project_never_replaces_the_users() {
+    use super::references::Place;
+
+    let root = std::env::temp_dir().join(format!("drift-config-references-{}", crate::random_hex(4)));
+    let (home, workspace) = (root.join("home"), root.join("ws"));
+    write(
+        &home,
+        ".config/drift/drift.json",
+        r#"{ "references": {
+            "notes": "~/notes",
+            "docs": { "path": "../docs", "description": "API docs" },
+            "rust": { "repository": "https://github.com/rust-lang/rust", "branch": "master", "description": "std" }
+        } }"#,
+    );
+    write(
+        &workspace,
+        "drift.json",
+        r#"{ "references": { "docs": "../theirs", "shared": "../shared" } }"#,
+    );
+
+    let config = Config::load_with_home(&workspace, Some(&home));
+    let found = |name: &str| {
+        config
+            .references
+            .iter()
+            .find(|reference| reference.name == name)
+            .unwrap()
+    };
+    assert_eq!(
+        found("notes").place,
+        Place::Folder {
+            path: home.join("notes")
+        }
+    );
+    assert_eq!(found("docs").description, "API docs");
+    assert!(!found("docs").project, "the user's docs stay");
+    assert_eq!(
+        found("rust").place,
+        Place::Repository {
+            url: "https://github.com/rust-lang/rust".into(),
+            branch: Some("master".into())
+        }
+    );
+    assert!(found("shared").project);
+    assert_eq!(
+        found("shared").place,
+        Place::Folder {
+            path: workspace.join("../shared")
+        }
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}

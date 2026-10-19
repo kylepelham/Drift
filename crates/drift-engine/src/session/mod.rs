@@ -16,6 +16,7 @@ mod generation;
 mod oneshot;
 mod processes;
 pub mod prompt;
+pub mod references;
 pub mod revert;
 pub mod review;
 pub mod snapshot;
