@@ -1210,7 +1210,6 @@ export const drift = {
     "drift.sidebar.moveWorkspaceFailed": "Impossible de déplacer l'espace de travail",
     "drift.sidebar.movingSession": "Déplacement de la session vers {{workspace}}...",
     "drift.sidebar.movingWorkspaceSessions": "Déplacement des sessions de {{workspace}}...",
-    "drift.sidebar.offline": "hors ligne",
     "drift.sidebar.pathAlreadySaved": "{{path}} est déjà enregistré sous {{workspace}}",
     "drift.sidebar.resize": "Redimensionner la barre latérale",
     "drift.sidebar.saveWorkspacePathFailed":
@@ -1226,6 +1225,7 @@ export const drift = {
     "drift.sound.group.mechanical": "Mécaniques",
     "drift.sound.group.success": "Réussite",
     "drift.status.waitingForPermission": "En attente d'une permission",
+    "drift.theme.default": "Drift",
     "drift.theme.charcoal": "Drift Fusain",
     "drift.theme.black": "Drift Noir",
     "drift.theme.dim": "Drift Sombre",
@@ -1269,7 +1269,8 @@ export const drift = {
     "drift.corners.sharp": "Vifs",
     "drift.corners.default": "Défaut",
     "drift.corners.round": "Arrondis",
-    "drift.font.default": "Défaut",
+    "drift.font.defaultNamed": "Défaut ({{font}})",
+    "drift.font.reset": "Réinitialiser",
     "drift.thread.backToParent": "Revenir à la discussion d'origine",
     "drift.worktree.start": "Démarrer dans un nouveau worktree",
     "drift.worktree.startOff":

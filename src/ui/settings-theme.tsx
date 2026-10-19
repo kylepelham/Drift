@@ -18,6 +18,7 @@ import type { CustomTheme, ThemeName } from "../state/theme";
 
 /** Each base's name, for its card and for settings search. */
 export const themeLabels: Record<ThemeName, string> = {
+    "drift-default": "drift.theme.default",
     "drift-charcoal": "drift.theme.charcoal",
     "drift-black": "drift.theme.black",
     "drift-dim": "drift.theme.dim",
@@ -62,7 +63,7 @@ function ThemeCard(props: { name: ThemeName }) {
                     "border-edge group-hover:border-edge-strong": !active(),
                 }}
             >
-                <div class="flex w-[28%] flex-col gap-1 border-r border-edge bg-surface p-1.5">
+                <div class="flex w-[28%] flex-col gap-1 border-r border-edge bg-sidebar p-1.5">
                     <span class="h-1 w-3/4 rounded-full bg-ink-faint/60" />
                     <span class="h-1.5 w-full rounded-sm bg-raised" />
                     <span class="h-1 w-2/3 rounded-full bg-ink-faint/40" />

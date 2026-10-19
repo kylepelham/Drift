@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, on, onMount, Show } from "solid-js";
 import { AddRule, newRule, RuleList } from "./settings-permission-rules";
 import { activeWorkspace, workspaces } from "../state/workspaces";
-import { SettingsGroup } from "./settings-controls";
+import { SettingsGroup, pickerWidth } from "./settings-controls";
 import { useEngine } from "../engine";
 import { IconTrash } from "./icons";
 import { t } from "../state/i18n";
@@ -185,7 +185,7 @@ function GrantsGroup() {
                 bordered
                 chevronAtEnd
                 placement="below"
-                width="13rem"
+                width={pickerWidth}
                 onPick={setChosen}
             />
         </Show>

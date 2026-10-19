@@ -1,8 +1,8 @@
-import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
+import { defaultFonts, FontPicker } from "./settings-font";
 import { codeFont, setCodeFont } from "../state/theme";
-import { FontPicker } from "./settings-font";
+import { Segmented, Toggle } from "./controls";
 import { DiffPanel } from "./diff-panel";
-import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
 import {
@@ -79,7 +79,7 @@ export function CodeSection() {
                         bordered
                         chevronAtEnd
                         placement="below"
-                        width="12rem"
+                        width={pickerWidth}
                         onPick={(value) => setSyntaxThemePreset(value as SyntaxThemePreset)}
                     />
                 </SettingsRow>
@@ -91,38 +91,29 @@ export function CodeSection() {
                         label={t("settings.general.row.font.title")}
                         value={codeFont()}
                         onInput={setCodeFont}
+                        fallback={defaultFonts.code}
                         mono
                     />
                 </SettingsRow>
             </SettingsGroup>
             <SettingsGroup title={t("drift.code.layout")}>
                 <SettingsRow title={t("drift.code.fontSize.title")} description={t("drift.code.fontSize.description")}>
-                    <Picker
+                    <Segmented
                         label={t("drift.code.fontSize.title")}
-                        items={codeFontSizes.map((size) => ({ id: String(size), label: `${size} px` }))}
-                        selected={String(codeFontSize())}
-                        floating
-                        bordered
-                        chevronAtEnd
-                        placement="below"
-                        width="8rem"
-                        onPick={(value) => setCodeFontSize(Number(value))}
+                        options={codeFontSizes.map((size) => ({ id: String(size), label: String(size) }))}
+                        value={String(codeFontSize())}
+                        onChange={(value) => setCodeFontSize(Number(value))}
                     />
                 </SettingsRow>
                 <SettingsRow title={t("drift.code.tabWidth.title")} description={t("drift.code.tabWidth.description")}>
-                    <Picker
+                    <Segmented
                         label={t("drift.code.tabWidth.title")}
-                        items={codeTabWidths.map((width) => ({
+                        options={codeTabWidths.map((width) => ({
                             id: String(width),
                             label: t("drift.code.spaces", { count: width }),
                         }))}
-                        selected={String(codeTabWidth())}
-                        floating
-                        bordered
-                        chevronAtEnd
-                        placement="below"
-                        width="9rem"
-                        onPick={(value) => setCodeTabWidth(Number(value))}
+                        value={String(codeTabWidth())}
+                        onChange={(value) => setCodeTabWidth(Number(value))}
                     />
                 </SettingsRow>
                 <SettingsRow
@@ -164,16 +155,11 @@ export function CodeSection() {
                     title={t("drift.code.diffIndicator.title")}
                     description={t("drift.code.diffIndicator.description")}
                 >
-                    <Picker
+                    <Segmented
                         label={t("drift.code.diffIndicator.title")}
-                        items={diffIndicators.map((name) => ({ id: name, label: t(diffIndicatorLabels[name]) }))}
-                        selected={diffIndicator()}
-                        floating
-                        bordered
-                        chevronAtEnd
-                        placement="below"
-                        width="10rem"
-                        onPick={(value) => setDiffIndicator(value as DiffIndicator)}
+                        options={diffIndicators.map((name) => ({ id: name, label: t(diffIndicatorLabels[name]) }))}
+                        value={diffIndicator()}
+                        onChange={setDiffIndicator}
                     />
                 </SettingsRow>
             </SettingsGroup>

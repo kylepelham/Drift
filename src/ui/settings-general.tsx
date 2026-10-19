@@ -1,11 +1,11 @@
 import { filePreviewPrefs, setFilePreviewMode, setFilePreviewType } from "../state/file-preview-prefs";
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { language, languages, setLanguage } from "../state/language";
-import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { filePreviewTypes } from "../file-preview-types";
+import { Segmented, Toggle } from "./controls";
 import { isRemoteRuntime } from "../runtime";
 import { useEngine } from "../engine";
-import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
 import {
@@ -87,7 +87,7 @@ export function GeneralSection() {
                         bordered
                         chevronAtEnd
                         placement="below"
-                        width="12rem"
+                        width={pickerWidth}
                         onPick={(value) => setLanguage(value as LanguageId)}
                     />
                 </SettingsRow>
@@ -163,7 +163,7 @@ export function GeneralSection() {
                         bordered
                         chevronAtEnd
                         placement="below"
-                        width="12rem"
+                        width={pickerWidth}
                         onPick={(mode) => setCommandRows(commandRowsFrom(mode))}
                     />
                 </SettingsRow>
@@ -183,7 +183,7 @@ export function GeneralSection() {
                         bordered
                         chevronAtEnd
                         placement="below"
-                        width="12rem"
+                        width={pickerWidth}
                         onPick={(id) => {
                             const kind = toolGroupKinds.find((known) => known === id);
                             if (kind) setToolGroup(kind, !toolGroups()[kind]);
@@ -208,21 +208,14 @@ export function GeneralSection() {
                     title={t("drift.preview.settings.mode")}
                     description={t("drift.preview.settings.description")}
                 >
-                    <Picker
+                    <Segmented
                         label={t("drift.preview.settings.mode")}
-                        items={(["all", "none", "custom"] as const).map((mode) => ({
+                        options={(["all", "none", "custom"] as const).map((mode) => ({
                             id: mode,
                             label: t(`drift.preview.mode.${mode}`),
                         }))}
-                        selected={filePreviewPrefs().mode}
-                        floating
-                        bordered
-                        chevronAtEnd
-                        placement="below"
-                        width="12rem"
-                        onPick={(mode) => {
-                            if (mode === "all" || mode === "none" || mode === "custom") setFilePreviewMode(mode);
-                        }}
+                        value={filePreviewPrefs().mode}
+                        onChange={setFilePreviewMode}
                     />
                 </SettingsRow>
                 <Show when={filePreviewPrefs().mode === "custom"}>

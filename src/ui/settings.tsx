@@ -128,7 +128,7 @@ function SettingsModal(props: { onClose: () => void }) {
                 onClick={(event) => event.stopPropagation()}
             >
                 <nav
-                    class="settings-nav flex w-13 shrink-0 flex-col overflow-y-auto border-r border-edge px-1.5 py-3 sm:w-44 sm:px-3"
+                    class="settings-nav flex w-13 shrink-0 flex-col overflow-y-auto border-r border-edge bg-sidebar px-1.5 py-3 sm:w-44 sm:px-3"
                     aria-label={t("sidebar.settings")}
                 >
                     <For each={sectionGroups}>

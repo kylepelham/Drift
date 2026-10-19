@@ -1,4 +1,4 @@
-import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { IconArrowUp, IconTrash } from "./icons";
 import { useEngine } from "../engine";
@@ -75,7 +75,7 @@ export function WebSearchGroup() {
                             bordered
                             chevronAtEnd
                             placement="below"
-                            width="9rem"
+                            width={pickerWidth}
                             onPick={choose}
                         />
                     </SettingsRow>

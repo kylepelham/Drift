@@ -1,5 +1,6 @@
 import { createSignal, For, onMount, Show } from "solid-js";
 import { formatModelContext } from "../state/lm-studio";
+import { pickerWidth } from "./settings-controls";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
@@ -123,7 +124,7 @@ export function OllamaConnect(props: { onNotice: (notice: ProviderNotice) => voi
                     bordered
                     chevronAtEnd
                     placement="below"
-                    width="9rem"
+                    width={pickerWidth}
                     onPick={(value) => void save(Number(value))}
                 />
             </div>

@@ -83,7 +83,7 @@ test("desktop bootstrap normalizes malformed legacy appearance and selection val
     );
 
     const snapshot = localMirrorSnapshot();
-    expect(snapshot.theme.name).toBe("drift-charcoal");
+    expect(snapshot.theme.name).toBe("drift-default");
     expect(snapshot.theme.custom).toEqual({
         background: "#161616",
         surface: "#123456",

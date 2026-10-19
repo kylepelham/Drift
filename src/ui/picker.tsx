@@ -212,7 +212,7 @@ export function Picker(props: {
         <div ref={root} class="picker-control relative">
             <button
                 class="picker-trigger flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-ink-muted transition-colors hover:bg-raised hover:text-ink"
-                classList={{ "border border-edge bg-overlay hover:border-edge-strong": !!props.bordered }}
+                classList={{ "border border-edge bg-raised hover:border-edge-strong": !!props.bordered }}
                 style={{ width: props.width }}
                 title={props.label}
                 aria-label={`${props.label}: ${selectedLabel()}`}

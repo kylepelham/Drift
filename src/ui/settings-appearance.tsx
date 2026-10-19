@@ -1,12 +1,12 @@
 import { corners, customCss, setCorners, setCustomCss, setUiFont, theme, uiFont } from "../state/theme";
 import { AccentPicker, CustomColors, ThemeGallery } from "./settings-theme";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { defaultFonts, FontPicker } from "./settings-font";
 import { Segmented, Slider, Toggle } from "./controls";
 import { ThinkingSettings } from "./settings-thinking";
 import { createSignal, Show } from "solid-js";
-import { FontPicker } from "./settings-font";
+import { firstFamily } from "../state/fonts";
 import { t } from "../state/i18n";
-import { Picker } from "./picker";
 import {
     setSplashDuration,
     setSplashEnabled,
@@ -76,7 +76,12 @@ export function AppearanceSection() {
                     title={t("settings.general.row.uiFont.title")}
                     description={t("settings.general.row.uiFont.description")}
                 >
-                    <FontPicker label={t("settings.general.row.uiFont.title")} value={uiFont()} onInput={setUiFont} />
+                    <FontPicker
+                        label={t("settings.general.row.uiFont.title")}
+                        value={uiFont()}
+                        onInput={setUiFont}
+                        fallback={defaultFonts.ui}
+                    />
                 </SettingsRow>
             </SettingsGroup>
 
@@ -99,57 +104,42 @@ export function AppearanceSection() {
                         title={t("startup.settings.mascot.title")}
                         description={t("startup.settings.mascot.description")}
                     >
-                        <Picker
+                        <Segmented
                             label={t("startup.settings.mascot.title")}
-                            items={splashMascotAnimations.map((name) => ({
+                            options={splashMascotAnimations.map((name) => ({
                                 id: name,
                                 label: t(mascotAnimationLabels[name]),
                             }))}
-                            selected={splashMascotAnimation()}
-                            floating
-                            bordered
-                            chevronAtEnd
-                            placement="below"
-                            width="10rem"
-                            onPick={(value) => setSplashMascotAnimation(value as SplashMascotAnimation)}
+                            value={splashMascotAnimation()}
+                            onChange={(value) => setSplashMascotAnimation(value as SplashMascotAnimation)}
                         />
                     </SettingsRow>
                     <SettingsRow
                         title={t("startup.settings.exit.title")}
                         description={t("startup.settings.exit.description")}
                     >
-                        <Picker
+                        <Segmented
                             label={t("startup.settings.exit.title")}
-                            items={splashExitAnimations.map((name) => ({
+                            options={splashExitAnimations.map((name) => ({
                                 id: name,
                                 label: t(exitAnimationLabels[name]),
                             }))}
-                            selected={splashExitAnimation()}
-                            floating
-                            bordered
-                            chevronAtEnd
-                            placement="below"
-                            width="10rem"
-                            onPick={(value) => setSplashExitAnimation(value as SplashExitAnimation)}
+                            value={splashExitAnimation()}
+                            onChange={(value) => setSplashExitAnimation(value as SplashExitAnimation)}
                         />
                     </SettingsRow>
                     <SettingsRow
                         title={t("startup.settings.duration.title")}
                         description={t("startup.settings.duration.description")}
                     >
-                        <Picker
+                        <Segmented
                             label={t("startup.settings.duration.title")}
-                            items={splashDurations.map((duration) => ({
+                            options={splashDurations.map((duration) => ({
                                 id: String(duration),
                                 label: t(durationLabels[duration]),
                             }))}
-                            selected={String(splashDuration())}
-                            floating
-                            bordered
-                            chevronAtEnd
-                            placement="below"
-                            width="11rem"
-                            onPick={(value) => setSplashDuration(Number(value))}
+                            value={String(splashDuration())}
+                            onChange={(value) => setSplashDuration(Number(value))}
                         />
                     </SettingsRow>
                     <SettingsRow
@@ -160,6 +150,7 @@ export function AppearanceSection() {
                             label={t("startup.settings.font.title")}
                             value={splashFont()}
                             onInput={setSplashFont}
+                            fallback={uiFont() ? firstFamily(uiFont()) : defaultFonts.ui}
                         />
                     </SettingsRow>
                 </Show>

@@ -43,3 +43,6 @@ export function SettingsRow(props: {
         </div>
     );
 }
+
+/** The one width every dropdown in Settings takes, so a column of them lines up. */
+export const pickerWidth = "13rem";

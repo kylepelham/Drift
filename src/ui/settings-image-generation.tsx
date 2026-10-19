@@ -1,4 +1,4 @@
-import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { createSignal, onMount, Show } from "solid-js";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
@@ -62,7 +62,7 @@ export function ImageGenerationGroup() {
                                 })),
                             ]}
                             selected={current().settings.provider}
-                            width="9rem"
+                            width={pickerWidth}
                             onPick={(provider) => save({ provider, model: "" })}
                         />
                     </SettingsRow>
@@ -78,7 +78,7 @@ export function ImageGenerationGroup() {
                                         label={t("drift.settings.imageGeneration.model.title")}
                                         items={provider().models.map((model) => ({ id: model, label: model }))}
                                         selected={current().settings.model || provider().models[0]}
-                                        width="14rem"
+                                        width={pickerWidth}
                                         onPick={(model) => save({ model })}
                                     />
                                 </SettingsRow>
@@ -95,7 +95,7 @@ export function ImageGenerationGroup() {
                                                 size === "auto" ? t("drift.settings.imageGeneration.size.auto") : size,
                                         }))}
                                         selected={current().settings.size}
-                                        width="7rem"
+                                        width={pickerWidth}
                                         onPick={(size) => save({ size })}
                                     />
                                 </SettingsRow>

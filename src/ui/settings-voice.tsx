@@ -1,8 +1,8 @@
 import { ReadAloudGroup, VoiceKeyRow, type VoiceKeys, type VoiceProvider } from "./settings-read-aloud";
 import { audioInputDevices, selectedDeviceMissing, watchAudioInputDevices } from "../voice/devices";
 import { setDictationEnabled, syncDictationConsent } from "../voice/dictation";
+import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
-import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { watchLocalVoices } from "../voice/read-aloud";
 import { useEngine } from "../engine";
 import { Toggle } from "./controls";
@@ -161,7 +161,7 @@ export function VoiceSection() {
                             bordered
                             chevronAtEnd
                             placement="below"
-                            width="14rem"
+                            width={pickerWidth}
                             onPick={(value) => setDictationInputDeviceId(value || null)}
                         />
                     </SettingsRow>
@@ -179,7 +179,7 @@ export function VoiceSection() {
                             bordered
                             chevronAtEnd
                             placement="below"
-                            width="14rem"
+                            width={pickerWidth}
                             onPick={(value) => setDictationProvider(value as DictationProvider)}
                         />
                     </SettingsRow>
@@ -201,7 +201,7 @@ export function VoiceSection() {
                                 bordered
                                 chevronAtEnd
                                 placement="below"
-                                width="14rem"
+                                width={pickerWidth}
                                 onPick={(value) => setDictationModel(value as DictationModel)}
                             />
                         </SettingsRow>
@@ -275,7 +275,7 @@ export function VoiceSection() {
                             bordered
                             chevronAtEnd
                             placement="below"
-                            width="12rem"
+                            width={pickerWidth}
                             onPick={(value) => setDictationLanguage(value as DictationLanguage)}
                         />
                     </SettingsRow>

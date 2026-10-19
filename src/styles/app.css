@@ -4,6 +4,7 @@
 @theme inline {
     --color-bg: var(--bg);
     --color-surface: var(--surface);
+    --color-sidebar: var(--sidebar);
     --color-raised: var(--raised);
     --color-overlay: var(--overlay);
     --color-edge: var(--edge);
@@ -28,11 +29,40 @@
     --code-tab-size: 4;
 }
 
+/* The sidebar takes the surface unless a base gives it its own colour. */
+:root,
+[data-theme-preview] {
+    --sidebar: var(--surface);
+}
+
 /* Bases: the surfaces and text. The names before 2.4.0 stay as aliases until the window renames them. */
 
+/* The default: warm neutral greys, a sidebar darker than the conversation, and a clay accent, as Claude's desktop app. */
 :root,
-:root[data-theme="drift-charcoal"],
+:root[data-theme="drift-default"],
 :root[data-theme="drift-dark"],
+[data-theme-preview="drift-default"] {
+    color-scheme: dark;
+    --sidebar: #121211;
+    --bg: #171715;
+    --surface: #201f1d;
+    --raised: #292826;
+    --overlay: #2b2a28;
+    --edge: #2e2d2a;
+    --edge-strong: #43413d;
+    --ink: #f5f4ef;
+    --ink-muted: #c2c0b6;
+    --ink-faint: #8f8d85;
+    --accent-d: #d97757;
+    --accent-l: #c15f3c;
+    --accent: var(--accent-d);
+    --accent-ink: var(--accent-ink-d, #111111);
+    --ok: #7ccf8e;
+    --warn: #e8c170;
+    --danger: #f07e7e;
+}
+
+:root[data-theme="drift-charcoal"],
 :root[data-theme="drift-graphite"],
 [data-theme-preview="drift-charcoal"] {
     color-scheme: dark;
@@ -164,22 +194,22 @@
 :root[data-theme="drift-aubergine"],
 [data-theme-preview="drift-plum"] {
     color-scheme: dark;
-    --bg: #161218;
-    --surface: #1c171f;
-    --raised: #251e29;
-    --overlay: #2b232f;
-    --edge: #312736;
-    --edge-strong: #46394d;
-    --ink: #eee7f0;
-    --ink-muted: #b6a8bb;
-    --ink-faint: #887a8d;
-    --accent-d: #ec8fc6;
-    --accent-l: #c2367f;
+    --bg: #171119;
+    --surface: #211824;
+    --raised: #2d2031;
+    --overlay: #35263a;
+    --edge: #3d2b43;
+    --edge-strong: #553a5e;
+    --ink: #eee5f0;
+    --ink-muted: #b09db4;
+    --ink-faint: #725e76;
+    --accent-d: #d29ad8;
+    --accent-l: #9a4fa3;
     --accent: var(--accent-d);
-    --accent-ink: var(--accent-ink-d, #111111);
-    --ok: #7ccf8e;
-    --warn: #e8c170;
-    --danger: #f07e7e;
+    --accent-ink: var(--accent-ink-d, #1d1120);
+    --ok: #83c896;
+    --warn: #dfb46e;
+    --danger: #e47e8a;
 }
 
 :root[data-theme="drift-light"],
@@ -478,6 +508,25 @@ textarea {
     will-change: opacity;
     animation: response-character-reveal var(--response-reveal-fade, 70ms) ease-out var(--response-reveal-delay, 0ms)
         both;
+}
+
+/* A dropdown in a settings row reads as a field: inset from the panel, its text from the left. */
+.settings-row-control .picker-trigger {
+    height: 2rem;
+    border-color: var(--edge-strong);
+    background: color-mix(in srgb, var(--bg) 70%, var(--overlay));
+    padding-inline: 0.625rem;
+    color: var(--ink);
+    text-align: left;
+}
+
+.settings-row-control .picker-trigger:hover {
+    background: var(--bg);
+}
+
+.settings-row-control .picker-trigger .picker-label {
+    max-width: none;
+    font-weight: 400;
 }
 
 .picker-label-compact {
