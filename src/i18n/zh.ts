@@ -389,6 +389,11 @@ export const drift = {
     "drift.remote.clipboardError": "无法复制",
     "drift.settings.shellTimeout.scope": "Shell 超时会终止进程树，但不会影响模型、MCP 服务器或网络调用。",
     "drift.settings.execution": "执行",
+    "drift.settings.execution.turns": "回合",
+    "drift.settings.resumeTurns.title": "Drift 重启后恢复被中断的回合",
+    "drift.settings.resumeTurns.description":
+        "Drift 停止时仍在运行的回合会在 Drift 再次启动时重新开始，每个提示最多两次。智能体会被要求先检查被中断的命令做了什么，再决定是否重复。",
+    "drift.turn.resumed": "Drift 重启后已恢复",
     "drift.settings.promptCache": "提示词缓存",
     "drift.settings.promptCache.warming.title": "保持空闲对话的缓存",
     "drift.settings.promptCache.warming.description":

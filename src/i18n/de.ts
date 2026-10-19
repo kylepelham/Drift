@@ -373,6 +373,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Shell-Zeitlimits beenden Prozessbäume. Modelle, MCP-Server und Netzwerkaufrufe sind nicht betroffen.",
     "drift.settings.execution": "Ausführung",
+    "drift.settings.execution.turns": "Durchgänge",
+    "drift.settings.resumeTurns.title": "Unterbrochene Durchgänge nach einem Neustart von Drift fortsetzen",
+    "drift.settings.resumeTurns.description":
+        "Ein Durchgang, der noch lief, als Drift anhielt, beginnt beim nächsten Start erneut, höchstens zweimal pro Prompt. Der Agent soll prüfen, was unterbrochene Befehle bewirkt haben, bevor er sie wiederholt.",
+    "drift.turn.resumed": "Nach dem Neustart von Drift fortgesetzt",
     "drift.settings.promptCache": "Prompt-Cache",
     "drift.settings.promptCache.warming.title": "Ruhende Unterhaltungen warm halten",
     "drift.settings.promptCache.warming.description":

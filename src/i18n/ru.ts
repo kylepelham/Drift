@@ -403,6 +403,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",
     "drift.settings.execution": "Выполнение",
+    "drift.settings.execution.turns": "Ходы",
+    "drift.settings.resumeTurns.title": "Возобновлять прерванные ходы после перезапуска Drift",
+    "drift.settings.resumeTurns.description":
+        "Ход, который ещё шёл, когда Drift остановился, начинается снова при запуске, не больше двух раз на промпт. Агенту велено проверить, что сделали прерванные команды, прежде чем повторять их.",
+    "drift.turn.resumed": "Возобновлено после перезапуска Drift",
     "drift.settings.promptCache": "Кэш промпта",
     "drift.settings.promptCache.warming.title": "Держать простаивающие беседы тёплыми",
     "drift.settings.promptCache.warming.description":

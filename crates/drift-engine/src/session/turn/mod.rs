@@ -48,6 +48,7 @@ mod limits;
 mod planning;
 mod receipts;
 mod request;
+pub mod resume;
 mod retry;
 mod settle;
 mod state;
@@ -426,6 +427,9 @@ impl std::error::Error for TurnError {}
 impl Engine {
     /// Steps until the model is done, then again for any prompt steered in meanwhile.
     async fn run(self: &Arc<Self>, mut plan: Plan, abort: CancellationToken) {
+        if plan.session.visibility != Visibility::Hidden {
+            let _ = self.store.claim_turn(&plan.session.id);
+        }
         self.title_untitled(&plan.session);
         let started = self.store.newest_prompt(&plan.session.id).ok().flatten();
         if !self.run_bootstrap(&mut plan, &abort).await {
@@ -554,6 +558,7 @@ impl Engine {
     /// Compaction summaries are bookkeeping, not a subagent's final answer.
     fn record_end(&self, session: &Session, abort: &CancellationToken) {
         if session.visibility != Visibility::Hidden {
+            let _ = self.store.release_turn(&session.id);
             return;
         }
 

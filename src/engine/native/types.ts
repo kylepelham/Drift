@@ -1459,6 +1459,8 @@ export interface components {
             promptCache?: components["schemas"]["PromptCache"] | null;
             /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
             registrySources?: components["schemas"]["RegistrySource"][] | null;
+            /** @description Start a turn again after Drift restarts in the middle of it. Left out of a PUT, it stays as it is. */
+            resumeTurns?: boolean | null;
             /**
              * @description A shell command still running at its time limit moves to the background instead of being stopped; only while
              *     background processes are on. Left out of a PUT, it stays as it is.
@@ -1474,6 +1476,7 @@ export interface components {
             backgroundTasks?: boolean | null;
             promptCache?: components["schemas"]["PromptCache"] | null;
             registrySources?: components["schemas"]["SourceInput"][] | null;
+            resumeTurns?: boolean | null;
             shellHandoff?: boolean | null;
         };
         Envelope: components["schemas"]["Event"] & {

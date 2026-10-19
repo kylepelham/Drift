@@ -11,6 +11,7 @@ use crate::Engine;
 use crate::background::{HANDOFF_KEY, PROCESSES_KEY};
 use crate::session::compaction::AUTO_COMPACT_KEY;
 use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
+use crate::session::turn::resume::RESUME_KEY;
 use crate::session::turn::warming::{PROMPT_CACHE_KEY, PromptCache};
 
 /// Engine-wide preferences the user changes in Settings.
@@ -39,6 +40,9 @@ pub(super) struct EngineSettings {
     /// Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_sources: Option<Vec<RegistrySource>>,
+    /// Start a turn again after Drift restarts in the middle of it. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_turns: Option<bool>,
     /// Prompt cache warming and the Anthropic one-hour cache, all off by default. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<PromptCache>,
@@ -66,6 +70,8 @@ pub(super) struct EngineSettingsInput {
     pub registry_sources: Option<Vec<SourceInput>>,
     #[serde(default)]
     pub prompt_cache: Option<PromptCache>,
+    #[serde(default)]
+    pub resume_turns: Option<bool>,
 }
 
 fn current(engine: &Engine) -> EngineSettings {
@@ -79,6 +85,7 @@ fn current(engine: &Engine) -> EngineSettings {
         auto_accept_all: Some(engine.auto_accept_all()),
         registry_sources: Some(engine.registry_sources()),
         prompt_cache: Some(engine.prompt_cache()),
+        resume_turns: Some(engine.resumes_turns()),
     }
 }
 
@@ -114,6 +121,9 @@ pub(super) async fn put(
     }
     if let Some(on) = body.auto_accept_all {
         engine.set_auto_accept_all(on)?;
+    }
+    if let Some(on) = body.resume_turns {
+        engine.store.set_setting(RESUME_KEY, &on)?;
     }
     if let Some(cache) = body.prompt_cache {
         if let Some(problem) = cache.problem() {

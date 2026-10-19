@@ -367,6 +367,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
     "drift.settings.execution": "実行",
+    "drift.settings.execution.turns": "ターン",
+    "drift.settings.resumeTurns.title": "Drift 再起動後に中断されたターンを再開",
+    "drift.settings.resumeTurns.description":
+        "Drift が停止したときに実行中だったターンは、次の起動時に再開されます（プロンプトごとに最大2回）。エージェントは中断されたコマンドの結果を確認してから繰り返すよう指示されます。",
+    "drift.turn.resumed": "Drift の再起動後に再開",
     "drift.settings.promptCache": "プロンプトキャッシュ",
     "drift.settings.promptCache.warming.title": "待機中の会話を温めておく",
     "drift.settings.promptCache.warming.description":

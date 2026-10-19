@@ -322,7 +322,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] Settings > Execution > Prompt cache: warming (interval, window, prompt) and Anthropic one-hour cache where the route accepts it, all off by default
 - Turn robustness:
   - [x] A length stop continues the turn with a note, at most twice in a row; cut-off calls carry an input excerpt
-  - [ ] Interrupted top-level turns resume after a restart (switch, on by default, two resumes per prompt)
+  - [x] Interrupted top-level turns resume after a restart (switch, on by default, two resumes per prompt)
 - [ ] Importer reads opencode v2 conversations, sign-ins and config shapes
 - Features:
   - [ ] `websearch` with Firecrawl, Exa and Tavily over one provider trait, key lists rotated on 401, 402 and 429, `auto` routing, plugin providers through a `searching` WIT world

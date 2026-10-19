@@ -396,6 +396,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
     "drift.settings.execution": "การทำงาน",
+    "drift.settings.execution.turns": "รอบ",
+    "drift.settings.resumeTurns.title": "ทำรอบที่ถูกขัดจังหวะต่อหลัง Drift เริ่มใหม่",
+    "drift.settings.resumeTurns.description":
+        "รอบที่ยังทำงานอยู่ตอน Drift หยุด จะเริ่มอีกครั้งเมื่อ Drift เริ่มใหม่ ไม่เกินสองครั้งต่อพรอมต์ เอเจนต์จะได้รับคำสั่งให้ตรวจสอบผลของคำสั่งที่ถูกขัดจังหวะก่อนทำซ้ำ",
+    "drift.turn.resumed": "ทำต่อหลัง Drift เริ่มใหม่",
     "drift.settings.promptCache": "แคชพรอมต์",
     "drift.settings.promptCache.warming.title": "รักษาบทสนทนาที่ว่างให้อุ่น",
     "drift.settings.promptCache.warming.description":

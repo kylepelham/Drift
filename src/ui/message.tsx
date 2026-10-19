@@ -2,7 +2,6 @@ import { createMemo, createRenderEffect, createSignal, For, Match, onMount, Show
 import { groupParts, updatePartGroupSlots, type PartGroup, type PartGroupSlot } from "./message-groups";
 import { collapseCompaction, compactionCollapsed, editedFilesCard } from "../state/prefs";
 import { messageText, modelInfo, sessionBusy, type MessageEntry } from "../engine/store";
-import { InstructionUpdateRow, type InstructionUpdatePart } from "./instruction-update";
 import { clarificationAnswer, type ClarificationAnswer } from "./clarification-answer";
 import { composerScope, draftFromMessage, setComposerDraft } from "../state/composer";
 import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconUndo } from "./icons";
@@ -25,6 +24,12 @@ import { Markdown } from "./markdown";
 import { ToolRun } from "./tool-run";
 import { NoteBox } from "./note-box";
 import { Chevron } from "./controls";
+import {
+    InstructionUpdateRow,
+    ResumedRow,
+    type ContinuationPart,
+    type InstructionUpdatePart,
+} from "./instruction-update";
 
 import type { ContextPart, ProcessExitPart } from "../engine/parts";
 import type { Message, MessageProblem } from "../engine/messages";
@@ -81,7 +86,9 @@ export function messageVisible(entry: MessageEntry) {
         return (
             !!messageText(entry) ||
             entry.parts.some((part) =>
-                ["file", "compaction", "context", "process_exit", "instruction_update"].includes(part.type),
+                ["file", "compaction", "context", "process_exit", "instruction_update", "continuation"].includes(
+                    part.type,
+                ),
             )
         );
 
@@ -185,6 +192,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
     const exits = () => props.entry.parts.filter((part): part is ProcessExitPart => part.type === "process_exit");
     const updates = () =>
         props.entry.parts.filter((part): part is InstructionUpdatePart => part.type === "instruction_update");
+    const resumed = () => props.entry.parts.filter((part): part is ContinuationPart => part.type === "continuation");
     const compactions = () => boundaryCompactions(props.entry, collapseCompaction(), !!props.thinking);
     const model = () => modelInfo(engine.state, messageModel(info()))?.name ?? info().model?.model ?? "";
     const time = () => new Date(info().createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -205,6 +213,7 @@ function UserBubble(props: { entry: MessageEntry; thinking?: boolean; spawned?: 
                     <For each={plugins()}>{(part) => <PluginRow part={part} end />}</For>
                     <For each={exits()}>{(part) => <ProcessExitRow part={part} />}</For>
                     <For each={updates()}>{(part) => <InstructionUpdateRow part={part} />}</For>
+                    <For each={resumed()}>{(part) => <ResumedRow part={part} />}</For>
                     <Show when={text() || files().length > 0}>
                         <div class="group flex flex-col items-end gap-1.5">
                             <Show when={files().length > 0}>

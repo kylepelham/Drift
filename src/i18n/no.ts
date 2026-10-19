@@ -401,6 +401,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Shell-tidsavbrudd avslutter prosesstrær. De påvirker ikke modeller, MCP-servere eller nettverkskall.",
     "drift.settings.execution": "Kjøring",
+    "drift.settings.execution.turns": "Turer",
+    "drift.settings.resumeTurns.title": "Gjenoppta avbrutte turer når Drift starter på nytt",
+    "drift.settings.resumeTurns.description":
+        "En tur som fortsatt kjørte da Drift stoppet, starter igjen når Drift gjør det, høyst to ganger per prompt. Agenten får beskjed om å sjekke hva avbrutte kommandoer gjorde før den gjentar dem.",
+    "drift.turn.resumed": "Gjenopptatt etter at Drift startet på nytt",
     "drift.settings.promptCache": "Prompt-hurtigbuffer",
     "drift.settings.promptCache.warming.title": "Hold inaktive samtaler varme",
     "drift.settings.promptCache.warming.description":

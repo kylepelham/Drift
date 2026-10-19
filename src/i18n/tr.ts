@@ -403,6 +403,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
     "drift.settings.execution": "Çalıştırma",
+    "drift.settings.execution.turns": "Turlar",
+    "drift.settings.resumeTurns.title": "Drift yeniden başladığında yarıda kalan turları sürdür",
+    "drift.settings.resumeTurns.description":
+        "Drift durduğunda hâlâ çalışan bir tur, Drift başladığında yeniden başlar; istem başına en çok iki kez. Ajandan, yarıda kalan komutların ne yaptığını tekrarlamadan önce kontrol etmesi istenir.",
+    "drift.turn.resumed": "Drift yeniden başladıktan sonra sürdürüldü",
     "drift.settings.promptCache": "İstem önbelleği",
     "drift.settings.promptCache.warming.title": "Boştaki konuşmaları sıcak tut",
     "drift.settings.promptCache.warming.description":

@@ -1956,6 +1956,16 @@ Settled after the first external review of M1; each has a regression test.
   for smaller pieces. A third stop at the limit in a row ends the turn with that ending, and a
   wrap-up step (tools off) ends as before. A worker follows the same rule, so one whose third
   reply is still cut off reports `incomplete`.
+- A turn Drift stopped in the middle of starts again when Drift does (`session::turn::resume`,
+  engine setting `resumeTurns`, Settings > Execution > Turns, on by default, after opencode v2's
+  execution claims). A top-level turn writes a `turn_claim` row (migration 43) when it starts and
+  removes it when it ends, a Stop included, so a row left at startup means Drift stopped, not the
+  user. After workers are recovered, each such conversation that is not archived gets an
+  engine-made prompt (a `continuation` part, folded in the UI as "Resumed after Drift restarted")
+  saying Drift restarted mid-turn and that interrupted calls may or may not have taken effect and
+  must be checked before repeating one, and its turn starts on its saved agent, model and level.
+  The row counts resumes, so a prompt is resumed at most twice; a third restart, or the switch
+  off, only removes the row. Workers keep their own recovery (interrupted, never rerun).
 - Output limit and thinking budget are computed together (`turn::budgets`): the output never
   exceeds the model's own limit; a thinking budget may raise it past the usual 32,000 cap but always
   leaves 1,024 tokens for the answer; a larger budget is reduced to fit, and one that cannot reach

@@ -456,6 +456,11 @@ export const drift = {
     "drift.slash.spawn": "Start a separate thread that knows this conversation and works on your instruction",
     "drift.slash.spawn.required": "Say what the new thread should do after /spawn.",
     "drift.settings.execution": "Execution",
+    "drift.settings.execution.turns": "Turns",
+    "drift.settings.resumeTurns.title": "Resume interrupted turns after Drift restarts",
+    "drift.settings.resumeTurns.description":
+        "A turn still running when Drift stopped starts again when Drift does, at most twice per prompt. The agent is told to check what interrupted commands did before repeating them.",
+    "drift.turn.resumed": "Resumed after Drift restarted",
     "drift.settings.promptCache": "Prompt cache",
     "drift.settings.promptCache.warming.title": "Keep idle conversations warm",
     "drift.settings.promptCache.warming.description":

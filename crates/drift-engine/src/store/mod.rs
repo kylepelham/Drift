@@ -15,6 +15,7 @@ mod staged;
 pub(crate) mod tasks;
 mod todos;
 mod tree;
+mod turn_claims;
 
 pub use admission::{Admission, Admit, Admitted, Handover, Pick};
 pub use import::ImportCheckpoints;
@@ -23,6 +24,7 @@ pub use mcp::Renamed;
 pub use sessions::{NewSession, Purge, SessionFilter};
 pub use staged::StagedReplacement;
 pub use tasks::{Launch, NewTask};
+pub use turn_claims::TurnClaim;
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};

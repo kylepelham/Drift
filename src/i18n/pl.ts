@@ -369,6 +369,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Limity powłoki kończą drzewa procesów. Nie wpływają na modele, serwery MCP ani wywołania sieciowe.",
     "drift.settings.execution": "Wykonywanie",
+    "drift.settings.execution.turns": "Tury",
+    "drift.settings.resumeTurns.title": "Wznawiaj przerwane tury po ponownym uruchomieniu Drift",
+    "drift.settings.resumeTurns.description":
+        "Tura, która trwała, gdy Drift się zatrzymał, zaczyna się od nowa przy następnym uruchomieniu, najwyżej dwa razy na prompt. Agent ma sprawdzić, co zrobiły przerwane polecenia, zanim je powtórzy.",
+    "drift.turn.resumed": "Wznowiono po ponownym uruchomieniu Drift",
     "drift.settings.promptCache": "Pamięć podręczna promptu",
     "drift.settings.promptCache.warming.title": "Utrzymuj bezczynne rozmowy w gotowości",
     "drift.settings.promptCache.warming.description":

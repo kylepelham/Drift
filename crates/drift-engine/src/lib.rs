@@ -593,6 +593,7 @@ pub async fn listen(engine: Arc<Engine>, addr: SocketAddr) -> Result<Server, Err
         // Resumed work gets the servers that come up soon, but a dead one never holds it back for long.
         starting.mcp.wait_ready(RECOVERY_WAIT).await;
         starting.recover_tasks().await;
+        starting.resume_turns().await;
         starting.maintain().await;
     });
 

@@ -45,3 +45,16 @@ export function InstructionUpdateRow(props: { part: InstructionUpdatePart }) {
         </div>
     );
 }
+
+export type ContinuationPart = Extract<Part, { type: "continuation" }>;
+
+/** The engine's note that Drift restarted mid-turn, folded on the prompt that resumed it. */
+export function ResumedRow(props: { part: ContinuationPart }) {
+    return (
+        <div class="flex min-w-0 justify-end">
+            <NoteBox icon={<IconInfo class="size-3.5" />} label={t("drift.turn.resumed")}>
+                <div class="text-xs whitespace-pre-wrap break-words text-ink-muted">{props.part.text}</div>
+            </NoteBox>
+        </div>
+    );
+}

@@ -185,6 +185,9 @@ fn user_block(part: &Part) -> Option<Block> {
         Part::ProcessExit { .. } => Some(Block::Text(super::processes::exit_text(part))),
         Part::InstructionUpdate { changes, .. } => Some(Block::Reminder(instruction_text(changes))),
         Part::EffortUpdate { effort, .. } => Some(Block::Effort(effort.clone())),
+        Part::Continuation { text } => Some(Block::Reminder(format!(
+            "<system-reminder>\n{text}\n</system-reminder>"
+        ))),
         _ => None,
     }
 }

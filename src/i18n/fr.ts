@@ -375,6 +375,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Les délais du shell arrêtent les arborescences de processus. Ils n’affectent pas les modèles, MCP ou appels réseau.",
     "drift.settings.execution": "Exécution",
+    "drift.settings.execution.turns": "Tours",
+    "drift.settings.resumeTurns.title": "Reprendre les tours interrompus au redémarrage de Drift",
+    "drift.settings.resumeTurns.description":
+        "Un tour encore en cours quand Drift s'est arrêté reprend au démarrage suivant, au plus deux fois par prompt. L'agent doit vérifier ce qu'ont fait les commandes interrompues avant de les répéter.",
+    "drift.turn.resumed": "Repris après le redémarrage de Drift",
     "drift.settings.promptCache": "Cache de prompt",
     "drift.settings.promptCache.warming.title": "Garder au chaud les conversations inactives",
     "drift.settings.promptCache.warming.description":

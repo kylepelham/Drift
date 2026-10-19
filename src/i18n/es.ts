@@ -404,6 +404,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Los límites del shell terminan árboles de procesos. No afectan a modelos, servidores MCP ni llamadas de red.",
     "drift.settings.execution": "Ejecución",
+    "drift.settings.execution.turns": "Turnos",
+    "drift.settings.resumeTurns.title": "Reanudar turnos interrumpidos al reiniciar Drift",
+    "drift.settings.resumeTurns.description":
+        "Un turno que seguía en curso cuando Drift se detuvo vuelve a empezar cuando Drift arranca, como máximo dos veces por prompt. Se pide al agente que compruebe qué hicieron los comandos interrumpidos antes de repetirlos.",
+    "drift.turn.resumed": "Reanudado tras reiniciar Drift",
     "drift.settings.promptCache": "Caché de prompt",
     "drift.settings.promptCache.warming.title": "Mantener calientes las conversaciones inactivas",
     "drift.settings.promptCache.warming.description":

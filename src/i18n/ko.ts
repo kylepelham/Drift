@@ -366,6 +366,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
     "drift.settings.execution": "실행",
+    "drift.settings.execution.turns": "턴",
+    "drift.settings.resumeTurns.title": "Drift 재시작 후 중단된 턴 재개",
+    "drift.settings.resumeTurns.description":
+        "Drift가 멈췄을 때 실행 중이던 턴은 다시 시작할 때 재개됩니다(프롬프트당 최대 두 번). 에이전트는 중단된 명령이 한 일을 확인한 뒤 반복하도록 안내받습니다.",
+    "drift.turn.resumed": "Drift 재시작 후 재개됨",
     "drift.settings.promptCache": "프롬프트 캐시",
     "drift.settings.promptCache.warming.title": "유휴 대화를 따뜻하게 유지",
     "drift.settings.promptCache.warming.description":

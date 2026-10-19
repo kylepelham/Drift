@@ -360,6 +360,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "تنهي مهل الصدفة أشجار العمليات. ولا تؤثر على النماذج أو خوادم MCP أو اتصالات الشبكة.",
     "drift.settings.execution": "التنفيذ",
+    "drift.settings.execution.turns": "الأدوار",
+    "drift.settings.resumeTurns.title": "استئناف الأدوار المقطوعة بعد إعادة تشغيل Drift",
+    "drift.settings.resumeTurns.description":
+        "الدور الذي كان يعمل عند توقف Drift يبدأ من جديد عند تشغيله، مرتين على الأكثر لكل طلب. يُطلب من الوكيل التحقق مما فعلته الأوامر المقطوعة قبل تكرارها.",
+    "drift.turn.resumed": "استؤنف بعد إعادة تشغيل Drift",
     "drift.settings.promptCache": "ذاكرة التعليمات المؤقتة",
     "drift.settings.promptCache.warming.title": "إبقاء المحادثات الخاملة دافئة",
     "drift.settings.promptCache.warming.description":

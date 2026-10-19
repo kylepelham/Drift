@@ -389,6 +389,11 @@ export const drift = {
     "drift.remote.clipboardError": "無法複製",
     "drift.settings.shellTimeout.scope": "Shell 逾時會終止處理程序樹狀結構，但不會影響模型、MCP 伺服器或網路呼叫。",
     "drift.settings.execution": "執行",
+    "drift.settings.execution.turns": "回合",
+    "drift.settings.resumeTurns.title": "Drift 重新啟動後恢復被中斷的回合",
+    "drift.settings.resumeTurns.description":
+        "Drift 停止時仍在執行的回合會在 Drift 再次啟動時重新開始，每個提示最多兩次。代理會被要求先檢查被中斷的命令做了什麼，再決定是否重複。",
+    "drift.turn.resumed": "Drift 重新啟動後已恢復",
     "drift.settings.promptCache": "提示詞快取",
     "drift.settings.promptCache.warming.title": "保持閒置對話的快取",
     "drift.settings.promptCache.warming.description":

@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 42] = [
+pub(super) const MIGRATIONS: [&str; 43] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -202,6 +202,11 @@ pub(super) const MIGRATIONS: [&str; 42] = [
         -- Which baseline the row belongs to; an update made against another one is not replayed.
         generation TEXT NOT NULL,
         PRIMARY KEY(session_id, key)
+    ) STRICT, WITHOUT ROWID;",
+    // A turn under way, removed when it ends: one left at startup was cut off by Drift stopping.
+    "CREATE TABLE turn_claim(
+        session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
+        resumes INTEGER NOT NULL DEFAULT 0
     ) STRICT, WITHOUT ROWID;",
 ];
 

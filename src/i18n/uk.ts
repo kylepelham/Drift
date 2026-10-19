@@ -402,6 +402,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
     "drift.settings.execution": "Виконання",
+    "drift.settings.execution.turns": "Ходи",
+    "drift.settings.resumeTurns.title": "Відновлювати перервані ходи після перезапуску Drift",
+    "drift.settings.resumeTurns.description":
+        "Хід, що ще тривав, коли Drift зупинився, починається знову під час запуску, не більше двох разів на промпт. Агенту наказано перевірити, що зробили перервані команди, перш ніж повторювати їх.",
+    "drift.turn.resumed": "Відновлено після перезапуску Drift",
     "drift.settings.promptCache": "Кеш промпту",
     "drift.settings.promptCache.warming.title": "Тримати неактивні розмови теплими",
     "drift.settings.promptCache.warming.description":

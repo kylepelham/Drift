@@ -400,6 +400,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Shell-timeouts afslutter procestræer. De påvirker ikke modeller, MCP-servere eller netværkskald.",
     "drift.settings.execution": "Kørsel",
+    "drift.settings.execution.turns": "Ture",
+    "drift.settings.resumeTurns.title": "Genoptag afbrudte ture, når Drift genstarter",
+    "drift.settings.resumeTurns.description":
+        "En tur, der stadig kørte, da Drift stoppede, starter igen, når Drift gør, højst to gange pr. prompt. Agenten får besked på at tjekke, hvad afbrudte kommandoer gjorde, før den gentager dem.",
+    "drift.turn.resumed": "Genoptaget efter Drift genstartede",
     "drift.settings.promptCache": "Prompt-cache",
     "drift.settings.promptCache.warming.title": "Hold inaktive samtaler varme",
     "drift.settings.promptCache.warming.description":

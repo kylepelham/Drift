@@ -401,6 +401,11 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
     "drift.settings.execution": "Izvršavanje",
+    "drift.settings.execution.turns": "Potezi",
+    "drift.settings.resumeTurns.title": "Nastavi prekinute poteze nakon ponovnog pokretanja Drifta",
+    "drift.settings.resumeTurns.description":
+        "Potez koji je još trajao kad se Drift zaustavio počinje ponovo kad se Drift pokrene, najviše dvaput po promptu. Agent dobija uputu da provjeri šta su prekinute komande uradile prije nego ih ponovi.",
+    "drift.turn.resumed": "Nastavljeno nakon ponovnog pokretanja Drifta",
     "drift.settings.promptCache": "Keš prompta",
     "drift.settings.promptCache.warming.title": "Drži neaktivne razgovore toplim",
     "drift.settings.promptCache.warming.description":
