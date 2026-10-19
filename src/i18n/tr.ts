@@ -455,7 +455,7 @@ export const drift = {
     "drift.settings.execution.turns": "Turlar",
     "drift.settings.resumeTurns.title": "Drift yeniden başladığında yarıda kalan turları sürdür",
     "drift.settings.resumeTurns.description":
-        "Drift durduğunda hâlâ çalışan bir tur, Drift başladığında yeniden başlar; istem başına en çok iki kez. Ajandan, yarıda kalan komutların ne yaptığını tekrarlamadan önce kontrol etmesi istenir.",
+        "Drift durduğunda hâlâ çalışan bir tur ya da arka plan alt ajanı, Drift yeniden başladığında en fazla iki kez yeniden başlar. Ajandan, kesilen komutların ne yaptığını tekrarlamadan önce kontrol etmesi istenir.",
     "drift.turn.resumed": "Drift yeniden başladıktan sonra sürdürüldü",
     "drift.settings.webSearch": "Web araması",
     "drift.settings.webSearch.provider.title": "Sağlayıcı",

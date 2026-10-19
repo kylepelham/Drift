@@ -439,7 +439,7 @@ export const drift = {
     "drift.settings.execution.turns": "回合",
     "drift.settings.resumeTurns.title": "Drift 重启后恢复被中断的回合",
     "drift.settings.resumeTurns.description":
-        "Drift 停止时仍在运行的回合会在 Drift 再次启动时重新开始，每个提示最多两次。智能体会被要求先检查被中断的命令做了什么，再决定是否重复。",
+        "Drift 停止时仍在运行的回合或后台子代理，会在 Drift 启动时重新开始，最多两次。代理会被提醒先检查被中断的命令做了什么，再决定是否重复。",
     "drift.turn.resumed": "Drift 重启后已恢复",
     "drift.settings.webSearch": "网页搜索",
     "drift.settings.webSearch.provider.title": "提供方",

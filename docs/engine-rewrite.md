@@ -2259,7 +2259,18 @@ Settled after the first external review of M1; each has a regression test.
   saying Drift restarted mid-turn and that interrupted calls may or may not have taken effect and
   must be checked before repeating one, and its turn starts on its saved agent, model and level.
   The row counts resumes, so a prompt is resumed at most twice; a third restart, or the switch
-  off, only removes the row. Workers keep their own recovery (interrupted, never rerun).
+  off, only removes the row.
+- Background workers cut off by a restart start again too, under the same switch (2.4.0, after
+  Kyle found workers that never came back). At open, before anything runs, a background worker
+  still `queued` or `running` is queued again and its `restarts` count (migration 46) raised,
+  at most twice; once the servers are up, before turns resume, each is admitted again on its own
+  conversation with a `continuation` saying Drift restarted and to check what interrupted calls
+  did, waits for a slot like any worker, and reports to its parent when done. A worker whose
+  owner was stopped since it launched, a third restart, or the switch off ends it interrupted,
+  waking no one, as before. A resumed parent turn is told its restarted workers will report, so
+  the model does not launch them again (it did, before). A foreground worker is not restarted:
+  its launching call gets the interrupted result, which now names its `task_id` so the resumed
+  parent continues the worker's conversation rather than starting over.
 - Output limit and thinking budget are computed together (`turn::budgets`): the output never
   exceeds the model's own limit; a thinking budget may raise it past the usual 32,000 cap but always
   leaves 1,024 tokens for the answer; a larger budget is reduced to fit, and one that cannot reach

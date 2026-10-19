@@ -455,7 +455,7 @@ export const drift = {
     "drift.settings.execution.turns": "Tury",
     "drift.settings.resumeTurns.title": "Wznawiaj przerwane tury po ponownym uruchomieniu Drift",
     "drift.settings.resumeTurns.description":
-        "Tura, która trwała, gdy Drift się zatrzymał, zaczyna się od nowa przy następnym uruchomieniu, najwyżej dwa razy na prompt. Agent ma sprawdzić, co zrobiły przerwane polecenia, zanim je powtórzy.",
+        "Tura lub podagent w tle, który wciąż działał, gdy Drift się zatrzymał, rusza ponownie po uruchomieniu Drift, najwyżej dwa razy. Agent ma sprawdzić, co zrobiły przerwane polecenia, zanim je powtórzy.",
     "drift.turn.resumed": "Wznowiono po ponownym uruchomieniu Drift",
     "drift.settings.webSearch": "Wyszukiwanie w sieci",
     "drift.settings.webSearch.provider.title": "Dostawca",

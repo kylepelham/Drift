@@ -459,7 +459,7 @@ export const drift = {
     "drift.settings.execution.turns": "Turns",
     "drift.settings.resumeTurns.title": "Resume interrupted turns after Drift restarts",
     "drift.settings.resumeTurns.description":
-        "A turn still running when Drift stopped starts again when Drift does, at most twice per prompt. The agent is told to check what interrupted commands did before repeating them.",
+        "A turn or background subagent still running when Drift stopped starts again when Drift does, at most twice. The agent is told to check what interrupted commands did before repeating them.",
     "drift.turn.resumed": "Resumed after Drift restarted",
     "drift.settings.webSearch": "Web search",
     "drift.settings.webSearch.provider.title": "Provider",

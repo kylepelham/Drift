@@ -453,7 +453,7 @@ export const drift = {
     "drift.settings.execution.turns": "Turer",
     "drift.settings.resumeTurns.title": "Gjenoppta avbrutte turer når Drift starter på nytt",
     "drift.settings.resumeTurns.description":
-        "En tur som fortsatt kjørte da Drift stoppet, starter igjen når Drift gjør det, høyst to ganger per prompt. Agenten får beskjed om å sjekke hva avbrutte kommandoer gjorde før den gjentar dem.",
+        "En runde eller bakgrunnsunderagent som fortsatt kjørte da Drift stoppet, starter igjen når Drift gjør det, høyst to ganger. Agenten blir bedt om å sjekke hva avbrutte kommandoer gjorde før den gjentar dem.",
     "drift.turn.resumed": "Gjenopptatt etter at Drift startet på nytt",
     "drift.settings.webSearch": "Nettsøk",
     "drift.settings.webSearch.provider.title": "Leverandør",

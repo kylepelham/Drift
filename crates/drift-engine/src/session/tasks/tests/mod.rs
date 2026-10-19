@@ -13,6 +13,7 @@ mod delivery;
 mod endings;
 mod launch;
 mod recovery;
+mod restarts;
 mod scheduling;
 
 fn background(description: &str, child_prompt: &str) -> serde_json::Value {

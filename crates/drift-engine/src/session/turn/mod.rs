@@ -179,6 +179,10 @@ pub struct Turns {
     pub provider_override: Mutex<Option<Provider>>,
     /// The turns under way when the engine last stopped, as the store said at open; taken once, by resume.
     pub(crate) cut_off: Mutex<Vec<crate::store::TurnClaim>>,
+    /// Background workers a restart queued again, to start once the engine is up.
+    pub(crate) restarting: Mutex<Vec<String>>,
+    /// Conversations whose workers were started again, so their own resumed turn is told not to relaunch them.
+    pub(crate) restarted_owners: Mutex<std::collections::HashSet<String>>,
     /// Each session's prompt cache warming loop.
     warmers: warming::Warmers,
     /// Each session's last request by segment, to say what broke its prompt cache.

@@ -446,7 +446,7 @@ export const drift = {
     "drift.settings.execution.turns": "รอบ",
     "drift.settings.resumeTurns.title": "ทำรอบที่ถูกขัดจังหวะต่อหลัง Drift เริ่มใหม่",
     "drift.settings.resumeTurns.description":
-        "รอบที่ยังทำงานอยู่ตอน Drift หยุด จะเริ่มอีกครั้งเมื่อ Drift เริ่มใหม่ ไม่เกินสองครั้งต่อพรอมต์ เอเจนต์จะได้รับคำสั่งให้ตรวจสอบผลของคำสั่งที่ถูกขัดจังหวะก่อนทำซ้ำ",
+        "รอบหรือเอเจนต์ย่อยเบื้องหลังที่ยังทำงานอยู่ตอน Drift หยุด จะเริ่มใหม่เมื่อ Drift เริ่มทำงาน สูงสุดสองครั้ง เอเจนต์จะได้รับแจ้งให้ตรวจสอบว่าคำสั่งที่ถูกขัดจังหวะทำอะไรไปแล้วก่อนทำซ้ำ",
     "drift.turn.resumed": "ทำต่อหลัง Drift เริ่มใหม่",
     "drift.settings.webSearch": "ค้นหาเว็บ",
     "drift.settings.webSearch.provider.title": "ผู้ให้บริการ",

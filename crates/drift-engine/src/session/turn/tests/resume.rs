@@ -42,6 +42,32 @@ async fn a_turn_cut_off_by_a_restart_starts_again_once_with_a_note() {
 }
 
 #[tokio::test]
+async fn a_resumed_turn_whose_workers_were_restarted_is_told_not_to_launch_them_again() {
+    let h = harness().await;
+    h.provider.push_stall();
+    h.engine.submit(&h.session.id, prompt("delegate it")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let restarted = reopen(&h);
+    restarted
+        .turns
+        .restarted_owners
+        .lock()
+        .unwrap()
+        .insert(h.session.id.clone());
+    h.provider.push(text("waiting on them"));
+    restarted.resume_turns().await;
+    until_engine_idle(&restarted, &h.session.id).await;
+
+    let requests = sent(&h);
+    assert!(
+        requests[1].contains("background subagents that were running were restarted too"),
+        "{}",
+        requests[1]
+    );
+}
+
+#[tokio::test]
 async fn a_turn_the_user_stopped_and_a_third_restart_in_one_prompt_do_not_resume() {
     let h = harness().await;
     h.provider.push_stall();

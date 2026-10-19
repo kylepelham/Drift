@@ -445,7 +445,7 @@ export const drift = {
     "drift.settings.execution.turns": "الأدوار",
     "drift.settings.resumeTurns.title": "استئناف الأدوار المقطوعة بعد إعادة تشغيل Drift",
     "drift.settings.resumeTurns.description":
-        "الدور الذي كان يعمل عند توقف Drift يبدأ من جديد عند تشغيله، مرتين على الأكثر لكل طلب. يُطلب من الوكيل التحقق مما فعلته الأوامر المقطوعة قبل تكرارها.",
+        "الدور أو الوكيل الفرعي في الخلفية الذي كان لا يزال يعمل عند توقف Drift يبدأ من جديد عند تشغيل Drift، مرتين على الأكثر. يُطلب من الوكيل التحقق مما فعلته الأوامر المقطوعة قبل تكرارها.",
     "drift.turn.resumed": "استؤنف بعد إعادة تشغيل Drift",
     "drift.settings.webSearch": "البحث على الويب",
     "drift.settings.webSearch.provider.title": "المزوّد",

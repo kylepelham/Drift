@@ -459,7 +459,7 @@ export const drift = {
     "drift.settings.execution.turns": "Turnos",
     "drift.settings.resumeTurns.title": "Retomar turnos interrompidos após reiniciar o Drift",
     "drift.settings.resumeTurns.description":
-        "Um turno ainda em execução quando o Drift parou recomeça quando o Drift volta, no máximo duas vezes por prompt. O agente é instruído a verificar o que os comandos interrompidos fizeram antes de repeti-los.",
+        "Um turno ou subagente em segundo plano ainda em andamento quando o Drift parou recomeça quando o Drift inicia, no máximo duas vezes. O agente é orientado a verificar o que os comandos interrompidos fizeram antes de repeti-los.",
     "drift.turn.resumed": "Retomado após o Drift reiniciar",
     "drift.settings.webSearch": "Pesquisa na web",
     "drift.settings.webSearch.provider.title": "Provedor",

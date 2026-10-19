@@ -466,7 +466,7 @@ export const drift = {
     "drift.settings.execution.turns": "Tours",
     "drift.settings.resumeTurns.title": "Reprendre les tours interrompus au redémarrage de Drift",
     "drift.settings.resumeTurns.description":
-        "Un tour encore en cours quand Drift s'est arrêté reprend au démarrage suivant, au plus deux fois par prompt. L'agent doit vérifier ce qu'ont fait les commandes interrompues avant de les répéter.",
+        "Un tour ou un sous-agent en arrière-plan encore en cours quand Drift s'est arrêté reprend au redémarrage de Drift, au plus deux fois. L'agent doit vérifier ce qu'ont fait les commandes interrompues avant de les relancer.",
     "drift.turn.resumed": "Repris après le redémarrage de Drift",
     "drift.settings.webSearch": "Recherche web",
     "drift.settings.webSearch.provider.title": "Fournisseur",

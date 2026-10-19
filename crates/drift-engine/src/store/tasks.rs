@@ -18,6 +18,9 @@ const REPAIR_INTERRUPTED_CALLS: &str =
          AND json_extract(p.json, '$.type') = 'tool_call'
          AND json_extract(p.json, '$.status') IN ('pending', 'running'))";
 
+/// The most times one background worker is started again after Drift stopped while it ran.
+const MAX_RESTARTS: i64 = 2;
+
 /// What launching a worker records before it starts.
 pub struct NewTask<'a> {
     pub parent_session_id: &'a str,
@@ -187,17 +190,33 @@ impl Store {
         })
     }
 
-    /// At startup: workers of a process that is gone are interrupted, never rerun, and wake no one.
-    pub fn interrupt_unfinished_tasks(&self) -> rusqlite::Result<usize> {
+    /// At startup, for the workers of a process that is gone: with `restart`, background workers not yet
+    /// restarted [`MAX_RESTARTS`] times are queued again and their ids returned; every other one is
+    /// interrupted. A foreground worker's result reaches the call that launched it, naming the task so the
+    /// model can continue it; an interrupted background worker wakes no one.
+    pub fn interrupt_unfinished_tasks(&self, restart: bool) -> rusqlite::Result<Vec<String>> {
         transaction(&self.lock(), |conn| {
-            let changed = conn.execute(
-                "UPDATE task SET state = 'interrupted', result = 'Drift stopped while the subagent ran; it was not restarted.',
-                 finished_at = ?1, delivered = CASE WHEN mode = 'foreground' THEN 0 ELSE 1 END
-                 WHERE state IN ('queued', 'running')",
-                [id::now_ms()],
+            let restarted: Vec<String> = if restart {
+                conn.prepare(
+                    "UPDATE task SET state = 'queued', restarts = restarts + 1
+                     WHERE mode = 'background' AND state IN ('queued', 'running') AND restarts < ?1 RETURNING id",
+                )?
+                .query_map([MAX_RESTARTS], |row| row.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+            } else {
+                Vec::new()
+            };
+            conn.execute(
+                "UPDATE task SET state = 'interrupted', finished_at = ?1,
+                 result = CASE WHEN mode = 'foreground'
+                     THEN 'Drift stopped while the subagent ran. Its conversation is kept: call task with task_id ' || id || ' to continue it where it left off, rather than starting over.'
+                     ELSE 'Drift stopped while the subagent ran; it was not restarted.' END,
+                 delivered = CASE WHEN mode = 'foreground' THEN 0 ELSE 1 END
+                 WHERE state IN ('queued', 'running') AND id NOT IN (SELECT value FROM json_each(?2))",
+                rusqlite::params![id::now_ms(), serde_json::to_string(&restarted).unwrap_or_default()],
             )?;
             conn.execute(REPAIR_INTERRUPTED_CALLS, [])?;
-            Ok(changed)
+            Ok(restarted)
         })
     }
 
@@ -387,7 +406,7 @@ pub(crate) mod tests {
             .launch_task(new_task(&parent.id, "call_2", Mode::Background), child(&parent))
             .unwrap();
         store.start_task(&second.task.id).unwrap();
-        assert_eq!(store.interrupt_unfinished_tasks().unwrap(), 1);
+        assert_eq!(store.interrupt_unfinished_tasks(false).unwrap(), Vec::<String>::new());
         let gone = store.task(&second.task.id).unwrap().unwrap();
         assert_eq!(
             (gone.state, gone.delivered),

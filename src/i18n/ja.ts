@@ -454,7 +454,7 @@ export const drift = {
     "drift.settings.execution.turns": "ターン",
     "drift.settings.resumeTurns.title": "Drift 再起動後に中断されたターンを再開",
     "drift.settings.resumeTurns.description":
-        "Drift が停止したときに実行中だったターンは、次の起動時に再開されます（プロンプトごとに最大2回）。エージェントは中断されたコマンドの結果を確認してから繰り返すよう指示されます。",
+        "Drift が止まったときにまだ動いていたターンやバックグラウンドのサブエージェントは、Drift の起動時に再開します (最大 2 回)。エージェントは中断されたコマンドの結果を確かめてから繰り返すよう指示されます。",
     "drift.turn.resumed": "Drift の再起動後に再開",
     "drift.settings.webSearch": "ウェブ検索",
     "drift.settings.webSearch.provider.title": "プロバイダー",

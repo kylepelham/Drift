@@ -453,7 +453,7 @@ export const drift = {
     "drift.settings.execution.turns": "Potezi",
     "drift.settings.resumeTurns.title": "Nastavi prekinute poteze nakon ponovnog pokretanja Drifta",
     "drift.settings.resumeTurns.description":
-        "Potez koji je još trajao kad se Drift zaustavio počinje ponovo kad se Drift pokrene, najviše dvaput po promptu. Agent dobija uputu da provjeri šta su prekinute komande uradile prije nego ih ponovi.",
+        "Potez ili pozadinski podagent koji je još radio kada se Drift zaustavio ponovo počinje kada se Drift pokrene, najviše dvaput. Agentu se kaže da provjeri šta su prekinute naredbe uradile prije nego ih ponovi.",
     "drift.turn.resumed": "Nastavljeno nakon ponovnog pokretanja Drifta",
     "drift.settings.webSearch": "Pretraga weba",
     "drift.settings.webSearch.provider.title": "Pružatelj",

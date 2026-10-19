@@ -127,7 +127,9 @@ impl Engine {
     pub fn open_with(data_dir: &Path, options: Options) -> Result<Arc<Self>, Error> {
         let store = Arc::new(store::open(data_dir)?);
         store.abandon_streaming_messages()?;
-        store.interrupt_unfinished_tasks()?;
+        // Background workers that may start again are queued; `start` restarts them once the servers are up.
+        let resumes: bool = store.setting(session::turn::resume::RESUME_KEY)?.unwrap_or(true);
+        let restarting = store.interrupt_unfinished_tasks(resumes)?;
         tool::stage::recover_leftovers(&store);
         // Taken before anything can run, so a turn started during startup is never mistaken for a cut-off one.
         let cut_off = store.claimed_turns()?;
@@ -180,6 +182,7 @@ impl Engine {
             reference_fetches: Default::default(),
         });
         *engine.turns.cut_off.lock().unwrap() = cut_off;
+        *engine.turns.restarting.lock().unwrap() = restarting;
 
         Ok(engine)
     }
@@ -622,6 +625,7 @@ pub fn start(engine: &Arc<Engine>) {
         // Resumed work gets the servers that come up soon, but a dead one never holds it back for long.
         starting.mcp.wait_ready(RECOVERY_WAIT).await;
         starting.recover_tasks().await;
+        starting.restart_workers().await;
         starting.resume_turns().await;
         starting.maintain().await;
     });

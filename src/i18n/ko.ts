@@ -450,7 +450,7 @@ export const drift = {
     "drift.settings.execution.turns": "턴",
     "drift.settings.resumeTurns.title": "Drift 재시작 후 중단된 턴 재개",
     "drift.settings.resumeTurns.description":
-        "Drift가 멈췄을 때 실행 중이던 턴은 다시 시작할 때 재개됩니다(프롬프트당 최대 두 번). 에이전트는 중단된 명령이 한 일을 확인한 뒤 반복하도록 안내받습니다.",
+        "Drift가 멈췄을 때 아직 실행 중이던 턴이나 백그라운드 하위 에이전트는 Drift가 시작될 때 다시 시작합니다(최대 두 번). 에이전트는 중단된 명령이 무엇을 했는지 확인한 뒤 반복하라는 안내를 받습니다.",
     "drift.turn.resumed": "Drift 재시작 후 재개됨",
     "drift.settings.webSearch": "웹 검색",
     "drift.settings.webSearch.provider.title": "제공자",

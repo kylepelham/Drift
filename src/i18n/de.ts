@@ -461,7 +461,7 @@ export const drift = {
     "drift.settings.execution.turns": "Durchgänge",
     "drift.settings.resumeTurns.title": "Unterbrochene Durchgänge nach einem Neustart von Drift fortsetzen",
     "drift.settings.resumeTurns.description":
-        "Ein Durchgang, der noch lief, als Drift anhielt, beginnt beim nächsten Start erneut, höchstens zweimal pro Prompt. Der Agent soll prüfen, was unterbrochene Befehle bewirkt haben, bevor er sie wiederholt.",
+        "Ein Durchgang oder Hintergrund-Subagent, der noch lief, als Drift anhielt, beginnt beim nächsten Start erneut, höchstens zweimal. Der Agent soll prüfen, was unterbrochene Befehle bewirkt haben, bevor er sie wiederholt.",
     "drift.turn.resumed": "Nach dem Neustart von Drift fortgesetzt",
     "drift.settings.webSearch": "Websuche",
     "drift.settings.webSearch.provider.title": "Anbieter",
