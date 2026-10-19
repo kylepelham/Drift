@@ -81,7 +81,7 @@ pub const OUTPUT_LIMIT_ENDING: &str = "The reply stopped at the output limit";
 /// A finished reply's `error` when the provider's safety filter ended it, so it never ends in silence.
 pub const REFUSED_ENDING: &str = "The provider's safety filter ended the reply.";
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Prompt {
     pub parts: Vec<Part>,
@@ -169,6 +169,8 @@ pub struct Turns {
     steerable: tokio::sync::Notify,
     /// The prompt each running turn began at: a fork stops before it, whatever is steered in later.
     began: Mutex<HashMap<String, String>>,
+    /// Sessions whose queued prompts wait for the user since a Stop, rather than starting when a turn ends.
+    queue_held: Mutex<std::collections::HashSet<String>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
     /// The turns under way when the engine last stopped, as the store said at open; taken once, by resume.
@@ -225,7 +227,7 @@ pub(crate) struct Plan {
 
 /// How a prompt is admitted beyond the session itself.
 #[derive(Clone, Copy, Default)]
-pub(super) struct Admission<'a> {
+pub(in crate::session) struct Admission<'a> {
     /// Its turn's abort token descends from this, and every wait before admission ends with it.
     pub(super) parent: Option<&'a CancellationToken>,
     /// It carries this worker's result, marked handed over in the same write.
@@ -235,6 +237,8 @@ pub(super) struct Admission<'a> {
     pub(super) bootstrap: &'a [command::Bootstrap],
     /// The prompt's agent and model run this turn only; the session keeps its own, so it never steers.
     pub(super) turn_only: bool,
+    /// It starts a turn of its own or is refused as busy; it never joins a running turn (a queued prompt).
+    pub(in crate::session) new_turn_only: bool,
     pub(super) config: Option<&'a Config>,
 }
 
@@ -486,6 +490,7 @@ impl Engine {
             });
             engine.turns.finished.notify_waiters();
             engine.retry_deliveries(Some(&id));
+            engine.drain_queue(&id);
         });
     }
 
@@ -494,6 +499,7 @@ impl Engine {
         let mut owners = self.workers.fence();
         let workers = self.stop_workers(&mut owners, session_id);
         let turn = self.turns.cancel(session_id);
+        self.turns.hold_queue(session_id);
         let worker = self
             .store
             .task_for_session(session_id)

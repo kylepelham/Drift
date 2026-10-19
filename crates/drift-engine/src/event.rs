@@ -119,6 +119,12 @@ pub enum Event {
     /// A background process started, printed a new last line, or ended.
     #[serde(rename = "process.updated")]
     ProcessUpdated { process: crate::background::ProcessRecord },
+    /// A session's queue of prompts waiting for its turn to end changed; carries the whole queue.
+    #[serde(rename = "queue.updated", rename_all = "camelCase")]
+    QueueUpdated {
+        session_id: String,
+        queued: Vec<crate::store::QueuedPrompt>,
+    },
     /// A worker was launched, started, ended, or its result reached its parent.
     #[serde(rename = "task.updated")]
     TaskUpdated { task: crate::session::tasks::TaskRecord },

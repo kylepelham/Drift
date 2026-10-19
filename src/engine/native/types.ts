@@ -572,6 +572,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/queue/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replaces a queued prompt's text and files, clearing why it could not start. */
+        put: operations["editQueued"];
+        post?: never;
+        delete: operations["discardQueued"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/queue/{id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sends a queued prompt now, as a steer into the running turn or as a new turn when none runs. */
+        post: operations["sendQueuedNow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/registries/fetch": {
         parameters: {
             query?: never;
@@ -733,6 +767,24 @@ export interface paths {
         get: operations["listProcesses"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The session's queue: prompts waiting for its turn to end, first to start first. */
+        get: operations["listQueue"];
+        put?: never;
+        /** Queues a prompt to start a turn of its own once the running one ends; with none running it starts now. */
+        post: operations["queuePrompt"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1644,6 +1696,11 @@ export interface components {
             /** @enum {string} */
             type: "process.updated";
         } | {
+            queued: components["schemas"]["QueuedPrompt"][];
+            sessionId: string;
+            /** @enum {string} */
+            type: "queue.updated";
+        } | {
             task: components["schemas"]["TaskRecord"];
             /** @enum {string} */
             type: "task.updated";
@@ -2271,6 +2328,15 @@ export interface components {
             id: string;
             messageId: string;
             questions: components["schemas"]["Question"][];
+            sessionId: string;
+        };
+        QueuedPrompt: {
+            /** Format: int64 */
+            createdAt: number;
+            /** @description Why it could not start a turn; the queue waits until the user edits, sends or discards it. */
+            error?: string | null;
+            id: string;
+            prompt: components["schemas"]["Prompt"];
             sessionId: string;
         };
         /**
@@ -4025,6 +4091,87 @@ export interface operations {
             };
         };
     };
+    editQueued: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Prompt"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    discardQueued: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sendQueuedNow: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Receipt"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     fetchRegistry: {
         parameters: {
             query: {
@@ -4401,6 +4548,58 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProcessRecord"][];
                 };
+            };
+        };
+    };
+    listQueue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedPrompt"][];
+                };
+            };
+        };
+    };
+    queuePrompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Prompt"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueuedPrompt"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

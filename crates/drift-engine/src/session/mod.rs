@@ -17,6 +17,7 @@ mod oneshot;
 pub(crate) mod plans;
 mod processes;
 pub mod prompt;
+mod queue;
 pub mod references;
 pub mod revert;
 pub mod review;

@@ -15,6 +15,7 @@ mod prompts;
 mod provider_accounts;
 mod providers;
 mod questions;
+mod queue;
 mod review;
 mod sessions;
 mod settings;
@@ -71,6 +72,9 @@ fn session_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::get, sessions::update, sessions::delete))
         .routes(routes!(sessions::messages))
         .routes(routes!(sessions::submit))
+        .routes(routes!(queue::list, queue::add))
+        .routes(routes!(queue::edit, queue::discard))
+        .routes(routes!(queue::send_now))
         .routes(routes!(sessions::abort))
         .routes(routes!(sessions::command))
 }

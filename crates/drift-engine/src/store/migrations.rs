@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 43] = [
+pub(super) const MIGRATIONS: [&str; 44] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -208,6 +208,16 @@ pub(super) const MIGRATIONS: [&str; 43] = [
         session_id TEXT PRIMARY KEY REFERENCES session(id) ON DELETE CASCADE,
         resumes INTEGER NOT NULL DEFAULT 0
     ) STRICT, WITHOUT ROWID;",
+    // Prompts queued behind a running turn, outside the transcript until one starts a turn.
+    "CREATE TABLE queued_prompt(
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL REFERENCES session(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        prompt TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        error TEXT
+    ) STRICT, WITHOUT ROWID;
+    CREATE INDEX queued_prompt_session ON queued_prompt(session_id, position);",
 ];
 
 #[cfg(test)]
