@@ -259,6 +259,8 @@ impl Engine {
         if result.is_ok() {
             self.turns.files_for(&self.store, session_id).forget_shown();
             self.turns.forget_checked(session_id);
+            // A summary rewrites the history, so the next request's cache read starts over.
+            self.turns.cache_watch.forget(session_id);
         }
 
         if trigger != Trigger::Manual {

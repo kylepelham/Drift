@@ -41,3 +41,20 @@ async fn forks_spawned_threads_and_workers_share_their_roots_cache_but_never_its
     let spawned = h.engine.spawn(&root, "carry on elsewhere").await.unwrap();
     assert_eq!(h.engine.store.cache_root(&spawned.id).unwrap(), root);
 }
+
+#[tokio::test]
+async fn an_agents_md_edit_mid_session_is_named_as_the_first_change_in_the_prompt() {
+    let h = harness().await;
+    std::fs::write(h._dir.join("ws/AGENTS.md"), "Be brief.\n").unwrap();
+    h.provider.push(text("one")).push(text("two"));
+    h.engine.submit(&h.session.id, prompt("first")).await.await_ok();
+    until_idle(&h).await;
+    std::fs::write(h._dir.join("ws/AGENTS.md"), "Be thorough.\n").unwrap();
+    h.engine.submit(&h.session.id, prompt("second")).await.await_ok();
+    until_idle(&h).await;
+
+    let requests = h.provider.requests.lock().unwrap().clone();
+    let segments = |index: usize| crate::session::turn::cache_watch::segments(&requests[index]);
+    let changed = crate::session::turn::cache_watch::first_change(&segments(0), &segments(1)).unwrap();
+    assert!(changed.contains("Instructions from AGENTS.md"), "{changed}");
+}

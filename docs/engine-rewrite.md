@@ -1745,6 +1745,13 @@ code until he picks.
   copied). The Responses WebSocket and its `previous_response_id` continuation stay keyed by the
   session itself (`Request::connection`), so two sessions never share a continuation. Title and
   compaction requests carry none.
+- Cache-prefix diagnostics (`session::turn::cache_watch`, after opencode v2's): each request is
+  hashed as sent, after masking, by segment: the tool definitions, each `# ` section of the system
+  prompt, each message. The last request's hashes are kept per session in memory. When a reply
+  reads less than half as much from the cache as the previous request held in all (from 1,024
+  prompt tokens), one `drift:` line names the session, the cached and expected tokens and the first
+  segment that changed, or says the provider dropped the cache when none did. A compaction starts
+  the session over. Nothing is stored or shown.
 - Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)

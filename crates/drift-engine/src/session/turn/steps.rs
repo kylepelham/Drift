@@ -371,6 +371,7 @@ impl Engine {
     ) -> Result<Streamed, StreamError> {
         // One snapshot for the whole response: a reload while it streams must not reveal by other pairs than it hid by.
         let masks = self.hooks.masks();
+        let sent = super::cache_watch::segments(&masks.request(request));
         let mut chunks = tokio::select! {
             opened = self.open_response(plan, request, &masks) => opened.map_err(StreamError::Provider)?,
             () = abort.cancelled() => return Err(StreamError::Aborted),
@@ -414,6 +415,9 @@ impl Engine {
         }
 
         let _ = assembler.stop_block();
+        if let Some(line) = self.turns.cache_watch.observe(&plan.session.id, sent, assembler.usage) {
+            eprintln!("{line}");
+        }
         let Some(stop) = assembler.stop else {
             return Err(StreamError::Provider(llm::Error::Transport(
                 "stream ended without a stop reason".into(),

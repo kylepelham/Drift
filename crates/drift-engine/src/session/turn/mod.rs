@@ -36,6 +36,7 @@ use crate::tool::{Context, SessionFiles};
 mod accounts;
 mod admission;
 mod approval;
+mod cache_watch;
 mod calls;
 mod checks;
 mod history;
@@ -166,6 +167,8 @@ pub struct Turns {
     began: Mutex<HashMap<String, String>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
+    /// Each session's last request by segment, to say what broke its prompt cache.
+    pub(in crate::session) cache_watch: cache_watch::CacheWatch,
 }
 
 /// The model a running turn makes its next request on, which a steered prompt's files are judged against.

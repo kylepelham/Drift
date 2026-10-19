@@ -315,7 +315,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] `edit` checked against v2's cases: folding and trailing-whitespace tiers after exact, per-region line endings
   - [x] `todowrite` answers in one line instead of echoing the list; description asks for items done as they finish
 - Cache stability:
-  - [ ] Cache-prefix diagnostics log the first changed segment when cache reads drop
+  - [x] Cache-prefix diagnostics log the first changed segment when cache reads drop
   - [ ] Instruction baseline: frozen system prompt, `instruction_update` parts for changed sources, re-baseline on family switch, compaction and undo, forks share their source's prefix
   - [ ] Reasoning level changes sent as per-message effort on models with the catalog capability
   - [ ] Newer Claude features confirmed in Anthropic's docs and adopted: mid-conversation system messages, thinking `block_binding`, `between_tools`
