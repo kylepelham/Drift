@@ -317,6 +317,38 @@ Renderers: `api.registerToolRenderer(toolName, fn)` overrides the card body for 
 `reasoning` or `file`), including types Drift normally hides. Tool parts always go
 through tool renderers, never part renderers.
 
+Thinking indicators: `api.registerThinkingIndicator(id, { name, render })` adds a look for the
+indicator a working turn shows. It is listed in Settings > General > Thinking indicator as
+"name (plugin)" and is used only once the user picks it; while its plugin is not loaded, or if
+`render` throws, Shimmer is drawn in its place and the error is logged. `render(host, context)`
+draws into `host`, an empty inline element, and may return a cleanup function or
+`{ update(context), dispose() }`; `update` is called whenever the context changes. The context
+is `{ sessionId, label, tint, speed, preview }`: `label` is the translated word for thinking,
+`tint` is `neutral`, `accent` or `spectrum`, `speed` multiplies animation durations (1.6 slow,
+1 normal, 0.6 fast), and `preview` is true in Settings. Drift shows the reasoning heading
+beside every indicator, so a plugin's need not.
+
+```js
+export default function (api) {
+    api.registerThinkingIndicator("comet", {
+        name: "Comet",
+        render(host, context) {
+            const star = document.createElement("span");
+            star.textContent = "*";
+            const spin = star.animate([{ rotate: "0deg" }, { rotate: "360deg" }], {
+                duration: 1200 * context.speed,
+                iterations: Infinity,
+            });
+            host.append(star, ` ${context.label}`);
+            return {
+                update: (next) => spin.effect.updateTiming({ duration: 1200 * next.speed }),
+                dispose: () => spin.cancel(),
+            };
+        },
+    });
+}
+```
+
 Context actions: `api.registerToolContextActions(toolName, fn)` adds right-click actions
 to any tool card, including cards with plugin renderers. Use `"*"` to contribute an
 action to every tool. Providers run when the menu opens and return one action, an array,

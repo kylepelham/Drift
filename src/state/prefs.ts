@@ -157,6 +157,45 @@ export function setToolGroup(kind: ToolGroupKind, on: boolean) {
 }
 /** The card at the end of a turn listing the files it changed. */
 export const [editedFilesCard, setEditedFilesCard] = persisted<boolean>("drift.transcript.editedFiles", true);
+/** Built-in looks for the thinking indicator; a plugin's is stored as `plugin:<id>`. */
+export const thinkingStyles = ["shimmer", "orbs", "float", "dots", "pulse", "still"] as const;
+export const thinkingTints = ["neutral", "accent", "spectrum"] as const;
+export const thinkingSpeeds = ["slow", "normal", "fast"] as const;
+export type ThinkingPrefs = {
+    style: string;
+    tint: (typeof thinkingTints)[number];
+    speed: (typeof thinkingSpeeds)[number];
+    /** The word beside the animation; Shimmer and Still are the word, so they always show it. */
+    label: boolean;
+};
+const thinkingDefaults: ThinkingPrefs = { style: "shimmer", tint: "neutral", speed: "normal", label: true };
+export const pluginThinkingPrefix = "plugin:";
+function oneOf<T extends string>(options: readonly T[], value: unknown, fallback: T): T {
+    return options.find((option) => option === value) ?? fallback;
+}
+export function thinkingPrefsFrom(value: unknown): ThinkingPrefs {
+    const stored = (value && typeof value === "object" ? value : {}) as Partial<Record<keyof ThinkingPrefs, unknown>>;
+    const style = stored.style;
+    const known =
+        typeof style === "string" &&
+        ((thinkingStyles as readonly string[]).includes(style) ||
+            (style.startsWith(pluginThinkingPrefix) && style.length > pluginThinkingPrefix.length));
+    return {
+        style: known ? style : thinkingDefaults.style,
+        tint: oneOf(thinkingTints, stored.tint, thinkingDefaults.tint),
+        speed: oneOf(thinkingSpeeds, stored.speed, thinkingDefaults.speed),
+        label: typeof stored.label === "boolean" ? stored.label : thinkingDefaults.label,
+    };
+}
+const [thinkingPrefs, setThinkingPrefs] = persisted<ThinkingPrefs>(
+    "drift.thinking.indicator",
+    thinkingDefaults,
+    thinkingPrefsFrom,
+);
+export { thinkingPrefs };
+export function updateThinkingPrefs(patch: Partial<ThinkingPrefs>) {
+    setThinkingPrefs(thinkingPrefsFrom({ ...thinkingPrefs(), ...patch }));
+}
 export type KeptAutoAccept = { all: boolean; sessions: string[] };
 
 function keptAutoAccept(): KeptAutoAccept {

@@ -1401,7 +1401,7 @@ dependencies = [
 
 [[package]]
 name = "drift"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "drift-android"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "axum",
  "drift-pairing",
@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "drift-engine"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "aho-corasick",
  "async-trait",
@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "drift-engined"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "drift-engine",
  "rustls",
@@ -1529,7 +1529,7 @@ dependencies = [
 
 [[package]]
 name = "drift-migrate"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "drift-engine",
  "rusqlite",
@@ -1543,7 +1543,7 @@ dependencies = [
 
 [[package]]
 name = "drift-pairing"
-version = "2.3.0"
+version = "2.3.1"
 dependencies = [
  "thiserror 2.0.19",
  "url",

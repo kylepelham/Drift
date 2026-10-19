@@ -81,3 +81,40 @@ export function ToolDuration(props: { state: ToolTimingState; maxMs?: number }) 
         </Show>
     );
 }
+
+/** Wall time at least one call ran: calls side by side count once, the gaps between them not at all. */
+export function coveredMs(states: ToolTimingState[], now: number) {
+    const spans = states
+        .flatMap((state) => {
+            const start = timestamp(state.time?.start);
+            const end = timestamp(state.time?.end) ?? (running(state) ? now : undefined);
+            return start === undefined || end === undefined ? [] : [[start, Math.max(start, end)] as const];
+        })
+        .sort((a, b) => a[0] - b[0]);
+    if (!spans.length) return undefined;
+
+    let total = 0;
+    let [from, to] = spans[0];
+    for (const [start, end] of spans.slice(1)) {
+        if (start <= to) {
+            to = Math.max(to, end);
+            continue;
+        }
+        total += to - from;
+        [from, to] = [start, end];
+    }
+
+    return total + to - from;
+}
+
+/** A group's time, ticking while any of its calls still runs. */
+export function CoveredDuration(props: { states: ToolTimingState[] }) {
+    const live = () => props.states.some((state) => running(state) && timestamp(state.time?.start) !== undefined);
+    const now = createSharedNow(live);
+    const duration = () => visibleToolDuration(coveredMs(props.states, now()));
+    return (
+        <Show when={duration()} keyed>
+            {(value) => <span class="shrink-0 font-mono text-xs text-ink-faint">{value}</span>}
+        </Show>
+    );
+}

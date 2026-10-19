@@ -393,3 +393,14 @@ export function IconEyeOff(props: IconProps) {
         </>,
     );
 }
+
+/** Stacked layers: work running in the background. */
+export function IconLayers(props: IconProps) {
+    return frame(
+        props,
+        <>
+            <path d="M12 3 3 8l9 5 9-5-9-5z" />
+            <path d="m3 13 9 5 9-5" />
+        </>,
+    );
+}

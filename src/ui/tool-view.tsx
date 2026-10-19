@@ -2,15 +2,15 @@ import { backgroundRun, delegatedChildId, delegatedTaskClickPolicy, delegatedTas
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, untrack } from "solid-js";
 import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/prefs";
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
-import { exploredDetail, exploredSummary } from "./tool-run";
+import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
+import { exploredDetail, exploredSingle, exploredSummary } from "./tool-run";
+import { CoveredDuration, ToolDuration } from "./tool-duration";
 import { toolMetadata as toolMeta } from "../engine/parts";
-import { IconArrowUpRight, IconBranch } from "./icons";
 import { selectSession } from "../state/selection";
 import { toolDisplay } from "./tool-presentation";
-import { ToolDuration } from "./tool-duration";
 import { taskTiming } from "../engine/store";
 import { TextShimmer } from "./text-shimmer";
-import { BackgroundTag } from "./task-dock";
+import { IconArrowUpRight } from "./icons";
 import { parseDiff } from "./diff-panel";
 import { ToolBody } from "./tool-body";
 import { useEngine } from "../engine";
@@ -119,6 +119,11 @@ export function ToolView(props: { part: ToolPart }) {
         return childId ? delegatedTaskStatus(engine.state, props.part, childId) : null;
     });
     const background = createMemo(() => backgroundRun(engine.state, props.part));
+    // A call that failed or finished before it made a child still stops orbiting.
+    const orbitStatus = () => {
+        const status = state().status;
+        return delegatedStatus() ?? (status === "pending" ? "running" : status);
+    };
 
     // A background launch returns at once; its time is the worker's own.
     const timing = () => {
@@ -132,8 +137,12 @@ export function ToolView(props: { part: ToolPart }) {
         return state().status === "running" || state().status === "pending";
     };
 
-    const title = () =>
-        info().called ? `${t("drift.tool.called")} ${info().called}` : (info().title ?? props.part.name);
+    // A task leads with what it is doing; its agent moves to the details after it.
+    const labels = () => delegateLabels(props.part);
+    const title = () => {
+        if (info().called) return `${t("drift.tool.called")} ${info().called}`;
+        return labels().description ?? info().title ?? props.part.name;
+    };
 
     const progress = () => {
         if (props.part.name !== "task") return null;
@@ -230,10 +239,6 @@ export function ToolView(props: { part: ToolPart }) {
         <div class="tool-row flex min-w-0 max-w-full flex-col gap-1 text-sm">
             <button
                 class="tool-row-header flex min-h-7 w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-md px-1 text-left transition-colors hover:bg-raised/35"
-                classList={{
-                    "delegate-tool border-accent/35": delegated(),
-                    "delegate-tool-background": !!background(),
-                }}
                 aria-expanded={inlineExpanded()}
                 onClick={activate}
             >
@@ -252,7 +257,7 @@ export function ToolView(props: { part: ToolPart }) {
                     />
                 </Show>
                 <Show when={delegated()}>
-                    <IconBranch class="delegate-tool-icon size-3.5 shrink-0 text-accent/70" />
+                    <DelegateOrbit status={orbitStatus()} />
                 </Show>
                 <Show
                     when={active()}
@@ -263,12 +268,12 @@ export function ToolView(props: { part: ToolPart }) {
                                 <span
                                     class="tool-row-title"
                                     classList={{
-                                        "shrink-0": props.part.name !== "bash",
-                                        "min-w-0 truncate": props.part.name === "bash",
+                                        "shrink-0": props.part.name !== "bash" && !delegated(),
+                                        "min-w-0 truncate": props.part.name === "bash" || delegated(),
                                         "font-mono text-xs": !!info().titleMono,
                                     }}
                                 >
-                                    {info().title}
+                                    {title()}
                                 </span>
                             }
                         >
@@ -283,11 +288,17 @@ export function ToolView(props: { part: ToolPart }) {
                 >
                     <TextShimmer
                         text={title()}
-                        class={`tool-row-title ${props.part.name === "bash" ? "min-w-0 truncate" : "shrink-0"}${info().titleMono ? " font-mono text-xs" : ""}`}
+                        class={`tool-row-title ${props.part.name === "bash" || delegated() ? "min-w-0 truncate" : "shrink-0"}${info().titleMono ? " font-mono text-xs" : ""}`}
                     />
                 </Show>
-                <Show when={background()}>
-                    <BackgroundTag />
+                <Show when={delegated()}>
+                    <DelegateDetails
+                        agent={labels().agent}
+                        background={!!background()}
+                        queued={delegatedStatus() === "queued"}
+                        progress={progress()}
+                        timing={timing()}
+                    />
                 </Show>
                 <Show when={info().subtitle && !(props.part.name === "bash" && expanded())}>
                     <span
@@ -305,9 +316,7 @@ export function ToolView(props: { part: ToolPart }) {
                         </span>
                     )}
                 </Show>
-                <Show when={progress()}>
-                    {(text) => <span class="shrink-0 font-mono text-xs text-accent/80">{text()}</span>}
-                </Show>
+
                 <Show when={timeout()}>
                     {(status) => (
                         <span
@@ -321,12 +330,9 @@ export function ToolView(props: { part: ToolPart }) {
                 <Show when={awaitingPermission(engine.state, props.part)}>
                     <span class="shrink-0 text-xs text-warn/90">{t("drift.status.waitingForPermission")}</span>
                 </Show>
-                <Show when={delegatedStatus() === "queued"}>
-                    <span class="shrink-0 text-xs text-ink-faint" title={t("drift.task.queued.description")}>
-                        {t("drift.task.queued")}
-                    </span>
+                <Show when={!delegated()}>
+                    <ToolDuration state={timing()} maxMs={timeout()?.timedOut ? timeout()?.timeoutMs : undefined} />
                 </Show>
-                <ToolDuration state={timing()} maxMs={timeout()?.timedOut ? timeout()?.timeoutMs : undefined} />
                 <Show when={spawnedId()}>
                     {(childId) => (
                         <span
@@ -334,7 +340,7 @@ export function ToolView(props: { part: ToolPart }) {
                             title={t(
                                 props.part.name === "task" ? "drift.thread.openSubagent" : "drift.thread.openSpawned",
                             )}
-                            class="flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
+                            class="ms-auto flex size-5 shrink-0 items-center justify-center rounded text-ink-faint transition-colors hover:bg-overlay hover:text-ink"
                             onClick={(event) => openSpawnedThread(event, childId(), selectSession)}
                         >
                             <IconArrowUpRight class="size-3.5" />
@@ -368,13 +374,8 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
     const running = () => props.parts.some((part) => part.status === "running" || part.status === "pending");
     const summary = createMemo(() => exploredSummary(props.parts, running()));
     const detail = createMemo(() => exploredDetail(props.parts));
-
-    const activePart = () => {
-        for (let index = props.parts.length - 1; index >= 0; index--) {
-            const part = props.parts[index];
-            if (part.status === "running" || part.status === "pending") return part;
-        }
-    };
+    const single = createMemo(() => exploredSingle(props.parts, running()));
+    const heading = () => single()?.before ?? summary();
 
     const expanded = () => open() || waiting();
 
@@ -390,17 +391,37 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
                 </Show>
                 <Show
                     when={!waiting() && running()}
-                    fallback={<span class="tool-row-title shrink-0">{summary()}</span>}
+                    fallback={
+                        <Show when={heading()}>
+                            <span class="tool-row-title shrink-0">{heading()}</span>
+                        </Show>
+                    }
                 >
-                    <TextShimmer text={summary()} class="tool-row-title shrink-0" />
+                    <Show when={heading()}>
+                        <TextShimmer text={heading()} class="tool-row-title shrink-0" />
+                    </Show>
                 </Show>
-                <Show when={detail()}>
-                    <span class="tool-row-subtitle min-w-0 truncate">· {detail()}</span>
+                <Show
+                    when={single()}
+                    fallback={
+                        <Show when={detail()}>
+                            <span class="tool-row-subtitle min-w-0 truncate">· {detail()}</span>
+                        </Show>
+                    }
+                >
+                    {(named) => (
+                        <>
+                            <span class="tool-row-subtitle min-w-0 truncate">{named().target}</span>
+                            <Show when={named().after}>
+                                <span class="tool-row-title shrink-0">{named().after}</span>
+                            </Show>
+                        </>
+                    )}
                 </Show>
                 <Show when={waiting()}>
                     <span class="text-xs text-warn/90">{t("notification.permission.title")}</span>
                 </Show>
-                <Show when={activePart()}>{(part) => <ToolDuration state={toolDisplay(part())} />}</Show>
+                <CoveredDuration states={props.parts.map(toolDisplay)} />
                 <span class="tool-row-chevron flex shrink-0">
                     <Chevron open={expanded()} />
                 </span>

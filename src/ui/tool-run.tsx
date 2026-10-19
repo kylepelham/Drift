@@ -1,6 +1,6 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toolDisplay } from "./tool-presentation";
-import { ToolDuration } from "./tool-duration";
+import { CoveredDuration } from "./tool-duration";
 import { TextShimmer } from "./text-shimmer";
 import { toolInput } from "../engine/parts";
 import { ToolView } from "./tool-view";
@@ -80,16 +80,32 @@ function exploredTarget(part: ToolPart) {
     return text("pattern");
 }
 
+/** What a read or list touched, by full path, so two files that share a name count apart. */
+function exploredKey(part: ToolPart) {
+    const key = toolInput(part)[part.name === "read" ? "filePath" : "path"];
+
+    return typeof key === "string" && key ? key : exploredTarget(part);
+}
+
 /** `Read 2 files, searched 3 patterns`; files and folders count once however often they were read. */
-export function exploredSummary(parts: ToolPart[], running: boolean) {
+/** Each kind of exploring the run did, with the files, folders or searches it touched. */
+function exploredTargets(parts: ToolPart[]) {
     const seen = new Map<ExploredKind, Set<string>>();
     for (const part of parts) {
         const kind = exploredKinds[part.name as keyof typeof exploredKinds];
         if (!kind) continue;
         const targets = seen.get(kind) ?? new Set<string>();
-        targets.add(kind === "search" ? part.id : exploredTarget(part) || part.id);
+        targets.add(kind === "search" ? part.id : exploredKey(part) || part.id);
         seen.set(kind, targets);
     }
+
+    return seen;
+}
+
+const capitalized = (text: string) => text.charAt(0).toLocaleUpperCase() + text.slice(1);
+
+export function exploredSummary(parts: ToolPart[], running: boolean) {
+    const seen = exploredTargets(parts);
     const tense = running ? "running" : "done";
     const text = (["read", "search", "list"] as const)
         .filter((kind) => seen.has(kind))
@@ -99,7 +115,21 @@ export function exploredSummary(parts: ToolPart[], running: boolean) {
         })
         .join(", ");
 
-    return text.charAt(0).toLocaleUpperCase() + text.slice(1);
+    return capitalized(text);
+}
+
+/** A run that touched one file, folder or search names it: "Read drift.wit", split so the target keeps its style. */
+export function exploredSingle(parts: ToolPart[], running: boolean) {
+    const seen = exploredTargets(parts);
+    const [kind, targets] = [...seen][0] ?? [];
+    const target = exploredDetail(parts);
+    if (seen.size !== 1 || !kind || targets?.size !== 1 || !target) return undefined;
+
+    const marker = String.fromCharCode(0);
+    const tense = running ? "running" : "done";
+    const [before = "", after = ""] = t(`drift.explored.${kind}.${tense}.single`, { target: marker }).split(marker);
+
+    return { before: capitalized(before.trim()), target, after: after.trim() };
 }
 
 /** The file or pattern being read now, else the latest one. */
@@ -114,18 +144,6 @@ export function runDetail(parts: ToolPart[]) {
     if (!current) return "";
 
     return current.name === "bash" ? commandLabel(current).text : (toolInfo(current).subtitle ?? "");
-}
-
-/** How long the run's longest command took, or its longest call when it ran none; for a finished run. */
-export function runLongestMs(parts: ToolPart[]) {
-    const commands = parts.filter((part) => part.name === "bash");
-    let longest: number | undefined;
-    for (const part of commands.length ? commands : parts) {
-        if (part.startedAt == null || part.finishedAt == null) continue;
-        longest = Math.max(longest ?? 0, part.finishedAt - part.startedAt);
-    }
-
-    return longest;
 }
 
 /** Commands of the run that went on in the background and still run. */
@@ -179,9 +197,7 @@ export function ToolRun(props: { parts: ToolPart[] }) {
                 <Show when={failed()}>
                     <span class="shrink-0 text-xs text-danger">{t("drift.run.failed")}</span>
                 </Show>
-                <Show when={current()} fallback={<LongestDuration parts={props.parts} />}>
-                    {(part) => <ToolDuration state={toolDisplay(part())} />}
-                </Show>
+                <CoveredDuration states={props.parts.map(toolDisplay)} />
                 <span class="tool-row-chevron flex shrink-0">
                     <Chevron open={expanded()} />
                 </span>
@@ -192,13 +208,5 @@ export function ToolRun(props: { parts: ToolPart[] }) {
                 </div>
             </Show>
         </div>
-    );
-}
-
-function LongestDuration(props: { parts: ToolPart[] }) {
-    return (
-        <Show when={runLongestMs(props.parts)}>
-            {(ms) => <ToolDuration state={{ status: "completed", time: { start: 0, end: ms() } }} />}
-        </Show>
     );
 }

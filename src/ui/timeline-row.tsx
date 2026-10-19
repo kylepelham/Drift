@@ -1,13 +1,13 @@
 import { collapseCompaction, orderedModelProviderIds, prefsFor, updatePrefs } from "../state/prefs";
 import { createMemo, createSignal, onCleanup, Show, untrack } from "solid-js";
 import { compactionThinkingRow, timelinePitch } from "./timeline-state";
+import { ThinkingIndicator } from "./thinking-indicator";
 import { lmStudioModelReady } from "../state/lm-studio";
 import { Picker, type PickerItem } from "./picker";
 import { messageModel } from "../engine/messages";
 import { variantNames } from "../engine/catalog";
 import { ProviderIcon } from "./provider-icon";
 import { continuesTurn } from "./edited-files";
-import { TextShimmer } from "./text-shimmer";
 import { MessageView } from "./message";
 import { useEngine } from "../engine";
 import { Chevron } from "./controls";
@@ -100,11 +100,13 @@ export function Row(props: {
                 />
             </div>
             <Show when={props.thinking && !compactionShimmer()}>
-                <div class="timeline-thinking select-none" role="status" aria-live="polite">
-                    <TextShimmer text={t("drift.chat.thinking")} />
-                    <Show when={props.thinkingHeading}>
-                        {(heading) => <span class="timeline-thinking-heading">{heading()}</span>}
-                    </Show>
+                <div
+                    class="timeline-thinking select-none"
+                    role="status"
+                    aria-live="polite"
+                    aria-label={t("drift.chat.thinking")}
+                >
+                    <ThinkingIndicator heading={props.thinkingHeading} sessionId={props.entry.info.sessionId} />
                 </div>
             </Show>
             <Show when={props.retry}>

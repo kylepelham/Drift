@@ -1,7 +1,7 @@
 import { normalizeDir, sessionBusy, sessionsFor, taskForWorker, workerQueued } from "../engine/store";
 import { cachedSessions, rememberSessions, type CachedSession } from "../state/session-cache";
 import { ago, dayDividers, startOfDay, workspaceInitials } from "./workspace-presentation";
-import { IconArchive, IconBranch, IconDots, IconSquarePen } from "./icons";
+import { IconArchive, IconBranch, IconDots, IconLayers, IconSquarePen } from "./icons";
 import { selectedSession, selectSession } from "../state/selection";
 import { sidebarWorkers } from "../state/permission-attention";
 import { sidebarDayDividers } from "../state/prefs";
@@ -9,7 +9,6 @@ import { useEngine, type Engine } from "../engine";
 import { emitThreadArchived } from "../plugins";
 import { TextShimmer } from "./text-shimmer";
 import { dragReorder } from "./drag-reorder";
-import { BackgroundTag } from "./task-dock";
 import { t } from "../state/i18n";
 import {
     activeWorkspaceId,
@@ -422,20 +421,22 @@ function ChildThreadItem(props: {
                 });
             }}
         >
-            <span class="text-[0.7rem]" classList={{ "text-accent/70": background(), "text-ink-faint": !background() }}>
-                &#8627;
-            </span>
+            <Show
+                when={background()}
+                fallback={<span class="w-3 shrink-0 text-center text-[0.7rem] text-ink-faint">&#8627;</span>}
+            >
+                <span class="flex w-3 shrink-0 justify-center text-accent/80" title={t("drift.task.background")}>
+                    <IconLayers class="size-3" />
+                </span>
+            </Show>
             <StatusDot sessionId={props.sessionId} />
             <span
-                class="min-w-0 flex-1 truncate text-[0.75rem]"
+                class="min-w-0 truncate text-[0.75rem]"
                 classList={{ "text-ink": active(), "text-ink-faint": !active() }}
             >
                 {props.title || t("drift.thread.untitled")}
             </span>
-            <Show when={background()}>
-                <BackgroundTag />
-            </Show>
-            <span class="touch-thread-menu hidden shrink-0">
+            <span class="touch-thread-menu ms-auto hidden shrink-0">
                 <RowButton
                     title={t("common.moreOptions")}
                     onClick={(event) => {

@@ -280,12 +280,14 @@ impl Recovered {
     }
 }
 
-/// One call as the loop check sees it: what was asked and what came back.
+/// One call as the loop check sees it: what was asked and what came back, images included.
 #[derive(Clone, Debug, PartialEq)]
 struct CallTrace {
     name: String,
     input: String,
     output: String,
+    /// Each image the result carried, by content: a screen being watched changes here, not in its caption.
+    images: Vec<String>,
 }
 
 /// A turn whose last steps repeated the same calls with the same results, this many times in a row,

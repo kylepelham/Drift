@@ -3,6 +3,7 @@ import { reduce } from "../src/engine/events";
 import { expect, test } from "bun:test";
 
 import type { components } from "../src/engine/native/types";
+import type { ToolPart } from "../src/engine/parts";
 import type * as SolidStore from "solid-js/store";
 import type * as Solid from "solid-js";
 
@@ -1132,4 +1133,63 @@ test("a forwarded wheel animation keeps every notch's distance and lands exactly
     for (let frame = 0; frame < 60 && position !== target; frame++) position = wheelStep(position, target, 16);
     expect(position).toBe(200);
     expect(wheelStep(0, 100, 16)).toBeGreaterThan(15);
+});
+
+test("a running command's shimmering title keeps to one line however long the command", async () => {
+    const view = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
+    expect(view).toContainCode('props.part.name === "bash" || delegated() ? "min-w-0 truncate" : "shrink-0"');
+
+    const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
+    expect(css).toMatch(
+        /\[data-component="text-shimmer"\]\.truncate \[data-slot="text-shimmer-char"\] \{[^}]*min-width: 0;/s,
+    );
+    expect(css).toMatch(
+        /\[data-component="text-shimmer"\]\.truncate :where\([^)]*\) \{[^}]*text-overflow: ellipsis;[^}]*white-space: nowrap;/s,
+    );
+});
+
+test("a subagent is one line: orbiting dots, its description, then a background mark and its details", async () => {
+    const { delegateLabels } = await import("../src/ui/delegate-row");
+    const task = (input: Record<string, unknown>) => ({ name: "task", input }) as unknown as ToolPart;
+    expect(delegateLabels(task({ description: "Generalise: J1-J5", subagent_type: "general" }))).toEqual({
+        description: "Generalise: J1-J5",
+        agent: "general",
+    });
+    expect(delegateLabels(task({ description: " " }))).toEqual({ description: undefined, agent: undefined });
+    expect(delegateLabels({ name: "spawn_thread", input: {} } as unknown as ToolPart)).toEqual({});
+
+    const view = await Bun.file(new URL("../src/ui/tool-view.tsx", import.meta.url)).text();
+    const sidebar = await Bun.file(new URL("../src/ui/workspaces.tsx", import.meta.url)).text();
+    expect(view).toContainCode("<DelegateOrbit status={orbitStatus()} />");
+    expect(view).toContainCode('delegatedStatus() ?? (status === "pending" ? "running" : status)');
+    expect(view).toContainCode("background={!!background()}");
+    expect(sidebar).toContainCode('<IconLayers class="size-3" />');
+    for (const source of [view, sidebar]) expect(source).not.toContain("background-mark");
+
+    const css = await Bun.file(new URL("../src/styles/app.css", import.meta.url)).text();
+    expect(css).toMatch(/\.delegate-orbit\[data-status="running"\] \{[^}]*animation: thinking-spin/s);
+    expect(css).not.toContain("background-mark");
+    expect(css).not.toContain("delegate-card");
+});
+
+test("a run that read one file names it instead of counting it", async () => {
+    const { exploredSingle, exploredSummary } = await import("../src/ui/tool-run");
+    const read = (id: string, path: string, status = "done") =>
+        ({ id, name: "read", status, input: { path } }) as unknown as ToolPart;
+
+    expect(exploredSingle([read("p1", "crates/drift-engine/wit/drift.wit")], false)).toEqual({
+        before: "Read",
+        target: "drift.wit",
+        after: "",
+    });
+    expect(exploredSingle([read("p1", "a/drift.wit", "running")], true)?.before).toBe("Reading");
+    expect(exploredSingle([read("p1", "a/x.ts"), read("p2", "a/x.ts")], false)?.target).toBe("x.ts");
+
+    const two = [read("p1", "a/x.ts"), read("p2", "a/y.ts")];
+    expect(exploredSingle(two, false)).toBeUndefined();
+    expect(exploredSummary(two, false)).toBe("Read 2 files");
+
+    const namesakes = [read("p1", "a/x.ts"), read("p2", "b/x.ts")];
+    expect(exploredSingle(namesakes, false)).toBeUndefined();
+    expect(exploredSummary(namesakes, false)).toBe("Read 2 files");
 });

@@ -197,6 +197,7 @@ fn only_identical_results_count_as_repeats() {
             name: "read".into(),
             input: r#"{"path":"a"}"#.into(),
             output: output.into(),
+            images: Vec::new(),
         }]
     };
 
@@ -215,16 +216,107 @@ fn only_identical_results_count_as_repeats() {
         name: "bash".into(),
         input: r#"{"command":"Start-Sleep 5; gh run view"}"#.into(),
         output: "queued".into(),
+        images: Vec::new(),
     };
     assert!(waits(&waiting));
     assert!(
         !waits(&CallTrace {
             name: "bash".into(),
             input: r#"{"command":"cat sleepy.txt"}"#.into(),
-            output: String::new()
+            output: String::new(),
+            images: Vec::new(),
         }),
         "a word inside a name is not a wait"
     );
+}
+
+fn screenshot(hash: &str) -> Vec<CallTrace> {
+    vec![CallTrace {
+        name: "HvDebugger_screenshot".into(),
+        input: r#"{"monitor":1}"#.into(),
+        output: "monitor 1 1920x1200 at (0, 0), duplication".into(),
+        images: vec![hash.into()],
+    }]
+}
+
+#[test]
+fn a_screen_being_watched_is_progress_while_it_changes_and_polling_while_it_does_not() {
+    let limits = crate::config::Limits::default();
+    let mut repeats = Repeats::default();
+    for hash in ["frame-1", "frame-2", "frame-3", "frame-4"] {
+        assert_eq!(
+            repeats.record(screenshot(hash), &limits),
+            None,
+            "the same caption over a new image is progress"
+        );
+    }
+
+    let mut still = Repeats::default();
+    for _ in 1..limits.polls {
+        assert_eq!(still.record(screenshot("loading"), &limits), None);
+    }
+    assert_eq!(
+        still.record(screenshot("loading"), &limits),
+        Some(limits.polls),
+        "an unchanged screen gets the polling allowance, not the repeat one"
+    );
+
+    let image_file = vec![CallTrace {
+        name: "read".into(),
+        input: r#"{"path":"logo.png"}"#.into(),
+        output: "logo.png".into(),
+        images: vec!["logo".into()],
+    }];
+    let mut reread = Repeats::default();
+    for _ in 1..limits.repeats {
+        assert_eq!(reread.record(image_file.clone(), &limits), None);
+    }
+    assert_eq!(
+        reread.record(image_file, &limits),
+        Some(limits.repeats),
+        "an image file read again is a repeat, not a poll"
+    );
+
+    let call = |name: &str, input: &str| CallTrace {
+        name: name.into(),
+        input: input.into(),
+        output: "still running".into(),
+        images: Vec::new(),
+    };
+    assert!(waits(&call("process", r#"{"action":"wait","id":"p1"}"#)));
+    assert!(waits(&call("task_output", r#"{"task_id":"t1","wait_seconds":600}"#)));
+    assert!(!waits(&call("task_output", r#"{"task_id":"t1"}"#)));
+    assert!(!waits(&call("process", r#"{"action":"output","id":"p1"}"#)));
+}
+
+#[tokio::test]
+async fn the_loop_check_sees_the_images_a_call_returned() {
+    let h = harness().await;
+    let reply = h.engine.store.create_reply(&h.session.id, &model(), "build").unwrap();
+    let metadata = crate::session::types::ToolMetadata::from(serde_json::json!({
+        "images": [{ "mime": "image/png", "hash": "abc123" }]
+    }));
+    h.engine
+        .store
+        .add_part(
+            &reply.id,
+            &h.session.id,
+            Part::ToolCall {
+                call_id: "c1".into(),
+                name: "screenshot".into(),
+                input: serde_json::json!({}),
+                status: ToolStatus::Done,
+                title: None,
+                output: Some("monitor 1".into()),
+                metadata: Some(Box::new(metadata)),
+                started_at: None,
+                finished_at: None,
+            },
+        )
+        .unwrap();
+
+    let calls = h.engine.last_calls(&h.session.id);
+    assert_eq!(calls[0].images, ["abc123"]);
 }
 
 #[test]
