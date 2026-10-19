@@ -112,7 +112,7 @@ fn sha2_digest(text: &str) -> Vec<u8> {
 }
 
 /// A key as Settings shows it: only its last four characters.
-fn last_four(key: &str) -> String {
+pub(crate) fn last_four(key: &str) -> String {
     let chars: Vec<char> = key.chars().collect();
     let tail: String = chars[chars.len().saturating_sub(4)..].iter().collect();
 

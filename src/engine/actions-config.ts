@@ -5,9 +5,17 @@ import { EngineError } from "./native/client";
 import { putSession } from "./store";
 import { t } from "../state/i18n";
 
-import type { BundlePartKind, InstallBundle, PermissionGrant, PermissionRule, Client } from "./native/client";
 import type { AgentInfo, CommandInfo, McpServerConfig, McpServerStatus } from "./store";
 import type { ActionContext } from "./actions-context";
+import type {
+    BundlePartKind,
+    InstallBundle,
+    PermissionGrant,
+    PermissionRule,
+    Client,
+    VoiceSpeech,
+    VoiceTranscription,
+} from "./native/client";
 
 /**
  * Engine and workspace configuration: settings, agents and commands, MCP servers, grants, plugins, skills and prompts.
@@ -220,6 +228,12 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         putWebSearch: (body: Parameters<Client["putWebSearch"]>[0]) => requireClient().putWebSearch(body),
         addWebSearchKey: (provider: string, key: string) => requireClient().addWebSearchKey(provider, key),
         removeWebSearchKey: (provider: string, index: number) => requireClient().removeWebSearchKey(provider, index),
+        voice: () => requireClient().voice(),
+        setVoiceKey: (provider: string, key: string) => requireClient().setVoiceKey(provider, key),
+        removeVoiceKey: (provider: string) => requireClient().removeVoiceKey(provider),
+        /** One dictated phrase to the cloud provider named; its failure is reported, never retried elsewhere. */
+        transcribeSpeech: async (body: VoiceTranscription) => (await requireClient().transcribeSpeech(body)).text,
+        speakText: (body: VoiceSpeech) => requireClient().speakText(body),
         setAutoCompact,
         setAutoAccept,
         setAutoAcceptAll,

@@ -1,4 +1,5 @@
 use super::*;
+use drift_engine::voice::SAMPLE_RATE;
 
 #[test]
 fn only_known_models_resolve() {

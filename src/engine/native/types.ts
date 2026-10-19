@@ -1033,6 +1033,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/voice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getVoice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Saves a provider's key in the credential store, replacing the one it had. */
+        put: operations["setVoiceKey"];
+        post?: never;
+        delete: operations["removeVoiceKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice/speak": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Speaks one piece of a reply with the cloud provider named. */
+        post: operations["speakText"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/voice/transcribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Transcribes one dictated phrase with the cloud provider named; a failure names why and tries no other. */
+        post: operations["transcribeSpeech"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/websearch": {
         parameters: {
             query?: never;
@@ -2572,6 +2639,18 @@ export interface components {
             /** @description What the new thread should do; it starts with a copy of this conversation and works out what it needs. */
             instruction: string;
         };
+        /** @description One piece of a reply to speak. */
+        Speech: {
+            provider: string;
+            text: string;
+            /** @description The provider's voice; its default when left out. */
+            voice?: string | null;
+        };
+        SpokenAudio: {
+            /** @description The audio file, base64. */
+            audio: string;
+            mime: string;
+        };
         /** @enum {string} */
         State: "disabled" | "disconnected" | "connecting" | "connected" | "failed";
         Subcommand: {
@@ -2736,6 +2815,19 @@ export interface components {
         ToolProfile: "edit" | "apply_patch";
         /** @enum {string} */
         ToolStatus: "pending" | "running" | "done" | "error" | "denied";
+        Transcript: {
+            text: string;
+        };
+        /** @description One dictated phrase for a cloud provider. */
+        Transcription: {
+            /** @description 16 kHz mono 16-bit little-endian samples, base64. */
+            audio: string;
+            /** @description Words the provider should expect: repo names, libraries, flags. */
+            keyterms?: string[];
+            /** @description An ISO 639-1 code; left out or `auto`, the provider detects the language. */
+            language?: string | null;
+            provider: string;
+        };
         /**
          * @description The wire a server is spoken to over; a stateless transport will join these.
          * @enum {string}
@@ -2778,6 +2870,23 @@ export interface components {
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";
+        VoiceKey: {
+            key: string;
+            provider: string;
+        };
+        /** @description A provider as Settings > Voice lists it. */
+        VoiceProvider: {
+            id: string;
+            /** @description The saved key's last four characters; never the key. */
+            key?: string | null;
+            name: string;
+            speech: boolean;
+            transcription: boolean;
+        };
+        /** @description Settings > Voice: the cloud providers and which have a key, shown by its last characters. */
+        VoiceState: {
+            providers: components["schemas"]["VoiceProvider"][];
+        };
         /** @description Settings > Web search, kept by the engine. */
         WebSearch: {
             /**
@@ -4949,6 +5058,115 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ToolName"][];
+                };
+            };
+        };
+    };
+    getVoice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceState"];
+                };
+            };
+        };
+    };
+    setVoiceKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VoiceKey"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceState"];
+                };
+            };
+        };
+    };
+    removeVoiceKey: {
+        parameters: {
+            query: {
+                provider: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceState"];
+                };
+            };
+        };
+    };
+    speakText: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Speech"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpokenAudio"];
+                };
+            };
+        };
+    };
+    transcribeSpeech: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Transcription"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Transcript"];
                 };
             };
         };

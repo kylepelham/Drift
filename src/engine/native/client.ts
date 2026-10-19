@@ -38,6 +38,8 @@ export type Review = components["schemas"]["Review"];
 export type ReviewFile = components["schemas"]["ReviewFile"];
 export type ReviewRefs = components["schemas"]["ReviewRefs"];
 export type GitSource = operations["reviewWorkspace"]["parameters"]["query"]["source"];
+export type VoiceTranscription = components["schemas"]["Transcription"];
+export type VoiceSpeech = components["schemas"]["Speech"];
 
 type Json<Op extends keyof operations, Status extends number> =
     operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never;
@@ -124,6 +126,14 @@ export function createClient(target: Target) {
                 "DELETE",
                 `/websearch/keys?${new URLSearchParams({ provider, index: String(index) })}`,
             ),
+        voice: () => request<Json<"getVoice", 200>>("GET", "/voice"),
+        setVoiceKey: (provider: string, key: string) =>
+            request<Json<"setVoiceKey", 200>>("PUT", "/voice/keys", { provider, key }),
+        removeVoiceKey: (provider: string) =>
+            request<Json<"removeVoiceKey", 200>>("DELETE", `/voice/keys?${new URLSearchParams({ provider })}`),
+        transcribeSpeech: (body: VoiceTranscription) =>
+            request<Json<"transcribeSpeech", 200>>("POST", "/voice/transcribe", body),
+        speakText: (body: VoiceSpeech) => request<Json<"speakText", 200>>("POST", "/voice/speak", body),
         fetchRegistry: (source: string) =>
             request<unknown>("GET", `/registries/fetch?${new URLSearchParams({ source })}`),
         basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),
