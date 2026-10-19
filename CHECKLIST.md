@@ -325,7 +325,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] Interrupted top-level turns resume after a restart (switch, on by default, two resumes per prompt)
 - [ ] Importer reads opencode v2 conversations, sign-ins and config shapes
 - Features:
-  - [ ] `websearch` with Firecrawl, Exa and Tavily over one provider trait, key lists rotated on 401, 402 and 429, `auto` routing, plugin providers through a `searching` WIT world
+  - [x] `websearch` with Firecrawl, Exa and Tavily over one provider trait, key lists rotated on 401, 402 and 429, `auto` routing, plugin providers through a `searching` WIT world
   - [ ] MCP elicitation answered through a blocking question card
   - [ ] References: named outside paths and git repositories, listed in the baseline, read unasked, project references approved first
   - [ ] Worktrees (the M6 item) with `worktree_create`, `worktree_list`, `worktree_remove`, `session_move` and `worktree.setup`
@@ -375,7 +375,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 
 ## Parity with Claude Code, Codex and opencode
 
-- [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API
+- [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API (the configured API landed in 2.4.0; native search is still open)
 - [ ] Plugins add tools: a WIT export declaring tools (name, description, input schema) and a call entry, offered and permission-checked like built-in tools
 - [ ] `/review`: diff against a chosen ref (default the merge-base with the default branch) reviewed by a read-only agent
 - [ ] `/security-review`: the same flow with a security-focused prompt

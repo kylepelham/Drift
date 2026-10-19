@@ -177,6 +177,20 @@ recognised.
 `plugins/secrets` is that plugin: its config is `{ "replacements": { "<secret>": "<placeholder>" } }`
 and it does nothing else.
 
+### Answering web searches
+
+A plugin built for the `searching` world (the `plugin` world plus two exports) answers the
+`websearch` tool as one or more providers. `search-providers()` names them, an id and a display
+name each, asked once at load; Settings > Execution > Web search lists them beside Firecrawl, Exa
+and Tavily, and `auto` tries them in the user's order like the built-in ones. `search(provider,
+query, limit)` answers hits as url, title and snippet, or an error that can say "rate limited,
+retry after N seconds" (the provider then cools for that long and `auto` moves on). A built-in id
+always wins over a plugin's, and when two plugins name the same id the first listed answers. The
+plugin reaches the network through the `http` host interface; Drift never calls a search API on its
+behalf.
+
+`plugins/searxng` is that plugin: it asks the SearXNG instance in `config.url` for JSON results.
+
 ## Skills
 
 Settings > Skills (before MCP in the list) shows every skill the engine offers and lets each be

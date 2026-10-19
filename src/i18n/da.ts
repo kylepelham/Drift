@@ -405,6 +405,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "En tur, der stadig kørte, da Drift stoppede, starter igen, når Drift gør, højst to gange pr. prompt. Agenten får besked på at tjekke, hvad afbrudte kommandoer gjorde, før den gentager dem.",
     "drift.turn.resumed": "Genoptaget efter Drift genstartede",
+    "drift.settings.webSearch": "Websøgning",
+    "drift.settings.webSearch.provider.title": "Udbyder",
+    "drift.settings.webSearch.provider.description":
+        "Auto bruger den første udbyder, der kan svare, i rækkefølgen nedenfor, og går videre, når en er begrænset eller løbet tør for kredit. Fra fjerner værktøjet.",
+    "drift.settings.webSearch.auto": "Auto",
+    "drift.settings.webSearch.off": "Fra",
+    "drift.settings.webSearch.noKey": "Ingen nøgle endnu",
+    "drift.settings.webSearch.environment": "Bruger også nøglen fra miljøet",
+    "drift.settings.webSearch.plugin": "Fra et plugin",
+    "drift.settings.webSearch.keyPlaceholder": "Indsæt en API-nøgle",
+    "drift.settings.webSearch.addKey": "Tilføj nøgle",
+    "drift.settings.webSearch.removeKey": "Fjern nøglen {{key}}",
+    "drift.settings.webSearch.moveUp": "Prøv tidligere",
     "drift.settings.promptCache": "Prompt-cache",
     "drift.settings.promptCache.warming.title": "Hold inaktive samtaler varme",
     "drift.settings.promptCache.warming.description":

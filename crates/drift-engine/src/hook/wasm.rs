@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use tokio::sync::Mutex;
-use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
+use wasmtime::component::{Component, HasSelf, Linker, ResourceTable, TypedFunc};
 use wasmtime::{Cache, CacheConfig, Config, Engine, Store, UpdateDeadline};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
@@ -13,6 +13,7 @@ use super::{
     AfterTool, BeforeTool, Compacting, CompactionEvent, Hook, PermissionAsk, PermissionDecision, PromptEvent,
     PromptSubmit, ReplyEvent, SessionEvent, SessionKind, ToolCall, ToolResult, TurnEnd,
 };
+use crate::websearch::{Hit, SearchError};
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -132,12 +133,15 @@ impl Runtime {
 
         store.data_mut().name.clone_from(&name);
         let replacements = replacements(&mut store, &instance).await;
+        let (search_providers, search) = searching(&mut store, &instance).await;
 
         Ok(WasmPlugin {
             name,
             path: path.to_path_buf(),
             capabilities,
             replacements,
+            search_providers,
+            search,
             store: Mutex::new(store),
             bindings,
         })
@@ -157,6 +161,35 @@ async fn replacements(store: &mut Store<State>, instance: &wasmtime::component::
         Err(error) => {
             eprintln!("drift: plugin {} failed in replacements: {error}", store.data().name);
             Vec::new()
+        }
+    }
+}
+
+/// A search answer across the boundary: the hits, or why not and, when rate limited, the seconds to wait.
+type Searched = (Result<Vec<(String, String, String)>, (String, Option<u32>)>,);
+type SearchFunc = TypedFunc<(String, String, u32), Searched>;
+
+/// The `searching` world's providers and its search export; none from a plugin built without it.
+async fn searching(
+    store: &mut Store<State>,
+    instance: &wasmtime::component::Instance,
+) -> (Vec<(String, String)>, Option<SearchFunc>) {
+    type Pairs = (Vec<(String, String)>,);
+    let (Ok(list), Ok(search)) = (
+        instance.get_typed_func::<(), Pairs>(&mut *store, "search-providers"),
+        instance.get_typed_func::<(String, String, u32), Searched>(&mut *store, "search"),
+    ) else {
+        return (Vec::new(), None);
+    };
+
+    match list.call_async(&mut *store, ()).await {
+        Ok((providers,)) => (providers, Some(search)),
+        Err(error) => {
+            eprintln!(
+                "drift: plugin {} failed in search-providers: {error}",
+                store.data().name
+            );
+            (Vec::new(), None)
         }
     }
 }
@@ -187,6 +220,9 @@ pub struct WasmPlugin {
     pub capabilities: Vec<String>,
     /// Secret and placeholder pairs from the `masking` world, read once at load.
     replacements: Vec<(String, String)>,
+    /// Web search providers from the `searching` world, read once at load, and its search export.
+    search_providers: Vec<(String, String)>,
+    search: Option<SearchFunc>,
     store: Mutex<Store<State>>,
     bindings: Plugin,
 }
@@ -215,6 +251,36 @@ impl Hook for WasmPlugin {
 
     fn replacements(&self) -> Vec<(String, String)> {
         self.replacements.clone()
+    }
+
+    fn search_providers(&self) -> Vec<(String, String)> {
+        self.search_providers.clone()
+    }
+
+    async fn search(&self, provider: &str, query: &str, limit: u32) -> Result<Vec<Hit>, SearchError> {
+        let Some(search) = self.search else {
+            return Err(SearchError::Failed(format!("{} does not search", self.name)));
+        };
+        let mut store = self.enter("").await;
+        let answer = search
+            .call_async(&mut *store, (provider.to_string(), query.to_string(), limit))
+            .await;
+
+        match answer {
+            Ok((Ok(hits),)) => Ok(hits
+                .into_iter()
+                .map(|(url, title, snippet)| Hit { url, title, snippet })
+                .collect()),
+            Ok((Err((why, Some(seconds))),)) => {
+                eprintln!("drift: plugin {} is rate limited: {why}", self.name);
+                Err(SearchError::RateLimited(Some(Duration::from_secs(seconds.into()))))
+            }
+            Ok((Err((why, None)),)) => Err(SearchError::Failed(why)),
+            Err(error) => {
+                self.failed("search", &error);
+                Err(SearchError::Failed(error.to_string()))
+            }
+        }
     }
 
     async fn before_tool(&self, call: &ToolCall) -> BeforeTool {
@@ -377,7 +443,7 @@ impl Hook for WasmPlugin {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::Weak;
 
@@ -387,7 +453,7 @@ pub(super) mod tests {
     }
 
     /// A plugin under `plugins/`, built into the workspace's `target/plugins`; `None` without the wasm32-wasip2 target.
-    fn built(name: &str) -> Option<PathBuf> {
+    pub(crate) fn built(name: &str) -> Option<PathBuf> {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let target = root.join("target/plugins");
         let built = std::process::Command::new("cargo")

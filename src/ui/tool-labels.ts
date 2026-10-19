@@ -138,9 +138,8 @@ function contextToolInfo(
             return { title: t("settings.permissions.tool.grep.title"), subtitle: `${pattern}${suffix}`, mono: true };
         }
         case "websearch": {
-            const results = output() ? output().match(/^#|^\d+\./gm)?.length : undefined;
             const query = text("query") ?? "";
-            const suffix = count(results, "drift.count.result.one", "drift.count.result.other");
+            const suffix = count(meta.count, "drift.count.result.one", "drift.count.result.other");
 
             return { title: t("common.search.placeholder"), subtitle: `${query}${suffix}` };
         }

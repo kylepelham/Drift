@@ -114,6 +114,16 @@ export function createClient(target: Target) {
         settings: () => request<Json<"getSettings", 200>>("GET", "/settings"),
         putSettings: (body: components["schemas"]["EngineSettingsInput"]) =>
             request<Json<"putSettings", 200>>("PUT", "/settings", body),
+        webSearch: () => request<Json<"getWebSearch", 200>>("GET", "/websearch"),
+        putWebSearch: (body: components["schemas"]["WebSearch"]) =>
+            request<Json<"putWebSearch", 200>>("PUT", "/websearch", body),
+        addWebSearchKey: (provider: string, key: string) =>
+            request<Json<"addWebSearchKey", 200>>("POST", "/websearch/keys", { provider, key }),
+        removeWebSearchKey: (provider: string, index: number) =>
+            request<Json<"removeWebSearchKey", 200>>(
+                "DELETE",
+                `/websearch/keys?${new URLSearchParams({ provider, index: String(index) })}`,
+            ),
         fetchRegistry: (source: string) =>
             request<unknown>("GET", `/registries/fetch?${new URLSearchParams({ source })}`),
         basePrompts: () => request<Json<"listBasePrompts", 200>>("GET", "/prompts"),

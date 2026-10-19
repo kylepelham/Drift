@@ -1,0 +1,4 @@
+Searches the web and returns the best matching pages, each with its title, URL and the text that matched.
+
+- Use it for anything current or beyond what you know: recent releases, news, error messages, where a page lives. Then `webfetch` a result to read it in full.
+- Write the query as you would type it into a search engine. Add the year for recent things.

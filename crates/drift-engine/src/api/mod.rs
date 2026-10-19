@@ -18,6 +18,7 @@ mod questions;
 mod review;
 mod sessions;
 mod settings;
+mod websearch;
 mod workspaces;
 
 use std::sync::Arc;
@@ -96,6 +97,8 @@ fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::get, settings::put))
         .routes(routes!(settings::tools))
         .routes(routes!(settings::fetch_registry))
+        .routes(routes!(websearch::get, websearch::put))
+        .routes(routes!(websearch::add_key, websearch::remove_key))
 }
 
 fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {

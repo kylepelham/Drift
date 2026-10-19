@@ -2,6 +2,7 @@ import { BackgroundRows, createShellSettings } from "./settings-background";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { PromptCacheGroup } from "./settings-prompt-cache";
+import { WebSearchGroup } from "./settings-web-search";
 import { TurnsGroup } from "./settings-turns";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
@@ -125,6 +126,7 @@ export function ToolExecutionSection() {
             <BackgroundLimitGroup />
             <TurnsGroup />
             <PromptCacheGroup />
+            <WebSearchGroup />
         </div>
     );
 }

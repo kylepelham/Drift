@@ -139,6 +139,7 @@ metadata_fields! {
     state: String => "state",
     running: bool => "running",
     process_id: String => "processId",
+    provider: String => "provider",
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

@@ -394,6 +394,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Drift 停止时仍在运行的回合会在 Drift 再次启动时重新开始，每个提示最多两次。智能体会被要求先检查被中断的命令做了什么，再决定是否重复。",
     "drift.turn.resumed": "Drift 重启后已恢复",
+    "drift.settings.webSearch": "网页搜索",
+    "drift.settings.webSearch.provider.title": "提供方",
+    "drift.settings.webSearch.provider.description":
+        "自动会按下方顺序使用第一个能响应的提供方，遇到限流或额度用尽时换下一个。关闭会移除该工具。",
+    "drift.settings.webSearch.auto": "自动",
+    "drift.settings.webSearch.off": "关闭",
+    "drift.settings.webSearch.noKey": "尚无密钥",
+    "drift.settings.webSearch.environment": "也使用环境变量中的密钥",
+    "drift.settings.webSearch.plugin": "来自插件",
+    "drift.settings.webSearch.keyPlaceholder": "粘贴 API 密钥",
+    "drift.settings.webSearch.addKey": "添加密钥",
+    "drift.settings.webSearch.removeKey": "移除密钥 {{key}}",
+    "drift.settings.webSearch.moveUp": "提前尝试",
     "drift.settings.promptCache": "提示词缓存",
     "drift.settings.promptCache.warming.title": "保持空闲对话的缓存",
     "drift.settings.promptCache.warming.description":

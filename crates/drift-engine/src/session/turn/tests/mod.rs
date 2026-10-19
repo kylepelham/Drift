@@ -98,6 +98,12 @@ pub(crate) async fn harness() -> Harness {
         .credentials
         .set("anthropic", &Credential::ApiKey { key: "k".into() })
         .unwrap();
+    // A search key in the environment would otherwise offer `websearch` on one machine and not another.
+    let off = crate::websearch::WebSearch {
+        provider: "off".into(),
+        order: Vec::new(),
+    };
+    engine.store.set_setting(crate::websearch::SETTINGS_KEY, &off).unwrap();
     let workspace = engine
         .store
         .add_workspace(&workspace.to_string_lossy(), "ws", "")

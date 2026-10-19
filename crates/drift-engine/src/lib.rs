@@ -16,6 +16,7 @@ pub mod question;
 pub mod session;
 pub mod store;
 pub mod tool;
+pub mod websearch;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -98,6 +99,8 @@ pub struct Engine {
     pub lsp: lsp::Servers,
     /// The user's plugins, loaded at start and on request.
     pub hooks: hook::Hooks,
+    /// Which web search keys cool or were refused, and the provider each session last used.
+    pub(crate) search_routing: websearch::Routing,
     /// The engine itself, for work started from a call that only borrows it (a workspace's MCP servers, from planning).
     me: std::sync::Weak<Engine>,
 }
@@ -168,6 +171,7 @@ impl Engine {
             processes: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
+            search_routing: Default::default(),
         });
         *engine.turns.cut_off.lock().unwrap() = cut_off;
 

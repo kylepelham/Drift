@@ -39,6 +39,41 @@ async fn a_plain_reply_is_stored_and_costed() {
 }
 
 #[tokio::test]
+async fn websearch_is_offered_only_while_a_provider_can_answer() {
+    let h = harness().await;
+    let offered = |h: &Harness, at: usize| {
+        let requests = h.provider.requests.lock().unwrap();
+        requests[at].tools.iter().any(|tool| tool.name == "websearch")
+    };
+    h.engine.add_search_key("exa", "e1").unwrap();
+    let exa = crate::websearch::WebSearch {
+        provider: "exa".into(),
+        order: Vec::new(),
+    };
+    h.engine
+        .store
+        .set_setting(crate::websearch::SETTINGS_KEY, &exa)
+        .unwrap();
+    h.provider.push(text("one"));
+    h.engine.submit(&h.session.id, prompt("first")).await.await_ok();
+    until_idle(&h).await;
+    assert!(offered(&h, 0));
+
+    let off = crate::websearch::WebSearch {
+        provider: "off".into(),
+        ..exa
+    };
+    h.engine
+        .store
+        .set_setting(crate::websearch::SETTINGS_KEY, &off)
+        .unwrap();
+    h.provider.push(text("two"));
+    h.engine.submit(&h.session.id, prompt("second")).await.await_ok();
+    until_idle(&h).await;
+    assert!(!offered(&h, 1), "off removes the tool");
+}
+
+#[tokio::test]
 async fn a_job_that_panics_still_releases_its_session() {
     let h = harness().await;
     assert!(h.engine.turns.claim(&h.session.id, &CancellationToken::new()));

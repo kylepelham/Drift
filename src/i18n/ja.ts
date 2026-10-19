@@ -372,6 +372,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Drift が停止したときに実行中だったターンは、次の起動時に再開されます（プロンプトごとに最大2回）。エージェントは中断されたコマンドの結果を確認してから繰り返すよう指示されます。",
     "drift.turn.resumed": "Drift の再起動後に再開",
+    "drift.settings.webSearch": "ウェブ検索",
+    "drift.settings.webSearch.provider.title": "プロバイダー",
+    "drift.settings.webSearch.provider.description":
+        "自動では、下の順で最初に応答できるプロバイダーを使い、レート制限やクレジット切れの場合は次に移ります。オフにするとツールが外れます。",
+    "drift.settings.webSearch.auto": "自動",
+    "drift.settings.webSearch.off": "オフ",
+    "drift.settings.webSearch.noKey": "キーがまだありません",
+    "drift.settings.webSearch.environment": "環境変数のキーも使います",
+    "drift.settings.webSearch.plugin": "プラグインから",
+    "drift.settings.webSearch.keyPlaceholder": "API キーを貼り付け",
+    "drift.settings.webSearch.addKey": "キーを追加",
+    "drift.settings.webSearch.removeKey": "キー {{key}} を削除",
+    "drift.settings.webSearch.moveUp": "先に試す",
     "drift.settings.promptCache": "プロンプトキャッシュ",
     "drift.settings.promptCache.warming.title": "待機中の会話を温めておく",
     "drift.settings.promptCache.warming.description":

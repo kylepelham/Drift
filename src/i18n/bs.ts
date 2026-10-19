@@ -406,6 +406,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Potez koji je još trajao kad se Drift zaustavio počinje ponovo kad se Drift pokrene, najviše dvaput po promptu. Agent dobija uputu da provjeri šta su prekinute komande uradile prije nego ih ponovi.",
     "drift.turn.resumed": "Nastavljeno nakon ponovnog pokretanja Drifta",
+    "drift.settings.webSearch": "Pretraga weba",
+    "drift.settings.webSearch.provider.title": "Pružatelj",
+    "drift.settings.webSearch.provider.description":
+        "Automatski koristi prvog pružatelja koji može odgovoriti, redoslijedom ispod, i prelazi dalje kada je jedan ograničen ili bez kredita. Isključeno uklanja alat.",
+    "drift.settings.webSearch.auto": "Automatski",
+    "drift.settings.webSearch.off": "Isključeno",
+    "drift.settings.webSearch.noKey": "Još nema ključa",
+    "drift.settings.webSearch.environment": "Koristi i ključ iz okruženja",
+    "drift.settings.webSearch.plugin": "Iz dodatka",
+    "drift.settings.webSearch.keyPlaceholder": "Zalijepite API ključ",
+    "drift.settings.webSearch.addKey": "Dodaj ključ",
+    "drift.settings.webSearch.removeKey": "Ukloni ključ {{key}}",
+    "drift.settings.webSearch.moveUp": "Probaj ranije",
     "drift.settings.promptCache": "Keš prompta",
     "drift.settings.promptCache.warming.title": "Drži neaktivne razgovore toplim",
     "drift.settings.promptCache.warming.description":

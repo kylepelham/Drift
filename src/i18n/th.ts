@@ -401,6 +401,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "รอบที่ยังทำงานอยู่ตอน Drift หยุด จะเริ่มอีกครั้งเมื่อ Drift เริ่มใหม่ ไม่เกินสองครั้งต่อพรอมต์ เอเจนต์จะได้รับคำสั่งให้ตรวจสอบผลของคำสั่งที่ถูกขัดจังหวะก่อนทำซ้ำ",
     "drift.turn.resumed": "ทำต่อหลัง Drift เริ่มใหม่",
+    "drift.settings.webSearch": "ค้นหาเว็บ",
+    "drift.settings.webSearch.provider.title": "ผู้ให้บริการ",
+    "drift.settings.webSearch.provider.description":
+        "อัตโนมัติจะใช้ผู้ให้บริการแรกที่ตอบได้ตามลำดับด้านล่าง และเปลี่ยนไปรายถัดไปเมื่อถูกจำกัดอัตราหรือเครดิตหมด ปิดจะนำเครื่องมือออก",
+    "drift.settings.webSearch.auto": "อัตโนมัติ",
+    "drift.settings.webSearch.off": "ปิด",
+    "drift.settings.webSearch.noKey": "ยังไม่มีคีย์",
+    "drift.settings.webSearch.environment": "ใช้คีย์จากตัวแปรสภาพแวดล้อมด้วย",
+    "drift.settings.webSearch.plugin": "จากปลั๊กอิน",
+    "drift.settings.webSearch.keyPlaceholder": "วางคีย์ API",
+    "drift.settings.webSearch.addKey": "เพิ่มคีย์",
+    "drift.settings.webSearch.removeKey": "ลบคีย์ {{key}}",
+    "drift.settings.webSearch.moveUp": "ลองก่อน",
     "drift.settings.promptCache": "แคชพรอมต์",
     "drift.settings.promptCache.warming.title": "รักษาบทสนทนาที่ว่างให้อุ่น",
     "drift.settings.promptCache.warming.description":

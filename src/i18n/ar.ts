@@ -365,6 +365,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "الدور الذي كان يعمل عند توقف Drift يبدأ من جديد عند تشغيله، مرتين على الأكثر لكل طلب. يُطلب من الوكيل التحقق مما فعلته الأوامر المقطوعة قبل تكرارها.",
     "drift.turn.resumed": "استؤنف بعد إعادة تشغيل Drift",
+    "drift.settings.webSearch": "البحث على الويب",
+    "drift.settings.webSearch.provider.title": "المزوّد",
+    "drift.settings.webSearch.provider.description":
+        "يستخدم الوضع التلقائي أول مزوّد يمكنه الإجابة بالترتيب أدناه، وينتقل إلى التالي عند تقييد المعدل أو نفاد الرصيد. الإيقاف يزيل الأداة.",
+    "drift.settings.webSearch.auto": "تلقائي",
+    "drift.settings.webSearch.off": "إيقاف",
+    "drift.settings.webSearch.noKey": "لا يوجد مفتاح بعد",
+    "drift.settings.webSearch.environment": "يستخدم أيضًا المفتاح من متغيرات البيئة",
+    "drift.settings.webSearch.plugin": "من إضافة",
+    "drift.settings.webSearch.keyPlaceholder": "الصق مفتاح API",
+    "drift.settings.webSearch.addKey": "إضافة مفتاح",
+    "drift.settings.webSearch.removeKey": "إزالة المفتاح {{key}}",
+    "drift.settings.webSearch.moveUp": "جرّبه أولًا",
     "drift.settings.promptCache": "ذاكرة التعليمات المؤقتة",
     "drift.settings.promptCache.warming.title": "إبقاء المحادثات الخاملة دافئة",
     "drift.settings.promptCache.warming.description":

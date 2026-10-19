@@ -109,7 +109,7 @@ export function grantGroup(grant: PermissionGrant): "shell" | "files" | "web" | 
     const kind = grant.grant === "subcommand" ? "bash" : grant.kind;
     if (kind === "bash") return "shell";
     if (["read", "edit", "glob", "grep"].includes(kind)) return "files";
-    if (kind === "webfetch") return "web";
+    if (kind === "webfetch" || kind === "websearch") return "web";
     if (kind === "mcp") return "mcp";
     return "other";
 }

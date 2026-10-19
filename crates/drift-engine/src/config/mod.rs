@@ -569,7 +569,7 @@ fn builtin_agents() -> Vec<Agent> {
             "explore",
             "Fast read-only subagent for finding files and code and answering questions about a codebase.",
             include_str!("prompts/explore.txt"),
-            &["read", "glob", "grep", "bash", "webfetch", "skill"],
+            &["read", "glob", "grep", "bash", "webfetch", "websearch", "skill"],
             AgentKind::Subagent,
         )),
         // Orchestrator delegates mutations and therefore receives no tools that write or run code directly.
@@ -582,6 +582,7 @@ fn builtin_agents() -> Vec<Agent> {
                 "glob",
                 "grep",
                 "webfetch",
+                "websearch",
                 "todowrite",
                 "skill",
                 "question",

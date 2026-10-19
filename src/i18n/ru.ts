@@ -408,6 +408,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Ход, который ещё шёл, когда Drift остановился, начинается снова при запуске, не больше двух раз на промпт. Агенту велено проверить, что сделали прерванные команды, прежде чем повторять их.",
     "drift.turn.resumed": "Возобновлено после перезапуска Drift",
+    "drift.settings.webSearch": "Веб-поиск",
+    "drift.settings.webSearch.provider.title": "Провайдер",
+    "drift.settings.webSearch.provider.description":
+        "Авто использует первого провайдера, который может ответить, в порядке ниже, и переходит к следующему, если один ограничен или без средств. Выкл. убирает инструмент.",
+    "drift.settings.webSearch.auto": "Авто",
+    "drift.settings.webSearch.off": "Выкл.",
+    "drift.settings.webSearch.noKey": "Ключа пока нет",
+    "drift.settings.webSearch.environment": "Также использует ключ из окружения",
+    "drift.settings.webSearch.plugin": "Из плагина",
+    "drift.settings.webSearch.keyPlaceholder": "Вставьте ключ API",
+    "drift.settings.webSearch.addKey": "Добавить ключ",
+    "drift.settings.webSearch.removeKey": "Удалить ключ {{key}}",
+    "drift.settings.webSearch.moveUp": "Пробовать раньше",
     "drift.settings.promptCache": "Кэш промпта",
     "drift.settings.promptCache.warming.title": "Держать простаивающие беседы тёплыми",
     "drift.settings.promptCache.warming.description":

@@ -198,3 +198,12 @@ world masking {
     include plugin;
     export replacements: func() -> list<tuple<string, string>>;
 }
+
+/// A plugin that also answers web searches for the `websearch` tool. `search-providers` lists the ids and
+/// names it answers for, asked once at load; Settings lists them beside the built-in ones. `search` gives
+/// each hit as a url, a title and a snippet, or an error with, when rate limited, the seconds to wait.
+world searching {
+    include plugin;
+    export search-providers: func() -> list<tuple<string, string>>;
+    export search: func(provider: string, query: string, limit: u32) -> result<list<tuple<string, string, string>>, tuple<string, option<u32>>>;
+}

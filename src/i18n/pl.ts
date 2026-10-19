@@ -374,6 +374,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Tura, która trwała, gdy Drift się zatrzymał, zaczyna się od nowa przy następnym uruchomieniu, najwyżej dwa razy na prompt. Agent ma sprawdzić, co zrobiły przerwane polecenia, zanim je powtórzy.",
     "drift.turn.resumed": "Wznowiono po ponownym uruchomieniu Drift",
+    "drift.settings.webSearch": "Wyszukiwanie w sieci",
+    "drift.settings.webSearch.provider.title": "Dostawca",
+    "drift.settings.webSearch.provider.description":
+        "Automatycznie używa pierwszego dostawcy, który może odpowiedzieć, w kolejności poniżej, i przechodzi dalej, gdy jeden jest ograniczony lub bez środków. Wyłączone usuwa narzędzie.",
+    "drift.settings.webSearch.auto": "Automatycznie",
+    "drift.settings.webSearch.off": "Wyłączone",
+    "drift.settings.webSearch.noKey": "Brak klucza",
+    "drift.settings.webSearch.environment": "Używa też klucza ze środowiska",
+    "drift.settings.webSearch.plugin": "Z wtyczki",
+    "drift.settings.webSearch.keyPlaceholder": "Wklej klucz API",
+    "drift.settings.webSearch.addKey": "Dodaj klucz",
+    "drift.settings.webSearch.removeKey": "Usuń klucz {{key}}",
+    "drift.settings.webSearch.moveUp": "Próbuj wcześniej",
     "drift.settings.promptCache": "Pamięć podręczna promptu",
     "drift.settings.promptCache.warming.title": "Utrzymuj bezczynne rozmowy w gotowości",
     "drift.settings.promptCache.warming.description":

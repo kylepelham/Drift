@@ -461,6 +461,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "A turn still running when Drift stopped starts again when Drift does, at most twice per prompt. The agent is told to check what interrupted commands did before repeating them.",
     "drift.turn.resumed": "Resumed after Drift restarted",
+    "drift.settings.webSearch": "Web search",
+    "drift.settings.webSearch.provider.title": "Provider",
+    "drift.settings.webSearch.provider.description":
+        "Auto uses the first provider that can answer, in the order below, and moves on when one is rate limited or out of credit. Off removes the tool.",
+    "drift.settings.webSearch.auto": "Auto",
+    "drift.settings.webSearch.off": "Off",
+    "drift.settings.webSearch.noKey": "No key yet",
+    "drift.settings.webSearch.environment": "Also uses the key from the environment",
+    "drift.settings.webSearch.plugin": "From a plugin",
+    "drift.settings.webSearch.keyPlaceholder": "Paste an API key",
+    "drift.settings.webSearch.addKey": "Add key",
+    "drift.settings.webSearch.removeKey": "Remove key {{key}}",
+    "drift.settings.webSearch.moveUp": "Try earlier",
     "drift.settings.promptCache": "Prompt cache",
     "drift.settings.promptCache.warming.title": "Keep idle conversations warm",
     "drift.settings.promptCache.warming.description":

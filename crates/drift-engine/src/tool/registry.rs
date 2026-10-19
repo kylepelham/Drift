@@ -1,5 +1,6 @@
 use super::{
-    Tool, apply_patch, bash, edit, glob, grep, process, question, read, save_image, skill, task, todo, webfetch, write,
+    Tool, apply_patch, bash, edit, glob, grep, process, question, read, save_image, skill, task, todo, webfetch,
+    websearch, write,
 };
 use crate::llm::ToolSpec;
 use crate::llm::catalog::ToolProfile;
@@ -24,6 +25,7 @@ impl Registry {
                 Arc::new(glob::Glob),
                 Arc::new(grep::Grep),
                 Arc::new(webfetch::WebFetch),
+                Arc::new(websearch::WebSearch),
                 Arc::new(todo::TodoWrite),
                 Arc::new(question::Question),
                 Arc::new(skill::Skill),

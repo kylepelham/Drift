@@ -27,6 +27,7 @@ pub mod task;
 mod text;
 pub mod todo;
 pub mod webfetch;
+pub mod websearch;
 pub mod write;
 
 #[cfg(test)]

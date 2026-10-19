@@ -371,6 +371,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Drift가 멈췄을 때 실행 중이던 턴은 다시 시작할 때 재개됩니다(프롬프트당 최대 두 번). 에이전트는 중단된 명령이 한 일을 확인한 뒤 반복하도록 안내받습니다.",
     "drift.turn.resumed": "Drift 재시작 후 재개됨",
+    "drift.settings.webSearch": "웹 검색",
+    "drift.settings.webSearch.provider.title": "제공자",
+    "drift.settings.webSearch.provider.description":
+        "자동은 아래 순서대로 응답할 수 있는 첫 제공자를 사용하고, 속도 제한이나 크레딧 소진 시 다음으로 넘어갑니다. 끄면 도구가 제거됩니다.",
+    "drift.settings.webSearch.auto": "자동",
+    "drift.settings.webSearch.off": "끄기",
+    "drift.settings.webSearch.noKey": "아직 키가 없음",
+    "drift.settings.webSearch.environment": "환경 변수의 키도 사용",
+    "drift.settings.webSearch.plugin": "플러그인에서",
+    "drift.settings.webSearch.keyPlaceholder": "API 키 붙여넣기",
+    "drift.settings.webSearch.addKey": "키 추가",
+    "drift.settings.webSearch.removeKey": "키 {{key}} 제거",
+    "drift.settings.webSearch.moveUp": "먼저 시도",
     "drift.settings.promptCache": "프롬프트 캐시",
     "drift.settings.promptCache.warming.title": "유휴 대화를 따뜻하게 유지",
     "drift.settings.promptCache.warming.description":

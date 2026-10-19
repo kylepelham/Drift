@@ -568,3 +568,14 @@ test("always-allowed grants are grouped by what they let through and shown witho
     expect(grantText(exact)).toBe("cargo test");
     expect(grantText(site)).toBe("https://docs.rs/*");
 });
+test("web search lists providers in the order auto tries them, saved order first, and searches group as web", async () => {
+    const { orderedProviders } = await import("../src/ui/settings-web-search");
+    const { grantGroup } = await import("../src/ui/settings-permissions");
+    const provider = (id: string) => ({ id, name: id, builtIn: true, keys: [], fromEnvironment: false });
+    const state = {
+        settings: { provider: "auto", order: ["tavily", "searxng"] },
+        providers: ["firecrawl", "exa", "tavily", "searxng"].map(provider),
+    };
+    expect(orderedProviders(state).map((p) => p.id)).toEqual(["tavily", "searxng", "firecrawl", "exa"]);
+    expect(grantGroup({ grant: "pattern", kind: "websearch", pattern: "*", decision: "allow" })).toBe("web");
+});

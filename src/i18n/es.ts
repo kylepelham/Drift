@@ -409,6 +409,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Un turno que seguía en curso cuando Drift se detuvo vuelve a empezar cuando Drift arranca, como máximo dos veces por prompt. Se pide al agente que compruebe qué hicieron los comandos interrumpidos antes de repetirlos.",
     "drift.turn.resumed": "Reanudado tras reiniciar Drift",
+    "drift.settings.webSearch": "Búsqueda web",
+    "drift.settings.webSearch.provider.title": "Proveedor",
+    "drift.settings.webSearch.provider.description":
+        "Automático usa el primer proveedor que pueda responder, en el orden de abajo, y pasa al siguiente cuando uno tiene límite de uso o se queda sin crédito. Desactivado quita la herramienta.",
+    "drift.settings.webSearch.auto": "Automático",
+    "drift.settings.webSearch.off": "Desactivado",
+    "drift.settings.webSearch.noKey": "Aún no hay clave",
+    "drift.settings.webSearch.environment": "También usa la clave del entorno",
+    "drift.settings.webSearch.plugin": "De un plugin",
+    "drift.settings.webSearch.keyPlaceholder": "Pega una clave de API",
+    "drift.settings.webSearch.addKey": "Añadir clave",
+    "drift.settings.webSearch.removeKey": "Quitar la clave {{key}}",
+    "drift.settings.webSearch.moveUp": "Probar antes",
     "drift.settings.promptCache": "Caché de prompt",
     "drift.settings.promptCache.warming.title": "Mantener calientes las conversaciones inactivas",
     "drift.settings.promptCache.warming.description":

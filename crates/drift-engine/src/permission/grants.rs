@@ -70,6 +70,12 @@ pub(super) fn always_grants(ask: &Ask) -> Vec<Grant> {
             })
             .collect(),
         (_, "webfetch") => vec![site(&ask.pattern).unwrap_or_else(|| exact(&ask.pattern))],
+        // A query is never asked twice, so always means every search.
+        (_, "websearch") => vec![Grant::Pattern(Rule {
+            kind: "websearch".into(),
+            pattern: "*".into(),
+            decision: Decision::Allow,
+        })],
         (_, "read" | "edit") => {
             vec![outside_folder(ask, crate::config::home().as_deref()).unwrap_or_else(|| exact(&ask.pattern))]
         }

@@ -321,6 +321,15 @@ impl Engine {
         Ok(())
     }
 
+    /// Built-in tools that a setting can take away: `process` with background processes, `websearch` with search.
+    fn built_in_available(&self, name: &str) -> bool {
+        match name {
+            "process" => self.background_processes(),
+            "websearch" => self.web_search_available(),
+            _ => true,
+        }
+    }
+
     /// The tools and system prompt for the plan's model and agent.
     /// Only offered tools may run; calls to any other tool are refused before permission or snapshot.
     pub(super) fn offer(&self, plan: &Plan) -> Offer {
@@ -334,7 +343,7 @@ impl Engine {
             .offered(plan.model.profile)
             .into_iter()
             .map(|tool| (tool.spec_for(self), tool))
-            .filter(|(spec, _)| spec.name != "process" || self.background_processes())
+            .filter(|(spec, _)| self.built_in_available(&spec.name))
             .chain(plan.mcp_tools.iter().cloned())
             .filter(|(spec, _)| agent.as_ref().is_none_or(|agent| agent.allows_tool(&spec.name)))
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))

@@ -408,6 +408,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Drift durduğunda hâlâ çalışan bir tur, Drift başladığında yeniden başlar; istem başına en çok iki kez. Ajandan, yarıda kalan komutların ne yaptığını tekrarlamadan önce kontrol etmesi istenir.",
     "drift.turn.resumed": "Drift yeniden başladıktan sonra sürdürüldü",
+    "drift.settings.webSearch": "Web araması",
+    "drift.settings.webSearch.provider.title": "Sağlayıcı",
+    "drift.settings.webSearch.provider.description":
+        "Otomatik, aşağıdaki sırayla yanıt verebilen ilk sağlayıcıyı kullanır ve biri hız sınırına takıldığında ya da kredisi bittiğinde sonrakine geçer. Kapalı aracı kaldırır.",
+    "drift.settings.webSearch.auto": "Otomatik",
+    "drift.settings.webSearch.off": "Kapalı",
+    "drift.settings.webSearch.noKey": "Henüz anahtar yok",
+    "drift.settings.webSearch.environment": "Ortamdaki anahtarı da kullanır",
+    "drift.settings.webSearch.plugin": "Bir eklentiden",
+    "drift.settings.webSearch.keyPlaceholder": "Bir API anahtarı yapıştırın",
+    "drift.settings.webSearch.addKey": "Anahtar ekle",
+    "drift.settings.webSearch.removeKey": "{{key}} anahtarını kaldır",
+    "drift.settings.webSearch.moveUp": "Daha önce dene",
     "drift.settings.promptCache": "İstem önbelleği",
     "drift.settings.promptCache.warming.title": "Boştaki konuşmaları sıcak tut",
     "drift.settings.promptCache.warming.description":

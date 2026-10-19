@@ -406,6 +406,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "En tur som fortsatt kjørte da Drift stoppet, starter igjen når Drift gjør det, høyst to ganger per prompt. Agenten får beskjed om å sjekke hva avbrutte kommandoer gjorde før den gjentar dem.",
     "drift.turn.resumed": "Gjenopptatt etter at Drift startet på nytt",
+    "drift.settings.webSearch": "Nettsøk",
+    "drift.settings.webSearch.provider.title": "Leverandør",
+    "drift.settings.webSearch.provider.description":
+        "Auto bruker den første leverandøren som kan svare, i rekkefølgen nedenfor, og går videre når en er begrenset eller tom for kreditt. Av fjerner verktøyet.",
+    "drift.settings.webSearch.auto": "Auto",
+    "drift.settings.webSearch.off": "Av",
+    "drift.settings.webSearch.noKey": "Ingen nøkkel ennå",
+    "drift.settings.webSearch.environment": "Bruker også nøkkelen fra miljøet",
+    "drift.settings.webSearch.plugin": "Fra et tillegg",
+    "drift.settings.webSearch.keyPlaceholder": "Lim inn en API-nøkkel",
+    "drift.settings.webSearch.addKey": "Legg til nøkkel",
+    "drift.settings.webSearch.removeKey": "Fjern nøkkelen {{key}}",
+    "drift.settings.webSearch.moveUp": "Prøv tidligere",
     "drift.settings.promptCache": "Prompt-hurtigbuffer",
     "drift.settings.promptCache.warming.title": "Hold inaktive samtaler varme",
     "drift.settings.promptCache.warming.description":

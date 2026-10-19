@@ -378,6 +378,19 @@ export const drift = {
     "drift.settings.resumeTurns.description":
         "Ein Durchgang, der noch lief, als Drift anhielt, beginnt beim nächsten Start erneut, höchstens zweimal pro Prompt. Der Agent soll prüfen, was unterbrochene Befehle bewirkt haben, bevor er sie wiederholt.",
     "drift.turn.resumed": "Nach dem Neustart von Drift fortgesetzt",
+    "drift.settings.webSearch": "Websuche",
+    "drift.settings.webSearch.provider.title": "Anbieter",
+    "drift.settings.webSearch.provider.description":
+        "Automatisch nutzt den ersten Anbieter, der antworten kann, in der Reihenfolge unten, und wechselt, wenn einer gedrosselt ist oder kein Guthaben mehr hat. Aus entfernt das Werkzeug.",
+    "drift.settings.webSearch.auto": "Automatisch",
+    "drift.settings.webSearch.off": "Aus",
+    "drift.settings.webSearch.noKey": "Noch kein Schlüssel",
+    "drift.settings.webSearch.environment": "Nutzt auch den Schlüssel aus der Umgebung",
+    "drift.settings.webSearch.plugin": "Aus einem Plugin",
+    "drift.settings.webSearch.keyPlaceholder": "API-Schlüssel einfügen",
+    "drift.settings.webSearch.addKey": "Schlüssel hinzufügen",
+    "drift.settings.webSearch.removeKey": "Schlüssel {{key}} entfernen",
+    "drift.settings.webSearch.moveUp": "Früher versuchen",
     "drift.settings.promptCache": "Prompt-Cache",
     "drift.settings.promptCache.warming.title": "Ruhende Unterhaltungen warm halten",
     "drift.settings.promptCache.warming.description":

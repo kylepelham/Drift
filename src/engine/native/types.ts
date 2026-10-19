@@ -1033,6 +1033,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/websearch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getWebSearch"];
+        /** Chooses the provider (`auto`, `off` or an id) and the order `auto` tries them in. */
+        put: operations["putWebSearch"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/websearch/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Adds a key to a built-in provider's list; keys set aside as refused are all tried again. */
+        post: operations["addWebSearchKey"];
+        delete: operations["removeWebSearchKey"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces": {
         parameters: {
             query?: never;
@@ -2368,6 +2402,22 @@ export interface components {
             kind: string;
             pattern: string;
         };
+        SearchKey: {
+            key: string;
+            /** @description A built-in provider's id. */
+            provider: string;
+        };
+        /** @description A provider as Settings lists it. */
+        SearchProvider: {
+            /** @description Built in, so it takes keys; a plugin's brings its own. */
+            builtIn: boolean;
+            /** @description Whether a key is found in the environment instead. */
+            fromEnvironment: boolean;
+            id: string;
+            /** @description Keys saved for it, shown by their last four characters. */
+            keys: string[];
+            name: string;
+        };
         /** @description A config as a client sends it. A `null` value keeps the one saved under that name, so a secret can be kept without being read. */
         ServerConfigInput: {
             args?: string[];
@@ -2648,6 +2698,7 @@ export interface components {
             owner?: string | null;
             path?: string | null;
             processId?: string | null;
+            provider?: string | null;
             reason?: string | null;
             redirect?: string | null;
             replacements?: number | null;
@@ -2727,6 +2778,24 @@ export interface components {
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";
+        /** @description Settings > Web search, kept by the engine. */
+        WebSearch: {
+            /**
+             * @description The providers `auto` tries, in turn; ones left out follow in their own order.
+             * @default []
+             */
+            order: string[];
+            /**
+             * @description A provider's id, `auto` (the first that can answer, in `order`) or `off`, which removes the tool.
+             * @default auto
+             */
+            provider: string;
+        };
+        /** @description Settings > Web search: the choice, and every provider with its keys shown by their last characters. */
+        WebSearchState: {
+            providers: components["schemas"]["SearchProvider"][];
+            settings: components["schemas"]["WebSearch"];
+        };
         Window: {
             /**
              * Format: int64
@@ -4880,6 +4949,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ToolName"][];
+                };
+            };
+        };
+    };
+    getWebSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebSearchState"];
+                };
+            };
+        };
+    };
+    putWebSearch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WebSearch"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebSearchState"];
+                };
+            };
+        };
+    };
+    addWebSearchKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchKey"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebSearchState"];
+                };
+            };
+        };
+    };
+    removeWebSearchKey: {
+        parameters: {
+            query: {
+                /** @description The key's place in the provider's list, from 0. */
+                index: number;
+                provider: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebSearchState"];
                 };
             };
         };
