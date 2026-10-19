@@ -53,8 +53,8 @@ impl Store {
                     created: false,
                 });
             }
-            let session = session_from(child, None);
-            insert_session(conn, &session)?;
+            let mut session = session_from(child, None);
+            insert_session(conn, &mut session)?;
             let task = insert_task(conn, &new, &session.id)?;
 
             Ok(Launch {

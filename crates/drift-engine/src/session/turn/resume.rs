@@ -44,6 +44,7 @@ impl Engine {
                 variant: None,
                 agent: None,
                 submission_id: None,
+                worktree: false,
             };
             if let Err(error) = self.submit(&id, prompt).await {
                 eprintln!("drift: could not resume {id}'s turn after the restart: {error}");

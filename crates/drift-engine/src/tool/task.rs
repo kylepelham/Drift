@@ -132,6 +132,7 @@ impl Tool for Task {
                 variant: Some(parent.variant.clone()),
                 agent: None,
                 submission_id: None,
+                worktree: false,
             };
             // Its own stop: a background worker's descends from its owner's scope, a foreground one's from this call.
             let token = if mode == Mode::Background {

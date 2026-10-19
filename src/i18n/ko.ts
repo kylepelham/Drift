@@ -996,6 +996,11 @@ export const drift = {
     "drift.theme.paper": "Drift 페이퍼",
     "drift.theme.slate": "Drift 슬레이트",
     "drift.thread.backToParent": "이 스레드를 생성한 스레드로 돌아가기",
+    "drift.worktree.start": "새 워크트리에서 시작",
+    "drift.worktree.startOff":
+        "이 스레드를 새 워크트리에서 시작합니다. 현재 커밋에서 전용 브랜치 drift/<name>을 만듭니다. 커밋하지 않은 변경은 복사되지 않습니다.",
+    "drift.worktree.startOn": "이 스레드는 새 워크트리에서 시작합니다. 클릭하면 작업 공간 폴더에서 시작합니다.",
+    "drift.worktree.branch": "이 스레드는 이 브랜치의 전용 워크트리에서 작업합니다. Drift는 다시 병합하지 않습니다.",
     "drift.thread.move": "이동",
     "drift.thread.moveToWorkspace": "작업 공간으로 이동",
     "drift.thread.noOtherWorkspaces": "다른 작업 공간 없음",

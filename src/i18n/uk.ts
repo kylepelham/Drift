@@ -1038,6 +1038,12 @@ export const drift = {
     "drift.theme.paper": "Drift Папір",
     "drift.theme.slate": "Drift Сланець",
     "drift.thread.backToParent": "Назад до гілки, з якої створено цю",
+    "drift.worktree.start": "Почати в новому worktree",
+    "drift.worktree.startOff":
+        "Почати цю розмову в новому worktree: власна гілка drift/<name> від поточного коміту. Незакомічені зміни не копіюються.",
+    "drift.worktree.startOn":
+        "Ця розмова почнеться в новому worktree. Натисніть, щоб почати її в теці робочого простору.",
+    "drift.worktree.branch": "Ця розмова працює у власному worktree на цій гілці. Drift ніколи не зливає її назад.",
     "drift.thread.move": "Перемістити",
     "drift.thread.moveToWorkspace": "Перемістити до робочого простору",
     "drift.thread.noOtherWorkspaces": "Інших робочих просторів немає",

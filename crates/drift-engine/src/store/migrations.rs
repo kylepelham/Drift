@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 44] = [
+pub(super) const MIGRATIONS: [&str; 45] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -218,6 +218,8 @@ pub(super) const MIGRATIONS: [&str; 44] = [
         error TEXT
     ) STRICT, WITHOUT ROWID;
     CREATE INDEX queued_prompt_session ON queued_prompt(session_id, position);",
+    // The name of the Drift worktree a session works in; none for the workspace folder itself.
+    "ALTER TABLE session ADD COLUMN worktree TEXT;",
 ];
 
 #[cfg(test)]

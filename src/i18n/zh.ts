@@ -997,6 +997,11 @@ export const drift = {
     "drift.theme.paper": "Drift 纸张",
     "drift.theme.slate": "Drift 岩灰",
     "drift.thread.backToParent": "返回生成此会话的上级会话",
+    "drift.worktree.start": "在新的工作树中开始",
+    "drift.worktree.startOff":
+        "在新的工作树中开始此会话：从当前提交创建专属分支 drift/<name>。未提交的更改不会被复制。",
+    "drift.worktree.startOn": "此会话将在新的工作树中开始。点击改为在工作区文件夹中开始。",
+    "drift.worktree.branch": "此会话在此分支上的专属工作树中工作。Drift 从不将其合并回去。",
     "drift.thread.move": "移动",
     "drift.thread.moveToWorkspace": "移至工作区",
     "drift.thread.noOtherWorkspaces": "没有其他工作区",

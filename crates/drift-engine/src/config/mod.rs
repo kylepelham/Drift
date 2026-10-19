@@ -30,6 +30,7 @@ pub use discovery::{body, home, in_repository, nested_instructions};
 pub use engine::RegistryError;
 pub use file::{
     CheckConfig, File, FormatterConfig, Limits, LimitsFile, LspConfig, ProviderConfig, ProviderModel, RouteTimeouts,
+    WorktreeFile,
 };
 pub use overrides::{AgentOverride, ModelPin};
 pub use user::{set_local_server, user_plugins, user_providers};
@@ -90,6 +91,9 @@ pub struct Config {
     /// Named folders and repositories outside the workspace, the user's before the project's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<references::Reference>,
+    /// `worktree.setup`: commands run in a new worktree, each asking like `bash`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub worktree_setup: Vec<String>,
     /// Config files that could not be read; a turn refuses to start rather than run without their rules.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
@@ -290,6 +294,9 @@ impl Config {
         self.checks.extend(file.checks);
         self.apply_lsp(file.lsp, project);
         self.timeouts.extend(file.timeouts);
+        if let Some(setup) = file.worktree.setup {
+            self.worktree_setup = setup;
+        }
         self.limits.repeats = file.limits.repeats.unwrap_or(self.limits.repeats).max(2);
         self.limits.polls = file.limits.polls.unwrap_or(self.limits.polls).max(2);
 

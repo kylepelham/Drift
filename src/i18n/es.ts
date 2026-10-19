@@ -1043,6 +1043,12 @@ export const drift = {
     "drift.theme.paper": "Drift Papel",
     "drift.theme.slate": "Drift Pizarra",
     "drift.thread.backToParent": "Volver al hilo desde el que se creó este",
+    "drift.worktree.start": "Empezar en un worktree nuevo",
+    "drift.worktree.startOff":
+        "Empieza este hilo en un worktree nuevo: su propia rama, drift/<name>, desde el commit actual. Los cambios sin confirmar no se copian.",
+    "drift.worktree.startOn":
+        "Este hilo empieza en un worktree nuevo. Haz clic para empezarlo en la carpeta del espacio de trabajo.",
+    "drift.worktree.branch": "Este hilo trabaja en su propio worktree en esta rama. Drift nunca la fusiona de vuelta.",
     "drift.thread.move": "Mover",
     "drift.thread.moveToWorkspace": "Mover al espacio de trabajo",
     "drift.thread.noOtherWorkspaces": "No hay otros espacios de trabajo",

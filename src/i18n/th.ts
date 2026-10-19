@@ -1019,6 +1019,11 @@ export const drift = {
     "drift.theme.paper": "Drift กระดาษ",
     "drift.theme.slate": "Drift หินชนวน",
     "drift.thread.backToParent": "กลับไปยังเธรดต้นทาง",
+    "drift.worktree.start": "เริ่มใน worktree ใหม่",
+    "drift.worktree.startOff":
+        "เริ่มเธรดนี้ใน worktree ใหม่: มีสาขาของตัวเอง drift/<name> จากคอมมิตปัจจุบัน การเปลี่ยนแปลงที่ยังไม่คอมมิตจะไม่ถูกคัดลอก",
+    "drift.worktree.startOn": "เธรดนี้จะเริ่มใน worktree ใหม่ คลิกเพื่อเริ่มในโฟลเดอร์ของพื้นที่ทำงานแทน",
+    "drift.worktree.branch": "เธรดนี้ทำงานใน worktree ของตัวเองบนสาขานี้ Drift ไม่เคยรวมกลับให้",
     "drift.thread.move": "ย้าย",
     "drift.thread.moveToWorkspace": "ย้ายไปยังพื้นที่ทำงาน",
     "drift.thread.noOtherWorkspaces": "ไม่มีพื้นที่ทำงานอื่น",

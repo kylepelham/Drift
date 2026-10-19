@@ -998,6 +998,11 @@ export const drift = {
     "drift.theme.paper": "Drift 紙張",
     "drift.theme.slate": "Drift 岩灰",
     "drift.thread.backToParent": "返回產生此對話的上層對話",
+    "drift.worktree.start": "在新的工作樹中開始",
+    "drift.worktree.startOff":
+        "在新的工作樹中開始此對話：從目前的提交建立專屬分支 drift/<name>。未提交的變更不會被複製。",
+    "drift.worktree.startOn": "此對話將在新的工作樹中開始。點擊改為在工作區資料夾中開始。",
+    "drift.worktree.branch": "此對話在此分支上的專屬工作樹中工作。Drift 從不將其合併回去。",
     "drift.thread.move": "移動",
     "drift.thread.moveToWorkspace": "移至工作區",
     "drift.thread.noOtherWorkspaces": "沒有其他工作區",

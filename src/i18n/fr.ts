@@ -1021,6 +1021,13 @@ export const drift = {
     "drift.theme.paper": "Drift Papier",
     "drift.theme.slate": "Drift Ardoise",
     "drift.thread.backToParent": "Revenir à la discussion d'origine",
+    "drift.worktree.start": "Démarrer dans un nouveau worktree",
+    "drift.worktree.startOff":
+        "Démarrer ce fil dans un nouveau worktree : sa propre branche, drift/<name>, depuis le commit actuel. Les modifications non validées ne sont pas copiées.",
+    "drift.worktree.startOn":
+        "Ce fil démarre dans un nouveau worktree. Cliquez pour le démarrer plutôt dans le dossier de l'espace de travail.",
+    "drift.worktree.branch":
+        "Ce fil travaille dans son propre worktree sur cette branche. Drift ne la fusionne jamais en retour.",
     "drift.thread.move": "Déplacer",
     "drift.thread.moveToWorkspace": "Déplacer vers l'espace de travail",
     "drift.thread.noOtherWorkspaces": "Aucun autre espace de travail",

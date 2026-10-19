@@ -53,6 +53,9 @@ pub struct Session {
     /// Answers its own asks, and its subagents', except for secrets and anything outside the workspace.
     #[serde(default)]
     pub auto_accept: bool,
+    /// The Drift worktree it works in, by name, on branch `drift/<name>`; absent for the workspace folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<String>,
     /// Whether a turn is in flight right now; set by the API, never stored.
     #[serde(default)]
     pub running: bool,

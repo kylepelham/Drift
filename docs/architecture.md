@@ -79,6 +79,58 @@ each workspace's threads, newest first, get a heading at each local day they wer
 in, reading Today, Yesterday, a weekday within the past week, or a date (`dayDividers`); the
 headings roll over at midnight without a restart.
 
+## Worktrees
+
+A thread can work on its own branch while the workspace folder stays as it is. Drift makes git
+worktrees with the `git` CLI (no git library) and never merges them back; committing, merging and
+pull requests stay the user's call.
+
+- A worktree lives at `<data>/worktrees/<workspace id>/<name>` on branch `drift/<name>`, made from
+  the commit the session is on. It is never inside the repository, so it never shows in the
+  repository's status, searches or watchers. Uncommitted changes are not copied, and the result says
+  how many were left behind. A workspace that is a subfolder of its repository works in the same
+  subfolder of the worktree.
+- A session row's `worktree` (the name; empty for the workspace folder) says where it works. A turn
+  reads it when it is planned and again before each step, so the tools' workspace (path resolution,
+  permission checks, the shell's folder, checks, formatters, the system prompt's working directory)
+  is the worktree. Config, instruction files and MCP servers stay the workspace folder's. A worktree
+  that is gone sends the session back to the workspace folder.
+- The model gets `worktree_create` (name), `worktree_list`, `worktree_remove` (name, `force`) and
+  `session_move` (a worktree's directory or name, or the workspace folder), offered only when the
+  workspace is inside a git repository.
+- `session_move` saves the move at once, but the turn reads it only between steps: calls made in the
+  same step still run where the session was, and the next request carries the new working directory
+  as an instruction update.
+- Permissions use the kind `worktree`: `create <name>` and `remove <name>` are allowed by default,
+  `remove --force <name>` asks. Without `force`, removal refuses while the worktree has uncommitted
+  changes (untracked files count) and says so. It also refuses while a running conversation works
+  there; the caller must move out first. Conversations left in a removed worktree move to the
+  workspace folder. The branch goes only through `git branch -d`, so only when it is merged into the
+  workspace's current commit; an unmerged branch is always kept.
+- drift.json `worktree.setup` lists shell commands for a new worktree (copy `.env`, install
+  dependencies). Each is a `bash` ask on the create call, judged before anything runs: a `bash` rule
+  can allow it, and auto-accept answers it as it would a shell line. They run in order in the new
+  worktree with `DRIFT_WORKSPACE` and `DRIFT_WORKTREE` set, under the shell time limit (never moved
+  to the background), and stop at the first failure. The nearest file that sets the list wins, so a
+  project's replaces the user's.
+- Undo works inside a worktree: its writes are recorded under the owner `<workspace id>/<name>`, a
+  shadow repository of its own, and removing the worktree forgets that history.
+- A new thread starts in a worktree from the composer's branch button. The prompt carries
+  `worktree: true`, and the turn runs `worktree_create` (named from the prompt's first words and
+  four random hex characters) and `session_move` as its first calls, before the model answers, so
+  setup commands ask like the model's own calls. A prompt into a running turn cannot ask for one
+  (409). The chat header names the branch.
+- Workers share their parent's worktree: a new session row with a parent copies the parent's. A
+  thread spawned from a conversation in a worktree gets its own new worktree, branched from the
+  parent's worktree.
+- The archive purge removes a deleted conversation's worktree when no other conversation works
+  there, nothing is uncommitted and its branch is merged. Anything else stays, listed by
+  `worktree_list`. Moving a conversation to another workspace sends it back to that workspace's
+  folder.
+- Not built yet: asking at purge time about an unmerged worktree, a worktree switch for a thread
+  that already started, a way to remove worktrees from the UI, and the review panel's diff of a
+  worktree (it shows the workspace folder's).
+
 ## Tool rendering
 
 Double-clicking a path anywhere in the window (prose, inline code, code blocks, shell output)

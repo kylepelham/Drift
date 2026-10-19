@@ -48,6 +48,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .merge(session_routes())
         .merge(session_action_routes())
         .merge(settings_routes())
+        .merge(media_routes())
         .merge(plugin_routes())
         .merge(skill_routes())
         .merge(bundle_routes())
@@ -105,6 +106,11 @@ fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::fetch_registry))
         .routes(routes!(websearch::get, websearch::put))
         .routes(routes!(websearch::add_key, websearch::remove_key))
+}
+
+/// Image generation and voice: settings, keys, and the requests they make.
+fn media_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(images::get, images::put))
         .routes(routes!(images::blob))
         .routes(routes!(voice::get))

@@ -242,6 +242,7 @@ mod tests {
             branch_cutoff: None,
             revert: None,
             auto_accept: false,
+            worktree: None,
             running: false,
         }
     }

@@ -126,6 +126,7 @@ impl Engine {
                     variant: None,
                     agent: None,
                     submission_id: None,
+                    worktree: false,
                 },
             )
             .await?;

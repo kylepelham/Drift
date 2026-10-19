@@ -324,6 +324,10 @@ pub(super) async fn delete(
     Path(id): Path<String>,
     Query(query): Query<DeleteQuery>,
 ) -> Result<StatusCode, ApiError> {
+    let worktree = engine
+        .store
+        .session(&id)?
+        .and_then(|session| Some((session.workspace_id, session.worktree?)));
     if query.archived {
         match engine.store.purge_archived(&id)? {
             Purge::Deleted => {}
@@ -347,6 +351,9 @@ pub(super) async fn delete(
     }
 
     engine.hub.publish(Event::SessionDeleted { session_id: id });
+    if let Some((workspace_id, name)) = worktree {
+        engine.retire_worktree(&workspace_id, &name).await;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

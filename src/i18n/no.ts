@@ -1038,6 +1038,13 @@ export const drift = {
     "drift.theme.paper": "Drift Papir",
     "drift.theme.slate": "Drift Skifer",
     "drift.thread.backToParent": "Tilbake til tråden denne ble opprettet fra",
+    "drift.worktree.start": "Start i et nytt worktree",
+    "drift.worktree.startOff":
+        "Start denne tråden i et nytt worktree: sin egen gren, drift/<name>, fra gjeldende commit. Endringer som ikke er committet, kopieres ikke.",
+    "drift.worktree.startOn":
+        "Denne tråden starter i et nytt worktree. Klikk for å starte den i arbeidsområdets mappe i stedet.",
+    "drift.worktree.branch":
+        "Denne tråden jobber i sitt eget worktree på denne grenen. Drift fletter den aldri tilbake.",
     "drift.thread.move": "Flytt",
     "drift.thread.moveToWorkspace": "Flytt til arbeidsområde",
     "drift.thread.noOtherWorkspaces": "Ingen andre arbeidsområder",

@@ -57,6 +57,8 @@ export type PromptOptions = {
     directory?: string;
     /** Wait for the running turn to end and start a turn of its own, rather than joining the running one. */
     queue?: boolean;
+    /** Start the turn in a new worktree; only a thread's first prompt asks for one. */
+    worktree?: boolean;
 };
 export type PromptSendResult = { ok: true } | { ok: false; error: string };
 /** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
@@ -310,9 +312,8 @@ export function createActions(
         return { ...session, discard: () => sessions.purgeSession(session.id).then(() => undefined) };
     }
 
-    async function send(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
-        set("errors", id, undefined!);
-
+    /** The prompt as the engine takes it, or nothing when it has neither text nor files. */
+    function promptBody(id: string, text: string, options: PromptOptions) {
         const parts = [
             ...(text.trim() ? [{ type: "text" as const, text }] : []),
             ...(options.files ?? []).map((file) => ({
@@ -322,18 +323,36 @@ export function createActions(
                 url: file.url,
             })),
         ];
-        if (parts.length === 0) return fail(id, t("drift.prompt.failed", { reason: t("drift.prompt.empty") }));
+        if (parts.length === 0) return undefined;
 
         // Named only when they change what runs next; an unchanged follow-up steers into the running turn.
         const saved = savedChoice(state, id);
-        const prompt = {
+        return {
             parts,
             model: options.model ? { provider: options.model.providerID, model: options.model.modelID } : undefined,
             ...(options.variant !== undefined && options.variant !== (saved.variant ?? null)
                 ? { variant: options.variant }
                 : {}),
             ...(options.agent && options.agent !== saved.agent ? { agent: options.agent } : {}),
+            ...(options.worktree ? { worktree: true } : {}),
         };
+    }
+
+    /** Queues the prompt behind the running turn, or submits it to steer or start one. */
+    async function deliver(id: string, body: Parameters<Client["submit"]>[1], queue: boolean | undefined) {
+        if (queue) {
+            await requireClient().queuePrompt(id, body);
+            return;
+        }
+        const receipt = await requireClient().submit(id, body);
+        putSession(set, sessionInWorkspace(receipt.session, workspaces()));
+    }
+
+    async function send(id: string, text: string, options: PromptOptions): Promise<PromptSendResult> {
+        set("errors", id, undefined!);
+
+        const prompt = promptBody(id, text, options);
+        if (!prompt) return fail(id, t("drift.prompt.failed", { reason: t("drift.prompt.empty") }));
         // Resending the same prompt reuses its id, so a send whose answer was lost is not admitted twice.
         const key = `${id}\n${JSON.stringify(prompt)}`;
         // Attachments are base64 text, so the request's length in characters is its size in bytes.
@@ -349,14 +368,8 @@ export function createActions(
         const submission = unsettled.get(key) ?? submissionId();
         unsettled.set(key, submission);
         try {
-            if (options.queue) {
-                await requireClient().queuePrompt(id, { submissionId: submission, ...prompt });
-                unsettled.delete(key);
-                return { ok: true };
-            }
-            const receipt = await requireClient().submit(id, { submissionId: submission, ...prompt });
+            await deliver(id, { submissionId: submission, ...prompt }, options.queue);
             unsettled.delete(key);
-            putSession(set, sessionInWorkspace(receipt.session, workspaces()));
             return { ok: true };
         } catch (cause) {
             if (definite(cause)) unsettled.delete(key);

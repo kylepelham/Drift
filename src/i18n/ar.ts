@@ -979,6 +979,11 @@ export const drift = {
     "drift.theme.paper": "Drift ورقي",
     "drift.theme.slate": "Drift أردوازي",
     "drift.thread.backToParent": "العودة إلى المحادثة التي انطلقت منها هذه المحادثة",
+    "drift.worktree.start": "البدء في شجرة عمل جديدة",
+    "drift.worktree.startOff":
+        "ابدأ هذه المحادثة في شجرة عمل جديدة: فرع خاص بها، drift/<name>، من الإيداع الحالي. التغييرات غير المودعة لا تُنسخ.",
+    "drift.worktree.startOn": "تبدأ هذه المحادثة في شجرة عمل جديدة. انقر لبدئها في مجلد مساحة العمل بدلاً من ذلك.",
+    "drift.worktree.branch": "تعمل هذه المحادثة في شجرة عمل خاصة بها على هذا الفرع. لا يدمجها Drift أبداً.",
     "drift.thread.move": "نقل",
     "drift.thread.moveToWorkspace": "نقل إلى مساحة عمل",
     "drift.thread.noOtherWorkspaces": "لا توجد مساحات عمل أخرى",

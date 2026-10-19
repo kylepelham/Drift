@@ -47,6 +47,7 @@ pub(crate) fn session(session: &OcSession, workspace_id: &str) -> Session {
         branch_cutoff: None,
         revert: None,
         auto_accept: false,
+        worktree: None,
         running: false,
     }
 }

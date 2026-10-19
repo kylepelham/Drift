@@ -1007,6 +1007,13 @@ export const drift = {
     "drift.theme.paper": "Drift Papierowy",
     "drift.theme.slate": "Drift Łupkowy",
     "drift.thread.backToParent": "Wróć do wątku, z którego utworzono ten wątek",
+    "drift.worktree.start": "Zacznij w nowym worktree",
+    "drift.worktree.startOff":
+        "Zacznij ten wątek w nowym worktree: własna gałąź, drift/<name>, od bieżącego commita. Niezatwierdzone zmiany nie są kopiowane.",
+    "drift.worktree.startOn":
+        "Ten wątek zaczyna się w nowym worktree. Kliknij, aby zacząć go w folderze obszaru roboczego.",
+    "drift.worktree.branch":
+        "Ten wątek pracuje we własnym worktree na tej gałęzi. Drift nigdy nie scala jej z powrotem.",
     "drift.thread.move": "Przenieś",
     "drift.thread.moveToWorkspace": "Przenieś do obszaru roboczego",
     "drift.thread.noOtherWorkspaces": "Brak innych obszarów roboczych",

@@ -121,7 +121,7 @@ impl Engine {
 
         let keeps = |key: &str| {
             key.strip_prefix("mcp:")
-                .is_some_and(|server| self.mcp.enabled(server, Some(&plan.workspace)))
+                .is_some_and(|server| self.mcp.enabled(server, Some(&plan.root)))
         };
         let diff = diff(&known, sources, &keeps);
         if !diff.is_empty() && self.save_instruction_update(session, &generation, &diff, transcript) {

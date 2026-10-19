@@ -1580,6 +1580,8 @@ export interface components {
             };
             /** @description Settings read but not applied (an agent's sampling fields); nothing is refused for them. */
             warnings?: string[];
+            /** @description `worktree.setup`: commands run in a new worktree, each asking like `bash`. */
+            worktreeSetup?: string[];
         };
         Control: {
             instance: string;
@@ -2383,6 +2385,11 @@ export interface components {
             submissionId?: string | null;
             /** @description The model's reasoning level by variant name: absent keeps the session's, null asks for the model's default. */
             variant?: string | null;
+            /**
+             * @description Starts the turn in a new worktree named from the prompt's first words. Only for a prompt that starts a
+             *     turn: one sent while the session runs is refused.
+             */
+            worktree?: boolean;
         };
         PromptBody: {
             text: string;
@@ -2757,6 +2764,8 @@ export interface components {
             variant?: string | null;
             visibility: components["schemas"]["Visibility"];
             workspaceId: string;
+            /** @description The Drift worktree it works in, by name, on branch `drift/<name>`; absent for the workspace folder. */
+            worktree?: string | null;
         };
         SessionBackup: {
             messages: components["schemas"]["MessageWithParts"][];

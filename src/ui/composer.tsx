@@ -1,6 +1,6 @@
+import { IconArrowUp, IconBranch, IconLayers, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
-import { IconArrowUp, IconLayers, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
@@ -66,6 +66,8 @@ export function composerSendKey(event: KeyboardEvent, touch: boolean) {
 export function Composer() {
     const engine = useEngine();
     const [manageModels, setManageModels] = createSignal(false);
+    // A new thread may start in its own worktree; the engine makes it before the first reply.
+    const [inWorktree, setInWorktree] = createSignal(false);
     const [fileError, setFileError] = createSignal("");
     const [submissionVersion, setSubmissionVersion] = createSignal(0);
     const [historyNavigation, setHistoryNavigation] = createSignal<{
@@ -225,6 +227,7 @@ export function Composer() {
                     selectedPrefs,
                     selectedModel,
                     selectedVariant: sendableVariant(selectedPrefs.variant, selectedVariants),
+                    worktree: !existing && inWorktree(),
                 };
             },
             transform: transformComposerSubmit,
@@ -264,8 +267,10 @@ export function Composer() {
                     variant: prepared.selectedVariant,
                     files,
                     queue: queueing,
+                    worktree: prepared.worktree,
                 });
                 if (result.ok) clearEdits(id);
+                if (result.ok && prepared.worktree) setInWorktree(false);
 
                 return result;
             },
@@ -531,6 +536,19 @@ export function Composer() {
                         </Show>
                     </div>
                     <div class="composer-action-buttons ml-auto flex shrink-0 items-center gap-1">
+                        <Show when={!selectedSession()}>
+                            <button
+                                class="flex size-7 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"
+                                classList={{ "text-accent": inWorktree(), "text-ink-faint": !inWorktree() }}
+                                title={t(inWorktree() ? "drift.worktree.startOn" : "drift.worktree.startOff")}
+                                aria-label={t("drift.worktree.start")}
+                                aria-pressed={inWorktree()}
+                                disabled={!ready()}
+                                onClick={() => setInWorktree(!inWorktree())}
+                            >
+                                <IconBranch class="size-3.5" />
+                            </button>
+                        </Show>
                         <Show when={autoAcceptOn()}>
                             <button
                                 class="flex size-7 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-60"

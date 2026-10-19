@@ -1013,6 +1013,13 @@ export const drift = {
     "drift.theme.paper": "Drift Papel",
     "drift.theme.slate": "Drift Ardósia",
     "drift.thread.backToParent": "Voltar à conversa da qual esta foi criada",
+    "drift.worktree.start": "Começar em uma nova worktree",
+    "drift.worktree.startOff":
+        "Comece esta conversa em uma nova worktree: um branch próprio, drift/<name>, a partir do commit atual. Alterações não commitadas não são copiadas.",
+    "drift.worktree.startOn":
+        "Esta conversa começa em uma nova worktree. Clique para começá-la na pasta do espaço de trabalho.",
+    "drift.worktree.branch":
+        "Esta conversa trabalha em sua própria worktree neste branch. O Drift nunca faz o merge de volta.",
     "drift.thread.move": "Mover",
     "drift.thread.moveToWorkspace": "Mover para o espaço de trabalho",
     "drift.thread.noOtherWorkspaces": "Nenhum outro espaço de trabalho",

@@ -94,6 +94,7 @@ impl Engine {
                 variant: None,
                 agent: None,
                 submission_id: Some(format!("process:{}", handle.id)),
+                worktree: false,
             };
             let how = Admission {
                 parent: Some(&scope),
