@@ -1070,9 +1070,37 @@ opencode projects that had sessions (`Store::import_opencode_workspaces`) and te
     first and `opencode.jsonc` when it is missing or does not parse. Everything else
     (`tools`, `plugin`, `agent`, `provider`, ...) is named in the report; plugins are JavaScript and
     Drift runs none. Project-level opencode files are not read.
-- **Queued prompts.** opencode keeps prompts it queued but never ran in `session_input`; the import
-  names the conversations holding any (`Report.pending`, `source::pending_inputs`) instead of
-  running them, since they were meant for a moment that has passed.
+- **Queued prompts.** opencode keeps prompts it queued but never ran in `session_input` (v2:
+  `session_inbox` rows of type `user`); the import names the conversations holding any
+  (`Report.pending`, `source::pending_inputs`) instead of running them, since they were meant for a
+  moment that has passed.
+- **opencode v2.** v2 keeps the `opencode.db` name and adds its own tables beside v1's. Its
+  migrations (`packages/core/src/database/migration/`) never drop `session`, `message`, `part`,
+  `todo` or `project`; they drop `session_input` and add `session_v2`, `session_message` (one row
+  per message, its whole content in `data` and its order in `seq`), `session_inbox` and
+  `credential`. A database that was v2 before v2's split renamed `session` to `session_v2`, so no
+  table is required: whichever of `session` and `session_v2` exists is read (`source::sessions`).
+  - Which copy. v2 copies each v1 conversation into its own tables under the same id. A conversation
+    in both is read from v1, which keeps more (parts, signatures, diffs for undo, todos), unless v2
+    has a row newer than its last v1 message: then it went on in v2 and v2's copy, with its title,
+    is read. A `session` row whose messages are all in `session_message` (opencode-next.db) is read
+    as v2. Each conversation is still imported once, whole or not at all, by the same pages.
+  - Rows (`map::v2`), read one at a time since a row holds every call's output: `user` becomes a
+    user message with its text and files (base64 becomes a data URL); its mentioned agents and
+    skills are kept raw. `assistant` maps text, reasoning (signature from `state`, as v1's
+    `metadata`) and calls (name and input as v2 wrote them, so `shell`, `subagent` and `path` stay;
+    result text in order, a returned file named, `streaming` or `running` an error with no output);
+    an `aborted` error is aborted, another error is an error, a `length` finish ends `length`, a
+    `content-filter` finish ends `refused`. A finished `compaction` with a summary becomes a boundary
+    keeping nothing and a summary message holding v2's summary and its `recent` text, which is how
+    v2 replays it. `idle` and the `agent-switched`, `model-switched` and `location-switched` markers
+    are dropped as bookkeeping. Every other row (`synthetic`, `system`, `shell`, `skill`, a running
+    or failed compaction, a native one with no summary, a row that does not parse) is a user message
+    holding it raw in the same `{"type":"opencode"}` envelope; an unknown item of a reply is kept
+    raw in its place. A row past 8 MB keeps each call's input up to 64 KB and output up to 64 KB and
+    drops its metadata, as an oversized v1 call does.
+  - v2 calls get no undo records (only v1's diffs are rebuilt), and v2 conversations bring no todos,
+    since v2 has no todo list.
 - **Summary, once.** A run that brought anything in, or left anything out, keeps a summary in the
   shell (conversations, undoable edits, queued prompts, folders waiting for a workspace with temp
   folders dropped, sign-ins, servers, copied files, `LeftOut`) and emits `opencode-import-done`.

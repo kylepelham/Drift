@@ -66,7 +66,8 @@ pub(crate) fn records(
 fn recent_writes<'a>(source: &Source, planned: &'a [Planned<'a>], now: i64) -> rusqlite::Result<Vec<Write<'a>>> {
     let mut writes = Vec::new();
 
-    for plan in planned {
+    // opencode v2 calls get no undo records; only v1's diffs are rebuilt.
+    for plan in planned.iter().filter(|plan| !plan.session.v2) {
         let messages = source.newest_messages(&plan.session.id, RECENT_MESSAGES)?;
         for message in messages
             .into_iter()

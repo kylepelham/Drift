@@ -6,13 +6,15 @@ use serde_json::{Value, json};
 use std::path::Path;
 
 /// Tool parts beyond this byte limit are streamed and reduced to their name, input and output prefix.
-/// Other part kinds are read whole; oversized tool display copies are skipped.
+/// Other part kinds are read whole; oversized tool display copies are skipped. A v2 row past it is read whole
+/// and its calls reduced the same way.
 const OVERSIZED_PART_BYTES: i64 = 8_000_000;
 /// Maximum bytes retained from an oversized call's input or output.
-const KEPT_BYTES: i64 = 64 * 1024;
+pub(crate) const KEPT_BYTES: i64 = 64 * 1024;
 
 pub(crate) struct Source {
     conn: Connection,
+    tables: std::collections::HashSet<String>,
 }
 
 pub(crate) struct OcSession {
@@ -27,12 +29,43 @@ pub(crate) struct OcSession {
     pub created: i64,
     pub updated: i64,
     pub archived: bool,
+    /// Its messages are opencode v2's `session_message` rows rather than v1's messages and parts.
+    pub v2: bool,
 }
 
 pub(crate) struct OcMessage {
     pub id: String,
     pub created: i64,
+    /// A v2 row's place in its conversation; v1 messages are ordered by creation time and id instead.
+    pub seq: i64,
     pub data: String,
+}
+
+/// opencode v1 keeps conversations in `session`, v2 in `session_v2`; a v1 conversation v2 copied keeps its id in both.
+const V1_SESSIONS: &str = "SELECT s.id, s.parent_id, s.directory, coalesce(s.title, ''), s.agent, s.model,
+        s.time_created, s.time_updated, s.time_archived IS NOT NULL, p.worktree, {continued}
+    FROM session s LEFT JOIN project p ON p.id = s.project_id";
+const V2_SESSIONS: &str = "SELECT s.id, s.parent_id, s.directory, coalesce(s.title, ''), s.agent, s.model,
+        s.time_created, s.time_updated, s.time_archived IS NOT NULL, p.worktree, 1
+    FROM session_v2 s LEFT JOIN project p ON p.id = s.project_id";
+/// A v1 conversation continued in v2 has v2 rows newer than its last v1 message; v2's copy of the history keeps its times.
+const CONTINUED: &str = "EXISTS (SELECT 1 FROM session_message m WHERE m.session_id = s.id
+    AND m.time_created > coalesce((SELECT max(time_created) FROM message WHERE session_id = s.id), -1))";
+
+fn session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcSession> {
+    Ok(OcSession {
+        id: row.get(0)?,
+        parent_id: row.get(1)?,
+        directory: row.get(2)?,
+        title: row.get(3)?,
+        agent: row.get(4)?,
+        model: row.get(5)?,
+        created: row.get(6)?,
+        updated: row.get(7)?,
+        archived: row.get(8)?,
+        worktree: row.get(9)?,
+        v2: row.get(10)?,
+    })
 }
 
 pub(crate) struct OcPart {
@@ -83,7 +116,7 @@ impl BigCall {
     }
 }
 
-fn truncate(text: Option<String>) -> Option<String> {
+pub(crate) fn truncate(text: Option<String>) -> Option<String> {
     text.map(|mut text| {
         let mut boundary = (KEPT_BYTES as usize).min(text.len());
         while !text.is_char_boundary(boundary) {
@@ -99,7 +132,8 @@ fn message_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<OcMessage> {
     Ok(OcMessage {
         id: row.get(0)?,
         created: row.get(1)?,
-        data: row.get(2)?,
+        seq: row.get(2)?,
+        data: row.get(3)?,
     })
 }
 
@@ -111,61 +145,96 @@ impl Source {
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
         conn.execute_batch("BEGIN")?;
-        conn.query_row("SELECT count(*) FROM session", [], |_| Ok(()))?;
+        let tables = conn
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")?
+            .query_map([], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
 
-        Ok(Self { conn })
+        Ok(Self { conn, tables })
+    }
+
+    fn has(&self, table: &str) -> bool {
+        self.tables.contains(table)
     }
 
     /// Returns all conversations, most recently used first so the sidebar fills from the top.
     /// Subagents follow the conversations that could have started them.
+    /// A conversation in both shapes is read from v1, which keeps more, unless it went on in v2.
     pub(crate) fn sessions(&self) -> rusqlite::Result<Vec<OcSession>> {
-        let mut statement = self.conn.prepare(
-            "SELECT s.id, s.parent_id, s.directory, s.title, s.agent, s.model,
-                    s.time_created, s.time_updated, s.time_archived IS NOT NULL, p.worktree
-             FROM session s LEFT JOIN project p ON p.id = s.project_id
-             ORDER BY s.parent_id IS NOT NULL, s.time_updated DESC, s.id",
+        let mut found: std::collections::HashMap<String, OcSession> = std::collections::HashMap::new();
+        if self.has("session_v2") {
+            for session in self.query_sessions(V2_SESSIONS)? {
+                found.insert(session.id.clone(), session);
+            }
+        }
+        if self.has("session") {
+            let continued = if self.has("session_message") { CONTINUED } else { "0" };
+            for session in self.query_sessions(&V1_SESSIONS.replace("{continued}", continued))? {
+                if !(session.v2 && found.contains_key(&session.id)) {
+                    found.insert(session.id.clone(), session);
+                }
+            }
+        }
+
+        let mut sessions: Vec<OcSession> = found.into_values().collect();
+        sessions.sort_by(|left, right| {
+            (left.parent_id.is_some(), std::cmp::Reverse(left.updated), &left.id).cmp(&(
+                right.parent_id.is_some(),
+                std::cmp::Reverse(right.updated),
+                &right.id,
+            ))
+        });
+
+        Ok(sessions)
+    }
+
+    fn query_sessions(&self, sql: &str) -> rusqlite::Result<Vec<OcSession>> {
+        self.conn.prepare(sql)?.query_map([], session_row)?.collect()
+    }
+
+    /// Returns up to `limit` messages after `after`, in written order: v1 by creation time and id, v2 by sequence.
+    /// Per-file diff summaries on v1 user messages are left in the database rather than read; v2 rows come without their data.
+    pub(crate) fn messages_after(
+        &self,
+        session: &OcSession,
+        after: Option<&OcMessage>,
+        limit: usize,
+    ) -> rusqlite::Result<Vec<OcMessage>> {
+        if session.v2 {
+            let seq = after.map_or(i64::MIN, |message| message.seq);
+            let mut statement = self.conn.prepare_cached(
+                "SELECT id, time_created, seq, '' FROM session_message
+                 WHERE session_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3",
+            )?;
+            return statement
+                .query_map(params![session.id, seq, limit as i64], message_row)?
+                .collect();
+        }
+
+        let (created, id) = after.map_or((i64::MIN, ""), |message| (message.created, message.id.as_str()));
+        let mut statement = self.conn.prepare_cached(
+            "SELECT id, time_created, 0, json_remove(data, '$.summary.diffs') FROM message
+             WHERE session_id = ?1 AND (time_created > ?2 OR (time_created = ?2 AND id > ?3))
+             ORDER BY time_created, id LIMIT ?4",
         )?;
-        let rows = statement.query_map([], |row| {
-            Ok(OcSession {
-                id: row.get(0)?,
-                parent_id: row.get(1)?,
-                directory: row.get(2)?,
-                worktree: row.get(9)?,
-                title: row.get(3)?,
-                agent: row.get(4)?,
-                model: row.get(5)?,
-                created: row.get(6)?,
-                updated: row.get(7)?,
-                archived: row.get(8)?,
-            })
-        })?;
+        let rows = statement.query_map(params![session.id, created, id, limit as i64], message_row)?;
 
         rows.collect()
     }
 
-    /// Returns up to `limit` messages after the `after` message's creation time and ID, in written order.
-    /// Per-file diff summaries on user messages are left in the database rather than read.
-    pub(crate) fn messages_after(
-        &self,
-        session_id: &str,
-        after: Option<&OcMessage>,
-        limit: usize,
-    ) -> rusqlite::Result<Vec<OcMessage>> {
-        let (created, id) = after.map_or((i64::MIN, ""), |message| (message.created, message.id.as_str()));
-        let mut statement = self.conn.prepare_cached(
-            "SELECT id, time_created, json_remove(data, '$.summary.diffs') FROM message
-             WHERE session_id = ?1 AND (time_created > ?2 OR (time_created = ?2 AND id > ?3))
-             ORDER BY time_created, id LIMIT ?4",
-        )?;
-        let rows = statement.query_map(params![session_id, created, id, limit as i64], message_row)?;
-
-        rows.collect()
+    /// A v2 row's data with its type, and whether it is past [`OVERSIZED_PART_BYTES`]; rows are read one at a time.
+    pub(crate) fn v2_row(&self, id: &str) -> rusqlite::Result<(String, bool)> {
+        self.conn
+            .prepare_cached(
+                "SELECT json_set(data, '$.type', type), octet_length(data) > ?2 FROM session_message WHERE id = ?1",
+            )?
+            .query_row(params![id, OVERSIZED_PART_BYTES], |row| Ok((row.get(0)?, row.get(1)?)))
     }
 
     /// Returns the conversation's newest `limit` messages, newest first.
     pub(crate) fn newest_messages(&self, session_id: &str, limit: usize) -> rusqlite::Result<Vec<OcMessage>> {
         let mut statement = self.conn.prepare_cached(
-            "SELECT id, time_created, '' FROM message WHERE session_id = ?1
+            "SELECT id, time_created, 0, '' FROM message WHERE session_id = ?1
              ORDER BY time_created DESC, id DESC LIMIT ?2",
         )?;
         let rows = statement.query_map(params![session_id, limit as i64], message_row)?;
@@ -226,15 +295,21 @@ impl Source {
             .collect()
     }
 
-    /// Returns conversations containing queued prompts that opencode never ran.
-    /// Databases predating the queue table have no pending prompts.
+    /// Returns conversations containing queued prompts that opencode never ran: v1's `session_input`, v2's `session_inbox`.
+    /// Databases without either table have no pending prompts.
     pub(crate) fn pending_inputs(&self) -> std::collections::HashSet<String> {
-        let ids = self
-            .conn
-            .prepare("SELECT DISTINCT session_id FROM session_input WHERE promoted_seq IS NULL")
-            .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect());
+        let queued = |sql: &str| {
+            self.conn
+                .prepare(sql)
+                .and_then(|mut statement| statement.query_map([], |row| row.get(0))?.collect())
+                .unwrap_or_else(|_| std::collections::HashSet::new())
+        };
 
-        ids.unwrap_or_default()
+        let mut ids = queued("SELECT DISTINCT session_id FROM session_input WHERE promoted_seq IS NULL");
+        ids.extend(queued(
+            "SELECT DISTINCT session_id FROM session_inbox WHERE type = 'user'",
+        ));
+        ids
     }
 
     pub(crate) fn todos(&self, session_id: &str) -> rusqlite::Result<Vec<OcTodo>> {
