@@ -172,12 +172,7 @@ fn stream_exception(kind: &str, payload: &Value) -> Error {
 
 /// Bedrock answers errors as `{"message": ...}`, naming the fault in a header; without one the status says.
 fn api_error(status: u16, kind: &str, text: &str) -> Error {
-    let message = serde_json::from_str::<Value>(text)
-        .ok()
-        .and_then(|v| v["message"].as_str().map(str::to_string))
-        .unwrap_or_else(|| text.to_string());
-
-    classify(status, kind, &message)
+    classify(status, kind, &super::error_message(text))
 }
 
 /// Each Bedrock fault as the retry rules read it: the status it stands for when the response gave none.

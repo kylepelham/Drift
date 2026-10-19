@@ -131,7 +131,7 @@ fn api_error(status: u16, text: &str) -> Error {
         .or(error["code"].as_str())
         .unwrap_or("api_error")
         .to_string();
-    let message = error["message"].as_str().unwrap_or(text).to_string();
+    let message = super::error_message(text);
     let named = error["code"]
         .as_u64()
         .and_then(|code| u16::try_from(code).ok())
@@ -172,7 +172,7 @@ impl StreamState {
         }
 
         let value: Value = serde_json::from_str(data).map_err(|e| Error::Malformed(e.to_string()))?;
-        if value["error"].is_object() {
+        if value["error"].is_object() || value["error"].is_string() {
             return Err(api_error(super::STREAMED, data));
         }
 

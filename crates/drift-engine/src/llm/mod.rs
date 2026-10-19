@@ -499,6 +499,27 @@ pub fn mentions_context_overflow(text: &str) -> bool {
     OVERFLOW_PHRASES.iter().any(|phrase| text.contains(phrase))
 }
 
+/// The readable message in an error body, from the layouts providers and gateways use (AWS's `Message`, RFC 9457's
+/// `detail`); the body itself when none holds one.
+pub(crate) fn error_message(text: &str) -> String {
+    let body: Value = serde_json::from_str(text).unwrap_or_default();
+    let layouts = [
+        &body["error"]["message"],
+        &body["error"],
+        &body["message"],
+        &body["Message"],
+        &body["detail"],
+        &body["errors"][0]["message"],
+    ];
+
+    layouts
+        .into_iter()
+        .filter_map(Value::as_str)
+        .find(|message| !message.trim().is_empty())
+        .unwrap_or(text)
+        .to_string()
+}
+
 #[cfg(test)]
 mod overflow_tests {
     use super::Error;
@@ -532,6 +553,28 @@ mod overflow_tests {
             "a rate limit is not an overflow"
         );
         assert!(!Error::Transport("prompt is too long".into()).is_context_overflow());
+    }
+
+    #[test]
+    fn an_error_bodys_message_is_found_in_each_common_layout() {
+        for body in [
+            r#"{"error":{"message":"bad key"}}"#,
+            r#"{"error":"bad key"}"#,
+            r#"{"message":"bad key"}"#,
+            r#"{"Message":"bad key"}"#,
+            r#"{"detail":"bad key"}"#,
+            r#"{"errors":[{"message":"bad key"}]}"#,
+            r#"{"error":{"message":" "},"message":"bad key"}"#,
+        ] {
+            assert_eq!(super::error_message(body), "bad key", "{body}");
+        }
+        for body in ["upstream timed out", r#"{"error":{"code":500}}"#, ""] {
+            assert_eq!(
+                super::error_message(body),
+                body,
+                "the body itself when nothing says more"
+            );
+        }
     }
 
     #[test]

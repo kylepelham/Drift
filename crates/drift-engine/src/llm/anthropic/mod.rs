@@ -149,7 +149,7 @@ fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
 pub(super) fn api_error(status: u16, text: &str) -> Error {
     let parsed: Value = serde_json::from_str(text).unwrap_or_default();
     let kind = parsed["error"]["type"].as_str().unwrap_or("api_error").to_string();
-    let message = parsed["error"]["message"].as_str().unwrap_or(text).to_string();
+    let message = super::error_message(text);
 
     match status {
         401 | 403 => Error::Unauthenticated(message),

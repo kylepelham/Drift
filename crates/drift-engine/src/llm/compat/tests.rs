@@ -302,3 +302,23 @@ fn errors_and_length_stops_classify() {
     assert!(state.done().unwrap().contains(&Chunk::Stop(StopReason::MaxTokens)));
     assert!(matches!(api_error(429, "{}"), Error::Api { retryable: true, .. }));
 }
+
+#[test]
+fn an_error_message_is_read_from_whichever_layout_the_server_used() {
+    for body in [
+        r#"{"detail":"Model not found"}"#,
+        r#"{"error":"Model not found"}"#,
+        r#"{"errors":[{"message":"Model not found"}]}"#,
+    ] {
+        let error = api_error(404, body);
+        assert!(
+            matches!(error, Error::Api { ref message, .. } if message == "Model not found"),
+            "{body}: {error:?}"
+        );
+    }
+    let streamed = StreamState::default().chunks(r#"{"error":"Model not found"}"#);
+    assert!(
+        matches!(streamed, Err(Error::Api { ref message, .. }) if message == "Model not found"),
+        "a streamed error given as text fails the reply: {streamed:?}"
+    );
+}

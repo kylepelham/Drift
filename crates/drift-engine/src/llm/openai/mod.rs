@@ -175,7 +175,7 @@ fn api_error(status: u16, text: &str) -> Error {
         .or(error["type"].as_str())
         .unwrap_or("api_error")
         .to_string();
-    let message = error["message"].as_str().unwrap_or(text).to_string();
+    let message = super::error_message(text);
 
     match status {
         401 | 403 => Error::Unauthenticated(message),
