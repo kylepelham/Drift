@@ -502,8 +502,19 @@ impl Engine {
     }
 }
 
+/// A user message that starts a turn: not a compaction boundary, and not one holding only what the engine wrote to
+/// carry the turn on (a worker's result, a process exit, a nudge), which the UI keeps in the turn before it.
 pub(super) fn is_prompt(message: &MessageWithParts) -> bool {
+    let carries_on = !message.parts.is_empty()
+        && message.parts.iter().all(|row| {
+            matches!(
+                row.part,
+                Part::TaskResult { .. } | Part::ProcessExit { .. } | Part::Nudge { .. }
+            )
+        });
+
     message.info.role == Role::User
+        && !carries_on
         && !message
             .parts
             .iter()

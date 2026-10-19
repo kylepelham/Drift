@@ -131,7 +131,7 @@ impl Engine {
             .iter()
             .find(|message| is_prompt(message))
             .map(|message| message.info.id.clone());
-        let (nets, _) = self
+        let (nets, unrecorded) = self
             .net_changes(&session, message_id, end.as_deref())
             .map_err(|_| ReviewError::NoSession)?;
 
@@ -144,6 +144,18 @@ impl Engine {
             let before = self.recorded(&net.before).await;
             let after = self.recorded(&net.after).await;
             review.push(net.path, before, after);
+        }
+
+        // A write that left no undo record still changed the file; it is listed without lines rather than dropped.
+        for path in unrecorded {
+            let key = path.replace('\\', "/").to_lowercase();
+            if !review
+                .files
+                .iter()
+                .any(|file| file.path.replace('\\', "/").to_lowercase() == key)
+            {
+                review.push(path, Side::Unavailable, Side::Unavailable);
+            }
         }
 
         Ok(review)
