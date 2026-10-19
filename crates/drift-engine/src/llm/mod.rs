@@ -441,7 +441,7 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 /// How each provider says the request no longer fits the model's context window.
-const OVERFLOW_PHRASES: [&str; 7] = [
+const OVERFLOW_PHRASES: [&str; 18] = [
     "prompt is too long",
     "context_length_exceeded",
     "maximum context length",
@@ -449,12 +449,36 @@ const OVERFLOW_PHRASES: [&str; 7] = [
     "input is too long",
     "too many input tokens",
     "input token count",
+    // Anthropic's 413 for a request over its byte limit.
+    "request_too_large",
+    // Z.ai, in English or Chinese.
+    "prompt too long",
+    "prompt 超长",
+    "exceeds maximum input length",
+    "longer than the model's context length",
+    "exceeded this model context window limit",
+    "range of input length should be",
+    "`inputs` tokens + `max_new_tokens`",
+    // llama.cpp's server, under LM Studio and other local servers.
+    "exceeds the available context size",
+    "reduce the length of the messages",
+    "context length exceeded",
 ];
 
 impl Error {
     /// The request did not fit the model's context; compacting can recover it where retrying cannot.
+    /// Codex reports it inside the stream, as a `response.failed`.
     pub fn is_context_overflow(&self) -> bool {
-        matches!(self, Self::Api { status: 400 | 413, .. }) && mentions_context_overflow(&self.to_string())
+        let refused = matches!(
+            self,
+            Self::Api {
+                status: 400 | 413 | STREAMED,
+                retryable: false,
+                ..
+            }
+        );
+
+        refused && mentions_context_overflow(&self.to_string())
     }
 
     /// The provider could not read an image the request carried; dropping it can recover where retrying cannot.
@@ -508,6 +532,43 @@ mod overflow_tests {
             "a rate limit is not an overflow"
         );
         assert!(!Error::Transport("prompt is too long".into()).is_context_overflow());
+    }
+
+    #[test]
+    fn more_servers_wordings_and_overflows_reported_inside_a_stream_are_recognised() {
+        for message in [
+            "Prompt too long",
+            "Prompt 超长",
+            "Requested input length 140000 exceeds maximum input length 131072",
+            "Input (210000 tokens) is longer than the model's context length (131072 tokens).",
+            "AiError: Exceeded this model context window limit",
+            "Range of input length should be [1, 129024]",
+            "`inputs` tokens + `max_new_tokens` must be <= 32769. Given: 40000 `inputs` tokens",
+            "the request exceeds the available context size, try increasing it",
+            "Please reduce the length of the messages.",
+            "context length exceeded",
+        ] {
+            assert!(api(400, message).is_context_overflow(), "{message}");
+        }
+        let too_large = Error::api(
+            413,
+            "request_too_large",
+            "Request exceeds the maximum allowed number of bytes.",
+        );
+        assert!(too_large.is_context_overflow(), "Anthropic's 413");
+
+        let streamed = Error::api(
+            crate::llm::STREAMED,
+            "context_length_exceeded",
+            "Your input exceeds the context window of this model.",
+        );
+        assert!(streamed.is_context_overflow(), "Codex reports it in response.failed");
+        let throttled = Error::api(
+            crate::llm::STREAMED,
+            "rate_limit_exceeded",
+            "too many input tokens per minute",
+        );
+        assert!(!throttled.is_context_overflow(), "a retryable fault is not an overflow");
     }
 }
 
