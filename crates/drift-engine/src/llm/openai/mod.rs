@@ -269,6 +269,7 @@ mod tests {
                 cache_key: Some("ses_1".into()),
                 connection: Some("ses_1".into()),
                 effort_marks: Vec::new(),
+                claude: Default::default(),
                 ..request()
             };
 
@@ -397,6 +398,7 @@ mod tests {
                 cache_key: Some("ses_1".into()),
                 connection: Some("ses_1".into()),
                 effort_marks: Vec::new(),
+                claude: Default::default(),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,

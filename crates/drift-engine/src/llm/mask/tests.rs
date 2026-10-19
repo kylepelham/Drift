@@ -68,6 +68,7 @@ fn a_request_carries_no_secret_anywhere_and_keeps_signatures_and_file_data() {
         cache_key: None,
         connection: None,
         effort_marks: Vec::new(),
+        claude: Default::default(),
         no_tool_calls: false,
         verbosity: None,
         show_thinking: false,

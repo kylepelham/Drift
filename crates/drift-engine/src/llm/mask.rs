@@ -156,7 +156,10 @@ fn hide_block(swap: &Swap, block: &mut Block) {
 
     match block {
         Block::Signed { part, .. } => hide_block(swap, part),
-        Block::Text(body) | Block::Reasoning { text: body, .. } | Block::ToolResult { content: body, .. } => text(body),
+        Block::Text(body)
+        | Block::Reminder(body)
+        | Block::Reasoning { text: body, .. }
+        | Block::ToolResult { content: body, .. } => text(body),
         Block::ToolUse { input, .. } => swap.apply_value(input),
         Block::Image { .. } | Block::Pdf { .. } | Block::Stored { .. } | Block::Effort(_) => {}
     }

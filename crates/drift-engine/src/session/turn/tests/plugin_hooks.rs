@@ -128,7 +128,7 @@ async fn assert_steward_replay(h: &Harness) {
     {
         let requests = h.provider.requests.lock().unwrap();
         assert!(
-            matches!(&requests[1].messages[2].blocks[0], llm::Block::Text(text)
+            matches!(&requests[1].messages[2].blocks[0], llm::Block::Reminder(text)
             if text.contains("From the steward plugin:\nsay done")),
             "{:?}",
             requests[1].messages[2].blocks

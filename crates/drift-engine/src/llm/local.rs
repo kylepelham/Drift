@@ -262,6 +262,7 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         variants: Vec::new(),
         mode: None,
         effort_updates: false,
+        claude: Default::default(),
     })
 }
 

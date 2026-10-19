@@ -67,6 +67,9 @@ struct RawModel {
     /// Already derived, as a cached catalog stores it.
     #[serde(default)]
     effort_updates: Option<bool>,
+    /// Already derived, as a cached catalog stores it.
+    #[serde(default)]
+    claude: Option<super::ClaudeFeatures>,
     #[serde(default)]
     experimental: Option<RawExperimental>,
     /// Already derived, as a cached catalog stores it.
@@ -181,6 +184,9 @@ fn model_from_raw(model: RawModel, provider_id: &str) -> Model {
     let effort_updates = model
         .effort_updates
         .unwrap_or_else(|| super::effort_updates_for(provider_id, &model.id));
+    let claude = model
+        .claude
+        .unwrap_or_else(|| super::claude_features_for(provider_id, &model.id));
 
     Model {
         id: model.id,
@@ -197,6 +203,7 @@ fn model_from_raw(model: RawModel, provider_id: &str) -> Model {
         prompt,
         variants,
         effort_updates,
+        claude,
         mode: model.mode,
     }
 }

@@ -74,9 +74,7 @@ impl Anthropic {
             }
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
-        if !request.effort_marks.is_empty() {
-            betas.push(EFFORT_MARKS);
-        }
+        betas.extend(request::betas(&body));
 
         stream_from(
             super::mode_headers(http, request, betas).json(&body),
@@ -89,6 +87,9 @@ impl Anthropic {
 
 /// Lets a system message in the conversation carry the turn's effort (`Request::effort_marks`).
 pub(super) const EFFORT_MARKS: &str = "mid-conversation-output-config-2026-07-01";
+
+/// Lets a request say what happens to a thinking block whose prefix changed (`block_binding`).
+pub(super) const THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01";
 
 /// Lets a model with a thinking budget think again between tool calls, not only before the first.
 pub(super) const INTERLEAVED_THINKING: &str = "interleaved-thinking-2025-05-14";
@@ -383,6 +384,7 @@ mod tests {
                 cache_key: None,
                 connection: None,
                 effort_marks: Vec::new(),
+                claude: Default::default(),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,
@@ -391,6 +393,62 @@ mod tests {
                 mode: None,
                 context_window: None,
             }
+        }
+
+        #[test]
+        fn a_claude_that_takes_system_messages_gets_engine_reminders_as_one_and_binds_its_thinking() {
+            use crate::llm::catalog::ClaudeFeatures;
+            let reminder = Block::Reminder("<system-reminder>\nBe thorough.\n</system-reminder>".into());
+            let mut sent = request();
+            sent.messages = vec![
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::Text("go".into()), reminder.clone()],
+                },
+                ChatMessage {
+                    role: Role::Assistant,
+                    blocks: vec![Block::Text("ok".into())],
+                },
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![reminder],
+                },
+            ];
+
+            let plain = body(&sent);
+            assert_eq!(
+                plain["messages"].as_array().unwrap().len(),
+                3,
+                "older models keep the text in place"
+            );
+            assert_eq!(
+                plain["messages"][0]["content"][1]["text"],
+                "<system-reminder>\nBe thorough.\n</system-reminder>"
+            );
+            assert!(plain["thinking"].get("block_binding").is_none());
+            assert!(super::request::betas(&plain).is_empty());
+
+            sent.claude = ClaudeFeatures {
+                system_messages: true,
+                drop_stale_thinking: true,
+            };
+            let native = body(&sent);
+            let messages = native["messages"].as_array().unwrap();
+            assert_eq!(messages[0]["content"].as_array().unwrap().len(), 1, "the prompt alone");
+            assert_eq!(
+                messages[1],
+                json!({ "role": "system", "content": [{ "type": "text", "text": "Be thorough." }] })
+            );
+            assert_eq!(messages[2]["role"], "assistant");
+            assert_eq!(
+                messages[3]["content"][0]["type"], "text",
+                "a turn of only a reminder keeps it in place"
+            );
+            assert_eq!(
+                native["thinking"]["block_binding"]["prefix_mismatch_behavior"],
+                "drop_block"
+            );
+            assert_eq!(super::request::betas(&native), [super::THINKING_BINDING]);
         }
 
         #[test]

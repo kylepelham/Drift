@@ -110,6 +110,7 @@ fn request() -> Request {
         cache_key: None,
         connection: None,
         effort_marks: Vec::new(),
+        claude: Default::default(),
         no_tool_calls: false,
         verbosity: None,
         show_thinking: false,

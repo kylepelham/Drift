@@ -140,6 +140,21 @@ pub struct Model {
     /// Takes a reasoning effort change inside the conversation, so a level switch keeps the prompt cache.
     #[serde(default)]
     pub effort_updates: bool,
+    /// Claude features a request may use on this model (`claude_features_for`).
+    #[serde(default)]
+    pub claude: ClaudeFeatures,
+}
+
+/// Newer Claude request features, by model, after opencode v2.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeFeatures {
+    /// Engine reminders as `role: "system"` messages in the conversation (Opus 4.8, every Claude 5 or later).
+    #[serde(default)]
+    pub system_messages: bool,
+    /// A thinking block the API no longer accepts is dropped instead of failing the request (Claude 5.1 or later).
+    #[serde(default)]
+    pub drop_stale_thinking: bool,
 }
 
 /// A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
@@ -476,6 +491,7 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
         variants: Vec::new(),
         mode: None,
         effort_updates: false,
+        claude: Default::default(),
     }
 }
 
@@ -610,23 +626,38 @@ fn takes_budget(provider: &str) -> bool {
     )
 }
 
+fn numbers(rest: &str) -> Vec<u32> {
+    rest.split(['-', '.']).map_while(|piece| piece.parse().ok()).collect()
+}
+
+/// `claude-<family>-<major>[-<minor>]`: the family, major and minor; a snapshot date is no minor.
+fn claude_version(id: &str) -> Option<(&str, u32, u32)> {
+    let rest = id.strip_prefix("claude-")?;
+    let (family, version) = rest.split_once('-')?;
+    let version: Vec<u32> = numbers(version).into_iter().filter(|number| *number < 100).collect();
+
+    Some((family, *version.first()?, version.get(1).copied().unwrap_or(0)))
+}
+
+/// Which newer Claude features a model takes on Anthropic's own route, after opencode v2's rules.
+pub(crate) fn claude_features_for(provider: &str, id: &str) -> ClaudeFeatures {
+    let Some((family, major, minor)) = claude_version(id).filter(|_| provider == "anthropic") else {
+        return ClaudeFeatures::default();
+    };
+
+    ClaudeFeatures {
+        system_messages: major >= 5 || (family == "opus" && major == 4 && minor >= 8),
+        drop_stale_thinking: major > 5 || (major == 5 && minor >= 1),
+    }
+}
+
 /// Per-message effort, after opencode v2: Claude Opus 5 and every Claude 5.1 or later on Anthropic's own
 /// route, and GPT-6 or later on OpenAI's Responses.
 pub(crate) fn effort_updates_for(provider: &str, id: &str) -> bool {
-    let numbers = |rest: &str| -> Vec<u32> { rest.split(['-', '.']).map_while(|piece| piece.parse().ok()).collect() };
     match provider {
-        "anthropic" => {
-            let Some(rest) = id.strip_prefix("claude-") else {
-                return false;
-            };
-            let (family, version) = rest.split_once('-').unwrap_or((rest, ""));
-            let version = numbers(version);
-            let (major, minor) = (
-                version.first().copied().unwrap_or(0),
-                version.get(1).copied().unwrap_or(0),
-            );
+        "anthropic" => claude_version(id).is_some_and(|(family, major, minor)| {
             (family == "opus" && major >= 5) || major > 5 || (major == 5 && minor >= 1)
-        }
+        }),
         "openai" => id
             .strip_prefix("gpt-")
             .and_then(|rest| numbers(rest).first().copied())

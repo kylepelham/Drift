@@ -174,7 +174,7 @@ fn content(message: &ChatMessage, names: &mut HashMap<String, String>) -> Value 
         let first = parts.len();
         match block.unsigned() {
             Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
-            Block::Text(text) => parts.push(json!({ "text": text })),
+            Block::Text(text) | Block::Reminder(text) => parts.push(json!({ "text": text })),
             Block::Image { mime, base64 } => parts.push(json!({ "inlineData": { "mimeType": mime, "data": base64 } })),
             Block::Reasoning { text, signature, .. } => {
                 let mut part = json!({ "text": text, "thought": true });

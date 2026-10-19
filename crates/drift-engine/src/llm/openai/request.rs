@@ -70,10 +70,10 @@ pub(super) fn items(message: &ChatMessage) -> Vec<Value> {
     for block in &message.blocks {
         match block.unsigned() {
             Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
-            Block::Text(text) if message.role == Role::User => {
+            Block::Text(text) | Block::Reminder(text) if message.role == Role::User => {
                 content.push(json!({ "type": "input_text", "text": text }));
             }
-            Block::Text(text) => content.push(json!({ "type": "output_text", "text": text })),
+            Block::Text(text) | Block::Reminder(text) => content.push(json!({ "type": "output_text", "text": text })),
             Block::Image { mime, base64 } => {
                 let image_url = format!("data:{mime};base64,{base64}");
                 content.push(json!({ "type": "input_image", "image_url": image_url }));

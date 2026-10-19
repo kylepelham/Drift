@@ -60,7 +60,7 @@ pub(crate) fn append<'a>(
                 unique_ids(&mut used, &mut calls, &mut results);
                 // An update saved between steps follows the results it came after.
                 results.extend(message.parts.iter().filter_map(|row| match &row.part {
-                    Part::InstructionUpdate { changes, .. } => Some(Block::Text(instruction_text(changes))),
+                    Part::InstructionUpdate { changes, .. } => Some(Block::Reminder(instruction_text(changes))),
                     Part::EffortUpdate { effort, .. } => Some(Block::Effort(effort.clone())),
                     _ => None,
                 }));
@@ -155,7 +155,7 @@ fn user_block(part: &Part) -> Option<Block> {
         Part::Text { text } | Part::Nudge { text } if !text.is_empty() => Some(Block::Text(text.clone())),
         Part::Context { plugin, text } => {
             let context = format!("<system-reminder>\nFrom the {plugin} plugin:\n{text}\n</system-reminder>");
-            Some(Block::Text(context))
+            Some(Block::Reminder(context))
         }
         Part::File { mime, url, .. } if mime.starts_with("image/") => {
             url.split_once(',').map(|(_, data)| Block::Image {
@@ -180,7 +180,7 @@ fn user_block(part: &Part) -> Option<Block> {
         ))),
         Part::Clarification { request_id, items } => Some(Block::Text(clarification_text(request_id, items))),
         Part::ProcessExit { .. } => Some(Block::Text(super::processes::exit_text(part))),
-        Part::InstructionUpdate { changes, .. } => Some(Block::Text(instruction_text(changes))),
+        Part::InstructionUpdate { changes, .. } => Some(Block::Reminder(instruction_text(changes))),
         Part::EffortUpdate { effort, .. } => Some(Block::Effort(effort.clone())),
         _ => None,
     }

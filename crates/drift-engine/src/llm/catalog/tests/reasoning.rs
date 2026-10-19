@@ -173,3 +173,25 @@ fn per_message_effort_follows_opencode_v2s_model_rule() {
         assert_eq!(effort_updates_for(provider, id), takes, "{provider} {id}");
     }
 }
+
+#[test]
+fn newer_claude_features_follow_opencode_v2s_model_rule() {
+    use crate::llm::catalog::claude_features_for;
+    let features = |id: &str| {
+        let found = claude_features_for("anthropic", id);
+        (found.system_messages, found.drop_stale_thinking)
+    };
+    assert_eq!(features("claude-opus-4-8"), (true, false));
+    assert_eq!(features("claude-opus-4-7"), (false, false));
+    assert_eq!(features("claude-sonnet-5"), (true, false));
+    assert_eq!(features("claude-sonnet-5-1"), (true, true));
+    assert_eq!(
+        features("claude-sonnet-4-5-20250929"),
+        (false, false),
+        "a snapshot date is no minor version"
+    );
+    assert_eq!(
+        claude_features_for("amazon-bedrock", "claude-opus-5"),
+        Default::default()
+    );
+}

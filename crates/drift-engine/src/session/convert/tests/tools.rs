@@ -117,7 +117,7 @@ fn an_instruction_update_saved_between_steps_follows_that_steps_tool_results() {
     let results = &sent.last().unwrap().blocks;
     assert!(matches!(results[0], Block::ToolResult { .. }), "{results:?}");
     assert!(
-        matches!(&results[1], Block::Text(text) if text.contains("Be thorough.") && text.starts_with("<system-reminder>")),
+        matches!(&results[1], Block::Reminder(text) if text.contains("Be thorough.") && text.starts_with("<system-reminder>")),
         "{results:?}"
     );
 }

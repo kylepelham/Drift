@@ -1327,6 +1327,13 @@ export interface components {
             header: string;
             question: string;
         };
+        /** @description Newer Claude request features, by model, after opencode v2. */
+        ClaudeFeatures: {
+            /** @description A thinking block the API no longer accepts is dropped instead of failing the request (Claude 5.1 or later). */
+            dropStaleThinking?: boolean;
+            /** @description Engine reminders as `role: "system"` messages in the conversation (Opus 4.8, every Claude 5 or later). */
+            systemMessages?: boolean;
+        };
         Command: {
             agent?: string | null;
             /** @description The prompt's arguments in order, which what follows the command fills word by word. */
@@ -1832,6 +1839,8 @@ export interface components {
         Mode: "foreground" | "background";
         Model: {
             attachment?: boolean;
+            /** @description Claude features a request may use on this model (`claude_features_for`). */
+            claude?: components["schemas"]["ClaudeFeatures"];
             cost?: components["schemas"]["Cost"];
             /** @description Takes a reasoning effort change inside the conversation, so a level switch keeps the prompt cache. */
             effort_updates?: boolean;

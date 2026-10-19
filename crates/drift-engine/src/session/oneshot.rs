@@ -246,6 +246,7 @@ impl Engine {
             cache_key: None,
             connection: None,
             effort_marks: Vec::new(),
+            claude: Default::default(),
             no_tool_calls: true,
             verbosity: None,
             show_thinking: false,

@@ -7,19 +7,22 @@ const CONVERSATION_BREAKPOINTS: usize = 2;
 
 /// Shared by every Anthropic route (key, subscription, gateway base URLs), so all of them cache.
 pub(super) fn body(request: &Request) -> Value {
-    // Anthropic refuses empty content and joins the same-role turns either side of a dropped message.
-    let mut messages: Vec<Value> = request
-        .messages
-        .iter()
-        .map(message)
-        .filter(|message| message["content"].as_array().is_some_and(|content| !content.is_empty()))
-        .collect();
-    mark_conversation(&mut messages);
-    // Accepted at any position; an empty system message carries only the turn's effort.
-    for mark in request.effort_marks.iter().rev() {
-        let update = json!({ "role": "system", "content": [], "output_config": { "effort": mark.effort } });
-        messages.insert((mark.after + 1).min(messages.len()), update);
+    let mut messages: Vec<Value> = Vec::new();
+    for (index, chat) in request.messages.iter().enumerate() {
+        let (sent, notes) = lifted(chat, request.claude.system_messages);
+        // Anthropic refuses empty content and joins the same-role turns either side of a dropped message.
+        if sent["content"].as_array().is_some_and(|content| !content.is_empty()) {
+            messages.push(sent);
+            if !notes.is_empty() {
+                messages.push(json!({ "role": "system", "content": notes }));
+            }
+        }
+        // Accepted at any position; an empty system message carries only the turn's effort.
+        for mark in request.effort_marks.iter().filter(|mark| mark.after == index) {
+            messages.push(json!({ "role": "system", "content": [], "output_config": { "effort": mark.effort } }));
+        }
     }
+    mark_conversation(&mut messages);
     let mut body = json!({
         "model": request.model,
         "max_tokens": request.max_tokens,
@@ -54,6 +57,10 @@ pub(super) fn body(request: &Request) -> Value {
                 body["temperature"] = json!(temperature);
             }
         }
+    }
+    // A thinking block the API no longer accepts (its prefix changed) is dropped instead of failing the turn.
+    if request.claude.drop_stale_thinking && request.reasoning.is_some() {
+        body["thinking"]["block_binding"] = json!({ "prefix_mismatch_behavior": "drop_block" });
     }
 
     crate::llm::apply_mode(&mut body, request);
@@ -93,7 +100,32 @@ fn cacheable(block: &Value) -> bool {
     !matches!(block["type"].as_str(), Some("thinking" | "redacted_thinking")) && block["text"] != ""
 }
 
-fn message(message: &ChatMessage) -> Value {
+/// The message as sent, and the engine reminders it carried as the system message that follows it, on a
+/// Claude that takes them. A reminder stays in place when nothing else is in the turn: a system message
+/// must follow a user turn.
+fn lifted(chat: &ChatMessage, native: bool) -> (Value, Vec<Value>) {
+    let reminder = |block: &Block| matches!(block, Block::Reminder(_));
+    let lift = native && chat.role == Role::User && chat.blocks.iter().any(|block| !reminder(block) && sendable(block));
+    if !lift {
+        return (message(chat, true), Vec::new());
+    }
+
+    let notes = chat
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Reminder(text) => {
+                let inner = text.strip_prefix("<system-reminder>\n").unwrap_or(text);
+                Some(json!({ "type": "text", "text": inner.strip_suffix("\n</system-reminder>").unwrap_or(inner) }))
+            }
+            _ => None,
+        })
+        .collect();
+
+    (message(chat, false), notes)
+}
+
+fn message(message: &ChatMessage, reminders: bool) -> Value {
     let role = match message.role {
         Role::User => "user",
         Role::Assistant => "assistant",
@@ -101,11 +133,28 @@ fn message(message: &ChatMessage) -> Value {
     let content: Vec<Value> = message
         .blocks
         .iter()
-        .filter(|block| sendable(block))
+        .filter(|block| sendable(block) && (reminders || !matches!(block, Block::Reminder(_))))
         .map(block)
         .collect();
 
     json!({ "role": role, "content": content })
+}
+
+/// The betas a body needs for what it holds.
+pub(super) fn betas(body: &Value) -> Vec<&'static str> {
+    let mut betas = Vec::new();
+    let messages = body["messages"].as_array().into_iter().flatten();
+    if messages
+        .clone()
+        .any(|message| message["role"] == "system" && message.get("output_config").is_some())
+    {
+        betas.push(super::EFFORT_MARKS);
+    }
+    if body["thinking"].get("block_binding").is_some() {
+        betas.push(super::THINKING_BINDING);
+    }
+
+    betas
 }
 
 /// Anthropic refuses reasoning without a signature, including reasoning received from other providers.
@@ -141,7 +190,7 @@ pub(crate) fn wire_id(id: &str) -> String {
 pub(super) fn block(block: &Block) -> Value {
     match block {
         Block::Signed { part, .. } => self::block(part),
-        Block::Text(text) => json!({ "type": "text", "text": text }),
+        Block::Text(text) | Block::Reminder(text) => json!({ "type": "text", "text": text }),
         Block::Reasoning {
             redacted: Some(data), ..
         } => json!({ "type": "redacted_thinking", "data": data }),

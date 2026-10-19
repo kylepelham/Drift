@@ -146,7 +146,7 @@ pub(super) fn message(message: &ChatMessage) -> Vec<Value> {
     for block in &message.blocks {
         match block.unsigned() {
             Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
-            Block::Text(text) => content.push(json!({ "type": "text", "text": text })),
+            Block::Text(text) | Block::Reminder(text) => content.push(json!({ "type": "text", "text": text })),
             Block::Image { mime, base64 } => {
                 let url = format!("data:{mime};base64,{base64}");
                 content.push(json!({ "type": "image_url", "image_url": { "url": url } }));

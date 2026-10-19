@@ -106,7 +106,7 @@ pub(super) fn message_values(message: &ChatMessage, names: &HashMap<&str, &str>)
     for block in &message.blocks {
         match block.unsigned() {
             Block::Signed { .. } => unreachable!("unsigned blocks cannot be signed"),
-            Block::Text(said) => text.push(said),
+            Block::Text(said) | Block::Reminder(said) => text.push(said),
             Block::Image { base64, .. } => images.push(base64),
             Block::Reasoning { text: thought, .. } => thinking.push(thought),
             Block::ToolUse { name, input, .. } => calls.push(tool_call(name, input)),

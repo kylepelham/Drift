@@ -165,6 +165,9 @@ pub enum Block {
         mime: String,
         hash: String,
     },
+    /// An engine note wrapped in `<system-reminder>`, sent as that text, or as a `role: "system"` message on a
+    /// Claude that takes them (`ClaudeFeatures::system_messages`). Never made from what a user or file says.
+    Reminder(String),
     /// A reasoning effort change at this point of the conversation; request building lifts it into
     /// `Request::effort_marks`, so no adapter ever sees one.
     Effort(String),
@@ -211,6 +214,8 @@ pub struct Request {
     /// Reasoning effort changes inside the conversation, each in effect after the message it follows,
     /// so the top-level effort and the cached prefix stay as they were (`Model::effort_updates`).
     pub effort_marks: Vec<EffortMark>,
+    /// The newer Claude features the model takes; only the Anthropic wire reads them.
+    pub claude: catalog::ClaudeFeatures,
     /// Tools stay defined so history with calls is valid, but the model may not call one.
     pub no_tool_calls: bool,
     /// OpenAI `text.verbosity`, from `catalog::verbosity`.

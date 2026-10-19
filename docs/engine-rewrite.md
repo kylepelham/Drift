@@ -1987,6 +1987,21 @@ Settled after the first external review of M1; each has a regression test.
   as before and no marks; an undo past a mark takes it away with its prompt, and a compaction or
   committed undo starts a new baseline at the current level. Bedrock and Vertex Claude are not
   included until their routes are confirmed to accept the beta.
+- Newer Claude request features (`ClaudeFeatures`, derived when the catalog loads, after opencode
+  v2's rules, on Anthropic's own route only; each confirmed in Anthropic's API reference on
+  2026-10-19):
+  - On Opus 4.8 and every Claude 5 or later, the engine's own notes (instruction updates, plugin
+    context: `Block::Reminder`, never anything a user or file wrote, so attached text cannot pose
+    as one) go as a `role: "system"` message right after the user turn they rode on, without the
+    `<system-reminder>` wrapper. A turn holding nothing else keeps the note in place, since a
+    system message must follow a user turn or tool results. Older models and every other wire get
+    the wrapped text as before. Agent-switch reminders are still text in the prompt.
+  - On Claude 5.1 or later, a request with thinking sends `block_binding:
+    {prefix_mismatch_behavior: "drop_block"}` (beta `thinking-binding-controls-2026-08-01`): a
+    thinking block the API no longer accepts, because its prefix changed, is dropped instead of
+    failing the turn with a 400.
+  - `between_tools` thinking (think only between tool calls) is not a Drift variant: no catalog
+    entry offers it and it does not map onto a level. v2 only passes it through when a caller asks.
 - Each wire sends a variant its own way:
   - Anthropic, Bedrock and Vertex Claude: a budget is `thinking: {type: "enabled", budget_tokens}`;
     an effort is `thinking: {type: "adaptive", display: "summarized"}` plus `output_config.effort`
