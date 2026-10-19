@@ -294,7 +294,16 @@ audio bytes load only when played and require no asset-copy build step. Custom a
 stored locally as a capped data URL. Drift owns its English and 17 localized catalogs;
 only the selected non-English catalog loads as a cached Vite chunk. Every locale carries
 every key in `en.ts`; the only exceptions are the invariants listed in
-`tests/settings.test.ts` (product names, `URL`, `GPU`), which fall back to English. UI text,
+`scripts/i18n/invariants.ts` (product names, `URL`, `GPU`), which fall back to English.
+English is written by hand in `en.ts` and nowhere else; `bun run i18n` fills in the rest:
+it translates the keys each locale lacks, every locale at once (Gemini 3.8 Flash by default,
+`DRIFT_I18N_MODEL` for another `provider/model`), sends them through `drift-engined
+--complete` on the user's saved credentials or the provider's environment key, keeps an
+answer only with the same `{{placeholders}}`, and writes each file in `en.ts`'s order, so a
+run adds lines and never changes a translation already there. When an English string's meaning
+changes, `bun run i18n --update <key...>` translates those keys again in every locale.
+`--complete` sits behind the engine's
+`dev-tools` feature, which only `drift-engined` enables. UI text,
 notices and errors the frontend writes itself all go through `t()`; error text the engine
 sends is shown as it arrives. Custom CSS persistence and application are debounced.
 
