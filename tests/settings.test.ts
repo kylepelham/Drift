@@ -1,3 +1,4 @@
+import { invariantKeys } from "../scripts/i18n/invariants";
 import { expect, test } from "bun:test";
 import { code } from "./source";
 
@@ -174,29 +175,6 @@ test("agent overrides saved or reset reach the engine for desktop and companion 
     expect(ui).not.toContain("showRestartNotice");
 });
 
-/** Values that intentionally remain identical in every language. */
-const invariantTranslation = new Set([
-    "drift.about.version",
-    "drift.attachment.kind.pdf",
-    "drift.plugins.fieldType.json",
-    "drift.registry.sources.kind.url",
-    "drift.registry.sources.location.url",
-    "drift.notification.threadError",
-    "drift.settings.section",
-    "drift.settings.prompts.family.claude",
-    "drift.settings.prompts.family.gemini",
-    "drift.code.theme.github",
-    "drift.code.theme.vitesse",
-    "drift.code.theme.one",
-    "drift.code.theme.dracula",
-    "drift.code.theme.nord",
-    "drift.mcp.transport.stdio",
-    "drift.mcp.transport.streamable_http",
-    "drift.mcp.form.url",
-    "drift.voice.dictation.keyterms.placeholder",
-    "drift.voice.acceleration.on",
-]);
-
 type Catalog = { dict: Record<string, string>; drift: Record<string, string> };
 
 test("no locale keeps a key English does not have", async () => {
@@ -215,7 +193,7 @@ test("every locale translates every key except the deliberate invariants", async
     const en: Catalog = await import("../src/i18n/en");
     const english = { ...en.dict, ...en.drift } as Record<string, string>;
     const keys = Object.keys(english)
-        .filter((key) => !invariantTranslation.has(key))
+        .filter((key) => !invariantKeys.has(key))
         .sort();
     const nonEnglish = languages.filter((language) => language.id !== "en");
     const localized = await Promise.all(
@@ -229,11 +207,11 @@ test("every locale translates every key except the deliberate invariants", async
         expect(Object.keys(localized[index]).sort(), `${language.id} keys`).toEqual(keys),
     );
 
-    const unknownInvariant = [...invariantTranslation].filter((key) => !(key in english));
+    const unknownInvariant = [...invariantKeys].filter((key) => !(key in english));
     const copiedEnglish = keys.filter(
         (key) => key.startsWith("drift.") && localized.every((catalog) => catalog[key] === english[key]),
     );
-    expect(unknownInvariant, "invariantTranslation names keys that do not exist in en.ts").toEqual([]);
+    expect(unknownInvariant, "invariantKeys names keys that do not exist in en.ts").toEqual([]);
     expect(copiedEnglish, "English copies must be explicit invariants").toEqual([]);
 
     for (const language of nonEnglish) {
