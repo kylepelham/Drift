@@ -1013,7 +1013,7 @@ export const drift = {
     "drift.permissions.autoGlobal": "Berechtigungen werden global automatisch akzeptiert",
     "drift.permissions.autoThread": "Berechtigungen werden für diesen Thread automatisch akzeptiert",
     "drift.prompt.steer": "Steuern",
-    "drift.prompt.steerHint": "Steuern (Alt halten, um es für nach diesem Durchgang einzureihen)",
+    "drift.prompt.steerHint": "Steuern (Alt gedrückt halten, um für nach diesem Durchgang einzureihen)",
     "drift.provider.browser": "Browser",
     "drift.provider.connectFailed":
         "{{provider}} konnte nicht verbunden werden. Anmeldedaten prüfen und erneut versuchen.",
@@ -1368,7 +1368,7 @@ export const drift = {
     "drift.settings.collapseCommands.open": "Immer offen",
     "drift.settings.groupTools.title": "Aufeinanderfolgende Werkzeugaufrufe gruppieren",
     "drift.settings.groupTools.description":
-        "Aufeinanderfolgende Aufrufe der gewählten Arten werden zu einer Zeile zusammengefasst.",
+        "Aufeinanderfolgende Aufrufe der gewählten Arten werden in einer Zeile zusammengefasst.",
     "drift.settings.groupTools.none": "Keine",
     "drift.settings.groupTools.all": "Alle",
     "drift.settings.groupTools.commands": "Befehle",

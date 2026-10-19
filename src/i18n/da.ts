@@ -1344,7 +1344,7 @@ export const drift = {
     "drift.settings.collapseCommands.running": "Åben mens den kører",
     "drift.settings.collapseCommands.open": "Altid åben",
     "drift.settings.groupTools.title": "Gruppér værktøjskald i træk",
-    "drift.settings.groupTools.description": "Kald i træk af de valgte typer samles i én linje.",
+    "drift.settings.groupTools.description": "Kald i træk af de valgte typer foldes sammen til én række.",
     "drift.settings.groupTools.none": "Ingen",
     "drift.settings.groupTools.all": "Alle",
     "drift.settings.groupTools.commands": "Kommandoer",

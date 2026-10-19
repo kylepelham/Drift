@@ -1354,7 +1354,7 @@ export const drift = {
     "drift.settings.collapseCommands.running": "Открыт во время выполнения",
     "drift.settings.collapseCommands.open": "Всегда открыт",
     "drift.settings.groupTools.title": "Группировать идущие подряд вызовы инструментов",
-    "drift.settings.groupTools.description": "Подряд идущие вызовы выбранных типов сворачиваются в одну строку.",
+    "drift.settings.groupTools.description": "Идущие подряд вызовы выбранных типов сворачиваются в одну строку.",
     "drift.settings.groupTools.none": "Никакие",
     "drift.settings.groupTools.all": "Все",
     "drift.settings.groupTools.commands": "Команды",

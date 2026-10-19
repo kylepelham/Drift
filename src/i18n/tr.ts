@@ -1348,7 +1348,7 @@ export const drift = {
     "drift.settings.collapseCommands.running": "Çalışırken açık",
     "drift.settings.collapseCommands.open": "Her zaman açık",
     "drift.settings.groupTools.title": "Ardışık araç çağrılarını grupla",
-    "drift.settings.groupTools.description": "Seçilen türlerin ardışık çağrıları tek satırda toplanır.",
+    "drift.settings.groupTools.description": "Seçtiğiniz türlerdeki ardışık çağrılar tek bir satırda toplanır.",
     "drift.settings.groupTools.none": "Hiçbiri",
     "drift.settings.groupTools.all": "Tümü",
     "drift.settings.groupTools.commands": "Komutlar",

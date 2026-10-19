@@ -1349,7 +1349,7 @@ export const drift = {
     "drift.settings.collapseCommands.open": "Завжди відкрито",
     "drift.settings.groupTools.title": "Групувати послідовні виклики інструментів",
     "drift.settings.groupTools.description": "Послідовні виклики вибраних типів згортаються в один рядок.",
-    "drift.settings.groupTools.none": "Жодні",
+    "drift.settings.groupTools.none": "Жодного",
     "drift.settings.groupTools.all": "Усі",
     "drift.settings.groupTools.commands": "Команди",
     "drift.settings.groupTools.edits": "Правки",

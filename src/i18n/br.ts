@@ -1359,7 +1359,7 @@ export const drift = {
     "drift.settings.collapseCommands.running": "Aberta durante a execução",
     "drift.settings.collapseCommands.open": "Sempre aberta",
     "drift.settings.groupTools.title": "Agrupar chamadas de ferramentas consecutivas",
-    "drift.settings.groupTools.description": "Chamadas consecutivas dos tipos escolhidos viram uma única linha.",
+    "drift.settings.groupTools.description": "Chamadas consecutivas dos tipos escolhidos são agrupadas em uma linha.",
     "drift.settings.groupTools.none": "Nenhum",
     "drift.settings.groupTools.all": "Todos",
     "drift.settings.groupTools.commands": "Comandos",
