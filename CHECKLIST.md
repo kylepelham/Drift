@@ -337,10 +337,10 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [ ] Read aloud: play button per reply and an auto-read switch, OpenAI and ElevenLabs plus one local voice
   - [ ] `generate_image` tool (OpenAI, Google, xAI), off until enabled, asking by default
 - Design first, proposal for Kyle, no code:
-  - [ ] Voice mode: realtime model or transcription, turn and read-aloud pipeline
-  - [ ] Code Mode: measurements and the four paths compared
-  - [ ] Compaction by the provider (OpenAI `/responses/compact`, Anthropic `compact_20260112`)
-  - [ ] Models choosing a worker's model, against Settings pins and accounts
+  - [x] Voice mode: realtime model or transcription, turn and read-aloud pipeline
+  - [x] Code Mode: measurements and the four paths compared
+  - [x] Compaction by the provider (OpenAI `/responses/compact`, Anthropic `compact_20260112`)
+  - [x] Models choosing a worker's model, against Settings pins and accounts
 
 ## M6: capabilities
 
