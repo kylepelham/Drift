@@ -429,10 +429,11 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
 - Every provider, OAuth, catalog and MCP HTTP request goes through one shared client
   (`llm::http::client`): shared connection pool, 15 s connect timeout, TCP keepalive. A provider
   request whose response has not begun within 120 s fails as a transport error, and a stream with
-  nothing at all (not even a ping or comment) for 300 s ends as a stalled stream; both retry like any
-  transport failure. Reasoning models can think silently for minutes, hence the long idle limit;
-  both limits are per route (`Timeouts::for_route`): local routes (`ollama`, `lmstudio`) start at
-  600 s for both, since loading a model or reading a long prompt on a CPU can take minutes, and
+  nothing at all (not even a ping or comment) for 900 s ends as a stalled stream; both retry like any
+  transport failure. Reasoning models can think silently for many minutes, hence the long idle limit
+  (opencode v2 settled on 15 minutes for the same reason); both limits are per route
+  (`Timeouts::for_route`): local routes (`ollama`, `lmstudio`) wait 600 s for the response to begin,
+  since loading a model or reading a long prompt on a CPU can take minutes, and
   drift.json `timeouts: { "<provider>": { "headersSeconds": n, "idleSeconds": n } }` sets any
   route's limits, applied when the turn plans and again if a retry switches its model. Stop ends a turn while its request is still being sent
   or waiting for the response to begin, not only once it streams. A body read whole rather than
