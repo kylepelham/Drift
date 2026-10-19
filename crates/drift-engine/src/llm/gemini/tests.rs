@@ -257,6 +257,25 @@ fn stream_signatures_stay_on_the_function_call() {
 }
 
 #[test]
+fn a_malformed_finish_is_a_retryable_error_and_other_odd_finishes_are_not() {
+    for reason in ["MALFORMED_FUNCTION_CALL", "MALFORMED_RESPONSE"] {
+        let mut state = StreamState::default();
+        let _ = state.chunks(r#"{"candidates":[{"content":{"parts":[{"text":"half"}]}}]}"#);
+        let finished = format!(r#"{{"candidates":[{{"content":{{"parts":[]}},"finishReason":"{reason}"}}]}}"#);
+        let error = state.chunks(&finished).unwrap_err();
+        assert!(
+            matches!(&error, Error::Api { retryable: true, status: crate::llm::STREAMED, message, .. } if message.contains(reason)),
+            "{error:?}"
+        );
+    }
+
+    let other = StreamState::default()
+        .chunks(r#"{"candidates":[{"content":{"parts":[]},"finishReason":"TOO_MANY_TOOL_CALLS"}]}"#)
+        .unwrap();
+    assert_eq!(other.last(), Some(&Chunk::Stop(StopReason::Other)));
+}
+
+#[test]
 fn a_call_signature_without_thought_text_round_trips_on_its_own_part() {
     let signed = json!({
         "candidates": [{

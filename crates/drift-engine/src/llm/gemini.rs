@@ -10,6 +10,20 @@ use super::sse;
 use super::{Block, ChatMessage, Chunk, ChunkStream, Credential, Error, Request, Role, StopReason};
 use crate::session::types::Usage;
 
+/// Finishes Gemini ends a sound request with now and then; a fresh attempt recovers, as opencode found.
+const MALFORMED: [&str; 2] = ["MALFORMED_FUNCTION_CALL", "MALFORMED_RESPONSE"];
+
+/// Retried within the turn's usual budget; the broken attempt's output is never used.
+fn malformed(reason: &str) -> Error {
+    Error::Api {
+        status: super::STREAMED,
+        kind: reason.to_ascii_lowercase(),
+        message: format!("Gemini stopped with {reason}"),
+        retryable: true,
+        retry_after: None,
+    }
+}
+
 const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
 #[derive(Clone, Debug)]
@@ -232,6 +246,9 @@ impl StreamState {
         }
 
         if let Some(reason) = candidate["finishReason"].as_str() {
+            if MALFORMED.contains(&reason) {
+                return Err(malformed(reason));
+            }
             out.extend(self.close());
             out.push(Chunk::Stop(match reason {
                 "MAX_TOKENS" => StopReason::MaxTokens,
