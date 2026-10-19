@@ -70,25 +70,40 @@ pub struct Questions {
 #[derive(Debug, PartialEq)]
 pub struct NotPending;
 
+/// A blocking question's card, taken down when its wait ends however it ends.
+struct Shown<'a> {
+    questions: &'a Questions,
+    id: &'a str,
+}
+
+impl Drop for Shown<'_> {
+    fn drop(&mut self) {
+        self.questions
+            .pending
+            .lock()
+            .unwrap()
+            .retain(|(pending, _)| pending.id != self.id);
+    }
+}
+
 impl Questions {
+    /// Shows `request` and waits for its answer or `abort`. The card goes when this returns or is dropped, so a call
+    /// whose own future is dropped mid-question (an MCP server's handler on Stop) never leaves its card behind.
     pub async fn ask(&self, hub: &Hub, request: Request, abort: &CancellationToken) -> Answers {
         let (response, answered) = oneshot::channel();
         self.pending.lock().unwrap().push((request.clone(), Some(response)));
+        let _shown = Shown {
+            questions: self,
+            id: &request.id,
+        };
         hub.publish(Event::QuestionAsked {
             request: request.clone(),
         });
 
-        let answers = tokio::select! {
+        tokio::select! {
             answers = answered => answers.ok().flatten(),
             () = abort.cancelled() => None,
-        };
-
-        self.pending
-            .lock()
-            .unwrap()
-            .retain(|(pending, _)| pending.id != request.id);
-
-        answers
+        }
     }
 
     /// Registers a question nobody waits on; its answer is handled by `Engine::answer_question`.
@@ -225,5 +240,23 @@ mod tests {
             abort.cancel();
         });
         assert_eq!(answers, None);
+    }
+
+    #[tokio::test]
+    async fn a_wait_dropped_mid_question_takes_its_card_down() {
+        let questions = Questions::default();
+        let hub = Hub::new(16);
+        let abort = CancellationToken::new();
+
+        let asking = questions.ask(&hub, request(), &abort);
+        tokio::select! {
+            _ = asking => unreachable!("nobody answers"),
+            () = tokio::time::sleep(std::time::Duration::from_millis(20)) => {}
+        }
+
+        assert!(
+            questions.pending().is_empty(),
+            "the card is gone with the wait that showed it"
+        );
     }
 }
