@@ -51,16 +51,16 @@ impl Parser {
         None
     }
 
+    /// An event with no data is never dispatched (as the SSE standard says), and neither is a proxy's keep-alive
+    /// comment sent as data (Vertex partner models).
     fn flush(&mut self) -> Option<SseEvent> {
-        if self.data.is_empty() && self.event.is_empty() {
+        let event = std::mem::take(&mut self.event);
+        let data = std::mem::take(&mut self.data).join("\n");
+        if data.is_empty() || data == ": keepalive" {
             return None;
         }
 
-        let event = SseEvent {
-            event: std::mem::take(&mut self.event),
-            data: std::mem::take(&mut self.data).join("\n"),
-        };
-        Some(event)
+        Some(SseEvent { event, data })
     }
 }
 
@@ -276,6 +276,19 @@ mod tests {
         assert!(
             error.starts_with("connection lost while reading the response: ") && !error.contains("decoding"),
             "{error}"
+        );
+    }
+
+    #[test]
+    fn events_without_data_and_keepalives_sent_as_data_are_dropped() {
+        let mut parser = Parser::default();
+        let events = parser.feed(b"event: ping\n\ndata:\n\ndata: : keepalive\n\nevent: message_stop\ndata: {}\n\n");
+        assert_eq!(
+            events,
+            vec![SseEvent {
+                event: "message_stop".into(),
+                data: "{}".into()
+            }]
         );
     }
 
