@@ -216,6 +216,8 @@ pub struct Request {
     pub effort_marks: Vec<EffortMark>,
     /// The newer Claude features the model takes; only the Anthropic wire reads them.
     pub claude: catalog::ClaudeFeatures,
+    /// Ask for an hour-long prompt cache where the route takes one (Anthropic with an API key).
+    pub cache_hour: bool,
     /// Tools stay defined so history with calls is valid, but the model may not call one.
     pub no_tool_calls: bool,
     /// OpenAI `text.verbosity`, from `catalog::verbosity`.

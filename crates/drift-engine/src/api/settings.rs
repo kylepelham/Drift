@@ -11,6 +11,7 @@ use crate::Engine;
 use crate::background::{HANDOFF_KEY, PROCESSES_KEY};
 use crate::session::compaction::AUTO_COMPACT_KEY;
 use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
+use crate::session::turn::warming::{PROMPT_CACHE_KEY, PromptCache};
 
 /// Engine-wide preferences the user changes in Settings.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -38,6 +39,9 @@ pub(super) struct EngineSettings {
     /// Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_sources: Option<Vec<RegistrySource>>,
+    /// Prompt cache warming and the Anthropic one-hour cache, all off by default. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_cache: Option<PromptCache>,
 }
 
 use crate::config::sources::{RegistrySource, SourceInput};
@@ -60,6 +64,8 @@ pub(super) struct EngineSettingsInput {
     pub auto_accept_all: Option<bool>,
     #[serde(default)]
     pub registry_sources: Option<Vec<SourceInput>>,
+    #[serde(default)]
+    pub prompt_cache: Option<PromptCache>,
 }
 
 fn current(engine: &Engine) -> EngineSettings {
@@ -72,6 +78,7 @@ fn current(engine: &Engine) -> EngineSettings {
         shell_handoff: Some(engine.store.setting(HANDOFF_KEY).ok().flatten().unwrap_or(true)),
         auto_accept_all: Some(engine.auto_accept_all()),
         registry_sources: Some(engine.registry_sources()),
+        prompt_cache: Some(engine.prompt_cache()),
     }
 }
 
@@ -107,6 +114,12 @@ pub(super) async fn put(
     }
     if let Some(on) = body.auto_accept_all {
         engine.set_auto_accept_all(on)?;
+    }
+    if let Some(cache) = body.prompt_cache {
+        if let Some(problem) = cache.problem() {
+            return Err(ApiError::new(StatusCode::BAD_REQUEST, "prompt_cache", problem));
+        }
+        engine.store.set_setting(PROMPT_CACHE_KEY, &cache)?;
     }
     if let Some(sources) = body.registry_sources {
         engine

@@ -1753,6 +1753,20 @@ code until he picks.
   prompt tokens), one `drift:` line names the session, the cached and expected tokens and the first
   segment that changed, or says the provider dropped the cache when none did. A compaction starts
   the session over. Nothing is stored or shown.
+- Prompt cache warming (`session::turn::warming`, engine setting `promptCache`, Settings >
+  Execution > Prompt cache, off by default, after opencode v2's warming plugin). After each real
+  request of a conversation (never a worker), its loop restarts: every interval (default 4
+  minutes, 1 to 59) until the window (default 30 minutes) has passed it sends the request the
+  next turn would build (`step_request`, so the same system prompt, tools, history, reasoning
+  and cache key) with a transient prompt last (default: do no work, use no tools, reply OK) and
+  tools off (`no_tool_calls`), on the same account. It skips an interval while a turn runs or the
+  session is archived; a failure is logged and the next interval tries again. Nothing is saved;
+  its cost is added to the conversation's last reply, the one whose cache it kept warm.
+- The same group's one-hour cache asks Anthropic for `cache_control.ttl: "1h"` on every
+  breakpoint, on the API-key route only: the subscription, Bedrock and Vertex routes are not
+  confirmed to take it and keep five minutes. Writes then cost twice the input price instead of
+  1.25 times; the meter still prices them at the five-minute rate, since usage does not say
+  which was written.
 - Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)

@@ -140,6 +140,20 @@ fn message(message: &ChatMessage, reminders: bool) -> Value {
     json!({ "role": role, "content": content })
 }
 
+/// Every cache breakpoint in `body` kept for an hour instead of five minutes.
+pub(super) fn cache_for_an_hour(body: &mut Value) {
+    match body {
+        Value::Object(fields) => {
+            if let Some(control) = fields.get_mut("cache_control").and_then(Value::as_object_mut) {
+                control.insert("ttl".into(), json!("1h"));
+            }
+            fields.values_mut().for_each(cache_for_an_hour);
+        }
+        Value::Array(items) => items.iter_mut().for_each(cache_for_an_hour),
+        _ => {}
+    }
+}
+
 /// The betas a body needs for what it holds.
 pub(super) fn betas(body: &Value) -> Vec<&'static str> {
     let mut betas = Vec::new();

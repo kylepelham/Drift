@@ -360,6 +360,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "تنهي مهل الصدفة أشجار العمليات. ولا تؤثر على النماذج أو خوادم MCP أو اتصالات الشبكة.",
     "drift.settings.execution": "التنفيذ",
+    "drift.settings.promptCache": "ذاكرة التعليمات المؤقتة",
+    "drift.settings.promptCache.warming.title": "إبقاء المحادثات الخاملة دافئة",
+    "drift.settings.promptCache.warming.description":
+        "بعد آخر طلب في المحادثة، يُعاد إرسال طلبها التالي بين حين وآخر مع تعليمة من كلمة واحدة ليبقيه المزوّد في الذاكرة المؤقتة. كل طلب يُحتسب، ولا يُبقى الوكلاء الفرعيون دافئين.",
+    "drift.settings.promptCache.interval.title": "كل (دقائق)",
+    "drift.settings.promptCache.interval.description": "عدد مرات إرسال طلب الإبقاء.",
+    "drift.settings.promptCache.window.title": "لمدة (دقائق)",
+    "drift.settings.promptCache.window.description": "المدة بعد آخر طلب التي يستمر فيها ذلك.",
+    "drift.settings.promptCache.prompt.title": "تعليمة الإبقاء",
+    "drift.settings.promptCache.prompt.description": "ما يطلبه كل طلب إبقاء. يُتجاهل رده.",
+    "drift.settings.promptCache.prompt.placeholder": "لا تعمل شيئًا ولا تستخدم أدوات، ورد بـ OK",
+    "drift.settings.promptCache.hour.title": "ذاكرة لمدة ساعة على Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "مع مفتاح Anthropic API تبقى الذاكرة المؤقتة ساعة بدلًا من خمس دقائق. الكتابة إليها تكلف ضعف سعر الإدخال بدلًا من 1.25 ضعفًا.",
     "drift.settings.execution.shell": "الصدفة",
     "drift.settings.execution.subagents": "الوكلاء الفرعيون",
     "drift.settings.backgroundLimit.title": "الوكلاء الفرعيون في الخلفية في وقت واحد",

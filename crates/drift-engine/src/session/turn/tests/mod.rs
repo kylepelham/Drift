@@ -43,6 +43,7 @@ mod tool_order;
 mod tool_validation;
 mod unreadable_images;
 mod variants;
+mod warming;
 
 pub(crate) struct Harness {
     pub(crate) engine: Arc<Engine>,

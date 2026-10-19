@@ -270,6 +270,7 @@ mod tests {
                 connection: Some("ses_1".into()),
                 effort_marks: Vec::new(),
                 claude: Default::default(),
+                cache_hour: false,
                 ..request()
             };
 
@@ -399,6 +400,7 @@ mod tests {
                 connection: Some("ses_1".into()),
                 effort_marks: Vec::new(),
                 claude: Default::default(),
+                cache_hour: false,
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,

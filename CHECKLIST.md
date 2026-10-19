@@ -319,7 +319,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] Instruction baseline: frozen system prompt, `instruction_update` parts for changed sources, re-baseline on family switch, compaction and undo, forks share their source's prefix
   - [x] Reasoning level changes sent as per-message effort on models with the catalog capability
   - [x] Newer Claude features confirmed in Anthropic's docs and adopted: mid-conversation system messages, thinking `block_binding`, `between_tools`
-  - [ ] Settings > Execution > Prompt cache: warming (interval, window, prompt) and Anthropic one-hour cache where the route accepts it, all off by default
+  - [x] Settings > Execution > Prompt cache: warming (interval, window, prompt) and Anthropic one-hour cache where the route accepts it, all off by default
 - Turn robustness:
   - [ ] A length stop continues the turn with a note, at most twice in a row; cut-off calls carry an input excerpt
   - [ ] Interrupted top-level turns resume after a restart (switch, on by default, two resumes per prompt)

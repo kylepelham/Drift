@@ -396,6 +396,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "การหมดเวลาของเชลล์จะยุติผังกระบวนการ โดยไม่กระทบโมเดล เซิร์ฟเวอร์ MCP หรือการเรียกเครือข่าย",
     "drift.settings.execution": "การทำงาน",
+    "drift.settings.promptCache": "แคชพรอมต์",
+    "drift.settings.promptCache.warming.title": "รักษาบทสนทนาที่ว่างให้อุ่น",
+    "drift.settings.promptCache.warming.description":
+        "หลังคำขอสุดท้ายของบทสนทนา จะส่งคำขอถัดไปซ้ำเป็นระยะพร้อมพรอมต์คำเดียว เพื่อให้ผู้ให้บริการเก็บไว้ในแคช แต่ละครั้งมีค่าใช้จ่าย และไม่ทำกับเอเจนต์ย่อย",
+    "drift.settings.promptCache.interval.title": "ทุก (นาที)",
+    "drift.settings.promptCache.interval.description": "ส่งคำขอรักษาบ่อยแค่ไหน",
+    "drift.settings.promptCache.window.title": "นาน (นาที)",
+    "drift.settings.promptCache.window.description": "ทำต่อนานเท่าใดหลังคำขอสุดท้าย",
+    "drift.settings.promptCache.prompt.title": "พรอมต์รักษาการเชื่อมต่อ",
+    "drift.settings.promptCache.prompt.description": "สิ่งที่คำขอรักษาแต่ละครั้งถาม คำตอบจะถูกทิ้ง",
+    "drift.settings.promptCache.prompt.placeholder": "ไม่ต้องทำงาน ไม่ใช้เครื่องมือ ตอบ OK",
+    "drift.settings.promptCache.hour.title": "แคชหนึ่งชั่วโมงบน Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "เมื่อใช้คีย์ API ของ Anthropic จะเก็บแคชหนึ่งชั่วโมงแทนห้านาที การเขียนแคชมีราคาสองเท่าของราคาอินพุตแทน 1.25 เท่า",
     "drift.settings.execution.shell": "เชลล์",
     "drift.settings.execution.subagents": "เอเจนต์ย่อย",
     "drift.settings.backgroundLimit.title": "เอเจนต์ย่อยเบื้องหลังพร้อมกัน",

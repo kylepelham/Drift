@@ -366,6 +366,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "셸 시간 제한은 프로세스 트리를 종료합니다. 모델, MCP 서버 또는 네트워크 호출에는 영향을 주지 않습니다.",
     "drift.settings.execution": "실행",
+    "drift.settings.promptCache": "프롬프트 캐시",
+    "drift.settings.promptCache.warming.title": "유휴 대화를 따뜻하게 유지",
+    "drift.settings.promptCache.warming.description":
+        "대화의 마지막 요청 후, 다음 요청을 한 단어 프롬프트와 함께 가끔 다시 보내 제공자가 캐시를 유지하게 합니다. 매번 요금이 부과되며 하위 에이전트는 유지하지 않습니다.",
+    "drift.settings.promptCache.interval.title": "간격 (분)",
+    "drift.settings.promptCache.interval.description": "킵얼라이브를 보내는 빈도입니다.",
+    "drift.settings.promptCache.window.title": "기간 (분)",
+    "drift.settings.promptCache.window.description": "마지막 요청 후 계속할 시간입니다.",
+    "drift.settings.promptCache.prompt.title": "킵얼라이브 프롬프트",
+    "drift.settings.promptCache.prompt.description": "각 킵얼라이브가 묻는 내용입니다. 응답은 버립니다.",
+    "drift.settings.promptCache.prompt.placeholder": "아무 작업도 하지 말고 도구도 쓰지 말고 OK라고 답하세요",
+    "drift.settings.promptCache.hour.title": "Anthropic에서 1시간 캐시",
+    "drift.settings.promptCache.hour.description":
+        "Anthropic API 키로 캐시를 5분 대신 1시간 유지합니다. 쓰기 비용은 입력 가격의 1.25배 대신 2배입니다.",
     "drift.settings.execution.shell": "셸",
     "drift.settings.execution.subagents": "하위 에이전트",
     "drift.settings.backgroundLimit.title": "동시에 실행할 백그라운드 하위 에이전트",

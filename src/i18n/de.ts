@@ -373,6 +373,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Shell-Zeitlimits beenden Prozessbäume. Modelle, MCP-Server und Netzwerkaufrufe sind nicht betroffen.",
     "drift.settings.execution": "Ausführung",
+    "drift.settings.promptCache": "Prompt-Cache",
+    "drift.settings.promptCache.warming.title": "Ruhende Unterhaltungen warm halten",
+    "drift.settings.promptCache.warming.description":
+        "Nach der letzten Anfrage einer Unterhaltung wird ihre nächste Anfrage ab und zu mit einem Ein-Wort-Prompt erneut gesendet, damit der Anbieter sie im Cache behält. Jede kostet; Subagenten werden nie warm gehalten.",
+    "drift.settings.promptCache.interval.title": "Alle (Minuten)",
+    "drift.settings.promptCache.interval.description": "Wie oft eine Keep-alive-Anfrage gesendet wird.",
+    "drift.settings.promptCache.window.title": "Für (Minuten)",
+    "drift.settings.promptCache.window.description": "Wie lange nach der letzten Anfrage weitergemacht wird.",
+    "drift.settings.promptCache.prompt.title": "Keep-alive-Prompt",
+    "drift.settings.promptCache.prompt.description": "Was jede Keep-alive-Anfrage fragt. Die Antwort wird verworfen.",
+    "drift.settings.promptCache.prompt.placeholder": "Tu nichts, nutze keine Werkzeuge, antworte OK",
+    "drift.settings.promptCache.hour.title": "Eine Stunde Cache bei Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "Mit einem Anthropic-API-Schlüssel bleibt der Cache eine Stunde statt fünf Minuten. Schreiben kostet den doppelten statt den 1,25-fachen Eingabepreis.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Subagenten",
     "drift.settings.backgroundLimit.title": "Gleichzeitige Hintergrund-Subagenten",

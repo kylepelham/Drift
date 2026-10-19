@@ -369,6 +369,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Limity powłoki kończą drzewa procesów. Nie wpływają na modele, serwery MCP ani wywołania sieciowe.",
     "drift.settings.execution": "Wykonywanie",
+    "drift.settings.promptCache": "Pamięć podręczna promptu",
+    "drift.settings.promptCache.warming.title": "Utrzymuj bezczynne rozmowy w gotowości",
+    "drift.settings.promptCache.warming.description":
+        "Po ostatnim żądaniu rozmowy co jakiś czas wysyła ponownie jej następne żądanie z jednowyrazowym promptem, aby dostawca trzymał je w pamięci podręcznej. Każde jest płatne; podagenci nigdy nie są utrzymywani.",
+    "drift.settings.promptCache.interval.title": "Co (minut)",
+    "drift.settings.promptCache.interval.description": "Jak często wysyłać podtrzymanie.",
+    "drift.settings.promptCache.window.title": "Przez (minut)",
+    "drift.settings.promptCache.window.description": "Jak długo po ostatnim żądaniu kontynuować.",
+    "drift.settings.promptCache.prompt.title": "Prompt podtrzymania",
+    "drift.settings.promptCache.prompt.description": "O co pyta każde podtrzymanie. Odpowiedź jest odrzucana.",
+    "drift.settings.promptCache.prompt.placeholder": "Nic nie rób, nie używaj narzędzi, odpowiedz OK",
+    "drift.settings.promptCache.hour.title": "Pamięć na godzinę w Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "Z kluczem API Anthropic pamięć trwa godzinę zamiast pięciu minut. Zapis kosztuje dwukrotność ceny wejścia zamiast 1,25 raza.",
     "drift.settings.execution.shell": "Powłoka",
     "drift.settings.execution.subagents": "Podagenci",
     "drift.settings.backgroundLimit.title": "Podagenci w tle jednocześnie",

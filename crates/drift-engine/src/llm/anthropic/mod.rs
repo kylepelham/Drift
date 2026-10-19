@@ -75,6 +75,9 @@ impl Anthropic {
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
         betas.extend(request::betas(&body));
+        if request.cache_hour && matches!(credential, Credential::ApiKey { .. }) {
+            request::cache_for_an_hour(&mut body);
+        }
 
         stream_from(
             super::mode_headers(http, request, betas).json(&body),
@@ -385,6 +388,7 @@ mod tests {
                 connection: None,
                 effort_marks: Vec::new(),
                 claude: Default::default(),
+                cache_hour: false,
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,
@@ -449,6 +453,14 @@ mod tests {
                 "drop_block"
             );
             assert_eq!(super::request::betas(&native), [super::THINKING_BINDING]);
+        }
+
+        #[test]
+        fn an_hour_cache_sets_every_breakpoints_ttl() {
+            let mut sent = body(&request());
+            super::request::cache_for_an_hour(&mut sent);
+            assert_eq!(sent["system"][0]["cache_control"], json!({ "type": "ephemeral", "ttl": "1h" }));
+            assert_eq!(sent["tools"][0]["cache_control"]["ttl"], "1h");
         }
 
         #[test]

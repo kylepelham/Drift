@@ -418,6 +418,7 @@ impl Engine {
         if let Some(line) = self.turns.cache_watch.observe(&plan.session.id, sent, assembler.usage) {
             eprintln!("{line}");
         }
+        self.warm_after(scope.plan);
         let Some(stop) = assembler.stop else {
             return Err(StreamError::Provider(llm::Error::Transport(
                 "stream ended without a stop reason".into(),

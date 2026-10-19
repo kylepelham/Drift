@@ -121,6 +121,7 @@ mod tests {
             connection: None,
             effort_marks: Vec::new(),
             claude: Default::default(),
+            cache_hour: false,
             no_tool_calls: false,
             verbosity: None,
             show_thinking: false,

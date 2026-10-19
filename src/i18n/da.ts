@@ -400,6 +400,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Shell-timeouts afslutter procestræer. De påvirker ikke modeller, MCP-servere eller netværkskald.",
     "drift.settings.execution": "Kørsel",
+    "drift.settings.promptCache": "Prompt-cache",
+    "drift.settings.promptCache.warming.title": "Hold inaktive samtaler varme",
+    "drift.settings.promptCache.warming.description":
+        "Efter en samtales sidste forespørgsel sendes dens næste forespørgsel igen af og til med en prompt på ét ord, så udbyderen beholder den i cachen. Hver koster; underagenter holdes aldrig varme.",
+    "drift.settings.promptCache.interval.title": "Hvert (minutter)",
+    "drift.settings.promptCache.interval.description": "Hvor ofte en keep-alive sendes.",
+    "drift.settings.promptCache.window.title": "I (minutter)",
+    "drift.settings.promptCache.window.description": "Hvor længe efter den sidste forespørgsel det fortsætter.",
+    "drift.settings.promptCache.prompt.title": "Keep-alive-prompt",
+    "drift.settings.promptCache.prompt.description": "Hvad hver keep-alive spørger om. Svaret kasseres.",
+    "drift.settings.promptCache.prompt.placeholder": "Lav intet, brug ingen værktøjer, svar OK",
+    "drift.settings.promptCache.hour.title": "Cache i en time hos Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "Med en Anthropic API-nøgle holdes cachen en time i stedet for fem minutter. At skrive til den koster dobbelt inputpris i stedet for 1,25 gange.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Underagenter",
     "drift.settings.backgroundLimit.title": "Baggrundsunderagenter ad gangen",

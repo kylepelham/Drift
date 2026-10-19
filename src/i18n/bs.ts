@@ -401,6 +401,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Ograničenja ljuske prekidaju stabla procesa. Ne utiču na modele, MCP servere ili mrežne pozive.",
     "drift.settings.execution": "Izvršavanje",
+    "drift.settings.promptCache": "Keš prompta",
+    "drift.settings.promptCache.warming.title": "Drži neaktivne razgovore toplim",
+    "drift.settings.promptCache.warming.description":
+        "Nakon posljednjeg zahtjeva razgovora, povremeno ponovo šalje njegov sljedeći zahtjev s promptom od jedne riječi, da ga pružalac drži u kešu. Svaki se naplaćuje; podagenti se nikad ne drže toplim.",
+    "drift.settings.promptCache.interval.title": "Svakih (minuta)",
+    "drift.settings.promptCache.interval.description": "Koliko često se šalje zahtjev za održavanje.",
+    "drift.settings.promptCache.window.title": "Tokom (minuta)",
+    "drift.settings.promptCache.window.description": "Koliko dugo nakon posljednjeg zahtjeva nastaviti.",
+    "drift.settings.promptCache.prompt.title": "Prompt za održavanje",
+    "drift.settings.promptCache.prompt.description": "Šta svaki zahtjev za održavanje traži. Odgovor se odbacuje.",
+    "drift.settings.promptCache.prompt.placeholder": "Ne radi ništa, ne koristi alate, odgovori OK",
+    "drift.settings.promptCache.hour.title": "Keš na sat kod Anthropica",
+    "drift.settings.promptCache.hour.description":
+        "S Anthropic API ključem keš traje sat umjesto pet minuta. Upis u njega košta dvostruku cijenu ulaza umjesto 1,25 puta.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Podagenti",
     "drift.settings.backgroundLimit.title": "Pozadinski podagenti istovremeno",

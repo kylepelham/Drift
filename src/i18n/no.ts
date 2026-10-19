@@ -401,6 +401,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Shell-tidsavbrudd avslutter prosesstrær. De påvirker ikke modeller, MCP-servere eller nettverkskall.",
     "drift.settings.execution": "Kjøring",
+    "drift.settings.promptCache": "Prompt-hurtigbuffer",
+    "drift.settings.promptCache.warming.title": "Hold inaktive samtaler varme",
+    "drift.settings.promptCache.warming.description":
+        "Etter en samtales siste forespørsel sendes neste forespørsel på nytt av og til med en prompt på ett ord, så leverandøren beholder den i hurtigbufferen. Hver koster; underagenter holdes aldri varme.",
+    "drift.settings.promptCache.interval.title": "Hvert (minutter)",
+    "drift.settings.promptCache.interval.description": "Hvor ofte en keep-alive sendes.",
+    "drift.settings.promptCache.window.title": "I (minutter)",
+    "drift.settings.promptCache.window.description": "Hvor lenge etter siste forespørsel det fortsetter.",
+    "drift.settings.promptCache.prompt.title": "Keep-alive-prompt",
+    "drift.settings.promptCache.prompt.description": "Hva hver keep-alive spør om. Svaret forkastes.",
+    "drift.settings.promptCache.prompt.placeholder": "Gjør ingenting, bruk ingen verktøy, svar OK",
+    "drift.settings.promptCache.hour.title": "Hurtigbuffer i en time hos Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "Med en Anthropic API-nøkkel beholdes hurtigbufferen i en time i stedet for fem minutter. Å skrive til den koster dobbel inndatapris i stedet for 1,25 ganger.",
     "drift.settings.execution.shell": "Skall",
     "drift.settings.execution.subagents": "Underagenter",
     "drift.settings.backgroundLimit.title": "Bakgrunnsunderagenter samtidig",

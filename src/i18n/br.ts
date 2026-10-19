@@ -373,6 +373,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Os limites do shell encerram árvores de processos. Não afetam modelos, servidores MCP ou chamadas de rede.",
     "drift.settings.execution": "Execução",
+    "drift.settings.promptCache": "Cache de prompt",
+    "drift.settings.promptCache.warming.title": "Manter conversas ociosas aquecidas",
+    "drift.settings.promptCache.warming.description":
+        "Após a última requisição de uma conversa, reenvia a próxima de tempos em tempos com um prompt de uma palavra, para o provedor mantê-la em cache. Cada uma é cobrada; subagentes nunca são mantidos aquecidos.",
+    "drift.settings.promptCache.interval.title": "A cada (minutos)",
+    "drift.settings.promptCache.interval.description": "Com que frequência um keep-alive é enviado.",
+    "drift.settings.promptCache.window.title": "Por (minutos)",
+    "drift.settings.promptCache.window.description": "Por quanto tempo continuar após a última requisição.",
+    "drift.settings.promptCache.prompt.title": "Prompt de keep-alive",
+    "drift.settings.promptCache.prompt.description": "O que cada keep-alive pede. A resposta é descartada.",
+    "drift.settings.promptCache.prompt.placeholder": "Não faça nada, não use ferramentas, responda OK",
+    "drift.settings.promptCache.hour.title": "Cache de uma hora na Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "Com uma chave de API da Anthropic, mantém o cache por uma hora em vez de cinco minutos. Gravar nele custa o dobro do preço de entrada em vez de 1,25 vez.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Subagentes",
     "drift.settings.backgroundLimit.title": "Subagentes em segundo plano ao mesmo tempo",

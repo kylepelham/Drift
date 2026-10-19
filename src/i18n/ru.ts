@@ -403,6 +403,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Тайм-ауты оболочки завершают деревья процессов. Они не влияют на модели, серверы MCP и сетевые вызовы.",
     "drift.settings.execution": "Выполнение",
+    "drift.settings.promptCache": "Кэш промпта",
+    "drift.settings.promptCache.warming.title": "Держать простаивающие беседы тёплыми",
+    "drift.settings.promptCache.warming.description":
+        "После последнего запроса беседы её следующий запрос время от времени отправляется снова с промптом из одного слова, чтобы провайдер держал его в кэше. Каждый оплачивается; субагенты никогда не поддерживаются.",
+    "drift.settings.promptCache.interval.title": "Каждые (минут)",
+    "drift.settings.promptCache.interval.description": "Как часто отправлять поддерживающий запрос.",
+    "drift.settings.promptCache.window.title": "В течение (минут)",
+    "drift.settings.promptCache.window.description": "Сколько продолжать после последнего запроса.",
+    "drift.settings.promptCache.prompt.title": "Поддерживающий промпт",
+    "drift.settings.promptCache.prompt.description": "О чём просит каждый поддерживающий запрос. Ответ отбрасывается.",
+    "drift.settings.promptCache.prompt.placeholder": "Ничего не делай, не используй инструменты, ответь OK",
+    "drift.settings.promptCache.hour.title": "Кэш на час у Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "С ключом API Anthropic кэш хранится час вместо пяти минут. Запись в него стоит вдвое дороже ввода вместо 1,25 раза.",
     "drift.settings.execution.shell": "Оболочка",
     "drift.settings.execution.subagents": "Субагенты",
     "drift.settings.backgroundLimit.title": "Фоновых субагентов одновременно",

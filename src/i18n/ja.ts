@@ -367,6 +367,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "シェルのタイムアウトはプロセスツリーを終了します。モデル、MCP、ネットワーク呼び出しには影響しません。",
     "drift.settings.execution": "実行",
+    "drift.settings.promptCache": "プロンプトキャッシュ",
+    "drift.settings.promptCache.warming.title": "待機中の会話を温めておく",
+    "drift.settings.promptCache.warming.description":
+        "会話の最後のリクエストの後、次のリクエストを一語のプロンプト付きで時々送り直し、プロバイダーがキャッシュを保つようにします。毎回課金されます。サブエージェントは対象外です。",
+    "drift.settings.promptCache.interval.title": "間隔（分）",
+    "drift.settings.promptCache.interval.description": "キープアライブを送る頻度。",
+    "drift.settings.promptCache.window.title": "期間（分）",
+    "drift.settings.promptCache.window.description": "最後のリクエストから続ける時間。",
+    "drift.settings.promptCache.prompt.title": "キープアライブのプロンプト",
+    "drift.settings.promptCache.prompt.description": "各キープアライブが尋ねる内容。返答は破棄されます。",
+    "drift.settings.promptCache.prompt.placeholder": "何もせず、ツールも使わず、OKと返答",
+    "drift.settings.promptCache.hour.title": "Anthropicで1時間キャッシュ",
+    "drift.settings.promptCache.hour.description":
+        "AnthropicのAPIキーでは、キャッシュを5分ではなく1時間保持します。書き込みは入力価格の1.25倍ではなく2倍になります。",
     "drift.settings.execution.shell": "シェル",
     "drift.settings.execution.subagents": "サブエージェント",
     "drift.settings.backgroundLimit.title": "同時に実行するバックグラウンドサブエージェント",

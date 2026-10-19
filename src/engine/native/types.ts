@@ -1456,6 +1456,7 @@ export interface components {
             backgroundTaskLimit?: number | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
+            promptCache?: components["schemas"]["PromptCache"] | null;
             /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
             registrySources?: components["schemas"]["RegistrySource"][] | null;
             /**
@@ -1471,6 +1472,7 @@ export interface components {
             backgroundProcesses?: boolean | null;
             backgroundTaskLimit?: number | null;
             backgroundTasks?: boolean | null;
+            promptCache?: components["schemas"]["PromptCache"] | null;
             registrySources?: components["schemas"]["SourceInput"][] | null;
             shellHandoff?: boolean | null;
         };
@@ -2135,6 +2137,36 @@ export interface components {
         };
         PromptBody: {
             text: string;
+        };
+        /** @description Settings > Execution > Prompt cache, kept by the engine. */
+        PromptCache: {
+            /**
+             * @description Anthropic API-key requests cache for an hour instead of five minutes, at twice the write price.
+             * @default false
+             */
+            hourCache: boolean;
+            /**
+             * Format: int32
+             * @description Minutes between keep-alive requests, 1 to 59.
+             * @default 4
+             */
+            intervalMinutes: number;
+            /**
+             * @description What a keep-alive request asks; empty takes the default.
+             * @default
+             */
+            prompt: string;
+            /**
+             * @description Keep an idle conversation's prompt cache warm.
+             * @default false
+             */
+            warming: boolean;
+            /**
+             * Format: int32
+             * @description Minutes after the last real request that warming goes on for, at least one interval.
+             * @default 30
+             */
+            windowMinutes: number;
         };
         /**
          * @description Which base prompt a model gets, the one written for how its family works; decided here and nowhere else.

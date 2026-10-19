@@ -403,6 +403,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Kabuk zaman aşımları işlem ağaçlarını sonlandırır. Modelleri, MCP sunucularını veya ağ çağrılarını etkilemez.",
     "drift.settings.execution": "Çalıştırma",
+    "drift.settings.promptCache": "İstem önbelleği",
+    "drift.settings.promptCache.warming.title": "Boştaki konuşmaları sıcak tut",
+    "drift.settings.promptCache.warming.description":
+        "Bir konuşmanın son isteğinden sonra, sağlayıcı önbellekte tutsun diye sonraki istek ara ara tek kelimelik bir istemle yeniden gönderilir. Her biri ücretlidir; alt ajanlar hiç sıcak tutulmaz.",
+    "drift.settings.promptCache.interval.title": "Her (dakika)",
+    "drift.settings.promptCache.interval.description": "Canlı tutma isteğinin ne sıklıkla gönderileceği.",
+    "drift.settings.promptCache.window.title": "Süre (dakika)",
+    "drift.settings.promptCache.window.description": "Son istekten sonra ne kadar devam edileceği.",
+    "drift.settings.promptCache.prompt.title": "Canlı tutma istemi",
+    "drift.settings.promptCache.prompt.description": "Her canlı tutma isteğinin sorduğu. Yanıt atılır.",
+    "drift.settings.promptCache.prompt.placeholder": "Hiçbir iş yapma, araç kullanma, OK yanıtla",
+    "drift.settings.promptCache.hour.title": "Anthropic'te bir saatlik önbellek",
+    "drift.settings.promptCache.hour.description":
+        "Anthropic API anahtarıyla önbellek beş dakika yerine bir saat tutulur. Yazmak giriş fiyatının 1,25 katı yerine 2 katıdır.",
     "drift.settings.execution.shell": "Kabuk",
     "drift.settings.execution.subagents": "Alt ajanlar",
     "drift.settings.backgroundLimit.title": "Aynı anda arka plan alt ajanları",

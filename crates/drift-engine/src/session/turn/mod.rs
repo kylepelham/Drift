@@ -52,6 +52,7 @@ mod retry;
 mod settle;
 mod state;
 mod steps;
+pub mod warming;
 
 use hooks::{AfterTool, BeforeTool};
 #[cfg(test)]
@@ -169,6 +170,8 @@ pub struct Turns {
     began: Mutex<HashMap<String, String>>,
     /// Tests swap the wire adapter for a scripted one.
     pub provider_override: Mutex<Option<Provider>>,
+    /// Each session's prompt cache warming loop.
+    warmers: warming::Warmers,
     /// Each session's last request by segment, to say what broke its prompt cache.
     pub(in crate::session) cache_watch: cache_watch::CacheWatch,
 }

@@ -402,6 +402,21 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Час очікування оболонки завершує дерева процесів. Він не впливає на моделі, сервери MCP чи мережеві виклики.",
     "drift.settings.execution": "Виконання",
+    "drift.settings.promptCache": "Кеш промпту",
+    "drift.settings.promptCache.warming.title": "Тримати неактивні розмови теплими",
+    "drift.settings.promptCache.warming.description":
+        "Після останнього запиту розмови її наступний запит час від часу надсилається знову з промптом з одного слова, щоб провайдер тримав його в кеші. Кожен оплачується; субагенти ніколи не підтримуються.",
+    "drift.settings.promptCache.interval.title": "Кожні (хвилин)",
+    "drift.settings.promptCache.interval.description": "Як часто надсилати підтримувальний запит.",
+    "drift.settings.promptCache.window.title": "Протягом (хвилин)",
+    "drift.settings.promptCache.window.description": "Скільки продовжувати після останнього запиту.",
+    "drift.settings.promptCache.prompt.title": "Підтримувальний промпт",
+    "drift.settings.promptCache.prompt.description":
+        "Про що просить кожен підтримувальний запит. Відповідь відкидається.",
+    "drift.settings.promptCache.prompt.placeholder": "Нічого не роби, не використовуй інструменти, відповідай OK",
+    "drift.settings.promptCache.hour.title": "Кеш на годину в Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "З ключем API Anthropic кеш зберігається годину замість п'яти хвилин. Запис коштує вдвічі більше за ціну введення замість 1,25 раза.",
     "drift.settings.execution.shell": "Оболонка",
     "drift.settings.execution.subagents": "Субагенти",
     "drift.settings.backgroundLimit.title": "Фонових субагентів одночасно",

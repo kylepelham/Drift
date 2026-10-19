@@ -60,6 +60,7 @@ impl Engine {
             connection: Some(plan.session.id.clone()),
             effort_marks,
             claude: plan.model.claude,
+            cache_hour: self.prompt_cache().hour_cache,
             no_tool_calls,
             verbosity: catalog::verbosity(provider, &plan.model),
             show_thinking: catalog::shows_thinking(provider, &plan.model),

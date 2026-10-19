@@ -375,6 +375,20 @@ export const drift = {
     "drift.settings.shellTimeout.scope":
         "Les délais du shell arrêtent les arborescences de processus. Ils n’affectent pas les modèles, MCP ou appels réseau.",
     "drift.settings.execution": "Exécution",
+    "drift.settings.promptCache": "Cache de prompt",
+    "drift.settings.promptCache.warming.title": "Garder au chaud les conversations inactives",
+    "drift.settings.promptCache.warming.description":
+        "Après la dernière requête d'une conversation, renvoie de temps en temps sa requête suivante avec un prompt d'un mot, pour que le fournisseur la garde en cache. Chacune est facturée ; les sous-agents ne sont jamais gardés au chaud.",
+    "drift.settings.promptCache.interval.title": "Toutes les (minutes)",
+    "drift.settings.promptCache.interval.description": "La fréquence d'envoi d'un keep-alive.",
+    "drift.settings.promptCache.window.title": "Pendant (minutes)",
+    "drift.settings.promptCache.window.description": "Combien de temps continuer après la dernière requête.",
+    "drift.settings.promptCache.prompt.title": "Prompt de keep-alive",
+    "drift.settings.promptCache.prompt.description": "Ce que demande chaque keep-alive. Sa réponse est ignorée.",
+    "drift.settings.promptCache.prompt.placeholder": "Ne fais rien, n'utilise aucun outil, réponds OK",
+    "drift.settings.promptCache.hour.title": "Cache d'une heure chez Anthropic",
+    "drift.settings.promptCache.hour.description":
+        "Avec une clé d'API Anthropic, garde le cache une heure au lieu de cinq minutes. Y écrire coûte deux fois le prix d'entrée au lieu de 1,25 fois.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Sous-agents",
     "drift.settings.backgroundLimit.title": "Sous-agents en arrière-plan simultanés",
