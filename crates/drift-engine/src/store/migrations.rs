@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 40] = [
+pub(super) const MIGRATIONS: [&str; 41] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -190,6 +190,8 @@ pub(super) const MIGRATIONS: [&str; 40] = [
     "ALTER TABLE message ADD COLUMN refusal_json TEXT;",
     // The bundle that brought the server; its switch belongs to the bundle's screen.
     "ALTER TABLE mcp_config ADD COLUMN bundle TEXT;",
+    // The conversation whose prompt cache a fork shares; a worker or spawned thread follows its parent.
+    "ALTER TABLE session ADD COLUMN cache_root TEXT;",
 ];
 
 #[cfg(test)]

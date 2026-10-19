@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::Store;
 use super::sessions::{NewSession, insert_session, session_from, transaction};
@@ -12,7 +12,34 @@ use crate::session::types::{Part, Session};
 /// Messages copied per transaction when forking.
 const FORK_PAGE: usize = 100;
 
+/// Steps a tree is followed up before its root is taken as found.
+const MAX_TREE_DEPTH: usize = 16;
+
+/// The conversation whose prompt cache `session_id` shares: a fork's source, a worker's or spawned
+/// thread's parent, followed up to the top; the session itself when it stands alone.
+fn root_of(conn: &Connection, session_id: &str) -> rusqlite::Result<String> {
+    let mut current = session_id.to_string();
+    for _ in 0..MAX_TREE_DEPTH {
+        let row: Option<(Option<String>, Option<String>)> = conn
+            .prepare_cached("SELECT cache_root, parent_id FROM session WHERE id = ?1")?
+            .query_row([&current], |row| Ok((row.get(0)?, row.get(1)?)))
+            .optional()?;
+        match row {
+            Some((Some(root), _)) => return Ok(root),
+            Some((None, Some(parent))) => current = parent,
+            _ => return Ok(current),
+        }
+    }
+
+    Ok(current)
+}
+
 impl Store {
+    /// The root of `session_id`'s tree, whose id keys its prompt cache.
+    pub fn cache_root(&self, session_id: &str) -> rusqlite::Result<String> {
+        root_of(&self.lock(), session_id)
+    }
+
     /// Copies finished history in pages; `None` means a selected message disappeared and the copy was removed.
     pub fn fork_session(
         &self,
@@ -24,7 +51,7 @@ impl Store {
         let session = session_from(new, cutoff);
         let messages: Vec<String> = transaction(&self.lock(), |conn| {
             insert_session(conn, &session)?;
-            conn.prepare_cached("UPDATE session SET variant = (SELECT variant FROM session WHERE id = ?2), archived_at = ?3 WHERE id = ?1")?.execute(params![session.id, source_id, id::now_ms()])?;
+            conn.prepare_cached("UPDATE session SET variant = (SELECT variant FROM session WHERE id = ?2), archived_at = ?3, cache_root = ?4 WHERE id = ?1")?.execute(params![session.id, source_id, id::now_ms(), root_of(conn, source_id)?])?;
             conn.prepare_cached(
                 "SELECT id FROM message WHERE session_id = ?1 AND id <= ?2 AND status != 'streaming' ORDER BY id",
             )?

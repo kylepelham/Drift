@@ -49,7 +49,12 @@ impl Engine {
             max_tokens,
             reasoning,
             temperature: sampling.temperature,
-            cache_key: Some(plan.session.id.clone()),
+            cache_key: Some(
+                self.store
+                    .cache_root(&plan.session.id)
+                    .unwrap_or_else(|_| plan.session.id.clone()),
+            ),
+            connection: Some(plan.session.id.clone()),
             no_tool_calls,
             verbosity: catalog::verbosity(provider, &plan.model),
             show_thinking: catalog::shows_thinking(provider, &plan.model),

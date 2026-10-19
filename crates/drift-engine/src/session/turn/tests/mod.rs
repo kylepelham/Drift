@@ -14,6 +14,7 @@ mod admission_receipts;
 mod agents;
 mod attachments;
 mod auto_accept;
+mod cache_affinity;
 mod check_history;
 mod check_reports;
 mod conversation;

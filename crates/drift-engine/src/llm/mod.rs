@@ -160,9 +160,13 @@ pub struct Request {
     pub max_tokens: u32,
     pub reasoning: Option<catalog::Reasoning>,
     pub temperature: Option<f64>,
-    /// The same for every request of one conversation, so providers that route by it (OpenAI's
-    /// `prompt_cache_key`) keep the conversation on one cache.
+    /// The same for every request of one conversation tree, so providers that route by it (OpenAI's
+    /// `prompt_cache_key`, the Codex `session-id` header) keep a conversation, its forks, spawned
+    /// threads and workers on one cache.
     pub cache_key: Option<String>,
+    /// The session itself, which keys a provider's live connection and its continuation; two
+    /// sessions never share one, whatever cache they share.
+    pub connection: Option<String>,
     /// Tools stay defined so history with calls is valid, but the model may not call one.
     pub no_tool_calls: bool,
     /// OpenAI `text.verbosity`, from `catalog::verbosity`.

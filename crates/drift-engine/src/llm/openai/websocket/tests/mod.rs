@@ -246,6 +246,7 @@ fn request() -> Request {
         reasoning: None,
         temperature: None,
         cache_key: Some("session".into()),
+        connection: Some("session".into()),
         no_tool_calls: false,
         verbosity: None,
         show_thinking: false,

@@ -21,6 +21,7 @@ async fn live_codex_continues_a_conversation_over_one_websocket() {
 
     let mut first = request();
     first.cache_key = Some(format!("websocket_probe_{}", crate::random_hex(4)));
+    first.connection.clone_from(&first.cache_key);
     first.messages = vec![text(Role::User, "Reply with exactly the word ok.")];
     let reply = collect(&provider, &first, &credential).await;
 

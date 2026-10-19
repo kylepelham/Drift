@@ -69,7 +69,7 @@ impl OpenAi {
         let prepared = websocket::Prepared {
             handshake,
             body: body(request, subscription),
-            session: request.cache_key.clone(),
+            session: request.connection.clone(),
             timeouts: self.timeouts,
             subscription,
         };
@@ -267,6 +267,7 @@ mod tests {
             };
             let request = Request {
                 cache_key: Some("ses_1".into()),
+                connection: Some("ses_1".into()),
                 ..request()
             };
 
@@ -393,6 +394,7 @@ mod tests {
                 reasoning: Some(Reasoning::Effort { level: "medium".into() }),
                 temperature: None,
                 cache_key: Some("ses_1".into()),
+                connection: Some("ses_1".into()),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,

@@ -97,6 +97,7 @@ pub(super) fn request() -> Request {
         reasoning: None,
         temperature: Some(0.2),
         cache_key: None,
+        connection: None,
         no_tool_calls: false,
         verbosity: None,
         show_thinking: false,

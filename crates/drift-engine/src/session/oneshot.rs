@@ -244,6 +244,7 @@ impl Engine {
             reasoning,
             temperature: None,
             cache_key: None,
+            connection: None,
             no_tool_calls: true,
             verbosity: None,
             show_thinking: false,

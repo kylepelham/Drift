@@ -360,6 +360,7 @@ mod tests {
                 reasoning: Some(Reasoning::Budget { tokens: 2048 }),
                 temperature: Some(0.5),
                 cache_key: None,
+                connection: None,
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,

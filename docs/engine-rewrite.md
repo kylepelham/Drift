@@ -1738,8 +1738,13 @@ code until he picks.
   4096 tokens of thinking room on top of the answer's own (a budget level adds its budget),
   within the model's output limit; a budget that cannot fit is dropped.
 - OpenAI caching is automatic, keyed by routing: every request of a conversation carries
-  `prompt_cache_key` = the session id (API key and Codex routes alike, as Codex itself does), so
-  its steps and turns stay on one cache. Title and compaction requests carry none.
+  `prompt_cache_key` (and on Codex the `session-id` header) = the root of its session tree (API
+  key and Codex routes alike, after opencode v2's affinity), so its steps and turns stay on one
+  cache and so do the sessions that start from its history: a worker or spawned thread uses its
+  parent's root, a fork its source's (`session.cache_root`, migration 41, set when the fork is
+  copied). The Responses WebSocket and its `previous_response_id` continuation stay keyed by the
+  session itself (`Request::connection`), so two sessions never share a continuation. Title and
+  compaction requests carry none.
 - Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)

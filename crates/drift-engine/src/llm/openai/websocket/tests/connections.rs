@@ -6,15 +6,27 @@ use super::*;
 async fn conversations_credentials_and_mode_headers_never_share_a_connection() {
     let h = fixture(Server::default(), None).await;
 
-    // Two conversations at once.
+    // Two conversations at once, sharing one cache as a worker and its parent do.
     let mut other = request();
-    other.cache_key = Some("other".into());
+    other.connection = Some("other".into());
     let (first, credential) = (request(), key());
     let (a, b) = tokio::join!(
         collect(&h.provider, &first, &credential),
         collect(&h.provider, &other, &credential)
     );
     assert!(a.iter().chain(&b).all(Result::is_ok));
+    assert_eq!(
+        h.server.connections(),
+        2,
+        "one socket each, never a shared continuation"
+    );
+    for index in 0..2 {
+        assert_eq!(
+            h.server.body(index)["prompt_cache_key"],
+            "session",
+            "both keep the shared cache"
+        );
+    }
 
     // The same conversation under another key.
     let different = Credential::ApiKey {

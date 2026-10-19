@@ -66,6 +66,7 @@ fn a_request_carries_no_secret_anywhere_and_keeps_signatures_and_file_data() {
         reasoning: None,
         temperature: None,
         cache_key: None,
+        connection: None,
         no_tool_calls: false,
         verbosity: None,
         show_thinking: false,

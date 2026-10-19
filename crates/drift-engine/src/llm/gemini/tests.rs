@@ -108,6 +108,7 @@ fn request() -> Request {
         reasoning: Some(Reasoning::Budget { tokens: 2048 }),
         temperature: None,
         cache_key: None,
+        connection: None,
         no_tool_calls: false,
         verbosity: None,
         show_thinking: false,
