@@ -54,6 +54,79 @@ layouts (#52014), tool schema roots declared as objects (#51153), outbound surro
 visible text (#43984), unique Gemini call ids (#44051), PDFs as file parts on Chat Completions
 (#50933), `prompt_cache_key` clamped to 64 characters (#44571).
 
+### Wire sweep results
+
+Branch `wire-sweep`: the 233 `fix(ai)` commits in `7f964bbb00..501b15af2`, plus `fix(provider)` #54164. Each fix
+has a test that failed before it.
+
+The 14 named:
+
+| PR | v2 fixed | Drift |
+| --- | --- | --- |
+| #56669 | null Responses stream fields read as absent | Fixed in 66034bbbe9 (a null call id gets an engine id; null usage, output, reason are absent) and b4162d87f0 (Gemini nulls) |
+| #56286 | unknown and untyped stream events | Fixed in 79615c9925: untyped frames ignored, a bare `{"error"}` fails the reply, on Responses and Messages (Bedrock reuses Messages); unknown typed events were already ignored |
+| #52634 | mid-stream connection loss reported as such | Fixed in 697ef11506: "connection lost while reading the response: <cause>" instead of reqwest's "error decoding response body" |
+| #52421 | results for trailing tool calls | Not affected: `session/convert.rs` `result_blocks` gives every replayed call a result, an unfinished one "interrupted" |
+| #53603 | empty unfinished reasoning dropped on replay | Not affected: the Responses request sends reasoning only with `encrypted_content`, and unsigned reasoning of an unfinished reply is never replayed |
+| #45144 | Anthropic `request_too_large` as overflow | Fixed in 83d733d621, with Codex's streamed `context_length_exceeded` and more servers' wording |
+| #52014 | error messages from common body layouts | Fixed in 8f7f45a160: `llm::error_message` reads `error.message`, `error`, `message`, `Message`, `detail`, `errors[0].message` on every wire |
+| #51153 | tool schema roots declared as objects | Fixed in cf07467fb8: `ToolSpec::parameters` adds `type: object` and drops an empty struct's object-or-array `anyOf`, on every wire |
+| #44880 | outbound lone surrogates sanitized | Not affected: Rust strings cannot hold a lone surrogate and serde_json refuses one on input |
+| #43814 | Gemini parallel results merged into one turn | Not affected: a step's results are one user message (`convert::push` merges adjacent ones); b4162d87f0 also moves non-response parts out of that turn (#43479) |
+| #43984 | Gemini thought signatures on visible text | Not affected: a signed text part streams `PartSignature` and replays as `Block::Signed` with `thoughtSignature` |
+| #44051 | unique Gemini call ids | Not affected: a missing id was already an engine id; a repeated supplied id (#44454) fixed in b4162d87f0 |
+| #50933 | PDFs as file parts on Chat Completions | Not affected: `compat/request.rs` already sends `{"type":"file","file":{...}}` |
+| #44571 | `prompt_cache_key` clamped to 64 characters | Not affected: the key is a session id of 28 characters, and only Responses sends it |
+
+Also fixed:
+
+- Responses items followed by `output_index` when the id is missing, and items given whole only at
+  `output_item.done` shown once (#45013, #45081, #45330, #46064, #44595, #45854): 66034bbbe9.
+- Responses WebSocket: notifications between responses keep the socket (#47316, #44488), the continuation baseline
+  uses streamed items when the completion lists none or re-encrypts reasoning (#47291, #48249): b1fd242766.
+- Gemini: function-response turns isolated (#43479), `skip_thought_signature_validator` on unsigned calls
+  replayed to Gemini 3+ (#41109), prompt `blockReason` as a refusal (#43070), explicit nulls (#44490), repeated
+  call ids (#44454), `API_KEY_INVALID` as refused credentials (#51950): b4162d87f0.
+- SSE: events without data and `data: : keepalive` dropped (#50954): 50122dd240.
+- Chat Completions: xAI's "Incorrect API key provided" (#52112), usage on the choice and cache hits as
+  `cached_tokens` / `prompt_cache_hit_tokens` (#44502), call ids replayed to Claude through a gateway (#45056,
+  Claude part): 978e135fa5. Text-valued streamed `error` (#52014): 8f7f45a160.
+- Overflow wording of Z.ai, DeepInfra, Novita, Together/TGI, Workers AI, DashScope, llama.cpp (#52104, #52132,
+  #52134, #52133, #52128, #45834, #37848): 83d733d621.
+- Retries: 409 (#39391), streamed faults named only in words (#46038), spent balance or expired plan said in
+  words never retried (#52104, #49195): 81e8f5a522.
+- Empty Messages turns left out (#46291): 2383fccb72. Vertex ADC under `CLOUDSDK_CONFIG` (#54164): 0bb83e859c.
+
+Not affected, Drift already does it: #56232, #55032 (Gemini malformed finishes, 900 s idle); Anthropic unknown
+events, pings, error events, nullable usage, finish across usage deltas, orphan deltas, pending calls, id scrub,
+signature requirement, parallel results in one turn, tools kept under `tool_choice: none`, cache breakpoints
+(#43767, #44817, #44500, #43761, #46171, #43289, #43136, #43796, #44713, #41948, #38553, #38725, #46289, #45088);
+Responses flat and detail-free errors, error frames, encrypted reasoning, top-level instructions, stateless
+replay, orphan deltas, pending calls, file inputs (#48376, #49402, #44537, #44863, #45085, #45050, #44587, #44575,
+#43575, #44234, #46297, #38374); Chat Completions finish rules, `[DONE]`, truncated or filtered calls, call
+identity by index, empty assistants, tool choice without tools, data URLs, nullable fields, reasoning deltas
+(#46036, #44743, #44864, #45850, #46040, #46029, #37847, #45046, #48857, #48862, #44499, #40798, #37558, #45864,
+#41210, #48863); Gemini text closed before calls, unknown parts, default args, tool finish, `parametersJsonSchema`,
+message-less errors (#46286, #44745, #43111, #40546, #51009, #46069); SSE null frames and retry fields (#50793,
+#45093); thinking budgets fitted to the output limit in `session/turn/request.rs` (#51157, #51189); transport and
+network errors retried (#43807, #41779); bodies shown when no message is found (#51978).
+
+Not applicable, Drift lacks the wire or route: Bedrock Converse and Mantle, Bedrock Nova and Mistral (Drift's
+Bedrock route is Claude on InvokeModel); Mistral, Cohere, Kimi/Moonshot, DeepSeek, Alibaba, DigitalOcean, Groq,
+Cloudflare, Azure, Z.ai Responses, xAI Responses WebSocket, Gemini over Chat Completions, Google Interactions,
+Vertex Interactions and Mistral routes; media, image, speech, transcription and evaluation routes (#51300 to
+#51380, #51632, #51930); the rest of the 233.
+
+Not applicable, v2 internals or features outside a wire fix: provider option typing and passthrough, route ids,
+metadata keys, capability defaults, service tiers, request labels, compaction triggers, effort updates and native
+system updates (plan rows 7 and 8: #52568, #52426, #43180, #47884, #53289, #43498), thinking `display`,
+`disable_parallel_tool_use`, `prompt_cache_key` allowlists (#49121, #41131), Responses `phase` and `type:
+message` on input (#38777, #49110; OpenAI and Codex accept Drift's items), tool deduplication and history
+validation, trace overhead, abort signals.
+
+Left open: Drift sends a `functionCall.id` to every Gemini model; v2 omits it before Gemini 3 (#44454, #50504).
+Gemini 2.5 accepts it today; worth a live check if a 2.x refusal shows up.
+
 ## Features
 
 - **Web search.** One `websearch` tool over providers (Exa, Firecrawl, Parallel, Tavily, TinyFish).
