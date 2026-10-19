@@ -35,6 +35,14 @@
     --sidebar: var(--surface);
 }
 
+/* Only the Drift base gives its sidebar a colour of its own; every other base keeps the surface's. */
+:root:not([data-theme]),
+:root[data-theme="drift-default"],
+:root[data-theme="drift-dark"],
+[data-theme-preview="drift-default"] {
+    --sidebar: #121211;
+}
+
 /* Bases: the surfaces and text. The names before 2.4.0 stay as aliases until the window renames them. */
 
 /* The default: warm neutral greys, a sidebar darker than the conversation, and a clay accent, as Claude's desktop app. */
@@ -43,7 +51,6 @@
 :root[data-theme="drift-dark"],
 [data-theme-preview="drift-default"] {
     color-scheme: dark;
-    --sidebar: #121211;
     --bg: #171715;
     --surface: #201f1d;
     --raised: #292826;

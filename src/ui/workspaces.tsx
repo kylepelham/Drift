@@ -109,7 +109,7 @@ export function WorkspaceGroup(props: {
         <div ref={root} data-workspace={props.workspace.id}>
             <div
                 class="group sticky top-0 z-[1] flex w-full cursor-pointer items-center gap-2.5 rounded-md py-1.5 pr-1.5 pl-2 transition-colors"
-                classList={{ "bg-raised/55": active(), "bg-surface hover:bg-raised/45": !active() }}
+                classList={{ "bg-raised/55": active(), "bg-sidebar hover:bg-raised/45": !active() }}
                 onPointerDown={(event) => {
                     cancelDrag();
                     cancelDrag = dragReorder(event, root, {
