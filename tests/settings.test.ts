@@ -591,3 +591,20 @@ test("image generation says when the chosen provider still needs an API key", as
     expect(imageProviderNote(state("openai"))).not.toContain("OPENAI");
     expect(imageProviderNote(state("off"))).toBe(imageProviderNote(state("openai")));
 });
+
+test("tool grouping is one multi-select list and Code settings preview a diff with every setting applied", async () => {
+    const general = await Bun.file("src/ui/settings-general.tsx").text();
+    expect(general).toContainCode("checked={toolGroupKinds.filter((kind) => toolGroups()[kind])}");
+    expect(general).toContainCode("fallbackLabel={groupedSummary()}");
+    expect(general).not.toContain("<For each={toolGroupKinds}>");
+
+    const picker = await Bun.file("src/ui/picker.tsx").text();
+    expect(picker).toContainCode("if (!props.checked) setOpen(false);");
+
+    const code = await Bun.file("src/ui/settings-code.tsx").text();
+    expect(code).toContainCode('<DiffPanel diff={previewDiff} filename="greet.ts" />');
+
+    const appearance = await Bun.file("src/ui/settings-appearance.tsx").text();
+    expect(appearance).toContainCode("<ThinkingSettings />");
+    expect(await Bun.file("src/ui/settings-general.tsx").text()).not.toContain("ThinkingSettings");
+});

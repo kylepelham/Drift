@@ -1,6 +1,6 @@
-import { IconArrowUp, IconBranch, IconLayers, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
+import { IconBranch, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
@@ -29,6 +29,7 @@ import { Picker, type PickerItem } from "./picker";
 import { DictationStatus } from "./composer-voice";
 import { ComposerQueue } from "./composer-queue";
 import { variantNames } from "../engine/catalog";
+import { ComposerSend } from "./composer-send";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
 import { touchInput } from "../state/screen";
@@ -294,7 +295,7 @@ export function Composer() {
         submissionGuard,
     );
 
-    /** Sends the draft, queued behind the running turn when `queue` is set (Alt+Enter, or the queue button). */
+    /** Sends the draft, queued behind the running turn when `queue` is set: Alt+Enter, Alt-click or a long press. */
     async function submitAs(queue: boolean) {
         queueing = queue;
         try {
@@ -609,26 +610,12 @@ export function Composer() {
                                 <IconStop class="size-3.5" />
                             </button>
                         </Show>
-                        <Show when={busy()}>
-                            <button
-                                class="composer-queue flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-raised hover:text-ink disabled:pointer-events-none disabled:opacity-60"
-                                title={t("drift.prompt.queue")}
-                                aria-label={t("drift.prompt.queue")}
-                                disabled={sendDisabled()}
-                                onClick={() => void submitAs(true)}
-                            >
-                                <IconLayers class="size-3.5" />
-                            </button>
-                        </Show>
-                        <button
-                            class="composer-submit flex size-7 items-center justify-center rounded-md text-accent transition-colors hover:bg-raised disabled:pointer-events-none disabled:text-ink-faint disabled:opacity-60"
-                            title={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
-                            aria-label={busy() ? t("drift.prompt.steer") : t("prompt.action.send")}
+                        <ComposerSend
+                            busy={busy()}
                             disabled={sendDisabled()}
-                            onClick={() => void submit()}
-                        >
-                            <IconArrowUp class="size-4" />
-                        </button>
+                            onSend={() => void submit()}
+                            onQueue={() => void submitAs(true)}
+                        />
                     </div>
                 </div>
             </div>

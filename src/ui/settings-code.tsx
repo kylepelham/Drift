@@ -1,6 +1,7 @@
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { codeFont, setCodeFont } from "../state/theme";
 import { FontField } from "./settings-font";
+import { DiffPanel } from "./diff-panel";
 import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
@@ -26,6 +27,15 @@ import {
 } from "../state/code";
 
 import type { DiffIndicator, SyntaxThemePreset } from "../state/code";
+
+/** A small edit shown as the transcript shows diffs, so every setting below can be seen as it changes. */
+const previewDiff = [
+    "@@ -1,3 +1,3 @@",
+    " function greet(name: string) {",
+    '-\treturn "Hello, " + name;',
+    "+\treturn `Hello, ${name}!`;",
+    " }",
+].join("\n");
 
 const syntaxThemeLabels: Record<SyntaxThemePreset, string> = {
     automatic: "drift.code.theme.automatic",
@@ -54,6 +64,9 @@ export function CodeSection() {
     return (
         <div class="space-y-6">
             <SettingsGroup title={t("drift.code.syntax")}>
+                <div class="border-b border-edge/70 px-1 py-2.5">
+                    <DiffPanel diff={previewDiff} filename="greet.ts" />
+                </div>
                 <SettingsRow
                     title={t("drift.code.syntaxTheme.title")}
                     description={t("drift.code.syntaxTheme.description")}

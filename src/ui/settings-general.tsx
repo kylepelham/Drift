@@ -40,6 +40,15 @@ import {
 
 import type { LanguageId } from "../state/language";
 
+/** The grouping control's label: none, all, or the chosen kinds by name. */
+function groupedSummary() {
+    const chosen = toolGroupKinds.filter((kind) => toolGroups()[kind]);
+    if (chosen.length === 0) return t("drift.settings.groupTools.none");
+    if (chosen.length === toolGroupKinds.length) return t("drift.settings.groupTools.all");
+
+    return chosen.map((kind) => t(`drift.settings.groupTools.${kind}`)).join(", ");
+}
+
 export function GeneralSection() {
     const engine = useEngine();
     // The toggle stays disabled until the engine returns its preference.
@@ -162,23 +171,25 @@ export function GeneralSection() {
                     title={t("drift.settings.groupTools.title")}
                     description={t("drift.settings.groupTools.description")}
                 >
-                    <span />
+                    <Picker
+                        label={t("drift.settings.groupTools.title")}
+                        items={toolGroupKinds.map((kind) => ({
+                            id: kind,
+                            label: t(`drift.settings.groupTools.${kind}`),
+                        }))}
+                        checked={toolGroupKinds.filter((kind) => toolGroups()[kind])}
+                        fallbackLabel={groupedSummary()}
+                        floating
+                        bordered
+                        chevronAtEnd
+                        placement="below"
+                        width="12rem"
+                        onPick={(id) => {
+                            const kind = toolGroupKinds.find((known) => known === id);
+                            if (kind) setToolGroup(kind, !toolGroups()[kind]);
+                        }}
+                    />
                 </SettingsRow>
-                <For each={toolGroupKinds}>
-                    {(kind) => (
-                        <SettingsRow
-                            title={t(`drift.settings.groupTools.${kind}`)}
-                            description=""
-                            onClick={() => setToolGroup(kind, !toolGroups()[kind])}
-                        >
-                            <Toggle
-                                label={t(`drift.settings.groupTools.${kind}`)}
-                                checked={toolGroups()[kind]}
-                                onChange={() => setToolGroup(kind, !toolGroups()[kind])}
-                            />
-                        </SettingsRow>
-                    )}
-                </For>
                 <SettingsRow
                     title={t("drift.settings.editedFiles.title")}
                     description={t("drift.settings.editedFiles.description")}

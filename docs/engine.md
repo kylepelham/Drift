@@ -93,8 +93,8 @@ model may consult, such as another project's code, a spec, or a library's source
 ## Queued prompts
 
 A prompt sent while a turn runs is delivered as `steer` by default: it joins the running turn at its
-next request. Sent as `queue` (Alt+Enter in the composer, or the queue button beside Send while a
-turn runs), it waits instead, kept outside the transcript (`queued_prompt` table) and shown above
+next request. Sent as `queue` (Alt+Enter in the composer, Send clicked with Alt held, or a long press on
+Send on a touch screen, while a turn runs), it waits instead, kept outside the transcript (`queued_prompt` table) and shown above
 the composer with Edit, Discard and Send now. Send now takes it off the queue and sends it as a
 steer, or as a new turn when none runs.
 

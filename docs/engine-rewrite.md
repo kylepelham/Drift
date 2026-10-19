@@ -1619,7 +1619,8 @@ listed there.
     workspace's plan files are listed on their own, by name and at most ten, which also keeps that
     note stable; it lists the workspace's plans rather than tracking which session wrote each.
 - **Queue as an option.** A prompt is delivered as `steer` (the default, today's behaviour) or
-  `queue`. The composer queues with Alt+Enter and a choice in the send button's menu. A queued
+  `queue`. The composer queues with Alt+Enter, by clicking Send with Alt held (it shows the queue icon), or
+  by a long press on Send on a touch screen. A queued
   prompt is saved durably, outside the transcript, and shown above the composer with edit, discard
   and "send now", which steers it. When the turn ends, steers waiting are delivered first, then one
   queued prompt starts the next turn; the next one waits for that turn to end. After Stop, queued

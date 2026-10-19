@@ -809,3 +809,16 @@ test("a queued prompt shows its text and counts its files, and Alt+Enter queues 
     expect(composer).toContain("void submitAs(event.altKey)");
     expect(composer).toContain("queue:queueing");
 });
+
+test("the send button queues while Alt is held during a turn, or after a long press on a touch screen", async () => {
+    const composer = await Bun.file("src/ui/composer.tsx").text();
+    expect(composer).toContainCode("<ComposerSend busy={busy()} disabled={sendDisabled()}");
+    expect(composer).toContainCode("onQueue={() => void submitAs(true)}");
+    expect(composer).not.toContain("composer-queue flex");
+
+    const send = await Bun.file("src/ui/composer-send.tsx").text();
+    expect(send).toContainCode("const queues = () => props.busy && altHeld();");
+    expect(send).toContainCode('if (event.pointerType !== "touch" || !props.busy || props.disabled) return;');
+    expect(send).toContainCode("if (queues()) props.onQueue(); else props.onSend();");
+    expect(send).toContainCode('window.addEventListener("blur", release);');
+});

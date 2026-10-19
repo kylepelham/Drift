@@ -510,6 +510,7 @@ export const drift = {
     "drift.permissions.autoGlobal": "Berechtigungen werden global automatisch akzeptiert",
     "drift.permissions.autoThread": "Berechtigungen werden für diesen Thread automatisch akzeptiert",
     "drift.prompt.steer": "Steuern",
+    "drift.prompt.steerHint": "Steuern (Alt halten, um es für nach diesem Durchgang einzureihen)",
     "drift.titlebar.minimize": "Minimieren",
     "drift.titlebar.restore": "Wiederherstellen",
     "drift.titlebar.maximize": "Maximieren",
@@ -1065,7 +1066,9 @@ export const drift = {
     "drift.settings.collapseCommands.open": "Immer offen",
     "drift.settings.groupTools.title": "Aufeinanderfolgende Werkzeugaufrufe gruppieren",
     "drift.settings.groupTools.description":
-        "Aufeinanderfolgende Aufrufe der unten aktivierten Arten werden zu einer Zeile zusammengefasst.",
+        "Aufeinanderfolgende Aufrufe der gewählten Arten werden zu einer Zeile zusammengefasst.",
+    "drift.settings.groupTools.none": "Keine",
+    "drift.settings.groupTools.all": "Alle",
     "drift.settings.groupTools.commands": "Befehle",
     "drift.settings.groupTools.edits": "Bearbeitungen",
     "drift.settings.groupTools.fetches": "Abrufe",
