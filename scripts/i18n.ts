@@ -5,12 +5,10 @@
 import { englishStrings, loadCatalog, localePath, localeSource, missingKeys } from "./i18n/catalog";
 import { startModel, translate } from "./i18n/translate";
 import { invariantKeys } from "./i18n/invariants";
-
-import type { Catalog, Locale } from "./i18n/catalog";
+import { examplesFor } from "./i18n/examples";
 
 const model = process.env.DRIFT_I18N_MODEL ?? "google/gemini-3.8-flash";
 const batchSize = 60;
-const exampleCount = 24;
 const parallel = 32;
 
 const catalog = await loadCatalog();
@@ -38,7 +36,7 @@ if (work.length) {
     try {
         await inPool(jobs, parallel, async ({ locale, chunk }) => {
             const strings = Object.fromEntries(chunk.map((key) => [key, english[key]!]));
-            const examples = examplesFor(catalog, locale, chunk);
+            const examples = examplesFor(english, locale.values, chunk);
             const done = await translate(engine, { locale: locale.name, strings, examples }).catch((error: Error) => {
                 failures.push(`${locale.id}: ${error.message}`);
                 return {};
@@ -109,18 +107,4 @@ async function inPool<T>(items: T[], limit: number, run: (item: T) => Promise<vo
     };
 
     await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-}
-
-/** Existing translations near `keys` (the same parent key first), which show the locale's terms and tone. */
-function examplesFor(catalog: Catalog, locale: Locale, keys: string[]) {
-    const parent = (key: string, depth: number) => key.split(".").slice(0, depth).join(".");
-    const wanted = new Set(keys);
-    const translated = Object.keys(englishStrings(catalog)).filter((key) => key in locale.values && !wanted.has(key));
-    const near = (depth: (key: string) => number) => {
-        const prefixes = new Set(keys.map((key) => parent(key, depth(key))));
-        return translated.filter((key) => prefixes.has(parent(key, depth(key))));
-    };
-    const picked = [...new Set([...near((key) => key.split(".").length - 1), ...near(() => 2)])].slice(0, exampleCount);
-
-    return Object.fromEntries(picked.map((key) => [key, [english[key]!, locale.values[key]!] as [string, string]]));
 }

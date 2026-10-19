@@ -85,6 +85,11 @@ function instructions(locale: string) {
         "Keep every {{placeholder}} exactly as written. Keep product, protocol and file names, code, commands,",
         "keyboard keys (Alt+Enter, Ctrl) and units as they are.",
         "Write short, plain interface text in the terms and tone of the examples. The key says where the text appears.",
+        "An example with the same English as a string to translate is how this app already says it: reuse it unless the key",
+        "shows a different use. A label such as None or All names a state, not an action like Select all.",
+        "When an example already translates a word the English uses, use that same translation, so one thing has one name",
+        "across the app. Keep every part of the meaning; never drop a term to make the sentence easier.",
+        "Write it as a native speaker would read it in an app: correct grammar, the usual phrasing for a tooltip or label.",
         "Never use an em dash.",
     ].join("\n");
 }

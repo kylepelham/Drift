@@ -29,3 +29,49 @@ test("every locale holds every key en.ts has and is written as `bun run i18n` wr
         expect(written === (await localeSource(catalog, locale.values)), `${locale.id}: run bun run i18n`).toBeTrue();
     }
 });
+
+test("examples show the keys beside a string and how the locale already says the words it uses", async () => {
+    const { examplesFor, words } = await import("../scripts/i18n/examples");
+    expect(words("Queue {{count}} prompts with Alt+Enter")).toEqual(["queu", "prompt", "enter"]);
+    expect(words("Queued"), "an ending does not hide the word").toEqual(["queu"]);
+
+    const english = {
+        "drift.prompt.steer": "Steer",
+        "drift.prompt.steerHint": "Steer (hold Alt to queue for after this turn)",
+        "drift.queue.label": "Queued",
+        "drift.queue.discard": "Discard",
+        "drift.settings.theme": "Theme",
+    };
+    const japanese = {
+        "drift.prompt.steer": "方向を修正",
+        "drift.queue.label": "キュー",
+        "drift.queue.discard": "破棄",
+        "drift.settings.theme": "テーマ",
+    };
+    const examples = examplesFor(english, japanese, ["drift.prompt.steerHint"]);
+
+    expect(examples["drift.prompt.steer"], "its neighbour").toEqual(["Steer", "方向を修正"]);
+    expect(examples["drift.queue.label"], "the locale's word for queue, from elsewhere").toEqual(["Queued", "キュー"]);
+    expect(Object.keys(examples)).not.toContain("drift.settings.theme");
+    expect(Object.keys(examples)).not.toContain("drift.prompt.steerHint");
+});
+
+test("the same English already translated elsewhere comes first, and the wider area only pads a short list", async () => {
+    const { examplesFor } = await import("../scripts/i18n/examples");
+    const english = {
+        "drift.preview.mode.none": "None",
+        "drift.settings.groupTools.commands": "Commands",
+        "drift.settings.groupTools.none": "None",
+        "drift.settings.prompts.unsaved": "Unsaved changes",
+    };
+    const chinese = {
+        "drift.preview.mode.none": "无",
+        "drift.settings.groupTools.commands": "命令",
+        "drift.settings.prompts.unsaved": "未保存的更改",
+    };
+    const examples = Object.keys(examplesFor(english, chinese, ["drift.settings.groupTools.none"]));
+
+    expect(examples[0], "the locale's word for None, first").toBe("drift.preview.mode.none");
+    expect(examples).toContain("drift.settings.groupTools.commands");
+    expect(examples, "one neighbour is too few, so the wider area pads it").toContain("drift.settings.prompts.unsaved");
+});
