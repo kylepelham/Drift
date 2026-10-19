@@ -170,10 +170,17 @@ where
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum StreamError {
-    #[error(transparent)]
+    /// reqwest calls every failed body read a decode error; the innermost cause says what happened.
+    #[error("connection lost while reading the response: {}", innermost(.0))]
     Transport(reqwest::Error),
     #[error("the stream stalled: nothing for {seconds} s")]
     Stalled { seconds: u64 },
+}
+
+fn innermost(error: &(dyn std::error::Error + 'static)) -> String {
+    std::iter::successors(Some(error), |error| error.source())
+        .last()
+        .map_or_else(String::new, ToString::to_string)
 }
 
 #[cfg(test)]
@@ -247,6 +254,29 @@ mod tests {
         assert!(matches!(error, StreamError::Stalled { seconds: 0 }), "{error}");
         assert_eq!(error.to_string(), "the stream stalled: nothing for 0 s");
         assert!(events.next().await.is_none(), "and nothing follows");
+    }
+
+    #[tokio::test]
+    async fn a_connection_lost_midway_is_reported_as_one_not_as_a_decode_error() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let _ = socket.read(&mut [0; 4096]).await;
+            let head = b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\nb\r\ndata: one\n\n\r\n";
+            socket.write_all(head).await.unwrap();
+        });
+
+        let response = crate::llm::http::client().get(&url).send().await.unwrap();
+        let mut events = Box::pin(events(response.bytes_stream(), Duration::from_secs(5)));
+        assert_eq!(events.next().await.unwrap().unwrap().data, "one");
+        let error = events.next().await.unwrap().unwrap_err().to_string();
+        assert!(
+            error.starts_with("connection lost while reading the response: ") && !error.contains("decoding"),
+            "{error}"
+        );
     }
 
     #[test]
