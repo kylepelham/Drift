@@ -118,47 +118,54 @@ function ProviderRow(props: {
     };
 
     return (
-        <SettingsRow title={props.provider.name} description={providerNote(props.provider)}>
-            <div class="flex flex-wrap items-center justify-end gap-2">
-                <For each={props.provider.keys}>
-                    {(key, index) => (
-                        <span class="flex items-center gap-1 rounded-md bg-raised px-2 py-1 font-mono text-xs text-ink-muted">
-                            {key}
-                            <button
-                                class="text-ink-faint hover:text-ink"
-                                aria-label={t("drift.settings.webSearch.removeKey", { key })}
-                                onClick={() => void props.onRemove(index())}
-                            >
-                                ×
-                            </button>
-                        </span>
-                    )}
-                </For>
-                <Show when={props.provider.builtIn}>
-                    <input
-                        type="password"
-                        aria-label={t("drift.settings.webSearch.keyPlaceholder")}
-                        placeholder={t("drift.settings.webSearch.keyPlaceholder")}
-                        class={`w-40 ${input}`}
-                        value={draft()}
-                        onInput={(event) => setDraft(event.currentTarget.value)}
-                        onKeyDown={(event) => event.key === "Enter" && void add()}
-                    />
-                    <button class={button} disabled={!draft().trim()} onClick={() => void add()}>
-                        {t("drift.settings.webSearch.addKey")}
-                    </button>
-                </Show>
-                <Show when={props.canMoveUp}>
-                    <button
-                        class={button}
-                        aria-label={t("drift.settings.webSearch.moveUp")}
-                        title={t("drift.settings.webSearch.moveUp")}
-                        onClick={() => props.onMoveUp()}
-                    >
-                        ↑
-                    </button>
-                </Show>
-            </div>
-        </SettingsRow>
+        <div class="border-b border-edge/70 last:border-b-0 [&>.settings-row]:border-b-0">
+            <SettingsRow title={props.provider.name} description={providerNote(props.provider)}>
+                <div class="flex items-center justify-end gap-2">
+                    <Show when={props.provider.builtIn}>
+                        <input
+                            type="password"
+                            aria-label={t("drift.settings.webSearch.keyPlaceholder")}
+                            placeholder={t("drift.settings.webSearch.keyPlaceholder")}
+                            class={`w-40 ${input}`}
+                            value={draft()}
+                            onInput={(event) => setDraft(event.currentTarget.value)}
+                            onKeyDown={(event) => event.key === "Enter" && void add()}
+                        />
+                        <button class={button} disabled={!draft().trim()} onClick={() => void add()}>
+                            {t("drift.settings.webSearch.addKey")}
+                        </button>
+                    </Show>
+                    <Show when={props.canMoveUp}>
+                        <button
+                            class={button}
+                            aria-label={t("drift.settings.webSearch.moveUp")}
+                            title={t("drift.settings.webSearch.moveUp")}
+                            onClick={() => props.onMoveUp()}
+                        >
+                            ↑
+                        </button>
+                    </Show>
+                </div>
+            </SettingsRow>
+            {/* Keys get their own line, which wraps, so however many there are the row keeps its title. */}
+            <Show when={props.provider.keys.length > 0}>
+                <div class="-mt-1 flex flex-wrap gap-1.5 px-1 pb-2.5">
+                    <For each={props.provider.keys}>
+                        {(key, index) => (
+                            <span class="flex items-center gap-1 rounded-md bg-raised px-2 py-1 font-mono text-xs text-ink-muted">
+                                {key}
+                                <button
+                                    class="text-ink-faint hover:text-ink"
+                                    aria-label={t("drift.settings.webSearch.removeKey", { key })}
+                                    onClick={() => void props.onRemove(index())}
+                                >
+                                    ×
+                                </button>
+                            </span>
+                        )}
+                    </For>
+                </div>
+            </Show>
+        </div>
     );
 }

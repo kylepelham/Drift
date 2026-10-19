@@ -332,7 +332,7 @@ Renderers: `api.registerToolRenderer(toolName, fn)` overrides the card body for 
 through tool renderers, never part renderers.
 
 Thinking indicators: `api.registerThinkingIndicator(id, { name, render })` adds a look for the
-indicator a working turn shows. It is listed in Settings > General > Thinking indicator as
+indicator a working turn shows. It is listed in Settings > Appearance > Thinking indicator as
 "name (plugin)" and is used only once the user picks it; while its plugin is not loaded, or if
 `render` throws, Shimmer is drawn in its place and the error is logged. `render(host, context)`
 draws into `host`, an empty inline element, and may return a cleanup function or

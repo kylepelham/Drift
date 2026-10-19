@@ -1,4 +1,5 @@
 import { SettingsGroup, SettingsRow } from "./settings-controls";
+import { ThinkingSettings } from "./settings-thinking";
 import { FontField } from "./settings-font";
 import { For, Show } from "solid-js";
 import { Toggle } from "./controls";
@@ -125,6 +126,8 @@ export function AppearanceSection() {
                     <FontField label={t("settings.general.row.uiFont.title")} value={uiFont()} onInput={setUiFont} />
                 </SettingsRow>
             </SettingsGroup>
+
+            <ThinkingSettings />
 
             <SettingsGroup title={t("startup.settings.title")}>
                 <SettingsRow

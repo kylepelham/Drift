@@ -346,7 +346,7 @@ Tool errors use the same clickable disclosure as successful tool rows. A prefere
 controls whether a newly failed tool starts expanded or collapsed; it never locks the
 row in that state.
 
-Settings > General > Thinking indicator styles the row a working turn shows. Style is Shimmer
+Settings > Appearance > Thinking indicator styles the row a working turn shows. Style is Shimmer
 (the default: the word with a sweep of light), Orbs, Floating motes, Dots, Pulse, Still (the
 word without motion), or one an interface plugin registered (see `extensibility.md`). Color is
 Grey, the theme's accent, or Spectrum (the accent turning slowly through every hue), and Speed

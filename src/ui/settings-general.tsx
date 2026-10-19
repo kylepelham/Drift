@@ -3,7 +3,6 @@ import { language, languages, setLanguage } from "../state/language";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { filePreviewTypes } from "../file-preview-types";
-import { ThinkingSettings } from "./settings-thinking";
 import { isRemoteRuntime } from "../runtime";
 import { useEngine } from "../engine";
 import { Toggle } from "./controls";
@@ -192,8 +191,6 @@ export function GeneralSection() {
                     />
                 </SettingsRow>
             </SettingsGroup>
-
-            <ThinkingSettings />
 
             <SettingsGroup title={t("drift.preview.settings.title")}>
                 <SettingsRow
