@@ -36,14 +36,15 @@ pub(super) async fn send(socket: &mut Socket, payload: &Value, timeout: Duration
         .map_err(|error| Error::Transport(format!("Responses WebSocket: {error}")))
 }
 
-/// Answers a heartbeat between requests; false when the connection should close.
+/// Answers a heartbeat between requests, and ignores a notification sent outside any response (a keep-alive, rate
+/// limits); false when the connection should close.
 pub(super) async fn idle(socket: &mut Socket, frame: Frame) -> bool {
     match frame {
         Some(Ok(Message::Ping(_))) => {
             let flushed = tokio::time::timeout(IDLE, socket.flush()).await;
             flushed.is_ok_and(|result| result.is_ok())
         }
-        Some(Ok(Message::Pong(_))) => true,
+        Some(Ok(Message::Pong(_) | Message::Text(_) | Message::Binary(_))) => true,
         _ => false,
     }
 }

@@ -76,7 +76,7 @@ fn tool_definition(tool: &ToolSpec) -> Value {
     let function = json!({
         "name": tool.name,
         "description": tool.description,
-        "parameters": tool.input_schema,
+        "parameters": tool.parameters(),
     });
 
     json!({ "type": "function", "function": function })

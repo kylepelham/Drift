@@ -7,7 +7,13 @@ const CONVERSATION_BREAKPOINTS: usize = 2;
 
 /// Shared by every Anthropic route (key, subscription, gateway base URLs), so all of them cache.
 pub(super) fn body(request: &Request) -> Value {
-    let mut messages: Vec<Value> = request.messages.iter().map(message).collect();
+    // Anthropic refuses empty content and joins the same-role turns either side of a dropped message.
+    let mut messages: Vec<Value> = request
+        .messages
+        .iter()
+        .map(message)
+        .filter(|message| message["content"].as_array().is_some_and(|content| !content.is_empty()))
+        .collect();
     mark_conversation(&mut messages);
     // Accepted at any position; an empty system message carries only the turn's effort.
     for mark in request.effort_marks.iter().rev() {
@@ -56,7 +62,7 @@ pub(super) fn body(request: &Request) -> Value {
 }
 
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
-    json!({ "name": tool.name, "description": tool.description, "input_schema": tool.input_schema })
+    json!({ "name": tool.name, "description": tool.description, "input_schema": tool.parameters() })
 }
 
 fn ephemeral() -> Value {
@@ -116,7 +122,7 @@ fn sendable(block: &Block) -> bool {
 }
 
 /// Maps call ids to Anthropic's `[a-zA-Z0-9_-]+` characters on both calls and results.
-fn wire_id(id: &str) -> String {
+pub(crate) fn wire_id(id: &str) -> String {
     let id: String = id
         .chars()
         .map(|character| match character {

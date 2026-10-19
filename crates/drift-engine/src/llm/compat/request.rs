@@ -33,7 +33,7 @@ pub(super) fn body(request: &Request) -> Value {
 
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
     let function = json!({
-        "name": tool.name, "description": tool.description, "parameters": tool.input_schema,
+        "name": tool.name, "description": tool.description, "parameters": tool.parameters(),
     });
 
     json!({ "type": "function", "function": function })
@@ -87,6 +87,27 @@ pub(super) fn mark_breakpoints(body: &mut Value) {
 
 fn ephemeral() -> Value {
     json!({ "type": "ephemeral" })
+}
+
+/// Claude behind a gateway still takes only `[a-zA-Z0-9_-]` call ids, as on Anthropic's own wire; history from
+/// another model (Kimi's `functions.read:0`) is mapped on both the calls and their results.
+pub(super) fn claude_call_ids(body: &mut Value) {
+    let anthropic = |id: Option<&mut Value>| {
+        if let Some(id) = id
+            && let Some(text) = id.as_str()
+        {
+            *id = json!(crate::llm::anthropic::wire_id(text));
+        }
+    };
+
+    for message in body["messages"].as_array_mut().into_iter().flatten() {
+        anthropic(message.get_mut("tool_call_id"));
+        let calls = message.get_mut("tool_calls").and_then(Value::as_array_mut);
+        calls
+            .into_iter()
+            .flatten()
+            .for_each(|call| anthropic(call.get_mut("id")));
+    }
 }
 
 /// Marks a message's last non-empty text part; plain tool content becomes a part to carry the breakpoint.
