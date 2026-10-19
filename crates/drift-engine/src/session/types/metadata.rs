@@ -140,6 +140,7 @@ metadata_fields! {
     running: bool => "running",
     process_id: String => "processId",
     provider: String => "provider",
+    cost: f64 => "cost",
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

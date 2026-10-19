@@ -22,6 +22,7 @@ mod credentials;
 mod effort_marks;
 mod file_history;
 mod grants;
+mod image_generation;
 mod images;
 mod instruction_baseline;
 mod loop_limits;

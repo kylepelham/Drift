@@ -131,6 +131,11 @@ impl Context {
         path.starts_with(&self.workspace)
     }
 
+    /// Inside the workspace or the scratch directory: where a tool may put what it makes.
+    pub fn workspace_or_scratch(&self, path: &Path) -> bool {
+        self.inside_workspace(path) || in_scratch(path)
+    }
+
     /// Rules apply everywhere; workspace and scratch operations default to allow, as does reading a skill's folder.
     pub fn ask_if_outside(&self, kind: &str, path: &Path, verb: &str) -> Option<Ask> {
         let mut ask = Ask::path(kind, path, &self.workspace, format!("{verb} {}", path.display()));

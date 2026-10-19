@@ -378,6 +378,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "إضافة مفتاح",
     "drift.settings.webSearch.removeKey": "إزالة المفتاح {{key}}",
     "drift.settings.webSearch.moveUp": "جرّبه أولًا",
+    "drift.settings.imageGeneration": "توليد الصور",
+    "drift.settings.imageGeneration.provider.title": "الموفر",
+    "drift.settings.imageGeneration.provider.description":
+        "يتيح للوكيل إنشاء الصور. تُحتسب كل صورة على مفتاح API الخاص بك لدى الموفر، ويُطلب الإذن أولًا ما لم تسمح بذلك دائمًا. الإيقاف يزيل الأداة.",
+    "drift.settings.imageGeneration.off": "إيقاف",
+    "drift.settings.imageGeneration.needsKey": "يحتاج إلى مفتاح API",
+    "drift.settings.imageGeneration.noKey":
+        "لا يوجد مفتاح API لـ {{provider}} بعد. أضف واحدًا في الموفرون؛ تسجيل الدخول بالاشتراك لا يمكنه إنشاء الصور.",
+    "drift.settings.imageGeneration.model.title": "النموذج",
+    "drift.settings.imageGeneration.model.description": "نموذج الصور الذي تستخدمه كل عملية.",
+    "drift.settings.imageGeneration.size.title": "الحجم الافتراضي",
+    "drift.settings.imageGeneration.size.description":
+        "يُستخدم عندما لا يحدد الوكيل حجمًا. التلقائي يترك الاختيار للنموذج.",
+    "drift.settings.imageGeneration.size.auto": "تلقائي",
+    "drift.tool.generateImage": "توليد صورة",
+    "drift.tool.generatedImage": "صورة مولّدة",
     "drift.settings.promptCache": "ذاكرة التعليمات المؤقتة",
     "drift.settings.promptCache.warming.title": "إبقاء المحادثات الخاملة دافئة",
     "drift.settings.promptCache.warming.description":

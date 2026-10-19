@@ -7,6 +7,7 @@ mod error;
 mod events;
 pub use events::Lease;
 mod health;
+mod images;
 mod local_servers;
 mod mcp;
 mod permissions;
@@ -103,6 +104,8 @@ fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(settings::fetch_registry))
         .routes(routes!(websearch::get, websearch::put))
         .routes(routes!(websearch::add_key, websearch::remove_key))
+        .routes(routes!(images::get, images::put))
+        .routes(routes!(images::blob))
 }
 
 fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {

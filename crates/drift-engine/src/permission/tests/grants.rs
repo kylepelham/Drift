@@ -182,6 +182,18 @@ fn assert_fetch_grants() {
 }
 
 #[test]
+fn always_on_a_billed_image_allows_every_image_but_nothing_else() {
+    let [grant] = &always_grants(&Ask::new("generate_image", "a red square", "Generate"))[..] else {
+        panic!("one grant")
+    };
+    assert!(
+        grant.allows("generate_image", "a blue circle"),
+        "a prompt never repeats"
+    );
+    assert!(!grant.allows("websearch", "a blue circle"));
+}
+
+#[test]
 fn always_covers_each_command_and_widens_only_to_its_subcommand() {
     let none = Policy::default();
     let permissions = Permissions::new(Policy::default());

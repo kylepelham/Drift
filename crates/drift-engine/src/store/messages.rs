@@ -96,6 +96,19 @@ impl Store {
         })
     }
 
+    /// Adds to a message's cost in one statement, so charges made at once never undo each other; the message after it.
+    pub fn add_cost(&self, id: &str, cost: f64) -> rusqlite::Result<Option<Message>> {
+        let connection = self.lock();
+        connection
+            .prepare_cached("UPDATE message SET cost = cost + ?2 WHERE id = ?1")?
+            .execute(params![id, cost])?;
+
+        connection
+            .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE id = ?1"))?
+            .query_row([id], map_message)
+            .optional()
+    }
+
     pub fn message(&self, id: &str) -> rusqlite::Result<Option<Message>> {
         self.lock()
             .prepare_cached(&format!("SELECT {MESSAGE_COLUMNS} FROM message WHERE id = ?1"))?

@@ -321,11 +321,13 @@ impl Engine {
         Ok(())
     }
 
-    /// Built-in tools that a setting can take away: `process` with background processes, `websearch` with search.
+    /// Built-in tools that a setting can take away: `process` with background processes, `websearch` with
+    /// search, `generate_image` until image generation is on.
     fn built_in_available(&self, name: &str) -> bool {
         match name {
             "process" => self.background_processes(),
             "websearch" => self.web_search_available(),
+            "generate_image" => self.image_generation_available(),
             _ => true,
         }
     }

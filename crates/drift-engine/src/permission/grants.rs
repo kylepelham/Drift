@@ -70,9 +70,9 @@ pub(super) fn always_grants(ask: &Ask) -> Vec<Grant> {
             })
             .collect(),
         (_, "webfetch") => vec![site(&ask.pattern).unwrap_or_else(|| exact(&ask.pattern))],
-        // A query is never asked twice, so always means every search.
-        (_, "websearch") => vec![Grant::Pattern(Rule {
-            kind: "websearch".into(),
+        // A query or a prompt is never asked twice, so always means every search, or every image.
+        (_, kind @ ("websearch" | "generate_image")) => vec![Grant::Pattern(Rule {
+            kind: kind.into(),
             pattern: "*".into(),
             decision: Decision::Allow,
         })],

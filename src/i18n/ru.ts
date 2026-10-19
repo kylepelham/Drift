@@ -421,6 +421,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Добавить ключ",
     "drift.settings.webSearch.removeKey": "Удалить ключ {{key}}",
     "drift.settings.webSearch.moveUp": "Пробовать раньше",
+    "drift.settings.imageGeneration": "Генерация изображений",
+    "drift.settings.imageGeneration.provider.title": "Провайдер",
+    "drift.settings.imageGeneration.provider.description":
+        "Позволяет агенту создавать изображения. Каждое изображение оплачивается с вашего API-ключа у провайдера и сначала запрашивает разрешение, если вы не разрешили всегда. Выключено убирает инструмент.",
+    "drift.settings.imageGeneration.off": "Выключено",
+    "drift.settings.imageGeneration.needsKey": "Нужен API-ключ",
+    "drift.settings.imageGeneration.noKey":
+        "У {{provider}} пока нет API-ключа. Добавьте его в разделе Провайдеры; вход по подписке не может создавать изображения.",
+    "drift.settings.imageGeneration.model.title": "Модель",
+    "drift.settings.imageGeneration.model.description": "Модель изображений для каждого вызова.",
+    "drift.settings.imageGeneration.size.title": "Размер по умолчанию",
+    "drift.settings.imageGeneration.size.description":
+        "Используется, когда агент не указывает размер. Авто оставляет выбор модели.",
+    "drift.settings.imageGeneration.size.auto": "Авто",
+    "drift.tool.generateImage": "Создать изображение",
+    "drift.tool.generatedImage": "Созданное изображение",
     "drift.settings.promptCache": "Кэш промпта",
     "drift.settings.promptCache.warming.title": "Держать простаивающие беседы тёплыми",
     "drift.settings.promptCache.warming.description":

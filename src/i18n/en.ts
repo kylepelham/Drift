@@ -474,6 +474,21 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Add key",
     "drift.settings.webSearch.removeKey": "Remove key {{key}}",
     "drift.settings.webSearch.moveUp": "Try earlier",
+    "drift.settings.imageGeneration": "Image generation",
+    "drift.settings.imageGeneration.provider.title": "Provider",
+    "drift.settings.imageGeneration.provider.description":
+        "Lets the agent make images. Every image is billed to your API key with the provider and asks first unless you allow it always. Off removes the tool.",
+    "drift.settings.imageGeneration.off": "Off",
+    "drift.settings.imageGeneration.needsKey": "Needs an API key",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} has no API key yet. Add one in Providers; a subscription sign-in cannot make images.",
+    "drift.settings.imageGeneration.model.title": "Model",
+    "drift.settings.imageGeneration.model.description": "The image model every call uses.",
+    "drift.settings.imageGeneration.size.title": "Default size",
+    "drift.settings.imageGeneration.size.description": "Used when the agent names no size. Auto lets the model choose.",
+    "drift.settings.imageGeneration.size.auto": "Auto",
+    "drift.tool.generateImage": "Generate image",
+    "drift.tool.generatedImage": "Generated image",
     "drift.settings.promptCache": "Prompt cache",
     "drift.settings.promptCache.warming.title": "Keep idle conversations warm",
     "drift.settings.promptCache.warming.description":

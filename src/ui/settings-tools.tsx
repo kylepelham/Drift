@@ -1,4 +1,5 @@
 import { BackgroundRows, createShellSettings } from "./settings-background";
+import { ImageGenerationGroup } from "./settings-image-generation";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { PromptCacheGroup } from "./settings-prompt-cache";
@@ -127,6 +128,7 @@ export function ToolExecutionSection() {
             <TurnsGroup />
             <PromptCacheGroup />
             <WebSearchGroup />
+            <ImageGenerationGroup />
         </div>
     );
 }

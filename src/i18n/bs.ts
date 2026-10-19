@@ -419,6 +419,22 @@ export const drift = {
     "drift.settings.webSearch.addKey": "Dodaj ključ",
     "drift.settings.webSearch.removeKey": "Ukloni ključ {{key}}",
     "drift.settings.webSearch.moveUp": "Probaj ranije",
+    "drift.settings.imageGeneration": "Generisanje slika",
+    "drift.settings.imageGeneration.provider.title": "Provajder",
+    "drift.settings.imageGeneration.provider.description":
+        "Omogućava agentu da pravi slike. Svaka slika se naplaćuje na vaš API ključ kod provajdera i prvo traži dozvolu, osim ako je uvijek ne dozvolite. Isključeno uklanja alat.",
+    "drift.settings.imageGeneration.off": "Isključeno",
+    "drift.settings.imageGeneration.needsKey": "Potreban je API ključ",
+    "drift.settings.imageGeneration.noKey":
+        "{{provider}} još nema API ključ. Dodajte ga u Provajderi; prijava pretplatom ne može praviti slike.",
+    "drift.settings.imageGeneration.model.title": "Model",
+    "drift.settings.imageGeneration.model.description": "Model za slike koji koristi svaki poziv.",
+    "drift.settings.imageGeneration.size.title": "Zadana veličina",
+    "drift.settings.imageGeneration.size.description":
+        "Koristi se kada agent ne navede veličinu. Automatski prepušta izbor modelu.",
+    "drift.settings.imageGeneration.size.auto": "Automatski",
+    "drift.tool.generateImage": "Generiši sliku",
+    "drift.tool.generatedImage": "Generisana slika",
     "drift.settings.promptCache": "Keš prompta",
     "drift.settings.promptCache.warming.title": "Drži neaktivne razgovore toplim",
     "drift.settings.promptCache.warming.description":
