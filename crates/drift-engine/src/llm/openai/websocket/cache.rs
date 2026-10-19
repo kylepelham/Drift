@@ -27,11 +27,12 @@ pub(super) struct Previous {
 }
 
 impl Previous {
-    pub(super) fn completed(body: &Value, response: &Value) -> Option<Self> {
+    /// `streamed` is the output as its `response.output_item.done` events gave it.
+    pub(super) fn completed(body: &Value, response: &Value, streamed: &[Value]) -> Option<Self> {
         let id = response["id"].as_str().filter(|id| !id.is_empty())?.to_string();
 
         let mut history = hashes(body["input"].as_array()?);
-        history.extend(hashes(response["output"].as_array()?));
+        history.extend(hashes(&said(response, streamed)));
 
         Some(Self {
             id,
@@ -69,6 +70,26 @@ pub(super) fn payload(body: &Value, previous: Option<&Previous>) -> Value {
     }
 
     Value::Object(fields)
+}
+
+/// What the response said: its completed output with each reasoning item as streamed, since completion can
+/// re-encrypt one and Drift replays the streamed one; the streamed items when the completion lists none.
+fn said(response: &Value, streamed: &[Value]) -> Vec<Value> {
+    let Some(output) = response["output"].as_array().filter(|output| !output.is_empty()) else {
+        return streamed.to_vec();
+    };
+    let as_streamed = |item: &Value| {
+        let same = |done: &&Value| done["type"] == "reasoning" && done["id"] == item["id"];
+        let reasoning = item["type"] == "reasoning" && item["id"].is_string();
+
+        reasoning
+            .then(|| streamed.iter().find(same))
+            .flatten()
+            .unwrap_or(item)
+            .clone()
+    };
+
+    output.iter().map(as_streamed).collect()
 }
 
 fn settings(body: &Value) -> Hash {

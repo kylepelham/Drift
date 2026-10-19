@@ -87,6 +87,25 @@ async fn a_quiet_connection_answers_pings_while_tools_run_and_stays_open() {
 }
 
 #[tokio::test]
+async fn a_notification_between_responses_keeps_the_connection_and_its_chain() {
+    let h = fixture(
+        Server {
+            notify_idle: true,
+            ..Server::default()
+        },
+        None,
+    )
+    .await;
+
+    collect(&h.provider, &request(), &key()).await;
+    eventually(async || h.server.closed.load(Ordering::SeqCst) > 0).await;
+    collect(&h.provider, &continued(request()), &key()).await;
+
+    assert_eq!(h.server.connections(), 1);
+    assert_eq!(h.server.body(1)["previous_response_id"], "resp_1");
+}
+
+#[tokio::test]
 async fn an_expired_connection_is_replaced_and_the_new_one_gets_the_whole_history() {
     let h = fixture(Server::default(), None).await;
 

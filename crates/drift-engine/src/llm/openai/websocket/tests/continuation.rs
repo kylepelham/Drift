@@ -32,6 +32,29 @@ async fn a_continued_conversation_reuses_its_socket_and_sends_only_new_input() {
 }
 
 #[tokio::test]
+async fn a_completion_listing_no_output_continues_from_what_was_streamed() {
+    let h = fixture(
+        Server {
+            empty_output: true,
+            ..Server::default()
+        },
+        None,
+    )
+    .await;
+
+    collect(&h.provider, &request(), &key()).await;
+    collect(&h.provider, &continued(request()), &key()).await;
+
+    let next = h.server.body(1);
+    assert_eq!(next["previous_response_id"], "resp_1");
+    assert_eq!(
+        next["input"].as_array().unwrap().len(),
+        1,
+        "the reply the server already has is not sent again: {next}"
+    );
+}
+
+#[tokio::test]
 async fn a_tool_result_continues_without_replaying_the_call_and_keeps_its_mode() {
     let h = fixture(
         Server {
@@ -125,7 +148,7 @@ fn continuation_matches_replayed_reasoning_but_not_edits_or_changed_settings() {
         "summary": [{ "type": "summary_text", "text": "first" }, { "type": "summary_text", "text": "second" }]
     });
     let response = json!({ "id": "resp", "output": [reasoning, message()] });
-    let previous = cache::Previous::completed(&first, &response).unwrap();
+    let previous = cache::Previous::completed(&first, &response, &[]).unwrap();
 
     // Drift replays the server's output in its own shape: joined summaries, no ids or statuses.
     let mut next = first.clone();
@@ -149,4 +172,26 @@ fn continuation_matches_replayed_reasoning_but_not_edits_or_changed_settings() {
             .get("previous_response_id")
             .is_none()
     );
+}
+
+#[test]
+fn a_reasoning_item_completion_re_encrypted_is_matched_as_it_was_streamed() {
+    let first = json!({
+        "model": "gpt-6-sol", "store": false,
+        "input": [{ "role": "user", "content": [{ "type": "input_text", "text": "hi" }] }]
+    });
+    let reasoning =
+        |encrypted: &str| json!({ "type": "reasoning", "id": "rs", "encrypted_content": encrypted, "summary": [] });
+    let response = json!({ "id": "resp", "output": [reasoning("re-encrypted"), message()] });
+    let previous = cache::Previous::completed(&first, &response, &[reasoning("streamed"), message()]).unwrap();
+
+    let mut next = first.clone();
+    next["input"].as_array_mut().unwrap().extend([
+        json!({ "type": "reasoning", "encrypted_content": "streamed", "summary": [{ "type": "summary_text", "text": "" }] }),
+        json!({ "role": "assistant", "content": [{ "type": "output_text", "text": "ok" }] }),
+        json!({ "role": "user", "content": [{ "type": "input_text", "text": "again" }] }),
+    ]);
+    let payload = cache::payload(&next, Some(&previous));
+    assert_eq!(payload["previous_response_id"], "resp");
+    assert_eq!(payload["input"].as_array().unwrap().len(), 1);
 }

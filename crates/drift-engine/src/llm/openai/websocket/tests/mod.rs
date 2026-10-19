@@ -28,6 +28,10 @@ struct Server {
     stall: bool,
     /// Ping the client after each reply, as a quiet connection would.
     ping_idle: bool,
+    /// Send a notification after each reply, outside any response.
+    notify_idle: bool,
+    /// Complete each response with an empty `output`, leaving the streamed items as its only record.
+    empty_output: bool,
     /// Refuse the next continuation as if the server had forgotten it.
     lose_previous: AtomicBool,
     /// Close the socket after the next reply.
@@ -190,7 +194,7 @@ async fn reply(socket: &mut WebSocket, number: usize, server: &Server) -> bool {
         return false;
     }
 
-    answer(socket, number, server.tool_first && number == 1).await;
+    answer(socket, number, server.tool_first && number == 1, server.empty_output).await;
 
     if server.close_after_reply.swap(false, Ordering::SeqCst) {
         let _ = socket.send(Message::Close(None)).await;
@@ -200,11 +204,14 @@ async fn reply(socket: &mut WebSocket, number: usize, server: &Server) -> bool {
     if server.ping_idle {
         let _ = socket.send(Message::Ping(vec![1, 2].into())).await;
     }
+    if server.notify_idle {
+        event(socket, json!({ "type": "keepalive" })).await;
+    }
 
     true
 }
 
-async fn answer(socket: &mut WebSocket, number: usize, tool: bool) {
+async fn answer(socket: &mut WebSocket, number: usize, tool: bool, empty_output: bool) {
     let id = format!("resp_{number}");
     let item = if tool { call() } else { message() };
 
@@ -216,7 +223,8 @@ async fn answer(socket: &mut WebSocket, number: usize, tool: bool) {
     event(socket, json!({ "type": "response.output_item.done", "item": item })).await;
 
     let usage = json!({ "input_tokens": 10, "output_tokens": 2, "input_tokens_details": { "cached_tokens": 3 } });
-    let response = json!({ "id": id, "output": [item], "usage": usage });
+    let output = if empty_output { json!([]) } else { json!([item]) };
+    let response = json!({ "id": id, "output": output, "usage": usage });
     event(socket, json!({ "type": "response.completed", "response": response })).await;
 }
 

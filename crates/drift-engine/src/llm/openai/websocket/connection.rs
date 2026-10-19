@@ -66,6 +66,8 @@ async fn response(socket: &mut Socket, job: &Job, previous: &mut Option<cache::P
     let mut wait = job.timeouts.headers;
     let mut continued = payload.get("previous_response_id").is_some();
     let mut forwarded = false;
+    // The items as `response.output_item.done` gave them, which is what Drift replays.
+    let mut streamed = Vec::new();
 
     loop {
         let event = socket::receive(socket, &job.send, wait).await?;
@@ -91,7 +93,10 @@ async fn response(socket: &mut Socket, job: &Job, previous: &mut Option<cache::P
                 .map_err(|_| Error::Transport("the Responses stream was stopped".into()))?;
         }
 
-        if finished(previous, &job.body, &event) {
+        if event["type"] == "response.output_item.done" {
+            streamed.push(event["item"].clone());
+        }
+        if finished(previous, &job.body, &event, &streamed) {
             return Ok(());
         }
     }
@@ -108,9 +113,9 @@ fn decode(state: &mut StreamState, event: &Value) -> Result<Vec<Chunk>, Error> {
 }
 
 /// True at the end of a response; a completed one becomes the next request's starting point.
-fn finished(previous: &mut Option<cache::Previous>, body: &Value, event: &Value) -> bool {
+fn finished(previous: &mut Option<cache::Previous>, body: &Value, event: &Value, streamed: &[Value]) -> bool {
     match event["type"].as_str() {
-        Some("response.completed") => *previous = cache::Previous::completed(body, &event["response"]),
+        Some("response.completed") => *previous = cache::Previous::completed(body, &event["response"], streamed),
         Some("response.incomplete") => *previous = None,
         _ => return false,
     }
