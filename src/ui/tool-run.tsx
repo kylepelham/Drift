@@ -1,6 +1,6 @@
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { toolDisplay } from "./tool-presentation";
-import { ToolDuration } from "./tool-duration";
+import { CoveredDuration } from "./tool-duration";
 import { TextShimmer } from "./text-shimmer";
 import { toolInput } from "../engine/parts";
 import { ToolView } from "./tool-view";
@@ -139,18 +139,6 @@ export function runDetail(parts: ToolPart[]) {
     return current.name === "bash" ? commandLabel(current).text : (toolInfo(current).subtitle ?? "");
 }
 
-/** How long the run's longest command took, or its longest call when it ran none; for a finished run. */
-export function runLongestMs(parts: ToolPart[]) {
-    const commands = parts.filter((part) => part.name === "bash");
-    let longest: number | undefined;
-    for (const part of commands.length ? commands : parts) {
-        if (part.startedAt == null || part.finishedAt == null) continue;
-        longest = Math.max(longest ?? 0, part.finishedAt - part.startedAt);
-    }
-
-    return longest;
-}
-
 /** Commands of the run that went on in the background and still run. */
 function stillRunning(state: EngineState, parts: ToolPart[]) {
     return parts.filter((part) => {
@@ -202,9 +190,7 @@ export function ToolRun(props: { parts: ToolPart[] }) {
                 <Show when={failed()}>
                     <span class="shrink-0 text-xs text-danger">{t("drift.run.failed")}</span>
                 </Show>
-                <Show when={current()} fallback={<LongestDuration parts={props.parts} />}>
-                    {(part) => <ToolDuration state={toolDisplay(part())} />}
-                </Show>
+                <CoveredDuration states={props.parts.map(toolDisplay)} />
                 <span class="tool-row-chevron flex shrink-0">
                     <Chevron open={expanded()} />
                 </span>
@@ -215,13 +201,5 @@ export function ToolRun(props: { parts: ToolPart[] }) {
                 </div>
             </Show>
         </div>
-    );
-}
-
-function LongestDuration(props: { parts: ToolPart[] }) {
-    return (
-        <Show when={runLongestMs(props.parts)}>
-            {(ms) => <ToolDuration state={{ status: "completed", time: { start: 0, end: ms() } }} />}
-        </Show>
     );
 }

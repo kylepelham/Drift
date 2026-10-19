@@ -311,7 +311,9 @@ while running and off as Always open. "Group consecutive tool
 calls" has a switch per kind (commands, edits, fetches, MCP tools, other; commands on by
 default): two or more consecutive calls of enabled kinds, across the steps of one turn,
 fold into one row such as `Ran 2 commands, edited 1 file`, which names the call in
-progress while one runs and, once finished, shows how long its longest command took. Any
+progress while one runs. Its time is the wall time at least one of its calls ran, ticking
+while any still runs: calls side by side count once, calls one after another add up, and the
+gaps between them do not count. Any
 tool row leaves out a duration under a second. A
 disabled kind ends the run; reads, searches and listings group as `Read 4 files, searched
 2 patterns · <latest target>`; delegation and questions never group. The row stays

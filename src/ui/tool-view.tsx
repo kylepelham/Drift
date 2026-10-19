@@ -4,10 +4,10 @@ import { commandRows, toolErrorsExpanded, type CommandRows } from "../state/pref
 import { awaitingPermission, shellTimeoutStatus, toolInfo } from "./tool-labels";
 import { DelegateDetails, delegateLabels, DelegateOrbit } from "./delegate-row";
 import { exploredDetail, exploredSingle, exploredSummary } from "./tool-run";
+import { CoveredDuration, ToolDuration } from "./tool-duration";
 import { toolMetadata as toolMeta } from "../engine/parts";
 import { selectSession } from "../state/selection";
 import { toolDisplay } from "./tool-presentation";
-import { ToolDuration } from "./tool-duration";
 import { taskTiming } from "../engine/store";
 import { TextShimmer } from "./text-shimmer";
 import { IconArrowUpRight } from "./icons";
@@ -372,13 +372,6 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
     const single = createMemo(() => exploredSingle(props.parts, running()));
     const heading = () => single()?.before ?? summary();
 
-    const activePart = () => {
-        for (let index = props.parts.length - 1; index >= 0; index--) {
-            const part = props.parts[index];
-            if (part.status === "running" || part.status === "pending") return part;
-        }
-    };
-
     const expanded = () => open() || waiting();
 
     return (
@@ -423,7 +416,7 @@ export function ExploredGroup(props: { parts: ToolPart[] }) {
                 <Show when={waiting()}>
                     <span class="text-xs text-warn/90">{t("notification.permission.title")}</span>
                 </Show>
-                <Show when={activePart()}>{(part) => <ToolDuration state={toolDisplay(part())} />}</Show>
+                <CoveredDuration states={props.parts.map(toolDisplay)} />
                 <span class="tool-row-chevron flex shrink-0">
                     <Chevron open={expanded()} />
                 </span>

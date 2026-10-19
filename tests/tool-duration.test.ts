@@ -62,3 +62,26 @@ describe("tool elapsed timestamps", () => {
         expect(toolElapsedMs(state, 50_000)).toBe(3_000);
     });
 });
+
+test("a group's time is the wall time any of its calls ran, live while one still runs", async () => {
+    const { coveredMs } = await import("../src/ui/tool-duration");
+    const s = 1000;
+    const done = (start: number, end: number): ToolTimingState => ({ status: "completed", time: { start, end } });
+
+    expect(coveredMs([done(0, 5 * s), done(0, 5 * s)], 0)).toBe(5 * s);
+    expect(coveredMs([done(0, 5 * s), done(5 * s, 10 * s)], 0)).toBe(10 * s);
+    expect(coveredMs([done(0, 5 * s), done(1 * s, 5 * s), done(5 * s, 5 * s + 600 * s)], 0)).toBe(605 * s);
+    expect(coveredMs([done(0, 5 * s), done(20 * s, 25 * s)], 0)).toBe(10 * s);
+
+    const running: ToolTimingState = { status: "running", time: { start: 3 * s } };
+    expect(coveredMs([done(0, 5 * s), running], 9 * s)).toBe(9 * s);
+    expect(
+        coveredMs(
+            [
+                { status: "completed", time: { start: 0 } },
+                { status: "pending", time: {} },
+            ],
+            9 * s,
+        ),
+    ).toBeUndefined();
+});
