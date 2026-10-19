@@ -15,13 +15,21 @@ export function delegatedChildId(state: EngineState, part: ToolPart) {
     if (part.name !== "task") return null;
 
     const input = toolInput(part) as { description?: unknown; subagent_type?: unknown; task_id?: unknown };
-    if (typeof input?.task_id === "string" && input.task_id) return input.task_id;
+    // A continued subagent is named by its task id, which is not a session id.
+    if (typeof input?.task_id === "string" && input.task_id) return sessionOfTask(state, part.sessionId, input.task_id);
     if (typeof input?.description !== "string" || typeof input.subagent_type !== "string") return null;
 
     // Parallel tasks can create their child before the running tool part persists its session metadata.
     const title = `${input.description} (@${input.subagent_type} subagent)`;
     const matches = childrenOf(state, part.sessionId).filter((session) => session.title === title);
     return matches.length === 1 ? matches[0].id : null;
+}
+
+/** The session a task ran in, or the id itself when it already names a known session. */
+function sessionOfTask(state: EngineState, parentId: string, taskId: string) {
+    const task = (state.tasks[parentId] ?? []).find((record) => record.id === taskId);
+    if (task) return task.sessionId;
+    return state.sessions[taskId] ? taskId : null;
 }
 
 export type DelegatedTaskStatus = "queued" | "running" | "completed" | "error";

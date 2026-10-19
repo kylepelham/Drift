@@ -314,6 +314,32 @@ test("a running delegated row recovers its child when parallel task metadata is 
     expect(delegatedChildId(state, part)).toBeNull();
 });
 
+test("a continued task call without metadata resolves its task id to the session it ran in", async () => {
+    const { delegatedChildId } = await import("../src/ui/tool-delegation");
+    const [state, set] = createEngineState();
+    set("sessions", "ses_cleanup", {
+        id: "ses_cleanup",
+        parentId: "parent",
+        visibility: "hidden",
+        title: "Remove Gullivers integration source (@general subagent)",
+        createdAt: 1,
+        updatedAt: 1,
+    } as never);
+    set("tasks", "parent", [{ id: "task_cleanup", sessionId: "ses_cleanup", callId: "first" }] as never);
+
+    // The engine refused the continuation, so the call kept no metadata naming the session.
+    const continued = (taskId: string) =>
+        ({
+            name: "task",
+            sessionId: "parent",
+            status: "error",
+            input: { description: "Finish the cleanup", prompt: "Carry on", task_id: taskId },
+            output: `${taskId} is still running; wait for its result, or stop it, before continuing it`,
+        }) as never;
+    expect(delegatedChildId(state, continued("task_cleanup"))).toBe("ses_cleanup");
+    expect(delegatedChildId(state, continued("task_gone"))).toBeNull();
+});
+
 test("running delegated rows navigate while terminal rows expand without lifecycle badges", async () => {
     const { delegatedTaskClickPolicy } = await import("../src/ui/tool-delegation");
     expect(delegatedTaskClickPolicy("running", "child")).toBe("navigate");
