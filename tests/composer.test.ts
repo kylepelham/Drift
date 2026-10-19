@@ -510,6 +510,9 @@ test("composer attention cards share one stack without suppressing concurrent re
     expect(revert).toContainCode("composer-layer-card");
     expect(css).not.toContainCode(".composer-attention-stack:has(> :nth-child(2))");
     expect(css).not.toMatch(/\.composer-attention-stack[^}]*overflow/s);
+    // The minifier rewrites `@media not (a or b)` into a query browsers drop, so stacked docks would stop tucking.
+    for (const file of ["src/styles/app.css", "src/styles/mobile.css"])
+        expect(await Bun.file(file).text(), file).not.toMatch(/@media\s+not\s*\(/);
 });
 
 test("question steps and answers persist independently by request id", async () => {

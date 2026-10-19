@@ -732,10 +732,8 @@ textarea {
 }
 
 /* Docks stacked on each other tuck in as the last one tucks into the composer: the stack's gap would add 0.5rem. */
-@media not ((max-width: 719px) or ((max-height: 500px) and (pointer: coarse))) {
-    .composer-attention-stack > .composer-layer-card + .composer-layer-card {
-        margin-top: -0.5rem;
-    }
+.composer-attention-stack > .composer-layer-card + .composer-layer-card {
+    margin-top: -0.5rem;
 }
 
 .drift-wordmark {

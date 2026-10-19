@@ -114,6 +114,11 @@
         padding-bottom: 0;
     }
 
+    /* Nothing tucks on a phone, so the desktop's pull into the card above is undone; the extra class outranks it. */
+    .composer-shell .composer-attention-stack > .composer-layer-card + .composer-layer-card {
+        margin-top: 0;
+    }
+
     .composer-attention-stack:not(:empty) {
         margin-bottom: 0.5rem;
     }
