@@ -22,6 +22,7 @@ import {
     type EngineState,
     type MessageEntry,
     type ModelRef,
+    type QueuedPrompt,
 } from "./store";
 import {
     EngineError,
@@ -54,6 +55,8 @@ export type PromptOptions = {
     variant?: string | null;
     files?: PromptFile[];
     directory?: string;
+    /** Wait for the running turn to end and start a turn of its own, rather than joining the running one. */
+    queue?: boolean;
 };
 export type PromptSendResult = { ok: true } | { ok: false; error: string };
 /** What became of an archived thread due for purging: gone, restored and kept, or not reached this time. */
@@ -346,6 +349,11 @@ export function createActions(
         const submission = unsettled.get(key) ?? submissionId();
         unsettled.set(key, submission);
         try {
+            if (options.queue) {
+                await requireClient().queuePrompt(id, { submissionId: submission, ...prompt });
+                unsettled.delete(key);
+                return { ok: true };
+            }
             const receipt = await requireClient().submit(id, { submissionId: submission, ...prompt });
             unsettled.delete(key);
             putSession(set, sessionInWorkspace(receipt.session, workspaces()));
@@ -359,6 +367,17 @@ export function createActions(
     function fail(id: string, error: string): PromptSendResult {
         set("errors", id, error);
         return { ok: false, error };
+    }
+
+    async function loadQueue(id: string) {
+        set("queued", id, await requireClient().queue(id));
+    }
+
+    /** Replaces a queued prompt's text, keeping its files. */
+    async function editQueued(queued: QueuedPrompt, text: string) {
+        const files = queued.prompt.parts.filter((part) => part.type !== "text");
+        const parts = text.trim() ? [{ type: "text" as const, text }, ...files] : files;
+        await requireClient().editQueued(queued.id, { ...queued.prompt, parts });
     }
 
     async function abort(id: string) {
@@ -409,6 +428,10 @@ export function createActions(
         loadAllSessions,
         newSession,
         send,
+        loadQueue,
+        editQueued,
+        discardQueued: (id: string) => requireClient().discardQueued(id),
+        sendQueuedNow: (id: string) => requireClient().sendQueuedNow(id),
         abort,
         stopTask,
         stopProcess,

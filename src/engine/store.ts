@@ -21,6 +21,7 @@ export type { McpServerConfig, McpServerConfigView, McpServerStatus, TaskRecord 
 export type { QuestionInfo, QuestionRequest } from "./questions";
 export type Permission = components["schemas"]["PermissionRequest"] & { directory?: string };
 type Todo = components["schemas"]["Todo"];
+export type QueuedPrompt = components["schemas"]["QueuedPrompt"];
 export type Connection = "idle" | "connecting" | "online" | "offline";
 
 export type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
@@ -148,6 +149,8 @@ export type EngineState = {
     permissions: Record<string, Permission[]>;
     questions: Record<string, QuestionRequest[]>;
     todos: Record<string, Todo[]>;
+    /** Prompts each session queued for after its running turn, first to start first. */
+    queued: Record<string, QueuedPrompt[]>;
     /** Workers each session launched, keyed by the launching session, oldest first. */
     tasks: Record<string, TaskRecord[]>;
     /** Background processes each session started, oldest first. */
@@ -219,6 +222,7 @@ export function createEngineState() {
         permissions: {},
         questions: {},
         todos: {},
+        queued: {},
         tasks: {},
         processes: {},
         providers: [],

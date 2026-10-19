@@ -106,6 +106,13 @@ export function createClient(target: Target) {
         moveSession: (id: string, workspaceId: string) =>
             request<Json<"moveSession", 200>>("POST", `/sessions/${id}/move`, { workspaceId }),
         compactSession: (id: string) => request<void>("POST", `/sessions/${id}/compact`),
+        queue: (id: string) => request<Json<"listQueue", 200>>("GET", `/sessions/${id}/queue`),
+        queuePrompt: (id: string, prompt: components["schemas"]["Prompt"]) =>
+            request<Json<"queuePrompt", 201>>("POST", `/sessions/${id}/queue`, prompt),
+        editQueued: (id: string, prompt: components["schemas"]["Prompt"]) =>
+            request<void>("PUT", `/queue/${id}`, prompt),
+        discardQueued: (id: string) => request<void>("DELETE", `/queue/${id}`),
+        sendQueuedNow: (id: string) => request<Json<"sendQueuedNow", 202>>("POST", `/queue/${id}/send`),
         switchRetryModel: (id: string, model: components["schemas"]["ModelRef"], variant: string | null) =>
             request<void>("POST", `/sessions/${id}/retry`, { model, variant }),
         revertSession: (id: string, messageId: string, keepFiles = false) =>

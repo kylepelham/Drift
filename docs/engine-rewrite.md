@@ -1617,6 +1617,14 @@ listed there.
   queued agent and level changes, which is a different job; reuse its admission fencing, not its
   rules. Tests: two queued prompts run as two turns in order; a steer sent meanwhile lands first;
   Stop starts none.
+  - Built (2.4.0): `session/queue.rs`, `store/queued.rs` (migration 44), `api/queue.rs`, and in
+    the UI `src/ui/composer-queue.tsx`; user-facing in `docs/engine.md` "Queued prompts".
+    Decisions taken while Kyle slept: the composer has no send menu to put a choice in, so a queue
+    button appears beside Send while a turn runs; a queued prompt starts through admission with a
+    new `new_turn_only` flag, so it is refused as busy rather than steered when a delivery turn got
+    there first, and tries again when that turn ends; its submission id is `queue:<id>`, so a crash
+    between admission and taking it off the queue replays rather than doubles it. Not verified: the
+    queue row in a browser (covered by typecheck and a unit test only).
 - **ACP.** `drift-engined --acp` serves the Agent Client Protocol on stdio, so an editor such as
   Zed can drive a Drift session: new session, prompt, streamed updates, cancel, permission requests,
   and the tool call view. Read the current spec at agentclientprotocol.com first and v2's

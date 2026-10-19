@@ -90,6 +90,23 @@ model may consult, such as another project's code, a spec, or a library's source
   can never make Drift fetch from the network. A project reference never replaces one of yours of
   the same name.
 
+## Queued prompts
+
+A prompt sent while a turn runs is delivered as `steer` by default: it joins the running turn at its
+next request. Sent as `queue` (Alt+Enter in the composer, or the queue button beside Send while a
+turn runs), it waits instead, kept outside the transcript (`queued_prompt` table) and shown above
+the composer with Edit, Discard and Send now. Send now takes it off the queue and sends it as a
+steer, or as a new turn when none runs.
+
+- When a turn ends on its own, the first queued prompt starts the next turn; the one after it waits
+  for that turn to end. Steers sent meanwhile are already part of the turn, so they land first.
+- A queued prompt sent while nothing runs starts at once.
+- After Stop the queue is held: nothing starts until the user sends a prompt, and when that turn
+  ends the queue goes on.
+- A queued prompt that cannot start (its model is gone, a plugin refuses it) keeps its place with the
+  reason and holds the ones behind it until it is edited, sent or discarded.
+- The hold after Stop is kept in memory, so after a restart the queue waits until a turn ends.
+
 ## Plan files
 
 The plan agent reads and changes nothing, with one exception: it may write and edit Markdown files

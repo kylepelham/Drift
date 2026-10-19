@@ -794,3 +794,18 @@ test("the phone composer shortens a model name only by its brand word", async ()
     expect(compactModelName("DeepSeek V3")).toBe("DeepSeek V3");
     expect(compactModelName(undefined)).toBeUndefined();
 });
+
+test("a queued prompt shows its text and counts its files, and Alt+Enter queues rather than steers", async () => {
+    const { loadDictionary } = await import("../src/state/i18n");
+    await loadDictionary("en");
+    const { queuedText } = await import("../src/ui/composer-queue");
+    const queued = (parts: unknown[]) =>
+        ({ id: "q", sessionId: "s", createdAt: 0, prompt: { parts } }) as Parameters<typeof queuedText>[0];
+    expect(queuedText(queued([{ type: "text", text: " fix the tests " }]))).toBe("fix the tests");
+    const file = { type: "file", mime: "image/png", name: "a.png", url: "data:," };
+    expect(queuedText(queued([{ type: "text", text: "look" }, file, file]))).toBe("look 2 files");
+
+    const composer = code(await Bun.file("src/ui/composer.tsx").text());
+    expect(composer).toContain("void submitAs(event.altKey)");
+    expect(composer).toContain("queue:queueing");
+});

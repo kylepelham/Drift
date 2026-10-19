@@ -1,6 +1,6 @@
 import { clearEdits, modelVisible, prefsFor, seedPrefs, sendableVariant, updatePrefs } from "../state/prefs";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, untrack } from "solid-js";
-import { IconArrowUp, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
+import { IconArrowUp, IconLayers, IconMic, IconPaperclip, IconShieldCheck, IconStop } from "./icons";
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
@@ -26,6 +26,7 @@ import { activeWorkspace } from "../state/workspaces";
 import { createSlashMenu } from "./composer-slash";
 import { Picker, type PickerItem } from "./picker";
 import { DictationStatus } from "./composer-voice";
+import { ComposerQueue } from "./composer-queue";
 import { variantNames } from "../engine/catalog";
 import { ProviderIcon } from "./provider-icon";
 import { onKeybind } from "../state/keybinds";
@@ -203,6 +204,8 @@ export function Composer() {
         return pref && variants().includes(pref) ? pref : undefined;
     };
 
+    // Set for the length of one submission sent as a queued prompt rather than a steer.
+    let queueing = false;
     const submit = createComposerSubmit(
         {
             scope,
@@ -257,6 +260,7 @@ export function Composer() {
                     agent: prepared.selectedPrefs.agent,
                     variant: prepared.selectedVariant,
                     files,
+                    queue: queueing,
                 });
                 if (result.ok) clearEdits(id);
 
@@ -280,6 +284,16 @@ export function Composer() {
         },
         submissionGuard,
     );
+
+    /** Sends the draft, queued behind the running turn when `queue` is set (Alt+Enter, or the queue button). */
+    async function submitAs(queue: boolean) {
+        queueing = queue;
+        try {
+            return await submit();
+        } finally {
+            queueing = false;
+        }
+    }
 
     const submitting = () => {
         submissionVersion();
@@ -308,7 +322,7 @@ export function Composer() {
         if (!send) return;
 
         event.preventDefault();
-        void submit();
+        void submitAs(event.altKey);
     }
 
     function browseHistory(event: KeyboardEvent) {
@@ -412,6 +426,7 @@ export function Composer() {
 
     return (
         <div class="composer-shell relative z-10">
+            <Show when={selectedSession()}>{(id) => <ComposerQueue sessionId={id()} />}</Show>
             <ComposerAttention />
             <div class="composer-box relative mx-auto max-w-3xl rounded-2xl border border-edge bg-surface transition-colors focus-within:border-edge-strong">
                 <Show when={dropActive() && ready()}>
@@ -569,6 +584,17 @@ export function Composer() {
                                 }}
                             >
                                 <IconStop class="size-3.5" />
+                            </button>
+                        </Show>
+                        <Show when={busy()}>
+                            <button
+                                class="composer-queue flex size-7 items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-raised hover:text-ink disabled:pointer-events-none disabled:opacity-60"
+                                title={t("drift.prompt.queue")}
+                                aria-label={t("drift.prompt.queue")}
+                                disabled={sendDisabled()}
+                                onClick={() => void submitAs(true)}
+                            >
+                                <IconLayers class="size-3.5" />
                             </button>
                         </Show>
                         <button
