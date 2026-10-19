@@ -464,7 +464,7 @@ export const drift = {
     "drift.settings.webSearch": "Web search",
     "drift.settings.webSearch.provider.title": "Provider",
     "drift.settings.webSearch.provider.description":
-        "Auto uses the first provider that can answer, in the order below, and moves on when one is rate limited or out of credit. Off removes the tool.",
+        "Auto uses the first provider that can answer, in the order below, and moves on when one is rate limited or out of credit. A page that will not load directly is read through them too. Off removes the tool and stops that.",
     "drift.settings.webSearch.auto": "Auto",
     "drift.settings.webSearch.off": "Off",
     "drift.settings.webSearch.noKey": "No key yet",

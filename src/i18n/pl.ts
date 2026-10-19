@@ -460,7 +460,7 @@ export const drift = {
     "drift.settings.webSearch": "Wyszukiwanie w sieci",
     "drift.settings.webSearch.provider.title": "Dostawca",
     "drift.settings.webSearch.provider.description":
-        "Automatycznie używa pierwszego dostawcy, który może odpowiedzieć, w kolejności poniżej, i przechodzi dalej, gdy jeden jest ograniczony lub bez środków. Wyłączone usuwa narzędzie.",
+        "Opcja Automatycznie używa pierwszego dostawcy, który może odpowiedzieć, w poniższej kolejności, i przechodzi do kolejnego w przypadku limitu żądań lub braku środków. Strona, która nie ładuje się bezpośrednio, jest również odczytywana za ich pośrednictwem. Wyłączone usuwa to narzędzie i wyłącza tę funkcję.",
     "drift.settings.webSearch.auto": "Automatycznie",
     "drift.settings.webSearch.off": "Wyłączone",
     "drift.settings.webSearch.noKey": "Brak klucza",

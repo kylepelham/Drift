@@ -459,7 +459,7 @@ export const drift = {
     "drift.settings.webSearch": "ウェブ検索",
     "drift.settings.webSearch.provider.title": "プロバイダー",
     "drift.settings.webSearch.provider.description":
-        "自動では、下の順で最初に応答できるプロバイダーを使い、レート制限やクレジット切れの場合は次に移ります。オフにするとツールが外れます。",
+        "「自動」は以下の順序で応答可能な最初のプロバイダーを使用し、レート制限やクレジット切れが発生した場合は次に進みます。直接読み込めないページもそれらを経由して読み込まれます。「オフ」にするとツールが削除され、この処理は停止します。",
     "drift.settings.webSearch.auto": "自動",
     "drift.settings.webSearch.off": "オフ",
     "drift.settings.webSearch.noKey": "キーがまだありません",

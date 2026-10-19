@@ -458,7 +458,7 @@ export const drift = {
     "drift.settings.webSearch": "Websøgning",
     "drift.settings.webSearch.provider.title": "Udbyder",
     "drift.settings.webSearch.provider.description":
-        "Auto bruger den første udbyder, der kan svare, i rækkefølgen nedenfor, og går videre, når en er begrænset eller løbet tør for kredit. Fra fjerner værktøjet.",
+        "Auto bruger den første udbyder, der kan svare, i rækkefølgen nedenfor, og går videre, når en rammer hastighedsgrænsen eller løber tør for kredit. En side, der ikke kan indlæses direkte, læses også gennem dem. Fra fjerner værktøjet og stopper dette.",
     "drift.settings.webSearch.auto": "Auto",
     "drift.settings.webSearch.off": "Fra",
     "drift.settings.webSearch.noKey": "Ingen nøgle endnu",

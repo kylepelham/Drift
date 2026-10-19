@@ -464,7 +464,7 @@ export const drift = {
     "drift.settings.webSearch": "Búsqueda web",
     "drift.settings.webSearch.provider.title": "Proveedor",
     "drift.settings.webSearch.provider.description":
-        "Automático usa el primer proveedor que pueda responder, en el orden de abajo, y pasa al siguiente cuando uno tiene límite de uso o se queda sin crédito. Desactivado quita la herramienta.",
+        "Automático usa el primer proveedor que pueda responder, en el orden de abajo, y pasa al siguiente cuando uno tiene límite de frecuencia o se queda sin crédito. Las páginas que no cargan directamente también se leen a través de ellos. Desactivado quita la herramienta y detiene esto.",
     "drift.settings.webSearch.auto": "Automático",
     "drift.settings.webSearch.off": "Desactivado",
     "drift.settings.webSearch.noKey": "Aún no hay clave",

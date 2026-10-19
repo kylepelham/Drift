@@ -460,7 +460,7 @@ export const drift = {
     "drift.settings.webSearch": "Web araması",
     "drift.settings.webSearch.provider.title": "Sağlayıcı",
     "drift.settings.webSearch.provider.description":
-        "Otomatik, aşağıdaki sırayla yanıt verebilen ilk sağlayıcıyı kullanır ve biri hız sınırına takıldığında ya da kredisi bittiğinde sonrakine geçer. Kapalı aracı kaldırır.",
+        "Otomatik, aşağıdaki sırayla yanıt verebilen ilk sağlayıcıyı kullanır ve biri istek sınırına ulaştığında veya kredisi bittiğinde sonrakine geçer. Doğrudan yüklenmeyen bir sayfa da bunlar üzerinden okunur. Kapalı, aracı kaldırır ve bunu durdurur.",
     "drift.settings.webSearch.auto": "Otomatik",
     "drift.settings.webSearch.off": "Kapalı",
     "drift.settings.webSearch.noKey": "Henüz anahtar yok",

@@ -444,7 +444,7 @@ export const drift = {
     "drift.settings.webSearch": "網頁搜尋",
     "drift.settings.webSearch.provider.title": "提供者",
     "drift.settings.webSearch.provider.description":
-        "自動會依下方順序使用第一個能回應的提供者，遇到限流或額度用盡時換下一個。關閉會移除該工具。",
+        "「自動」會依下方順序使用第一個能回答的提供者，並在遇到速率限制或額度用盡時切換至下一個。無法直接載入的頁面也會透過它們讀取。「關閉」會移除該工具並停止此行為。",
     "drift.settings.webSearch.auto": "自動",
     "drift.settings.webSearch.off": "關閉",
     "drift.settings.webSearch.noKey": "尚無金鑰",

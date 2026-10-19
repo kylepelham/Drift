@@ -466,7 +466,7 @@ export const drift = {
     "drift.settings.webSearch": "Websuche",
     "drift.settings.webSearch.provider.title": "Anbieter",
     "drift.settings.webSearch.provider.description":
-        "Automatisch nutzt den ersten Anbieter, der antworten kann, in der Reihenfolge unten, und wechselt, wenn einer gedrosselt ist oder kein Guthaben mehr hat. Aus entfernt das Werkzeug.",
+        "Automatisch nutzt in der unten stehenden Reihenfolge den ersten Anbieter, der antworten kann, und wechselt zum nächsten, wenn ein Ratenlimit erreicht ist oder das Guthaben aufgebraucht ist. Seiten, die nicht direkt geladen werden können, werden ebenfalls darüber gelesen. Aus entfernt das Tool und unterbindet dies.",
     "drift.settings.webSearch.auto": "Automatisch",
     "drift.settings.webSearch.off": "Aus",
     "drift.settings.webSearch.noKey": "Noch kein Schlüssel",

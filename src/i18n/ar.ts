@@ -450,7 +450,7 @@ export const drift = {
     "drift.settings.webSearch": "البحث على الويب",
     "drift.settings.webSearch.provider.title": "المزوّد",
     "drift.settings.webSearch.provider.description":
-        "يستخدم الوضع التلقائي أول مزوّد يمكنه الإجابة بالترتيب أدناه، وينتقل إلى التالي عند تقييد المعدل أو نفاد الرصيد. الإيقاف يزيل الأداة.",
+        "يستخدم الوضع التلقائي أول مزوّد يمكنه الإجابة وفق الترتيب أدناه، وينتقل إلى التالي عند بلوغ حد المعدل أو نفاد الرصيد. كما تُقرأ الصفحات التي يتعذر تحميلها مباشرة عبرهم أيضًا. إيقاف التشغيل يزيل الأداة ويوقف ذلك.",
     "drift.settings.webSearch.auto": "تلقائي",
     "drift.settings.webSearch.off": "إيقاف",
     "drift.settings.webSearch.noKey": "لا يوجد مفتاح بعد",

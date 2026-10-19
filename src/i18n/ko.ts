@@ -455,7 +455,7 @@ export const drift = {
     "drift.settings.webSearch": "웹 검색",
     "drift.settings.webSearch.provider.title": "제공자",
     "drift.settings.webSearch.provider.description":
-        "자동은 아래 순서대로 응답할 수 있는 첫 제공자를 사용하고, 속도 제한이나 크레딧 소진 시 다음으로 넘어갑니다. 끄면 도구가 제거됩니다.",
+        "자동은 아래 순서대로 응답할 수 있는 첫 번째 제공자를 사용하며, 속도 제한에 걸리거나 크레딧이 소진되면 다음 제공자로 넘어갑니다. 직접 로드되지 않는 페이지도 이 제공자들을 통해 읽습니다. 끔은 도구를 제거하고 이를 중지합니다.",
     "drift.settings.webSearch.auto": "자동",
     "drift.settings.webSearch.off": "끄기",
     "drift.settings.webSearch.noKey": "아직 키가 없음",

@@ -458,7 +458,7 @@ export const drift = {
     "drift.settings.webSearch": "Pretraga weba",
     "drift.settings.webSearch.provider.title": "Pružatelj",
     "drift.settings.webSearch.provider.description":
-        "Automatski koristi prvog pružatelja koji može odgovoriti, redoslijedom ispod, i prelazi dalje kada je jedan ograničen ili bez kredita. Isključeno uklanja alat.",
+        "Automatski koristi prvog pružatelja koji može odgovoriti, prema redoslijedu ispod, i prelazi na sljedećeg ako je prekoračeno ograničenje broja zahtjeva ili nema kredita. Stranica koja se ne učitava direktno se također čita preko njih. Isključeno uklanja ovaj alat i zaustavlja to.",
     "drift.settings.webSearch.auto": "Automatski",
     "drift.settings.webSearch.off": "Isključeno",
     "drift.settings.webSearch.noKey": "Još nema ključa",

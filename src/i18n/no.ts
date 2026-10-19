@@ -458,7 +458,7 @@ export const drift = {
     "drift.settings.webSearch": "Nettsøk",
     "drift.settings.webSearch.provider.title": "Leverandør",
     "drift.settings.webSearch.provider.description":
-        "Auto bruker den første leverandøren som kan svare, i rekkefølgen nedenfor, og går videre når en er begrenset eller tom for kreditt. Av fjerner verktøyet.",
+        "Auto bruker den første leverandøren som kan svare, i rekkefølgen nedenfor, og går videre når en er hastighetsbegrenset eller tom for kreditt. En side som ikke kan lastes direkte, leses også gjennom dem. Av fjerner verktøyet og stopper dette.",
     "drift.settings.webSearch.auto": "Auto",
     "drift.settings.webSearch.off": "Av",
     "drift.settings.webSearch.noKey": "Ingen nøkkel ennå",
