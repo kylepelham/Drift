@@ -2,6 +2,7 @@ use super::super::tests::Sandbox;
 use super::*;
 use axum::Router;
 use axum::routing::get;
+use std::sync::Arc;
 
 async fn page() -> axum::response::Html<&'static str> {
     axum::response::Html(
@@ -170,4 +171,103 @@ async fn a_body_past_the_cap_is_given_up_on_while_it_streams() {
         .await
         .unwrap_err();
     assert!(refused.0.contains("too large to fetch"), "{}", refused.0);
+}
+
+/// A site that refuses plain fetches, one that builds itself with JavaScript, and Firecrawl's scrape standing in.
+async fn serve_with_provider(asked: Arc<std::sync::Mutex<Vec<String>>>) -> String {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let shell = "<html><body><div id=\"root\"></div><noscript>Enable JavaScript.</noscript><script src=\"/app.js\"></script></body></html>";
+    let app = Router::new()
+        .route(
+            "/blocked",
+            get(|| async { (axum::http::StatusCode::FORBIDDEN, "denied") }),
+        )
+        .route("/shell", get(move || async move { axum::response::Html(shell) }))
+        .route(
+            "/firecrawl/scrape",
+            axum::routing::post(move |axum::Json(body): axum::Json<Value>| {
+                let asked = asked.clone();
+                async move {
+                    asked
+                        .lock()
+                        .unwrap()
+                        .push(body["url"].as_str().unwrap_or_default().to_string());
+                    axum::Json(json!({
+                        "success": true,
+                        "data": { "markdown": "# Rendered\n\nThe pricing table.", "metadata": { "title": "Pricing" } }
+                    }))
+                }
+            }),
+        );
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+
+    url
+}
+
+#[tokio::test]
+async fn a_page_that_will_not_load_or_loads_empty_is_read_through_a_provider() {
+    let sandbox = Sandbox::new("webfetch-provider");
+    let asked = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let url = serve_with_provider(asked.clone()).await;
+    let fetch = |path: &str| WebFetch.run(&sandbox.ctx, json!({ "url": format!("{url}/{path}") }));
+
+    // Without a provider key, the plain fetch's own answer stands.
+    assert!(fetch("blocked").await.unwrap_err().0.contains("403"));
+    assert!(
+        fetch("shell").await.unwrap().output.is_empty(),
+        "a JavaScript shell reads as nothing"
+    );
+    assert!(asked.lock().unwrap().is_empty());
+
+    sandbox.ctx.engine.add_search_key("firecrawl", "fc-spare").unwrap();
+    *sandbox.ctx.engine.search_routing.base.lock().unwrap() = Some(url.clone());
+    for path in ["blocked", "shell"] {
+        let read = fetch(path).await.unwrap();
+        assert!(
+            read.output.starts_with("(Read through Firecrawl"),
+            "{path}: {}",
+            read.output
+        );
+        assert!(read.output.contains("The pricing table."));
+        assert_eq!(read.metadata.provider.as_deref(), Some("firecrawl"));
+    }
+    assert_eq!(asked.lock().unwrap().len(), 2);
+
+    let missing = fetch("nowhere").await.unwrap_err();
+    assert!(missing.0.contains("404"), "{}", missing.0);
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        2,
+        "a page that is not there is not asked of a provider"
+    );
+}
+
+#[test]
+fn only_a_public_address_without_credentials_goes_to_a_provider() {
+    for url in [
+        "https://docs.rs/tokio",
+        "https://93.184.215.14/page",
+        "http://[2606:4700::6810:84e5]/",
+    ] {
+        assert!(super::public(url), "{url}");
+    }
+    for url in [
+        "http://localhost:3000/",
+        "http://127.0.0.1/admin",
+        "http://10.0.0.5/",
+        "http://192.168.1.20:8080/",
+        "http://172.20.0.1/",
+        "http://100.64.0.9/",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[::1]/",
+        "http://[fd00::1]/",
+        "http://[::ffff:192.168.0.1]/",
+        "http://nas/",
+        "http://printer.local/",
+        "http://build.internal/",
+        "https://user:hunter2@example.com/",
+    ] {
+        assert!(!super::public(url), "{url}");
+    }
 }

@@ -1,4 +1,7 @@
-Searches the web and returns the best matching pages, each with its title, URL and the text that matched.
+Searches the web, or lists a site's pages, and returns each result's title, URL and the text that matched.
 
 - Use it for anything current or beyond what you know: recent releases, news, error messages, where a page lives. Then `webfetch` a result to read it in full.
 - Write the query as you would type it into a search engine. Add the year for recent things.
+- `content: true` returns each result's page too, in one call instead of a search and several fetches.
+- `source: "developer"` searches GitHub issues, pull requests, READMEs and documentation: good for an error message or a library's behaviour.
+- `site` lists that site's pages, ordered by `query` when given: use it to find the right page in a project's documentation. With `content: true` it reads those pages too, a small crawl; keep `limit` low.

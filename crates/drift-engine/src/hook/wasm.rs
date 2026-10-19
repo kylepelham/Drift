@@ -269,7 +269,12 @@ impl Hook for WasmPlugin {
         match answer {
             Ok((Ok(hits),)) => Ok(hits
                 .into_iter()
-                .map(|(url, title, snippet)| Hit { url, title, snippet })
+                .map(|(url, title, snippet)| Hit {
+                    url,
+                    title,
+                    snippet,
+                    content: None,
+                })
                 .collect()),
             Ok((Err((why, Some(seconds))),)) => {
                 eprintln!("drift: plugin {} is rate limited: {why}", self.name);

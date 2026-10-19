@@ -1,8 +1,9 @@
-//! Web search for the `websearch` tool. Every provider, built in or a plugin's, answers the same way, so
-//! routing never knows which kind it called. Built-in providers take a list of keys: a key refused (401,
-//! 402) is set aside and the next tried, and a key rate limited (429) cools for the wait it names. In
-//! `auto`, a provider with no key left to try hands over to the next in the user's order. Cooldowns are
-//! shared by every session; a session keeps the provider that last answered it.
+//! Web search for the `websearch` tool, and the pages it and `webfetch` read through a provider. Every provider,
+//! built in or a plugin's, answers the same way, so routing never knows which kind it called. Built-in providers
+//! take a list of keys: a key refused (401 to 403, or out of credit) is set aside and the next tried, and a key
+//! rate limited (429) cools for the wait it names. In `auto`, a provider with no key left to try hands over to the
+//! next in the user's order that can do what is asked. Cooldowns are shared by every session; a session keeps the
+//! provider that last answered it.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
@@ -16,20 +17,80 @@ use crate::Engine;
 
 mod providers;
 
-pub use providers::BUILT_IN;
+pub use providers::{BUILT_IN, Query, Site};
 
 pub const SETTINGS_KEY: &str = "webSearch";
 /// A rate limit that names no wait cools its key this long.
 const DEFAULT_COOLDOWN: Duration = Duration::from_secs(60);
 /// The most results one search asks for.
 pub const MAX_RESULTS: u32 = 20;
+/// The most pages one map lists.
+pub const MAX_MAPPED: u32 = 100;
+/// The most of one page a result carries, so several pages fit in one tool result.
+pub const PAGE_CHARS: usize = 12_000;
+/// How many pages Tavily is asked to find before they are ranked and cut to the limit.
+const MAP_SCAN: u32 = 100;
 
-/// One result: where it is, what it is called, and the text that matched.
+/// One result: where it is, what it is called, the text that matched, and its page when that was asked for.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hit {
     pub url: String,
     pub title: String,
     pub snippet: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+}
+
+/// One page as a provider read it, as markdown.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Page {
+    pub url: String,
+    pub title: String,
+    pub text: String,
+}
+
+/// What a provider is asked to do; only some can do each.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Want {
+    Search { developer: bool },
+    Scrape,
+    Map,
+}
+
+/// One request routed to a provider.
+enum Job<'a> {
+    Search(Query<'a>),
+    Scrape(&'a str),
+    Map(Site<'a>),
+}
+
+impl Job<'_> {
+    fn want(&self) -> Want {
+        match self {
+            Self::Search(query) => Want::Search {
+                developer: query.developer,
+            },
+            Self::Scrape(_) => Want::Scrape,
+            Self::Map(_) => Want::Map,
+        }
+    }
+}
+
+/// What a provider answered: results, or one page.
+enum Answer {
+    Hits(Vec<Hit>),
+    Page(Page),
+}
+
+impl Want {
+    fn what(self) -> &'static str {
+        match self {
+            Self::Search { developer: false } => "search the web",
+            Self::Search { developer: true } => "search the developer index",
+            Self::Scrape => "read pages",
+            Self::Map => "list a site's pages",
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -109,6 +170,14 @@ impl Attempt {
 fn sha2_digest(text: &str) -> Vec<u8> {
     use sha2::Digest;
     sha2::Sha256::digest(text.as_bytes()).to_vec()
+}
+
+/// A built-in provider's name, for a provider id; a plugin's id is its own name.
+pub fn provider_name(id: &str) -> &str {
+    BUILT_IN
+        .iter()
+        .find(|provider| provider.id == id)
+        .map_or(id, |provider| provider.name)
 }
 
 /// A key as Settings shows it: only its last four characters.
@@ -216,13 +285,26 @@ impl Engine {
 
     /// Whether the `websearch` tool is offered: not off, and some provider could answer.
     pub fn web_search_available(&self) -> bool {
-        let settings = self.web_search_settings();
-        settings.provider != "off" && !self.attempts(&settings.provider).is_empty()
+        self.web_provider_for(Want::Search { developer: false })
     }
 
-    /// Who to ask, in turn: one provider's keys, or every provider's in the user's order for `auto`.
-    fn attempts(&self, choice: &str) -> Vec<Attempt> {
-        let plugins: Vec<String> = self.hooks.search_providers().into_iter().map(|(id, _)| id).collect();
+    /// Whether a page that does not load directly can be read through a provider instead.
+    pub fn web_scrape_available(&self) -> bool {
+        self.web_provider_for(Want::Scrape)
+    }
+
+    fn web_provider_for(&self, want: Want) -> bool {
+        let settings = self.web_search_settings();
+        settings.provider != "off" && !self.attempts(&settings.provider, want).is_empty()
+    }
+
+    /// Who to ask, in turn: one provider's keys, or every provider's in the user's order for `auto`; only
+    /// providers that can do what is wanted, and plugins only for a plain search.
+    fn attempts(&self, choice: &str, want: Want) -> Vec<Attempt> {
+        let plugins: Vec<String> = match want {
+            Want::Search { developer: false } => self.hooks.search_providers().into_iter().map(|(id, _)| id).collect(),
+            _ => Vec::new(),
+        };
         let mut ids: Vec<String> = self.web_search_settings().order;
         ids.extend(BUILT_IN.iter().map(|provider| provider.id.to_string()));
         ids.extend(plugins.iter().cloned());
@@ -231,26 +313,73 @@ impl Engine {
 
         ids.into_iter()
             .flat_map(|id| match BUILT_IN.iter().find(|provider| provider.id == id) {
-                Some(provider) => self
+                Some(provider) if provider.can(want) => self
                     .search_keys(provider)
                     .into_iter()
                     .map(|key| Attempt::Key { provider, key })
                     .collect(),
                 None if plugins.contains(&id) => vec![Attempt::Plugin { provider: id }],
-                None => Vec::new(),
+                _ => Vec::new(),
             })
             .collect()
     }
 
-    /// Searches for `session_id`: its last provider first, then the rest in order, skipping what cools.
-    pub async fn web_search(&self, session_id: &str, query: &str, limit: u32) -> Result<(String, Vec<Hit>), String> {
+    /// Searches for `session_id`, returning the provider that answered and its results.
+    pub async fn web_search(&self, session_id: &str, query: Query<'_>) -> Result<(String, Vec<Hit>), String> {
+        let query = Query {
+            limit: query.limit.clamp(1, MAX_RESULTS),
+            ..query
+        };
+        let (provider, Answer::Hits(hits)) = self.route(session_id, &Job::Search(query)).await? else {
+            return Err("the provider answered a search with a page".into());
+        };
+
+        Ok((provider, hits))
+    }
+
+    /// One page read through a provider, for a page that would not load directly.
+    pub async fn web_scrape(&self, session_id: &str, url: &str) -> Result<(String, Page), String> {
+        let (provider, Answer::Page(page)) = self.route(session_id, &Job::Scrape(url)).await? else {
+            return Err("the provider answered a page with a list".into());
+        };
+
+        Ok((provider, page))
+    }
+
+    /// The pages of the site at `url`, those matching `query` first.
+    pub async fn web_map(
+        &self,
+        session_id: &str,
+        url: &str,
+        query: Option<&str>,
+        limit: u32,
+    ) -> Result<(String, Vec<Hit>), String> {
+        let job = Job::Map(Site {
+            url,
+            query,
+            limit: limit.clamp(1, MAX_MAPPED),
+        });
+        let (provider, Answer::Hits(hits)) = self.route(session_id, &job).await? else {
+            return Err("the provider answered a map with a page".into());
+        };
+
+        Ok((provider, hits))
+    }
+
+    /// Asks the providers that can do `job` in turn: the session's last provider first, then the rest in order,
+    /// skipping keys that cool or were refused. The first answer wins.
+    async fn route(&self, session_id: &str, job: &Job<'_>) -> Result<(String, Answer), String> {
         let settings = self.web_search_settings();
         if settings.provider == "off" {
             return Err("web search is off in Settings".into());
         }
-        let mut attempts = self.attempts(&settings.provider);
+        let want = job.want();
+        let mut attempts = self.attempts(&settings.provider, want);
         if attempts.is_empty() {
-            return Err("no web search provider has a key; add one in Settings > Web search".into());
+            return Err(format!(
+                "no web search provider with a key can {}; add one in Settings > Web search",
+                want.what()
+            ));
         }
         let sticky = self.search_routing.sticky.lock().unwrap().get(session_id).cloned();
         attempts.sort_by_key(|attempt| sticky.as_deref() != Some(provider_of(attempt)));
@@ -260,21 +389,52 @@ impl Engine {
             if self.unusable(&attempt.slot()) {
                 continue;
             }
-            match self.ask_provider(&attempt, query, limit.clamp(1, MAX_RESULTS)).await {
-                Ok(hits) => {
+            match self.ask_provider(&attempt, job).await {
+                Ok(answer) => {
                     let provider = provider_of(&attempt).to_string();
                     self.search_routing
                         .sticky
                         .lock()
                         .unwrap()
                         .insert(session_id.into(), provider.clone());
-                    return Ok((provider, hits));
+                    return Ok((provider, answer));
                 }
                 Err(error) => last = self.note_failure(&attempt, error),
             }
         }
 
         Err(last)
+    }
+
+    async fn ask_provider(&self, attempt: &Attempt, job: &Job<'_>) -> Result<Answer, SearchError> {
+        let base = self.test_base();
+        let base = base.as_deref();
+
+        match (attempt, job) {
+            (Attempt::Key { provider, key }, Job::Search(query)) => {
+                providers::search(provider, key, *query, base).await.map(Answer::Hits)
+            }
+            (Attempt::Key { provider, key }, Job::Scrape(url)) => {
+                providers::scrape(provider, key, url, base).await.map(Answer::Page)
+            }
+            (Attempt::Key { provider, key }, Job::Map(site)) => {
+                providers::map(provider, key, *site, base).await.map(Answer::Hits)
+            }
+            (Attempt::Plugin { provider }, Job::Search(query)) => self
+                .hooks
+                .search(provider, query.text, query.limit)
+                .await
+                .map(Answer::Hits),
+            (Attempt::Plugin { .. }, _) => Err(SearchError::Failed("a plugin provider only searches".into())),
+        }
+    }
+
+    /// Where tests serve the built-in providers instead; never set outside them.
+    fn test_base(&self) -> Option<String> {
+        #[cfg(test)]
+        return self.search_routing.base.lock().unwrap().clone();
+        #[cfg(not(test))]
+        None
     }
 
     fn unusable(&self, slot: &str) -> bool {
@@ -305,19 +465,6 @@ impl Engine {
                 format!("{provider} refused a key: {why}")
             }
             SearchError::Failed(why) => format!("{provider} failed: {why}"),
-        }
-    }
-
-    async fn ask_provider(&self, attempt: &Attempt, query: &str, limit: u32) -> Result<Vec<Hit>, SearchError> {
-        match attempt {
-            Attempt::Key { provider, key } => {
-                #[cfg(test)]
-                let base = self.search_routing.base.lock().unwrap().clone();
-                #[cfg(not(test))]
-                let base: Option<String> = None;
-                providers::search(provider, key, query, limit, base.as_deref()).await
-            }
-            Attempt::Plugin { provider } => self.hooks.search(provider, query, limit).await,
         }
     }
 
@@ -360,7 +507,8 @@ async fn post(request: reqwest::RequestBuilder, body: Value) -> Result<Value, Se
 
     match status {
         200..=299 => serde_json::from_str(&text).map_err(|error| SearchError::Failed(error.to_string())),
-        401..=403 => Err(SearchError::Refused(crate::llm::error_message(&text))),
+        // Tavily says a plan or pay-as-you-go limit was reached with 432 and 433.
+        401..=403 | 432 | 433 => Err(SearchError::Refused(crate::llm::error_message(&text))),
         429 => Err(SearchError::RateLimited(wait)),
         _ => Err(SearchError::Failed(format!(
             "{status} {}",
@@ -381,7 +529,50 @@ fn trimmed(text: &str, chars: usize) -> String {
     format!("{}...", &cut[..end])
 }
 
-pub(crate) fn json_hits(values: Option<&Vec<Value>>, snippet: &[&str]) -> Vec<Hit> {
+/// `text` kept to about `chars` characters, its lines as they were, cut at a line or word when it is longer.
+pub(crate) fn capped(text: &str, chars: usize) -> String {
+    let text = text.trim();
+    if text.chars().count() <= chars {
+        return text.to_string();
+    }
+    let cut: String = text.chars().take(chars).collect();
+    let end = cut.rfind('\n').or_else(|| cut.rfind(' ')).unwrap_or(cut.len());
+
+    format!("{}\n\n(cut at {chars} characters)", cut[..end].trim_end())
+}
+
+/// A snippet read as text: markdown links become their words, empty anchor links and heading marks go.
+fn plain(snippet: &str) -> String {
+    let mut out = String::with_capacity(snippet.len());
+    let mut rest = snippet;
+    while let Some(open) = rest.find('[') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let link = after
+            .find("](")
+            .and_then(|close| after[close + 2..].find(')').map(|end| (close, close + 2 + end)));
+        match link {
+            Some((close, end)) => {
+                out.push_str(after[..close].trim_matches(|c: char| c == '\u{200b}' || c.is_whitespace()));
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push('[');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+
+    out.split_whitespace()
+        .filter(|word| !word.chars().all(|c| c == '#'))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Results out of a provider's list: the first of `snippet`'s fields that is there, and `content`'s field as the
+/// page when it holds one.
+pub(crate) fn json_hits(values: Option<&Vec<Value>>, snippet: &[&str], content: &str) -> Vec<Hit> {
     values
         .into_iter()
         .flatten()
@@ -395,9 +586,16 @@ pub(crate) fn json_hits(values: Option<&Vec<Value>>, snippet: &[&str]) -> Vec<Hi
                     _ => None,
                 })
                 .unwrap_or_default();
+            let page = (!content.is_empty())
+                .then(|| value[content].as_str())
+                .flatten()
+                .filter(|page| !page.trim().is_empty())
+                .map(|page| capped(page, PAGE_CHARS));
+
             Some(Hit {
                 title: value["title"].as_str().unwrap_or(&url).to_string(),
-                snippet: trimmed(&text, 400),
+                snippet: trimmed(&plain(&text), 400),
+                content: page,
                 url,
             })
         })

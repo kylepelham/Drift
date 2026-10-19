@@ -141,7 +141,7 @@ function contextToolInfo(
             return { title: t("settings.permissions.tool.grep.title"), subtitle: `${pattern}${suffix}`, mono: true };
         }
         case "websearch": {
-            const query = text("query") ?? "";
+            const query = text("query") ?? text("site") ?? "";
             const suffix = count(meta.count, "drift.count.result.one", "drift.count.result.other");
 
             return { title: t("common.search.placeholder"), subtitle: `${query}${suffix}` };

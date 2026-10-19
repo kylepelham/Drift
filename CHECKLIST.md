@@ -326,6 +326,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [x] Importer reads opencode v2 conversations, sign-ins and config shapes
 - Features:
   - [x] `websearch` with Firecrawl, Exa and Tavily over one provider trait, key lists rotated on 401, 402 and 429, `auto` routing, plugin providers through a `searching` WIT world
+  - [x] Pages through the same providers and keys: `websearch` page content, the developer index and a site's pages (`site`, with `content` a bounded crawl); `webfetch` reads a blocked or JavaScript-built page through a provider, never a private URL
   - [x] MCP elicitation answered through a blocking question card
   - [x] References: named outside paths and git repositories, listed in the baseline, read unasked, project references approved first
   - [x] Worktrees (the M6 item) with `worktree_create`, `worktree_list`, `worktree_remove`, `session_move` and `worktree.setup`

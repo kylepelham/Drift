@@ -8,6 +8,8 @@ use crate::llm::ToolSpec;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const MAX_BYTES: usize = 5 * 1024 * 1024;
+/// An HTML page with less visible text than this is taken for one that builds itself with JavaScript.
+const THIN_PAGE_CHARS: usize = 200;
 
 pub struct WebFetch;
 
@@ -37,6 +39,8 @@ impl Tool for WebFetch {
         Some(Ask::new("webfetch", url, format!("Fetch {url}")).allow_by_default())
     }
 
+    /// Fetches the page itself first; a page that will not load, or loads nearly empty, is read through a web search
+    /// provider instead when one has a key.
     fn run<'a>(&'a self, ctx: &'a Context, input: Value) -> RunFuture<'a> {
         Box::pin(async move {
             let url = required_str(&input, "url")?;
@@ -45,45 +49,161 @@ impl Tool for WebFetch {
             }
             let format = input["format"].as_str().unwrap_or("markdown");
 
-            let response = respond(ctx, url).await?;
-            if let Some(target) = elsewhere(&response) {
-                return Ok(redirected(url, target));
+            match direct(ctx, url, format).await? {
+                Fetched::Done(output) => Ok(output),
+                Fetched::Thin(output) => Ok(match through_provider(ctx, url).await {
+                    Some(Ok(rendered)) => rendered,
+                    _ => output,
+                }),
+                Fetched::Blocked(error) => match through_provider(ctx, url).await {
+                    Some(Ok(rendered)) => Ok(rendered),
+                    Some(Err(why)) => Err(ToolError(format!("{}; {why}", error.0))),
+                    None => Err(error),
+                },
             }
-            let status = response.status();
-            if !status.is_success() {
-                return Err(ToolError(format!("{url} answered {status}")));
-            }
+        })
+    }
+}
 
-            let content_type = response
-                .headers()
-                .get("content-type")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or("")
-                .to_string();
-            let bytes = tokio::select! {
-                read = read_capped(response, url) => read?,
-                () = ctx.abort.cancelled() => return Err(ToolError("aborted".into())),
-            };
-            // An image or PDF, known by its bytes whatever the server calls it, comes back to look at.
-            if let Some(mime) = image::sniff(&bytes).or(image::is_pdf(&bytes).then_some(image::PDF)) {
-                return fetched_file(url, mime, &bytes);
-            }
-            if bytes.len() > MAX_BYTES {
-                return Err(ToolError(format!("{url} is {} bytes; too large to fetch", bytes.len())));
-            }
+/// What fetching the page itself got.
+enum Fetched {
+    /// A page or file to return as it is.
+    Done(Output),
+    /// An HTML page with almost no text, as one that builds itself with JavaScript sends.
+    Thin(Output),
+    /// Refused or unreachable in a way a provider may get past: blocked, rate limited, or no connection.
+    Blocked(ToolError),
+}
 
-            let body = String::from_utf8_lossy(&bytes);
-            let text = page_text(body, &content_type, format);
+/// The page as this machine fetches it. A missing page, one too large, or an abort is an error no provider helps with.
+async fn direct(ctx: &Context, url: &str, format: &str) -> Result<Fetched, ToolError> {
+    let response = match respond(ctx, url).await {
+        Ok(response) => response,
+        Err(error) if ctx.abort.is_cancelled() => return Err(error),
+        Err(error) => return Ok(Fetched::Blocked(error)),
+    };
+    if let Some(target) = elsewhere(&response) {
+        return Ok(Fetched::Done(redirected(url, target)));
+    }
+    let status = response.status();
+    if !status.is_success() {
+        let error = ToolError(format!("{url} answered {status}"));
+        // A page that is not there is not there for a provider either.
+        let gone = matches!(status.as_u16(), 404 | 410);
+        return if gone { Err(error) } else { Ok(Fetched::Blocked(error)) };
+    }
+
+    let content_type = response
+        .headers()
+        .get("content-type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let bytes = tokio::select! {
+        read = read_capped(response, url) => read?,
+        () = ctx.abort.cancelled() => return Err(ToolError("aborted".into())),
+    };
+    // An image or PDF, known by its bytes whatever the server calls it, comes back to look at.
+    if let Some(mime) = image::sniff(&bytes).or(image::is_pdf(&bytes).then_some(image::PDF)) {
+        return fetched_file(url, mime, &bytes).map(Fetched::Done);
+    }
+    if bytes.len() > MAX_BYTES {
+        return Err(ToolError(format!("{url} is {} bytes; too large to fetch", bytes.len())));
+    }
+
+    let body = String::from_utf8_lossy(&bytes);
+    let thin = content_type.contains("text/html") && visible_chars(&body) < THIN_PAGE_CHARS;
+    let output = Output {
+        title: url.into(),
+        output: page_text(body, &content_type, format).trim().into(),
+        metadata: ToolMetadata {
+            content_type: Some(content_type),
+            bytes: Some(bytes.len()),
+            ..Default::default()
+        },
+    };
+
+    Ok(if thin {
+        Fetched::Thin(output)
+    } else {
+        Fetched::Done(output)
+    })
+}
+
+fn visible_chars(html: &str) -> usize {
+    strip_tags(html).chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// The page read through a web search provider, as markdown; `None` when no provider can read pages or the URL
+/// must not leave this machine.
+async fn through_provider(ctx: &Context, url: &str) -> Option<Result<Output, String>> {
+    // Tests serve the site and the provider both on loopback, which a real fallback never sends anywhere.
+    let allowed = public(url) || cfg!(test);
+    if !allowed || !ctx.engine.web_scrape_available() {
+        return None;
+    }
+    let read = tokio::select! {
+        read = ctx.engine.web_scrape(&ctx.session_id, url) => read,
+        () = ctx.abort.cancelled() => return Some(Err("aborted".into())),
+    };
+
+    Some(match read {
+        Ok((provider, page)) => {
+            let name = crate::websearch::provider_name(&provider);
             Ok(Output {
                 title: url.into(),
-                output: text.trim().into(),
+                output: format!("(Read through {name}, as it did not load directly.)\n\n{}", page.text),
                 metadata: ToolMetadata {
-                    content_type: Some(content_type),
-                    bytes: Some(bytes.len()),
+                    provider: Some(provider),
+                    content_type: Some("text/markdown".into()),
+                    bytes: Some(page.text.len()),
                     ..Default::default()
                 },
             })
-        })
+        }
+        Err(why) => Err(format!("reading it through a web search provider failed too: {why}")),
+    })
+}
+
+/// Whether `url` may go to a third party: a public host by name or address, with no credentials in it.
+fn public(url: &str) -> bool {
+    let Ok(parsed) = reqwest::Url::parse(url) else {
+        return false;
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return false;
+    }
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase();
+    if let Ok(address) = host.parse::<std::net::IpAddr>() {
+        return public_address(address);
+    }
+
+    let local = [".local", ".localhost", ".internal", ".lan", ".home.arpa"];
+    host.contains('.') && !local.iter().any(|suffix| host.ends_with(suffix))
+}
+
+fn public_address(address: std::net::IpAddr) -> bool {
+    match address {
+        std::net::IpAddr::V4(v4) => {
+            let shared = v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64;
+            !(v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || shared)
+        }
+        std::net::IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            let local = (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80;
+            let mapped = v6
+                .to_ipv4_mapped()
+                .is_none_or(|v4| public_address(std::net::IpAddr::V4(v4)));
+            !(v6.is_loopback() || v6.is_unspecified() || local) && mapped
+        }
     }
 }
 

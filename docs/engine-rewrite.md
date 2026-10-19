@@ -1554,6 +1554,29 @@ listed there.
   - Decision taken while Kyle slept: no `websearch.provider` in drift.json. The keys live in the
     credential store and Settings manages both, so a second source would only add a precedence
     rule; it can come later if a team wants it set in a file.
+  - Pages through providers (2.4.0, after trying Firecrawl's MCP). The same keys and routing read
+    pages and list sites, so Drift needs no Firecrawl MCP for what a coding agent uses of it:
+    - Each provider says what it can do (`Provider::can`), and routing asks only those, in the same
+      order with the same rotation. Firecrawl searches, reads a page (`/v2/scrape`, main content as
+      markdown), lists a site (`/v2/map`, ordered by `search`) and searches its developer index
+      (`categories: [{type: developer}]`: GitHub issues, pull requests, READMEs and docs). Exa reads
+      pages (`/contents`). Tavily reads pages (`/extract`) and lists a site (`/map`, which orders
+      nothing, so its URLs are ranked here by how many of the query's words they hold). Plugin
+      providers only search.
+    - `websearch` takes `content` (each result's page too, up to 12,000 characters each; Firecrawl's
+      `scrapeOptions`, Exa's `contents.text`, Tavily's `include_raw_content`), `source: developer`,
+      and `site`: that site's pages instead of a web search, with `content` a crawl kept to ten
+      pages read side by side. A crawl endpoint is not used: it can return hundreds of pages, while
+      a site's list and the pages the model picks keep it in control of what it reads.
+    - `webfetch` fetches the page itself first, and reads it through a provider when that is
+      refused, rate limited or unreachable, or when an HTML page shows under 200 characters of text
+      (a page built with JavaScript, a bot check). A 404 or 410, a page too large, or a Stop is
+      final. The URL never goes to a provider when its host is local or private (loopback, private
+      and shared ranges, link-local, `.local`, `.internal`, a name without a dot) or it carries
+      credentials; Off in Settings stops the fallback too. The result says which provider read it.
+    - Tavily's plan and pay-as-you-go limits answer 432 and 433, which set the key aside as a 402
+      does. Snippets lose markdown link syntax and heading marks, which Firecrawl's descriptions
+      now carry.
 - **MCP elicitation.** Drift advertises the spec's elicitation capability and answers
   `elicitation/create` (and the 2026-07-28 era's `input_required` requests) through the question
   card: each schema property becomes a question, an enum becomes options, a boolean yes or no,
