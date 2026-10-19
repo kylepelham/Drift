@@ -308,8 +308,8 @@ pub enum Error {
 
 /// The status adapters give an error that arrives inside a stream which began with 200 OK.
 pub const STREAMED: u16 = 200;
-/// Timeouts, rate limits, overload and server faults: worth another try.
-const RETRY_STATUSES: [u16; 7] = [408, 429, 500, 502, 503, 504, 529];
+/// Timeouts, conflicts, rate limits, overload and server faults: worth another try.
+const RETRY_STATUSES: [u16; 8] = [408, 409, 429, 500, 502, 503, 504, 529];
 /// The same faults as providers name them inside a stream, lowercased.
 const RETRY_KINDS: [&str; 10] = [
     "overloaded_error",
@@ -324,6 +324,31 @@ const RETRY_KINDS: [&str; 10] = [
     "deadline_exceeded",
 ];
 
+/// How a streamed fault says it is passing when its kind names nothing known (gateways, proxies), lowercased.
+const RETRY_WORDS: [&str; 7] = [
+    "try again",
+    "overloaded",
+    "temporarily unavailable",
+    "service unavailable",
+    "server is busy",
+    "provider returned error",
+    "upstream connect",
+];
+
+/// Kinds that say the request itself is wrong, whatever their words suggest.
+const REQUEST_KINDS: [&str; 4] = [
+    "invalid_request_error",
+    "invalid_request",
+    "invalid_argument",
+    "invalid_prompt",
+];
+
+fn retry_words(kind: &str, message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+
+    !REQUEST_KINDS.contains(&kind.to_ascii_lowercase().as_str()) && RETRY_WORDS.iter().any(|w| message.contains(w))
+}
+
 /// Faults no wait will fix, whatever status they came with: OpenAI answers a spent balance with 429.
 const PERMANENT_KINDS: [&str; 4] = [
     "insufficient_quota",
@@ -332,8 +357,20 @@ const PERMANENT_KINDS: [&str; 4] = [
     "access_terminated",
 ];
 
-fn permanent(kind: &str) -> bool {
+/// The same said in words, lowercased: Z.ai answers a spent balance or an expired plan with 429.
+const SPENT_WORDS: [&str; 3] = [
+    "insufficient balance",
+    "package has expired",
+    "plan does not yet include",
+];
+
+/// No wait will fix it: a permanent kind, a spent balance, or a plan without the model (another account may have it).
+fn hopeless(kind: &str, message: &str) -> bool {
+    let words = message.to_ascii_lowercase();
+
     PERMANENT_KINDS.contains(&kind.to_ascii_lowercase().as_str())
+        || SPENT_WORDS.iter().any(|phrase| words.contains(phrase))
+        || plan_lacks_model(message)
 }
 
 /// What providers say, lowercased, when the signed-in account's plan does not include the model, whatever
@@ -351,15 +388,14 @@ fn plan_lacks_model(message: &str) -> bool {
 }
 
 impl Error {
-    /// A provider error, retryable by its status or, inside a stream, by what the provider calls it.
-    /// A permanent fault is never retryable.
+    /// A provider error, retryable by its status or, inside a stream, by what the provider calls it or says.
+    /// A fault no wait will fix is never retryable.
     pub fn api(status: u16, kind: impl Into<String>, message: impl Into<String>) -> Self {
         let kind = kind.into();
         let message = message.into();
-        let transient = RETRY_STATUSES.contains(&status)
-            || (status == STREAMED && RETRY_KINDS.contains(&kind.to_ascii_lowercase().as_str()));
-        // Waiting never adds a model to the account's plan; another account may have it.
-        let retryable = transient && !permanent(&kind) && !plan_lacks_model(&message);
+        let streamed_fault = RETRY_KINDS.contains(&kind.to_ascii_lowercase().as_str()) || retry_words(&kind, &message);
+        let transient = RETRY_STATUSES.contains(&status) || (status == STREAMED && streamed_fault);
+        let retryable = transient && !hopeless(&kind, &message);
 
         Self::Api {
             status,
@@ -384,7 +420,7 @@ impl Error {
         {
             *retry_after = requested_wait(headers).or(*retry_after);
             match headers.get("x-should-retry").and_then(|v| v.to_str().ok()) {
-                Some("true") => *retryable = !permanent(kind) && !plan_lacks_model(message),
+                Some("true") => *retryable = !hopeless(kind, message),
                 Some("false") => *retryable = false,
                 _ => {}
             }
