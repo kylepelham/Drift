@@ -193,7 +193,6 @@ fn import_source(app: &AppHandle, engine: &Arc<Engine>, store: &Store, source: &
 
 /// Imports opencode sign-ins, global config, and MCP servers from both opencode and Drift's old manager.
 fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Option<drift_migrate::SettingsReport> {
-    let read = |path: PathBuf| read_text(&path).and_then(|text| serde_json::from_str::<Value>(&text).ok());
     let config_dir = opencode_config_dir();
     let config = config_dir.as_deref().and_then(read_config);
 
@@ -219,14 +218,14 @@ fn import_settings(engine: &Arc<Engine>, store: &Store, data_dir: &Path) -> Opti
     servers.extend(
         config
             .as_ref()
-            .and_then(|config| config.value["mcp"].as_object())
-            .into_iter()
-            .flatten()
+            .map(drift_migrate::OcConfig::servers)
+            .unwrap_or_default()
+            .iter()
             .map(|(name, definition)| server(name, definition)),
     );
 
     let settings = drift_migrate::Settings {
-        auth: read(data_dir.join("auth.json")),
+        auth: drift_migrate::sign_ins(data_dir),
         config,
         config_dir: config_dir.unwrap_or_default(),
         servers,

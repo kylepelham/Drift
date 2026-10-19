@@ -1,89 +1,62 @@
-use super::SettingsReport;
-use serde::Deserialize;
-use serde::de::{Deserializer, IgnoredAny, MapAccess, Visitor};
+//! opencode's global config as drift.json fields. v1 and v2 keys may sit side by side in one file, as v2 allows;
+//! for a value both set, v2's wins, and v2's permission rules come after v1's, so they win too.
+
+use super::ordered::OcConfig;
+use super::{SettingsReport, permissions, providers};
+use drift_engine::store::Store;
 use serde_json::{Map, Value, json};
-use std::marker::PhantomData;
 use std::path::Path;
 
-/// opencode's global config, preserving the written order of its permission section.
-/// opencode uses the last matching pattern, while an ordinary JSON object forgets that order.
-pub struct OcConfig {
-    pub value: Value,
-    /// Ordered permission entries, or None when the value is neither a decision nor a map of decisions.
-    permission: Option<Vec<(String, Setting)>>,
+/// Keys read elsewhere: MCP servers by the shell, agents and commands as definition files, providers after the rest.
+const ELSEWHERE: [&str; 9] = [
+    "$schema",
+    "mcp",
+    "agent",
+    "agents",
+    "mode",
+    "command",
+    "commands",
+    "provider",
+    "providers",
+];
+
+/// A model as v1 (`provider/model`) and v2 (`provider/model#variant` or `{ providerID, model, variant }`) write it.
+pub(super) struct Selection {
+    pub(super) provider: String,
+    pub(super) model: String,
+    pub(super) variant: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct Root {
-    #[serde(default)]
-    permission: Option<Permission>,
-}
+pub(super) fn selection(value: &Value) -> Option<Selection> {
+    let Some(text) = value.as_str() else {
+        return Some(Selection {
+            provider: value["providerID"].as_str()?.into(),
+            model: value["model"].as_str()?.into(),
+            variant: value["variant"].as_str().map(String::from),
+        });
+    };
 
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Permission {
-    One(String),
-    Kinds(Entries<Setting>),
-    Other(IgnoredAny),
-}
+    let (reference, variant) = match text.split_once('#') {
+        Some((reference, variant)) => (reference, Some(variant.to_string())),
+        None => (text, None),
+    };
+    let (provider, model) = reference.split_once('/')?;
 
-/// One permission kind's decision, or its patterns in written order.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Setting {
-    One(String),
-    Patterns(Entries<Value>),
-    Other(IgnoredAny),
-}
-
-/// A JSON object deserialized as entries in their written order.
-struct Entries<T>(Vec<(String, T)>);
-struct EntryVisitor<T>(PhantomData<T>);
-
-impl<'de, T: Deserialize<'de>> Visitor<'de> for EntryVisitor<T> {
-    type Value = Entries<T>;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("an object")
-    }
-
-    fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Entries<T>, M::Error> {
-        let mut entries = Vec::new();
-        while let Some(entry) = map.next_entry()? {
-            entries.push(entry);
-        }
-
-        Ok(Entries(entries))
-    }
-}
-
-impl<'de, T: Deserialize<'de>> Deserialize<'de> for Entries<T> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_map(EntryVisitor(PhantomData))
-    }
-}
-
-impl OcConfig {
-    /// Parses config text whose comments have already been stripped.
-    pub fn parse(text: &str) -> Option<Self> {
-        let value = serde_json::from_str(text).ok()?;
-        let permission = match serde_json::from_str::<Root>(text).ok().and_then(|root| root.permission) {
-            Some(Permission::Kinds(kinds)) => Some(kinds.0),
-            Some(Permission::One(decision)) => Some(vec![("*".into(), Setting::One(decision))]),
-            Some(Permission::Other(_)) | None => None,
-        };
-
-        Some(Self { value, permission })
-    }
+    Some(Selection {
+        provider: provider.into(),
+        model: model.into(),
+        variant: variant.filter(|variant| !variant.is_empty()),
+    })
 }
 
 /// Converts supported opencode keys to drift.json fields and reports every unsupported key by name.
 pub(super) fn convert(config: &OcConfig, config_dir: &Path, report: &mut SettingsReport) -> Map<String, Value> {
     let mut file = Map::new();
+    let mut rules = (Vec::new(), Vec::new());
 
     for (key, value) in config.value.as_object().into_iter().flatten() {
         match key.as_str() {
-            "$schema" | "mcp" => {}
+            key if ELSEWHERE.contains(&key) => {}
             "model" => write_model(value, &mut file, report),
             "default_agent" => write_agent(value, &mut file, report),
             "instructions" => {
@@ -96,33 +69,34 @@ pub(super) fn convert(config: &OcConfig, config_dir: &Path, report: &mut Setting
                     .collect();
                 file.insert("instructions".into(), Value::Array(paths));
             }
-            "permission" => write_permissions(config, &mut file, report),
-            "plugin" => {
-                for plugin in value.as_array().into_iter().flatten().filter_map(Value::as_str) {
-                    report.left(
-                        plugin,
-                        format!("plugin {plugin}: opencode plugins are JavaScript and Drift runs none"),
-                        |left| &mut left.plugins,
-                    );
-                }
-            }
-            other => report.left(other, format!("config {other}: Drift has no setting for it"), |left| {
-                &mut left.settings
-            }),
+            "permission" => rules.0 = v1_permissions(config, report),
+            "permissions" => rules.1 = permissions::from_list(value, "permissions", report),
+            "plugin" | "plugins" => plugins(value, report),
+            "snapshot" | "snapshots" if *value == false => report.setting(key, "Drift always keeps its undo history"),
+            "snapshot" | "snapshots" => {}
+            "compaction" => compaction(value, report),
+            other => report.setting(other, "Drift has no setting for it"),
         }
     }
+
+    write_providers(&config.value, &mut file, report);
+    write_permissions(rules, &mut file);
 
     file
 }
 
 fn write_model(value: &Value, file: &mut Map<String, Value>, report: &mut SettingsReport) {
-    match value.as_str().and_then(|model| model.split_once('/')) {
-        Some((provider, model)) => {
-            file.insert("model".into(), json!({ "provider": provider, "model": model }));
-        }
-        None => report.left("model", "config model: not written as provider/model".into(), |left| {
-            &mut left.settings
-        }),
+    let Some(selected) = selection(value) else {
+        report.setting("model", "not written as provider/model");
+        return;
+    };
+
+    file.insert(
+        "model".into(),
+        json!({ "provider": selected.provider, "model": selected.model }),
+    );
+    if selected.variant.is_some() {
+        report.setting("model.variant", "drift.json names a model without its level");
     }
 }
 
@@ -131,28 +105,86 @@ fn write_agent(value: &Value, file: &mut Map<String, Value>, report: &mut Settin
         Some(agent) => {
             file.insert("defaultAgent".into(), json!(agent));
         }
-        None => report.left(
-            "default_agent",
-            "config default_agent: not an agent's name".into(),
-            |left| &mut left.settings,
-        ),
+        None => report.setting("default_agent", "not an agent's name"),
     }
 }
 
-fn write_permissions(config: &OcConfig, file: &mut Map<String, Value>, report: &mut SettingsReport) {
-    let Some(kinds) = &config.permission else {
-        report.left(
-            "permission",
-            "config permission: neither a decision nor a map of them".into(),
-            |left| &mut left.settings,
-        );
-        return;
-    };
+fn v1_permissions(config: &OcConfig, report: &mut SettingsReport) -> Vec<Value> {
+    match &config.permission {
+        Some(kinds) => permissions::from_kinds(kinds, "permission", report),
+        None => {
+            report.setting("permission", "neither a decision nor a map of them");
+            Vec::new()
+        }
+    }
+}
 
-    let rules = permissions(kinds, report);
+/// v1's rules then v2's, reversed: opencode uses the last matching rule and drift.json the first.
+/// A `*` entry written before a tool-specific entry therefore still loses to that later entry.
+fn write_permissions((v1, v2): (Vec<Value>, Vec<Value>), file: &mut Map<String, Value>) {
+    let mut rules: Vec<Value> = v1.into_iter().chain(v2).collect();
+    rules.reverse();
+
     if !rules.is_empty() {
         file.insert("permissions".into(), Value::Array(rules));
     }
+}
+
+fn write_providers(config: &Value, file: &mut Map<String, Value>, report: &mut SettingsReport) {
+    let providers = providers::convert(config, report);
+    if !providers.is_empty() {
+        file.insert("providers".into(), Value::Object(providers));
+    }
+}
+
+/// v1 lists a plugin as its package or `[package, options]`, v2 as its package or `{ package, options }`.
+fn plugins(value: &Value, report: &mut SettingsReport) {
+    for plugin in value.as_array().into_iter().flatten() {
+        let Some(name) = plugin.as_str().or(plugin["package"].as_str()).or(plugin[0].as_str()) else {
+            continue;
+        };
+        report.left(
+            name,
+            format!("plugin {name}: opencode plugins are JavaScript and Drift runs none"),
+            |left| &mut left.plugins,
+        );
+    }
+}
+
+/// `auto` becomes Drift's own switch ([`compaction_switch`]); the token budgets have no Drift setting.
+fn compaction(value: &Value, report: &mut SettingsReport) {
+    let Some(fields) = value.as_object() else {
+        report.setting("compaction", "Drift has no setting for it");
+        return;
+    };
+
+    for key in fields.keys() {
+        match key.as_str() {
+            "auto" => {}
+            "keep" | "preserve_recent_tokens" => report.setting(
+                "compaction.keep.tokens",
+                "Drift sizes the history it keeps to each model",
+            ),
+            other => report.setting(&format!("compaction.{other}"), "Drift has no setting for it"),
+        }
+    }
+}
+
+/// Sets Drift's automatic compaction to opencode's `compaction.auto` unless the user has set it in Drift.
+pub(super) fn compaction_switch(store: &Store, config: &OcConfig, report: &mut SettingsReport) -> rusqlite::Result<()> {
+    use drift_engine::session::compaction::AUTO_COMPACT_KEY;
+
+    let Some(auto) = config.value["compaction"]["auto"].as_bool() else {
+        return Ok(());
+    };
+    if store.setting::<bool>(AUTO_COMPACT_KEY)?.is_some() {
+        report
+            .skipped
+            .push("config compaction.auto: you already set automatic compaction in Drift, kept".into());
+        return Ok(());
+    }
+
+    store.set_setting(AUTO_COMPACT_KEY, &auto)
 }
 
 /// Makes relative instruction paths absolute against opencode's config directory for use from ~/.config/drift.
@@ -163,50 +195,4 @@ fn instruction(path: &str, config_dir: &Path) -> String {
     }
 
     config_dir.join(path).to_string_lossy().replace('\\', "/")
-}
-
-/// Converts opencode permission decisions and ordered patterns into Drift rules, including `*` for every tool.
-/// Reverses the full list because opencode uses the last match while Drift uses the first.
-/// A `*` entry written before a tool-specific entry therefore still loses to that later entry.
-fn permissions(kinds: &[(String, Setting)], report: &mut SettingsReport) -> Vec<Value> {
-    let mut rules = Vec::new();
-
-    for (kind, setting) in kinds {
-        if !matches!(kind.as_str(), "*" | "read" | "edit" | "bash" | "webfetch") {
-            report.left(
-                &format!("permission.{kind}"),
-                format!("config permission.{kind}: Drift has no such permission"),
-                |left| &mut left.settings,
-            );
-            continue;
-        }
-
-        let patterns: Vec<(&str, Value)> = match setting {
-            Setting::One(decision) => vec![("*", Value::String(decision.clone()))],
-            Setting::Patterns(entries) => entries
-                .0
-                .iter()
-                .map(|(pattern, decision)| (pattern.as_str(), decision.clone()))
-                .collect(),
-            Setting::Other(_) => Vec::new(),
-        };
-
-        for (pattern, decision) in patterns {
-            match decision
-                .as_str()
-                .filter(|decision| matches!(*decision, "allow" | "ask" | "deny"))
-            {
-                Some(decision) => rules.push(json!({ "kind": kind, "pattern": pattern, "decision": decision })),
-                None => report.left(
-                    &format!("permission.{kind} {pattern}"),
-                    format!("config permission.{kind} {pattern}: not allow, ask or deny"),
-                    |left| &mut left.settings,
-                ),
-            }
-        }
-    }
-
-    // Drift uses the first matching rule; reversing preserves opencode's last-match precedence.
-    rules.reverse();
-    rules
 }

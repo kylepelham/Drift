@@ -9,6 +9,7 @@ mod undo;
 
 pub use settings::{
     LeftOut, McpConfigError, OcConfig, OcServer, REPORT, Settings, SettingsReport, import_settings, mcp_config,
+    sign_ins,
 };
 
 use drift_engine::session::types::Session;
@@ -253,8 +254,12 @@ fn import_one(
         return Ok(None);
     }
 
-    let written = write_pages(run, &session.id).and_then(|undoable| {
-        let todos = run.source.todos(&session.id)?;
+    let written = write_pages(run, plan.session, &session.id).and_then(|undoable| {
+        // opencode v2 has no todo list.
+        let todos = match plan.session.v2 {
+            true => Vec::new(),
+            false => run.source.todos(&session.id)?,
+        };
         Ok((undoable, todos))
     });
     let (undoable, todos) = match written {
@@ -273,7 +278,7 @@ fn import_one(
 }
 
 /// Reads and writes a conversation in pages and returns the number of calls given undo records.
-fn write_pages(run: &ImportRun<'_>, session_id: &str) -> rusqlite::Result<usize> {
+fn write_pages(run: &ImportRun<'_>, oc: &source::OcSession, session_id: &str) -> rusqlite::Result<usize> {
     let mut ids = map::Ids::default();
     let mut undoable = 0;
     let mut after = None;
@@ -282,18 +287,16 @@ fn write_pages(run: &ImportRun<'_>, session_id: &str) -> rusqlite::Result<usize>
     let mut bytes = 0;
 
     loop {
-        let page = run.source.messages_after(session_id, after.as_ref(), READ_PAGE)?;
+        let page = run.source.messages_after(oc, after.as_ref(), READ_PAGE)?;
         if page.is_empty() {
             break;
         }
 
         for message in &page {
-            let parts = run.source.parts(&message.id)?;
-            undoable += parts.iter().filter(|part| run.records.contains_key(&part.id)).count();
-
-            let part_bytes: usize = parts.iter().map(|part| part.data.len()).sum();
-            bytes += message.data.len() + part_bytes;
-            batch.push(map::message(message, &parts, session_id, &mut ids, &run.records));
+            let read = read_message(run, oc.v2, message, session_id, &mut ids)?;
+            undoable += read.undoable;
+            bytes += read.bytes;
+            batch.extend(read.messages);
 
             if bytes >= WRITE_BYTES || batch.len() >= WRITE_MESSAGES {
                 run.store.import_page(&batch)?;
@@ -310,6 +313,38 @@ fn write_pages(run: &ImportRun<'_>, session_id: &str) -> rusqlite::Result<usize>
     }
 
     Ok(undoable)
+}
+
+struct Read {
+    messages: Vec<drift_engine::session::types::MessageWithParts>,
+    bytes: usize,
+    undoable: usize,
+}
+
+/// Maps one opencode message: a v1 message with its parts, or a v2 row, which may stand for none or two.
+fn read_message(
+    run: &ImportRun<'_>,
+    v2: bool,
+    message: &source::OcMessage,
+    session_id: &str,
+    ids: &mut map::Ids,
+) -> rusqlite::Result<Read> {
+    if v2 {
+        let (data, oversized) = run.source.v2_row(&message.id)?;
+        return Ok(Read {
+            bytes: data.len(),
+            messages: map::v2::messages(message, &data, oversized, session_id, ids),
+            undoable: 0,
+        });
+    }
+
+    let parts = run.source.parts(&message.id)?;
+    let part_bytes: usize = parts.iter().map(|part| part.data.len()).sum();
+    Ok(Read {
+        undoable: parts.iter().filter(|part| run.records.contains_key(&part.id)).count(),
+        bytes: message.data.len() + part_bytes,
+        messages: vec![map::message(message, &parts, session_id, ids, &run.records)],
+    })
 }
 
 /// Normalizes a directory's case, slash style and trailing separators for workspace matching.

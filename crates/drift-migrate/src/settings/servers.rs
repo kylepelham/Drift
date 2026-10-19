@@ -40,14 +40,14 @@ pub(super) fn save(store: &Store, server: &OcServer, config_dir: &Path) -> Resul
     }
 
     let config = mcp_config(&server.definition, config_dir).map_err(|error| Left::Out(error.to_string()))?;
-    let enabled = server.definition["enabled"] != false && server.approved;
+    let enabled = server.definition["enabled"] != false && server.definition["disabled"] != true && server.approved;
     store.save_mcp_server(&server.name, &config).map_err(failed)?;
     store.set_mcp_enabled(&server.name, enabled).map_err(failed)?;
 
     Ok(enabled)
 }
 
-/// Converts opencode's local and remote server shapes to native server configs.
+/// Converts opencode's local and remote server shapes to native server configs; v2 writes the OAuth app's fields in snake case.
 /// Resolves environment-variable and file substitutions at import time.
 pub fn mcp_config(definition: &Value, config_dir: &Path) -> Result<ServerConfig, McpConfigError> {
     match definition["type"].as_str() {
@@ -78,9 +78,10 @@ fn local_config(definition: &Value, config_dir: &Path) -> Result<ServerConfig, M
 fn remote_config(definition: &Value, config_dir: &Path) -> Result<ServerConfig, McpConfigError> {
     let url = substituted_text(&definition["url"], config_dir)?.ok_or(McpConfigError::MissingUrl)?;
     let oauth = definition["oauth"].as_object().and_then(|client| {
+        let field = |v1: &str, v2: &str| client.get(v1).or(client.get(v2)).and_then(Value::as_str);
         Some(OAuthClient {
-            client_id: client.get("clientId")?.as_str()?.into(),
-            client_secret: client.get("clientSecret").and_then(Value::as_str).map(String::from),
+            client_id: field("clientId", "client_id")?.into(),
+            client_secret: field("clientSecret", "client_secret").map(String::from),
             scopes: client
                 .get("scope")
                 .and_then(Value::as_str)
@@ -114,7 +115,7 @@ fn substituted_table(value: &Value, config_dir: &Path) -> Result<BTreeMap<String
 
 /// Resolves `{env:NAME}` and `{file:path}` tokens as opencode reads them.
 /// An unreadable substitution rejects the server rather than saving a blank secret.
-fn substitute(text: &str, config_dir: &Path) -> Result<String, McpConfigError> {
+pub(super) fn substitute(text: &str, config_dir: &Path) -> Result<String, McpConfigError> {
     let mut output = String::new();
     let mut rest = text;
 

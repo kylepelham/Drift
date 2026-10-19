@@ -1,5 +1,7 @@
 //! opencode rows to this engine's conversation shapes.
 
+pub(crate) mod v2;
+
 use crate::source::{OcMessage, OcPart, OcSession, OcTodo};
 use drift_engine::session::types::{
     Ending, Message, MessageStatus, MessageWithParts, ModelRef, Part, PartRow, Role, Session, Todo, TodoStatus,
@@ -139,9 +141,6 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
         outcome(data)
     };
 
-    let tokens = &data["tokens"];
-    let count = |value: &Value| value.as_u64().unwrap_or(0);
-
     Message {
         id,
         session_id: session_id.into(),
@@ -149,12 +148,7 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
         status,
         model,
         agent: data["agent"].as_str().or(data["mode"].as_str()).map(String::from),
-        usage: Usage {
-            input: count(&tokens["input"]),
-            output: count(&tokens["output"]) + count(&tokens["reasoning"]),
-            cache_read: count(&tokens["cache"]["read"]),
-            cache_write: count(&tokens["cache"]["write"]),
-        },
+        usage: usage(&data["tokens"]),
         cost: data["cost"].as_f64().unwrap_or(0.0),
         error,
         created_at: created,
@@ -168,6 +162,18 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
         account: None,
         ending,
         refusal: None,
+    }
+}
+
+/// Token counts as v1 and v2 both write them; reasoning counts as output.
+fn usage(tokens: &Value) -> Usage {
+    let count = |value: &Value| value.as_u64().unwrap_or(0);
+
+    Usage {
+        input: count(&tokens["input"]),
+        output: count(&tokens["output"]) + count(&tokens["reasoning"]),
+        cache_read: count(&tokens["cache"]["read"]),
+        cache_write: count(&tokens["cache"]["write"]),
     }
 }
 

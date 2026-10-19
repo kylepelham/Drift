@@ -10,6 +10,7 @@ mod credentials;
 mod files;
 mod report;
 mod servers;
+mod shapes;
 
 struct Dir(PathBuf);
 

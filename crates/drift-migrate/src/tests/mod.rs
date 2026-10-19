@@ -14,6 +14,7 @@ mod history;
 mod lifecycle;
 mod paging;
 mod parts;
+mod v2;
 
 /// Keeps file versions by content hash so assertions can read the versions named by undo records.
 #[derive(Default)]
