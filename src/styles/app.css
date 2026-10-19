@@ -586,6 +586,12 @@ textarea {
     background: linear-gradient(to bottom, color-mix(in srgb, black 11%, transparent), transparent 72%);
 }
 
+/* Sidebar text follows Settings' size for it: Tailwind's text steps read these, and the sidebar's own sizes scale too. */
+.app-sidebar {
+    --text-xs: calc(0.75rem * var(--sidebar-scale, 1));
+    --text-sm: calc(0.875rem * var(--sidebar-scale, 1));
+}
+
 /* The chosen accent's ring is a shadow around the dot itself, so it stays centred at any display scale. */
 .accent-dot-chosen {
     box-shadow:
@@ -1427,8 +1433,9 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
     }
 }
 
+/* Conversation text follows Settings' size for it; headings are sized against it so they keep their steps. */
 .md {
-    font-size: 0.9375rem;
+    font-size: calc(0.9375rem * var(--conversation-scale, 1));
     line-height: 1.65;
     word-break: break-word;
 }
@@ -1451,15 +1458,15 @@ html[dir="rtl"] [data-component="text-shimmer"] [data-slot="text-shimmer-sweep"]
 }
 
 .md :where(h1) {
-    font-size: 1.0625rem;
+    font-size: 1.1333em;
 }
 
 .md :where(h2) {
-    font-size: 0.9375rem;
+    font-size: 1em;
 }
 
 .md :where(h3, h4) {
-    font-size: 0.8125rem;
+    font-size: 0.8667em;
     font-weight: 500;
 }
 

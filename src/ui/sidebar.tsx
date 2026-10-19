@@ -362,7 +362,10 @@ function SidebarFooter(props: { onSettings: () => void }) {
         <div class="shrink-0 px-2 py-2">
             <Show when={opencodeImport()}>
                 {(progress) => (
-                    <div class="mb-1 px-2 py-1.5 text-[0.7rem] text-ink-faint" title={t("drift.import.description")}>
+                    <div
+                        class="mb-1 px-2 py-1.5 text-[length:calc(0.7rem*var(--sidebar-scale,1))] text-ink-faint"
+                        title={t("drift.import.description")}
+                    >
                         <div class="flex justify-between gap-2">
                             <span class="truncate">{t("drift.import.progress")}</span>
                             <span class="tabular-nums">

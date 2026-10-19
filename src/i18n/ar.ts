@@ -1215,6 +1215,16 @@ export const drift = {
     "drift.corners.round": "مستديرة",
     "drift.font.defaultNamed": "افتراضي ({{font}})",
     "drift.font.reset": "إعادة تعيين",
+    "drift.textSize.interface": "حجم الواجهة",
+    "drift.textSize.interface.description":
+        "كل شيء في Drift في وقت واحد، تمامًا كما يغيره Ctrl ومفتاح الزائد أو الناقص.",
+    "drift.textSize.conversation": "نص المحادثة",
+    "drift.textSize.conversation.description": "رسائلك والردود. تحافظ الشيفرة على الحجم المحدد ضمن الشيفرة.",
+    "drift.textSize.sidebar": "نص الشريط الجانبي",
+    "drift.textSize.sidebar.description": "أسماء مساحات العمل والمواضيع في الشريط الجانبي.",
+    "drift.textSize.composer": "نص مُنشئ الرسائل",
+    "drift.textSize.composer.description": "ما تكتبه في مربع الرسالة.",
+    "drift.textSize.reset": "الرجوع إلى 100%",
     "drift.thread.backToParent": "العودة إلى المحادثة التي انطلقت منها هذه المحادثة",
     "drift.worktree.start": "البدء في شجرة عمل جديدة",
     "drift.worktree.startOff":

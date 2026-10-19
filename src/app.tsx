@@ -18,6 +18,7 @@ import { ReviewPanelHost } from "./ui/review-panel";
 import { messageProblem } from "./engine/messages";
 import { bindCodePreferences } from "./state/code";
 import { ChatBackdrop } from "./ui/chat-backdrop";
+import { bindTextSizes } from "./state/text-size";
 import { hiddenParent } from "./engine/sessions";
 import { initKeybinds } from "./state/keybinds";
 import { bindLanguage } from "./state/language";
@@ -41,6 +42,7 @@ import { t } from "./state/i18n";
 
 export function App() {
     bindTheme();
+    bindTextSizes();
     bindCodePreferences();
     bindLanguage();
     initKeybinds();

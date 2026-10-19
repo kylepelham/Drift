@@ -1,4 +1,5 @@
 import { corners, customCss, setCorners, setCustomCss, setUiFont, theme, uiFont } from "../state/theme";
+import { interfaceZoom, maxZoom, minZoom, setInterfaceZoom } from "../state/zoom";
 import { AccentPicker, CustomColors, ThemeGallery } from "./settings-theme";
 import { SettingsGroup, SettingsRow } from "./settings-controls";
 import { defaultFonts, FontPicker } from "./settings-font";
@@ -22,6 +23,16 @@ import {
     splashMascotAnimation,
     splashMascotAnimations,
 } from "../state/startup";
+import {
+    composerScale,
+    conversationScale,
+    maxTextScale,
+    minTextScale,
+    setComposerScale,
+    setConversationScale,
+    setSidebarScale,
+    sidebarScale,
+} from "../state/text-size";
 import {
     backdropBlur,
     backdropDim,
@@ -83,6 +94,33 @@ export function AppearanceSection() {
                         fallback={defaultFonts.ui}
                     />
                 </SettingsRow>
+                <SizeRow
+                    title={t("drift.textSize.interface")}
+                    description={t("drift.textSize.interface.description")}
+                    min={minZoom}
+                    max={maxZoom}
+                    step={0.1}
+                    value={interfaceZoom()}
+                    onInput={setInterfaceZoom}
+                />
+                <SizeRow
+                    title={t("drift.textSize.conversation")}
+                    description={t("drift.textSize.conversation.description")}
+                    value={conversationScale()}
+                    onInput={setConversationScale}
+                />
+                <SizeRow
+                    title={t("drift.textSize.sidebar")}
+                    description={t("drift.textSize.sidebar.description")}
+                    value={sidebarScale()}
+                    onInput={setSidebarScale}
+                />
+                <SizeRow
+                    title={t("drift.textSize.composer")}
+                    description={t("drift.textSize.composer.description")}
+                    value={composerScale()}
+                    onInput={setComposerScale}
+                />
             </SettingsGroup>
 
             <ThinkingSettings />
@@ -172,6 +210,39 @@ export function AppearanceSection() {
                 </div>
             </SettingsGroup>
         </div>
+    );
+}
+
+/** A size as a slider with its percentage, dragged back to 100% for the default. */
+function SizeRow(props: {
+    title: string;
+    description: string;
+    min?: number;
+    max?: number;
+    step?: number;
+    value: number;
+    onInput: (value: number) => void;
+}) {
+    return (
+        <SettingsRow title={props.title} description={props.description}>
+            <div class="flex items-center gap-3">
+                <Slider
+                    label={props.title}
+                    min={props.min ?? minTextScale}
+                    max={props.max ?? maxTextScale}
+                    step={props.step ?? 0.05}
+                    value={props.value}
+                    onInput={props.onInput}
+                />
+                <button
+                    class="w-11 rounded-md py-0.5 text-right text-xs text-ink-muted tabular-nums transition-colors hover:text-ink"
+                    title={t("drift.textSize.reset")}
+                    onClick={() => props.onInput(1)}
+                >
+                    {Math.round(props.value * 100)}%
+                </button>
+            </div>
+        </SettingsRow>
     );
 }
 

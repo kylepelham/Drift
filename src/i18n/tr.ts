@@ -1247,6 +1247,16 @@ export const drift = {
     "drift.corners.round": "Yuvarlak",
     "drift.font.defaultNamed": "Varsayılan ({{font}})",
     "drift.font.reset": "Sıfırla",
+    "drift.textSize.interface": "Arayüz boyutu",
+    "drift.textSize.interface.description":
+        "Ctrl ve artı ya da eksi tuşlarının değiştirdiği gibi, aynı anda Drift'teki her şey.",
+    "drift.textSize.conversation": "Konuşma metni",
+    "drift.textSize.conversation.description": "Mesajlarınız ve yanıtlar. Kod, Kod altında ayarlanan boyutu korur.",
+    "drift.textSize.sidebar": "Kenar çubuğu metni",
+    "drift.textSize.sidebar.description": "Kenar çubuğundaki çalışma alanı ve iş parçacığı adları.",
+    "drift.textSize.composer": "Oluşturucu metni",
+    "drift.textSize.composer.description": "Mesaj kutusuna yazdıklarınız.",
+    "drift.textSize.reset": "%100'e geri dön",
     "drift.thread.backToParent": "Oluşturulduğu konuya geri dön",
     "drift.worktree.start": "Yeni bir worktree'de başlat",
     "drift.worktree.startOff":

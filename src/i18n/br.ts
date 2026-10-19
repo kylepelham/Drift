@@ -1253,6 +1253,16 @@ export const drift = {
     "drift.corners.round": "Arredondados",
     "drift.font.defaultNamed": "Padrão ({{font}})",
     "drift.font.reset": "Redefinir",
+    "drift.textSize.interface": "Tamanho da interface",
+    "drift.textSize.interface.description": "Tudo no Drift ao mesmo tempo, como Ctrl e mais ou menos alteram.",
+    "drift.textSize.conversation": "Texto da conversa",
+    "drift.textSize.conversation.description":
+        "Suas mensagens e as respostas. O código mantém o tamanho definido em Código.",
+    "drift.textSize.sidebar": "Texto da barra lateral",
+    "drift.textSize.sidebar.description": "Nomes de espaços de trabalho e tópicos na barra lateral.",
+    "drift.textSize.composer": "Texto do editor",
+    "drift.textSize.composer.description": "O que você digita na caixa de mensagem.",
+    "drift.textSize.reset": "Voltar para 100%",
     "drift.thread.backToParent": "Voltar à conversa da qual esta foi criada",
     "drift.worktree.start": "Começar em uma nova worktree",
     "drift.worktree.startOff":

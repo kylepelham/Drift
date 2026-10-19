@@ -1262,6 +1262,16 @@ export const drift = {
     "drift.corners.round": "Rund",
     "drift.font.defaultNamed": "Standard ({{font}})",
     "drift.font.reset": "Zurücksetzen",
+    "drift.textSize.interface": "Größe der Oberfläche",
+    "drift.textSize.interface.description": "Alles in Drift auf einmal, so wie Strg und Plus oder Minus es ändern.",
+    "drift.textSize.conversation": "Unterhaltungstext",
+    "drift.textSize.conversation.description":
+        "Deine Nachrichten und die Antworten. Code behält die unter Code eingestellte Größe.",
+    "drift.textSize.sidebar": "Seitenleistentext",
+    "drift.textSize.sidebar.description": "Workspace- und Thread-Namen in der Seitenleiste.",
+    "drift.textSize.composer": "Composer-Text",
+    "drift.textSize.composer.description": "Was du in das Nachrichtenfeld eingibst.",
+    "drift.textSize.reset": "Zurück auf 100 %",
     "drift.thread.backToParent": "Zurück zum Thread, aus dem dieser gestartet wurde",
     "drift.worktree.start": "In einem neuen Worktree starten",
     "drift.worktree.startOff":

@@ -1244,6 +1244,16 @@ export const drift = {
     "drift.corners.round": "Круглі",
     "drift.font.defaultNamed": "За замовчуванням ({{font}})",
     "drift.font.reset": "Скинути",
+    "drift.textSize.interface": "Розмір інтерфейсу",
+    "drift.textSize.interface.description": "Усе в Drift одночасно, як це змінюють Ctrl та плюс або мінус.",
+    "drift.textSize.conversation": "Текст розмови",
+    "drift.textSize.conversation.description":
+        "Ваші повідомлення та відповіді. Код зберігає розмір, заданий у розділі «Код».",
+    "drift.textSize.sidebar": "Текст бічної панелі",
+    "drift.textSize.sidebar.description": "Назви робочих просторів і гілок на бічній панелі.",
+    "drift.textSize.composer": "Текст поля вводу",
+    "drift.textSize.composer.description": "Те, що ви вводите в поле повідомлення.",
+    "drift.textSize.reset": "Скинути до 100%",
     "drift.thread.backToParent": "Назад до гілки, з якої створено цю",
     "drift.worktree.start": "Почати в новому worktree",
     "drift.worktree.startOff":

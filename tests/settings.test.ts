@@ -603,3 +603,19 @@ test("a theme saved before bases and accents became its base and the accent it s
     expect(migratedTheme("drift-paper", "green")).toEqual(["drift-paper", "green"]);
     expect(migratedTheme("someone-elses-theme", "")).toEqual(["drift-charcoal", ""]);
 });
+
+test("each area's text size is kept within its range and reaches the CSS for that area", async () => {
+    const { conversationScale, setConversationScale, maxTextScale } = await import("../src/state/text-size");
+    setConversationScale(1.2);
+    expect(conversationScale()).toBe(1.2);
+    localStorage.setItem("drift.text.conversation", JSON.stringify(9));
+    const { persisted } = await import("../src/state/persist");
+    const clamped = (value: unknown) => (typeof value === "number" ? Math.min(maxTextScale, Math.max(0.8, value)) : 1);
+    expect(persisted("drift.text.conversation", 1, clamped)[0]()).toBe(maxTextScale);
+    setConversationScale(1);
+
+    const styles = await Bun.file("src/styles/app.css").text();
+    expect(styles).toContainCode("font-size: calc(0.9375rem * var(--conversation-scale, 1));");
+    expect(styles).toContainCode("--text-xs: calc(0.75rem * var(--sidebar-scale, 1));");
+    expect(await Bun.file("src/ui/composer.tsx").text()).toContain("var(--composer-scale,1)");
+});

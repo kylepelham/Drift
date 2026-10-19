@@ -482,7 +482,7 @@ export function Composer() {
                         aria-activedescendant={slash.activeOptionId()}
                         rows={1}
                         aria-label={t("prompt.placeholder.simple")}
-                        class="max-h-50 w-full resize-none overflow-y-hidden bg-transparent px-4 pt-3 pb-1 text-[0.925rem] outline-none placeholder:text-ink-faint"
+                        class="max-h-50 w-full resize-none overflow-y-hidden bg-transparent px-4 pt-3 pb-1 text-[length:calc(0.925rem*var(--composer-scale,1))] outline-none placeholder:text-ink-faint"
                         placeholder={placeholder()}
                         disabled={!ready()}
                         value={draft()}

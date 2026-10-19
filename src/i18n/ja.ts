@@ -1245,6 +1245,17 @@ export const drift = {
     "drift.corners.round": "ラウンド",
     "drift.font.defaultNamed": "デフォルト ({{font}})",
     "drift.font.reset": "リセット",
+    "drift.textSize.interface": "インターフェースのサイズ",
+    "drift.textSize.interface.description":
+        "Ctrl とプラスまたはマイナスで変更するように、Drift 内のすべてを一度に変更します。",
+    "drift.textSize.conversation": "会話のテキスト",
+    "drift.textSize.conversation.description":
+        "あなたのメッセージと返信。コードは「コード」で設定したサイズを維持します。",
+    "drift.textSize.sidebar": "サイドバーのテキスト",
+    "drift.textSize.sidebar.description": "サイドバー内のワークスペース名とスレッド名。",
+    "drift.textSize.composer": "コンポーザーのテキスト",
+    "drift.textSize.composer.description": "メッセージボックスに入力するテキスト。",
+    "drift.textSize.reset": "100% に戻す",
     "drift.thread.backToParent": "このスレッドの作成元に戻る",
     "drift.worktree.start": "新しいワークツリーで開始",
     "drift.worktree.startOff":

@@ -1247,6 +1247,16 @@ export const drift = {
     "drift.corners.round": "Zaokrąglone",
     "drift.font.defaultNamed": "Domyślna ({{font}})",
     "drift.font.reset": "Resetuj",
+    "drift.textSize.interface": "Rozmiar interfejsu",
+    "drift.textSize.interface.description": "Wszystko w Drift naraz, tak jak zmienia to Ctrl oraz plus lub minus.",
+    "drift.textSize.conversation": "Tekst rozmowy",
+    "drift.textSize.conversation.description":
+        "Twoje wiadomości i odpowiedzi. Kod zachowuje rozmiar ustawiony w sekcji Kod.",
+    "drift.textSize.sidebar": "Tekst paska bocznego",
+    "drift.textSize.sidebar.description": "Nazwy przestrzeni roboczych i wątków na pasku bocznym.",
+    "drift.textSize.composer": "Tekst pola wprowadzania",
+    "drift.textSize.composer.description": "To, co wpisujesz w polu wiadomości.",
+    "drift.textSize.reset": "Przywróć 100%",
     "drift.thread.backToParent": "Wróć do wątku, z którego utworzono ten wątek",
     "drift.worktree.start": "Zacznij w nowym worktree",
     "drift.worktree.startOff":

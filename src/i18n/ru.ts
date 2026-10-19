@@ -1248,6 +1248,16 @@ export const drift = {
     "drift.corners.round": "Круглые",
     "drift.font.defaultNamed": "По умолчанию ({{font}})",
     "drift.font.reset": "Сбросить",
+    "drift.textSize.interface": "Размер интерфейса",
+    "drift.textSize.interface.description": "Всё в Drift одновременно, как при изменении через Ctrl и плюс или минус.",
+    "drift.textSize.conversation": "Текст беседы",
+    "drift.textSize.conversation.description":
+        "Ваши сообщения и ответы. Код сохраняет размер, заданный в разделе «Код».",
+    "drift.textSize.sidebar": "Текст боковой панели",
+    "drift.textSize.sidebar.description": "Названия рабочих пространств и тредов на боковой панели.",
+    "drift.textSize.composer": "Текст поля ввода",
+    "drift.textSize.composer.description": "То, что вы вводите в поле сообщения.",
+    "drift.textSize.reset": "Сбросить до 100%",
     "drift.thread.backToParent": "Вернуться к исходной ветке",
     "drift.worktree.start": "Начать в новом worktree",
     "drift.worktree.startOff":

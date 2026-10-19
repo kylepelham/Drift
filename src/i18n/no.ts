@@ -1242,6 +1242,16 @@ export const drift = {
     "drift.corners.round": "Runde",
     "drift.font.defaultNamed": "Standard ({{font}})",
     "drift.font.reset": "Tilbakestill",
+    "drift.textSize.interface": "Grensesnittstørrelse",
+    "drift.textSize.interface.description": "Alt i Drift samtidig, slik Ctrl og pluss eller minus endrer det.",
+    "drift.textSize.conversation": "Samtaletekst",
+    "drift.textSize.conversation.description":
+        "Meldingene dine og svarene. Kode beholder størrelsen angitt under Kode.",
+    "drift.textSize.sidebar": "Sidefelttekst",
+    "drift.textSize.sidebar.description": "Arbeidsområde- og trådnavn i sidefeltet.",
+    "drift.textSize.composer": "Skrivefelttekst",
+    "drift.textSize.composer.description": "Det du skriver i meldingsboksen.",
+    "drift.textSize.reset": "Tilbake til 100 %",
     "drift.thread.backToParent": "Tilbake til tråden denne ble opprettet fra",
     "drift.worktree.start": "Start i et nytt worktree",
     "drift.worktree.startOff":
