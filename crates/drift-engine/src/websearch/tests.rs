@@ -56,7 +56,14 @@ async fn firecrawl(State(behaviour): State<Arc<Behaviour>>, headers: HeaderMap, 
 }
 
 async fn firecrawl_scrape(Json(body): Json<Value>) -> Json<Value> {
-    let markdown = format!("# Page\n\nRead from {}", body["url"].as_str().unwrap_or_default());
+    let chrome = body["excludeTags"]
+        .as_array()
+        .is_some_and(|tags| tags.contains(&json!("footer")));
+    assert!(chrome, "the page's navigation and footer are left out");
+    let markdown = format!(
+        "[Skip to content](#main)\n# Page\n\nRead from {}",
+        body["url"].as_str().unwrap_or_default()
+    );
 
     Json(json!({ "success": true, "data": { "markdown": markdown, "metadata": { "title": "Page" } } }))
 }
@@ -326,6 +333,11 @@ async fn pages_and_the_developer_index_are_asked_for_and_a_long_page_is_cut() {
     let (_, hits) = engine.web_search("s1", asked).await.unwrap();
     let body = behaviour.last_search.lock().unwrap().clone();
     assert_eq!(body["scrapeOptions"]["formats"], json!(["markdown"]));
+    assert!(
+        body["scrapeOptions"]["excludeTags"]
+            .as_array()
+            .is_some_and(|tags| tags.contains(&json!("nav")))
+    );
     assert_eq!(body["categories"], json!([{ "type": "developer" }]));
     let page = hits[0].content.as_deref().unwrap();
     assert!(page.starts_with("# Fire"));
@@ -367,6 +379,8 @@ async fn pages_and_site_maps_go_only_to_providers_that_can() {
     assert_eq!(urls, ["https://docs.example/guide/retries", "https://docs.example/"]);
 
     choose(&engine, "firecrawl", &[]);
+    let (_, page) = engine.web_scrape("s6", "https://docs.example/guide").await.unwrap();
+    assert!(page.text.starts_with("# Page"), "the skip link goes: {}", page.text);
     let (_, pages) = engine
         .web_map("s3", "https://docs.example", Some("retries"), 5)
         .await
@@ -406,4 +420,26 @@ fn a_snippet_reads_as_text_without_markdown_links_or_heading_marks() {
     let firecrawl = "## [\u{200b}](https://docs.firecrawl.dev/features/search#scraping) Search with [content](https://x.dev) scraping [1]";
 
     assert_eq!(super::plain(firecrawl), "Search with content scraping [1]");
+}
+
+#[test]
+fn a_page_loses_the_links_a_site_puts_before_it_and_a_snippet_its_engine_tail() {
+    let docs = "[Skip to main content](https://docs.rs/#main)\n\n- [Settings](https://docs.rs/settings.html)\n[Help](https://docs.rs/help.html)\n\n## [select](https://docs.rs/#) waits on branches\n\n[More](https://docs.rs/more)";
+    assert_eq!(
+        super::without_chrome(docs),
+        "## [select](https://docs.rs/#) waits on branches\n\n[More](https://docs.rs/more)"
+    );
+
+    let links_only = "[One](https://a.example)\n[Two](https://b.example)";
+    assert_eq!(
+        super::without_chrome(links_only),
+        links_only,
+        "a page of links keeps them"
+    );
+
+    let snippet = "The error you're getting is the first one listed. Best setup for Tauri releases?More results from www.reddit.com";
+    assert_eq!(
+        super::plain(snippet),
+        "The error you're getting is the first one listed. Best setup for Tauri releases?"
+    );
 }

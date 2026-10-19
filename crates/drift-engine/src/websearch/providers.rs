@@ -48,6 +48,19 @@ pub const BUILT_IN: &[Provider] = &[
     },
 ];
 
+/// Page parts Firecrawl leaves out of a page's text: site navigation, sidebars, footers and pop-ups.
+const CHROME_SELECTORS: [&str; 7] = [
+    "nav",
+    "aside",
+    "footer",
+    "[role=\"navigation\"]",
+    "[role=\"banner\"]",
+    "[role=\"dialog\"]",
+    "[aria-modal=\"true\"]",
+];
+/// The same parts as Exa classifies them; it applies this as best it can.
+const CHROME_SECTIONS: [&str; 5] = ["navigation", "header", "banner", "sidebar", "footer"];
+
 /// A site whose pages are listed: most relevant to `query` first, at most `limit` of them.
 #[derive(Clone, Copy, Debug)]
 pub struct Site<'a> {
@@ -105,7 +118,10 @@ pub(super) async fn search(
         "exa" if query.content => json!({
             "query": query.text,
             "numResults": query.limit,
-            "contents": { "highlights": true, "text": { "maxCharacters": super::PAGE_CHARS } },
+            "contents": {
+                "highlights": true,
+                "text": { "maxCharacters": super::PAGE_CHARS, "excludeSections": CHROME_SECTIONS },
+            },
         }),
         "exa" => json!({ "query": query.text, "numResults": query.limit, "contents": { "highlights": true } }),
         "tavily" if query.content => {
@@ -122,7 +138,8 @@ pub(super) async fn search(
 fn firecrawl_search(query: Query<'_>) -> Value {
     let mut body = json!({ "query": query.text, "limit": query.limit });
     if query.content {
-        body["scrapeOptions"] = json!({ "formats": ["markdown"], "onlyMainContent": true });
+        body["scrapeOptions"] =
+            json!({ "formats": ["markdown"], "onlyMainContent": true, "excludeTags": CHROME_SELECTORS });
     }
     if query.developer {
         body["categories"] = json!([{ "type": "developer" }]);
@@ -146,11 +163,14 @@ fn hits(provider: &str, answer: &Value) -> Vec<Hit> {
 /// One page, read by the provider: rendered when it builds itself with JavaScript, past what blocks plain fetches.
 pub(super) async fn scrape(provider: &Provider, key: &str, url: &str, base: Option<&str>) -> Result<Page, SearchError> {
     let (endpoint, body) = match provider.id {
-        "exa" => ("contents", json!({ "urls": [url], "text": true })),
+        "exa" => (
+            "contents",
+            json!({ "urls": [url], "text": { "excludeSections": CHROME_SECTIONS } }),
+        ),
         "tavily" => ("extract", json!({ "urls": [url], "format": "markdown" })),
         _ => (
             "scrape",
-            json!({ "url": url, "formats": ["markdown"], "onlyMainContent": true }),
+            json!({ "url": url, "formats": ["markdown"], "onlyMainContent": true, "excludeTags": CHROME_SELECTORS }),
         ),
     };
     let answer = post(provider.request(endpoint, key, base), body).await?;
@@ -186,7 +206,7 @@ fn page(provider: &str, url: &str, answer: &Value) -> Result<Page, SearchError> 
     Ok(Page {
         url: url.to_string(),
         title: title.as_str().unwrap_or(url).to_string(),
-        text: text.to_string(),
+        text: super::without_chrome(text).to_string(),
     })
 }
 

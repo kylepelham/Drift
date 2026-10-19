@@ -1576,7 +1576,12 @@ listed there.
       credentials; Off in Settings stops the fallback too. The result says which provider read it.
     - Tavily's plan and pay-as-you-go limits answer 432 and 433, which set the key aside as a 402
       does. Snippets lose markdown link syntax and heading marks, which Firecrawl's descriptions
-      now carry.
+      now carry, and the search engine's "More results from" tail.
+    - A page's text leaves out site chrome: Firecrawl gets `excludeTags` (nav, aside, footer, and
+      navigation, banner and dialog roles; `onlyMainContent` alone kept docs.rs's whole header menu,
+      a fifth of the page) and Exa `excludeSections`; Tavily has no such option. Then the run of
+      link-only lines before the text goes, whichever provider read it. A site widget written as
+      sentences (an accessibility notice, mdBook's keyboard help) stays: no rule tells it from text.
 - **MCP elicitation.** Drift advertises the spec's elicitation capability and answers
   `elicitation/create` (and the 2026-07-28 era's `input_required` requests) through the question
   card: each schema property becomes a question, an enum becomes options, a boolean yes or no,

@@ -541,10 +541,23 @@ pub(crate) fn capped(text: &str, chars: usize) -> String {
     format!("{}\n\n(cut at {chars} characters)", cut[..end].trim_end())
 }
 
-/// A snippet read as text: markdown links become their words, empty anchor links and heading marks go.
+/// A snippet read as text: markdown links become their words, empty anchor links and heading marks go, and so
+/// does the search engine's own "More results from" tail.
 fn plain(snippet: &str) -> String {
-    let mut out = String::with_capacity(snippet.len());
-    let mut rest = snippet;
+    let words = links(snippet, true);
+    let words = words.split("More results from ").next().unwrap_or_default();
+
+    words
+        .split_whitespace()
+        .filter(|word| !word.chars().all(|c| c == '#'))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `text` with each markdown link `[words](target)` as its words, or gone when `keep_words` is false.
+fn links(text: &str, keep_words: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
     while let Some(open) = rest.find('[') {
         out.push_str(&rest[..open]);
         let after = &rest[open + 1..];
@@ -553,7 +566,9 @@ fn plain(snippet: &str) -> String {
             .and_then(|close| after[close + 2..].find(')').map(|end| (close, close + 2 + end)));
         match link {
             Some((close, end)) => {
-                out.push_str(after[..close].trim_matches(|c: char| c == '\u{200b}' || c.is_whitespace()));
+                if keep_words {
+                    out.push_str(after[..close].trim_matches(|c: char| c == '\u{200b}' || c.is_whitespace()));
+                }
                 rest = &after[end + 1..];
             }
             None => {
@@ -564,10 +579,29 @@ fn plain(snippet: &str) -> String {
     }
     out.push_str(rest);
 
-    out.split_whitespace()
-        .filter(|word| !word.chars().all(|c| c == '#'))
-        .collect::<Vec<_>>()
-        .join(" ")
+    out
+}
+
+/// A page's text without the run of link-only lines a site puts before it (skip links, settings, help); a page that
+/// is nothing but links stays as it is.
+pub(crate) fn without_chrome(text: &str) -> &str {
+    let only_links = |line: &str| {
+        let line = line.trim().trim_start_matches(['-', '*', '+']).trim();
+        links(line, false).trim().is_empty()
+    };
+    let mut rest = text.trim_start();
+    while let Some((line, after)) = rest.split_once('\n') {
+        if !only_links(line) {
+            break;
+        }
+        rest = after.trim_start();
+    }
+
+    if rest.is_empty() || only_links(rest) {
+        text.trim()
+    } else {
+        rest
+    }
 }
 
 /// Results out of a provider's list: the first of `snippet`'s fields that is there, and `content`'s field as the
@@ -590,7 +624,7 @@ pub(crate) fn json_hits(values: Option<&Vec<Value>>, snippet: &[&str], content: 
                 .then(|| value[content].as_str())
                 .flatten()
                 .filter(|page| !page.trim().is_empty())
-                .map(|page| capped(page, PAGE_CHARS));
+                .map(|page| capped(without_chrome(page), PAGE_CHARS));
 
             Some(Hit {
                 title: value["title"].as_str().unwrap_or(&url).to_string(),
