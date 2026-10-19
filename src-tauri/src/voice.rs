@@ -1,7 +1,8 @@
 //! Local speech to text fetches models only on request and transcribes with the bundled whisper.cpp sidecar.
-//! Recorded audio never leaves the machine.
+//! Recorded audio never leaves the machine on this path.
 
 use base64::Engine as _;
+use drift_engine::voice::MAX_AUDIO_BYTES;
 use serde::Serialize;
 use sha1::{Digest, Sha1};
 use std::fmt::Write as _;
@@ -12,10 +13,6 @@ use tauri::{Emitter, Manager, State};
 
 const HOST: &str = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main";
 const PROGRESS_EVENT: &str = "voice-model-progress";
-/// Whisper only accepts 16 kHz mono, so the webview resamples before sending.
-const SAMPLE_RATE: u32 = 16_000;
-/// Maximum audio length for a dictated phrase; a longer buffer is treated as incorrect caller input.
-const MAX_AUDIO_BYTES: usize = SAMPLE_RATE as usize * 2 * 180;
 const PROGRESS_STEP: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
@@ -359,29 +356,9 @@ fn run_whisper(
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// Minimal 16-bit mono PCM header; the sidecar reads files rather than a stream.
+/// The sidecar reads files rather than a stream.
 fn write_wav(path: &PathBuf, samples: &[u8]) -> std::io::Result<()> {
-    let mut file = std::fs::File::create(path)?;
-    let data = samples.len() as u32;
-    let byte_rate = SAMPLE_RATE * 2;
-
-    let mut header = Vec::with_capacity(44);
-    header.extend_from_slice(b"RIFF");
-    header.extend_from_slice(&(36 + data).to_le_bytes());
-    header.extend_from_slice(b"WAVEfmt ");
-    header.extend_from_slice(&16u32.to_le_bytes());
-    header.extend_from_slice(&1u16.to_le_bytes());
-    header.extend_from_slice(&1u16.to_le_bytes());
-    header.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
-    header.extend_from_slice(&byte_rate.to_le_bytes());
-    header.extend_from_slice(&2u16.to_le_bytes());
-    header.extend_from_slice(&16u16.to_le_bytes());
-    header.extend_from_slice(b"data");
-    header.extend_from_slice(&data.to_le_bytes());
-
-    file.write_all(&header)?;
-    file.write_all(samples)?;
-    file.flush()
+    std::fs::write(path, drift_engine::voice::wav(samples))
 }
 
 #[cfg(test)]

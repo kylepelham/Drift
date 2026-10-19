@@ -20,6 +20,7 @@ mod queue;
 mod review;
 mod sessions;
 mod settings;
+mod voice;
 mod websearch;
 mod workspaces;
 
@@ -106,6 +107,10 @@ fn settings_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(websearch::add_key, websearch::remove_key))
         .routes(routes!(images::get, images::put))
         .routes(routes!(images::blob))
+        .routes(routes!(voice::get))
+        .routes(routes!(voice::set_key, voice::remove_key))
+        .routes(routes!(voice::transcribe))
+        .routes(routes!(voice::speak))
 }
 
 fn plugin_routes() -> OpenApiRouter<Arc<Engine>> {

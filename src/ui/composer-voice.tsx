@@ -5,9 +5,11 @@ import {
     dictationActive,
     dictationElapsed,
     dictationError,
+    dictationKept,
     dictationPending,
     dictationStatus,
     dismissDictationError,
+    retryDictation,
 } from "../voice/dictation";
 
 /** Dictation under the draft: elapsed time and state while listening, or the error that stopped it. */
@@ -23,15 +25,25 @@ export function DictationStatus() {
         <Show when={voiceBusy() || dictationError()}>
             <div class="flex items-center gap-2 px-4 pt-2.5 text-xs">
                 <Show
-                    when={voiceBusy()}
+                    when={voiceBusy() && !dictationKept()}
                     fallback={
-                        <button
-                            class="min-w-0 truncate text-left text-danger hover:underline"
-                            title={t("common.dismiss")}
-                            onClick={dismissDictationError}
-                        >
-                            {dictationError()}
-                        </button>
+                        <>
+                            <button
+                                class="min-w-0 truncate text-left text-danger hover:underline"
+                                title={t("common.dismiss")}
+                                onClick={dismissDictationError}
+                            >
+                                {dictationError()}
+                            </button>
+                            <Show when={dictationKept() > 0}>
+                                <button class="shrink-0 text-ink-muted hover:text-ink" onClick={retryDictation}>
+                                    {t("drift.voice.retry")}
+                                </button>
+                                <button class="shrink-0 text-ink-faint hover:text-ink" onClick={dismissDictationError}>
+                                    {t("drift.voice.discard")}
+                                </button>
+                            </Show>
+                        </>
                     }
                 >
                     <span class="size-1.5 shrink-0 animate-pulse rounded-full bg-danger" />

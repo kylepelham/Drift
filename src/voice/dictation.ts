@@ -11,11 +11,19 @@ import {
     dictationKeyterms,
     dictationLanguage,
     dictationModel,
+    dictationProvider,
     keytermPrompt,
     persistDictationEnabled,
 } from "../state/voice";
 
 export type DictationStatus = "idle" | "starting" | "listening";
+/** Sends one phrase to a cloud provider through the engine and answers its text. */
+export type CloudTranscriber = (body: {
+    provider: string;
+    audio: string;
+    language: string;
+    keyterms: string[];
+}) => Promise<string>;
 
 /** Shorter than this is a knock or a click rather than a word. */
 const minPhraseSeconds = 0.4;
@@ -26,18 +34,23 @@ const [error, setError] = createSignal("");
 const [elapsed, setElapsed] = createSignal(0);
 const [level, setLevel] = createSignal(0);
 const [pending, setPending] = createSignal(0);
+const [kept, setKept] = createSignal(0);
 
 export const dictationStatus = status;
 export const dictationError = error;
 export const dictationElapsed = elapsed;
 export const dictationLevel = level;
 export const dictationPending = pending;
+/** Phrases whose transcription failed, kept so they can be sent again. */
+export const dictationKept = kept;
 
 let capture: Capture | undefined;
 let segmenter = createSegmenter();
 let ticker: ReturnType<typeof setInterval> | undefined;
 let queue: Promise<void> = Promise.resolve();
 let onSegment: ((text: string) => void) | undefined;
+let cloud: CloudTranscriber | undefined;
+let failed: Float32Array[] = [];
 let startedAt = 0;
 let blocks = 0;
 
@@ -45,19 +58,32 @@ export function dictationActive() {
     return status() !== "idle";
 }
 
+/** Drops the error and any recorded speech kept for a retry. */
 export function dismissDictationError() {
+    failed = [];
+    setKept(0);
     setError("");
 }
 
-export async function toggleDictation(emit: (text: string) => void) {
-    if (dictationActive()) return stopDictation();
-    await startDictation(emit);
+/** Sends the kept phrases again, in the order they were spoken, with the provider now chosen. */
+export function retryDictation() {
+    const phrases = failed;
+    failed = [];
+    setKept(0);
+    setError("");
+    for (const phrase of phrases) enqueue(phrase);
 }
 
-export async function startDictation(emit: (text: string) => void) {
+export async function toggleDictation(emit: (text: string) => void, transcriber?: CloudTranscriber) {
+    if (dictationActive()) return stopDictation();
+    await startDictation(emit, transcriber);
+}
+
+export async function startDictation(emit: (text: string) => void, transcriber?: CloudTranscriber) {
     if (dictationActive() || !dictationEnabled()) return;
 
     onSegment = emit;
+    cloud = transcriber;
     segmenter = createSegmenter();
     blocks = 0;
     setError("");
@@ -130,22 +156,40 @@ function enqueue(phrase: Float32Array) {
     queue = queue.then(() => transcribe(phrase)).finally(() => setPending((count) => Math.max(0, count - 1)));
 }
 
+// After a failure, later phrases wait behind the kept ones so a retry keeps the spoken order.
 async function transcribe(phrase: Float32Array) {
-    const invoke = backendInvoke();
-    if (!invoke) return;
+    if (failed.length) return keep(phrase);
 
     try {
-        const text = await invoke<string>("voice_transcribe", {
-            id: dictationModel(),
-            audio: encodePcm16(phrase),
-            language: dictationLanguage(),
-            prompt: keytermPrompt(dictationKeyterms()),
-        });
-        const clean = cleanTranscript(text);
+        const text = await recognize(phrase);
+        const clean = cleanTranscript(text ?? "");
         if (clean) onSegment?.(clean);
     } catch (cause) {
+        keep(phrase);
         setError(cause instanceof Error ? cause.message : String(cause));
     }
+}
+
+function keep(phrase: Float32Array) {
+    failed.push(phrase);
+    setKept(failed.length);
+}
+
+/** Local whisper through the shell, or the chosen cloud provider through the engine; never one for the other. */
+async function recognize(phrase: Float32Array) {
+    const provider = dictationProvider();
+    const audio = encodePcm16(phrase);
+    if (provider !== "local") {
+        if (!cloud) throw new Error(t("drift.voice.error.cloudOffline"));
+        return cloud({ provider, audio, language: dictationLanguage(), keyterms: dictationKeyterms() });
+    }
+
+    return backendInvoke()?.<string>("voice_transcribe", {
+        id: dictationModel(),
+        audio,
+        language: dictationLanguage(),
+        prompt: keytermPrompt(dictationKeyterms()),
+    });
 }
 
 export function captureErrorKey(cause: unknown) {

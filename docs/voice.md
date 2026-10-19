@@ -1,14 +1,26 @@
 # Voice
 
-Dictation lets you speak a prompt into the composer instead of typing it. Everything runs on
-this machine: there is no API key, no account, and no audio leaves the computer.
+Settings > Voice holds speech in both directions: dictation into the composer, and replies read
+aloud. Both work entirely on this machine by default. A cloud provider is used only after you pick
+it in Settings and save its key, and the table below says exactly what each choice sends away.
 
-It is off by default. Speaking to an agent is a minority habit and the feature needs a model
-download before it does anything, so the microphone button does not exist until it is turned
-on in Settings > Voice. Nothing is fetched, and no shell command is issued, while it is off.
+Dictation is off by default. Speaking to an agent is a minority habit and local dictation needs a
+model download before it does anything, so the microphone button does not exist until it is turned
+on in Settings > Voice. Nothing is fetched, and no shell command is issued, while it is off. Read
+aloud is off by default too: no play button appears and nothing is spoken until it is turned on.
 
-Settings live under Settings > Voice. That section is named for the capability rather than
-for dictation specifically, because speech output belongs beside speech input when it lands.
+## What leaves the machine
+
+| Choice | What is sent | To whom |
+| --- | --- | --- |
+| Dictation, On this computer (whisper) | Nothing | |
+| Dictation, OpenAI, Groq, Deepgram, ElevenLabs or AssemblyAI | Each recorded phrase as a WAV, its language when one is set, and your custom vocabulary (except to ElevenLabs) | That provider, with your key |
+| Read aloud, This computer's voice | Nothing; only voices the system marks as local are offered | |
+| Read aloud, OpenAI or ElevenLabs | The prose of each reply you play or that is read automatically, in pieces of up to 2,500 characters | That provider, with your key |
+
+Keys are kept in the same credential store as provider sign-ins, are shown back only by their last
+four characters, and are never read by the webview. No other provider is ever tried in place of
+the one you picked.
 
 ## Why a sidecar rather than a Rust binding
 
@@ -81,8 +93,9 @@ because speech already arrives in phrases separated by pauses.
   word is not clipped, and closes the phrase after a run of silence. It is pure and unit
   tested, including the cases that matter most: silence alone never produces a phrase, and a
   brief knock is not mistaken for speech.
-- `src/voice/dictation.ts` sends each finished phrase to the sidecar. Phrases are transcribed
-  one at a time through a promise chain so they reach the draft in the order they were spoken.
+- `src/voice/dictation.ts` sends each finished phrase to the sidecar, or to the engine when a
+  cloud provider is picked. Phrases are transcribed one at a time through a promise chain so
+  they reach the draft in the order they were spoken.
 - `src-tauri/src/voice.rs` writes the samples to a temporary WAV, runs the sidecar, and
   returns the text.
 
@@ -100,8 +113,101 @@ drops a result that is nothing but a bracketed marker such as `[BLANK_AUDIO]`.
   hoped for.
 - **The download is cancellable.** A 547MB fetch that cannot be stopped is hostile, so the
   command polls an atomic flag and the partial file is removed on cancel.
+- **Voice keys are their own.** A voice provider uses only the key saved in Settings > Voice, never
+  an OpenAI sign-in from Models or an environment variable, so audio and text go to a cloud only
+  after an explicit choice. One key serves both directions for OpenAI and ElevenLabs.
+- **One model per provider.** Each cloud provider uses the model in the table above, with no
+  picker; the defaults are the providers' current recommended ones and a picker can come when
+  someone needs another.
+- **Choices are per device.** Like the rest of dictation's settings, the chosen providers, voices
+  and switches are kept in the app's local storage; only keys live in the engine.
+
+## Cloud transcription
+
+Beside the local whisper models, Settings > Voice > Transcription offers five providers. Each one
+needs its own key, saved in the row that appears when it is picked.
+
+| Provider | Request | Model | Vocabulary |
+| --- | --- | --- | --- |
+| OpenAI | `POST /v1/audio/transcriptions`, multipart | `gpt-transcribe` | `keywords[]`; the language goes in `languages[]`, which replaces `language` for this model |
+| Groq | `POST /openai/v1/audio/transcriptions`, multipart | `whisper-large-v3-turbo` | a whisper prompt, as local dictation does |
+| Deepgram | `POST /v1/listen`, the WAV as the body | `nova-3` with `smart_format` | one `keyterm` per term; no language means `detect_language` |
+| ElevenLabs Scribe | `POST /v1/speech-to-text`, multipart | `scribe_v2` (`scribe_v1` is removed on 2026-07-09) | not sent: Scribe's keyterms cost 20% more and refuse brackets |
+| AssemblyAI | `POST /v2/upload`, `POST /v2/transcript`, then `GET /v2/transcript/{id}` every 0.5 s | its default (`universal-3-5-pro`, falling back to `universal-2`) | `keyterms_prompt`; no language means `language_detection` |
+
+Shapes were taken from each provider's current documentation on 2026-10-19.
+
+**Why the engine makes the request.** Local whisper stays in the shell because it runs the bundled
+sidecar. Cloud requests need a key, and keys already live in the engine's credential store
+(`Credentials::secret`, under `voice:<provider>`), as web search's do. Putting the requests in the
+engine (`crates/drift-engine/src/voice/`, routes `GET /voice`, `PUT/DELETE /voice/keys`,
+`POST /voice/transcribe`, `POST /voice/speak`) keeps the key on the engine's side of the API, lets
+the phone and the browser use cloud dictation through the engine connection they already have, and
+lets the wire shapes be tested against a stand-in server in the engine's own tests. The multipart
+bodies are built by hand (`Form` in `voice/transcribe.rs`) rather than turning on reqwest's
+`multipart` feature for five small bodies.
+
+**Every provider transcribes per phrase.** The segmenter already cuts speech at pauses, so each
+phrase is sent as one request and only a finished phrase reaches the draft, exactly as with
+whisper. Streaming (Deepgram's and AssemblyAI's WebSockets, OpenAI's realtime transcription) would
+fill the composer while you speak but needs a socket per session and a partial-text model that
+can rewrite itself; it is left for the voice mode in `docs/research/voice-mode-proposal.md`.
+
+**A failed phrase is kept.** The error says why (a refused key, a rate limit, the provider's own
+message) and the composer offers Retry and Discard. While a phrase is kept, later phrases wait
+behind it instead of being sent, so a retry keeps the spoken order and a broken key costs one
+request rather than one per sentence. Retry uses the provider chosen at that moment; nothing ever
+falls back to another provider or to whisper by itself.
+
+## Read aloud
+
+Turning on Settings > Voice > Read aloud adds a speaker button to every finished reply, beside
+copy. A second switch, "Read replies aloud", speaks each reply as it finishes in the open
+conversation; a reply that was already finished when it loaded is never read on its own.
+
+Playback stops on a new prompt, on Stop, on switching conversations, and when the button is pressed
+again. Starting another reply stops the first. Errors (no key, a refused key, no local voice)
+appear as a notice.
+
+**What is spoken.** `speakableText` (`src/voice/speakable.ts`) turns the reply's Markdown into
+prose. Fenced code blocks are spoken as "Code block" and tables as "A table". Links are read by
+their text, bare URLs by their host, and file references (a path in backticks or plain text, with
+or without `:line`) by their file name, so `src/ui/composer.tsx:42` is read as "composer.tsx".
+Headings, list markers, quotes and emphasis are dropped, and each block ends with a full stop so
+voices pause between them. A long reply is cut by paragraph, then sentence, then word into pieces
+of up to 2,500 characters, under OpenAI's 4,096; the next piece is requested while the current one
+plays.
+
+**Cloud voices.** OpenAI uses `gpt-4o-mini-tts` with a voice picked from its built-in list
+(`marin` by default) and returns MP3. ElevenLabs uses `eleven_flash_v2_5` with
+`mp3_44100_128` and a voice ID you can paste, defaulting to "George" (`JBFqnCBsd6RMkjVDRZzb`), the
+premade voice every account has. The engine checks a voice ID is letters, digits, `-` and `_`
+before putting it in ElevenLabs' URL.
+
+**Why the local voice is the system's own.** The local voice is the Web Speech API's
+`speechSynthesis` in the webview, which on Windows speaks with the installed system voices.
+It needs no model, no download, no build step and no new dependency; where whisper needs a CMake
+build and a model fetch, this needs nothing. Only voices with `localService` set are offered or
+used, because WebView2 also lists Microsoft's online "Natural" voices, which send the text to
+Microsoft. The alternatives were weighed:
+
+- Piper or Kokoro through ONNX Runtime would need a second native runtime in the build and the
+  installer, plus a voice model download of tens to hundreds of megabytes, for a feature that is
+  off by default.
+- sherpa-onnx bundles the same ONNX Runtime through a C API; the build cost is the same.
+- Calling WinRT's `SpeechSynthesizer` from the shell would reach the same voices with more code and
+  a round trip for every sentence, and would not work in the browser.
+
+The system voices sound plainer than the cloud ones; picking OpenAI or ElevenLabs is the way to
+better speech, and the Settings note says that the reply text then leaves the machine.
 
 ## Limits
+
+An Android WebView may offer no `speechSynthesis` or no local voice; there the local voice reports
+that it cannot speak, while cloud voices still work, because the engine makes the request and the
+phone only plays the MP3. Unverified on a phone so far.
+In the browser dev loop local whisper is unavailable (it needs the shell), while cloud dictation and
+both kinds of read aloud work.
 
 The very first transcription after installing takes around nine seconds while the graphics
 driver compiles and caches the Vulkan pipelines. That cost is paid once per machine, not once

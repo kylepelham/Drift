@@ -17,6 +17,7 @@ pub mod question;
 pub mod session;
 pub mod store;
 pub mod tool;
+pub mod voice;
 pub mod websearch;
 
 use std::net::SocketAddr;

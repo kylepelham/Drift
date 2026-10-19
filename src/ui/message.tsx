@@ -8,6 +8,7 @@ import { IconArrowUpRight, IconBranch, IconCheck, IconCopy, IconUndo } from "./i
 import { ORCHESTRATOR_AGENT, splitOrchestratorStatus } from "../state/orchestrator";
 import { selectedSession, selectSession } from "../state/selection";
 import { messageModel, messageProblem } from "../engine/messages";
+import { createAutoRead, ReadAloudButton } from "./reply-voice";
 import { PartView, partVisible, PluginRow } from "./parts";
 import { citationFileGroups } from "./citation-files";
 import { EditedFilesCard } from "./edited-files-card";
@@ -363,6 +364,10 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
     createRenderEffect(() => setGroups(updatePartGroupSlots(props.groups ?? groupParts(props.entry.parts), slots)));
 
     const visible = () => groups().length > 0 || !!problem() || (!!props.footer && !!info().finishedAt);
+    createAutoRead(
+        () => props.entry,
+        () => !!props.footer,
+    );
 
     /**
      * A new conversation with this conversation's history through this reply, opened only if the user is still here.
@@ -465,6 +470,7 @@ function AssistantFlow(props: { entry: MessageEntry; footer?: boolean; groups?: 
                         >
                             <IconCopy class="size-3.5" />
                         </button>
+                        <ReadAloudButton entry={props.entry} />
                         <button
                             title={t("drift.message.forkHere")}
                             class="rounded p-0.5 hover:bg-raised hover:text-ink"

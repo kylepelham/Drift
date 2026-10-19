@@ -4,6 +4,7 @@ import { IconArrowUp, IconLayers, IconMic, IconPaperclip, IconShieldCheck, IconS
 import { createComposerSubmissionGuard, createComposerSubmit } from "./composer-submit";
 import { prepareAttachmentsForSend, unsupportedModelAttachment } from "../attachments";
 import { dictationActive, stopDictation, toggleDictation } from "../voice/dictation";
+import { dictationEnabled, dictationModel, dictationProvider } from "../state/voice";
 import { modelInfo, resolveModel, savedChoice, sessionBusy } from "../engine/store";
 import { removeReviewComment, reviewCommentsFile } from "../state/review-comments";
 import { createMentionAutocomplete, mentionFiles } from "./composer-mentions";
@@ -15,7 +16,6 @@ import { modelInstalled, refreshVoiceModels } from "../voice/models";
 import { selectedSession, selectSession } from "../state/selection";
 import { agentLabel, reasoningLevelLabel, t } from "../state/i18n";
 import { interruptResponseAnimations } from "./response-animation";
-import { dictationEnabled, dictationModel } from "../state/voice";
 import { createAttachmentStager } from "./composer-attachments";
 import { ComposerMentionMenu } from "./composer-mention-menu";
 import { ComposerSlashMenu } from "./composer-slash-menu";
@@ -23,6 +23,7 @@ import { ComposerAttention } from "./composer-attention";
 import { createWindowFileDrop } from "./composer-drop";
 import { appendDictation } from "../voice/transcript";
 import { activeWorkspace } from "../state/workspaces";
+import { stopReadAloud } from "../voice/read-aloud";
 import { createSlashMenu } from "./composer-slash";
 import { Picker, type PickerItem } from "./picker";
 import { DictationStatus } from "./composer-voice";
@@ -104,9 +105,10 @@ export function Composer() {
         patchComposerDraft(key, { text: appendDictation(composerDraft(key).text, segment) });
     }
 
+    // A cloud provider needs no download; a missing key is reported by the first phrase.
     function toggleVoice() {
-        if (!modelInstalled(dictationModel())) return openSettings("Voice");
-        void toggleDictation(appendVoice);
+        if (dictationProvider() === "local" && !modelInstalled(dictationModel())) return openSettings("Voice");
+        void toggleDictation(appendVoice, engine.actions.transcribeSpeech);
     }
 
     const addFiles = createAttachmentStager({
@@ -122,6 +124,7 @@ export function Composer() {
     createEffect(() => {
         const nextScope = scope();
         if (nextScope !== previousScope) {
+            stopReadAloud();
             const navigation = untrack(historyNavigation);
             if (navigation?.saved && composerDraft(navigation.scope) === navigation.displayed) {
                 setComposerDraft(navigation.scope, navigation.saved);
@@ -268,6 +271,7 @@ export function Composer() {
             },
             admitted(key, snapshot, historyDraft) {
                 stopDictation();
+                stopReadAloud();
                 recordComposerHistory(historyDraft);
                 setHistoryNavigation(null);
                 clearComposerDraft(key, snapshot);
@@ -412,7 +416,7 @@ export function Composer() {
     };
 
     onMount(() => {
-        if (dictationEnabled()) void refreshVoiceModels();
+        if (dictationEnabled() && dictationProvider() === "local") void refreshVoiceModels();
         window.addEventListener("resize", resize);
         onCleanup(() => window.removeEventListener("resize", resize));
         return onKeybind("autoAccept", toggleAutoAccept);
@@ -580,6 +584,7 @@ export function Composer() {
                                 aria-label={t("prompt.action.stop")}
                                 onClick={() => {
                                     interruptResponseAnimations();
+                                    stopReadAloud();
                                     void engine.actions.abort(selectedSession()!);
                                 }}
                             >
