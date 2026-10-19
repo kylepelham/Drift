@@ -136,6 +136,31 @@ mod tests {
     use super::super::tests::Sandbox;
     use super::*;
 
+    #[test]
+    fn a_tilde_path_is_the_home_folder_and_a_file_named_with_one_stays_in_the_workspace() {
+        use crate::tool::context::expand_home;
+        let home = std::path::Path::new("/home/kyle");
+        assert_eq!(expand_home("~", Some(home)).unwrap(), home);
+        assert_eq!(expand_home("~/notes.md", Some(home)).unwrap(), home.join("notes.md"));
+        assert_eq!(expand_home("~\\notes.md", Some(home)).unwrap(), home.join("notes.md"));
+        assert_eq!(expand_home("~notes.md", Some(home)), None);
+        assert_eq!(expand_home("a/~/b", Some(home)), None);
+        assert_eq!(expand_home("~/x", None), None);
+
+        let sandbox = Sandbox::new("tilde");
+        let name = format!("drift-tilde-{}.txt", crate::random_hex(4));
+        let ask = Write
+            .ask(&sandbox.ctx, &json!({ "path": format!("~/{name}"), "content": "x" }))
+            .unwrap();
+        assert!(!ask.default_allow, "a write to the home folder asks");
+        assert!(ask.pattern.ends_with(&name) && !ask.pattern.contains("drift-tool-tilde"));
+        assert!(!sandbox.ctx.workspace.join("~").exists());
+        assert_eq!(
+            sandbox.ctx.resolve("~literal.txt"),
+            sandbox.ctx.workspace.join("~literal.txt")
+        );
+    }
+
     #[tokio::test]
     async fn creates_parents_and_reports_a_diff() {
         let sandbox = Sandbox::new("write");

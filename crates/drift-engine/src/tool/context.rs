@@ -112,11 +112,14 @@ impl Progress {
 }
 
 impl Context {
-    /// The path a call really touches: absolute, `..` folded, symlinks followed. Permission rules see this.
+    /// The path a call really touches: `~` expanded, absolute, `..` folded, symlinks followed. Permission rules see this.
     pub fn resolve(&self, path: &str) -> PathBuf {
-        let path = Path::new(path);
+        let home = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from);
+        let path = expand_home(path, home.as_deref()).unwrap_or_else(|| PathBuf::from(path));
         let resolved = if path.is_absolute() {
-            path.to_path_buf()
+            path
         } else {
             self.workspace.join(path)
         };
@@ -182,6 +185,23 @@ impl Context {
 
         path.starts_with(&owned) && path != owned
     }
+}
+
+/// `~`, `~/x` or `~\x` under the user's home; anything else, `~x` included, is left as it is.
+pub(crate) fn expand_home(path: &str, home: Option<&Path>) -> Option<PathBuf> {
+    let rest = path.strip_prefix('~')?;
+    if !rest.is_empty() && !rest.starts_with(['/', '\\']) {
+        return None;
+    }
+
+    let rest = rest.trim_start_matches(['/', '\\']);
+    let home = home?;
+
+    Some(if rest.is_empty() {
+        home.to_path_buf()
+    } else {
+        home.join(rest)
+    })
 }
 
 fn in_scratch(path: &Path) -> bool {

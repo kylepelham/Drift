@@ -1982,7 +1982,8 @@ Settled after the first external review of M1; each has a regression test.
   on both the call and its result, so history from another provider replays there. Sessions
   stored before this can hold one id twice; replay (`convert::unique_ids`) suffixes a repeat
   (`call_1_2`) on its call and its result alike, so such a session still switches to Claude.
-- Paths are resolved before anything looks at them: `..` folded, symlinks followed through
+- Paths are resolved before anything looks at them: a leading `~`, `~/` or `~\` is the user's
+  home (a name such as `~x` stays relative to the workspace), `..` folded, symlinks followed through
   the deepest existing ancestor, verbatim prefixes stripped. Permission asks and the
   read-before-write ledger see the real target. `read`, `glob` and `grep` inside the
   workspace are free; outside it they ask.

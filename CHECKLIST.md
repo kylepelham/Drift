@@ -307,7 +307,7 @@ Decided on 2026-10-19; the plan is "After the opencode v2 review" in `docs/engin
 evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 
 - Quick fixes:
-  - [ ] `~` in tool paths expands to home before resolving, for every path-taking tool
+  - [x] `~` in tool paths expands to home before resolving, for every path-taking tool
   - [ ] Stream idle limit 900 s by default on every route
   - [ ] Tool input repaired where its schema allows one reading, before validation (built-in and MCP)
   - [ ] Gemini `MALFORMED_*` finishes retried; wire-fix sweep done, each fix tested or recorded as not affecting Drift
