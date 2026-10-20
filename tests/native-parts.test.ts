@@ -180,3 +180,17 @@ test("a generated image shows under its row by the hash the engine keeps, with i
         generatedImage(tool("read", { path: "a.png" }, { images: [{ mime: "image/png", hash: "abc" }] })),
     ).toBeNull();
 });
+
+test("a read image shows in its expanded row by the hash the engine keeps, with the path it was read from", async () => {
+    const { readImage } = await import("../src/ui/tool-image");
+    const screenshot = "C:/Users/kyle/Pictures/booking-form.png";
+
+    expect(readImage(tool("read", { path: screenshot }, { images: [{ mime: "image/png", hash: "abc" }] }))).toEqual({
+        hash: "abc",
+        path: screenshot,
+    });
+    expect(
+        readImage(tool("read", { path: "C:/docs/spec.pdf" }, { images: [{ mime: "application/pdf", hash: "def" }] })),
+    ).toBeNull();
+    expect(readImage(tool("read", { path: "C:/repo/notes.txt" }))).toBeNull();
+});

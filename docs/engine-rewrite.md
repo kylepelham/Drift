@@ -1756,7 +1756,8 @@ which choices send audio or text off the machine.
   - Result: the saved file goes back as the call's image (`metadata.images`), so the turn stores
     it as a blob and the model sees it; `metadata.files`, `provider` and `cost` are set. The
     transcript shows it under the call's row (`src/ui/tool-image.tsx`), fetched by hash, opening
-    in the lightbox.
+    in the lightbox. A `read` of an image keeps its picture the same way; its row shows the path
+    and the picture when expanded, so the file never has to be found and opened by hand.
   - Cost: added to the reply that made the call with one `UPDATE ... cost = cost + ?`
     (`Store::add_cost`), so parallel calls never undo each other, and published as
     `message.updated`; it is charged as soon as the provider answers, before the file is written,

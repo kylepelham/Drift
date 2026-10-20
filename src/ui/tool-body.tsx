@@ -5,6 +5,7 @@ import { citationFileGroups } from "./citation-files";
 import { patchFiles, toolInfo } from "./tool-labels";
 import { DiffPanel, PatchPanel } from "./diff-panel";
 import { delegatedChildId } from "./tool-delegation";
+import { ReadImage, readImage } from "./tool-image";
 import { ShellProcessStatus } from "./process-row";
 import { toolDisplay } from "./tool-presentation";
 import { Markdown } from "./markdown";
@@ -113,6 +114,9 @@ export function ToolBody(props: { part: ToolPart; diff: string | null; error: st
                     </Show>
                 </Match>
                 <Match when={patched().length > 1 && patched()}>{(files) => <PatchPanel files={files()} />}</Match>
+                <Match when={readImage(props.part)}>
+                    {(image) => <ReadImage hash={image().hash} path={image().path} />}
+                </Match>
                 <Match when={props.diff ?? written()}>
                     {(patch) => <DiffPanel diff={patch()} filename={diffFilename()} />}
                 </Match>
