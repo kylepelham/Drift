@@ -139,6 +139,35 @@ impl Shot {
     }
 }
 
+/// The pane's pointer, whose cursor is looked up one position at a time: moves come faster than lookups, so a
+/// lookup takes the newest position each time and the ones between are skipped.
+#[derive(Default)]
+pub(crate) struct Pointer {
+    next: Mutex<Option<(f64, f64)>>,
+    busy: AtomicBool,
+}
+
+impl Pointer {
+    /// Notes a position; true when no lookup runs, so the caller starts one that takes positions from `next`.
+    pub(crate) fn moved(&self, x: f64, y: f64) -> bool {
+        *self.next.lock().unwrap() = Some((x, y));
+        !self.busy.swap(true, Ordering::SeqCst)
+    }
+
+    /// The position to look up next; none ends the lookup, and a position that came in as it ended is still taken.
+    pub(crate) fn next(&self) -> Option<(f64, f64)> {
+        loop {
+            if let Some(position) = self.next.lock().unwrap().take() {
+                return Some(position);
+            }
+            self.busy.store(false, Ordering::SeqCst);
+            if self.next.lock().unwrap().is_none() || self.busy.swap(true, Ordering::SeqCst) {
+                return None;
+            }
+        }
+    }
+}
+
 /// A layout size the agent asked for; `None` in its place means the browser's own.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Size {

@@ -201,9 +201,9 @@ fn reference(snapshot: &str, role: &str) -> u64 {
 
 /// A small booking form, written so IE's oldest modes run it too.
 const FORM: &str = "<!doctype html><html><head><title>Book a table</title></head><body>\
-<label for=guest>Name</label> <input id=guest name=guest>\
+<p id=note>Tables for two to six.</p><label for=guest>Name</label> <input id=guest name=guest>\
 <select id=time><option>18:30</option><option>19:00</option></select>\
-<button type=button id=reserve onclick=\"document.title='Hello '+document.getElementById('guest').value\">Reserve</button>\
+<button type=button id=reserve style=\"cursor:pointer\" onclick=\"document.title='Hello '+document.getElementById('guest').value\">Reserve</button>\
 </body></html>";
 
 /// Serves `html` on loopback for as long as the test runs; IE mode cannot open a `data:` address.
@@ -243,9 +243,82 @@ async fn drives(engine: &str) {
         .await
         .unwrap();
     assert!(opened.output.contains("Started"), "{}", opened.output);
+    if engine == "camoufox" {
+        let agent = call(
+            &sandbox,
+            json!({ "action": "eval", "expression": "navigator.userAgent" }),
+        );
+        let agent = agent.await.unwrap().output;
+        assert!(agent.contains("Firefox/") && !agent.contains("Camoufox"), "{agent}");
+    }
 
     fills_the_form(&sandbox, engine).await;
+    fits_the_pane_and_follows_the_cursor(&sandbox, engine).await;
     watches_and_stops(&sandbox).await;
+}
+
+/// A pane of 1400x900 lays the page out at that size, and the pointer over the button shows the page's cursor.
+async fn fits_the_pane_and_follows_the_cursor(sandbox: &Sandbox, engine: &str) {
+    use crate::browser::ViewInput;
+
+    if engine == "ie" {
+        return;
+    }
+    let driver = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    driver
+        .input(ViewInput::Fit {
+            width: 1400.0,
+            height: 900.0,
+        })
+        .await
+        .unwrap();
+    let mut size = String::new();
+    for _ in 0..50 {
+        let measured = call(
+            sandbox,
+            json!({ "action": "eval", "expression": "innerWidth + 'x' + innerHeight" }),
+        );
+        size = measured.await.unwrap().output;
+        if size == "1400x900" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert_eq!(size, "1400x900", "{engine}");
+
+    for (element, shown) in [("reserve", "pointer"), ("note", "text"), ("guest", "text")] {
+        let seen = cursor_over(sandbox, &driver, element).await;
+        assert_eq!(seen, shown, "{engine} over #{element}");
+    }
+}
+
+/// Moves the pane's pointer just inside an element and waits for the cursor the page shows there.
+async fn cursor_over(
+    sandbox: &Sandbox,
+    driver: &std::sync::Arc<dyn crate::browser::driver::Driver>,
+    id: &str,
+) -> String {
+    let rect = format!("JSON.stringify(document.getElementById('{id}').getBoundingClientRect())");
+    let rect = call(sandbox, json!({ "action": "eval", "expression": rect }))
+        .await
+        .unwrap();
+    let rect: Value = serde_json::from_str(&rect.output).unwrap();
+    let mut cursor = driver.common().cursor.subscribe();
+    cursor.borrow_and_update();
+    let mouse = crate::browser::input::MouseInput {
+        event: "move".into(),
+        x: rect["x"].as_f64().unwrap() + 4.0,
+        y: rect["y"].as_f64().unwrap() + rect["height"].as_f64().unwrap() / 2.0,
+        button: None,
+        click_count: None,
+        delta_x: None,
+        delta_y: None,
+        modifiers: 0,
+    };
+    driver.input(crate::browser::ViewInput::Mouse(mouse)).await.unwrap();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), cursor.changed()).await;
+
+    cursor.borrow().clone()
 }
 
 async fn fills_the_form(sandbox: &Sandbox, engine: &str) {

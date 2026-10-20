@@ -12,6 +12,7 @@ use super::agent::Agents;
 use super::cdp::{CdpError, Connection};
 use crate::browser::driver::{Settled, Shot, shot_factor};
 use crate::browser::input::Key;
+use crate::browser::view::PaneFit;
 use crate::browser::{DialogRecord, PageRecord, with_scheme};
 
 /// The helpers `page.js` installs in the isolated world.
@@ -23,9 +24,6 @@ const KEPT: usize = 500;
 const LOAD_WAIT: Duration = Duration::from_secs(15);
 /// How long after an action a navigation it caused is still looked for.
 const SETTLE: Duration = Duration::from_millis(150);
-
-/// The viewport a browser's pane asks its pages for, shared by them; `None` until a pane has measured itself.
-pub(crate) type PaneFit = Arc<Mutex<Option<(u64, u64)>>>;
 
 struct Request {
     id: String,

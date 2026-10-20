@@ -11,6 +11,9 @@ const PANE_WIDTHS: (f64, f64) = (1280.0, 3840.0);
 /// The tallest and widest shapes a pane may give a page, as height over width.
 const PANE_SHAPES: (f64, f64) = (0.4, 2.5);
 
+/// The viewport a browser's pane asks its pages for, shared by them; `None` until a pane has measured itself.
+pub(crate) type PaneFit = std::sync::Arc<std::sync::Mutex<Option<(u64, u64)>>>;
+
 /// One picture of the active page.
 pub struct Frame {
     pub page: String,

@@ -14,7 +14,7 @@ desktop, nothing outlives Drift, remote devices see the same pane, and projects 
 | Engine | Driven over | Picture for the pane | Notes |
 | --- | --- | --- | --- |
 | Chrome, Edge | DevTools Protocol | Screencast, sent only when the page paints | Hidden (headless) or a real window off-screen |
-| Firefox | WebDriver BiDi | Screenshots every 0.5 s while watched, sent when they change | Always headless; no response bodies |
+| Firefox | WebDriver BiDi | Screenshots about 30 times a second while watched (every 8th tick once the page is still), sent when they change | Always headless; no response bodies |
 | Camoufox | WebDriver BiDi | As Firefox | Hardened Firefox for sites that block automated browsers |
 | IE mode | Classic WebDriver through IEDriverServer | Screenshots every 0.8 s while watched | Edge in IE mode, window off-screen; no console or network logs |
 
@@ -60,7 +60,10 @@ Started headless with `--remote-debugging-port 0` and a profile whose `user.js` 
 ships with it off) and keeps the profile quiet. The port is read from what the browser prints. Pages use
 the same helper script as Chrome, run in a BiDi sandbox the page cannot see; input is BiDi's
 `input.performActions`. Response bodies are not available, and a phone-sized viewport keeps the desktop user
-agent.
+agent. Camoufox started without its Python launcher's fingerprint config names itself in its user agent
+(`Camoufox/156.0.1-beta.36`), and sites that do not know the name serve their oldest pages, so the session
+overrides it with the Firefox it is built on (`Firefox/156.0`) through `emulation.setUserAgentOverride`.
+Pane pictures are sent at the page's own resolution; the agent's screenshots are scaled as Chrome's are.
 
 ### IE mode
 
@@ -285,15 +288,16 @@ the credential is refused.
 - The engine's name, tabs for the browser's pages (popups included), an address bar with back, forward and
   reload, a new-tab button, and Stop; the collapse button only hides the pane.
 - A dialog on the page shows as a bar with its message, a field for a prompt, and OK and Cancel.
-- The page is laid out to fill the pane (Chrome and Edge): the pane sends the size of its page area (`fit`,
+- The page is laid out to fill the pane (Chrome, Edge, Firefox and Camoufox): the pane sends the size of its
+  page area (`fit`,
   again 150 ms after each resize settles), and the page gets a viewport at least 1280 CSS pixels wide in the
   pane's shape (height over width kept between 0.4 and 2.5), so pages keep their desktop layout and a pane
   narrower than that shows it scaled down. A size the agent chose with `viewport` wins until it asks for
-  `desktop` again; the picture is then centred in the pane. Other engines keep their own size.
+  `desktop` again; the picture is then centred in the pane. IE mode keeps its own size.
 - Clicks, wheel and keys typed while the picture has focus go to the page, mapped to its CSS pixels. Pasting
   sends the text as typed input.
-- The pane shows the cursor the page would (Chrome and Edge). CSS cursors are not reported by the DevTools
-  Protocol, so after each pointer event the engine asks the page's isolated world what is under the point:
+- The pane shows the cursor the page would (all but IE mode). CSS cursors are not reported by the DevTools
+  Protocol or BiDi, so after each pointer event the engine asks the page's isolated world what is under the point:
   the element's computed `cursor` (an image cursor gives its keyword fallback), or for `auto` an I-beam over
   editable fields and selectable text and an arrow elsewhere. Lookups run one at a time on the newest
   position, and only a change is sent.

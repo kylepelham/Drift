@@ -8,7 +8,6 @@ mod page;
 mod tab;
 mod trace;
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -16,15 +15,15 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc};
 
-use super::driver::{Common, Driver, Spec, Tab};
-use super::view::{Frame, ViewInput, pane_viewport};
+use super::driver::{Common, Driver, Pointer, Spec, Tab};
+use super::view::{Frame, PaneFit, ViewInput, pane_viewport};
 use super::{Window, input};
 use crate::Engine;
 use crate::platform::process::Tree;
 use agent::Agents;
 use cdp::{Connection, Event};
 use launch::Launched;
-use page::{Page, PaneFit, Shared};
+use page::{Page, Shared};
 
 /// How long a new tab may take to appear after it was asked for.
 const PAGE_WAIT: Duration = Duration::from_secs(10);
@@ -48,10 +47,7 @@ pub(crate) struct Chromium {
     streaming: Mutex<Option<String>>,
     page_added: Notify,
     pane_fit: PaneFit,
-    /// The newest pane pointer position whose cursor has not been looked up yet.
-    pointer: Mutex<Option<(f64, f64)>>,
-    /// A cursor lookup is running; it takes each newest position until none is left.
-    pointing: AtomicBool,
+    pointer: Pointer,
 }
 
 impl Chromium {
@@ -83,8 +79,7 @@ impl Chromium {
             streaming: Mutex::default(),
             page_added: Notify::new(),
             pane_fit: PaneFit::default(),
-            pointer: Mutex::default(),
-            pointing: AtomicBool::new(false),
+            pointer: Pointer::default(),
         });
         tokio::spawn(chromium.clone().run(events, child));
 
@@ -440,11 +435,9 @@ impl Chromium {
         }
     }
 
-    /// Looks up the cursor under the pane's pointer for the pane to show. Moves come faster than lookups, so
-    /// one lookup at a time runs and takes the newest position each time.
+    /// Looks up the cursor under the pane's pointer for the pane to show.
     fn follow_pointer(&self, x: f64, y: f64) {
-        *self.pointer.lock().unwrap() = Some((x, y));
-        if self.pointing.swap(true, Ordering::SeqCst) {
+        if !self.pointer.moved(x, y) {
             return;
         }
         let Some(chromium) = self.me.upgrade() else {
@@ -452,25 +445,14 @@ impl Chromium {
         };
 
         tokio::spawn(async move {
-            loop {
-                let next = chromium.pointer.lock().unwrap().take();
-                if let Some((x, y)) = next {
-                    // A dialog holds the page, so a lookup would wait until it closes.
-                    let page = chromium.active().and_then(|id| chromium.page(&id));
-                    let page = page.filter(|page| page.current_dialog().is_none());
-                    if let Some(page) = page
-                        && let Ok(cursor) = page.cursor_at(x, y).await
-                    {
-                        chromium.common.set_cursor(&cursor);
-                    }
-                    continue;
-                }
-
-                // A position that came in as this lookup finished is taken by it, not dropped.
-                chromium.pointing.store(false, Ordering::SeqCst);
-                let waiting = chromium.pointer.lock().unwrap().is_some();
-                if !waiting || chromium.pointing.swap(true, Ordering::SeqCst) {
-                    return;
+            while let Some((x, y)) = chromium.pointer.next() {
+                // A dialog holds the page, so a lookup would wait until it closes.
+                let page = chromium.active().and_then(|id| chromium.page(&id));
+                let page = page.filter(|page| page.current_dialog().is_none());
+                if let Some(page) = page
+                    && let Ok(cursor) = page.cursor_at(x, y).await
+                {
+                    chromium.common.set_cursor(&cursor);
                 }
             }
         });

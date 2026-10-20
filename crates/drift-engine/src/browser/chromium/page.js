@@ -277,11 +277,15 @@
     // Whether the point is on selectable text, where the browser shows an I-beam for `cursor: auto`.
     function onText(node, x, y) {
         if (getComputedStyle(node).userSelect === "none") return false;
-        const range = node.ownerDocument.caretRangeFromPoint && node.ownerDocument.caretRangeFromPoint(x, y);
-        const text = range && range.startContainer;
+        const doc = node.ownerDocument;
+        // Chrome has caretRangeFromPoint and Firefox caretPositionFromPoint.
+        const caret = doc.caretRangeFromPoint
+            ? doc.caretRangeFromPoint(x, y)
+            : doc.caretPositionFromPoint && doc.caretPositionFromPoint(x, y);
+        const text = caret && (caret.startContainer || caret.offsetNode);
         if (!text || text.nodeType !== Node.TEXT_NODE || !text.textContent.trim()) return false;
 
-        const whole = node.ownerDocument.createRange();
+        const whole = doc.createRange();
         whole.selectNodeContents(text);
         return [...whole.getClientRects()].some(
             (box) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom,

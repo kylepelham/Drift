@@ -5,6 +5,7 @@ use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::hash::{Hash, Hasher};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -14,10 +15,10 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{mpsc, watch};
 
 use super::bidi::{Bidi, Event, plain};
-use super::driver::{Common, Driver, Language, Settled, Shot, Size, Spec, Tab, Target, shot_factor};
+use super::driver::{Common, Driver, Language, Pointer, Settled, Shot, Size, Spec, Tab, Target, shot_factor};
 use super::input::{Key, parse_chord};
-use super::view::{Frame, ViewInput};
-use super::{DialogRecord, PageRecord, with_scheme};
+use super::view::{Frame, PaneFit, ViewInput, pane_viewport};
+use super::{DialogRecord, Kind, PageRecord, with_scheme};
 use crate::Engine;
 use crate::platform::process::{Tree, spawn_owned};
 
@@ -25,7 +26,12 @@ const PAGE_JS: &str = include_str!("chromium/page.js");
 const SANDBOX: &str = "drift";
 const START_WAIT: Duration = Duration::from_secs(30);
 const LOAD_WAIT: Duration = Duration::from_secs(15);
-const FRAME_EVERY: Duration = Duration::from_millis(500);
+/// About 30 pictures a second while a pane watches; Firefox takes one in about 10 ms.
+const FRAME_EVERY: Duration = Duration::from_millis(33);
+/// After this many unchanged pictures in a row the page is still, and is pictured only every `STILL_EVERY` ticks
+/// until it changes or the pane sends input.
+const STILL_AFTER: u32 = 15;
+const STILL_EVERY: u32 = 8;
 /// Console lines and requests kept per page.
 const KEPT: usize = 500;
 
@@ -96,6 +102,9 @@ pub(crate) struct FoxTab {
     state: Mutex<TabState>,
     /// Counts the documents that finished loading.
     loads: watch::Sender<u64>,
+    pane_fit: PaneFit,
+    /// The agent chose a viewport, which the pane's size does not override.
+    agent_sized: AtomicBool,
 }
 
 pub(crate) struct Firefox {
@@ -106,6 +115,10 @@ pub(crate) struct Firefox {
     tabs: Mutex<Vec<Arc<FoxTab>>>,
     active: Mutex<Option<String>>,
     last_frame: Mutex<u64>,
+    /// Unchanged pictures in a row.
+    unchanged: AtomicU32,
+    pane_fit: PaneFit,
+    pointer: Pointer,
 }
 
 /// Launches the browser and reads the BiDi port it prints.
@@ -177,6 +190,9 @@ impl Firefox {
             tabs: Mutex::default(),
             active: Mutex::default(),
             last_frame: Mutex::new(0),
+            unchanged: AtomicU32::new(0),
+            pane_fit: PaneFit::default(),
+            pointer: Pointer::default(),
         });
         let tree = bidi
             .call("browsingContext.getTree", json!({ "maxDepth": 0 }))
@@ -185,9 +201,31 @@ impl Firefox {
         for context in tree["contexts"].as_array().into_iter().flatten() {
             firefox.add(context, false);
         }
+        if firefox.common.kind == Kind::Camoufox {
+            firefox.pass_as_firefox().await;
+        }
         tokio::spawn(firefox.clone().run(events, child));
 
         Ok(firefox)
+    }
+
+    /// Camoufox names itself in its user agent, and sites that do not know the name serve their oldest pages, so
+    /// pages are told it is the Firefox it is built on.
+    async fn pass_as_firefox(&self) {
+        let Some(tab) = self.tabs.lock().unwrap().first().cloned() else {
+            return;
+        };
+        let Ok(agent) = tab.sandboxed("navigator.userAgent").await else {
+            return;
+        };
+        let Some(agent) = agent.as_str().and_then(firefox_agent) else {
+            return;
+        };
+
+        let _ = self
+            .bidi
+            .call("emulation.setUserAgentOverride", json!({ "userAgent": agent }))
+            .await;
     }
 
     fn as_driver(&self) -> Option<Arc<dyn Driver>> {
@@ -224,8 +262,14 @@ impl Firefox {
                 ..TabState::default()
             }),
             loads: watch::channel(0).0,
+            pane_fit: self.pane_fit.clone(),
+            agent_sized: AtomicBool::new(false),
         });
         self.tabs.lock().unwrap().push(tab.clone());
+        if self.pane_fit.lock().unwrap().is_some() {
+            let fitting = tab.clone();
+            tokio::spawn(async move { fitting.fit_pane().await });
+        }
         let mut active = self.active.lock().unwrap();
         if active.is_none() || popup {
             *active = Some(id);
@@ -238,6 +282,8 @@ impl Firefox {
 
     async fn run(self: Arc<Self>, mut events: mpsc::UnboundedReceiver<Event>, mut child: tokio::process::Child) {
         let mut every = tokio::time::interval(FRAME_EVERY);
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut ticks: u32 = 0;
         loop {
             tokio::select! {
                 event = events.recv() => match event {
@@ -245,7 +291,9 @@ impl Firefox {
                     None => break,
                 },
                 _ = every.tick() => {
-                    if self.common.watched() {
+                    ticks = ticks.wrapping_add(1);
+                    let still = self.unchanged.load(Ordering::SeqCst) >= STILL_AFTER;
+                    if self.common.watched() && (!still || ticks.is_multiple_of(STILL_EVERY)) {
                         self.send_frame().await;
                     }
                 }
@@ -321,26 +369,33 @@ impl Firefox {
         let Some(tab) = self.active().and_then(|id| self.tab(&id)) else {
             return;
         };
-        let Ok((shot, (width, height))) = tab.picture().await else {
+        let Ok((jpeg, (width, height))) = tab.picture().await else {
             return;
         };
 
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        shot.jpeg.hash(&mut hasher);
+        jpeg.hash(&mut hasher);
         let hash = hasher.finish();
         if std::mem::replace(&mut *self.last_frame.lock().unwrap(), hash) == hash {
+            self.unchanged.fetch_add(1, Ordering::SeqCst);
             return;
         }
+        self.unchanged.store(0, Ordering::SeqCst);
 
         self.common.send_frame(Frame {
             page: tab.context.clone(),
             width,
             height,
-            jpeg: shot.jpeg,
+            jpeg,
         });
     }
 
     async fn page_input(&self, input: ViewInput) -> Result<(), String> {
+        self.unchanged.store(0, Ordering::SeqCst);
+        if let ViewInput::Fit { width, height } = input {
+            self.fit(width, height);
+            return Ok(());
+        }
         let tab = self
             .active()
             .and_then(|id| self.tab(&id))
@@ -360,6 +415,7 @@ impl Firefox {
                     _ => vec![at],
                 };
                 tab.pointer(actions).await?;
+                self.follow_pointer(mouse.x, mouse.y);
             }
             ViewInput::Key(key) => {
                 let kind = if key.event == "up" { "keyUp" } else { "keyDown" };
@@ -373,6 +429,43 @@ impl Firefox {
         }
 
         Ok(())
+    }
+
+    /// Lays every page out to fill the pane, as Chrome's are; pages opened later are laid out the same.
+    fn fit(&self, width: f64, height: f64) {
+        let Some(viewport) = pane_viewport(width, height) else {
+            return;
+        };
+        if self.pane_fit.lock().unwrap().replace(viewport) == Some(viewport) {
+            return;
+        }
+
+        for tab in self.tabs.lock().unwrap().iter() {
+            let tab = tab.clone();
+            tokio::spawn(async move { tab.fit_pane().await });
+        }
+    }
+
+    /// Looks up the cursor under the pane's pointer for the pane to show.
+    fn follow_pointer(&self, x: f64, y: f64) {
+        if !self.pointer.moved(x, y) {
+            return;
+        }
+        let Some(firefox) = self.me.upgrade() else {
+            return;
+        };
+
+        tokio::spawn(async move {
+            while let Some((x, y)) = firefox.pointer.next() {
+                let tab = firefox.active().and_then(|id| firefox.tab(&id));
+                let tab = tab.filter(|tab| tab.state.lock().unwrap().dialog.is_none());
+                if let Some(tab) = tab
+                    && let Ok(cursor) = tab.helper(&format!("cursor({x}, {y})")).await
+                {
+                    firefox.common.set_cursor(cursor.as_str().unwrap_or("default"));
+                }
+            }
+        });
     }
 }
 
@@ -541,14 +634,28 @@ impl FoxTab {
         }
     }
 
-    /// A picture for the pane, with the page's size in CSS pixels.
-    async fn picture(&self) -> Result<(Shot, (f64, f64)), String> {
-        let shot = self.screenshot().await?;
+    /// A picture for the pane at the page's own resolution, with the page's size in CSS pixels.
+    async fn picture(&self) -> Result<(Vec<u8>, (f64, f64)), String> {
+        let jpeg = self.full_picture().await?;
         let size = self.sandboxed("[innerWidth, innerHeight]").await?;
-        let width = size[0].as_f64().unwrap_or(f64::from(shot.width));
-        let height = size[1].as_f64().unwrap_or(f64::from(shot.height));
+        let width = size[0].as_f64().unwrap_or_default();
+        let height = size[1].as_f64().unwrap_or_default();
 
-        Ok((shot, (width, height)))
+        Ok((jpeg, (width, height)))
+    }
+
+    /// Lays the page out at the size its pane asks for, unless the agent chose one.
+    async fn fit_pane(&self) {
+        let Some((width, height)) = *self.pane_fit.lock().unwrap() else {
+            return;
+        };
+        if self.agent_sized.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let viewport = json!({ "width": width, "height": height });
+        let params = json!({ "context": self.context, "viewport": viewport });
+        let _ = self.bidi.call("browsingContext.setViewport", params).await;
     }
 }
 
@@ -577,6 +684,17 @@ fn note_request(state: &mut TabState, method: &str, params: &Value) {
         }
         _ => {}
     }
+}
+
+/// `… Camoufox/156.0.1-beta.36` as the `… Firefox/156.0` it is built on; none when it already reads as Firefox.
+fn firefox_agent(agent: &str) -> Option<String> {
+    let (before, version) = agent.split_once("Camoufox/")?;
+    let major: String = version.chars().take_while(char::is_ascii_digit).collect();
+    if major.is_empty() {
+        return None;
+    }
+
+    Some(format!("{before}Firefox/{major}.0"))
 }
 
 /// The value of an evaluation, or its exception as the error.
@@ -828,12 +946,17 @@ impl Tab for FoxTab {
     }
 
     async fn viewport(&self, size: Option<Size>) -> Result<(), String> {
+        self.agent_sized.store(size.is_some(), Ordering::SeqCst);
         let (viewport, ratio) = match size {
             Some(size) => (
                 json!({ "width": size.width, "height": size.height }),
                 if size.mobile { json!(2) } else { Value::Null },
             ),
-            None => (Value::Null, Value::Null),
+            // The pane's size takes over again from the one the agent chose.
+            None => match *self.pane_fit.lock().unwrap() {
+                Some((width, height)) => (json!({ "width": width, "height": height }), Value::Null),
+                None => (Value::Null, Value::Null),
+            },
         };
         let params = json!({ "context": self.context, "viewport": viewport, "devicePixelRatio": ratio });
         self.bidi.call("browsingContext.setViewport", params).await?;
@@ -969,6 +1092,17 @@ mod tests {
 
         assert!(prefs.contains("user_pref(\"remote.active-protocols\", 1);"));
         assert!(prefs.contains("user_pref(\"network.negotiate-auth.trusted-uris\", \".corp.local\");"));
+    }
+
+    #[test]
+    fn camoufox_reads_as_the_firefox_it_is_built_on() {
+        let camoufox = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Camoufox/156.0.1-beta.36";
+
+        assert_eq!(
+            firefox_agent(camoufox).as_deref(),
+            Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:156.0) Gecko/20100101 Firefox/156.0")
+        );
+        assert_eq!(firefox_agent("Mozilla/5.0 (X11) Gecko/20100101 Firefox/156.0"), None);
     }
 
     #[test]
