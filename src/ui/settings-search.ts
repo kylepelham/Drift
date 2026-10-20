@@ -153,6 +153,10 @@ const settingsSearchDefinitions = {
             title: "drift.settings.shellTimeout.customMinutes",
             description: "drift.settings.shellTimeout.customDescription",
         },
+        { title: "drift.settings.browser.enabled.title", description: "drift.settings.browser.enabled.description" },
+        { title: "drift.settings.browser.engine.title", description: "drift.settings.browser.engine.description" },
+        { title: "drift.settings.browser.storage.title", description: "drift.settings.browser.storage.description" },
+        { title: "drift.settings.browser.window.title", description: "drift.settings.browser.window.description" },
     ],
     Providers: [
         { title: "dialog.provider.search.placeholder" },

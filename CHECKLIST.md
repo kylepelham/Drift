@@ -354,6 +354,13 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] A URL a process prints is handed back, so a dev server plus the chrome-devtools MCP is the browser check
   - [x] Settings > Execution switches background processes (the `process` tool and bash `background`) and the hand-off at the time limit; off restores stopping at the limit
   - [x] A process that exits after the turn wakes its conversation with its exit code and the end of its output, unless the model saw it end, it was stopped, or the user pressed Stop since it started
+- [ ] Browser (`docs/browser.md`): one engine-owned browser per conversation, streamed into a browser pane
+  - [x] Chrome and Edge over the DevTools Protocol in a job object; isolated profiles by default, shared per workspace in Settings; capped caches and cleanup
+  - [x] `browser` tool: open, navigate, snapshot with refs, click, fill, type, press, scroll, wait, screenshot, eval, logs, dialog, viewport, pages, batch, stop; host asks with loopback and private hosts allowed
+  - [x] Pane: screencast over `/sessions/{id}/browser/view`, page tabs, address bar, input, auto-open, collapse keeps testing, Stop ends it; idle browsers end after 30 minutes
+  - [ ] Project browser config in `drift.json`, keychain credentials, integrated sign-in
+  - [ ] IE mode through IEDriverServer and web-test's app profiles
+  - [ ] Firefox over WebDriver BiDi; Camoufox through a Drift-owned Playwright driver
 - [ ] Worktrees: per-thread toggle at start; branch `drift/<name>` from the current commit under Drift's data; uncommitted changes not copied (said so); spawned threads inherit; never merged by Drift; purged with the thread when merged, asked otherwise
 - [ ] `/watch-pr`: poll through `gh` about once a minute, wake the thread on CI failure or a review comment, stop at merge, close or the fifth wake
 

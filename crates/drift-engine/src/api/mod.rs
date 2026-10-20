@@ -1,6 +1,7 @@
 //! HTTP and WebSocket surface. Every route is documented in the OpenAPI the TS client is built from.
 
 mod auth;
+mod browser;
 mod bundles;
 mod cors;
 mod error;
@@ -37,7 +38,7 @@ use crate::Engine;
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Drift Engine", version = crate::VERSION),
-    components(schemas(events::Frame, events::Incoming, error::ErrorBody))
+    components(schemas(events::Frame, events::Incoming, error::ErrorBody, crate::browser::ViewInput))
 )]
 struct Api;
 
@@ -186,6 +187,9 @@ fn task_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::abort_task))
         .routes(routes!(processes::list))
         .routes(routes!(processes::stop))
+        .routes(routes!(browser::get))
+        .routes(routes!(browser::stop))
+        .routes(routes!(browser::view))
 }
 
 fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {

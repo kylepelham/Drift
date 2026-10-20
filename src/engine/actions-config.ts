@@ -8,6 +8,7 @@ import { t } from "../state/i18n";
 import type { AgentInfo, CommandInfo, McpServerConfig, McpServerStatus } from "./store";
 import type { ActionContext } from "./actions-context";
 import type {
+    BrowserSettings,
     BundlePartKind,
     InstallBundle,
     PermissionGrant,
@@ -37,6 +38,11 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
     /** Whether agents may run commands in the background and see them with `process`. */
     async function setBackgroundProcesses(backgroundProcesses: boolean) {
         return requireClient().putSettings({ backgroundProcesses });
+    }
+
+    /** Whether agents get the `browser` tool, and which browser, profile and window it starts with. */
+    async function setBrowserSettings(browser: BrowserSettings) {
+        return requireClient().putSettings({ browser });
     }
 
     /** Whether a command still running at its time limit moves to the background rather than being stopped. */
@@ -222,6 +228,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         setBackgroundTaskLimit,
         setBackgroundProcesses,
         setShellHandoff,
+        setBrowserSettings,
         putEngineSettings: (body: Parameters<Client["putSettings"]>[0]) => requireClient().putSettings(body),
         fetchRegistry: (source: string) => requireClient().fetchRegistry(source),
         webSearch: () => requireClient().webSearch(),

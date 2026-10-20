@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod background;
+pub mod browser;
 pub mod config;
 pub mod edit;
 pub mod event;
@@ -98,6 +99,8 @@ pub struct Engine {
     pub unserved: llm::limits::Unserved,
     /// Shell commands running in the background, by the conversation that started them.
     pub processes: background::Processes,
+    /// Each conversation's browser, started by the `browser` tool.
+    pub browsers: browser::Browsers,
     /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
     /// The user's plugins, loaded at start and on request.
@@ -176,6 +179,7 @@ impl Engine {
             limits: Default::default(),
             unserved: Default::default(),
             processes: Default::default(),
+            browsers: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
             search_routing: Default::default(),
@@ -617,6 +621,7 @@ pub fn start(engine: &Arc<Engine>) {
     tokio::spawn(engine.clone().watch_local());
     tokio::spawn(engine.clone().watch_codex_offers());
     tokio::spawn(engine.clone().stop_idle_mcp());
+    tokio::spawn(engine.clone().watch_browsers());
     tokio::spawn(hook::relay_session_events(engine.clone()));
     tokio::spawn(async move {
         starting.reload_plugins().await;

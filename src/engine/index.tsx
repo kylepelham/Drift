@@ -10,6 +10,7 @@ import { workspaces } from "../state/workspaces";
 import { resolveTarget } from "./native/target";
 import { rehomeSessions } from "./sessions";
 import { putProcesses } from "./processes";
+import { putBrowser } from "./browsers";
 import { reduce } from "./events";
 
 import type { WorkspaceIndex } from "./sessions";
@@ -119,6 +120,7 @@ export function EngineProvider(props: ParentProps) {
                     putTasks(set, state, envelope.task.parentSessionId, [envelope.task]);
                 if (envelope.type === "process.updated")
                     putProcesses(set, state, envelope.process.sessionId, [envelope.process]);
+                if (envelope.type === "browser.updated") putBrowser(set, envelope.browser);
                 if (envelope.type === "mcp.updated")
                     set("mcpServers", envelope.server.name, reconcile(envelope.server));
                 if (envelope.type === "mcp.removed")

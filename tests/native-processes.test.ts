@@ -51,6 +51,7 @@ test("opening a conversation loads its processes, and stopping one records what 
         todos: async () => [],
         tasks: async () => [],
         processes: async () => [processRecord("a")],
+        browser: async () => null,
         stopProcess: async (id: string) => {
             stopped.push(id);
             return processRecord(id, { state: "stopped" });

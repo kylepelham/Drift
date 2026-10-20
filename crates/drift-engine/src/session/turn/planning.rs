@@ -338,11 +338,13 @@ impl Engine {
         true
     }
 
-    /// Built-in tools that a setting can take away: `process` with background processes, `websearch` with search,
-    /// `generate_image` until image generation is on, and the worktree tools outside a git repository.
+    /// Built-in tools that a setting can take away: `process` with background processes, `browser` with its switch,
+    /// `websearch` with search, `generate_image` until image generation is on, and the worktree tools outside a git
+    /// repository.
     fn built_in_available(&self, name: &str, repository: bool) -> bool {
         match name {
             "process" => self.background_processes(),
+            "browser" => self.browser_settings().enabled,
             "websearch" => self.web_search_available(),
             "generate_image" => self.image_generation_available(),
             name if crate::worktree::TOOLS.contains(&name) => repository,

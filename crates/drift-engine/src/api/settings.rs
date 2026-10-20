@@ -9,6 +9,7 @@ use utoipa::ToSchema;
 use super::error::ApiError;
 use crate::Engine;
 use crate::background::{HANDOFF_KEY, PROCESSES_KEY};
+use crate::browser::BrowserSettings;
 use crate::session::compaction::AUTO_COMPACT_KEY;
 use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
 use crate::session::turn::resume::RESUME_KEY;
@@ -46,6 +47,9 @@ pub(super) struct EngineSettings {
     /// Prompt cache warming and the Anthropic one-hour cache, all off by default. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_cache: Option<PromptCache>,
+    /// The `browser` tool and how its browsers start. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser: Option<BrowserSettings>,
 }
 
 use crate::config::sources::{RegistrySource, SourceInput};
@@ -72,6 +76,8 @@ pub(super) struct EngineSettingsInput {
     pub prompt_cache: Option<PromptCache>,
     #[serde(default)]
     pub resume_turns: Option<bool>,
+    #[serde(default)]
+    pub browser: Option<BrowserSettings>,
 }
 
 fn current(engine: &Engine) -> EngineSettings {
@@ -86,6 +92,7 @@ fn current(engine: &Engine) -> EngineSettings {
         registry_sources: Some(engine.registry_sources()),
         prompt_cache: Some(engine.prompt_cache()),
         resume_turns: Some(engine.resumes_turns()),
+        browser: Some(engine.browser_settings()),
     }
 }
 
@@ -112,6 +119,9 @@ pub(super) async fn put(
             }
             LimitError::Store(error) => error.into(),
         })?;
+    }
+    if let Some(browser) = &body.browser {
+        engine.set_browser_settings(browser)?;
     }
     if let Some(on) = body.background_processes {
         engine.store.set_setting(PROCESSES_KEY, &on)?;

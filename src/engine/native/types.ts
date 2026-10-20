@@ -722,6 +722,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/sessions/{id}/browser": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The conversation's browser, or null when it has none running. */
+        get: operations["getBrowser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/browser/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ends the conversation's browser; `browser.updated` says when it has gone. */
+        post: operations["stopBrowser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/sessions/{id}/browser/view": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Frames of the active page while the socket is open, as binary messages (a 4-byte little-endian header length,
+         *     a JSON header, a JPEG); the client sends `ViewInput` as JSON text.
+         */
+        get: operations["browserView"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/sessions/{id}/command": {
         parameters: {
             query?: never;
@@ -1479,6 +1533,37 @@ export interface components {
             data: string;
             mime: string;
         };
+        /** @enum {string} */
+        BrowserKind: "chrome" | "edge";
+        /** @description A conversation's browser as the pane and the API show it. */
+        BrowserRecord: {
+            engine: components["schemas"]["BrowserKind"];
+            pages: components["schemas"]["PageRecord"][];
+            sessionId: string;
+            /** Format: int64 */
+            startedAt: number;
+            state: components["schemas"]["BrowserState"];
+            storage: components["schemas"]["BrowserStorage"];
+            window: components["schemas"]["BrowserWindow"];
+        };
+        BrowserSettings: {
+            enabled: boolean;
+            engine: components["schemas"]["BrowserKind"];
+            storage: components["schemas"]["BrowserStorage"];
+            window: components["schemas"]["BrowserWindow"];
+        };
+        /** @enum {string} */
+        BrowserState: "running" | "stopped";
+        /**
+         * @description Whether a conversation's profile is its own or its workspace's.
+         * @enum {string}
+         */
+        BrowserStorage: "isolated" | "shared";
+        /**
+         * @description Headless, or a real window placed off-screen for sites that check how a page renders.
+         * @enum {string}
+         */
+        BrowserWindow: "hidden" | "offscreen";
         /** @description An installed bundle with everything it holds. */
         Bundle: {
             agents: components["schemas"]["BundlePart"][];
@@ -1649,6 +1734,12 @@ export interface components {
         };
         /** @enum {string} */
         Decision: "allow" | "deny" | "ask";
+        /** @description An alert, confirm or prompt waiting on a page; nothing else runs on it until it is answered. */
+        DialogRecord: {
+            defaultPrompt?: string | null;
+            kind: string;
+            message: string;
+        };
         EnabledBody: {
             enabled: boolean;
         };
@@ -1669,6 +1760,7 @@ export interface components {
             backgroundTaskLimit?: number | null;
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
+            browser?: components["schemas"]["BrowserSettings"] | null;
             promptCache?: components["schemas"]["PromptCache"] | null;
             /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
             registrySources?: components["schemas"]["RegistrySource"][] | null;
@@ -1687,6 +1779,7 @@ export interface components {
             backgroundProcesses?: boolean | null;
             backgroundTaskLimit?: number | null;
             backgroundTasks?: boolean | null;
+            browser?: components["schemas"]["BrowserSettings"] | null;
             promptCache?: components["schemas"]["PromptCache"] | null;
             registrySources?: components["schemas"]["SourceInput"][] | null;
             resumeTurns?: boolean | null;
@@ -1820,6 +1913,10 @@ export interface components {
             process: components["schemas"]["ProcessRecord"];
             /** @enum {string} */
             type: "process.updated";
+        } | {
+            browser: components["schemas"]["BrowserRecord"];
+            /** @enum {string} */
+            type: "browser.updated";
         } | {
             queued: components["schemas"]["QueuedPrompt"][];
             sessionId: string;
@@ -2037,6 +2134,17 @@ export interface components {
             /** @description How the user and the model hear it named. */
             title: string;
         };
+        /** @description A key event from the pane, as a browser's `KeyboardEvent` describes it. */
+        KeyInput: {
+            code: string;
+            /** @description `down` or `up`. */
+            event: string;
+            key: string;
+            /** Format: int32 */
+            keyCode?: number;
+            /** Format: int32 */
+            modifiers?: number;
+        };
         Limit: {
             /** Format: int64 */
             context: number;
@@ -2165,6 +2273,24 @@ export interface components {
             model: string;
             provider: string;
         };
+        /** @description A mouse event from the pane, in the page's CSS pixels. */
+        MouseInput: {
+            button?: string | null;
+            /** Format: int32 */
+            clickCount?: number | null;
+            /** Format: double */
+            deltaX?: number | null;
+            /** Format: double */
+            deltaY?: number | null;
+            /** @description `down`, `up`, `move` or `wheel`. */
+            event: string;
+            /** Format: int32 */
+            modifiers?: number;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
+        };
         MoveBody: {
             workspaceId: string;
         };
@@ -2231,6 +2357,15 @@ export interface components {
             /** @description The skills it brought, by folder name. */
             skills: string[];
             source?: string | null;
+        };
+        PageRecord: {
+            active: boolean;
+            dialog?: components["schemas"]["DialogRecord"] | null;
+            id: string;
+            /** @description Opened by a page (a popup or a link to a new tab), not by the agent. */
+            popup: boolean;
+            title: string;
+            url: string;
         };
         Part: {
             text: string;
@@ -3090,6 +3225,38 @@ export interface components {
         };
         Variant: components["schemas"]["Reasoning"] & {
             name: string;
+        };
+        /** @description What the pane sends on its view socket. */
+        ViewInput: (components["schemas"]["MouseInput"] & {
+            /** @enum {string} */
+            type: "mouse";
+        }) | (components["schemas"]["KeyInput"] & {
+            /** @enum {string} */
+            type: "key";
+        }) | {
+            text: string;
+            /** @enum {string} */
+            type: "text";
+        } | {
+            page: string;
+            /** @enum {string} */
+            type: "select";
+        } | {
+            page: string;
+            /** @enum {string} */
+            type: "close";
+        } | {
+            /** @enum {string} */
+            type: "newPage";
+        } | {
+            /** @enum {string} */
+            type: "navigate";
+            url: string;
+        } | {
+            accept: boolean;
+            text?: string | null;
+            /** @enum {string} */
+            type: "dialog";
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";
@@ -4704,6 +4871,80 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Aborted"];
                 };
+            };
+        };
+    };
+    getBrowser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserRecord"] | null;
+                };
+            };
+        };
+    };
+    stopBrowser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserRecord"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    browserView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description WebSocket; binary frames out, ViewInput in */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

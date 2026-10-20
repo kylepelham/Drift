@@ -40,6 +40,8 @@ export type ReviewRefs = components["schemas"]["ReviewRefs"];
 export type GitSource = operations["reviewWorkspace"]["parameters"]["query"]["source"];
 export type VoiceTranscription = components["schemas"]["Transcription"];
 export type VoiceSpeech = components["schemas"]["Speech"];
+export type BrowserSettings = components["schemas"]["BrowserSettings"];
+export type ViewInput = components["schemas"]["ViewInput"];
 
 type Json<Op extends keyof operations, Status extends number> =
     operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never;
@@ -275,6 +277,11 @@ export function createClient(target: Target) {
         stopTask: (id: string) => request<Json<"abortTask", 200>>("POST", `/tasks/${id}/abort`),
         processes: (id: string) => request<Json<"listProcesses", 200>>("GET", `/sessions/${id}/processes`),
         stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
+        browser: (id: string) => request<Json<"getBrowser", 200>>("GET", `/sessions/${id}/browser`),
+        stopBrowser: (id: string) => request<Json<"stopBrowser", 200>>("POST", `/sessions/${id}/browser/stop`),
+        /** The view socket's address: frames of the browser's active page out, the user's input in. */
+        browserViewUrl: (id: string) =>
+            `${target.url.replace(/^http/, "ws")}/sessions/${id}/browser/view?token=${target.token}`,
         reviewTurn: (sessionId: string, messageId: string) =>
             request<Json<"reviewTurn", 200>>("GET", `/sessions/${sessionId}/review/${messageId}`),
         reviewWorkspace: (workspaceId: string, source: GitSource, target?: string) =>

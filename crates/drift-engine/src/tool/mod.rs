@@ -3,6 +3,7 @@
 pub mod apply_patch;
 mod ask;
 pub mod bash;
+pub mod browser;
 pub mod command;
 mod context;
 pub mod edit;

@@ -4,6 +4,7 @@ import { ImageGenerationGroup } from "./settings-image-generation";
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { PromptCacheGroup } from "./settings-prompt-cache";
 import { WebSearchGroup } from "./settings-web-search";
+import { BrowserGroup } from "./settings-browser";
 import { TurnsGroup } from "./settings-turns";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
@@ -128,6 +129,7 @@ export function ToolExecutionSection() {
             <TurnsGroup />
             <PromptCacheGroup />
             <WebSearchGroup />
+            <BrowserGroup />
             <ImageGenerationGroup />
         </div>
     );

@@ -1,0 +1,10 @@
+Drives this conversation's own browser (Chrome or Edge), which the user watches in the browser pane beside the chat. Use it to test web apps you build or change: load the page, act on it as a user would, and check the result.
+
+- Start with `open` and a `url`. The browser keeps running between calls and after your turn ends; `stop` it when you are finished testing.
+- `snapshot` lists the page's elements; those you can act on carry `[ref=N]`. Pass that number as `ref` to click, hover, fill or scroll. Refs last until the page changes; take a new snapshot after a navigation. Prefer snapshots to screenshots for reading text and structure; take a `screenshot` to check layout and looks, and click by `x`/`y` in that image's pixels only when an element has no ref.
+- Actions report what they changed: a new address or title, a dialog that opened, a tab that appeared. You do not need a snapshot after every step.
+- `batch` runs several actions in one call, in order, stopping at the first failure: use it whenever you can plan steps ahead (fill a form and submit it, then screenshot).
+- `logs` shows console messages or network requests, newest last; pass `search` (a regex) to filter, and `request` with a request id to read that response's body.
+- While a page shows an alert, confirm or prompt, nothing else runs on it: answer it with `dialog`.
+- `eval` runs JavaScript in the page for inspection and debugging. Change the app's source to fix things, not the page.
+- A page that asks the user to sign in, solve a check or approve something: ask the user to do it in the pane, then carry on.

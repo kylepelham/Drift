@@ -4,6 +4,7 @@ import { nudgesSincePrompt, orchestratorNotice } from "./state/orchestrator";
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation";
 import { AttentionNotifier, NoticeHost } from "./ui/notifications";
 import { ToolContextMenuHost } from "./ui/tool-context-menu";
+import { browserPaneShowing } from "./state/browser-pane";
 import { syncDictationConsent } from "./voice/dictation";
 import { initDevtoolsShortcut } from "./state/devtools";
 import { ImportSummaryHost } from "./ui/import-summary";
@@ -14,6 +15,7 @@ import { forwardWheelToChat } from "./ui/chat-wheel";
 import { selectedSession } from "./state/selection";
 import { FilePreviewHost } from "./ui/file-preview";
 import { ReviewPanelHost } from "./ui/review-panel";
+import { BrowserPaneHost } from "./ui/browser-pane";
 import { messageProblem } from "./engine/messages";
 import { bindCodePreferences } from "./state/code";
 import { ChatBackdrop } from "./ui/chat-backdrop";
@@ -69,7 +71,9 @@ export function App() {
                     <main inert={mobileDrawerOpen()} class="flex min-h-0 min-w-0 flex-1 overflow-hidden">
                         <div
                             class="chat-pane relative isolate flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                            classList={{ "chat-pane-covered": rightPanelOpen() && !!selectedSession() }}
+                            classList={{
+                                "chat-pane-covered": (rightPanelOpen() || browserPaneShowing()) && !!selectedSession(),
+                            }}
                         >
                             <ChatBackdrop />
                             <div class="relative flex min-h-0 flex-1 flex-col">
@@ -83,6 +87,7 @@ export function App() {
                                 <Composer />
                             </div>
                         </div>
+                        <BrowserPaneHost />
                         <DebugPanel />
                         <ReviewPanelHost />
                     </main>

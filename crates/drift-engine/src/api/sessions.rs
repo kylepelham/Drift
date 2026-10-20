@@ -147,6 +147,7 @@ pub(super) async fn update(
         if archived {
             engine.abort(&id);
             engine.processes.stop_session(&id);
+            engine.browsers.stop_session(&id);
             engine.permissions.forget_session(&id);
         }
         session = engine
@@ -344,6 +345,7 @@ pub(super) async fn delete(
 
     engine.abort(&id);
     engine.processes.stop_session(&id);
+    engine.browsers.stop_session(&id);
     engine.permissions.forget_session(&id);
     engine.questions.forget_session(&id);
     if !query.archived && !engine.store.delete_session(&id)? {

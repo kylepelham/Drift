@@ -1,6 +1,6 @@
 import { openTranscriptFind, TranscriptFindBar, transcriptFindOpen } from "./transcript-find";
+import { IconArrowUp, IconBranch, IconDiff, IconGlobe, IconMenu, IconSearch } from "./icons";
 import { closeReview, openReview, reviewPanel, rightPanelOpen } from "../state/panels";
-import { IconArrowUp, IconBranch, IconDiff, IconMenu, IconSearch } from "./icons";
 import { createMediaQuery, smallScreenQuery, touchInput } from "../state/screen";
 import { selectedSession, selectSession } from "../state/selection";
 import { createSignal, onCleanup, Show } from "solid-js";
@@ -10,6 +10,12 @@ import { hiddenParent } from "../engine/sessions";
 import { ContextMeter } from "./context-meter";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
+import {
+    browserPaneCollapsed,
+    browserPaneShowing,
+    collapseBrowserPane,
+    expandBrowserPane,
+} from "../state/browser-pane";
 
 const chatColumnWidth = 768;
 
@@ -141,17 +147,37 @@ export function ChatHeader() {
                                     >
                                         <IconDiff class="size-3.5" />
                                     </button>
+                                    <Show when={engine.state.browsers[current().id]}>
+                                        <BrowserToggle sessionId={current().id} />
+                                    </Show>
                                 </Show>
                                 <ContextMeter sessionId={current().id} />
                             </>
                         )}
                     </Show>
-                    <Show when={!rightPanelOpen() || narrow()}>
+                    <Show when={(!rightPanelOpen() && !browserPaneShowing()) || narrow()}>
                         <WindowControls />
                     </Show>
                 </div>
             </div>
         </Show>
+    );
+}
+
+/** Shows or hides the conversation's browser pane; the browser keeps running either way. */
+function BrowserToggle(props: { sessionId: string }) {
+    const open = () => !browserPaneCollapsed(props.sessionId);
+
+    return (
+        <button
+            class="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink"
+            classList={{ "text-accent": open(), "text-ink-faint": !open() }}
+            title={t(open() ? "drift.browser.hide" : "drift.browser.show")}
+            aria-pressed={open()}
+            onClick={() => (open() ? collapseBrowserPane(props.sessionId) : expandBrowserPane(props.sessionId))}
+        >
+            <IconGlobe class="size-3.5" />
+        </button>
     );
 }
 

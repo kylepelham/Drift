@@ -7,6 +7,7 @@ import type { ModelInfo, ProviderAccount, ProviderInfo } from "./catalog";
 import type { QuestionRequest } from "./questions";
 import type { components } from "./native/types";
 import type { ProcessRecord } from "./processes";
+import type { BrowserRecord } from "./browsers";
 import type { Session } from "./sessions";
 import type { Message } from "./messages";
 import type { Part } from "./parts";
@@ -155,6 +156,8 @@ export type EngineState = {
     tasks: Record<string, TaskRecord[]>;
     /** Background processes each session started, oldest first. */
     processes: Record<string, ProcessRecord[]>;
+    /** Each session's running browser; a session without one has no entry. */
+    browsers: Record<string, BrowserRecord>;
     providers: ProviderInfo[];
     /** The engine's MCP servers by name: the only place their definition and state live. */
     mcpServers: Record<string, McpServerStatus>;
@@ -225,6 +228,7 @@ export function createEngineState() {
         queued: {},
         tasks: {},
         processes: {},
+        browsers: {},
         providers: [],
         mcpServers: {},
         connected: [],

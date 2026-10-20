@@ -1,6 +1,6 @@
 use super::{
-    Tool, apply_patch, bash, edit, generate_image, glob, grep, process, question, read, save_image, skill, task, todo,
-    webfetch, websearch, worktree, write,
+    Tool, apply_patch, bash, browser, edit, generate_image, glob, grep, process, question, read, save_image, skill,
+    task, todo, webfetch, websearch, worktree, write,
 };
 use crate::llm::ToolSpec;
 use crate::llm::catalog::ToolProfile;
@@ -22,6 +22,7 @@ impl Registry {
                 Arc::new(apply_patch::ApplyPatch),
                 Arc::new(bash.clone()),
                 Arc::new(process::Process),
+                Arc::new(browser::Browser),
                 Arc::new(save_image::SaveImage),
                 Arc::new(generate_image::GenerateImage),
                 Arc::new(glob::Glob),

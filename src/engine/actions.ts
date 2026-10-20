@@ -1,10 +1,12 @@
 import { errorMessage, type ActionContext, type NoticeInput } from "./actions-context";
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
+import { connectBrowserView, type BrowserFrame } from "./browser-view";
 import { produce, type SetStoreFunction } from "solid-js/store";
 import { createProviderActions } from "./actions-providers";
 import { createSessionActions } from "./actions-sessions";
 import { formatAttachmentBytes } from "../attachments";
 import { createConfigActions } from "./actions-config";
+import { dropBrowser, putBrowser } from "./browsers";
 import { createAskActions } from "./actions-asks";
 import { sessionInWorkspace } from "./sessions";
 import { putProcesses } from "./processes";
@@ -121,7 +123,7 @@ export function createActions(
         set("loaded", id, true);
         set("cursors", id, messages.length === pageSize ? messages[0]!.id : null);
 
-        const [todos, tasks, processes] = await Promise.all([
+        const [todos, tasks, processes, browser] = await Promise.all([
             requireClient()
                 .todos(id)
                 .catch(() => undefined),
@@ -131,10 +133,15 @@ export function createActions(
             requireClient()
                 .processes(id)
                 .catch(() => undefined),
+            requireClient()
+                .browser(id)
+                .catch(() => undefined),
         ]);
         if (todos) set("todos", id, todos);
         if (tasks) putTasks(set, state, id, tasks);
         if (processes) putProcesses(set, state, id, processes);
+        if (browser) putBrowser(set, browser);
+        if (browser === null) dropBrowser(set, id);
     }
 
     // A gap during an existing reload needs a newer snapshot, not that reload's stale response.
@@ -174,6 +181,20 @@ export function createActions(
             notice({
                 id: `process-stop-${processId}`,
                 title: t("drift.process.stopFailed"),
+                message: errorMessage(cause),
+                variant: "error",
+            });
+        }
+    }
+
+    /** Ends a session's browser; `browser.updated` reports when it has gone. */
+    async function stopBrowser(sessionId: string) {
+        try {
+            await requireClient().stopBrowser(sessionId);
+        } catch (cause) {
+            notice({
+                id: `browser-stop-${sessionId}`,
+                title: t("drift.browser.stopFailed"),
                 message: errorMessage(cause),
                 variant: "error",
             });
@@ -448,6 +469,10 @@ export function createActions(
         abort,
         stopTask,
         stopProcess,
+        stopBrowser,
+        /** Watches a session's browser: frames of its active page out, the user's input in. */
+        watchBrowser: (sessionId: string, onFrame: (frame: BrowserFrame) => void) =>
+            connectBrowserView(requireClient().browserViewUrl(sessionId), onFrame),
         notice,
         findFiles,
         reviewWorkspace,
