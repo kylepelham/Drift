@@ -92,7 +92,7 @@ Profiles live under Drift's data folder, named for what they are:
 browsers/
   sessions/<conversation id>/<engine>/     isolated: one per conversation, deleted when its browser ends
   shared/<workspace name>-<id>/<engine>/   shared: one per workspace and engine, kept between conversations
-  engines/                                 Camoufox and IEDriverServer, when Drift downloaded them
+  engines/                                 Camoufox and IEDriverServer when Drift downloaded them, and Lighthouse
 ```
 
 - **Isolated is the default.** A conversation starts signed out and leaves nothing behind.
@@ -142,6 +142,8 @@ the active page unless `page` names another.
 | `logs` | Console messages or network requests, optionally matching `search`; `request` with an id returns its body (Chrome and Edge). |
 | `dialog` | Accepts or dismisses an open alert, confirm or prompt, with optional `text`. |
 | `viewport` | `desktop` (the browser's own), `tablet` (768x1024), `mobile` (390x844, touch and a phone's user agent on Chrome and Edge), or `width`/`height`; the page reloads. |
+| `trace` | A performance trace and its summary (Chrome and Edge): `record` is `reload` (the default), or `start` then `stop` around what the model does; `throttle` slows the CPU and network. |
+| `audit` | A Lighthouse audit (Chrome and Edge): scores and failing audits; `mode` `navigation` or `snapshot`, `device` `desktop` or `mobile`. |
 | `pages`, `select`, `close` | Lists tabs (popups included), makes one active, closes one. |
 | `login` | Signs in as the project's `browser.login` says, with a stored credential. |
 | `batch` | Runs `actions`, a list of the above, in order in one call, stopping at the first failure. |
@@ -154,6 +156,49 @@ Permission: acting on a page asks once per host (`browser` permission, the host 
 private addresses and intranet names (one label, `.local`, `.internal`, `.lan`, `.test`, `.home.arpa`) are
 allowed without asking. A path resolves against the project's base before its host is judged. An "always"
 answer is kept for the workspace.
+
+## Performance traces
+
+`trace` records with the DevTools Protocol's `Tracing` domain, using the categories DevTools' Performance
+panel records, minus screenshots. The browser writes the trace to a gzipped stream, which is read in chunks
+and saved as `tool-output/<session>/<call>.trace.json.gz` (cleared with the session's other tool output after a
+week). The user can load it in DevTools' Performance panel or Perfetto.
+
+The model gets a summary, worked out in the engine from the trace events, rather than the trace:
+
+- Load: time to first byte, first and largest contentful paint (the element, and for an image its address and
+  how long it took to arrive), DOMContentLoaded and load.
+- Layout shift: the worst session window, as Web Vitals counts it, and what shifted.
+- Main thread: busy time by kind of work, long tasks named by what ran in them, total blocking time after
+  first paint, and script time by file.
+- Network: requests, bytes, failures, render-blocking requests, the slowest and largest, other origins.
+- Interactions: each click or key press with its input delay, handler time and time to the next paint.
+
+`reload` keeps recording for 3 s after the load, for late paints and shifts. `throttle` sets
+`Emulation.setCPUThrottlingRate` to 4 and `Network.emulateNetworkConditions` to slow 4G (150 ms, 1.6 Mbit/s
+down, 750 kbit/s up), and clears both when the trace stops.
+
+Known issue: on a PC whose CPU cores disagree on their time stamp counters (a firmware fault; Windows itself
+works around it), Chrome's tracing library fails a clock check the first time a process traces and crashes
+that process: the browser's ends the browser, a page's leaves the page unresponsive. It hits at most the first
+trace of each process. The PC Drift is developed on has it (its core 0 runs 2.3 s ahead); the cure is firmware or a cold boot, not
+Drift.
+
+## Lighthouse
+
+`audit` runs Lighthouse against the conversation's own browser, connected to its DevTools port, so it audits
+the page with its sign-ins and state. Lighthouse is a Node program, so it needs Node.js on PATH; the first audit
+installs it with npm into `browsers/engines/lighthouse` (Lighthouse 13 on Node 22.19 or later, otherwise 12,
+which lacks only the agentic browsing category). `lighthouse.mjs`, embedded in the engine, finds the page by
+its target id, runs a navigation or snapshot audit and writes the HTML and JSON reports to the session's tool
+output.
+
+- Categories: accessibility, best practices and SEO (and agentic browsing on 13). Performance is left to
+  `trace`, which measures the real page rather than a simulation.
+- The page's storage is kept and throttling is left as it is, so the audit sees the page the user sees; the
+  hidden browser's desktop user agent replaces Lighthouse's headless one.
+- The model gets the scores and each failing audit with up to three of its elements; the HTML report is
+  for the user.
 
 ## Project config
 
@@ -225,5 +270,5 @@ password never reaches the model. Every tool result has the workspace's password
 
 web-test's per-app helpers (`app_menu`, `app_search`, `app_open_row`, the ExtJS operations) were code for
 particular apps. Here the generic snapshot reaches into frames, refs work across them, and `eval` reaches
-ExtJS and VBScript; what an app needs is kept in its project `notes`. Lighthouse and performance traces
-remain with the chrome-devtools MCP.
+ExtJS and VBScript; what an app needs is kept in its project `notes`. chrome-devtools' performance traces
+and Lighthouse audits are the `trace` and `audit` actions.

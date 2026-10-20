@@ -1,11 +1,12 @@
 //! One tab: its address and title, what it logged, a dialog waiting on it, and the actions taken on it.
 
 use std::collections::VecDeque;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 use super::agent::Agents;
 use super::cdp::{CdpError, Connection};
@@ -55,6 +56,10 @@ pub(crate) struct Page {
     state: Mutex<State>,
     /// Counts the documents that finished loading.
     loads: watch::Sender<u64>,
+    pub(super) tracing: AtomicBool,
+    pub(super) throttled: AtomicBool,
+    /// Waiting for the browser to say a stopped trace is ready to read.
+    pub(super) trace_complete: Mutex<Option<oneshot::Sender<Value>>>,
 }
 
 impl Page {
@@ -67,6 +72,9 @@ impl Page {
             cdp,
             state: Mutex::default(),
             loads: watch::channel(0).0,
+            tracing: AtomicBool::new(false),
+            throttled: AtomicBool::new(false),
+            trace_complete: Mutex::default(),
         }
     }
 
@@ -156,6 +164,10 @@ impl Page {
                 true
             }
             "Page.javascriptDialogClosed" => self.state.lock().unwrap().dialog.take().is_some(),
+            "Tracing.tracingComplete" => {
+                self.trace_completed(params);
+                false
+            }
             _ => {
                 self.log(method, params);
                 false

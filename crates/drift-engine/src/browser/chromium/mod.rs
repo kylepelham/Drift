@@ -6,6 +6,7 @@ mod cdp;
 pub(crate) mod launch;
 mod page;
 mod tab;
+mod trace;
 
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -38,6 +39,7 @@ pub(crate) struct Chromium {
     me: Weak<Chromium>,
     agents: Arc<Agents>,
     cdp: Arc<Connection>,
+    port: u16,
     tree: Tree,
     pages: Mutex<Vec<Arc<Page>>>,
     active: Mutex<Option<String>>,
@@ -68,6 +70,7 @@ impl Chromium {
             me: me.clone(),
             agents,
             cdp: cdp.clone(),
+            port,
             tree,
             pages: Mutex::default(),
             active: Mutex::default(),
@@ -506,6 +509,16 @@ impl Driver for Chromium {
             tokio::time::sleep(CLOSE_WAIT).await;
             chromium.common.stopping.cancel();
         });
+    }
+
+    fn devtools_port(&self) -> Option<u16> {
+        Some(self.port)
+    }
+
+    fn desktop_agent(&self) -> Option<String> {
+        let desktop = self.agents.desktop.as_ref()?;
+
+        desktop["userAgent"].as_str().map(str::to_string)
     }
 
     fn kill(&self) {

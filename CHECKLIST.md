@@ -362,6 +362,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] IE mode through IEDriverServer (downloaded when missing): frames walked by one snapshot, VBScript `eval`, popups as tabs; web-test's per-app helpers replaced by project notes
   - [x] Firefox and Camoufox over WebDriver BiDi (Camoufox needed only its BiDi preference, so no Playwright driver); Camoufox downloaded from Settings
   - [x] Settings > Browser tab: defaults, each engine's status, path and download, the workspace's drift.json section and stored sign-ins
+  - [x] Performance: `trace` (reload, or start and stop around an interaction; optional throttling) saves the trace and summarises load timings, layout shift, long tasks, network and interactions; `audit` runs Lighthouse (installed with npm on first use) for accessibility, best practices and SEO
 - [ ] Worktrees: per-thread toggle at start; branch `drift/<name>` from the current commit under Drift's data; uncommitted changes not copied (said so); spawned threads inherit; never merged by Drift; purged with the thread when merged, asked otherwise
 - [ ] `/watch-pr`: poll through `gh` about once a minute, wake the thread on CI failure or a review comment, stop at merge, close or the fifth wake
 

@@ -8,6 +8,8 @@ pub mod engines;
 mod firefox;
 mod ie;
 pub(crate) mod input;
+pub(crate) mod lighthouse;
+pub(crate) mod performance;
 mod profiles;
 pub mod project;
 mod view;

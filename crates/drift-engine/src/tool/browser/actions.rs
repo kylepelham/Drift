@@ -77,6 +77,8 @@ async fn on_page(
         "wait" => wait(context, tab, input).await,
         "dialog" => dialog(tab, input).await,
         "viewport" => viewport(tab, input).await,
+        "trace" => super::performance::trace(context, tab, input).await,
+        "audit" => super::performance::audit(context, driver, tab, input).await,
         "select" => {
             driver.select(&tab.id()).await?;
             Ok(Step::text(format!(

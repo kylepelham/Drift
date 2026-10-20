@@ -9,6 +9,11 @@ Drives this conversation's own browser, which the user watches in the browser pa
 - `eval` runs JavaScript in the page for inspection and debugging. Change the app's source to fix things, not the page.
 - A page that asks the user to sign in, solve a check or approve something: ask the user to do it in the pane, then carry on.
 
+Performance and quality (Chrome and Edge only):
+- `trace` reloads the page while recording and reports load timings (largest paint and what it was, layout shift, blocking time), long tasks and the scripts behind them, and slow, large or render-blocking requests. To trace an interaction instead, call `trace` with `record: start`, act on the page, then `record: stop`; the result times each click or key press. `throttle: true` slows the CPU and network as a mid-range phone would. The full trace is saved to disk for the user.
+- `audit` runs Lighthouse: accessibility, best practices and SEO scores, and each failing audit with the elements behind it. It reloads the page; `mode: snapshot` audits the page as it is now, such as after signing in. `device: mobile` emulates a phone. Lighthouse needs Node.js, and the first audit installs it with npm, which takes about a minute. The full HTML report is saved to disk for the user.
+- Use these when the user asks about speed, accessibility or SEO, or to check a change meant to improve one. Recheck after a fix to show the difference.
+
 Engines: the browser opens in the engine the project or the user chose. Pass `engine` to `open` for another: `chrome`, `edge`, `firefox`, `camoufox` (a hardened Firefox for sites that block automated browsers; use it only when one does), or `ie` (Edge's Internet Explorer mode, for apps that need it: frames, VBScript and old document modes; it has no console or network logs, and `eval` takes `language: vbscript`). Opening another engine closes the current one.
 
 A project can describe its app in the `browser` section of its drift.json, which you may set up when the user asks or the app plainly needs it (editing drift.json asks the user first):

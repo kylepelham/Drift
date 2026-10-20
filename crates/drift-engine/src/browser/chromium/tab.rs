@@ -186,4 +186,12 @@ impl Tab for Page {
 
         self.reload().await
     }
+
+    async fn start_trace(&self, throttle: bool) -> Result<(), String> {
+        self.start_tracing(throttle).await
+    }
+
+    async fn stop_trace(&self) -> Result<Vec<u8>, String> {
+        self.stop_tracing().await
+    }
 }

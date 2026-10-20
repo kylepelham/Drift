@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use serde_json::json;
 
 use super::*;
@@ -373,4 +375,174 @@ async fn iedriver_downloads_into_the_engines_folder() {
     }
 
     assert!(std::fs::metadata(&target).unwrap().len() > 100_000);
+}
+
+/// A shop's front page with what a trace should find: a stylesheet that blocks rendering, a slow hero image that
+/// is the largest paint, a script with a long task, a banner that shifts the layout, and a slow click handler.
+fn shop_page(path: &str) -> (&'static str, Vec<u8>, u64) {
+    match path {
+        "/style.css" => (
+            "text/css",
+            b"body{font-family:sans-serif;margin:0}.hero{width:900px;height:500px;display:block}".to_vec(),
+            250,
+        ),
+        "/app.js" => (
+            "text/javascript",
+            br"
+            const start = performance.now();
+            while (performance.now() - start < 180) {}
+            setTimeout(() => {
+                const banner = document.createElement('p');
+                banner.textContent = 'Free delivery on orders over 40 pounds this week';
+                banner.style.height = '120px';
+                document.body.prepend(banner);
+            }, 300);
+            document.getElementById('basket').addEventListener('click', () => {
+                const until = performance.now() + 220;
+                while (performance.now() < until) {}
+                document.getElementById('count').textContent = '1';
+            });"
+            .to_vec(),
+            0,
+        ),
+        "/hero.svg" => ("image/svg+xml", hero(), 600),
+        _ => (
+            "text/html",
+            br#"<!doctype html><html><head><title>Harbour Kitchen</title><link rel=stylesheet href=/style.css></head>
+<body><h1>Harbour Kitchen</h1><img class=hero src=/hero.svg alt="Dining room"><p>Basket: <span id=count>0</span></p>
+<button id=basket>Add to basket</button><script src=/app.js></script></body></html>"#
+                .to_vec(),
+            0,
+        ),
+    }
+}
+
+/// Chrome passes over images too plain to be the largest paint, so the hero has enough detail to count.
+fn hero() -> Vec<u8> {
+    let mut svg = String::from(r#"<svg xmlns="http://www.w3.org/2000/svg" width="900" height="500">"#);
+    for index in 0..300u32 {
+        let x = index * 37 % 900;
+        let y = index * 53 % 500;
+        let shade = index * 7 % 255;
+        let _ = write!(
+            svg,
+            r#"<circle cx="{x}" cy="{y}" r="{}" fill="rgb({shade},120,{})"/>"#,
+            10 + index % 40,
+            255 - shade
+        );
+    }
+    svg.push_str("</svg>");
+
+    svg.into_bytes()
+}
+
+async fn serve_shop() -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut request = [0u8; 4096];
+                let read = stream.read(&mut request).await.unwrap_or(0);
+                let line = String::from_utf8_lossy(&request[..read]);
+                let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let (kind, body, delay) = shop_page(&path);
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: {kind}\r\ncontent-length: {}\r\ncache-control: no-store\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = stream.write_all(head.as_bytes()).await;
+                let _ = stream.write_all(&body).await;
+            });
+        }
+    });
+
+    format!("http://127.0.0.1:{port}/")
+}
+
+/// Traces the shop loading and a slow click in the real browser, and reads back what the summary should name.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trace_names_the_largest_paint_the_long_script_and_the_slow_click() {
+    if crate::browser::installed().is_none() {
+        return;
+    }
+    let sandbox = Sandbox::new("browser-trace");
+    let url = serve_shop().await;
+    call(&sandbox, json!({ "action": "open", "url": url })).await.unwrap();
+
+    let loaded = call(&sandbox, json!({ "action": "trace", "throttle": true }))
+        .await
+        .unwrap()
+        .output;
+    let snapshot = call(&sandbox, json!({ "action": "snapshot", "interactive": true }))
+        .await
+        .unwrap();
+    let button = reference(&snapshot.output, "button");
+    call(&sandbox, json!({ "action": "trace", "record": "start" }))
+        .await
+        .unwrap();
+    call(&sandbox, json!({ "action": "click", "ref": button }))
+        .await
+        .unwrap();
+    let clicked = call(&sandbox, json!({ "action": "trace", "record": "stop" }))
+        .await
+        .unwrap()
+        .output;
+    sandbox.ctx.engine.browsers.stop_all();
+
+    assert!(
+        loaded.contains("Largest contentful paint:") && loaded.contains("IMG class='hero'"),
+        "{loaded}"
+    );
+    assert!(loaded.contains("hero.svg"), "{loaded}");
+    assert!(loaded.contains("running app.js"), "{loaded}");
+    assert!(loaded.contains("Render-blocking: /style.css"), "{loaded}");
+    assert!(loaded.contains("Cumulative layout shift: 0.1"), "{loaded}");
+    let path = loaded
+        .split("The trace is ")
+        .nth(1)
+        .and_then(|rest| rest.split(" (open").next())
+        .unwrap();
+    assert!(std::path::Path::new(path).is_file(), "{path}");
+    assert!(clicked.starts_with("Recording of"), "{clicked}");
+    assert!(clicked.contains("a click event"), "{clicked}");
+    assert!(
+        clicked.contains("click at") && clicked.contains("in handlers"),
+        "{clicked}"
+    );
+}
+
+/// Installs Lighthouse with npm and audits the shop; runs when `DRIFT_TEST_LIGHTHOUSE` is set, as it downloads.
+#[tokio::test(flavor = "multi_thread")]
+async fn lighthouse_audits_a_page_in_the_conversations_browser() {
+    if std::env::var_os("DRIFT_TEST_LIGHTHOUSE").is_none() || crate::browser::installed().is_none() {
+        return;
+    }
+    let sandbox = Sandbox::new("browser-audit");
+    let url = serve_shop().await;
+    call(&sandbox, json!({ "action": "open", "url": url })).await.unwrap();
+
+    let audited = call(&sandbox, json!({ "action": "audit" })).await;
+    let snapshot = call(
+        &sandbox,
+        json!({ "action": "audit", "mode": "snapshot", "device": "mobile" }),
+    )
+    .await;
+    let still = call(&sandbox, json!({ "action": "eval", "expression": "document.title" })).await;
+    sandbox.ctx.engine.browsers.stop_all();
+
+    let audited = audited.unwrap().output;
+    assert!(audited.contains("Scores: Accessibility"), "{audited}");
+    assert!(audited.contains("lang"), "the page's html has no lang: {audited}");
+    assert!(audited.contains("lighthouse.html"), "{audited}");
+    let snapshot = snapshot.unwrap().output;
+    assert!(snapshot.contains("(snapshot, a phone)"), "{snapshot}");
+    assert_eq!(
+        still.unwrap().output,
+        "Harbour Kitchen",
+        "the page is still usable after the audits"
+    );
 }

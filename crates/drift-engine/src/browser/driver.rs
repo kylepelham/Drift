@@ -16,6 +16,10 @@ use super::view::{Frame, ViewInput};
 use super::{BrowserRecord, BrowserState, DialogRecord, Kind, PageRecord, Storage, Window};
 use crate::Engine;
 
+/// What traces and audits answer on engines that are not Chrome or Edge.
+pub(crate) const ONLY_CHROMIUM: &str =
+    "performance traces and Lighthouse audits run only in Chrome and Edge; `open` with `engine` chrome or edge";
+
 /// Frames waiting for a slow pane; older ones are skipped, never queued.
 const FRAMES_KEPT: usize = 2;
 
@@ -109,6 +113,16 @@ pub(crate) trait Tab: Send + Sync {
     async fn answer_dialog(&self, accept: bool, text: Option<&str>) -> Result<(), String>;
 
     async fn viewport(&self, size: Option<Size>) -> Result<(), String>;
+
+    /// Starts recording a performance trace of the page; `throttle` slows its CPU and network as a mid-range phone's.
+    async fn start_trace(&self, _throttle: bool) -> Result<(), String> {
+        Err(ONLY_CHROMIUM.into())
+    }
+
+    /// Ends the recording: the trace as gzipped JSON, as DevTools' Performance panel opens it.
+    async fn stop_trace(&self) -> Result<Vec<u8>, String> {
+        Err(ONLY_CHROMIUM.into())
+    }
 }
 
 /// A running browser.
@@ -141,6 +155,16 @@ pub(crate) trait Driver: Send + Sync {
 
     /// The user's input from the pane, to the active page.
     async fn input(&self, input: ViewInput) -> Result<(), String>;
+
+    /// The DevTools Protocol port, for tools such as Lighthouse that connect to the browser themselves.
+    fn devtools_port(&self) -> Option<u16> {
+        None
+    }
+
+    /// The user agent a hidden Chrome or Edge gives its pages in place of its headless one.
+    fn desktop_agent(&self) -> Option<String> {
+        None
+    }
 
     /// A note about how this browser differs from what was asked, said once when it opens.
     fn opening_note(&self) -> Option<String> {

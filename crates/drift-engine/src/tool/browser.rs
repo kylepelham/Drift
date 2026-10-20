@@ -3,6 +3,7 @@
 mod actions;
 mod hosts;
 mod login;
+mod performance;
 
 use std::fmt::Write as _;
 
@@ -180,10 +181,10 @@ fn schema() -> Value {
                 "type": "string",
                 "enum": [
                     "open", "navigate", "snapshot", "click", "hover", "fill", "type", "press", "scroll", "wait",
-                    "screenshot", "eval", "logs", "dialog", "viewport", "pages", "select", "close", "login", "batch",
-                    "stop"
+                    "screenshot", "eval", "logs", "dialog", "viewport", "trace", "audit", "pages", "select", "close", "login",
+                    "batch", "stop"
                 ],
-                "description": "open: start the browser if needed and open `url` in a new tab (a path opens on the project's baseUrl); `engine` picks another browser, replacing this conversation's. navigate: load `url` (or back, forward, reload) in the page. snapshot: the page's elements with refs. click, hover: by `ref`, or `x`/`y` in the last screenshot's pixels. fill: set a field by `ref` to `text` (a select takes an option's value or label; a checkbox takes `checked`). type: text into the focused element. press: a key or chord such as Enter or Control+A. scroll: `ref` into view, or by `dy` pixels. wait: until `text` shows, or `ms` pass (at most 30000). screenshot: an image of the page. eval: run `expression` in the page. logs: console (default) or network. dialog: answer an alert, confirm or prompt. viewport: desktop, tablet, mobile, or `width`/`height`. pages: list tabs. select, close: a tab by `page`. login: sign in as the project's drift.json sets up, with a credential the user stored. batch: run `actions` in order. stop: end the browser."
+                "description": "open: start the browser if needed and open `url` in a new tab (a path opens on the project's baseUrl); `engine` picks another browser, replacing this conversation's. navigate: load `url` (or back, forward, reload) in the page. snapshot: the page's elements with refs. click, hover: by `ref`, or `x`/`y` in the last screenshot's pixels. fill: set a field by `ref` to `text` (a select takes an option's value or label; a checkbox takes `checked`). type: text into the focused element. press: a key or chord such as Enter or Control+A. scroll: `ref` into view, or by `dy` pixels. wait: until `text` shows, or `ms` pass (at most 30000). screenshot: an image of the page. eval: run `expression` in the page. logs: console (default) or network. dialog: answer an alert, confirm or prompt. viewport: desktop, tablet, mobile, or `width`/`height`. trace: record a performance trace (Chrome and Edge) and read its Web Vitals, long tasks, network and interactions. audit: a Lighthouse audit (Chrome and Edge) of accessibility, best practices and SEO. pages: list tabs. select, close: a tab by `page`. login: sign in as the project's drift.json sets up, with a credential the user stored. batch: run `actions` in order. stop: end the browser."
             },
             "url": { "type": "string", "description": "For open and navigate. A bare host gets https://, localhost gets http://; a path is taken from the project's baseUrl." },
             "engine": { "type": "string", "enum": ["chrome", "edge", "firefox", "camoufox", "ie"], "description": "For open: the browser to use. Leave it out to use the project's or the user's choice. ie is Edge's Internet Explorer mode; camoufox is a hardened Firefox for sites that block automation." },
@@ -206,6 +207,10 @@ fn schema() -> Value {
             "request": { "type": "string", "description": "For logs: a request id from the network list, to read its response body." },
             "accept": { "type": "boolean", "description": "For dialog: OK (true, the default) or Cancel." },
             "preset": { "type": "string", "enum": ["desktop", "tablet", "mobile"], "description": "For viewport." },
+            "record": { "type": "string", "enum": ["reload", "start", "stop"], "description": "For trace: reload (the default) records the page loading again; start and stop record what you do in between, such as a click that feels slow." },
+            "throttle": { "type": "boolean", "description": "For trace: slow the CPU 4x and the network to slow 4G while recording, as a mid-range phone would be." },
+            "mode": { "type": "string", "enum": ["navigation", "snapshot"], "description": "For audit: navigation (the default) loads the page again; snapshot audits it as it is now, such as after signing in or opening a dialog." },
+            "device": { "type": "string", "enum": ["desktop", "mobile"], "description": "For audit: the device to emulate (default desktop)." },
             "width": { "type": "integer" },
             "height": { "type": "integer" },
             "page": { "type": "string", "description": "A tab's id from pages; without it, actions use the active tab." },
