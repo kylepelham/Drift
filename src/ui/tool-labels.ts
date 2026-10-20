@@ -23,8 +23,16 @@ const groupKinds: Record<string, ToolGroupKind> = {
     task_stop: "other",
     read_thread: "other",
 };
-// Delegation and questions are cards of their own, and todos never show, so none of them group.
-const ungrouped = new Set([...contextTools, "task", "spawn_thread", "question", "todowrite", "todoread"]);
+// Delegation, questions and review findings are cards of their own, and todos never show, so none of them group.
+const ungrouped = new Set([
+    ...contextTools,
+    "task",
+    "spawn_thread",
+    "question",
+    "report_findings",
+    "todowrite",
+    "todoread",
+]);
 
 /** Which grouping setting covers a tool; an unknown name is an MCP tool. */
 export function toolGroupKind(name: string): ToolGroupKind | undefined {
@@ -169,6 +177,11 @@ function delegatedToolInfo(part: ToolPart, input: Record<string, unknown>, meta:
             return questionToolInfo(input, meta);
         case "skill":
             return { title: text("name") ?? t("prompt.slash.badge.skill") };
+        case "report_findings":
+            return {
+                title: t("drift.findings.title"),
+                subtitle: part.status === "done" ? (part.title ?? undefined) : undefined,
+            };
         default:
             return { called: part.name, subtitle: argsPreview(input), mono: true };
     }

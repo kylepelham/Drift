@@ -13,6 +13,8 @@ export type ReviewPanel = {
     turn?: Extract<ReviewSource, { kind: "turn" }>;
     /** A file to scroll to once the review loads. */
     focus?: string;
+    /** A `report_findings` call whose findings are walked through as notes on their lines, from `current` when set. */
+    findings?: { sessionId: string; partId: string; current?: string };
 };
 
 type RightPanel = { kind: "debug" } | ({ kind: "review" } & ReviewPanel);

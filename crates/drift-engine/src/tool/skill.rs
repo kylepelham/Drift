@@ -2,6 +2,7 @@ use serde_json::{Value, json};
 
 use super::ToolMetadata;
 use super::{Ask, Context, Output, RunFuture, Tool, ToolError, required_str};
+use crate::config::Builtin;
 use crate::llm::ToolSpec;
 use crate::session::types::MetadataFile;
 
@@ -37,6 +38,15 @@ impl Tool for Skill {
                     "no skill named `{name}`; the available skills are listed in the system prompt"
                 ))
             })?;
+            if let Some(Builtin::Review) = skill.builtin {
+                let arguments = input["arguments"].as_str().unwrap_or_default();
+                return Ok(Output {
+                    title: skill.name.clone(),
+                    output: crate::code_review::instructions(&ctx.workspace, arguments).await,
+                    metadata: ToolMetadata::default(),
+                });
+            }
+
             let instructions = input["arguments"].as_str().map_or_else(
                 || skill.instructions.clone(),
                 |arguments| {
@@ -131,5 +141,24 @@ mod tests {
                 .0
                 .contains("no skill named")
         );
+    }
+
+    #[tokio::test]
+    async fn the_builtin_review_renders_per_call_until_a_project_skill_takes_its_name() {
+        let mut sandbox = Sandbox::new("skill-review");
+        let out = Skill
+            .run(&sandbox.ctx, json!({ "name": "review", "arguments": "low" }))
+            .await
+            .unwrap();
+        assert!(out.output.starts_with("# Code review: low"), "{}", out.output);
+        assert!(out.output.contains("not in a git repository") && out.metadata.path.is_none());
+
+        sandbox.file(
+            ".drift/skills/review/SKILL.md",
+            "---\nname: review\ndescription: Ours\n---\nOur checklist.",
+        );
+        sandbox.reload_config();
+        let ours = Skill.run(&sandbox.ctx, json!({ "name": "review" })).await.unwrap();
+        assert!(ours.output.ends_with("Our checklist."), "{}", ours.output);
     }
 }

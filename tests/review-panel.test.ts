@@ -34,6 +34,93 @@ test("one unchanged line is never folded into a bar of its own", () => {
     expect(rows.find((row) => row.kind === "fold")).toBeUndefined();
 });
 
+test("a pinned unchanged line stays shown with its context, as a change does", () => {
+    const lines = [...unchanged(20), "+new"];
+
+    const rows = reviewRows(lines, new Set(), new Set([5]));
+    expect(rows[0]).toEqual({ kind: "fold", start: 0, count: 2 });
+    expect(rows.find((row) => row.kind !== "fold" && row.index === 5)).toEqual({
+        kind: "ctx",
+        line: 6,
+        text: "line 6",
+        index: 5,
+    });
+    expect(rows.filter((row) => row.kind === "fold")).toHaveLength(2);
+});
+
+test("a finding anchors on its line, follows its text when the line moved, and is marked when it changed", async () => {
+    const { anchorFinding } = await import("../src/state/review-findings");
+    const lines = [" fn start() {", "-    old();", "+    let total = sum(items);", "+    log(total);", " }"];
+    const finding = { file: "src/run.rs", summary: "sum can overflow", failureScenario: "large carts" };
+
+    expect(anchorFinding({ ...finding, line: 2, code: "    let total = sum(items);" }, lines)).toEqual({
+        index: 2,
+        state: "exact",
+    });
+    expect(anchorFinding({ ...finding, line: 4, code: "    let total = sum(items);" }, lines)).toEqual({
+        index: 2,
+        state: "moved",
+    });
+    expect(anchorFinding({ ...finding, line: 3, code: "    total += 1;" }, lines)).toEqual({
+        index: 3,
+        state: "changed",
+    });
+    expect(anchorFinding({ ...finding, line: 40, code: "    log(total);" }, lines)?.state).toBe("moved");
+    expect(anchorFinding({ ...finding, line: 1 }, lines)).toEqual({ index: 0, state: "exact" });
+    expect(anchorFinding(finding, ["-gone"])).toBeUndefined();
+    expect(anchorFinding({ ...finding, line: 1, code: "x".repeat(400) }, [`+${"x".repeat(500)}`])?.state).toBe("exact");
+});
+
+test("a later report's outcomes reach the findings it repeats, and Apply fixes lists what is open", async () => {
+    const { findingOutcomes, findingReports, fixPrompt, isOutcomeReport } =
+        await import("../src/state/review-findings");
+    const call = (id: string, findings: object[], level?: string) => ({
+        id,
+        type: "tool_call",
+        name: "report_findings",
+        status: "done",
+        metadata: { findings, level },
+    });
+    const first = [
+        { file: "src/cart.ts", line: 12, summary: "Total ignores discounts", failureScenario: "a coupon applied" },
+        { file: "src/cart.ts", line: 40, summary: "Empty cart divides by zero", failureScenario: "" },
+        { file: "src/auth.ts", line: 3, summary: "Token compared with ==", failureScenario: "timing attack" },
+    ];
+    const entries = [
+        { info: {}, parts: [call("p1", first, "high")] },
+        {
+            info: {},
+            parts: [
+                call("p2", [
+                    { ...first[0], outcome: "fixed" },
+                    { ...first[2], outcome: "skipped" },
+                ]),
+            ],
+        },
+        {
+            info: {},
+            parts: [
+                call("p3", [
+                    { ...first[1], summary: "Reworded", outcome: "no_change_needed" },
+                    { ...first[2], outcome: "fixed" },
+                ]),
+            ],
+        },
+    ];
+
+    const reports = findingReports(entries as never);
+    expect(reports.map((report) => report.part.id)).toEqual(["p1", "p2", "p3"]);
+    expect(reports[0].level).toBe("high");
+    expect(reports[0].findings[1].id).toBe("p1:1");
+    expect(findingOutcomes(reports, "p1")).toEqual(["fixed", "no_change_needed", "fixed"]);
+    expect(isOutcomeReport(reports[1].findings)).toBeTrue();
+    expect(isOutcomeReport(reports[0].findings)).toBeFalse();
+    expect(isOutcomeReport([])).toBeFalse();
+
+    const prompt = fixPrompt("Fix these.", [first[1]]);
+    expect(prompt).toBe("Fix these.\n\n1. src/cart.ts:40 - Empty cart divides by zero");
+});
+
 test("All changes compares with the main line, and a branch comparison reads base to current", () => {
     const refs = {
         repo: true,

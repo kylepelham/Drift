@@ -1,0 +1,3 @@
+- Language pitfalls: the traps of each language in the diff, such as integer overflow, text encoding, async cancellation, shared mutable state and implicit conversions.
+- Wrappers: wrappers, proxies and adapters that drop arguments, errors, cancellation or options of what they wrap.
+- Security: untrusted input that reaches a shell, query, path, template or deserializer; secrets written to logs; checks that can be bypassed.

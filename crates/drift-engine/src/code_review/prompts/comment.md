@@ -1,0 +1,3 @@
+## Pull request comments
+
+After reporting, post the findings on the pull request: the one named in the scope, or else this branch's, found with `gh pr view --json number,headRefOid`. If there is none, or `gh` is missing or signed out, say that `--comment` was ignored and go on. Post each finding as an inline comment with `gh api repos/{owner}/{repo}/pulls/<number>/comments -f body=<text> -f commit_id=<headRefOid> -f path=<file> -F line=<line> -f side=RIGHT`. Findings on lines outside the pull request's diff go together in one `gh pr comment`. Write each comment as a reviewer would: the problem and how it fails, with no preamble. Never approve or request changes.

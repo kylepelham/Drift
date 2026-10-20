@@ -482,6 +482,7 @@ mod tests {
             path: String::new(),
             instructions: String::new(),
             argument_hint: None,
+            builtin: None,
         };
 
         config.skills = vec![skill("review"), skill("deploy")];

@@ -10,10 +10,16 @@ const minimumFold = 2;
 
 /**
  * Rows for a file's merged lines (each prefixed ` `, `+` or `-`), with unchanged runs beyond
- * `reviewContext` lines of a change folded unless their first index is in `opened`.
+ * `reviewContext` lines of a change folded unless their first index is in `opened`. Lines in `pinned`
+ * stay shown with their context, as a change does.
  */
-export function reviewRows(lines: string[], opened: ReadonlySet<number>, context = reviewContext): ReviewRow[] {
-    const folds = foldedRuns(lines, opened, context);
+export function reviewRows(
+    lines: string[],
+    opened: ReadonlySet<number>,
+    pinned: ReadonlySet<number> = new Set(),
+    context = reviewContext,
+): ReviewRow[] {
+    const folds = foldedRuns(lines, opened, pinned, context);
     const rows: ReviewRow[] = [];
     let oldLine = 1;
     let newLine = 1;
@@ -43,9 +49,9 @@ export function reviewRows(lines: string[], opened: ReadonlySet<number>, context
     return rows;
 }
 
-/** Each folded run's start and end: unchanged lines away from any change, unless opened. */
-function foldedRuns(lines: string[], opened: ReadonlySet<number>, context: number) {
-    const changed = lines.map((line) => line[0] === "+" || line[0] === "-");
+/** Each folded run's start and end: unchanged lines away from any change or pinned line, unless opened. */
+function foldedRuns(lines: string[], opened: ReadonlySet<number>, pinned: ReadonlySet<number>, context: number) {
+    const changed = lines.map((line, index) => line[0] === "+" || line[0] === "-" || pinned.has(index));
     const near = nearChanges(changed, context);
     const folds = new Map<number, number>();
     for (let index = 0; index < lines.length; index++) {

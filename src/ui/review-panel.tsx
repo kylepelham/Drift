@@ -30,6 +30,13 @@ import {
     Switch,
     untrack,
 } from "solid-js";
+import {
+    anchorFindings,
+    createFindingsWalk,
+    FindingNote,
+    FindingsStepper,
+    type AnchoredFinding,
+} from "./review-findings";
 
 /** Files with more merged lines than this start folded, and are never syntax highlighted. */
 const largeFileLines = 4000;
@@ -58,7 +65,16 @@ function ReviewPanelView(props: { panel: ReviewPanel }) {
     );
 
     const [fold, setFold] = createSignal<Fold>();
-    const pick = (source: ReviewSource) => openReview({ source, turn: turn() });
+    const pick = (source: ReviewSource) => openReview({ source, turn: turn(), findings: props.panel.findings });
+
+    const walk = createFindingsWalk(() => props.panel.findings);
+    const anchored = createMemo(() => anchorFindings(walk.findings(), review.error ? [] : (review()?.files ?? [])));
+    const layer: FindingsLayer = {
+        forFile: (path) => [...anchored().values()].filter((item) => item.path === path),
+        current: () => walk.current()?.id,
+        select: walk.select,
+        claimSeek: walk.claimSeek,
+    };
 
     return (
         <SidePanel
@@ -79,6 +95,13 @@ function ReviewPanelView(props: { panel: ReviewPanel }) {
             <Show when={!review.error && review()?.files.length ? review() : undefined}>
                 {(loaded) => <ReviewSummary review={loaded()} onFold={setFold} />}
             </Show>
+            <Show when={walk.findings().length}>
+                <FindingsStepper
+                    walk={walk}
+                    anchored={anchored()}
+                    onClose={() => openReview({ ...props.panel, findings: undefined })}
+                />
+            </Show>
             <div class="review-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 <ReviewBody
                     review={review.error ? undefined : review()}
@@ -86,6 +109,7 @@ function ReviewPanelView(props: { panel: ReviewPanel }) {
                     error={review.error ? errorText(review.error) : undefined}
                     focus={props.panel.focus}
                     fold={fold()}
+                    findings={layer}
                 />
             </div>
         </SidePanel>
@@ -93,6 +117,13 @@ function ReviewPanelView(props: { panel: ReviewPanel }) {
 }
 
 type ReviewActions = ReturnType<typeof useEngine>["actions"];
+/** Review findings on the panel's files: those on one file, the one being walked to, and how to pick another. */
+type FindingsLayer = {
+    forFile: (path: string) => AnchoredFinding[];
+    current: () => string | undefined;
+    select: (id: string) => void;
+    claimSeek: () => boolean;
+};
 /** Collapse all or Expand all, numbered so pressing the same one twice still applies. */
 type Fold = { open: boolean; at: number };
 
@@ -148,7 +179,14 @@ function errorText(error: unknown) {
     return error instanceof Error ? error.message : String(error);
 }
 
-function ReviewBody(props: { review?: Review; loading: boolean; error?: string; focus?: string; fold?: Fold }) {
+function ReviewBody(props: {
+    review?: Review;
+    loading: boolean;
+    error?: string;
+    focus?: string;
+    fold?: Fold;
+    findings: FindingsLayer;
+}) {
     let list!: HTMLDivElement;
 
     createEffect(
@@ -177,7 +215,9 @@ function ReviewBody(props: { review?: Review; loading: boolean; error?: string; 
                 <Match when={props.review}>
                     {(review) => (
                         <>
-                            <For each={review().files}>{(file) => <FileDiff file={file} fold={props.fold} />}</For>
+                            <For each={review().files}>
+                                {(file) => <FileDiff file={file} fold={props.fold} findings={props.findings} />}
+                            </For>
                             <Show when={review().omitted}>
                                 {(count) => (
                                     <p class="px-4 py-3 text-xs text-ink-faint">
@@ -201,10 +241,18 @@ function splitPath(path: string) {
 }
 
 /** One file: a header that stays at the top while its lines scroll past, and its lines, built once near the view. */
-function FileDiff(props: { file: ReviewFile; fold?: Fold }) {
+function FileDiff(props: { file: ReviewFile; fold?: Fold; findings: FindingsLayer }) {
     const [open, setOpen] = createSignal(untrack(() => props.file.lines.length <= largeFileLines));
     const [near, setNear] = createSignal(false);
     const parts = () => splitPath(props.file.path);
+    const findings = createMemo(() => props.findings.forFile(props.file.path));
+    // The finding being walked to opens and builds its file wherever it is.
+    createEffect(() => {
+        const current = props.findings.current();
+        if (!findings().some((item) => item.finding.id === current)) return;
+        setOpen(true);
+        setNear(true);
+    });
     createEffect(
         on(
             () => props.fold,
@@ -262,7 +310,7 @@ function FileDiff(props: { file: ReviewFile; fold?: Fold }) {
                     fallback={<p class="px-4 py-2 text-xs text-ink-faint">{previewText(props.file.preview)}</p>}
                 >
                     <Show when={near()} fallback={<div style={{ height: `${estimate()}px` }} />}>
-                        <FileLines file={props.file} />
+                        <FileLines file={props.file} findings={findings()} layer={props.findings} />
                     </Show>
                 </Show>
             </Show>
@@ -285,9 +333,15 @@ const keepBuilt = "1500px 0px";
 type LineRowValue = Exclude<ReviewRow, { kind: "fold" }>;
 type Writing = { index: number; id?: string };
 
-function FileLines(props: { file: ReviewFile }) {
+function FileLines(props: { file: ReviewFile; findings: AnchoredFinding[]; layer: FindingsLayer }) {
     const [opened, setOpened] = createSignal<ReadonlySet<number>>(new Set());
-    const rows = createMemo(() => reviewRows(props.file.lines, opened()));
+    const findings = createMemo(() => {
+        const found = new Map<number, AnchoredFinding[]>();
+        for (const item of props.findings)
+            found.set(item.anchor.index, [...(found.get(item.anchor.index) ?? []), item]);
+        return found;
+    });
+    const rows = createMemo(() => reviewRows(props.file.lines, opened(), new Set(findings().keys())));
     const chunks = createMemo(() => {
         const all = rows();
         return Array.from({ length: Math.ceil(all.length / chunkRows) }, (_, at) =>
@@ -320,6 +374,8 @@ function FileLines(props: { file: ReviewFile }) {
     const lines: LinesContext = {
         tokens: () => tokens(),
         notes: () => notes(),
+        findings,
+        layer: () => props.layer,
         writing,
         setWriting,
         save,
@@ -338,6 +394,8 @@ function FileLines(props: { file: ReviewFile }) {
 type LinesContext = {
     tokens: () => ReturnType<ReturnType<typeof createDiffHighlight>>;
     notes: () => Map<number, ReturnType<typeof reviewComments>>;
+    findings: () => Map<number, AnchoredFinding[]>;
+    layer: () => FindingsLayer;
     writing: () => Writing | undefined;
     setWriting: (writing?: Writing) => void;
     save: (line: LineRowValue, text: string, id?: string) => void;
@@ -348,6 +406,19 @@ type LinesContext = {
 function LineChunk(props: { rows: ReviewRow[]; lines: LinesContext }) {
     const [near, setNear] = createSignal(false);
     const [height, setHeight] = createSignal<number>();
+    // A chunk holding the finding being walked to is built even far from the view, so its note can scroll to itself.
+    const holdsCurrent = () => {
+        const current = props.lines.layer().current();
+        return (
+            !!current &&
+            props.rows.some(
+                (row) =>
+                    row.kind !== "fold" &&
+                    (props.lines.findings().get(row.index) ?? []).some((item) => item.finding.id === current),
+            )
+        );
+    };
+    const built = () => near() || holdsCurrent();
     let root!: HTMLDivElement;
     onMount(() => {
         const observer = new IntersectionObserver(
@@ -364,8 +435,8 @@ function LineChunk(props: { rows: ReviewRow[]; lines: LinesContext }) {
     });
 
     return (
-        <div ref={root} style={near() ? undefined : { height: `${height() ?? props.rows.length * rowPx}px` }}>
-            <Show when={near()}>
+        <div ref={root} style={built() ? undefined : { height: `${height() ?? props.rows.length * rowPx}px` }}>
+            <Show when={built()}>
                 <For each={props.rows}>
                     {(row) => (
                         <Show
@@ -392,6 +463,16 @@ function LineWithNotes(props: { line: LineRowValue; lines: LinesContext }) {
                 tokens={props.lines.tokens()[props.line.index]}
                 onComment={() => props.lines.setWriting({ index: props.line.index })}
             />
+            <For each={props.lines.findings().get(props.line.index) ?? []}>
+                {(item) => (
+                    <FindingNote
+                        item={item}
+                        current={props.lines.layer().current() === item.finding.id}
+                        claimSeek={() => props.lines.layer().claimSeek()}
+                        onSelect={() => props.lines.layer().select(item.finding.id)}
+                    />
+                )}
+            </For>
             <For each={notes()}>
                 {(note) => (
                     <Show

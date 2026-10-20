@@ -412,6 +412,10 @@ removing it in either place removes it from both. Sending turns them into one
 itself, so the sent message shows a chip rather than the notes; a draft of only notes can
 be sent.
 
+A code review (`/review`, see [code-review.md](code-review.md)) leaves a findings card in the
+transcript; Walk through in diff opens the panel on All changes with each finding as a note
+under its line and a "Finding N of M" stepper above the files.
+
 On the desktop Drift draws its own frame. The sidebar runs to the top of the window with
 the logo and its search, archive and add buttons; the chat header is the title bar, with
 the thread title, search, context meter and window controls. Empty header space drags the

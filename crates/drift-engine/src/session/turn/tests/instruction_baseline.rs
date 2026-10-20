@@ -51,7 +51,7 @@ async fn a_new_date_is_one_update_replayed_as_saved_and_the_system_prompt_never_
 }
 
 #[tokio::test]
-async fn a_skill_switched_off_says_its_list_no_longer_applies() {
+async fn a_skill_switched_off_replaces_the_skills_list() {
     let h = harness().await;
     let skill = h._dir.join("ws/.drift/skills/tidy");
     std::fs::create_dir_all(&skill).unwrap();
@@ -63,10 +63,10 @@ async fn a_skill_switched_off_says_its_list_no_longer_applies() {
 
     assert!(system(&h, 0).contains("- tidy: Tidies"));
     assert_eq!(system(&h, 1), system(&h, 0));
+    let update = sent(&h, 1);
     assert!(
-        sent(&h, 1).contains("the skills list no longer applies"),
-        "{}",
-        sent(&h, 1)
+        update.contains("These instructions changed") && update.contains("- review: ") && !update.contains("- tidy"),
+        "the engine's own skill stays listed: {update}"
     );
 }
 
