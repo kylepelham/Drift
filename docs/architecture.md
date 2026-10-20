@@ -357,8 +357,9 @@ row in that state.
 
 Settings > Appearance > Thinking indicator styles the row a working turn shows. Style is Orbs
 (the default), Floating motes, Dots, Pulse, or one an interface plugin registered (see
-`extensibility.md`). Color is Grey, the theme's accent, or Spectrum (the accent turning slowly
-through every hue), and Speed is Slow, Normal or Fast. Show text puts text after any style, off by
+`extensibility.md`). Color is Grey, the theme's accent, or Spectrum (the accent's hue turning
+slowly through every hue at the accent's lightness, so a grey accent like Silver gets colour too),
+and Speed is Slow, Normal or Fast. Show text puts text after any style, off by
 default so only the orbs show; its field sets the text, Thinking when left empty. Shimmer the text
 sweeps light across it. With the text off, the word stays for screen readers. The reasoning
 heading shows beside every style, and with reduced motion the figures stand still. The choice is

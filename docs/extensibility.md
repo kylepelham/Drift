@@ -339,7 +339,9 @@ draws into `host`, an empty inline element, and may return a cleanup function or
 `{ update(context), dispose() }`; `update` is called whenever the context changes. The context
 is `{ sessionId, label, tint, speed, preview }`: `label` is the text the user set (Thinking,
 translated, when they set none), `tint` is `neutral`, `accent` or `spectrum`, `speed` multiplies
-animation durations (1.6 slow, 1 normal, 0.6 fast), and `preview` is true in Settings. Drift puts
+animation durations (1.6 slow, 1 normal, 0.6 fast), and `preview` is true in Settings. `host`
+inherits the CSS variable `--thinking-color`, which already follows the tint (Spectrum's hue keeps
+turning), so a plugin can paint with it instead of handling each tint itself. Drift puts
 the text after every indicator when the user turns it on, and the reasoning heading beside it, so
 a plugin draws only its animation.
 

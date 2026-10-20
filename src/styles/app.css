@@ -1180,8 +1180,12 @@ textarea {
     --thinking-color: var(--accent);
 }
 
-.thinking-indicator[data-tint="spectrum"] :is(.thinking-figure, .thinking-label, [data-component="text-shimmer"]) {
-    animation: thinking-hue calc(6s * var(--thinking-speed)) linear infinite;
+/* Spectrum turns the accent's hue, keeping its lightness, with a floor on chroma so a grey accent still has colour. */
+@supports (color: oklch(from red l c h)) {
+    .thinking-indicator[data-tint="spectrum"] {
+        --thinking-color: oklch(from var(--accent) l max(c, 0.13) calc(h + var(--thinking-hue)));
+        animation: thinking-hue calc(6s * var(--thinking-speed)) linear infinite;
+    }
 }
 
 .thinking-indicator:not([data-tint="neutral"]) [data-component="text-shimmer"] {
@@ -1313,13 +1317,21 @@ textarea {
     }
 }
 
+/* Registered so the hue interpolates as an angle instead of flipping at the end of the animation. */
+@property --thinking-hue {
+    syntax: "<angle>";
+    inherits: true;
+    initial-value: 0deg;
+}
+
 @keyframes thinking-hue {
     to {
-        filter: hue-rotate(360deg);
+        --thinking-hue: 360deg;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
+    .thinking-indicator,
     .thinking-indicator :is(.thinking-figure, .thinking-piece, .thinking-label, [data-component="text-shimmer"]) {
         animation: none !important;
     }
