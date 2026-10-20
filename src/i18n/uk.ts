@@ -1163,7 +1163,10 @@ export const drift = {
     "drift.provider.accounts.switchedForModel":
         "Тариф цього облікового запису не включає цю модель. Продовжуємо на {{account}}.",
     "drift.provider.accounts.switchedForRefusal":
-        "Фільтр безпеки цього облікового запису відхилив запит. Пробуємо {{account}}.",
+        "Фільтр безпеки цього облікового запису відхилив запит. Пробуємо {{account}} з Cyber Verification.",
+    "drift.provider.accounts.cyberVerified": "Cyber Verification",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "Організація цього облікового запису бере участь у програмі Anthropic Cyber Verification. Після відхилення через кібербезпеку Drift перемикається лише на облікові записи, позначені тут.",
     "drift.question.custom": "Введіть власну відповідь",
     "drift.question.answered": "Відповідь надано",
     "drift.question.unanswered": "Немає відповіді",

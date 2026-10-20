@@ -1113,7 +1113,11 @@ export const drift = {
     "drift.provider.accounts.switched": "某個帳戶已達到使用限額，繼續使用 {{account}}。",
     "drift.provider.accounts.returned": "{{account}} 的使用限額已重置，已切換回該帳戶。",
     "drift.provider.accounts.switchedForModel": "該帳戶的方案不包含此模型。改用 {{account}} 繼續。",
-    "drift.provider.accounts.switchedForRefusal": "該帳戶的安全過濾器拒絕了請求。正在嘗試 {{account}}。",
+    "drift.provider.accounts.switchedForRefusal":
+        "該帳戶的安全篩選器拒絕了請求。正在嘗試已通過 Cyber Verification 驗證的 {{account}}。",
+    "drift.provider.accounts.cyberVerified": "Cyber Verification 驗證",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "此帳戶的組織已加入 Anthropic 的 Cyber Verification Program。遇到網路安全拒絕後，Drift 只會切換到此處標記的帳戶。",
     "drift.question.custom": "輸入自訂答案",
     "drift.question.answered": "已回答",
     "drift.question.unanswered": "無回答",

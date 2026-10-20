@@ -1163,7 +1163,10 @@ export const drift = {
     "drift.provider.accounts.switchedForModel":
         "そのアカウントのプランにはこのモデルが含まれていません。{{account}} で続行します。",
     "drift.provider.accounts.switchedForRefusal":
-        "そのアカウントの安全フィルターがリクエストを拒否しました。{{account}} で試します。",
+        "そのアカウントの安全フィルターがリクエストを拒否しました。Cyber Verification を持つ {{account}} で試しています。",
+    "drift.provider.accounts.cyberVerified": "Cyber Verification",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "このアカウントの組織は Anthropic の Cyber Verification Program に参加しています。サイバーセキュリティによる拒否の後、Drift はここでマークされたアカウントにのみ切り替えます。",
     "drift.question.custom": "独自の回答を入力",
     "drift.question.answered": "回答済み",
     "drift.question.unanswered": "回答なし",

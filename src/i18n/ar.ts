@@ -1136,7 +1136,11 @@ export const drift = {
     "drift.provider.accounts.switched": "بلغ أحد الحسابات حد الاستخدام. المتابعة على {{account}}.",
     "drift.provider.accounts.returned": "العودة إلى {{account}} بعد إعادة تعيين حد الاستخدام.",
     "drift.provider.accounts.switchedForModel": "خطة ذلك الحساب لا تتضمن هذا النموذج. المتابعة على {{account}}.",
-    "drift.provider.accounts.switchedForRefusal": "رفض مرشح الأمان في ذلك الحساب الطلب. تجربة {{account}}.",
+    "drift.provider.accounts.switchedForRefusal":
+        "رفض مرشّح الأمان لدى ذلك الحساب الطلب. تجربة {{account}}، الذي يتضمن التحقق السيبراني.",
+    "drift.provider.accounts.cyberVerified": "التحقق السيبراني",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "مؤسسة هذا الحساب مشتركة في برنامج التحقق السيبراني (Cyber Verification Program) من Anthropic. بعد الرفض بسبب الأمن السيبراني، ينتقل Drift فقط إلى الحسابات المحددة هنا.",
     "drift.question.custom": "اكتب إجابتك الخاصة",
     "drift.question.answered": "تمت الإجابة",
     "drift.question.unanswered": "لا إجابة",

@@ -262,8 +262,8 @@ impl Engine {
             }
             Err(error) => return self.failed_step(&mut message, error),
         };
-        // A safety refusal another account may not make sends the request again from it; the refused reply goes.
-        if streamed.stop == StopReason::Refused && self.leave_refusing_account(plan, streamed.refusal.as_ref()) {
+        // A safety refusal a verified account may not make sends the request again from it; the refused reply goes.
+        if streamed.stop == StopReason::Refused && self.leave_refusing_account(plan, streamed.refusal.as_ref()).await {
             self.discard_reply(&plan.session.id, message.id);
             return Step::Switch;
         }

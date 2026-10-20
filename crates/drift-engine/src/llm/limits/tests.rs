@@ -38,6 +38,22 @@ fn codex_headers_name_the_weekly_and_five_hour_windows() {
 }
 
 #[test]
+fn claude_usage_names_a_full_week_spent_until_it_resets() {
+    let body = json!({
+        "five_hour": { "utilization": 0.0, "resets_at": "2026-10-20T20:59:59.772378+00:00" },
+        "seven_day": { "utilization": 100.0, "resets_at": "2026-10-25T13:59:59.772398+00:00" },
+        "extra_usage": { "is_enabled": false }
+    });
+
+    let limits = Limits::from_anthropic_usage(&body).unwrap();
+
+    assert_eq!(limits.five_hour.unwrap().used_percent, 0.0);
+    assert_eq!(limits.weekly.unwrap().used_percent, 100.0);
+    assert_eq!(limits.spent_until, Some(1_792_936_799_772));
+    assert_eq!(Limits::from_anthropic_usage(&json!({ "five_hour": null })), None);
+}
+
+#[test]
 fn a_window_of_zero_minutes_is_not_reported() {
     let limits = Limits::from_headers(&headers(&[
         ("x-codex-primary-used-percent", "39"),

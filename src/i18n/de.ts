@@ -1179,7 +1179,10 @@ export const drift = {
     "drift.provider.accounts.switchedForModel":
         "Der Tarif dieses Kontos umfasst dieses Modell nicht. Weiter mit {{account}}.",
     "drift.provider.accounts.switchedForRefusal":
-        "Der Sicherheitsfilter dieses Kontos hat die Anfrage abgelehnt. Versuch mit {{account}}.",
+        "Der Sicherheitsfilter dieses Kontos hat die Anfrage abgelehnt. Versuch mit {{account}}, das über eine Cyber-Verifizierung verfügt.",
+    "drift.provider.accounts.cyberVerified": "Cyber-Verifizierung",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "Die Organisation dieses Kontos nimmt an Anthropics Cyber Verification Program teil. Nach einer Ablehnung wegen Cybersicherheit wechselt Drift nur zu hier markierten Konten.",
     "drift.question.custom": "Eigene Antwort eingeben",
     "drift.question.answered": "Beantwortet",
     "drift.question.unanswered": "Keine Antwort",

@@ -207,7 +207,9 @@ change the plan there when a decision changes.
 - [x] Usage limits list every account of a provider (`Engine::account_credentials`, fetched in parallel); the composer popover shows the first account with usage left
 - [x] xAI SuperGrok sign-in (device code, renewed like the others); opencode's xAI sign-in imported
 - [x] Model modes back in the catalog (fast, ultrafast, flex, pro from models.dev `experimental.modes`, as opencode listed them): own entries and prices, the base model on the wire with the mode's body fields and headers
-- [x] A mode and its base take each other's signed reasoning (one model on the wire); another model reads earlier finished thoughts as plain text, as opencode sends them
+- [x] A mode and its base take each other's signed reasoning; switching model or account omits incompatible reasoning without promoting it to ordinary assistant text
+- [x] A `bash` `workdir` outside the workspace asks as `cd` there would, instead of refusing the call
+- [x] A cyber refusal switches only to an Anthropic account the user marked Cyber Verified with usage left (read from `/api/oauth/usage` when unknown), and the conversation stays on verified accounts; Codex refusals stand for the user to pick a Daybreak model
 - [x] MCP rows: one on/off switch, connect button always in place (greyed out while off); read-only trust moved into the edit sheet, on for a new server, kept across saves
 - [x] LSP diagnostics after edits (`lsp` module; a project's drift.json may only turn a server off) (replaces what upstream's `edit`, `write` and `apply_patch` reported; the plan's "Dropped" and "Post-edit" rows already say so):
   - Language servers from a built-in table of about thirty (opencode's, without its downloads), used only when installed on PATH or in a project's `node_modules/.bin`; `drift.json` can add, replace or disable one, as with formatters

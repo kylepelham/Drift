@@ -1,4 +1,4 @@
-import { IconArrowDown, IconArrowUp, IconCheck, IconSquarePen, IconTrash } from "./icons";
+import { IconArrowDown, IconArrowUp, IconCheck, IconShieldCheck, IconSquarePen, IconTrash } from "./icons";
 import { resetLabel, resetTitle } from "../state/usage-limits";
 import { createSignal, For, Show } from "solid-js";
 import { LimitRow } from "./context-meter";
@@ -115,6 +115,30 @@ export function ProviderAccounts(props: {
                     onClick={() => void rename(account)}
                 >
                     <IconCheck class="size-3.5" />
+                </button>
+            </Show>
+
+            {/* Cyber Verification is rare, so it is an unobtrusive switch rather than a row of its own. */}
+            <Show when={props.providerId === "anthropic" && account.signedIn}>
+                <button
+                    type="button"
+                    class={iconButton}
+                    classList={{ "border-ok/40 text-ok hover:text-ok": account.cyberVerified }}
+                    title={`${t("drift.provider.accounts.cyberVerified")}: ${t("drift.provider.accounts.cyberVerifiedHint")}`}
+                    aria-label={t("drift.provider.accounts.cyberVerified")}
+                    aria-pressed={account.cyberVerified}
+                    disabled={busy()}
+                    onClick={() =>
+                        void run(
+                            engine.actions.setProviderAccountCyberVerified(
+                                props.providerId,
+                                account.id,
+                                !account.cyberVerified,
+                            ),
+                        )
+                    }
+                >
+                    <IconShieldCheck class="size-3.5" />
                 </button>
             </Show>
 

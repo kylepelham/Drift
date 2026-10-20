@@ -331,13 +331,18 @@ Every job the engine does can run on its own model, chosen under Settings > Prom
 - Titles: the first message becomes the title at once; the title model's answer replaces it in the
   background, only while the title is still that placeholder, so a rename wins. Any failure keeps
   the placeholder.
-- Signed reasoning is replayed as reasoning only to the model that produced it
+- Reasoning is replayed as reasoning only to the model and account that produced it
   (`convert::Target`): the same catalog entry, or one that runs the same model, a mode and its base
-  (`Catalog::same_model`: Claude Opus 5.5 and Claude Opus 5.5 Fast send one id). Any other model,
-  an action's included, reads each finished thought as plain text in its place, as opencode sends
-  it, since it cannot check the signature; a thought cut off mid-stream and a redacted one (nothing
-  to read) are left out. A signed thought counts as finished even in a reply stopped later, since
-  the signature arrives when the thought ends.
+  (`Catalog::same_model`: Claude Opus 5.5 and Claude Opus 5.5 Fast send one id). Any other model or
+  account, an action's included, receives only the visible replies and tool history. Promoting old
+  thoughts to assistant text can encourage the model to speak its reasoning, so incompatible reasoning
+  is omitted from requests, never converted to text. Stored thoughts and signatures stay intact.
+  A signed thought counts as finished even in a reply stopped later, since its signature arrives
+  when the thought ends.
+  Upstream [opencode #45401](https://github.com/anomalyco/opencode/pull/45401), merged August 26,
+  preserves reasoning types across model switches, but its Anthropic adapter still converts unsigned
+  reasoning to text as of October 20, 2026. Drift omits incompatible reasoning instead. Database
+  examples contain reasoning-like ordinary text, but do not establish a preceding signature rejection.
 
 #### Compaction
 
@@ -2019,21 +2024,30 @@ code until he picks.
     Codex lists are fetched for every ChatGPT account and the catalog shows what any of them offers;
     the first account in order to offer a Daybreak program names the entry, and each request carries
     the program of the account it is sent from (`Offers::fit`).
-  - Accounts also differ on cybersecurity: Anthropic's Cyber Verification Program and OpenAI's Daybreak
-    change what an account's safety filter refuses. A reply the filter ends (`StopReason::Refused`)
-    whose policy area is cyber, or that names none (OpenAI's `content_filter`), is deleted with
-    whatever it streamed and the step goes to the next account at once
-    (`Engine::leave_refusing_account`). The account is passed over for the rest of that conversation,
-    whose content stays, but serves every other one. When every account refuses, the last refusal
-    shows as before. A refusal in another policy area stands on the account that made it: retrying
-    those until one account lets them through would only be dodging the filter.
-    A compaction summary the filter refuses the same way is asked of the next account too
+  - Accounts also differ on cybersecurity: Anthropic's Cyber Verification Program changes what an
+    account's safety filter refuses. No Anthropic endpoint reports membership (the OAuth profile,
+    account, roles, policy limits, usage and Messages headers were compared for an enrolled and an
+    unenrolled account, October 2026), so the user marks such accounts in Settings
+    (`Account::cyber_verified`, `PATCH /providers/anthropic/accounts/{account}`). A reply the filter
+    ends (`StopReason::Refused`) whose policy area is cyber, or that names none, is deleted with
+    whatever it streamed and the step goes to the first verified account that has usage left
+    (`Engine::leave_refusing_account`). From then on only verified accounts suit that conversation,
+    so a cold cache never moves it back to an account whose filter would refuse it again; other
+    conversations are unaffected. Before choosing, a verified account no response has reported on
+    since the engine started has its usage read from `/api/oauth/usage`, so a spent one is never
+    tried. With no verified account free, the refusal stands on the account that made it and the
+    conversation keeps its account and cache. When every verified account refuses, the last refusal
+    shows. A refusal in another policy area stands on the account that made it: retrying those until
+    one account lets them through would only be dodging the filter. OpenAI's Daybreak is a model
+    (`<id>-daybreak`), not an account, so a Codex refusal always stands and the user picks the
+    Daybreak model themselves; only Anthropic accounts can be marked.
+    A compaction summary the filter refuses the same way is asked of a verified account too
     (`Engine::leave_refusing_account_for`), and the conversation's next turn follows it there with
     the same notice; a summary failing on the refusing account would leave the conversation too
     long to go on.
   - Reasoning signatures and encrypted reasoning validate only for the account that made them, so
-    each reply records its account (`message.account`, migration 38) and history signed by another
-    account is sent as text, as another model's is. A reply from before accounts counts as the
+    each reply records its account (`message.account`, migration 38) and reasoning signed by another
+    account is omitted from requests, as another model's is. A reply from before accounts counts as the
     account stored under the provider's name. The WebSocket pool keys connections by their
     headers, so a new account opens its own socket and sends the full history once.
   - Settings lists a provider's sign-ins with their five-hour and weekly use; each can be renamed,
@@ -3298,9 +3312,10 @@ table still exists beside the engine's `archived_at` until M4 folds shell tables
     chain. A move that leaves the workspace or cannot be read (`~`, `-`, a variable, a glob, a flag)
     still asks, and so does every move after it. Nothing grants directory changes: the ask's
     pattern is still the whole line.
-  - `bash` takes `workdir`, a directory inside the workspace to run in (one outside is refused,
-    pointing at `cd`, which asks). Moves in the line are followed from it, and files a reading line
-    prints are found from it.
+  - `bash` takes `workdir`, a directory to run in. One outside the workspace asks as a leading `cd`
+    there would: the move joins the commands judged, and the pattern names the directory, so an
+    earlier approval of the commands alone never covers it. Moves in the line are followed from it,
+    and files a reading line prints are found from it.
   - "Always" grants each command separately. Known subcommand tools (`git`, `cargo`, `npm run`,
     `docker compose`, `gh`, ...) widen to their subcommand with any arguments (`cargo test` covers
     `cargo test --release`, not `cargo publish`); anything else, and every non-shell target such as

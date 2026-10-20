@@ -253,8 +253,8 @@ pub(super) fn drop_earlier_reasoning(transcript: &mut [MessageWithParts], starte
     }
 }
 
-/// Signed or redacted reasoning is replayed only to the model that wrote it.
-/// Unsigned reasoning requires a finished reply; another model reads finished thoughts as plain text.
+/// Reasoning is replayed only to the model and account that wrote it, never as ordinary assistant text.
+/// Unsigned reasoning requires a finished reply.
 /// Each provider adapter decides which reasoning fields its wire accepts.
 fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> {
     let finished = message.info.status == MessageStatus::Done;
@@ -278,11 +278,6 @@ fn assistant_blocks(message: &MessageWithParts, same_model: bool) -> Vec<Block> 
                         signature: signature.clone(),
                         redacted: redacted.clone(),
                     })
-                }
-                Part::Reasoning { text, signature, .. }
-                    if !same_model && !text.trim().is_empty() && (finished || signed || signature.is_some()) =>
-                {
-                    Some(Block::Text(text.clone()))
                 }
                 Part::ToolCall {
                     metadata: Some(metadata),

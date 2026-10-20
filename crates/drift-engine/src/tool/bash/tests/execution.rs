@@ -37,7 +37,7 @@ async fn runs_a_command_in_the_workspace_and_reports_exit_codes() {
 }
 
 #[tokio::test]
-async fn a_workdir_inside_the_workspace_is_where_it_runs_and_one_outside_is_refused() {
+async fn a_workdir_is_where_it_runs_and_one_outside_the_workspace_asks() {
     let sandbox = Sandbox::new("bash-workdir");
     let file = sandbox.file("sub/here.txt", "here\n");
     let bash = Bash::detect();
@@ -55,11 +55,22 @@ async fn a_workdir_inside_the_workspace_is_where_it_runs_and_one_outside_is_refu
         sandbox.ctx.files.was_read(&file),
         "a file it printed is found from the workdir"
     );
+
+    let parent = crate::tool::canonical(sandbox.ctx.workspace.parent().unwrap());
+    let enter = format!("cd {}", parent.display());
     let outside = bash
-        .run(&sandbox.ctx, json!({ "command": print, "workdir": ".." }))
+        .ask(&sandbox.ctx, &json!({ "command": "git log", "workdir": ".." }))
+        .unwrap();
+    assert_eq!(outside.reason, Some(Reason::Moves));
+    assert_eq!(outside.pattern, format!("{enter} && git log"));
+    assert_eq!(
+        outside.commands.unwrap(),
+        [enter, "git log".to_string()],
+        "the move is approved with the line, never by an earlier approval of git log alone"
+    );
+    bash.run(&sandbox.ctx, json!({ "command": "exit 0", "workdir": ".." }))
         .await
-        .unwrap_err();
-    assert!(outside.0.contains("outside the workspace"), "{}", outside.0);
+        .expect("an approved workdir outside the workspace runs");
 
     let ask = bash
         .ask(

@@ -31,7 +31,7 @@ fn an_empty_signed_text_part_goes_only_to_the_model_that_signed_it() {
 }
 
 #[test]
-fn signed_reasoning_goes_back_signed_only_to_the_model_that_made_it_and_as_text_to_another() {
+fn signed_reasoning_goes_only_to_the_model_that_made_it() {
     let signed = Part::Reasoning {
         text: "hm".into(),
         signature: Some("sig".into()),
@@ -51,8 +51,8 @@ fn signed_reasoning_goes_back_signed_only_to_the_model_that_made_it_and_as_text_
     };
     assert_eq!(
         messages(&transcript, &other)[1].blocks,
-        vec![Block::Text("hm".into()), Block::Text("x".into())],
-        "read, not checked"
+        vec![Block::Text("x".into())],
+        "reasoning is not promoted to a spoken reply"
     );
 
     let cut_off = vec![message_with(
@@ -64,10 +64,9 @@ fn signed_reasoning_goes_back_signed_only_to_the_model_that_made_it_and_as_text_
             redacted: None,
         }],
     )];
-    assert_eq!(
-        messages(&cut_off, &other)[0].blocks,
-        vec![Block::Text("whole".into())],
-        "a signed thought was whole before the reply was cut"
+    assert!(
+        messages(&cut_off, &other).is_empty(),
+        "a completed signed thought still belongs only to its original model"
     );
     let hidden = vec![message(
         Role::Assistant,
@@ -137,15 +136,11 @@ fn a_mode_and_its_base_take_each_others_signed_reasoning() {
         },
     );
 
-    assert_eq!(
-        sibling[0].blocks,
-        vec![Block::Text("hm".into())],
-        "another model in the family reads it as text"
-    );
+    assert!(sibling.is_empty(), "another model in the family receives no reasoning");
 }
 
 #[test]
-fn reasoning_signed_through_another_account_is_read_as_text() {
+fn reasoning_signed_through_another_account_is_omitted_without_losing_the_reply() {
     let catalog = Catalog::bundled();
     let model = ModelRef {
         provider: "anthropic".into(),
@@ -154,11 +149,14 @@ fn reasoning_signed_through_another_account_is_read_as_text() {
     let signed = |account: Option<&str>| {
         let mut reply = message(
             Role::Assistant,
-            vec![Part::Reasoning {
-                text: "hm".into(),
-                signature: Some("sig".into()),
-                redacted: None,
-            }],
+            vec![
+                Part::Reasoning {
+                    text: "hm".into(),
+                    signature: Some("sig".into()),
+                    redacted: None,
+                },
+                Part::Text { text: "answer".into() },
+            ],
         );
         reply.info.model = Some(model.clone());
         reply.info.account = account.map(str::to_string);
@@ -181,8 +179,8 @@ fn reasoning_signed_through_another_account_is_read_as_text() {
     ));
     assert_eq!(
         sent_by(Some("anthropic~b2"), &signed(Some("anthropic"))),
-        vec![Block::Text("hm".into())],
-        "another account cannot send this signature back"
+        vec![Block::Text("answer".into())],
+        "another account receives the visible reply, not reasoning disguised as text"
     );
     assert!(
         matches!(
@@ -277,8 +275,8 @@ fn unsigned_reasoning_goes_back_only_from_a_finished_reply_and_adjacent_users_me
     };
     assert_eq!(
         messages(&transcript, &other)[1].blocks,
-        vec![Block::Text("hm".into()), Block::Text("x".into())],
-        "another model reads it as text"
+        vec![Block::Text("x".into())],
+        "another model receives only the visible reply"
     );
 
     let aborted = vec![message_with(

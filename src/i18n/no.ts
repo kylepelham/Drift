@@ -1161,7 +1161,10 @@ export const drift = {
     "drift.provider.accounts.switchedForModel":
         "Den kontoens abonnement omfatter ikke denne modellen. Fortsetter på {{account}}.",
     "drift.provider.accounts.switchedForRefusal":
-        "Den kontoens sikkerhetsfilter avviste forespørselen. Prøver {{account}}.",
+        "Den kontoens sikkerhetsfilter avviste forespørselen. Prøver {{account}}, som har cyberverifisering.",
+    "drift.provider.accounts.cyberVerified": "Cyberverifisering",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "Denne kontoens organisasjon er i Anthropics Cyber Verification Program. Etter en cybersikkerhetsavvisning bytter Drift bare til kontoer markert her.",
     "drift.question.custom": "Skriv ditt eget svar",
     "drift.question.answered": "Besvart",
     "drift.question.unanswered": "Ingen svar",

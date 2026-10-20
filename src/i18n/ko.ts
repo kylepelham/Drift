@@ -1146,7 +1146,10 @@ export const drift = {
     "drift.provider.accounts.switchedForModel":
         "해당 계정의 요금제에는 이 모델이 포함되지 않습니다. {{account}}에서 계속합니다.",
     "drift.provider.accounts.switchedForRefusal":
-        "해당 계정의 안전 필터가 요청을 거부했습니다. {{account}}(으)로 시도합니다.",
+        "해당 계정의 안전 필터가 요청을 거부했습니다. Cyber Verification이 적용된 {{account}}(으)로 시도합니다.",
+    "drift.provider.accounts.cyberVerified": "Cyber Verification",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "이 계정의 조직은 Anthropic의 Cyber Verification Program에 참여하고 있습니다. 사이버 보안 문제로 요청이 거부된 후, Drift는 여기에 표시된 계정으로만 전환합니다.",
     "drift.question.custom": "직접 답변 입력",
     "drift.question.answered": "답변 완료",
     "drift.question.unanswered": "답변 없음",

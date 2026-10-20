@@ -161,7 +161,7 @@ fn provider_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(providers::oauth_finish))
         .routes(routes!(local_servers::get, local_servers::set))
         .routes(routes!(provider_accounts::reorder))
-        .routes(routes!(provider_accounts::rename, provider_accounts::remove))
+        .routes(routes!(provider_accounts::change, provider_accounts::remove))
 }
 
 fn permission_routes() -> OpenApiRouter<Arc<Engine>> {

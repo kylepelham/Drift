@@ -70,6 +70,32 @@ impl Limits {
         Self::of(windows.into_iter().flatten(), reached.then_some(None))
     }
 
+    /// What Claude's `/api/oauth/usage` reports of a subscription: each window's use in percent, its reset in RFC 3339.
+    pub fn from_anthropic_usage(body: &Value) -> Option<Self> {
+        let window = |key: &str, minutes: f64| {
+            let entry = &body[key];
+            let resets_at = entry["resets_at"]
+                .as_str()
+                .and_then(|text| time::OffsetDateTime::parse(text, &time::format_description::well_known::Rfc3339).ok())
+                .map(|at| i64::try_from(at.unix_timestamp_nanos() / 1_000_000).unwrap_or(i64::MAX));
+
+            Some((
+                minutes,
+                Window {
+                    used_percent: entry["utilization"].as_f64()?,
+                    resets_at,
+                },
+            ))
+        };
+
+        Self::of(
+            [window("five_hour", 300.0), window("seven_day", 10080.0)]
+                .into_iter()
+                .flatten(),
+            None,
+        )
+    }
+
     /// When usage is spent as of `now`; `None` while the account can still be used.
     pub fn spent_at(&self, now: i64) -> Option<i64> {
         self.spent_until.filter(|until| *until > now)
@@ -244,6 +270,15 @@ impl Unserved {
         let key = (account.to_string(), session.to_string());
 
         self.conversations.lock().unwrap().contains(&key)
+    }
+
+    /// Whether any account's safety filter refused the conversation.
+    pub fn refused_anywhere(&self, session: &str) -> bool {
+        self.conversations
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, refused)| refused == session)
     }
 }
 

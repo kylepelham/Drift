@@ -15,7 +15,7 @@ mod shell;
 #[cfg(test)]
 mod tests;
 
-use approval::{drop_moves_within, why_it_asks, workdir};
+use approval::{drop_moves_within, enter_workdir, why_it_asks, workdir};
 use output::{Ended, collect, report};
 pub use shell::Shell;
 use shell::{chain_note, detect_shell, shell_note};
@@ -80,9 +80,10 @@ impl Tool for Bash {
             command,
             input["description"].as_str().unwrap_or(command),
         );
-        // Invalid workdirs are refused at execution, so permission analysis starts within the workspace.
+        // A workdir that is not a directory is refused at execution, so analysis starts in the workspace.
         let directory = workdir(context, input).unwrap_or_else(|_| context.workspace.clone());
         drop_moves_within(context, &directory, &mut ask);
+        enter_workdir(context, &directory, &mut ask);
         ask.reason = why_it_asks(context, &directory, &ask);
         ask.default_allow = ask.reason.is_none();
 
@@ -165,7 +166,7 @@ impl Bash {
             "command": { "type": "string", "description": "The command to run." },
             "timeout": { "type": "integer", "description": timeout_note(limits) },
             "description": { "type": "string", "description": "Always give one: five to ten words saying what the command does, such as \"Run the engine tests\". The user sees this in place of the command, so leave it out only for a command that already reads as plain words." },
-            "workdir": { "type": "string", "description": "Directory to run in, inside the workspace, instead of changing directory first. Default: the workspace root." }
+            "workdir": { "type": "string", "description": "Directory to run in instead of changing directory first. One outside the workspace asks first. Default: the workspace root." }
         });
         if limits.background {
             properties["background"] = json!({ "type": "boolean", "description": "Start it in the background and return its process id at once. Only for servers, watchers, or work you will do something else during; never for a command you would only wait for. Default false." });
