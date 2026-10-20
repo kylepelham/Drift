@@ -963,6 +963,8 @@ export const drift = {
     "drift.browser.ok": "ตกลง",
     "drift.browser.show": "แสดงเบราว์เซอร์",
     "drift.browser.hide": "ซ่อนเบราว์เซอร์ (ยังคงทำงานต่อไป)",
+    "drift.browser.open": "เปิดเบราว์เซอร์",
+    "drift.browser.startFailed": "ไม่สามารถเปิดเบราว์เซอร์ได้",
     "drift.settings.browser.title": "เบราว์เซอร์",
     "drift.settings.browser.enabled.title": "เครื่องมือเบราว์เซอร์",
     "drift.settings.browser.enabled.description":

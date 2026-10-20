@@ -53,6 +53,24 @@ pub(super) async fn get(State(engine): State<Arc<Engine>>, Path(id): Path<String
     Json(engine.browsers.record(&id))
 }
 
+/// Starts the conversation's browser, as the user asks from the chat header; a running one is returned as it is.
+#[utoipa::path(post, path = "/sessions/{id}/browser", operation_id = "startBrowser", responses((status = 200, body = BrowserRecord), (status = 400), (status = 404)))]
+pub(super) async fn start(
+    State(engine): State<Arc<Engine>>,
+    Path(id): Path<String>,
+) -> Result<Json<BrowserRecord>, ApiError> {
+    engine
+        .store
+        .session(&id)?
+        .ok_or_else(|| ApiError::not_found("session"))?;
+    let record = engine
+        .start_browser(&id)
+        .await
+        .map_err(|message| ApiError::new(StatusCode::BAD_REQUEST, "browser", message))?;
+
+    Ok(Json(record))
+}
+
 /// Ends the conversation's browser; `browser.updated` says when it has gone.
 #[utoipa::path(post, path = "/sessions/{id}/browser/stop", operation_id = "stopBrowser", responses((status = 200, body = BrowserRecord), (status = 404)))]
 pub(super) async fn stop(
@@ -153,12 +171,13 @@ pub(super) async fn remove_credential(
 }
 
 /// Frames of the active page while the socket is open, as binary messages (a 4-byte little-endian header length,
-/// a JSON header, a JPEG); the client sends `ViewInput` as JSON text.
+/// a JSON header, a JPEG), and `{"type":"cursor","cursor":...}` text when the cursor under the pane's pointer
+/// changes; the client sends `ViewInput` as JSON text.
 #[utoipa::path(
     get,
     path = "/sessions/{id}/browser/view",
     operation_id = "browserView",
-    responses((status = 101, description = "WebSocket; binary frames out, ViewInput in"), (status = 404))
+    responses((status = 101, description = "WebSocket; binary frames and cursor text out, ViewInput in"), (status = 404))
 )]
 pub(super) async fn view(
     State(engine): State<Arc<Engine>>,
@@ -174,6 +193,7 @@ pub(super) async fn view(
 
 async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: CancellationToken) {
     let mut viewer = watch(driver.clone());
+    let mut cursor = driver.common().cursor.subscribe();
 
     // Input is applied in the order it was sent: a click's press must reach the page before its release.
     let (inputs, mut queued) = mpsc::unbounded_channel::<ViewInput>();
@@ -197,6 +217,13 @@ async fn watching(driver: Arc<dyn Driver>, mut socket: WebSocket, lease: Cancell
                 Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => break,
             },
+            Ok(()) = cursor.changed() => {
+                let shown = cursor.borrow_and_update().clone();
+                let message = serde_json::json!({ "type": "cursor", "cursor": shown }).to_string();
+                if socket.send(Message::Text(message.into())).await.is_err() {
+                    break;
+                }
+            }
             incoming = socket.recv() => match incoming {
                 Some(Ok(Message::Text(text))) => {
                     if let Ok(input) = serde_json::from_str::<ViewInput>(&text) {

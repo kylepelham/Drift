@@ -980,6 +980,8 @@ export const drift = {
     "drift.browser.ok": "OK",
     "drift.browser.show": "Vis nettleseren",
     "drift.browser.hide": "Skjul nettleseren (den fortsetter å kjøre)",
+    "drift.browser.open": "Åpne en nettleser",
+    "drift.browser.startFailed": "Kunne ikke åpne nettleseren",
     "drift.settings.browser.title": "Nettleser",
     "drift.settings.browser.enabled.title": "Nettleserverktøy",
     "drift.settings.browser.enabled.description":

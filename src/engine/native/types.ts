@@ -783,7 +783,8 @@ export interface paths {
         /** The conversation's browser, or null when it has none running. */
         get: operations["getBrowser"];
         put?: never;
-        post?: never;
+        /** Starts the conversation's browser, as the user asks from the chat header; a running one is returned as it is. */
+        post: operations["startBrowser"];
         delete?: never;
         options?: never;
         head?: never;
@@ -816,7 +817,8 @@ export interface paths {
         };
         /**
          * Frames of the active page while the socket is open, as binary messages (a 4-byte little-endian header length,
-         *     a JSON header, a JPEG); the client sends `ViewInput` as JSON text.
+         *     a JSON header, a JPEG), and `{"type":"cursor","cursor":...}` text when the cursor under the pane's pointer
+         *     changes; the client sends `ViewInput` as JSON text.
          */
         get: operations["browserView"];
         put?: never;
@@ -3507,6 +3509,13 @@ export interface components {
             text?: string | null;
             /** @enum {string} */
             type: "dialog";
+        } | {
+            /** Format: double */
+            height: number;
+            /** @enum {string} */
+            type: "fit";
+            /** Format: double */
+            width: number;
         };
         /** @enum {string} */
         Visibility: "hidden" | "sibling";
@@ -5219,6 +5228,39 @@ export interface operations {
             };
         };
     };
+    startBrowser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserRecord"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     stopBrowser: {
         parameters: {
             query?: never;
@@ -5257,7 +5299,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description WebSocket; binary frames out, ViewInput in */
+            /** @description WebSocket; binary frames and cursor text out, ViewInput in */
             101: {
                 headers: {
                     [name: string]: unknown;

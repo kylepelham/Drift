@@ -177,7 +177,7 @@ fn report(text: &mut String, settled: &Settled, always: bool) {
     if let Some(dialog) = &settled.dialog {
         let _ = write!(
             text,
-            " A {} dialog opened: \"{}\"; answer it with the dialog action.",
+            " The page opened a dialog ({}): \"{}\"; answer it with the dialog action.",
             dialog.kind, dialog.message
         );
     }

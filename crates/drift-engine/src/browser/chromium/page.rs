@@ -1,7 +1,7 @@
 //! One tab: its address and title, what it logged, a dialog waiting on it, and the actions taken on it.
 
 use std::collections::VecDeque;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -23,6 +23,9 @@ const KEPT: usize = 500;
 const LOAD_WAIT: Duration = Duration::from_secs(15);
 /// How long after an action a navigation it caused is still looked for.
 const SETTLE: Duration = Duration::from_millis(150);
+
+/// The viewport a browser's pane asks its pages for, shared by them; `None` until a pane has measured itself.
+pub(crate) type PaneFit = Arc<Mutex<Option<(u64, u64)>>>;
 
 struct Request {
     id: String,
@@ -56,22 +59,37 @@ pub(crate) struct Page {
     state: Mutex<State>,
     /// Counts the documents that finished loading.
     loads: watch::Sender<u64>,
+    /// Counts the dialogs that opened.
+    dialogs: watch::Sender<u64>,
+    pane_fit: PaneFit,
+    /// The agent chose the page's size, which the pane then leaves alone.
+    pub(super) agent_sized: AtomicBool,
     pub(super) tracing: AtomicBool,
     pub(super) throttled: AtomicBool,
     /// Waiting for the browser to say a stopped trace is ready to read.
     pub(super) trace_complete: Mutex<Option<oneshot::Sender<Value>>>,
 }
 
+/// What a new page is reached through and shares with its browser's other pages.
+pub(crate) struct Shared {
+    pub(crate) cdp: Arc<Connection>,
+    pub(crate) agents: Arc<Agents>,
+    pub(crate) pane_fit: PaneFit,
+}
+
 impl Page {
-    pub(crate) fn new(target: String, session: String, popup: bool, cdp: Arc<Connection>, agents: Arc<Agents>) -> Self {
+    pub(crate) fn new(target: String, session: String, popup: bool, shared: &Shared) -> Self {
         Self {
             target,
             session,
             popup,
-            agents,
-            cdp,
+            agents: shared.agents.clone(),
+            cdp: shared.cdp.clone(),
             state: Mutex::default(),
             loads: watch::channel(0).0,
+            dialogs: watch::channel(0).0,
+            pane_fit: shared.pane_fit.clone(),
+            agent_sized: AtomicBool::new(false),
             tracing: AtomicBool::new(false),
             throttled: AtomicBool::new(false),
             trace_complete: Mutex::default(),
@@ -86,6 +104,7 @@ impl Page {
         if let Some(user_agent) = user_agent {
             self.call("Emulation.setUserAgentOverride", user_agent.clone()).await?;
         }
+        self.fit_pane();
 
         let tree = self.call("Page.getFrameTree", json!({})).await?;
         let frame = &tree["frameTree"]["frame"];
@@ -109,6 +128,29 @@ impl Page {
 
     pub(crate) fn send(&self, method: &str, params: Value) {
         self.cdp.send(method, params, Some(&self.session));
+    }
+
+    /// Lays the page out at the size its pane asks for, unless the agent chose one; false when nothing was set.
+    pub(crate) fn fit_pane(&self) -> bool {
+        if self.agent_sized.load(Ordering::SeqCst) {
+            return false;
+        }
+        let Some((width, height)) = *self.pane_fit.lock().unwrap() else {
+            return false;
+        };
+
+        // A scale factor of 0 keeps the browser's own.
+        let metrics = json!({ "width": width, "height": height, "deviceScaleFactor": 0, "mobile": false });
+        self.send("Emulation.setDeviceMetricsOverride", metrics);
+
+        true
+    }
+
+    /// The cursor keyword the page shows at a point, for the pane to show the same.
+    pub(crate) async fn cursor_at(&self, x: f64, y: f64) -> Result<String, String> {
+        let cursor = self.helper(&format!("__drift.cursor({x}, {y})")).await?;
+
+        Ok(cursor.as_str().unwrap_or("default").to_string())
     }
 
     pub(super) fn page_record(&self, active: bool) -> PageRecord {
@@ -161,6 +203,7 @@ impl Page {
                     message: params["message"].as_str().unwrap_or_default().into(),
                     default_prompt: params["defaultPrompt"].as_str().map(str::to_string),
                 });
+                self.dialogs.send_modify(|count| *count += 1);
                 true
             }
             "Page.javascriptDialogClosed" => self.state.lock().unwrap().dialog.take().is_some(),
@@ -321,12 +364,26 @@ impl Page {
         evaluated(result)
     }
 
+    /// Sends an input event and waits for the page to take it. A dialog the event opens holds that answer back
+    /// until it closes, so the dialog opening ends the wait, and the rest of a click or key press goes unanswered.
+    async fn input(&self, method: &str, params: Value) -> Result<(), CdpError> {
+        if self.current_dialog().is_some() {
+            self.send(method, params);
+            return Ok(());
+        }
+
+        let mut dialogs = self.dialogs.subscribe();
+        tokio::select! {
+            answer = self.call(method, params) => answer.map(drop),
+            _ = dialogs.changed() => Ok(()),
+        }
+    }
+
     pub(crate) async fn mouse(&self, kind: &str, x: f64, y: f64, count: u32) -> Result<(), CdpError> {
         let button = if kind == "mouseMoved" { "none" } else { "left" };
         let params = json!({ "type": kind, "x": x, "y": y, "button": button, "clickCount": count });
-        self.call("Input.dispatchMouseEvent", params).await?;
 
-        Ok(())
+        self.input("Input.dispatchMouseEvent", params).await
     }
 
     pub(crate) async fn click_at(&self, x: f64, y: f64, double: bool) -> Result<(), CdpError> {
@@ -342,23 +399,20 @@ impl Page {
 
     pub(crate) async fn wheel(&self, x: f64, y: f64, delta_y: f64) -> Result<(), CdpError> {
         let params = json!({ "type": "mouseWheel", "x": x, "y": y, "deltaX": 0, "deltaY": delta_y });
-        self.call("Input.dispatchMouseEvent", params).await?;
 
-        Ok(())
+        self.input("Input.dispatchMouseEvent", params).await
     }
 
     pub(crate) async fn press_key(&self, key: &Key, modifiers: u8) -> Result<(), CdpError> {
         for event in key.events(modifiers) {
-            self.call("Input.dispatchKeyEvent", event).await?;
+            self.input("Input.dispatchKeyEvent", event).await?;
         }
 
         Ok(())
     }
 
     pub(crate) async fn insert_text(&self, text: &str) -> Result<(), CdpError> {
-        self.call("Input.insertText", json!({ "text": text })).await?;
-
-        Ok(())
+        self.input("Input.insertText", json!({ "text": text })).await
     }
 
     /// An address, or `back`, `forward` or `reload`; a bare host gets `https://`.

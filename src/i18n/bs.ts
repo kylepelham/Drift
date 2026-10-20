@@ -977,6 +977,8 @@ export const drift = {
     "drift.browser.ok": "U redu",
     "drift.browser.show": "Prikaži preglednik",
     "drift.browser.hide": "Sakrij preglednik (nastavlja s radom)",
+    "drift.browser.open": "Otvori preglednik",
+    "drift.browser.startFailed": "Otvaranje preglednika nije uspjelo",
     "drift.settings.browser.title": "Preglednik",
     "drift.settings.browser.enabled.title": "Alat preglednika",
     "drift.settings.browser.enabled.description":

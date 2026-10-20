@@ -61,6 +61,7 @@
         "treeitem",
     ]);
     const SKIPPED = new Set(["script", "style", "noscript", "template", "svg", "head", "meta", "link"]);
+    const TEXT_INPUTS = new Set(["text", "search", "email", "url", "tel", "password", "number"]);
 
     const refs = new Map();
     const numbers = new WeakMap();
@@ -241,6 +242,52 @@
         return { x, y };
     }
 
+    // The element under a viewport point, through same-site frames and open shadow roots, and the point in its document.
+    function under(x, y) {
+        let node = document.elementFromPoint(x, y);
+        while (node) {
+            const inner = node.shadowRoot && node.shadowRoot.elementFromPoint(x, y);
+            if (inner && inner !== node) {
+                node = inner;
+                continue;
+            }
+            if (node.tagName !== "IFRAME") break;
+
+            let frameDocument = null;
+            try {
+                frameDocument = node.contentDocument;
+            } catch (_) {
+                break;
+            }
+            if (!frameDocument) break;
+
+            const box = node.getBoundingClientRect();
+            x -= box.left + node.clientLeft;
+            y -= box.top + node.clientTop;
+            node = frameDocument.elementFromPoint(x, y);
+        }
+        return { node, x, y };
+    }
+
+    function editable(node) {
+        if (node.isContentEditable || node.tagName === "TEXTAREA") return true;
+        return node.tagName === "INPUT" && TEXT_INPUTS.has((node.getAttribute("type") || "text").toLowerCase());
+    }
+
+    // Whether the point is on selectable text, where the browser shows an I-beam for `cursor: auto`.
+    function onText(node, x, y) {
+        if (getComputedStyle(node).userSelect === "none") return false;
+        const range = node.ownerDocument.caretRangeFromPoint && node.ownerDocument.caretRangeFromPoint(x, y);
+        const text = range && range.startContainer;
+        if (!text || text.nodeType !== Node.TEXT_NODE || !text.textContent.trim()) return false;
+
+        const whole = node.ownerDocument.createRange();
+        whole.selectNodeContents(text);
+        return [...whole.getClientRects()].some(
+            (box) => x >= box.left && x <= box.right && y >= box.top && y <= box.bottom,
+        );
+    }
+
     function choose(node, wanted) {
         const options = [...node.options];
         const match =
@@ -297,6 +344,16 @@
         },
         text() {
             return document.body ? document.body.innerText : "";
+        },
+        // The cursor keyword a mouse at this viewport point shows; an image cursor gives its keyword fallback.
+        cursor(x, y) {
+            const hit = under(x, y);
+            if (!hit.node) return "default";
+
+            const declared = getComputedStyle(hit.node).cursor.split(",").pop().trim();
+            if (declared !== "auto") return /^[a-z-]+$/.test(declared) ? declared : "default";
+            if (editable(hit.node) || onText(hit.node, hit.x, hit.y)) return "text";
+            return "default";
         },
     };
 })();

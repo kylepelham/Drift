@@ -5,6 +5,12 @@ use utoipa::ToSchema;
 
 use super::input::{KeyInput, MouseInput};
 
+/// The narrowest and widest layouts a pane gives a page; a narrower pane shows it scaled down, so pages keep their
+/// desktop layout.
+const PANE_WIDTHS: (f64, f64) = (1280.0, 3840.0);
+/// The tallest and widest shapes a pane may give a page, as height over width.
+const PANE_SHAPES: (f64, f64) = (0.4, 2.5);
+
 /// One picture of the active page.
 pub struct Frame {
     pub page: String,
@@ -63,6 +69,21 @@ pub enum ViewInput {
     Navigate { url: String },
     #[serde(rename = "dialog")]
     Dialog { accept: bool, text: Option<String> },
+    /// The size in CSS pixels the pane shows the page at, so the page can be laid out to fill it.
+    #[serde(rename = "fit")]
+    Fit { width: f64, height: f64 },
+}
+
+/// The viewport that fills a pane of this size: a desktop-wide layout in the pane's shape.
+pub(crate) fn pane_viewport(width: f64, height: f64) -> Option<(u64, u64)> {
+    if !(width.is_finite() && height.is_finite() && width >= 1.0 && height >= 1.0) {
+        return None;
+    }
+
+    let layout = width.clamp(PANE_WIDTHS.0, PANE_WIDTHS.1);
+    let shape = (height / width).clamp(PANE_SHAPES.0, PANE_SHAPES.1);
+
+    Some((layout.round() as u64, (layout * shape).round() as u64))
 }
 
 #[cfg(test)]
@@ -100,5 +121,16 @@ mod tests {
                 text: None
             }
         );
+    }
+
+    #[test]
+    fn a_pane_gets_a_desktop_wide_page_in_its_own_shape() {
+        assert_eq!(pane_viewport(640.0, 800.0), Some((1280, 1600)));
+        assert_eq!(pane_viewport(1600.0, 900.0), Some((1600, 900)));
+        assert_eq!(pane_viewport(400.0, 4000.0), Some((1280, 3200)));
+        assert_eq!(pane_viewport(5000.0, 2500.0), Some((3840, 1920)));
+        assert_eq!(pane_viewport(0.0, 800.0), None);
+        assert_eq!(pane_viewport(f64::NAN, 800.0), None);
+        assert_eq!(pane_viewport(f64::INFINITY, 800.0), None);
     }
 }

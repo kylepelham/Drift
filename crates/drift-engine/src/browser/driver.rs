@@ -276,6 +276,8 @@ pub(crate) struct Common {
     pub(crate) frames: broadcast::Sender<Arc<Frame>>,
     pub(crate) stopping: CancellationToken,
     pub(crate) ended: AtomicBool,
+    /// The CSS cursor the page shows under the pane's pointer.
+    pub(crate) cursor: tokio::sync::watch::Sender<String>,
     used: Mutex<Instant>,
     viewers: AtomicUsize,
     /// Set once the engine lists it, so no client hears of a browser the API cannot yet return.
@@ -295,6 +297,7 @@ impl Common {
             frames: broadcast::channel(FRAMES_KEPT).0,
             stopping: CancellationToken::new(),
             ended: AtomicBool::new(false),
+            cursor: tokio::sync::watch::channel("default".into()).0,
             used: Mutex::new(Instant::now()),
             viewers: AtomicUsize::new(0),
             listed: AtomicBool::new(false),
@@ -336,5 +339,16 @@ impl Common {
 
     pub(crate) fn send_frame(&self, frame: Frame) {
         let _ = self.frames.send(Arc::new(frame));
+    }
+
+    /// Tells watching panes the cursor changed; the same cursor again says nothing.
+    pub(crate) fn set_cursor(&self, cursor: &str) {
+        self.cursor.send_if_modified(|current| {
+            if current == cursor {
+                return false;
+            }
+            cursor.clone_into(current);
+            true
+        });
     }
 }

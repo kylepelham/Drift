@@ -982,6 +982,8 @@ export const drift = {
     "drift.browser.ok": "OK",
     "drift.browser.show": "ブラウザーを表示",
     "drift.browser.hide": "ブラウザーを非表示（実行は継続）",
+    "drift.browser.open": "ブラウザーを開く",
+    "drift.browser.startFailed": "ブラウザーを開けませんでした",
     "drift.settings.browser.title": "ブラウザー",
     "drift.settings.browser.enabled.title": "ブラウザーツール",
     "drift.settings.browser.enabled.description":

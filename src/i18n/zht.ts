@@ -945,6 +945,8 @@ export const drift = {
     "drift.browser.ok": "確定",
     "drift.browser.show": "顯示瀏覽器",
     "drift.browser.hide": "隱藏瀏覽器（仍會繼續執行）",
+    "drift.browser.open": "開啟瀏覽器",
+    "drift.browser.startFailed": "無法開啟瀏覽器",
     "drift.settings.browser.title": "瀏覽器",
     "drift.settings.browser.enabled.title": "瀏覽器工具",
     "drift.settings.browser.enabled.description": "代理可開啟專屬的瀏覽器來測試 Web 應用程式，並顯示在聊天旁的窗格中。",

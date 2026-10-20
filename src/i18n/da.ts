@@ -980,6 +980,8 @@ export const drift = {
     "drift.browser.ok": "OK",
     "drift.browser.show": "Vis browseren",
     "drift.browser.hide": "Skjul browseren (den kører videre)",
+    "drift.browser.open": "Åbn en browser",
+    "drift.browser.startFailed": "Kunne ikke åbne browseren",
     "drift.settings.browser.title": "Browser",
     "drift.settings.browser.enabled.title": "Browser-værktøj",
     "drift.settings.browser.enabled.description":

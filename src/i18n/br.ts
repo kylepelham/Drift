@@ -990,6 +990,8 @@ export const drift = {
     "drift.browser.ok": "OK",
     "drift.browser.show": "Mostrar o navegador",
     "drift.browser.hide": "Ocultar o navegador (continua em execução)",
+    "drift.browser.open": "Abrir um navegador",
+    "drift.browser.startFailed": "Não foi possível abrir o navegador",
     "drift.settings.browser.title": "Navegador",
     "drift.settings.browser.enabled.title": "Ferramenta de navegador",
     "drift.settings.browser.enabled.description":

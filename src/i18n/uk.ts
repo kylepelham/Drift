@@ -981,6 +981,8 @@ export const drift = {
     "drift.browser.ok": "OK",
     "drift.browser.show": "Показати браузер",
     "drift.browser.hide": "Сховати браузер (він продовжує працювати)",
+    "drift.browser.open": "Відкрити браузер",
+    "drift.browser.startFailed": "Не вдалося відкрити браузер",
     "drift.settings.browser.title": "Браузер",
     "drift.settings.browser.enabled.title": "Інструмент браузера",
     "drift.settings.browser.enabled.description":

@@ -1,5 +1,5 @@
 import { modifierBits, pagePoint, isPasteShortcut, tabLabel } from "../src/ui/browser-input";
-import { decodeFrame } from "../src/engine/browser-view";
+import { decodeCursor, decodeFrame } from "../src/engine/browser-view";
 import { expect, test } from "bun:test";
 
 function frameMessage(header: object, jpeg: number[]) {
@@ -20,6 +20,13 @@ test("a frame message is read as its header and its picture", async () => {
     expect([...new Uint8Array(await frame!.jpeg.arrayBuffer())]).toEqual([0xff, 0xd8, 0xff]);
     expect(decodeFrame(new ArrayBuffer(2))).toBeUndefined();
     expect(decodeFrame(frameMessage({ page: "T1" }, []).slice(0, 6))).toBeUndefined();
+});
+
+test("a cursor message gives its keyword and nothing else gets through", () => {
+    expect(decodeCursor('{"type":"cursor","cursor":"pointer"}')).toBe("pointer");
+    expect(decodeCursor('{"type":"cursor","cursor":"url(x.png), pointer"}')).toBeUndefined();
+    expect(decodeCursor('{"type":"other","cursor":"text"}')).toBeUndefined();
+    expect(decodeCursor("not json")).toBeUndefined();
 });
 
 test("a click on the shrunken picture lands on the page's own pixels", () => {

@@ -959,6 +959,8 @@ export const drift = {
     "drift.browser.ok": "موافق",
     "drift.browser.show": "إظهار المتصفح",
     "drift.browser.hide": "إخفاء المتصفح (يستمر في العمل)",
+    "drift.browser.open": "فتح متصفح",
+    "drift.browser.startFailed": "تعذر فتح المتصفح",
     "drift.settings.browser.title": "المتصفح",
     "drift.settings.browser.enabled.title": "أداة المتصفح",
     "drift.settings.browser.enabled.description":

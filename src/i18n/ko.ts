@@ -969,6 +969,8 @@ export const drift = {
     "drift.browser.ok": "확인",
     "drift.browser.show": "브라우저 표시",
     "drift.browser.hide": "브라우저 숨기기 (계속 실행됨)",
+    "drift.browser.open": "브라우저 열기",
+    "drift.browser.startFailed": "브라우저를 열 수 없음",
     "drift.settings.browser.title": "브라우저",
     "drift.settings.browser.enabled.title": "브라우저 도구",
     "drift.settings.browser.enabled.description":

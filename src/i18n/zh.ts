@@ -943,6 +943,8 @@ export const drift = {
     "drift.browser.ok": "确定",
     "drift.browser.show": "显示浏览器",
     "drift.browser.hide": "隐藏浏览器（保持后台运行）",
+    "drift.browser.open": "打开浏览器",
+    "drift.browser.startFailed": "无法打开浏览器",
     "drift.settings.browser.title": "浏览器",
     "drift.settings.browser.enabled.title": "浏览器工具",
     "drift.settings.browser.enabled.description": "代理可以自行打开浏览器测试 Web 应用，并在聊天侧边窗格中显示。",

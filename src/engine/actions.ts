@@ -1,6 +1,6 @@
 import { errorMessage, type ActionContext, type NoticeInput } from "./actions-context";
 import { applySessionSnapshot, applyStatusSnapshot, pushNotice } from "./events";
-import { connectBrowserView, type BrowserFrame } from "./browser-view";
+import { connectBrowserView, type BrowserViewHandlers } from "./browser-view";
 import { produce, type SetStoreFunction } from "solid-js/store";
 import { createProviderActions } from "./actions-providers";
 import { createSessionActions } from "./actions-sessions";
@@ -181,6 +181,20 @@ export function createActions(
             notice({
                 id: `process-stop-${processId}`,
                 title: t("drift.process.stopFailed"),
+                message: errorMessage(cause),
+                variant: "error",
+            });
+        }
+    }
+
+    /** Starts a session's browser at the user's request; the pane opens when `browser.updated` reports it. */
+    async function startBrowser(sessionId: string) {
+        try {
+            putBrowser(set, await requireClient().startBrowser(sessionId));
+        } catch (cause) {
+            notice({
+                id: `browser-start-${sessionId}`,
+                title: t("drift.browser.startFailed"),
                 message: errorMessage(cause),
                 variant: "error",
             });
@@ -469,10 +483,11 @@ export function createActions(
         abort,
         stopTask,
         stopProcess,
+        startBrowser,
         stopBrowser,
-        /** Watches a session's browser: frames of its active page out, the user's input in. */
-        watchBrowser: (sessionId: string, onFrame: (frame: BrowserFrame) => void) =>
-            connectBrowserView(requireClient().browserViewUrl(sessionId), onFrame),
+        /** Watches a session's browser: frames of its active page and its cursor out, the user's input in. */
+        watchBrowser: (sessionId: string, handlers: BrowserViewHandlers) =>
+            connectBrowserView(requireClient().browserViewUrl(sessionId), handlers),
         notice,
         findFiles,
         reviewWorkspace,

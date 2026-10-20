@@ -335,6 +335,34 @@ impl Engine {
         Ok((driver, notes))
     }
 
+    /// Starts the conversation's browser for the user, at the project's base address when it has one; a running
+    /// browser is left as it is.
+    pub async fn start_browser(&self, session_id: &str) -> Result<BrowserRecord, String> {
+        let (_, project) = self.browser_project(session_id);
+        let base = project.base_url.as_deref().map(|base| project.resolve(base));
+        let running = self
+            .browsers
+            .get(session_id)
+            .is_some_and(|driver| !driver.common().is_ended());
+
+        let wanted = Wanted {
+            kind: None,
+            url: base.as_deref(),
+        };
+        let (driver, _) = self.open_browser(session_id, wanted).await?;
+        driver.common().touch();
+
+        // The pane opens on the new browser at once and watches the page load.
+        if let Some(base) = base.filter(|_| !running) {
+            let tab = driver.tab(None)?;
+            tokio::spawn(async move {
+                let _ = tab.go(&base).await;
+            });
+        }
+
+        Ok(driver.record())
+    }
+
     /// The conversation's browser if it is running; one still ending is waited out, so its replacement starts clean.
     async fn running_browser(&self, session_id: &str) -> Option<Arc<dyn Driver>> {
         let deadline = tokio::time::Instant::now() + ENDING_WAIT;

@@ -982,6 +982,8 @@ export const drift = {
     "drift.browser.ok": "Tamam",
     "drift.browser.show": "Tarayıcıyı göster",
     "drift.browser.hide": "Tarayıcıyı gizle (çalışmaya devam eder)",
+    "drift.browser.open": "Tarayıcı aç",
+    "drift.browser.startFailed": "Tarayıcı açılamadı",
     "drift.settings.browser.title": "Tarayıcı",
     "drift.settings.browser.enabled.title": "Tarayıcı aracı",
     "drift.settings.browser.enabled.description":

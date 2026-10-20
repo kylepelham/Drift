@@ -1,9 +1,10 @@
 # Browser
 
 Each conversation can have one browser the agent tests in. The engine starts it, owns every process it
-runs, and streams it into a browser pane beside the chat. The pane opens when the agent starts testing;
-collapsing it stops the stream, not the browser, so testing carries on unseen. Going to another
-conversation and back finds the pane as it was, for as long as the browser is still running.
+runs, and streams it into a browser pane beside the chat. The pane opens when the agent starts testing, or
+when the user opens a browser from the globe button in the chat header; collapsing it stops the stream, not
+the browser, so testing carries on unseen. Going to another conversation and back finds the pane as it was,
+for as long as the browser is still running.
 
 This replaces the chrome-devtools and web-test MCP servers for testing: no browser windows open across the
 desktop, nothing outlives Drift, remote devices see the same pane, and projects that need IE mode get it.
@@ -47,6 +48,11 @@ are `Input.dispatch*` events, so they are trusted. Chrome does not report a titl
 titles are read again after each load, after each action, and every 2 s while a pane watches. A screencast
 sends nothing until the page paints, so a new watcher first gets a screenshot.
 
+An input event's answer waits until the page has handled it, and a handler that opens an alert, confirm or
+prompt has not finished until the dialog closes. So each input event also ends its wait when the page reports
+a dialog opening, and the rest of a click or key press is sent without waiting; the action's result then
+says a dialog opened.
+
 ### Firefox and Camoufox
 
 Started headless with `--remote-debugging-port 0` and a profile whose `user.js` turns BiDi on (Camoufox
@@ -72,7 +78,8 @@ first.
 
 ## Lifecycle
 
-- A conversation's browser starts the first time its agent calls `open` (or `navigate`). Subagents are
+- A conversation's browser starts the first time its agent calls `open` (or `navigate`), or when the user
+  presses the globe button in the chat header (at the project's `baseUrl` when it has one). Subagents are
   conversations too: each gets its own, which ends with its run.
 - It keeps running after the turn ends, after Stop, while the pane is collapsed, and while the user looks at
   another conversation.
@@ -241,11 +248,14 @@ password never reaches the model. Every tool result has the workspace's password
 ## API
 
 - `GET /sessions/{id}/browser` the conversation's browser, or `null`.
+- `POST /sessions/{id}/browser` starts it for the user (a running one is returned as it is).
 - `POST /sessions/{id}/browser/stop` ends it.
 - `GET /sessions/{id}/browser/view` a WebSocket. The engine sends binary messages, each a 4-byte
-  little-endian header length, a JSON header (`page`, `width`, `height`) and a JPEG. The client sends JSON
-  text: `mouse`, `key`, `text`, `select`, `close`, `newPage`, `navigate`, `dialog`. Frames flow only while at
-  least one view socket is open, and only for the active page. Input is applied in the order it was sent.
+  little-endian header length, a JSON header (`page`, `width`, `height`) and a JPEG, and a text message
+  `{"type":"cursor","cursor":...}` when the cursor under the pane's pointer changes. The client sends JSON
+  text: `mouse`, `key`, `text`, `select`, `close`, `newPage`, `navigate`, `dialog`, `fit`. Frames flow only
+  while at least one view socket is open, and only for the active page. Input is applied in the order it was
+  sent.
 - `GET /browser/engines` each engine's status, program and download progress;
   `POST /browser/engines/{engine}/download`; `PUT /browser/engines/{engine}/path`.
 - `GET /workspaces/{id}/browser` the workspace's drift.json section and its credentials;
@@ -257,12 +267,23 @@ password never reaches the model. Every tool result has the workspace's password
 ## The pane
 
 - Opens by itself when a conversation's browser starts, unless the user collapsed it for that browser.
+- The globe button in the chat header opens a browser when the conversation has none, then shows or hides
+  the pane.
 - The engine's name, tabs for the browser's pages (popups included), an address bar with back, forward and
   reload, a new-tab button, and Stop; the collapse button only hides the pane.
 - A dialog on the page shows as a bar with its message, a field for a prompt, and OK and Cancel.
-- The page image keeps its aspect ratio at the top of the pane; clicks, wheel and keys typed while it has
-  focus go to the page, mapped to its CSS pixels. Pasting sends the text as typed input.
-- A collapsed browser shows as a button in the chat header while it runs.
+- The page is laid out to fill the pane (Chrome and Edge): the pane sends the size of its page area (`fit`,
+  again 150 ms after each resize settles), and the page gets a viewport at least 1280 CSS pixels wide in the
+  pane's shape (height over width kept between 0.4 and 2.5), so pages keep their desktop layout and a pane
+  narrower than that shows it scaled down. A size the agent chose with `viewport` wins until it asks for
+  `desktop` again; the picture is then centred in the pane. Other engines keep their own size.
+- Clicks, wheel and keys typed while the picture has focus go to the page, mapped to its CSS pixels. Pasting
+  sends the text as typed input.
+- The pane shows the cursor the page would (Chrome and Edge). CSS cursors are not reported by the DevTools
+  Protocol, so after each pointer event the engine asks the page's isolated world what is under the point:
+  the element's computed `cursor` (an image cursor gives its keyword fallback), or for `auto` an I-beam over
+  editable fields and selectable text and an arrow elsewhere. Lookups run one at a time on the newest
+  position, and only a change is sent.
 - Only the rightmost panel shows the window controls; on a phone the pane covers the chat, and a review or
   debug panel the user opened wins over it.
 

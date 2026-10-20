@@ -8,6 +8,7 @@ mod page;
 mod tab;
 mod trace;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -16,14 +17,14 @@ use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc};
 
 use super::driver::{Common, Driver, Spec, Tab};
-use super::view::{Frame, ViewInput};
+use super::view::{Frame, ViewInput, pane_viewport};
 use super::{Window, input};
 use crate::Engine;
 use crate::platform::process::Tree;
 use agent::Agents;
 use cdp::{Connection, Event};
 use launch::Launched;
-use page::Page;
+use page::{Page, PaneFit, Shared};
 
 /// How long a new tab may take to appear after it was asked for.
 const PAGE_WAIT: Duration = Duration::from_secs(10);
@@ -46,6 +47,11 @@ pub(crate) struct Chromium {
     /// The page the stream shows, while a pane watches.
     streaming: Mutex<Option<String>>,
     page_added: Notify,
+    pane_fit: PaneFit,
+    /// The newest pane pointer position whose cursor has not been looked up yet.
+    pointer: Mutex<Option<(f64, f64)>>,
+    /// A cursor lookup is running; it takes each newest position until none is left.
+    pointing: AtomicBool,
 }
 
 impl Chromium {
@@ -76,6 +82,9 @@ impl Chromium {
             active: Mutex::default(),
             streaming: Mutex::default(),
             page_added: Notify::new(),
+            pane_fit: PaneFit::default(),
+            pointer: Mutex::default(),
+            pointing: AtomicBool::new(false),
         });
         tokio::spawn(chromium.clone().run(events, child));
 
@@ -156,7 +165,8 @@ impl Chromium {
         }
     }
 
-    /// A screencast sends nothing until the page paints again, so a new watcher or tab gets a picture at once.
+    /// A screencast sends nothing until the page paints again, so a new watcher or tab, or a page laid out to a new
+    /// size, gets a picture at once.
     fn first_frame(&self, page: Arc<Page>) {
         let Some(chromium) = self.me.upgrade() else {
             return;
@@ -299,8 +309,11 @@ impl Chromium {
             target.clone(),
             session,
             popup,
-            self.cdp.clone(),
-            self.agents.clone(),
+            &Shared {
+                cdp: self.cdp.clone(),
+                agents: self.agents.clone(),
+                pane_fit: self.pane_fit.clone(),
+            },
         ));
         page.set_info(url, "");
         self.pages.lock().unwrap().push(page.clone());
@@ -375,6 +388,11 @@ impl Chromium {
     }
 
     async fn page_input(&self, input: ViewInput) -> Result<(), String> {
+        if let ViewInput::Fit { width, height } = input {
+            self.fit(width, height);
+            return Ok(());
+        }
+
         let id = self.active().ok_or("the browser has no page open")?;
         let page = self.page(&id).ok_or("the active page has closed")?;
         match input {
@@ -382,6 +400,7 @@ impl Chromium {
                 if let Some(event) = mouse.event() {
                     page.send("Input.dispatchMouseEvent", event);
                 }
+                self.follow_pointer(mouse.x, mouse.y);
             }
             ViewInput::Key(key) => {
                 let direction = if key.event == "up" { "up" } else { "down" };
@@ -391,10 +410,70 @@ impl Chromium {
             ViewInput::Text { text } => page.send("Input.insertText", json!({ "text": text })),
             ViewInput::Navigate { url } => page.go_to(&url).await?,
             ViewInput::Dialog { accept, text } => page.answer(accept, text.as_deref()).await?,
-            ViewInput::Select { .. } | ViewInput::Close { .. } | ViewInput::NewPage {} => {}
+            ViewInput::Select { .. } | ViewInput::Close { .. } | ViewInput::NewPage {} | ViewInput::Fit { .. } => {}
         }
 
         Ok(())
+    }
+
+    /// Lays every page out to fill the pane; pages opened later are laid out the same as they start.
+    fn fit(&self, width: f64, height: f64) {
+        let Some(viewport) = pane_viewport(width, height) else {
+            return;
+        };
+        {
+            let mut fit = self.pane_fit.lock().unwrap();
+            if *fit == Some(viewport) {
+                return;
+            }
+            *fit = Some(viewport);
+        }
+
+        for page in self.pages.lock().unwrap().iter() {
+            page.fit_pane();
+        }
+
+        // A still page may not paint again at its new size, so the pane gets a picture of it.
+        let streamed = self.streaming.lock().unwrap().clone();
+        if let Some(page) = streamed.and_then(|id| self.page(&id)) {
+            self.first_frame(page);
+        }
+    }
+
+    /// Looks up the cursor under the pane's pointer for the pane to show. Moves come faster than lookups, so
+    /// one lookup at a time runs and takes the newest position each time.
+    fn follow_pointer(&self, x: f64, y: f64) {
+        *self.pointer.lock().unwrap() = Some((x, y));
+        if self.pointing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let Some(chromium) = self.me.upgrade() else {
+            return;
+        };
+
+        tokio::spawn(async move {
+            loop {
+                let next = chromium.pointer.lock().unwrap().take();
+                if let Some((x, y)) = next {
+                    // A dialog holds the page, so a lookup would wait until it closes.
+                    let page = chromium.active().and_then(|id| chromium.page(&id));
+                    let page = page.filter(|page| page.current_dialog().is_none());
+                    if let Some(page) = page
+                        && let Ok(cursor) = page.cursor_at(x, y).await
+                    {
+                        chromium.common.set_cursor(&cursor);
+                    }
+                    continue;
+                }
+
+                // A position that came in as this lookup finished is taken by it, not dropped.
+                chromium.pointing.store(false, Ordering::SeqCst);
+                let waiting = chromium.pointer.lock().unwrap().is_some();
+                if !waiting || chromium.pointing.swap(true, Ordering::SeqCst) {
+                    return;
+                }
+            }
+        });
     }
 }
 

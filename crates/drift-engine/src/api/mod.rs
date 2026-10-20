@@ -193,7 +193,7 @@ fn task_routes() -> OpenApiRouter<Arc<Engine>> {
 /// A conversation's browser and its view socket, and what Settings > Browser manages.
 fn browser_routes() -> OpenApiRouter<Arc<Engine>> {
     OpenApiRouter::new()
-        .routes(routes!(browser::get))
+        .routes(routes!(browser::get, browser::start))
         .routes(routes!(browser::stop))
         .routes(routes!(browser::view))
         .routes(routes!(browser::engines))

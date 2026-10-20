@@ -1,5 +1,7 @@
 //! The tool's actions on a Chrome or Edge page, through the helpers `page.js` installs out of the page's sight.
 
+use std::sync::atomic::Ordering;
+
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
@@ -159,7 +161,11 @@ impl Tab for Page {
         };
 
         let Some(size) = size else {
-            call("Emulation.clearDeviceMetricsOverride", json!({})).await?;
+            // The pane's size takes over again from the one the agent chose.
+            self.agent_sized.store(false, Ordering::SeqCst);
+            if !self.fit_pane() {
+                call("Emulation.clearDeviceMetricsOverride", json!({})).await?;
+            }
             call("Emulation.setTouchEmulationEnabled", json!({ "enabled": false })).await?;
             let desktop = self
                 .agents
@@ -177,6 +183,7 @@ impl Tab for Page {
             "deviceScaleFactor": scale,
             "mobile": size.mobile,
         });
+        self.agent_sized.store(true, Ordering::SeqCst);
         call("Emulation.setDeviceMetricsOverride", metrics).await?;
         let touch = json!({ "enabled": size.mobile, "maxTouchPoints": 5 });
         call("Emulation.setTouchEmulationEnabled", touch).await?;

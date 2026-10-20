@@ -7,10 +7,15 @@ import type { BrowserFrame, BrowserView as ViewSocket } from "../engine/browser-
 
 type PageSize = { width: number; height: number };
 
+/** How long the pane waits for a resize to settle before the page is laid out again. */
+const FIT_DELAY_MS = 150;
+
 /** The browser's active page as the engine streams it; clicks, scrolling and typing here go to the page. */
 export function BrowserView(props: { sessionId: string; onReady: (view: ViewSocket) => void }) {
     const engine = useEngine();
     const [size, setSize] = createSignal<PageSize>();
+    const [cursor, setCursor] = createSignal("default");
+    let area!: HTMLDivElement;
     let canvas!: HTMLCanvasElement;
     let latest: BrowserFrame | undefined;
     let drawing = false;
@@ -34,11 +39,22 @@ export function BrowserView(props: { sessionId: string; onReady: (view: ViewSock
         drawing = false;
     }
 
+    // The page is laid out to fill the area the pane gives it.
+    function fit() {
+        const width = area.clientWidth;
+        const height = area.clientHeight;
+        if (width > 0 && height > 0) view.send({ type: "fit", width, height });
+    }
+
     // The pane is rebuilt for another session, so the socket is opened once for this one.
     const view = untrack(() =>
-        engine.actions.watchBrowser(props.sessionId, (frame) => {
-            latest = frame;
-            if (!drawing) void draw();
+        engine.actions.watchBrowser(props.sessionId, {
+            onFrame: (frame) => {
+                latest = frame;
+                if (!drawing) void draw();
+            },
+            onCursor: setCursor,
+            onOpen: fit,
         }),
     );
     untrack(() => props.onReady(view));
@@ -109,15 +125,30 @@ export function BrowserView(props: { sessionId: string; onReady: (view: ViewSock
     onMount(() => {
         canvas.addEventListener("wheel", wheel, { passive: false });
         onCleanup(() => canvas.removeEventListener("wheel", wheel));
+
+        let settling: ReturnType<typeof setTimeout> | undefined;
+        const resized = new ResizeObserver(() => {
+            clearTimeout(settling);
+            settling = setTimeout(fit, FIT_DELAY_MS);
+        });
+        resized.observe(area);
+        onCleanup(() => {
+            clearTimeout(settling);
+            resized.disconnect();
+        });
     });
 
     return (
-        <div class="browser-view relative flex min-h-0 flex-1 items-start justify-center overflow-hidden bg-raised/40">
+        <div
+            ref={area}
+            class="browser-view relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-raised/40"
+        >
             <canvas
                 ref={canvas}
                 tabIndex={0}
-                class="block max-h-full max-w-full cursor-default outline-none"
+                class="block max-h-full max-w-full outline-none"
                 classList={{ invisible: !size() }}
+                style={{ cursor: cursor() }}
                 aria-label={t("drift.browser.view")}
                 onMouseDown={(event) => {
                     canvas.focus();

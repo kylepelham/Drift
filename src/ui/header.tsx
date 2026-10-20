@@ -147,9 +147,7 @@ export function ChatHeader() {
                                     >
                                         <IconDiff class="size-3.5" />
                                     </button>
-                                    <Show when={engine.state.browsers[current().id]}>
-                                        <BrowserToggle sessionId={current().id} />
-                                    </Show>
+                                    <BrowserToggle sessionId={current().id} />
                                 </Show>
                                 <ContextMeter sessionId={current().id} />
                             </>
@@ -164,17 +162,40 @@ export function ChatHeader() {
     );
 }
 
-/** Shows or hides the conversation's browser pane; the browser keeps running either way. */
+/** Opens the conversation's browser, then shows or hides its pane; hiding leaves the browser running. */
 function BrowserToggle(props: { sessionId: string }) {
-    const open = () => !browserPaneCollapsed(props.sessionId);
+    const engine = useEngine();
+    const [starting, setStarting] = createSignal(false);
+    const running = () => !!engine.state.browsers[props.sessionId];
+    const open = () => running() && !browserPaneCollapsed(props.sessionId);
+
+    function title() {
+        if (!running()) return t("drift.browser.open");
+
+        return t(open() ? "drift.browser.hide" : "drift.browser.show");
+    }
+
+    // A new browser opens its pane when the engine reports it.
+    async function toggle() {
+        if (running()) {
+            if (open()) collapseBrowserPane(props.sessionId);
+            else expandBrowserPane(props.sessionId);
+            return;
+        }
+
+        setStarting(true);
+        await engine.actions.startBrowser(props.sessionId);
+        setStarting(false);
+    }
 
     return (
         <button
-            class="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink"
+            class="flex size-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-raised hover:text-ink disabled:opacity-40"
             classList={{ "text-accent": open(), "text-ink-faint": !open() }}
-            title={t(open() ? "drift.browser.hide" : "drift.browser.show")}
+            title={title()}
             aria-pressed={open()}
-            onClick={() => (open() ? collapseBrowserPane(props.sessionId) : expandBrowserPane(props.sessionId))}
+            disabled={starting()}
+            onClick={() => void toggle()}
         >
             <IconGlobe class="size-3.5" />
         </button>
