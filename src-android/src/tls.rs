@@ -1,7 +1,8 @@
-//! Connections that trust exactly one PC: its Remote Access certificate authority, by SHA-256.
-//! A PC first met by address (linking by typed code) is trusted on that first contact and held to it after.
+//! Connections that trust exactly one PC. On a network that is its Remote Access certificate authority, by SHA-256.
+//! Through OpenTunnel it is a publicly trusted certificate for the tunnel's name that also carries the PC's own key,
+//! which never leaves the PC, so not even the relay that controls the name can stand in for it.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use rustls::client::WebPkiServerVerifier;
@@ -15,28 +16,43 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(crate) type Fingerprint = [u8; 32];
 
-/// The authority a connection has trusted, shared with whoever needs to know (the six words while linking).
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Trusted(Arc<Mutex<Option<Fingerprint>>>);
-
-impl Trusted {
-    pub(crate) fn get(&self) -> Option<Fingerprint> {
-        *self.0.lock().unwrap()
-    }
+/// What a connection to a PC trusts.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Trust {
+    /// The PC's own certificate authority, by fingerprint.
+    Authority(Fingerprint),
+    /// A publicly trusted certificate whose public key has this SHA-256.
+    Key(Fingerprint),
 }
 
 #[derive(Debug)]
 struct Pinned {
-    trusted: Trusted,
+    trust: Trust,
+    public: Arc<RootCertStore>,
     provider: Arc<CryptoProvider>,
 }
 
-/// A client for one PC. With `fingerprint`, only that authority is trusted; without, the first one seen is.
-pub(crate) fn client(fingerprint: Option<Fingerprint>) -> (reqwest::Client, Trusted) {
-    let trusted = Trusted(Arc::new(Mutex::new(fingerprint)));
+/// A client for one PC that trusts only what `trust` names.
+pub(crate) fn client(trust: Trust) -> reqwest::Client {
+    build(trust, public_roots())
+}
+
+fn public_roots() -> Arc<RootCertStore> {
+    static ROOTS: OnceLock<Arc<RootCertStore>> = OnceLock::new();
+    ROOTS
+        .get_or_init(|| {
+            let mut roots = RootCertStore::empty();
+            roots.add_parsable_certificates(webpki_root_certs::TLS_SERVER_ROOT_CERTS.iter().cloned());
+            Arc::new(roots)
+        })
+        .clone()
+}
+
+fn build(trust: Trust, public: Arc<RootCertStore>) -> reqwest::Client {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let verifier = Pinned {
-        trusted: trusted.clone(),
+        trust,
+        public,
         provider: provider.clone(),
     };
 
@@ -49,18 +65,30 @@ pub(crate) fn client(fingerprint: Option<Fingerprint>) -> (reqwest::Client, Trus
     // HTTP/1.1 only, so the event socket's upgrade passes through as the WebView asked for it.
     config.alpn_protocols = vec![b"http/1.1".to_vec()];
 
-    let client = reqwest::Client::builder()
+    reqwest::Client::builder()
         .tls_backend_preconfigured(config)
         .http1_only()
         .connect_timeout(CONNECT_TIMEOUT)
         .build()
-        .expect("a client with a preconfigured TLS backend builds");
-
-    (client, trusted)
+        .expect("a client with a preconfigured TLS backend builds")
 }
 
 pub(crate) fn fingerprint(certificate: &[u8]) -> Fingerprint {
     Sha256::digest(certificate).into()
+}
+
+/// SHA-256 of a certificate's public key, as the PC reports it for its tunnel.
+pub(crate) fn key_of(certificate: &CertificateDer<'_>) -> Option<Fingerprint> {
+    let certificate = webpki::EndEntityCert::try_from(certificate).ok()?;
+    Some(Sha256::digest(certificate.subject_public_key_info().as_ref()).into())
+}
+
+impl Pinned {
+    fn verifier(&self, roots: Arc<RootCertStore>) -> Result<Arc<WebPkiServerVerifier>, Error> {
+        WebPkiServerVerifier::builder_with_provider(roots, self.provider.clone())
+            .build()
+            .map_err(|error| Error::General(error.to_string()))
+    }
 }
 
 impl ServerCertVerifier for Pinned {
@@ -72,25 +100,28 @@ impl ServerCertVerifier for Pinned {
         ocsp: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
-        let pinned = self.trusted.get();
-        let authority = match pinned {
-            Some(pinned) => chain.iter().find(|certificate| fingerprint(certificate) == pinned),
-            // The gateway sends its authority last in the chain.
-            None => chain.last(),
+        let not_it = || Error::General("this is not the PC Drift linked with".into());
+        match self.trust {
+            Trust::Authority(pinned) => {
+                // The gateway sends its authority in the chain; the leaf must be issued by it for this address.
+                let authority = chain
+                    .iter()
+                    .find(|certificate| fingerprint(certificate) == pinned)
+                    .ok_or_else(not_it)?;
+                let mut roots = RootCertStore::empty();
+                roots.add(authority.clone())?;
+                self.verifier(Arc::new(roots))?
+                    .verify_server_cert(leaf, &[], name, ocsp, now)?;
+            }
+            Trust::Key(pinned) => {
+                self.verifier(self.public.clone())?
+                    .verify_server_cert(leaf, chain, name, ocsp, now)?;
+                if key_of(leaf) != Some(pinned) {
+                    return Err(not_it());
+                }
+            }
         }
-        .ok_or_else(|| Error::General("this is not the PC Drift linked with".into()))?;
 
-        // The leaf must be issued by that authority, for the address connected to, as any TLS client checks.
-        let mut roots = RootCertStore::empty();
-        roots.add(authority.clone())?;
-        let webpki = WebPkiServerVerifier::builder_with_provider(Arc::new(roots), self.provider.clone())
-            .build()
-            .map_err(|error| Error::General(error.to_string()))?;
-        webpki.verify_server_cert(leaf, &[], name, ocsp, now)?;
-
-        if pinned.is_none() {
-            *self.trusted.0.lock().unwrap() = Some(fingerprint(authority));
-        }
         Ok(ServerCertVerified::assertion())
     }
 

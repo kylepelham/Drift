@@ -2,32 +2,36 @@ pub(crate) mod access_commands;
 mod gateway;
 mod interfaces;
 mod transport;
+mod tunnel;
 
 use gateway::router;
 
-use transport::{accept_loop, discovery_loop, local_ipv4};
+use transport::{accept_loop, local_ipv4};
 
-use crate::remote_auth::{self, Auth, PendingLink};
+use crate::remote_auth::{self, Auth};
 use crate::remote_tls::Tls;
 use crate::store::{RemoteDevice, Store};
 use crate::{commands, config, editor, file_preview, prompts, ui_state, voice};
-use axum::Json;
 use axum::extract::{Extension, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+use axum::{Json, Router};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::net::Ipv4Addr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tokio::sync::{Mutex as AsyncMutex, watch};
 use tokio::task::JoinHandle;
+use tunnel::TunnelStatus;
 
 pub(crate) const HTTP_PORT: u16 = 41718;
-pub(crate) const DISCOVERY_PORT: u16 = 41717;
 const MAX_CONCURRENT_PASSWORD_CHECKS: usize = 2;
+const BROWSER_KEY: &str = "remote_browser";
+const TUNNEL_KEY: &str = "remote_tunnel";
+const ROUTE_KEY: &str = "remote_tunnel_route";
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RemoteError {
@@ -35,10 +39,6 @@ pub(crate) enum RemoteError {
     Disabled,
     #[error("could not listen on port {HTTP_PORT}: {0}")]
     Listen(#[source] std::io::Error),
-    #[error("could not listen for LAN discovery: {0}")]
-    Discovery(#[source] std::io::Error),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
     #[error(transparent)]
     Database(#[from] rusqlite::Error),
     #[error(transparent)]
@@ -50,19 +50,29 @@ pub(crate) enum RemoteError {
 #[derive(Clone)]
 struct RemoteConfig {
     enabled: bool,
+    /// The browser version: its sign-in page, password sign-in, and cookie sessions.
+    browser: bool,
+    /// Reaching this PC from anywhere through OpenTunnel.
+    tunnel: bool,
     error: Option<String>,
 }
 
 struct Running {
     shutdown: watch::Sender<bool>,
     http: JoinHandle<()>,
-    discovery: JoinHandle<()>,
+    router: Router,
+    tunnel: Option<tunnel::Running>,
 }
 
 pub(crate) struct RemoteAccess {
+    app: tauri::AppHandle,
     config: Mutex<RemoteConfig>,
     auth: Mutex<Auth>,
     tls: Arc<Tls>,
+    tunnel_dir: PathBuf,
+    tunnel_status: Mutex<TunnelStatus>,
+    /// Where phones reach this PC through the tunnel, while it is up.
+    tunnel_endpoint: Mutex<Option<drift_pairing::Tunnel>>,
     password_checks: tokio::sync::Semaphore,
     running: AsyncMutex<Option<Running>>,
     transition: AsyncMutex<()>,
@@ -74,17 +84,14 @@ pub(crate) struct RemoteAccess {
 pub(crate) struct RemoteStatus {
     enabled: bool,
     listening: bool,
-    port: u16,
-    discovery_port: u16,
-    listening_address: Option<String>,
-    urls: Vec<String>,
-    address_qr: Option<String>,
+    /// What a browser on this network opens, while browser access is on.
+    lan_url: Option<String>,
+    browser: bool,
+    tunnel_enabled: bool,
+    tunnel: TunnelStatus,
     devices: Vec<RemoteDevice>,
-    pending_links: Vec<PendingLink>,
     password_username: Option<String>,
     certificate_fingerprint: String,
-    /// The fingerprint as six words, to compare with what the Drift app shows before linking it by code.
-    certificate_words: Vec<String>,
     error: Option<String>,
 }
 
@@ -98,14 +105,24 @@ pub(crate) struct RemotePairing {
 }
 
 impl RemoteAccess {
-    pub(crate) fn load(store: &Store, data_dir: &Path) -> Result<Self, RemoteError> {
+    pub(crate) fn load(app: &tauri::AppHandle, store: &Store, data_dir: &Path) -> Result<Self, RemoteError> {
         let enabled = store.remote_access_enabled()?;
+        let switched_on = |key| store.app_setting(key).map(|value| value.is_some());
         let (auth_revision, _) = watch::channel(0);
 
         Ok(Self {
-            config: Mutex::new(RemoteConfig { enabled, error: None }),
+            app: app.clone(),
+            config: Mutex::new(RemoteConfig {
+                enabled,
+                browser: switched_on(BROWSER_KEY)?,
+                tunnel: switched_on(TUNNEL_KEY)?,
+                error: None,
+            }),
             auth: Mutex::new(Auth::load(store)?),
             tls: Arc::new(Tls::load_or_create(&data_dir.join("remote-tls"))?),
+            tunnel_dir: data_dir.join("opentunnel"),
+            tunnel_status: Mutex::new(TunnelStatus::OFF),
+            tunnel_endpoint: Mutex::new(None),
             password_checks: tokio::sync::Semaphore::new(MAX_CONCURRENT_PASSWORD_CHECKS),
             running: AsyncMutex::new(None),
             transition: AsyncMutex::new(()),
@@ -117,9 +134,14 @@ impl RemoteAccess {
         self.config.lock().unwrap().enabled
     }
 
-    pub(crate) async fn start(&self, app: tauri::AppHandle) -> Result<(), RemoteError> {
+    pub(crate) fn browser_enabled(&self) -> bool {
+        self.config.lock().unwrap().browser
+    }
+
+    pub(crate) async fn start(&self) -> Result<(), RemoteError> {
         let mut running = self.running.lock().await;
-        if !self.config.lock().unwrap().enabled {
+        let config = self.config.lock().unwrap().clone();
+        if !config.enabled {
             return Err(RemoteError::Disabled);
         }
         if running.is_some() {
@@ -129,26 +151,21 @@ impl RemoteAccess {
         let http_listener = tokio::net::TcpListener::bind((Ipv4Addr::UNSPECIFIED, HTTP_PORT))
             .await
             .map_err(RemoteError::Listen)?;
-        let discovery_socket = tokio::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, DISCOVERY_PORT))
-            .await
-            .map_err(RemoteError::Discovery)?;
-        discovery_socket.set_broadcast(true)?;
-
+        let router = router(self.app.clone());
         let (shutdown, http_shutdown) = watch::channel(false);
-        let discovery_shutdown = shutdown.subscribe();
         let http = tokio::spawn(accept_loop(
             http_listener,
-            router(app.clone()),
+            router.clone(),
             self.tls.clone(),
             http_shutdown,
         ));
-        let fingerprint = self.tls.fingerprint().to_string();
-        let discovery = tokio::spawn(discovery_loop(discovery_socket, fingerprint, discovery_shutdown));
+        let tunnel = config.tunnel.then(|| self.start_tunnel(&router)).transpose()?;
 
         *running = Some(Running {
             shutdown,
             http,
-            discovery,
+            router,
+            tunnel,
         });
         self.config.lock().unwrap().error = None;
 
@@ -157,21 +174,19 @@ impl RemoteAccess {
 
     pub(crate) async fn stop(&self) {
         let running = self.running.lock().await.take();
-        if let Some(mut running) = running {
-            let _ = running.shutdown.send(true);
-            if tokio::time::timeout(std::time::Duration::from_millis(500), &mut running.http)
-                .await
-                .is_err()
-            {
-                running.http.abort();
-            }
-            if tokio::time::timeout(std::time::Duration::from_millis(500), &mut running.discovery)
-                .await
-                .is_err()
-            {
-                running.discovery.abort();
-            }
+        let Some(mut running) = running else { return };
+
+        let _ = running.shutdown.send(true);
+        if let Some(tunnel) = running.tunnel.take() {
+            tunnel.stop().await;
         }
+        if tokio::time::timeout(std::time::Duration::from_millis(500), &mut running.http)
+            .await
+            .is_err()
+        {
+            running.http.abort();
+        }
+        self.tunnel_changed(TunnelStatus::OFF);
     }
 
     pub(crate) fn stop_on_exit(&self) {
@@ -182,29 +197,98 @@ impl RemoteAccess {
         }
     }
 
+    /// Turns the tunnel on or off, at once while the gateway runs and otherwise when it next starts.
+    async fn set_tunnel(&self, store: &Store, enabled: bool) -> Result<(), RemoteError> {
+        save_switch(store, TUNNEL_KEY, enabled)?;
+        self.config.lock().unwrap().tunnel = enabled;
+
+        let mut running = self.running.lock().await;
+        let Some(running) = running.as_mut() else {
+            return Ok(());
+        };
+        match (enabled, running.tunnel.take()) {
+            (true, Some(kept)) if !kept.is_finished() => running.tunnel = Some(kept),
+            (true, _) => running.tunnel = Some(self.start_tunnel(&running.router)?),
+            (false, Some(tunnel)) => {
+                tunnel.stop().await;
+                self.tunnel_changed(TunnelStatus::OFF);
+            }
+            (false, None) => {}
+        }
+
+        Ok(())
+    }
+
+    fn start_tunnel(&self, router: &Router) -> Result<tunnel::Running, RemoteError> {
+        let store = self.app.state::<Store>();
+        let route = match store.app_setting(ROUTE_KEY)? {
+            Some(route) => route,
+            None => {
+                let route = tunnel::new_route();
+                store.save_app_setting(ROUTE_KEY, &route)?;
+                route
+            }
+        };
+
+        Ok(tunnel::start(
+            self.app.clone(),
+            router.clone(),
+            self.tunnel_dir.clone(),
+            route,
+        ))
+    }
+
+    /// Records how the tunnel is doing and tells the desktop's settings, without waking them for nothing.
+    fn tunnel_changed(&self, status: TunnelStatus) {
+        let mut current = self.tunnel_status.lock().unwrap();
+        if *current == status {
+            return;
+        }
+        *current = status;
+        drop(current);
+
+        let _ = self.app.emit("remote-access-changed", ());
+    }
+
+    fn set_tunnel_endpoint(&self, endpoint: Option<drift_pairing::Tunnel>) {
+        *self.tunnel_endpoint.lock().unwrap() = endpoint;
+    }
+
+    fn set_browser(&self, store: &Store, enabled: bool) -> Result<(), RemoteError> {
+        save_switch(store, BROWSER_KEY, enabled)?;
+        self.config.lock().unwrap().browser = enabled;
+        // A browser still open must lose its event stream now, not on its next request.
+        if !enabled {
+            self.invalidate_streams();
+        }
+
+        Ok(())
+    }
+
     async fn status(&self) -> RemoteStatus {
         let config = self.config.lock().unwrap().clone();
         let listening = self.running.lock().await.is_some();
         let mut status = status_for(&config, listening);
-        let mut auth = self.auth();
+        let auth = self.auth();
         status.devices = auth.devices();
-        status.pending_links = auth.pending();
         status.password_username = auth.password_username();
+        drop(auth);
+        status.tunnel = self.tunnel_status.lock().unwrap().clone();
         status.certificate_fingerprint = self.tls.fingerprint().to_string();
-        status.certificate_words = self.fingerprint_words();
 
         status
     }
 
-    fn fingerprint_words(&self) -> Vec<String> {
-        drift_pairing::parse_fingerprint(self.tls.fingerprint())
-            .map(|fingerprint| {
-                drift_pairing::words(&fingerprint)
-                    .into_iter()
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// Where a phone reaches this PC now: its network addresses, the gateway's port, and the tunnel while it is up.
+    pub(crate) fn reach(&self) -> Value {
+        let (addresses, _) = interfaces::reachable(local_ipv4());
+        let tunnel = self.tunnel_endpoint.lock().unwrap().clone();
+
+        json!({
+            "addresses": addresses,
+            "port": HTTP_PORT,
+            "tunnel": tunnel.map(|tunnel| json!({ "host": tunnel.host, "key": drift_pairing::hex(&tunnel.key) })),
+        })
     }
 
     /// A fresh one-time pairing code, replacing any shown before; `None` while the gateway is not listening.
@@ -214,7 +298,8 @@ impl RemoteAccess {
         }
         let fingerprint = drift_pairing::parse_fingerprint(self.tls.fingerprint())?;
         let (addresses, mac) = interfaces::reachable(local_ipv4());
-        if addresses.is_empty() {
+        let tunnel = self.tunnel_endpoint.lock().unwrap().clone();
+        if addresses.is_empty() && tunnel.is_none() {
             return None;
         }
 
@@ -224,13 +309,14 @@ impl RemoteAccess {
             addresses: addresses.into_iter().map(Into::into).collect(),
             port: HTTP_PORT,
             mac,
+            tunnel,
             ticket: self.auth().new_ticket(),
         };
         let uri = pairing.to_uri();
         let expires_at = remote_auth::now_ms() + remote_auth::TICKET_TTL.as_millis() as i64;
 
         Some(RemotePairing {
-            qr: qr_svg(&uri, 200)?,
+            qr: qr_svg(&uri)?,
             uri,
             expires_at,
         })
@@ -249,11 +335,13 @@ impl RemoteAccess {
     }
 
     fn authorize(&self, headers: &HeaderMap, store: &Store) -> Option<(watch::Receiver<u64>, RemoteDevice)> {
-        if !self.config.lock().unwrap().enabled {
+        let config = self.config.lock().unwrap().clone();
+        if !config.enabled {
             return None;
         }
 
-        let device = self.auth().device(remote_auth::supplied_token(headers)?, store)?;
+        let token = remote_auth::supplied_token(headers, config.browser)?;
+        let device = self.auth().device(token, store)?;
         Some((self.auth_changes(), device))
     }
 
@@ -271,41 +359,41 @@ impl RemoteAccess {
     }
 }
 
-fn status_for(config: &RemoteConfig, listening: bool) -> RemoteStatus {
-    let ip = local_ipv4().filter(|ip| !ip.is_loopback());
-    let urls = if config.enabled && listening {
-        ip.map(|ip| vec![format!("https://{ip}:{HTTP_PORT}/companion")])
-            .unwrap_or_default()
+fn save_switch(store: &Store, key: &str, on: bool) -> rusqlite::Result<()> {
+    if on {
+        store.save_app_setting(key, "1")
     } else {
-        Vec::new()
-    };
+        store.delete_app_setting(key)
+    }
+}
+
+fn status_for(config: &RemoteConfig, listening: bool) -> RemoteStatus {
+    let serving = config.enabled && listening;
+    let lan_url = (serving && config.browser)
+        .then(local_ipv4)
+        .flatten()
+        .map(|ip| format!("https://{ip}:{HTTP_PORT}"));
+
     RemoteStatus {
         enabled: config.enabled,
         listening,
-        port: HTTP_PORT,
-        discovery_port: DISCOVERY_PORT,
-        listening_address: (config.enabled && listening).then(|| format!("0.0.0.0:{HTTP_PORT}")),
-        address_qr: urls.first().and_then(|url| address_qr(url)),
-        urls,
+        lan_url,
+        browser: config.browser,
+        tunnel_enabled: config.tunnel,
+        tunnel: TunnelStatus::OFF,
         devices: Vec::new(),
-        pending_links: Vec::new(),
         password_username: None,
         certificate_fingerprint: String::new(),
-        certificate_words: Vec::new(),
         error: config.error.clone(),
     }
 }
 
-/// The address carries no credential, so it is safe to show as a scannable code.
-fn address_qr(url: &str) -> Option<String> {
-    qr_svg(url, 168)
-}
-
-fn qr_svg(text: &str, size: u32) -> Option<String> {
+/// The pairing code as an SVG big enough to scan from across a desk.
+fn qr_svg(text: &str) -> Option<String> {
     let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
     Some(
         code.render::<qrcode::render::svg::Color<'_>>()
-            .min_dimensions(size, size)
+            .min_dimensions(240, 240)
             .build(),
     )
 }

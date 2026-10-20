@@ -5,18 +5,18 @@
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
         <meta name="color-scheme" content="dark" />
         <meta name="referrer" content="no-referrer" />
-        <title>Connect to Drift</title>
+        <title>Sign in to Drift</title>
         <style>
             :root {
-                --bg: #141517;
-                --surface: #1c1e22;
-                --edge: #2c3036;
-                --ink: #e8e9eb;
-                --muted: #a2a6ad;
-                --faint: #737880;
-                --accent: #7ba3e8;
+                --bg: #161616;
+                --surface: #1e1e1e;
+                --edge: #2e2e2e;
+                --ink: #ececec;
+                --muted: #a8a8a8;
+                --faint: #767676;
+                --accent: #f3a25f;
+                --accent-ink: #1a1208;
                 --danger: #e87b7b;
-                --ok: #7bc99a;
             }
             * {
                 box-sizing: border-box;
@@ -24,6 +24,7 @@
             html,
             body {
                 margin: 0;
+                min-height: 100%;
                 background: var(--bg);
                 color: var(--ink);
                 font:
@@ -34,110 +35,88 @@
                     sans-serif;
             }
             main {
-                max-width: 26rem;
+                max-width: 23rem;
                 margin: 0 auto;
-                padding: max(2.5rem, env(safe-area-inset-top)) 1.25rem 2.5rem;
+                padding: max(4rem, env(safe-area-inset-top)) 1.25rem 2.5rem;
             }
             h1 {
-                font-size: 1.35rem;
-                margin: 0 0 0.25rem;
-                font-weight: 600;
-            }
-            h2 {
-                font-size: 0.95rem;
-                margin: 0 0 0.5rem;
+                font-size: 1.3rem;
+                margin: 0;
                 font-weight: 600;
             }
             p {
-                margin: 0.4rem 0;
+                margin: 0.35rem 0 0;
                 color: var(--muted);
+                font-size: 0.9rem;
             }
-            section {
+            form,
+            .note {
+                margin-top: 1.5rem;
                 background: var(--surface);
                 border: 1px solid var(--edge);
-                border-radius: 0.75rem;
-                padding: 1.1rem;
-                margin-top: 1rem;
-            }
-            .code {
-                font:
-                    600 2rem/1.2 ui-monospace,
-                    "Cascadia Mono",
-                    Consolas,
-                    monospace;
-                letter-spacing: 0.12em;
-                text-align: center;
-                padding: 0.9rem 0;
-                margin: 0.5rem 0;
-                border: 1px dashed var(--edge);
-                border-radius: 0.6rem;
-                user-select: all;
-            }
-            ol {
-                margin: 0.4rem 0 0;
-                padding-left: 1.2rem;
-                color: var(--muted);
+                border-radius: 0.85rem;
+                padding: 1.15rem;
             }
             label {
                 display: block;
                 font-size: 0.8rem;
                 color: var(--muted);
-                margin-top: 0.7rem;
+            }
+            label + label {
+                margin-top: 0.85rem;
             }
             input {
                 display: block;
                 width: 100%;
-                margin-top: 0.25rem;
+                margin-top: 0.3rem;
                 padding: 0.6rem 0.7rem;
-                border-radius: 0.5rem;
+                border-radius: 0.55rem;
                 border: 1px solid var(--edge);
                 background: var(--bg);
                 color: var(--ink);
                 font: inherit;
             }
             input:focus {
-                outline: 2px solid var(--accent);
-                outline-offset: 1px;
+                outline: none;
+                border-color: var(--accent);
             }
             button {
-                margin-top: 0.9rem;
+                margin-top: 1.1rem;
                 width: 100%;
                 padding: 0.65rem;
-                border-radius: 0.5rem;
-                border: 1px solid var(--accent);
-                background: transparent;
-                color: var(--accent);
+                border-radius: 0.55rem;
+                border: 0;
+                background: var(--accent);
+                color: var(--accent-ink);
                 font: inherit;
                 font-weight: 600;
                 cursor: pointer;
             }
             button:disabled {
-                opacity: 0.5;
+                opacity: 0.55;
                 cursor: default;
             }
             a {
                 color: var(--accent);
             }
-            .steps {
-                margin-top: 0.6rem;
-                color: var(--muted);
-                font-size: 0.85rem;
-            }
-            .steps h3 {
-                margin: 0;
-                font-size: 0.85rem;
-                font-weight: 600;
-                color: var(--ink);
-            }
-            .status {
-                font-size: 0.85rem;
-                min-height: 1.3em;
-            }
             .error {
+                min-height: 1.3em;
+                margin-top: 0.7rem;
                 color: var(--danger);
+                font-size: 0.85rem;
             }
-            .ok {
-                color: var(--ok);
+            .security {
+                margin-top: 1.75rem;
+                font-size: 0.82rem;
+                color: var(--faint);
+            }
+            .security p {
+                font-size: inherit;
+                color: inherit;
+            }
+            .security strong {
+                color: var(--muted);
+                font-weight: 500;
             }
             [hidden] {
                 display: none !important;
@@ -146,154 +125,72 @@
     </head>
     <body>
         <main>
-            <h1>Connect to Drift</h1>
-            <p>This computer only accepts devices you approve.</p>
+            <h1>Sign in to Drift</h1>
+            <p id="computer">Use the username and password set in Drift on your computer.</p>
 
-            <section aria-labelledby="link-title">
-                <h2 id="link-title">Link this device</h2>
-                <div id="code" class="code" aria-live="polite">
-                    &middot;&middot;&middot;&middot;-&middot;&middot;&middot;&middot;
-                </div>
-                <ol>
-                    <li>On the computer running Drift, open <strong>Settings &gt; Remote Access</strong>.</li>
-                    <li>Type this code under <strong>Connect a device</strong>.</li>
-                </ol>
-                <p id="link-status" class="status" role="status"></p>
-                <button id="new-code" type="button" hidden>Get a new code</button>
-            </section>
+            <form id="login" hidden>
+                <label
+                    >Username<input
+                        name="username"
+                        autocomplete="username"
+                        autocapitalize="none"
+                        spellcheck="false"
+                        required
+                /></label>
+                <label
+                    >Password<input name="password" type="password" autocomplete="current-password" required
+                /></label>
+                <button type="submit">Sign in</button>
+                <div id="login-error" class="error" role="alert"></div>
+            </form>
 
-            <section id="password" aria-labelledby="password-title" hidden>
-                <h2 id="password-title">Or sign in</h2>
-                <form id="login">
-                    <label
-                        >Username<input
-                            name="username"
-                            autocomplete="username"
-                            autocapitalize="none"
-                            spellcheck="false"
-                            required
-                    /></label>
-                    <label
-                        >Password<input name="password" type="password" autocomplete="current-password" required
-                    /></label>
-                    <button type="submit">Sign in</button>
-                    <p id="login-error" class="status error" role="alert"></p>
-                </form>
-            </section>
-
-            <section aria-labelledby="security-title">
-                <h2 id="security-title">Connection security</h2>
+            <div id="unset" class="note" hidden>
                 <p>
-                    The connection is encrypted with a certificate made by your computer. Browsers do not know that
-                    certificate, so they warn the first time you connect.
+                    Browser sign-in is not set up yet. On the computer running Drift, open
+                    <strong>Settings &gt; Remote Access</strong> and set a password under
+                    <strong>Browser access</strong>.
                 </p>
+            </div>
+
+            <section id="security" class="security" hidden>
                 <p>
-                    <a href="/auth/certificate" download>Download the certificate</a> and install it on this device to
-                    stop the warning.
+                    <strong>About the warning on this address.</strong> The connection is encrypted with a certificate
+                    your computer made, which browsers do not know, so they warn the first time.
+                    <a href="/auth/certificate" download>Download the certificate</a> and install it as a trusted
+                    certificate authority to stop the warning. First check that its SHA-256 fingerprint matches the one
+                    in Drift under Settings &gt; Remote Access &gt; Browser access. It can only vouch for private
+                    network addresses.
                 </p>
-                <div class="steps">
-                    <h3>How to install it</h3>
-                    <p>
-                        <strong>Android:</strong> Settings &gt; Security &gt; Encryption &amp; credentials &gt; Install
-                        a certificate &gt; CA certificate, then choose the downloaded file.
-                    </p>
-                    <p>
-                        <strong>iPhone and iPad:</strong> open the downloaded profile in Settings &gt; Profile
-                        Downloaded and install it. Then turn it on in Settings &gt; General &gt; About &gt; Certificate
-                        Trust Settings.
-                    </p>
-                    <p><strong>Windows, macOS, Linux:</strong> import it as a trusted root certificate authority.</p>
-                    <p>
-                        Before installing, check that its SHA-256 fingerprint matches the one in Drift under Settings
-                        &gt; Remote Access &gt; Stop the certificate warning. The certificate can only vouch for private
-                        network addresses.
-                    </p>
-                </div>
             </section>
         </main>
         <script>
             (() => {
                 const $ = (id) => document.getElementById(id);
                 const name = deviceName(navigator.userAgent);
-                let session = 0;
 
                 function deviceName(agent) {
-                    const platform = /iPad/.test(agent)
-                        ? "iPad"
-                        : /iPhone/.test(agent)
-                          ? "iPhone"
-                          : /Android/.test(agent)
-                            ? "Android"
-                            : /Windows/.test(agent)
-                              ? "Windows"
-                              : /Mac OS X/.test(agent)
-                                ? "Mac"
-                                : /Linux/.test(agent)
-                                  ? "Linux"
-                                  : "Device";
-                    const browser = /; wv\)/.test(agent)
-                        ? "app"
-                        : /Edg\//.test(agent)
-                          ? "Edge"
-                          : /Firefox\//.test(agent)
-                            ? "Firefox"
-                            : /Chrome\//.test(agent)
-                              ? "Chrome"
-                              : /Safari\//.test(agent)
-                                ? "Safari"
-                                : "browser";
-                    return platform + " " + browser;
+                    const platforms = [
+                        [/iPad/, "iPad"],
+                        [/iPhone/, "iPhone"],
+                        [/Android/, "Android"],
+                        [/Windows/, "Windows"],
+                        [/Mac OS X/, "Mac"],
+                        [/Linux/, "Linux"],
+                    ];
+                    const browsers = [
+                        [/Edg\//, "Edge"],
+                        [/Firefox\//, "Firefox"],
+                        [/Chrome\//, "Chrome"],
+                        [/Safari\//, "Safari"],
+                    ];
+                    const pick = (list, fallback) =>
+                        (list.find(([pattern]) => pattern.test(agent)) || [0, fallback])[1];
+                    return pick(platforms, "Device") + " " + pick(browsers, "browser");
                 }
 
-                async function call(url, init) {
-                    const response = await fetch(url, {
-                        credentials: "same-origin",
-                        cache: "no-store",
-                        ...init,
-                        headers: { "content-type": "application/json", ...(init && init.headers) },
-                    });
-                    return { status: response.status, body: await response.json().catch(() => ({})) };
-                }
-
-                function status(text, tone) {
-                    const element = $("link-status");
-                    element.textContent = text;
-                    element.className = "status" + (tone ? " " + tone : "");
-                }
-
-                const enter = () => location.replace("/companion");
-
-                async function startLink() {
-                    const current = ++session;
-                    $("new-code").hidden = true;
-                    status("Waiting for approval…");
-                    try {
-                        const result = await call("/auth/link", { method: "POST", body: JSON.stringify({ name }) });
-                        if (result.status !== 200) throw new Error(result.body.error || "Could not start linking.");
-                        $("code").textContent = result.body.code;
-                        poll(result.body.id, current);
-                    } catch (error) {
-                        status(error.message, "error");
-                        $("new-code").hidden = false;
-                    }
-                }
-
-                async function poll(id, current) {
-                    if (current !== session) return;
-                    try {
-                        const result = await call("/auth/link/" + encodeURIComponent(id));
-                        if (result.body.status === "approved") {
-                            status("Approved. Opening Drift…", "ok");
-                            return enter();
-                        }
-                        if (result.body.status === "pending") return setTimeout(() => poll(id, current), 2000);
-                        status("This code expired.", "error");
-                        $("code").textContent = "····-····";
-                        $("new-code").hidden = false;
-                    } catch {
-                        setTimeout(() => poll(id, current), 4000);
-                    }
-                }
+                // Only a local address carries the computer's own certificate; the internet address has a public one.
+                const local = /^(\d+\.){3}\d+$/.test(location.hostname) || location.hostname.endsWith(".local");
+                $("security").hidden = !local;
 
                 async function login(event) {
                     event.preventDefault();
@@ -303,16 +200,20 @@
                     $("login-error").textContent = "";
                     try {
                         const data = new FormData(form);
-                        const result = await call("/auth/login", {
+                        const response = await fetch("/auth/login", {
                             method: "POST",
+                            credentials: "same-origin",
+                            cache: "no-store",
+                            headers: { "content-type": "application/json" },
                             body: JSON.stringify({
                                 username: data.get("username"),
                                 password: data.get("password"),
                                 name,
                             }),
                         });
-                        if (result.status === 204) return enter();
-                        $("login-error").textContent = result.body.error || "Sign-in failed.";
+                        if (response.status === 204) return location.replace("/companion");
+                        const body = await response.json().catch(() => ({}));
+                        $("login-error").textContent = body.error || "Sign-in failed.";
                     } catch {
                         $("login-error").textContent = "Drift is not reachable.";
                     } finally {
@@ -320,14 +221,18 @@
                     }
                 }
 
-                $("new-code").addEventListener("click", startLink);
                 $("login").addEventListener("submit", login);
-                call("/auth/options")
-                    .then((result) => {
-                        $("password").hidden = !result.body.password;
+                fetch("/auth/options", { credentials: "same-origin", cache: "no-store" })
+                    .then((response) => response.json())
+                    .then((options) => {
+                        if (options.computer)
+                            $("computer").textContent = "Sign in to Drift on " + options.computer + ".";
+                        $("login").hidden = !options.password;
+                        $("unset").hidden = !!options.password;
                     })
-                    .catch(() => {});
-                startLink();
+                    .catch(() => {
+                        $("login").hidden = false;
+                    });
             })();
         </script>
     </body>

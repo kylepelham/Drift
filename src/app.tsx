@@ -4,7 +4,6 @@ import { nudgesSincePrompt, orchestratorNotice } from "./state/orchestrator";
 import { closeMobileDrawer, mobileDrawerOpen } from "./state/navigation";
 import { AttentionNotifier, NoticeHost } from "./ui/notifications";
 import { ToolContextMenuHost } from "./ui/tool-context-menu";
-import { RemoteLinkNotice } from "./ui/remote-link-notice";
 import { syncDictationConsent } from "./voice/dictation";
 import { initDevtoolsShortcut } from "./state/devtools";
 import { ImportSummaryHost } from "./ui/import-summary";
@@ -95,9 +94,7 @@ export function App() {
                 <PaletteHost />
                 <ToolContextMenuHost />
                 <ImportSummaryHost />
-                <NoticeHost>
-                    <RemoteLinkNotice />
-                </NoticeHost>
+                <NoticeHost />
                 <MirrorConnectionNotice />
             </div>
             <StartupSplash />

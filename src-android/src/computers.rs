@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::tls::Fingerprint;
+use crate::pc::Endpoint;
+use crate::tls::Trust;
 
 /// One linked PC. Its certificate authority is its identity; its addresses are only where to look for it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -13,24 +14,66 @@ pub(crate) struct Computer {
     /// The authority's SHA-256 as hex.
     pub id: String,
     pub name: String,
-    /// The last address that answered first.
+    /// On its networks, the last address that answered first.
     pub addresses: Vec<IpAddr>,
     pub port: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mac: Option<String>,
+    /// Where it answers from anywhere, through OpenTunnel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tunnel: Option<Tunnel>,
     /// This phone's device session on the PC.
     pub token: String,
 }
 
+/// The PC's name through the tunnel, and the SHA-256 of the key its certificate must carry, as hex.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub(crate) struct Tunnel {
+    pub host: String,
+    pub key: String,
+}
+
+impl Tunnel {
+    pub(crate) fn from_pairing(tunnel: &drift_pairing::Tunnel) -> Self {
+        Self {
+            host: tunnel.host.clone(),
+            key: drift_pairing::hex(&tunnel.key),
+        }
+    }
+}
+
+/// Where a PC can be reached now, as it reports it to a phone signed in to it.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+pub(crate) struct Reach {
+    #[serde(default)]
+    pub addresses: Vec<IpAddr>,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default)]
+    pub tunnel: Option<Tunnel>,
+}
+
 impl Computer {
-    pub(crate) fn fingerprint(&self) -> Option<Fingerprint> {
+    pub(crate) fn fingerprint(&self) -> Option<crate::tls::Fingerprint> {
         drift_pairing::parse_fingerprint(&self.id)
     }
 
-    pub(crate) fn words(&self) -> Vec<&'static str> {
-        self.fingerprint()
-            .map(|fingerprint| drift_pairing::words(&fingerprint))
-            .unwrap_or_default()
+    /// Every way to reach it, its networks first, each with what the connection must trust.
+    pub(crate) fn endpoints(&self) -> Vec<(Endpoint, Trust)> {
+        let mut endpoints = Vec::new();
+        if let Some(authority) = self.fingerprint() {
+            for address in &self.addresses {
+                let socket = std::net::SocketAddr::new(*address, self.port);
+                endpoints.push((Endpoint::Lan(socket), Trust::Authority(authority)));
+            }
+        }
+        let pinned = self.tunnel.as_ref().and_then(|tunnel| {
+            let key = drift_pairing::parse_fingerprint(&tunnel.key)?;
+            drift_pairing::valid_host(&tunnel.host).then(|| (Endpoint::Tunnel(tunnel.host.clone()), Trust::Key(key)))
+        });
+        endpoints.extend(pinned);
+
+        endpoints
     }
 }
 
@@ -83,23 +126,40 @@ impl Computers {
                 }
             }
             computer.mac = computer.mac.or(old.mac);
+            computer.tunnel = computer.tunnel.or(old.tunnel);
         }
 
         self.saved.computers.push(computer);
         self.save()
     }
 
-    /// Puts the address that answered first, so the next connection tries it before the others.
-    pub(crate) fn answered(&mut self, id: &str, address: IpAddr) -> std::io::Result<()> {
+    /// Takes what the PC reports over a connection that trusted it: its addresses now, with the one that answered
+    /// first, and its tunnel, which it may have turned on or off since the phone last looked.
+    pub(crate) fn refresh(&mut self, id: &str, answered: &Endpoint, reach: Reach) -> std::io::Result<()> {
         let Some(computer) = self.saved.computers.iter_mut().find(|computer| computer.id == id) else {
             return Ok(());
         };
-        if computer.addresses.first() == Some(&address) {
+
+        let mut addresses = reach.addresses;
+        if let Endpoint::Lan(socket) = answered {
+            addresses.retain(|address| *address != socket.ip());
+            addresses.insert(0, socket.ip());
+        }
+        let refreshed = Computer {
+            addresses: if addresses.is_empty() {
+                computer.addresses.clone()
+            } else {
+                addresses
+            },
+            port: reach.port.unwrap_or(computer.port),
+            tunnel: reach.tunnel,
+            ..computer.clone()
+        };
+        if *computer == refreshed {
             return Ok(());
         }
 
-        computer.addresses.retain(|known| *known != address);
-        computer.addresses.insert(0, address);
+        *computer = refreshed;
         self.save()
     }
 
@@ -135,7 +195,15 @@ mod tests {
             addresses: addresses.iter().map(|address| address.parse().unwrap()).collect(),
             port: 41718,
             mac: None,
+            tunnel: None,
             token: format!("token {id}"),
+        }
+    }
+
+    fn tunnel() -> Tunnel {
+        Tunnel {
+            host: "k2v7qxmd4hzt6wnc.x3fp8rk2mq7a.opentunnel.xyz".into(),
+            key: "5a".repeat(32),
         }
     }
 
@@ -149,17 +217,18 @@ mod tests {
 
         let mut relinked = computer("aa", &["100.101.2.3"]);
         relinked.token = "fresh".into();
+        relinked.tunnel = Some(tunnel());
         computers.upsert(relinked).unwrap();
-        computers.answered("aa", "192.168.1.20".parse().unwrap()).unwrap();
 
         let reloaded = Computers::load(path.clone());
         let active = reloaded.active().unwrap();
         assert_eq!(active.token, "fresh");
+        assert_eq!(active.tunnel, Some(tunnel()));
         assert_eq!(
             active.addresses,
             [
-                "192.168.1.20".parse::<IpAddr>().unwrap(),
-                "100.101.2.3".parse().unwrap()
+                "100.101.2.3".parse::<IpAddr>().unwrap(),
+                "192.168.1.20".parse().unwrap()
             ]
         );
         assert_eq!(reloaded.list().len(), 2);
@@ -168,5 +237,70 @@ mod tests {
         computers.remove("aa").unwrap();
         assert!(computers.active().is_none());
         std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn what_the_pc_reports_replaces_its_addresses_and_tunnel_with_the_answering_address_first() {
+        let path = std::env::temp_dir().join(format!("drift-refresh-{}.json", std::process::id()));
+        let mut computers = Computers::load(path.clone());
+        let mut known = computer("aa", &["192.168.1.20", "10.9.9.9"]);
+        known.tunnel = Some(tunnel());
+        computers.upsert(known).unwrap();
+
+        let answered = Endpoint::Lan("100.101.2.3:41718".parse().unwrap());
+        let reach = Reach {
+            addresses: vec!["192.168.1.31".parse().unwrap(), "100.101.2.3".parse().unwrap()],
+            port: Some(41718),
+            tunnel: None,
+        };
+        computers.refresh("aa", &answered, reach).unwrap();
+
+        let refreshed = Computers::load(path.clone()).get("aa").unwrap().clone();
+        assert_eq!(
+            refreshed.addresses,
+            [
+                "100.101.2.3".parse::<IpAddr>().unwrap(),
+                "192.168.1.31".parse().unwrap()
+            ]
+        );
+        assert_eq!(refreshed.tunnel, None, "the PC turned its tunnel off");
+
+        computers
+            .refresh(
+                "aa",
+                &Endpoint::Tunnel(tunnel().host),
+                Reach {
+                    tunnel: Some(tunnel()),
+                    ..Reach::default()
+                },
+            )
+            .unwrap();
+        let away = computers.get("aa").unwrap();
+        assert_eq!(
+            away.addresses.len(),
+            2,
+            "a report without addresses keeps the known ones"
+        );
+        assert_eq!(away.tunnel, Some(tunnel()));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn endpoints_try_the_networks_first_and_pin_the_tunnel_to_its_key() {
+        let mut linked = computer(&"ab".repeat(32), &["192.168.1.20"]);
+        linked.tunnel = Some(tunnel());
+        let endpoints = linked.endpoints();
+
+        assert_eq!(endpoints.len(), 2);
+        assert_eq!(endpoints[0].0, Endpoint::Lan("192.168.1.20:41718".parse().unwrap()));
+        assert_eq!(endpoints[0].1, Trust::Authority([0xab; 32]));
+        assert_eq!(endpoints[1].0, Endpoint::Tunnel(tunnel().host));
+        assert_eq!(endpoints[1].1, Trust::Key([0x5a; 32]));
+
+        linked.tunnel = Some(Tunnel {
+            host: "evil.example/steal".into(),
+            key: "5a".repeat(32),
+        });
+        assert_eq!(linked.endpoints().len(), 1, "a damaged tunnel is never tried");
     }
 }

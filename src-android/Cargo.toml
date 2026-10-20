@@ -23,9 +23,12 @@ axum = { workspace = true }
 hyper = "1"
 hyper-util = { version = "0.1", features = ["tokio"] }
 futures-util = { workspace = true }
-# Requests to a PC over TLS that trusts only that PC's certificate authority.
+# Requests to a PC over TLS that trusts only that PC: its certificate authority, or its tunnel certificate's key.
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-webpki = { version = "0.103", default-features = false, features = ["alloc"] }
+# Through the tunnel the PC holds a public certificate; Mozilla's roots, already in the tree, vouch for it.
+webpki-root-certs = "1"
 sha2 = "0.10"
 getrandom = { workspace = true }
 # The desktop's own UI, served to the WebView by the proxy; embedded in debug builds too, since a phone has no source tree.

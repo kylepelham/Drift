@@ -9,7 +9,7 @@ use rustls::pki_types::PrivatePkcs8KeyDer;
 
 use super::*;
 
-/// A PC's certificate authority, as the desktop's gateway makes one.
+/// A certificate authority: a PC's own, as the desktop's gateway makes one, or a stand-in for a public one.
 pub(crate) struct Authority {
     issuer: Issuer<'static, KeyPair>,
     pub der: CertificateDer<'static>,
@@ -34,17 +34,22 @@ impl Authority {
 
     /// Serves `router` over HTTPS on 127.0.0.1 with a leaf this authority signed for that address.
     pub(crate) async fn serve(&self, router: Router) -> SocketAddr {
+        self.serve_leaf(router).await.0
+    }
+
+    /// As `serve`, also handing back the leaf, whose key a tunnel pin names.
+    pub(crate) async fn serve_leaf(&self, router: Router) -> (SocketAddr, CertificateDer<'static>) {
         let mut params = CertificateParams::default();
         params.subject_alt_names = vec![SanType::IpAddress("127.0.0.1".parse().unwrap())];
         let key = KeyPair::generate().unwrap();
-        let leaf = params.signed_by(&key, &self.issuer).unwrap();
+        let leaf = params.signed_by(&key, &self.issuer).unwrap().der().clone();
 
         let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
             .unwrap()
             .with_no_client_auth()
             .with_single_cert(
-                vec![leaf.der().clone(), self.der.clone()],
+                vec![leaf.clone(), self.der.clone()],
                 PrivatePkcs8KeyDer::from(key.serialize_der()).into(),
             )
             .unwrap();
@@ -66,7 +71,14 @@ impl Authority {
             }
         });
 
-        address
+        (address, leaf)
+    }
+
+    /// A root store holding only this authority, standing in for the public roots.
+    pub(crate) fn as_public_roots(&self) -> Arc<RootCertStore> {
+        let mut roots = RootCertStore::empty();
+        roots.add(self.der.clone()).unwrap();
+        Arc::new(roots)
     }
 }
 
@@ -88,28 +100,31 @@ async fn only_the_pinned_authoritys_pc_is_trusted() {
     let pc = Authority::new();
     let address = pc.serve(hello()).await;
 
-    let (pinned, _) = client(Some(pc.fingerprint()));
+    let pinned = client(Trust::Authority(pc.fingerprint()));
     assert_eq!(get(&pinned, address).await.unwrap(), "hello");
 
-    let (impostor, _) = client(Some(Authority::new().fingerprint()));
+    let impostor = client(Trust::Authority(Authority::new().fingerprint()));
     assert!(get(&impostor, address).await.is_err(), "another authority is refused");
 }
 
 #[tokio::test]
-async fn a_pc_met_by_address_is_trusted_once_and_held_to_that_authority() {
-    let pc = Authority::new();
-    let address = pc.serve(hello()).await;
-    let (first, trusted) = client(None);
+async fn through_the_tunnel_only_a_publicly_trusted_certificate_with_the_pcs_key_is_trusted() {
+    let public = Authority::new();
+    let (address, leaf) = public.serve_leaf(hello()).await;
+    let key = key_of(&leaf).unwrap();
 
-    assert_eq!(get(&first, address).await.unwrap(), "hello");
-    assert_eq!(
-        trusted.get(),
-        Some(pc.fingerprint()),
-        "its words come from the authority it met"
+    let pinned = build(Trust::Key(key), public.as_public_roots());
+    assert_eq!(get(&pinned, address).await.unwrap(), "hello");
+
+    let relay = build(Trust::Key([7; 32]), public.as_public_roots());
+    assert!(
+        get(&relay, address).await.is_err(),
+        "a valid certificate for the name with another key is refused"
     );
 
-    // The same client meeting a different PC later refuses it.
-    let other = Authority::new();
-    let moved = other.serve(hello()).await;
-    assert!(get(&first, moved).await.is_err());
+    let unknown = build(Trust::Key(key), Arc::new(RootCertStore::empty()));
+    assert!(
+        get(&unknown, address).await.is_err(),
+        "the right key under an untrusted issuer is refused"
+    );
 }

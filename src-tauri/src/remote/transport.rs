@@ -3,7 +3,6 @@ use axum::Router;
 use axum::extract::{ConnectInfo, Request};
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::service::TowerToHyperService;
-use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -12,29 +11,8 @@ use tokio::sync::watch;
 use tokio_rustls::TlsAcceptor;
 use tower::ServiceExt;
 
-use super::HTTP_PORT;
-
-const DISCOVERY_PROBE: &[u8] = b"OPENCODE_COMPANION_DISCOVERY";
 const TLS_HANDSHAKE_RECORD: u8 = 0x16;
 const HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct DiscoveryDescriptor {
-    kind: &'static str,
-    name: &'static str,
-    brand: &'static str,
-    protocol: &'static str,
-    version: u8,
-    /// The remote API version the Drift app checks before linking.
-    api: u32,
-    /// This computer's name, to tell several PCs apart.
-    computer: String,
-    url: String,
-    host: String,
-    port: u16,
-    certificate_sha256: String,
-}
 
 /// Serves HTTPS; dropping the connection set on shutdown aborts every open connection.
 pub(super) async fn accept_loop(
@@ -116,57 +94,13 @@ pub(super) fn plain_redirect(head: &str, fallback_host: &str) -> String {
     )
 }
 
-pub(super) async fn discovery_loop(
-    socket: tokio::net::UdpSocket,
-    fingerprint: String,
-    mut shutdown: watch::Receiver<bool>,
-) {
-    let mut buffer = [0u8; 256];
-
-    loop {
-        tokio::select! {
-            _ = shutdown.changed() => return,
-            received = socket.recv_from(&mut buffer) => {
-                let Ok((size, peer)) = received else { continue };
-                if &buffer[..size] != DISCOVERY_PROBE { continue; }
-                let Some(ip) = local_ipv4_for(peer) else { continue };
-                let descriptor = discovery_descriptor(ip, &fingerprint);
-
-                if let Ok(payload) = serde_json::to_vec(&descriptor) {
-                    let _ = socket.send_to(&payload, peer).await;
-                }
-            }
-        }
-    }
-}
-
-/// Version 2 uses HTTPS; clients may pin certificateSha256, the gateway CA fingerprint.
-pub(super) fn discovery_descriptor(ip: Ipv4Addr, fingerprint: &str) -> DiscoveryDescriptor {
-    DiscoveryDescriptor {
-        kind: "drift-companion",
-        name: "Drift",
-        brand: "Drift",
-        protocol: "drift-remote",
-        version: 2,
-        api: drift_pairing::API_VERSION,
-        computer: super::computer_name(),
-        url: format!("https://{ip}:{HTTP_PORT}/companion"),
-        host: ip.to_string(),
-        port: HTTP_PORT,
-        certificate_sha256: fingerprint.into(),
-    }
-}
-
-fn local_ipv4_for(peer: SocketAddr) -> Option<Ipv4Addr> {
+/// The address this PC uses on its LAN: the one its route to the internet leaves from.
+pub(super) fn local_ipv4() -> Option<Ipv4Addr> {
     let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
-    socket.connect(peer).ok()?;
+    socket.connect(SocketAddr::from(([8, 8, 8, 8], 53))).ok()?;
 
     match socket.local_addr().ok()?.ip() {
         IpAddr::V4(ip) if !ip.is_unspecified() && !ip.is_loopback() => Some(ip),
         _ => None,
     }
-}
-
-pub(super) fn local_ipv4() -> Option<Ipv4Addr> {
-    local_ipv4_for(SocketAddr::from(([8, 8, 8, 8], 53)))
 }

@@ -15,6 +15,7 @@ use tauri::Manager;
 use tokio::sync::{broadcast, watch};
 use tower::ServiceExt;
 
+use super::tunnel::TunnelHost;
 use super::{RemoteAccess, Store, invoke_rpc};
 
 /// Maximum engine request size, including attachments carried in prompts.
@@ -32,8 +33,6 @@ pub(super) fn router(app: tauri::AppHandle) -> Router {
         .route("/companion", get(static_asset))
         .route("/auth/options", get(remote_auth::options))
         .route("/auth/certificate", get(remote_auth::certificate))
-        .route("/auth/link", post(remote_auth::start_link))
-        .route("/auth/link/{id}", get(remote_auth::poll_link))
         .route("/auth/login", post(remote_auth::login))
         .route("/auth/pair", post(remote_auth::pair))
         .route("/auth/logout", post(remote_auth::logout))
@@ -102,7 +101,9 @@ async fn gateway_middleware(State(app): State<tauri::AppHandle>, mut request: Re
     let access = app.state::<RemoteAccess>();
     let path = request.uri().path().to_string();
     let enabled = access.should_start();
-    let response = if enabled && remote_auth::public_path(&path) {
+    let response = if enabled && remote_auth::browser_path(&path) && !access.browser_enabled() {
+        (StatusCode::NOT_FOUND, "Browser access is turned off in Drift.").into_response()
+    } else if enabled && remote_auth::public_path(&path) {
         next.run(request).await
     } else if let Some((auth, device)) = access.authorize(request.headers(), &app.state::<Store>()) {
         request.extensions_mut().insert(auth);
@@ -117,10 +118,14 @@ async fn gateway_middleware(State(app): State<tauri::AppHandle>, mut request: Re
     secure(response)
 }
 
-/// Checks host and origin before authentication so DNS-rebound pages cannot reach even sign-in routes.
+/// Checks host and origin before authentication so DNS-rebound pages cannot reach even sign-in routes. A request
+/// through the tunnel must also name the tunnel's own host: its visitor chose every header.
 pub(super) async fn host_guard(request: Request, next: Next) -> Response {
     let authority = request.uri().authority().map(|authority| authority.as_str().to_owned());
-    if valid_host_origin(request.headers(), authority.as_deref()) {
+    let tunnel = request.extensions().get::<TunnelHost>().map(|host| host.0.as_str());
+    if valid_host_origin(request.headers(), authority.as_deref())
+        && tunnel.is_none_or(|expected| names_host(request.headers(), authority.as_deref(), expected))
+    {
         return next.run(request).await;
     }
 
@@ -145,6 +150,17 @@ pub(super) fn valid_host_origin(headers: &HeaderMap, authority: Option<&str>) ->
     };
 
     origin.scheme() == "https" && origin[url::Position::BeforeHost..url::Position::AfterPort] == *host
+}
+
+/// Whether the request's host is `expected`, with or without the HTTPS port every tunnel visitor connects on.
+pub(super) fn names_host(headers: &HeaderMap, authority: Option<&str>, expected: &str) -> bool {
+    let header_host = headers.get(header::HOST).and_then(|value| value.to_str().ok());
+    let Some(host) = authority.or(header_host) else {
+        return false;
+    };
+
+    let host = host.strip_suffix(":443").unwrap_or(host);
+    host.eq_ignore_ascii_case(expected)
 }
 
 fn secure(mut response: Response) -> Response {

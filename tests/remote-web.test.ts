@@ -4,9 +4,10 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { backendInvoke, backendRoute } from "../src/backend";
 import {
     nextRemoteAccessEnabled,
-    normalizeLinkCode,
     pairedDevice,
+    pairingReachesAnywhere,
     remoteStatusTone,
+    tunnelUrl,
     type RemoteAccessStatus,
 } from "../src/state/remote-access";
 
@@ -160,17 +161,7 @@ test("mobile layout keeps scrolling inside the transcript and drawer", async () 
 });
 
 test("remote settings state distinguishes online, offline, and error", () => {
-    const base: RemoteAccessStatus = {
-        enabled: true,
-        listening: true,
-        port: 41718,
-        discoveryPort: 41717,
-        urls: [],
-        devices: [],
-        pendingLinks: [],
-        certificateFingerprint: "AB:CD",
-        certificateWords: [],
-    };
+    const base = remoteStatus();
     expect(remoteStatusTone(base)).toBe("online");
     expect(remoteStatusTone({ ...base, listening: false })).toBe("offline");
     expect(remoteStatusTone({ ...base, error: "busy" })).toBe("error");
@@ -180,8 +171,10 @@ test("remote settings state distinguishes online, offline, and error", () => {
 
 test("remote access toggle has one state transition helper", async () => {
     const section = await Bun.file("src/ui/settings-remote-access.tsx").text();
-    expect(section).toContainCode("onChange={() => void setRemoteAccess(nextRemoteAccessEnabled(status()))}");
-    expect(section).not.toContainCode("onClick={() => void setRemoteAccess");
+    expect(section).toContainCode(
+        "const toggle = () => !remoteAccessBusy() && void setRemoteAccess(nextRemoteAccessEnabled(status()));",
+    );
+    expect(section.match(/setRemoteAccess\(/g)).toHaveLength(1);
     expect(section).not.toContainCode("remote-access-card");
 });
 
@@ -193,26 +186,26 @@ test("the pairing code counts as used once an app device signs in after it was s
         createdAt,
         lastSeenAt: createdAt,
     });
-    const status = (devices: ReturnType<typeof device>[]): RemoteAccessStatus => ({
-        enabled: true,
-        listening: true,
-        port: 41718,
-        discoveryPort: 41717,
-        urls: [],
-        devices,
-        pendingLinks: [],
-        certificateFingerprint: "AB:CD",
-        certificateWords: [],
-    });
+    const status = (devices: ReturnType<typeof device>[]) => remoteStatus({ devices });
 
     expect(pairedDevice(status([device("app", 5), device("link", 20)]), 10)).toBeUndefined();
     expect(pairedDevice(status([device("app", 5), device("app", 12)]), 10)?.id).toBe("app12");
     expect(pairedDevice(null, 10)).toBeUndefined();
 });
 
-test("typed link codes ignore case, spaces, and the separator", () => {
-    expect(normalizeLinkCode(" abcd-efgh ")).toBe("ABCDEFGH");
-    expect(normalizeLinkCode("AB CD EF GH")).toBe("ABCDEFGH");
+test("the tunnel address shows only while it carries traffic, and a code says whether it reaches past the network", () => {
+    const url = "https://k2v7qxmd4hzt6wnc.x3fp8rk2mq7a.opentunnel.xyz";
+    const tunnel = (phase: RemoteAccessStatus["tunnel"]["phase"]) => remoteStatus({ tunnel: { phase, url } });
+
+    expect(tunnelUrl(tunnel("online"))).toBe(url);
+    expect(tunnelUrl(tunnel("reconnecting"))).toBe(url);
+    expect(tunnelUrl(tunnel("setting-up"))).toBeUndefined();
+    expect(tunnelUrl(tunnel("failed"))).toBeUndefined();
+    expect(tunnelUrl(null)).toBeUndefined();
+
+    const code = (query: string) => ({ uri: `drift://pair?v=1&a=192.168.1.20${query}&t=ab`, qr: "", expiresAt: 0 });
+    expect(pairingReachesAnywhere(code("&h=k2v7.x3fp8rk2mq7a.opentunnel.xyz&k=5a"))).toBeTrue();
+    expect(pairingReachesAnywhere(code(""))).toBeFalse();
 });
 
 test("the shared access-key flow is gone and management stays desktop-only", async () => {
@@ -242,12 +235,16 @@ test("device activity reads as relative time", async () => {
     );
 });
 
-test("remote settings drop the redundant gateway rows and keep linking in numbered steps", async () => {
+test("devices link only by the app's pairing code; browsers sign in with a password behind their own switch", async () => {
     const section = await Bun.file("src/ui/settings-remote-access.tsx").text();
-    expect(section).not.toContainCode("listeningAddress");
-    expect(section).not.toContainCode("drift.remote.encryption.https");
-    expect(section).toContainCode('id="remote-link-code"');
-    expect(section.match(/<Step number=\{\d\}>/g)).toHaveLength(3);
+    const state = await Bun.file("src/state/remote-access.ts").text();
+    for (const gone of ["remote-link-code", "remote_access_link", "pendingLinks", "addressQr", "certificateWords"]) {
+        expect(section + state).not.toContain(gone);
+    }
+    expect(state).toContainCode('call("remote_access_set_browser", { enabled })');
+    expect(state).toContainCode('call("remote_access_set_tunnel", { enabled })');
+    expect(section).toContainCode("<Show when={status()?.browser}>");
+    expect(await Bun.file("src/app.tsx").text()).not.toContain("RemoteLinkNotice");
 });
 
 test("in the companion the native client reaches the engine through the gateway and holds no engine token", async () => {
@@ -263,3 +260,16 @@ test("in the companion the native client reaches the engine through the gateway 
         Object.defineProperty(globalThis, "window", { configurable: true, value: saved });
     }
 });
+
+function remoteStatus(patch: Partial<RemoteAccessStatus> = {}): RemoteAccessStatus {
+    return {
+        enabled: true,
+        listening: true,
+        browser: false,
+        tunnelEnabled: false,
+        tunnel: { phase: "off" },
+        devices: [],
+        certificateFingerprint: "AB:CD",
+        ...patch,
+    };
+}

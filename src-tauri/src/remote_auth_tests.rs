@@ -51,67 +51,14 @@ fn auth_errors_keep_the_command_boundary_text() {
         (AuthError::InvalidUsername, "Username must be 1 to 64 characters."),
         (AuthError::InvalidPassword, "Password must be 8 to 256 characters."),
         (
-            AuthError::UnknownCode,
-            "No device is waiting with that code. Codes expire after 10 minutes.",
-        ),
-        (
-            AuthError::TooManyLinks,
-            "Too many devices are waiting to link. Try again in a few minutes.",
+            AuthError::UnknownTicket,
+            "That pairing code has expired or was already used. Show a new one on the PC.",
         ),
     ];
 
     for (error, message) in cases {
         assert_eq!(error.to_string(), message);
     }
-}
-
-#[test]
-fn codes_avoid_look_alikes_and_normalize_for_typing() {
-    for _ in 0..200 {
-        let code = random_code();
-        assert_eq!(code.len(), CODE_LENGTH);
-        assert!(code.bytes().all(|byte| CODE_ALPHABET.contains(&byte)), "{code}");
-    }
-    assert_eq!(display_code("ABCDEFGH"), "ABCD-EFGH");
-    assert_eq!(normalize_code(" abcd-efgh "), "ABCDEFGH");
-}
-
-#[test]
-fn a_device_links_only_after_its_code_is_entered_on_the_desktop() {
-    let (store, directory) = store();
-    let mut auth = Auth::load(&store).unwrap();
-    let (handle, code) = auth.request_link(address(20), "Android Chrome".into()).unwrap();
-
-    let pending = auth.pending();
-    assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].name, "Android Chrome");
-    assert!(!serde_json::to_string(&pending).unwrap().contains(&code));
-    assert!(matches!(auth.poll(&handle, &store).unwrap(), Poll::Pending));
-    assert!(auth.approve("WRONG123").is_err());
-
-    let typed = format!("{}-{}", code[..4].to_lowercase(), &code[4..]);
-    assert_eq!(auth.approve(&typed).unwrap(), "Android Chrome");
-    assert!(auth.approve(&code).is_err(), "a code approves once");
-    assert!(auth.pending().is_empty());
-
-    let Poll::Approved(token) = auth.poll(&handle, &store).unwrap() else {
-        panic!("expected approval")
-    };
-    assert!(
-        matches!(auth.poll(&handle, &store).unwrap(), Poll::Expired),
-        "the token is delivered once"
-    );
-
-    let device = auth.device(&token, &store).unwrap();
-    assert_eq!(
-        (device.name.as_str(), device.method.as_str()),
-        ("Android Chrome", "link")
-    );
-    assert!(auth.device("not-a-token", &store).is_none());
-    assert_device_persisted_without_token(&store, &device);
-
-    drop(store);
-    let _ = std::fs::remove_dir_all(directory);
 }
 
 #[test]
@@ -136,6 +83,7 @@ fn a_pairing_code_signs_in_one_app_once_and_a_new_code_replaces_the_last() {
 
     let device = auth.device(&token, &store).unwrap();
     assert_eq!((device.name.as_str(), device.method.as_str()), ("Pixel", "app"));
+    assert!(auth.device("not-a-token", &store).is_none());
     assert_device_persisted_without_token(&store, &device);
 
     let expired = auth.new_ticket();
@@ -153,25 +101,6 @@ fn assert_device_persisted_without_token(store: &Store, device: &RemoteDevice) {
     let reloaded = Auth::load(store).unwrap().devices();
     assert_eq!(reloaded, vec![device.clone()]);
     assert!(!serde_json::to_string(&reloaded).unwrap().contains(&device.token_hash));
-}
-
-#[test]
-fn link_requests_expire_and_are_capped_per_address() {
-    let (store, directory) = store();
-    let mut auth = Auth::load(&store).unwrap();
-
-    for _ in 0..MAX_LINKS_PER_ADDRESS {
-        auth.request_link(address(30), "Phone".into()).unwrap();
-    }
-    assert!(auth.request_link(address(30), "Phone".into()).is_err());
-    let (handle, code) = auth.request_link(address(31), "Tablet".into()).unwrap();
-    auth.prune(Instant::now() + LINK_TTL + Duration::from_secs(1));
-    assert!(auth.links.is_empty());
-    assert!(auth.approve(&code).is_err());
-    assert!(matches!(auth.poll(&handle, &store).unwrap(), Poll::Expired));
-
-    drop(store);
-    let _ = std::fs::remove_dir_all(directory);
 }
 
 #[test]
@@ -273,14 +202,19 @@ fn repeated_failures_lock_an_address_with_growing_delays() {
 }
 
 #[test]
-fn session_tokens_come_from_bearer_or_cookie_only() {
+fn session_tokens_come_from_bearer_or_a_cookie_while_browsers_may_sign_in() {
     let mut headers = HeaderMap::new();
     headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer abc"));
-    assert_eq!(supplied_token(&headers), Some("abc"));
+    assert_eq!(supplied_token(&headers, false), Some("abc"));
     headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Basic abc"));
-    assert_eq!(supplied_token(&headers), None);
+    assert_eq!(supplied_token(&headers, true), None);
     headers.insert(header::COOKIE, HeaderValue::from_static("theme=dark; drift_remote=xyz"));
-    assert_eq!(supplied_token(&headers), Some("xyz"));
+    assert_eq!(supplied_token(&headers, true), Some("xyz"));
+    assert_eq!(
+        supplied_token(&headers, false),
+        None,
+        "browser access off refuses browser sessions"
+    );
 
     let cookie = session_cookie("abc");
     let cookie = cookie.to_str().unwrap();
@@ -291,14 +225,7 @@ fn session_tokens_come_from_bearer_or_cookie_only() {
 
 #[test]
 fn only_sign_in_routes_are_public() {
-    for path in [
-        "/auth/options",
-        "/auth/link",
-        "/auth/link/abc",
-        "/auth/login",
-        "/auth/pair",
-        "/auth/certificate",
-    ] {
+    for path in ["/auth/options", "/auth/login", "/auth/pair", "/auth/certificate"] {
         assert!(public_path(path), "{path}");
     }
 
@@ -317,6 +244,24 @@ fn only_sign_in_routes_are_public() {
 }
 
 #[test]
+fn only_the_browser_version_and_its_sign_in_close_with_browser_access() {
+    for path in ["/", "/companion", "/assets/app.js", "/auth/login", "/auth/certificate"] {
+        assert!(browser_path(path), "{path}");
+    }
+    for path in [
+        "/auth/options",
+        "/auth/pair",
+        "/auth/me",
+        "/auth/logout",
+        "/engine/session",
+        "/api/invoke",
+        "/api/ui-state/events",
+    ] {
+        assert!(!browser_path(path), "{path}");
+    }
+}
+
+#[test]
 fn device_names_are_bounded_and_printable() {
     assert_eq!(device_name(None), "Browser");
     assert_eq!(device_name(Some("  \u{7}  ".into())), "Browser");
@@ -328,7 +273,11 @@ fn device_names_are_bounded_and_printable() {
 fn the_sign_in_page_is_self_contained() {
     assert!(!SIGN_IN_PAGE.contains("http://") && !SIGN_IN_PAGE.contains("https://"));
     assert!(!SIGN_IN_PAGE.contains('\u{2014}'));
-    for route in ["/auth/link", "/auth/login", "/auth/options", "/auth/certificate"] {
+    for route in ["/auth/login", "/auth/options", "/auth/certificate"] {
         assert!(SIGN_IN_PAGE.contains(route), "{route}");
     }
+    assert!(
+        !SIGN_IN_PAGE.contains("/auth/link"),
+        "devices no longer link by typed code"
+    );
 }

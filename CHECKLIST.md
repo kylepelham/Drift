@@ -367,8 +367,9 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 
 ## Drift for Android (`docs/android.md`)
 
-- [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, fingerprint words, all reachable addresses and the LAN MAC
-- [ ] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, discovery, QR and typed-code linking
+- [x] Desktop side: one-time pairing tickets and QR, remote API version and computer name, all reachable addresses, the LAN MAC, and the tunnel with its key
+- [x] Android shell: `src-android/` crate, pinned-TLS proxy, PC list, QR linking
+- [x] Reach from anywhere: OpenTunnel on the PC (loopback PROXY v2 listener, exact host check), tunnel key pinned by the app, network and tunnel raced, addresses refreshed from `/auth/me`; typed codes, discovery and the browser QR removed, browser access behind its own switch
 - [ ] Native polish: back gesture, safe areas, keyboard, biometric lock, offline banner
 - [x] Small-screen UI: labeled settings navigation, touch-sized controls, picker sheets, multiline composer, bounded approvals, fitting search/previews, scrollable pairing, and Back dismissal
 - [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN

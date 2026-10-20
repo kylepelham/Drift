@@ -50,6 +50,11 @@ mime_guess = "2"
 rust-embed = "8"
 # The pairing code the Drift app scans; shared with it, no engine inside.
 drift-pairing = { path = "../crates/drift-pairing" }
+# Remote Access from anywhere: OpenTunnel relays TLS it cannot read to this process. Its other dependencies are already
+# in the tree, so it costs one small crate, against reimplementing its bridge protocol and certificate renewal.
+opentunnel = "0.5"
+# The public key in the tunnel's certificate, which the Drift app pins; already in the tree through rustls.
+rustls-webpki = { version = "0.103", default-features = false, features = ["alloc"] }
 
 [target.'cfg(unix)'.dependencies]
 # Lists the network addresses offered in the pairing code; already in the tree through the engine.
