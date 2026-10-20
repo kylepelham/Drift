@@ -288,6 +288,7 @@ mod tests {
                 claude: Default::default(),
                 cache_hour: false,
                 cache_conversation: true,
+                cache_writes_billed: false,
                 deferred_tools: Vec::new(),
                 tool_references: Default::default(),
                 ..request()
@@ -317,12 +318,15 @@ mod tests {
 
         #[test]
         fn a_pdf_is_an_input_file() {
-            let sent = items(&ChatMessage {
-                role: Role::User,
-                blocks: vec![Block::Pdf {
-                    base64: "JVBERi0=".into(),
-                }],
-            });
+            let sent = items(
+                &ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::Pdf {
+                        base64: "JVBERi0=".into(),
+                    }],
+                },
+                &Default::default(),
+            );
             assert_eq!(
                 sent[0]["content"][0],
                 json!({
@@ -421,6 +425,7 @@ mod tests {
                 claude: Default::default(),
                 cache_hour: false,
                 cache_conversation: true,
+                cache_writes_billed: false,
                 deferred_tools: Vec::new(),
                 tool_references: Default::default(),
                 no_tool_calls: false,
@@ -452,9 +457,86 @@ mod tests {
             );
             assert_eq!(
                 at,
-                super::request::items(&marked.messages[0]).len(),
+                super::request::items(&marked.messages[0], &Default::default()).len(),
                 "right after the first message's items"
             );
+        }
+
+        #[test]
+        fn a_tool_search_goes_as_a_client_run_search_whose_output_loads_the_deferred_tools() {
+            let spec = |name: &str| crate::llm::ToolSpec {
+                name: name.into(),
+                description: format!("{name} does it"),
+                input_schema: json!({ "type": "object" }),
+            };
+            let mut searched = request();
+            searched.tools = vec![spec("read"), spec(crate::llm::TOOL_SEARCH)];
+            searched.deferred_tools = vec![spec("apophis_whoami"), spec("apophis_get_case")];
+            searched.messages = vec![
+                ChatMessage {
+                    role: Role::Assistant,
+                    blocks: vec![Block::ToolUse {
+                        id: "call_s".into(),
+                        name: crate::llm::TOOL_SEARCH.into(),
+                        input: json!({ "query": "who am i" }),
+                    }],
+                },
+                ChatMessage {
+                    role: Role::User,
+                    blocks: vec![Block::ToolResult {
+                        call_id: "call_s".into(),
+                        content: "Loaded apophis_whoami.".into(),
+                        is_error: false,
+                    }],
+                },
+            ];
+            searched
+                .tool_references
+                .insert("call_s".into(), vec!["apophis_whoami".into(), "gone".into()]);
+
+            let built = body(&searched, true);
+            assert_eq!(built["tools"][0]["type"], "function");
+            assert_eq!(built["tools"][1]["type"], "tool_search");
+            assert_eq!(built["tools"][1]["execution"], "client");
+            assert_eq!(
+                built["tools"].as_array().unwrap().len(),
+                2,
+                "deferred tools come only when loaded"
+            );
+            let input = built["input"].as_array().unwrap();
+            assert_eq!(
+                input[0],
+                json!({ "type": "tool_search_call", "execution": "client", "call_id": "call_s",
+                    "status": "completed", "arguments": { "query": "who am i" } })
+            );
+            assert_eq!(input[1]["type"], "tool_search_output");
+            assert_eq!(input[1]["call_id"], "call_s");
+            let loaded = input[1]["tools"].as_array().unwrap();
+            assert_eq!(loaded.len(), 1, "a tool no longer deferred is left out");
+            assert_eq!(
+                (&loaded[0]["name"], &loaded[0]["defer_loading"]),
+                (&json!("apophis_whoami"), &json!(true))
+            );
+
+            searched.deferred_tools.clear();
+            let plain = body(&searched, true);
+            assert_eq!(plain["input"][0]["type"], "function_call");
+            assert_eq!(plain["input"][1]["type"], "function_call_output");
+            assert_eq!(plain["tools"][1]["type"], "function");
+        }
+
+        #[test]
+        fn a_one_off_request_to_a_model_that_bills_cache_writes_asks_for_none_by_key() {
+            let mut one_off = request();
+            one_off.cache_conversation = false;
+            one_off.cache_writes_billed = true;
+            assert_eq!(body(&one_off, false)["prompt_cache_options"]["mode"], "explicit");
+            assert!(
+                body(&one_off, true).get("prompt_cache_options").is_none(),
+                "a subscription pays nothing per token"
+            );
+            one_off.cache_conversation = true;
+            assert!(body(&one_off, false).get("prompt_cache_options").is_none());
         }
 
         #[test]
@@ -528,6 +610,48 @@ mod tests {
 
     mod streams {
         use super::*;
+
+        #[test]
+        fn a_client_tool_search_is_a_tool_search_call_and_its_usage_counts_cache_writes() {
+            let mut state = StreamState::default();
+            let search = json!({ "type": "tool_search_call", "execution": "client", "call_id": "call_s",
+                "status": "completed", "arguments": { "query": "fogbugz" } });
+
+            let added = json!({ "type": "response.output_item.added", "output_index": 0, "item": search });
+            assert!(state.chunks(&added.to_string()).unwrap().is_empty());
+            let done = json!({ "type": "response.output_item.done", "output_index": 0, "item": search });
+            assert_eq!(
+                state.chunks(&done.to_string()).unwrap(),
+                vec![
+                    Chunk::ToolUseStart {
+                        id: "call_s".into(),
+                        name: "tool_search".into()
+                    },
+                    Chunk::ToolInputDelta(r#"{"query":"fogbugz"}"#.into()),
+                    Chunk::BlockStop
+                ]
+            );
+
+            let usage = json!({ "input_tokens": 1000, "output_tokens": 5,
+                "input_tokens_details": { "cached_tokens": 600, "cache_write_tokens": 300 } });
+            let finished = state.finished(&json!({ "usage": usage }), false);
+            assert_eq!(
+                finished,
+                vec![
+                    Chunk::Usage(Usage {
+                        input: 100,
+                        output: 5,
+                        cache_read: 600,
+                        cache_write: 300
+                    }),
+                    Chunk::Stop(StopReason::ToolUse)
+                ]
+            );
+
+            let hosted = json!({ "type": "response.output_item.done",
+                "item": { "type": "tool_search_call", "execution": "server", "arguments": {} } });
+            assert!(StreamState::default().chunks(&hosted.to_string()).unwrap().is_empty());
+        }
 
         #[test]
         fn stream_events_map_to_chunks() {

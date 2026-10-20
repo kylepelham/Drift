@@ -97,7 +97,8 @@ pub struct Limit {
     /// The most prompt the provider takes, when it is less than the window (gpt-5.4: 922k of 1.05M); 0 when not given.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub input: u64,
-    /// Where the user's compaction setting compacts, when that is below the window's own point; 0 for no such cap.
+    /// Where conversations on this model compact, as `Engine::catalog_view` resolves it from the window and the
+    /// user's settings; 0 before that, or for no cap.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub compact: u64,
 }
@@ -146,6 +147,9 @@ pub struct Model {
     /// Claude features a request may use on this model (`claude_features_for`).
     #[serde(default)]
     pub claude: ClaudeFeatures,
+    /// Takes tools defined but kept out of its context until `tool_search` loads them (`tool_search_for`).
+    #[serde(default)]
+    pub tool_search: bool,
 }
 
 /// Newer Claude request features, by model, after opencode v2.
@@ -158,9 +162,6 @@ pub struct ClaudeFeatures {
     /// A thinking block the API no longer accepts is dropped instead of failing the request (Claude 5.1 or later).
     #[serde(default)]
     pub drop_stale_thinking: bool,
-    /// MCP tools sent with `defer_loading` and loaded by `tool_reference` results (Claude 4.5 or later).
-    #[serde(default)]
-    pub tool_references: bool,
 }
 
 /// A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
@@ -210,15 +211,20 @@ impl Model {
     /// sets one below the window (keeping a margin for the next step), else the window less the reply room,
     /// and never past the user's compaction setting.
     pub fn compaction_point(&self) -> u64 {
-        let room = self.reply_room();
-        let own = match self.limit.input {
-            input if input > 0 && input < self.limit.context => input.saturating_sub(room.min(INPUT_RESERVE)),
-            _ => self.limit.context.saturating_sub(room),
-        };
+        let own = self.own_compaction_point();
 
         match self.limit.compact {
             0 => own,
             compact => own.min(compact),
+        }
+    }
+
+    /// The compaction point the window and input cap allow, before any setting of the user's.
+    pub fn own_compaction_point(&self) -> u64 {
+        let room = self.reply_room();
+        match self.limit.input {
+            input if input > 0 && input < self.limit.context => input.saturating_sub(room.min(INPUT_RESERVE)),
+            _ => self.limit.context.saturating_sub(room),
         }
     }
 }
@@ -505,6 +511,7 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
         mode: None,
         effort_updates: false,
         claude: Default::default(),
+        tool_search: false,
     }
 }
 
@@ -661,9 +668,26 @@ pub(crate) fn claude_features_for(provider: &str, id: &str) -> ClaudeFeatures {
     ClaudeFeatures {
         system_messages: major >= 5 || (family == "opus" && major == 4 && minor >= 8),
         drop_stale_thinking: major > 5 || (major == 5 && minor >= 1),
-        tool_references: family.bytes().all(|byte| byte.is_ascii_alphabetic())
-            && (major > 4 || (major == 4 && minor >= 5)),
     }
+}
+
+/// Deferred tools loaded by `tool_search`: Claude 4.5 or later wherever it speaks the Messages API (as
+/// `tool_reference` results), and GPT-5.4 or later on OpenAI's Responses (as `tool_search_output` items). A ChatGPT
+/// sign-in replaces OpenAI's answer with its model list's.
+pub(crate) fn tool_search_for(provider: &str, id: &str) -> bool {
+    if provider == "openai" {
+        let version = id.strip_prefix("gpt-").map(numbers).unwrap_or_default();
+        return matches!(version.as_slice(), [major, ..] if *major > 5)
+            || matches!(version.as_slice(), [5, minor, ..] if *minor >= 4);
+    }
+
+    // Bedrock prefixes a region and `anthropic.`; Vertex follows the name with `@` and a snapshot.
+    let bare = id.rsplit_once("anthropic.").map_or(id, |(_, rest)| rest);
+    let bare = bare.split('@').next().unwrap_or(bare);
+    speaks_claude(provider, bare)
+        && claude_version(bare).is_some_and(|(family, major, minor)| {
+            family.bytes().all(|byte| byte.is_ascii_alphabetic()) && (major > 4 || (major == 4 && minor >= 5))
+        })
 }
 
 /// Per-message effort, after opencode v2: Claude Opus 5 and every Claude 5.1 or later on Anthropic's own

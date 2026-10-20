@@ -282,6 +282,7 @@ impl Engine {
             claude: Default::default(),
             cache_hour: false,
             cache_conversation: false,
+            cache_writes_billed: resolved.model.cost.cache_write > resolved.model.cost.input,
             deferred_tools: Vec::new(),
             tool_references: Default::default(),
             no_tool_calls: true,

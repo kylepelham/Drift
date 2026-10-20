@@ -30,6 +30,8 @@ pub(crate) struct Offer {
     pub program: Option<String>,
     /// The `service_tier` values the account may send for it.
     pub tiers: Vec<String>,
+    /// It loads deferred tools through a client-run `tool_search` (`supports_search_tool`).
+    pub tool_search: bool,
 }
 
 #[derive(Default)]
@@ -93,6 +95,7 @@ impl Offers {
 
         let offers = merged(&lists);
         catalog::drop_unoffered_speeds(provider, &offers);
+        catalog::mark_tool_search(provider, &offers);
         catalog::add_daybreak(provider, &offers);
     }
 
@@ -171,7 +174,8 @@ impl Offers {
     }
 }
 
-/// Every account's offers as one list: the tiers any account offers, and the first account's program per model.
+/// Every account's offers as one list: the tiers any account offers, the first account's program per model, and
+/// tool search where any account has it.
 fn merged(lists: &[&BTreeMap<String, Offer>]) -> BTreeMap<String, Offer> {
     let mut merged: BTreeMap<String, Offer> = BTreeMap::new();
 
@@ -181,6 +185,7 @@ fn merged(lists: &[&BTreeMap<String, Offer>]) -> BTreeMap<String, Offer> {
             if entry.program.is_none() {
                 entry.program.clone_from(&offer.program);
             }
+            entry.tool_search |= offer.tool_search;
             for tier in &offer.tiers {
                 if !entry.tiers.contains(tier) {
                     entry.tiers.push(tier.clone());

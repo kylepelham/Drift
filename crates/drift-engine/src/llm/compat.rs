@@ -19,19 +19,31 @@ mod request;
 
 #[cfg(test)]
 use request::message;
-use request::{body, claude_call_ids, is_claude, mark_breakpoints, reason};
+use request::{body, claude_call_ids, mark_breakpoints, reason, takes_breakpoints};
 
 #[derive(Clone, Debug)]
 pub struct Compat {
     base_url: String,
     client: reqwest::Client,
     pub timeouts: super::http::Timeouts,
-    /// The gateway passes Anthropic's per-block `cache_control` through to Claude (OpenRouter does).
+    /// The gateway passes Anthropic's per-block `cache_control` through to Claude and Qwen (OpenRouter does).
     claude_breakpoints: bool,
     /// Reasoning goes as OpenRouter's `reasoning` object, which takes a budget too, rather than `reasoning_effort`.
     reasoning_object: bool,
     /// Z.ai drops earlier reasoning unless told `clear_thinking: false`, as opencode sends.
     keep_thinking: bool,
+    /// How the route keeps one conversation on the server that holds its cache.
+    affinity: Affinity,
+}
+
+/// Where a conversation's cache key goes so the provider routes it to its warm cache.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Affinity {
+    None,
+    /// xAI's `x-grok-conv-id` header.
+    Header(&'static str),
+    /// OpenRouter's `session_id` body field, which pins the upstream provider.
+    Session,
 }
 
 impl Compat {
@@ -43,14 +55,17 @@ impl Compat {
             claude_breakpoints: false,
             reasoning_object: false,
             keep_thinking: false,
+            affinity: Affinity::None,
         }
     }
 
-    /// OpenRouter: forwards `cache_control` on content blocks to Claude, and takes reasoning as an object.
+    /// OpenRouter: forwards `cache_control` on content blocks to Claude, takes reasoning as an object, and keeps a
+    /// session on one upstream provider.
     pub fn openrouter(base_url: &str) -> Self {
         Self {
             claude_breakpoints: true,
             reasoning_object: true,
+            affinity: Affinity::Session,
             ..Self::new(base_url)
         }
     }
@@ -63,6 +78,14 @@ impl Compat {
         }
     }
 
+    /// xAI: caches per server, so a conversation names itself to stay on one.
+    pub fn xai(base_url: &str) -> Self {
+        Self {
+            affinity: Affinity::Header("x-grok-conv-id"),
+            ..Self::new(base_url)
+        }
+    }
+
     /// The request body as this route takes it.
     fn shaped(&self, request: &Request) -> Value {
         let mut body = body(request);
@@ -70,11 +93,18 @@ impl Compat {
         if self.keep_thinking {
             body["thinking"] = json!({ "type": "enabled", "clear_thinking": false });
         }
-        if self.claude_breakpoints && request.cache_conversation && is_claude(&request.model) {
-            mark_breakpoints(&mut body);
+        if self.claude_breakpoints && request.cache_conversation && takes_breakpoints(&request.model) {
+            mark_breakpoints(&mut body, request.cache_hour);
         }
         if request.model.contains("claude") {
             claude_call_ids(&mut body);
+        }
+        // Explicit mode with no breakpoints writes nothing to the cache, which a one-off request would pay for unread.
+        if !request.cache_conversation && request.cache_writes_billed {
+            body["prompt_cache_options"] = json!({ "mode": "explicit" });
+        }
+        if let (Affinity::Session, Some(key)) = (self.affinity, &request.cache_key) {
+            body["session_id"] = json!(key);
         }
 
         super::apply_mode(&mut body, request);
@@ -90,11 +120,14 @@ impl Compat {
         };
 
         let body = self.shaped(request);
-        let http = self
+        let mut http = self
             .client
             .post(format!("{}/chat/completions", self.base_url))
             .bearer_auth(key)
             .header("accept", "text/event-stream");
+        if let (Affinity::Header(name), Some(key)) = (self.affinity, &request.cache_key) {
+            http = http.header(name, key);
+        }
         let sending = super::mode_headers(http, request, Vec::new()).json(&body);
 
         let response = super::http::send(sending, &self.timeouts).await?;

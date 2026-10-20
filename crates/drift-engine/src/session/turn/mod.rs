@@ -47,6 +47,7 @@ mod images;
 mod instructions;
 mod limits;
 mod planning;
+pub mod provider_options;
 mod receipts;
 mod request;
 pub mod resume;

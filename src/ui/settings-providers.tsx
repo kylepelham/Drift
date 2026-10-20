@@ -1,4 +1,5 @@
 import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
+import { hasProviderOptions, ProviderOptionsPanel } from "./settings-provider-options";
 import { ProviderConnect } from "./settings-provider-connect";
 import { LmStudioConnect } from "./settings-lm-studio";
 import { OllamaConnect } from "./settings-ollama";
@@ -97,6 +98,9 @@ export function ProvidersSection() {
                             <OllamaConnect onNotice={setNotice} />
                         </Match>
                     </Switch>
+                    <Show when={connected() && hasProviderOptions(provider.id)}>
+                        <ProviderOptionsPanel providerId={provider.id} />
+                    </Show>
                 </Show>
             </div>
         );

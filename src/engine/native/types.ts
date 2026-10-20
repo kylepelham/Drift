@@ -1750,8 +1750,6 @@ export interface components {
             dropStaleThinking?: boolean;
             /** @description Engine reminders as `role: "system"` messages in the conversation (Opus 4.8, every Claude 5 or later). */
             systemMessages?: boolean;
-            /** @description MCP tools sent with `defer_loading` and loaded by `tool_reference` results (Claude 4.5 or later). */
-            toolReferences?: boolean;
         };
         Command: {
             agent?: string | null;
@@ -1776,19 +1774,12 @@ export interface components {
             model?: components["schemas"]["ModelRef"] | null;
             name: string;
         };
-        /** @description Where a conversation compacts, as the user chose it in Settings. */
-        CompactAt: {
-            /** @enum {string} */
-            mode: "auto";
-        } | {
-            /** @enum {string} */
-            mode: "window";
-        } | {
-            /** @enum {string} */
-            mode: "tokens";
-            /** Format: int64 */
-            tokens: number;
-        };
+        /**
+         * @description Where conversations compact, as the user chose it in Settings; each model's point follows from its window and
+         *     prices.
+         * @enum {string}
+         */
+        CompactAt: "auto" | "later" | "earlier";
         /** @description Everything resolved for one workspace: home config first, project config over it. */
         Config: {
             agents: components["schemas"]["Agent"][];
@@ -1926,7 +1917,18 @@ export interface components {
             backgroundTasks?: boolean | null;
             browser?: components["schemas"]["BrowserSettings"] | null;
             compactAt?: components["schemas"]["CompactAt"] | null;
+            /**
+             * @description Compaction points in tokens for single models, by `provider/model`, in place of `compact_at`'s. A PUT replaces
+             *     the whole map.
+             */
+            modelCompact?: {
+                [key: string]: number;
+            } | null;
             promptCache?: components["schemas"]["PromptCache"] | null;
+            /** @description Each provider's options by provider id. A PUT replaces the providers it names and keeps the rest. */
+            providerOptions?: {
+                [key: string]: components["schemas"]["ProviderOptions"];
+            } | null;
             /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
             registrySources?: components["schemas"]["RegistrySource"][] | null;
             /** @description Start a turn again after Drift restarts in the middle of it. Left out of a PUT, it stays as it is. */
@@ -1937,8 +1939,8 @@ export interface components {
              */
             shellHandoff?: boolean | null;
             /**
-             * @description Load the tools of large MCP servers on request with `tool_search`, on Claude models that take it. Left out of a
-             *     PUT, it stays as it is.
+             * @description Load the tools of large MCP servers on request with `tool_search`, on models that take deferred tools. Left out of
+             *     a PUT, it stays as it is.
              */
             toolSearch?: boolean | null;
         };
@@ -1951,7 +1953,13 @@ export interface components {
             backgroundTasks?: boolean | null;
             browser?: components["schemas"]["BrowserSettings"] | null;
             compactAt?: components["schemas"]["CompactAt"] | null;
+            modelCompact?: {
+                [key: string]: number;
+            } | null;
             promptCache?: components["schemas"]["PromptCache"] | null;
+            providerOptions?: {
+                [key: string]: components["schemas"]["ProviderOptions"];
+            } | null;
             registrySources?: components["schemas"]["SourceInput"][] | null;
             resumeTurns?: boolean | null;
             shellHandoff?: boolean | null;
@@ -2341,7 +2349,8 @@ export interface components {
         Limit: {
             /**
              * Format: int64
-             * @description Where the user's compaction setting compacts, when that is below the window's own point; 0 for no such cap.
+             * @description Where conversations on this model compact, as `Engine::catalog_view` resolves it from the window and the
+             *     user's settings; 0 before that, or for no cap.
              */
             compact?: number;
             /** Format: int64 */
@@ -2484,6 +2493,8 @@ export interface components {
             reasoning?: boolean;
             release_date?: string;
             temperature?: boolean;
+            /** @description Takes tools defined but kept out of its context until `tool_search` loads them (`tool_search_for`). */
+            tool_search?: boolean;
             /** @description The reasoning levels the model offers, weakest first; empty when it has none to choose. */
             variants?: components["schemas"]["Variant"][];
         };
@@ -2819,12 +2830,6 @@ export interface components {
         /** @description Settings > Execution > Prompt cache, kept by the engine. */
         PromptCache: {
             /**
-             * @description Anthropic API-key requests cache for an hour instead of five minutes, at twice the write price. A Claude
-             *     subscription caches for an hour whatever this says, except while it draws on extra usage.
-             * @default false
-             */
-            hourCache: boolean;
-            /**
              * Format: int32
              * @description Minutes between keep-alive requests, 1 to 59.
              * @default 4
@@ -2860,6 +2865,14 @@ export interface components {
             limits?: components["schemas"]["Limits"] | null;
             /** @description A subscription sign-in, which takes turns with the provider's others; else an API key. */
             signedIn: boolean;
+        };
+        /** @description One provider's options, all off by default. */
+        ProviderOptions: {
+            /**
+             * @description Requests keep their prompt cache for an hour instead of five minutes; only on [`HOUR_CACHE_PROVIDERS`].
+             * @default false
+             */
+            hourCache: boolean;
         };
         /** @description A catalog provider plus whether the engine can currently talk to it. */
         ProviderStatus: {

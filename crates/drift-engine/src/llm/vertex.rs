@@ -41,14 +41,15 @@ impl Vertex {
 
         if is_claude(&request.model) {
             let url = format!("{models}/anthropic/models/{}:streamRawPredict", request.model);
+            let (body, betas) = anthropic::cloud_body(request, VERSION, true);
             let mut http = self
                 .client
                 .post(url)
                 .bearer_auth(token)
                 .header("accept", "text/event-stream")
-                .json(&anthropic::cloud_body(request, VERSION, true));
-            if anthropic::interleaves(request) {
-                http = http.header("anthropic-beta", anthropic::INTERLEAVED_THINKING);
+                .json(&body);
+            if !betas.is_empty() {
+                http = http.header("anthropic-beta", betas.join(","));
             }
 
             return anthropic::stream_from(http, &self.timeouts, false).await;
@@ -205,6 +206,30 @@ mod tests {
             anthropic::INTERLEAVED_THINKING,
             "a budget with tools asks for interleaved thinking"
         );
+
+        request.reasoning = None;
+        request.deferred_tools = request.tools.clone();
+        request.deferred_tools[0].name = "apophis_whoami".into();
+        vertex
+            .send(&request, "tok", &target)
+            .await
+            .unwrap()
+            .collect::<Vec<_>>()
+            .await;
+        assert_eq!(
+            seen_beta(&recorded),
+            anthropic::TOOL_SEARCH,
+            "deferred tools ask for tool search"
+        );
+    }
+
+    #[test]
+    fn an_hour_cache_keeps_every_breakpoint_for_an_hour_on_a_cloud_route() {
+        let mut request = crate::llm::tests::request();
+        request.cache_hour = true;
+        let (body, betas) = anthropic::cloud_body(&request, VERSION, true);
+        assert_eq!(body["system"][0]["cache_control"]["ttl"], "1h");
+        assert!(betas.is_empty(), "the cloud routes take the hour without a beta");
     }
 
     #[test]
@@ -213,7 +238,7 @@ mod tests {
         assert_eq!(vertex.base("global"), "https://aiplatform.googleapis.com");
         assert_eq!(vertex.base("us-east5"), "https://us-east5-aiplatform.googleapis.com");
         assert!(is_claude("claude-sonnet-4-5@20250929") && !is_claude("gemini-3.6-flash"));
-        let body = anthropic::cloud_body(&crate::llm::tests::request(), VERSION, true);
+        let (body, _) = anthropic::cloud_body(&crate::llm::tests::request(), VERSION, true);
         assert_eq!(
             (body["anthropic_version"].as_str(), body["stream"].as_bool()),
             (Some(VERSION), Some(true))

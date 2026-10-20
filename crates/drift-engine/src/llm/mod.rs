@@ -200,6 +200,9 @@ pub struct EffortMark {
     pub effort: String,
 }
 
+/// The tool that loads deferred tools; wires that carry deferred tools natively send it their own way.
+pub const TOOL_SEARCH: &str = "tool_search";
+
 #[derive(Clone, Debug)]
 pub struct Request {
     pub model: String,
@@ -226,6 +229,9 @@ pub struct Request {
     /// Mark the conversation for the prompt cache; off for a one-off request no later one starts the same way,
     /// where writing the cache costs more than reading the prompt plainly.
     pub cache_conversation: bool,
+    /// The provider bills writing the prompt cache above plain input (GPT-5.6 and later), so a request that does not
+    /// cache its conversation asks the provider to write nothing.
+    pub cache_writes_billed: bool,
     /// Tools defined but kept out of the model's context until a `tool_search` result names them; only routes
     /// whose model takes `tool_reference` (`ClaudeFeatures::tool_references`) are given any.
     pub deferred_tools: Vec<ToolSpec>,
@@ -814,7 +820,7 @@ pub fn provider_for(id: &str, catalog_api: Option<&str>) -> Option<Provider> {
                 .as_deref()
                 .map_or_else(gemini::Gemini::default, gemini::Gemini::new),
         ),
-        "xai" => Provider::Compat(compat::Compat::new(&base("https://api.x.ai/v1"))),
+        "xai" => Provider::Compat(compat::Compat::xai(&base("https://api.x.ai/v1"))),
         "zai" => Provider::Compat(compat::Compat::zai(&base("https://api.z.ai/api/paas/v4"))),
         "openrouter" => Provider::Compat(compat::Compat::openrouter(&base("https://openrouter.ai/api/v1"))),
         "lmstudio" => Provider::Compat(compat::Compat::new(&base("http://127.0.0.1:1234/v1"))),

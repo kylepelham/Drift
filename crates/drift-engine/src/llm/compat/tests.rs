@@ -102,6 +102,7 @@ pub(super) fn request() -> Request {
         claude: Default::default(),
         cache_hour: false,
         cache_conversation: true,
+        cache_writes_billed: false,
         deferred_tools: Vec::new(),
         tool_references: Default::default(),
         no_tool_calls: false,

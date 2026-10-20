@@ -48,17 +48,26 @@ pub(super) fn reason(body: &mut Value, reasoning: Option<&Reasoning>, object: bo
     }
 }
 
-/// OpenRouter names Claude `anthropic/...`, or `~anthropic/...` for its moving aliases.
-pub(super) fn is_claude(model: &str) -> bool {
-    model.trim_start_matches('~').starts_with("anthropic/")
+/// Models OpenRouter caches only at Anthropic-style breakpoints: Claude (`anthropic/...`, or `~anthropic/...` for its
+/// moving aliases) and Qwen, which Alibaba serves with explicit caching.
+pub(super) fn takes_breakpoints(model: &str) -> bool {
+    let model = model.trim_start_matches('~');
+    model.starts_with("anthropic/") || model.starts_with("qwen/")
 }
 
-/// Marks the system prompt and the last two user turns with Anthropic's cache breakpoints.
-/// A turn is the run of tool and user messages between assistant replies.
+/// Marks the system prompt and the last two user turns with Anthropic's cache breakpoints, kept for an hour when
+/// `hour` is set. A turn is the run of tool and user messages between assistant replies.
 /// This lets a tool loop keep caching beyond the prompt that started it.
-pub(super) fn mark_breakpoints(body: &mut Value) {
+pub(super) fn mark_breakpoints(body: &mut Value, hour: bool) {
     let Some(messages) = body["messages"].as_array_mut() else {
         return;
+    };
+    let ephemeral = || {
+        if hour {
+            json!({ "type": "ephemeral", "ttl": "1h" })
+        } else {
+            json!({ "type": "ephemeral" })
+        }
     };
 
     if let Some(system) = messages.iter_mut().find(|message| message["role"] == "system") {
@@ -78,15 +87,11 @@ pub(super) fn mark_breakpoints(body: &mut Value) {
             continue;
         }
 
-        if mark_last_text(message) {
+        if mark_last_text(message, ephemeral()) {
             in_turn = true;
             marked += 1;
         }
     }
-}
-
-fn ephemeral() -> Value {
-    json!({ "type": "ephemeral" })
 }
 
 /// Claude behind a gateway still takes only `[a-zA-Z0-9_-]` call ids, as on Anthropic's own wire; history from
@@ -111,13 +116,13 @@ pub(super) fn claude_call_ids(body: &mut Value) {
 }
 
 /// Marks a message's last non-empty text part; plain tool content becomes a part to carry the breakpoint.
-fn mark_last_text(message: &mut Value) -> bool {
+fn mark_last_text(message: &mut Value, control: Value) -> bool {
     if let Some(text) = message["content"]
         .as_str()
         .filter(|text| !text.is_empty())
         .map(str::to_string)
     {
-        message["content"] = json!([{ "type": "text", "text": text, "cache_control": ephemeral() }]);
+        message["content"] = json!([{ "type": "text", "text": text, "cache_control": control }]);
         return true;
     }
 
@@ -129,7 +134,7 @@ fn mark_last_text(message: &mut Value) -> bool {
     });
     match last {
         Some(part) => {
-            part["cache_control"] = ephemeral();
+            part["cache_control"] = control;
             true
         }
         None => false,

@@ -21,6 +21,19 @@ fn speed_modes_the_account_does_not_offer_are_removed_and_offered_ones_stay() {
 }
 
 #[test]
+fn the_list_says_which_models_load_tools_through_tool_search() {
+    let credential = credential("user", "account");
+    let mut provider = provider();
+    provider.models.get_mut("gpt-6-astra").unwrap().tool_search = true;
+
+    cached(&credential).apply(&mut provider, std::slice::from_ref(&credential));
+
+    let searches = |id: &str| provider.models[id].tool_search;
+    assert!(searches("gpt-6-sol") && searches("gpt-6-sol-fast") && searches("gpt-6-sol-daybreak"));
+    assert!(!searches("gpt-6-astra"), "the list's word replaces the catalog's");
+}
+
+#[test]
 fn models_the_list_does_not_name_keep_every_speed_mode() {
     let credential = credential("user", "account");
     let offers = Offers::default();
@@ -43,7 +56,9 @@ fn daybreak_entries_copy_their_model_and_select_only_an_offered_program() {
     let credential = credential("user", "account");
     let offers = cached(&credential);
     let mut provider = provider();
-    let ordinary = provider.models.clone();
+    let mut ordinary = provider.models.clone();
+    // The list's word on tool search is the one change it makes to a plain entry.
+    ordinary.get_mut("gpt-6-sol").unwrap().tool_search = true;
 
     offers.apply(&mut provider, std::slice::from_ref(&credential));
 

@@ -130,8 +130,12 @@ impl StreamState {
     /// Closes the item, opening it first and giving its whole content when its start or deltas never came.
     fn item_done(&mut self, event: &Value) -> Vec<Chunk> {
         let item = &event["item"];
-        let key = self.key(item["id"].as_str(), event);
         let kind = item["type"].as_str().unwrap_or_default();
+        if kind == "tool_search_call" {
+            return self.search_call(item);
+        }
+
+        let key = self.key(item["id"].as_str(), event);
         let begun = self.begun.remove(&key);
         let nameless = kind == "function_call" && item["name"].as_str().is_none_or(str::is_empty);
         if !SHOWN.contains(&kind) || (!begun && nameless) {
@@ -150,10 +154,38 @@ impl StreamState {
         chunks
     }
 
+    /// A search Drift runs, given whole when done, as a call of the `tool_search` tool; a hosted one is the API's own.
+    fn search_call(&mut self, item: &Value) -> Vec<Chunk> {
+        if item["execution"] != "client" {
+            return Vec::new();
+        }
+
+        self.called_tools = true;
+        let id = item["call_id"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .map_or_else(|| crate::id::new("call"), str::to_string);
+        let arguments = match &item["arguments"] {
+            Value::String(text) => text.clone(),
+            other => other.to_string(),
+        };
+
+        vec![
+            Chunk::ToolUseStart {
+                id,
+                name: crate::llm::TOOL_SEARCH.into(),
+            },
+            Chunk::ToolInputDelta(arguments),
+            Chunk::BlockStop,
+        ]
+    }
+
     pub(super) fn finished(&self, response: &Value, incomplete: bool) -> Vec<Chunk> {
         let usage = &response["usage"];
         let count = |path: &[&str]| path.iter().fold(usage, |value, key| &value[*key]).as_u64().unwrap_or(0);
         let cache_read = count(&["input_tokens_details", "cached_tokens"]);
+        // GPT-5.6 and later bill what they write to the cache, at more than plain input.
+        let cache_write = count(&["input_tokens_details", "cache_write_tokens"]);
         let reason = &response["incomplete_details"]["reason"];
         let stop = if incomplete && reason == "max_output_tokens" {
             StopReason::MaxTokens
@@ -167,10 +199,10 @@ impl StreamState {
 
         vec![
             Chunk::Usage(Usage {
-                input: count(&["input_tokens"]).saturating_sub(cache_read),
+                input: count(&["input_tokens"]).saturating_sub(cache_read + cache_write),
                 output: count(&["output_tokens"]),
                 cache_read,
-                cache_write: 0,
+                cache_write,
             }),
             Chunk::Stop(stop),
         ]

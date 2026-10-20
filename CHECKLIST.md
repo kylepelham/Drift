@@ -393,11 +393,16 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] Images leave the request five at a time, up to 20, so new screenshots no longer rewrite the cache
 - [x] One-hour cache on Claude subscriptions until extra usage, as Claude Code does
 - [x] A conversation stays on the account whose cache is warm; it returns to the user's order once cold
-- [x] Compaction point setting (`compactAt`): automatic at 400k or below a price tier, the window, or a size
+- [x] Compaction point setting (`compactAt`): automatic at 400k or below a price tier
 - [x] A request that misses the cache anyway clears old large tool results
 - [x] One-off requests (lean summaries, titles) write no conversation cache; three failed compactions stop the overflow path too
 - [x] Large MCP servers' tools deferred behind `tool_search` on Claude 4.5 and later (`tool_reference`)
 - [x] Why a request missed the cache is kept on its reply and shown in the context meter
+- [x] Tool search on every wire that takes it: Bedrock and Vertex Claude 4.5+, OpenAI GPT-5.4+ (client `tool_search`), and Codex models whose list says so
+- [x] GPT-5.6+ cache writes read and priced; one-off requests there ask the provider to write none
+- [x] xAI and OpenRouter keep a conversation on one cache (`x-grok-conv-id`, `session_id`); OpenRouter caches Qwen at breakpoints
+- [x] Compaction as a policy (automatic, earlier, later) with each model's point shown, and a size per model in its details sheet
+- [x] Provider options in Settings > Providers: an hour-long Claude cache on Anthropic keys, Bedrock, Vertex and OpenRouter; tool search moved to Settings > MCP
 
 ## Parity with Claude Code, Codex and opencode
 

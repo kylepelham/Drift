@@ -264,6 +264,7 @@ fn model(id: &str, details: Option<&Value>) -> Option<Model> {
         mode: None,
         effort_updates: false,
         claude: Default::default(),
+        tool_search: false,
     })
 }
 

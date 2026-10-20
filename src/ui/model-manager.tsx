@@ -2,10 +2,11 @@ import { modelVisible, moveModelProvider, setModelsVisible, setModelVisible } fr
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { Chevron, Toggle, ToggleTrack } from "./controls";
+import { ModelDetails } from "./model-details";
 import { dragReorder } from "./drag-reorder";
+import { IconInfo, IconX } from "./icons";
 import { Portal } from "solid-js/web";
 import { t } from "../state/i18n";
-import { IconX } from "./icons";
 
 import type { PickerItem } from "./picker";
 
@@ -13,6 +14,7 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
     let dialog!: HTMLDivElement;
     const [query, setQuery] = createSignal("");
     const [expanded, setExpanded] = createSignal<string[]>([]);
+    const [details, setDetails] = createSignal<PickerItem | null>(null);
     const defaults = createMemo(() => defaultVisibleModelIds(props.items));
     const filtered = createMemo(() => {
         const value = query().toLowerCase();
@@ -138,24 +140,34 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                                             <div class="border-t border-edge bg-overlay/30 p-1.5">
                                                 <For each={visibleItems()}>
                                                     {(item) => (
-                                                        <button
-                                                            role="switch"
-                                                            aria-checked={enabled(item)}
-                                                            class="flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-2 text-left hover:bg-raised/60"
-                                                            onClick={() => setModelVisible(item.id, !enabled(item))}
-                                                        >
-                                                            <span class="min-w-0 flex-1">
-                                                                <span class="block truncate text-sm text-ink">
-                                                                    {item.label}
-                                                                </span>
-                                                                <Show when={item.detail}>
-                                                                    <span class="block truncate text-[length:calc(0.68rem*var(--ui-text-scale,1))] text-ink-faint">
-                                                                        {item.detail}
+                                                        <div class="flex items-center gap-1 rounded-lg hover:bg-raised/60">
+                                                            <button
+                                                                role="switch"
+                                                                aria-checked={enabled(item)}
+                                                                class="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-2 text-left"
+                                                                onClick={() => setModelVisible(item.id, !enabled(item))}
+                                                            >
+                                                                <span class="min-w-0 flex-1">
+                                                                    <span class="block truncate text-sm text-ink">
+                                                                        {item.label}
                                                                     </span>
-                                                                </Show>
-                                                            </span>
-                                                            <ToggleTrack checked={enabled(item)} />
-                                                        </button>
+                                                                    <Show when={item.detail}>
+                                                                        <span class="block truncate text-[length:calc(0.68rem*var(--ui-text-scale,1))] text-ink-faint">
+                                                                            {item.detail}
+                                                                        </span>
+                                                                    </Show>
+                                                                </span>
+                                                                <ToggleTrack checked={enabled(item)} />
+                                                            </button>
+                                                            <button
+                                                                title={t("drift.model.details")}
+                                                                aria-label={t("drift.model.details")}
+                                                                class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                                                                onClick={() => setDetails(item)}
+                                                            >
+                                                                <IconInfo />
+                                                            </button>
+                                                        </div>
                                                     )}
                                                 </For>
                                             </div>
@@ -170,6 +182,15 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                     </div>
                 </div>
             </div>
+            <Show when={details()}>
+                {(item) => (
+                    <ModelDetails
+                        providerID={item().providerID ?? ""}
+                        modelID={item().id.slice((item().providerID ?? "").length + 1)}
+                        onClose={() => setDetails(null)}
+                    />
+                )}
+            </Show>
         </Portal>
     );
 }

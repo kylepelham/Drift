@@ -54,14 +54,32 @@ fn the_compaction_setting_caps_a_large_window_and_never_raises_a_small_one() {
     };
 
     assert_eq!(point(CompactAt::Auto, &mut large), 400_000);
-    assert_eq!(point(CompactAt::Window, &mut large), 968_000);
-    assert_eq!(point(CompactAt::Tokens { tokens: 250_000 }, &mut large), 250_000);
+    assert_eq!(point(CompactAt::Later, &mut large), 968_000);
+    assert_eq!(point(CompactAt::Earlier, &mut large), 200_000);
+    assert_eq!(point(CompactAt::Auto, &mut model(200_000, 64_000)), 168_000);
     assert_eq!(
-        point(CompactAt::Tokens { tokens: 5_000 }, &mut large),
+        point(CompactAt::Earlier, &mut model(200_000, 64_000)),
         MIN_COMPACT_TOKENS,
         "a point too early to pay for itself is raised"
     );
-    assert_eq!(point(CompactAt::Auto, &mut model(200_000, 64_000)), 168_000);
+
+    let mut chosen = model(1_000_000, 128_000);
+    assert_eq!(crate::session::compaction::chosen_cap(&chosen, 250_000), Some(250_000));
+    assert_eq!(
+        crate::session::compaction::chosen_cap(&chosen, 5_000),
+        Some(MIN_COMPACT_TOKENS)
+    );
+    assert_eq!(
+        crate::session::compaction::chosen_cap(&chosen, 2_000_000),
+        Some(968_000),
+        "never past the window's own point"
+    );
+    chosen.limit.context = 64_000;
+    assert_eq!(
+        crate::session::compaction::chosen_cap(&chosen, 250_000),
+        None,
+        "a small window has nothing to choose"
+    );
 
     // A provider that charges more past 272k gets compacted before it.
     large.cost.tiers = vec![crate::llm::catalog::CostTier {

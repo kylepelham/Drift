@@ -444,6 +444,18 @@ function usableContext(
     return Math.min(own, limits.compact);
 }
 
+/** Mirrors `Model::own_compaction_point`: where a model compacts with no setting of the user's. */
+export function ownCompactionPoint(limit: { context: number; output: number; input?: number }) {
+    const maxOutput = replyRoom(limit.output, limit.context);
+
+    return usableContext(
+        { input: limit.input },
+        limit.context,
+        Math.min(compactionReserveTokens, maxOutput),
+        maxOutput,
+    );
+}
+
 export function spawnLink(part: Part): { child: string; parent: string } | undefined {
     if (part.type !== "tool_call" || (part.name !== "task" && part.name !== "spawn_thread")) return;
 

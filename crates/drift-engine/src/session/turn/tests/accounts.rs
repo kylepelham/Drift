@@ -201,6 +201,36 @@ async fn a_subscription_conversation_caches_for_an_hour_until_it_draws_on_extra_
 }
 
 #[tokio::test]
+async fn a_key_caches_for_an_hour_only_when_its_providers_option_says_so() {
+    use crate::session::turn::provider_options::ProviderOptions;
+    let h = harness().await;
+    let hour = ProviderOptions { hour_cache: true };
+    h.engine
+        .set_provider_options([("openrouter".to_string(), hour.clone())].into())
+        .unwrap();
+    h.provider.push(text("one")).push(text("two"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+    h.engine
+        .set_provider_options([("anthropic".to_string(), hour)].into())
+        .unwrap();
+    h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
+    until_idle(&h).await;
+
+    let hours: Vec<bool> = h
+        .provider
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|request| request.cache_hour)
+        .collect();
+    assert_eq!(hours, [false, true]);
+    assert_eq!(h.engine.provider_options().len(), 2, "each provider keeps its own");
+}
+
+#[tokio::test]
 async fn with_every_account_spent_the_refusal_is_shown() {
     let h = harness().await;
     two_accounts(&h);
