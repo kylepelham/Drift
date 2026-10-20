@@ -10,7 +10,7 @@ use std::collections::HashMap;
 #[path = "tests/messages.rs"]
 mod tests;
 
-const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json";
+const MESSAGE_COLUMNS: &str = "id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json, cache_miss";
 
 pub(super) struct NewMessage<'a> {
     session_id: &'a str,
@@ -216,6 +216,18 @@ impl Store {
         Ok(with_parts_in(self, &connection, session_id, message.into_iter().collect())?.pop())
     }
 
+    /// The session's newest assistant message whose request reached the provider's prompt cache, without its parts.
+    pub fn last_cached_reply(&self, session_id: &str) -> rusqlite::Result<Option<Message>> {
+        self.lock()
+            .prepare_cached(&format!(
+                "SELECT {MESSAGE_COLUMNS} FROM message WHERE session_id = ?1 AND role = 'assistant' AND finished_at IS NOT NULL
+                 AND json_extract(usage_json, '$.input') + json_extract(usage_json, '$.cacheRead') + json_extract(usage_json, '$.cacheWrite') > 0
+                 ORDER BY id DESC LIMIT 1"
+            ))?
+            .query_row([session_id], map_message)
+            .optional()
+    }
+
     /// The user's prompt the turn holding `message_id` answers: the newest user message before it that is not a compaction boundary.
     pub fn prompt_before(&self, session_id: &str, message_id: &str) -> rusqlite::Result<Option<MessageWithParts>> {
         let connection = self.lock();
@@ -277,6 +289,7 @@ fn map_message(row: &Row) -> rusqlite::Result<Message> {
         refusal: row
             .get::<_, Option<String>>(16)?
             .and_then(|json| serde_json::from_str(&json).ok()),
+        cache_miss: row.get(17)?,
         summary: row.get(11)?,
         ending: row
             .get::<_, Option<String>>(13)?
@@ -349,10 +362,10 @@ fn parse_status(status: &str) -> MessageStatus {
 }
 
 fn save_message_in(connection: &Connection, message: &Message) -> rusqlite::Result<()> {
-    connection.prepare_cached("UPDATE message SET status = ?2, usage_json = ?3, cost = ?4, error = ?5, finished_at = ?6, ending = ?7, generation_ms = ?8, account = ?9, refusal_json = ?10 WHERE id = ?1")?
+    connection.prepare_cached("UPDATE message SET status = ?2, usage_json = ?3, cost = ?4, error = ?5, finished_at = ?6, ending = ?7, generation_ms = ?8, account = ?9, refusal_json = ?10, cache_miss = ?11 WHERE id = ?1")?
         .execute(params![message.id, status_str(message.status), serde_json::to_string(&message.usage).unwrap(),
             message.cost, message.error, message.finished_at, message.ending.map(crate::session::types::Ending::as_str), message.generation_ms, message.account,
-            message.refusal.as_ref().and_then(|refusal| serde_json::to_string(refusal).ok())])?;
+            message.refusal.as_ref().and_then(|refusal| serde_json::to_string(refusal).ok()), message.cache_miss])?;
     Ok(())
 }
 
@@ -393,6 +406,7 @@ pub(super) fn insert_message(connection: &Connection, new: NewMessage<'_>) -> ru
         summary,
         ending: None,
         refusal: None,
+        cache_miss: None,
     };
 
     connection.prepare_cached(

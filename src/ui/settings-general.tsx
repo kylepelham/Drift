@@ -38,7 +38,28 @@ import {
     toolGroups,
 } from "../state/prefs";
 
+import type { CompactAt } from "../engine/native/client";
 import type { LanguageId } from "../state/language";
+
+/** The compaction points offered besides automatic and the full window, in thousands of tokens. */
+const compactSizes = [200, 300, 600];
+
+/** The picker id for a compaction setting: its mode, or its size in thousands for a chosen one. */
+function compactId(setting: CompactAt) {
+    return setting.mode === "tokens" ? String(Math.round(setting.tokens / 1000)) : setting.mode;
+}
+
+function compactFrom(id: string): CompactAt {
+    if (id === "auto" || id === "window") return { mode: id };
+
+    return { mode: "tokens", tokens: Number(id) * 1000 };
+}
+
+function compactLabel(id: string) {
+    if (id === "auto" || id === "window") return t(`drift.settings.compactAt.${id}`);
+
+    return t("drift.settings.compactAt.tokens", { count: id });
+}
 
 /** The grouping control's label: none, all, or the chosen kinds by name. */
 function groupedSummary() {
@@ -53,12 +74,16 @@ export function GeneralSection() {
     const engine = useEngine();
     // The toggle stays disabled until the engine returns its preference.
     const [autoCompact, setAutoCompactShown] = createSignal<boolean | null>(null);
+    const [compactAt, setCompactAtShown] = createSignal<CompactAt | null>(null);
 
     onMount(
         () =>
             void engine.actions
                 .engineSettings()
-                .then((settings) => setAutoCompactShown(settings.autoCompact ?? true))
+                .then((settings) => {
+                    setAutoCompactShown(settings.autoCompact ?? true);
+                    setCompactAtShown(settings.compactAt ?? { mode: "auto" });
+                })
                 .catch(() => undefined),
     );
 
@@ -70,6 +95,25 @@ export function GeneralSection() {
             .setAutoCompact(next)
             .then((settings) => setAutoCompactShown(settings.autoCompact ?? next))
             .catch(() => setAutoCompactShown(!next));
+    }
+
+    function pickCompactAt(id: string) {
+        const previous = compactAt();
+        const next = compactFrom(id);
+        setCompactAtShown(next);
+
+        void engine.actions
+            .setCompactAt(next)
+            .then((settings) => setCompactAtShown(settings.compactAt ?? next))
+            .catch(() => setCompactAtShown(previous));
+    }
+
+    function compactChoices() {
+        const ids = ["auto", ...compactSizes.map(String), "window"];
+        const current = compactAt();
+        if (current && !ids.includes(compactId(current))) ids.splice(1, 0, compactId(current));
+
+        return ids.map((id) => ({ id, label: compactLabel(id) }));
     }
 
     return (
@@ -285,6 +329,23 @@ export function GeneralSection() {
                         checked={autoCompact() ?? false}
                         disabled={autoCompact() === null}
                         onChange={toggleAutoCompact}
+                    />
+                </SettingsRow>
+                <SettingsRow
+                    title={t("drift.settings.compactAt.title")}
+                    description={t("drift.settings.compactAt.description")}
+                    disabled={compactAt() === null}
+                >
+                    <Picker
+                        label={t("drift.settings.compactAt.title")}
+                        items={compactChoices()}
+                        selected={compactId(compactAt() ?? { mode: "auto" })}
+                        floating
+                        bordered
+                        chevronAtEnd
+                        placement="below"
+                        width={pickerWidth}
+                        onPick={pickCompactAt}
                     />
                 </SettingsRow>
                 <SettingsRow

@@ -262,6 +262,31 @@ async fn a_request_the_provider_rejects_as_too_long_is_compacted_and_retried_onc
 }
 
 #[tokio::test]
+async fn after_three_failed_compactions_an_overflow_is_not_summarised_again() {
+    let h = harness().await;
+    h.provider.push(text("one"));
+    turn(&h, "first").await;
+    h.engine
+        .turns
+        .compaction_failures
+        .lock()
+        .unwrap()
+        .insert(h.session.id.clone(), MAX_AUTO_FAILURES);
+    let too_long = crate::llm::Error::api(
+        400,
+        "invalid_request_error",
+        "prompt is too long: 210000 tokens > 200000 maximum",
+    );
+    h.provider.push_error(too_long).push(text("never sent"));
+
+    turn(&h, "second").await;
+
+    assert_eq!(h.provider.responses_left(), 1, "no summary request went out");
+    let transcript = h.engine.store.transcript(&h.session.id).unwrap();
+    assert_eq!(transcript.last().unwrap().info.status, MessageStatus::Error);
+}
+
+#[tokio::test]
 async fn automatic_compaction_can_be_switched_off_and_stops_after_repeated_failures() {
     let h = harness().await;
     h.provider.push(reply_using(980_000, "long"));

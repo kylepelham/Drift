@@ -4,6 +4,10 @@ Written 2026-10-19 for the "Design first" item in "After the opencode v2 review"
 ([engine-rewrite.md](../engine-rewrite.md)). What was known before is in "Code Mode in practice" in
 [the v2 report](opencode-v2-comparison.md). No code until Kyle picks.
 
+Status, 2026-10-20: the provider's own path shipped for Claude in 2.4 (deferred MCP tools behind an engine
+`tool_search` returning `tool_reference` blocks, as Claude Code does; see "Prompt cache" in the engine
+document). The other wires and the `execute` path are still open.
+
 ## The question
 
 Should MCP tools stop being sent as native tool definitions, and if so, how: not at all, behind the

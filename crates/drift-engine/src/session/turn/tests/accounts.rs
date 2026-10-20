@@ -152,19 +152,52 @@ async fn a_window_reported_full_moves_the_next_step_before_credits_are_spent() {
 }
 
 #[tokio::test]
-async fn the_first_account_is_used_again_once_its_usage_frees() {
+async fn the_first_account_is_used_again_once_its_usage_frees_and_the_cache_has_gone_cold() {
     let h = harness().await;
     let (first, _) = two_accounts(&h);
     h.engine.limits.refuse(&first, id::now_ms() + 3_600_000);
-    h.provider.push(text("a")).push(text("b"));
+    h.provider.push(text("a")).push(text("b")).push(text("c"));
     h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
     until_idle(&h).await;
 
+    // While the conversation's cache on the second account is warm, it stays there.
     h.engine.limits.refuse(&first, id::now_ms() - 1);
     h.engine.submit(&h.session.id, prompt("two")).await.await_ok();
     until_idle(&h).await;
+    assert_eq!(sent_with(&h), ["second", "second"]);
 
-    assert_eq!(sent_with(&h), ["second", "first"]);
+    let mut last = h.engine.store.last_cached_reply(&h.session.id).unwrap().unwrap();
+    last.finished_at = Some(id::now_ms() - 2 * 3_600_000);
+    h.engine.store.save_message(&last).unwrap();
+    h.engine.submit(&h.session.id, prompt("three")).await.await_ok();
+    until_idle(&h).await;
+
+    assert_eq!(sent_with(&h), ["second", "second", "first"]);
+}
+
+#[tokio::test]
+async fn a_subscription_conversation_caches_for_an_hour_until_it_draws_on_extra_usage() {
+    let h = harness().await;
+    two_accounts(&h);
+    let mut reply = vec![Chunk::Limits(Limits {
+        overage: true,
+        ..weekly(50.0)
+    })];
+    reply.extend(tool_call("todowrite", r#"{"todos":[]}"#));
+    h.provider.push(reply).push(text("done"));
+
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    until_idle(&h).await;
+
+    let hours: Vec<bool> = h
+        .provider
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|request| request.cache_hour)
+        .collect();
+    assert_eq!(hours, [true, false]);
 }
 
 #[tokio::test]

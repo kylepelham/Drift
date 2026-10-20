@@ -539,7 +539,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "No hagas nada, no uses herramientas, responde OK",
     "drift.settings.promptCache.hour.title": "Caché de una hora en Anthropic",
     "drift.settings.promptCache.hour.description":
-        "Con una clave de API de Anthropic, mantiene la caché una hora en lugar de cinco minutos. Escribir en ella cuesta el doble del precio de entrada en lugar de 1,25 veces.",
+        "Con una clave de API de Anthropic, conserva la caché durante una hora en lugar de cinco minutos. Escribir en ella cuesta el doble del precio de entrada en lugar de 1,25 veces. Una suscripción a Claude siempre almacena en caché durante una hora, como hace Claude Code, excepto mientras utiliza el uso adicional.",
+    "drift.settings.toolSearch.title": "Cargar herramientas de servidores MCP grandes a petición",
+    "drift.settings.toolSearch.description":
+        "En Claude, las herramientas de un servidor MCP con diez o más herramientas se listan por nombre y se cargan con tool_search cuando el modelo las necesita, en lugar de enviarse completas con cada solicitud.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Subagentes",
     "drift.settings.backgroundLimit.title": "Subagentes en segundo plano a la vez",
@@ -658,6 +661,7 @@ export const drift = {
     "drift.context.compacting": "Compactando el contexto",
     "drift.context.pending": "El uso aparece después de la primera respuesta.",
     "drift.context.untilCompaction": "Hasta la compactación",
+    "drift.context.cacheMiss": "Último fallo de caché",
     "drift.context.window": "Ventana de contexto",
     "drift.context.systemAndTools": "Sistema y herramientas",
     "drift.context.user": "Tus mensajes",
@@ -1237,7 +1241,13 @@ export const drift = {
     "drift.storage.table.output.hint": "se guarda una semana",
     "drift.settings.autoCompact.title": "Compactar automáticamente",
     "drift.settings.autoCompact.description":
-        "Resume los mensajes antiguos cuando una conversación se acerca a la ventana de contexto de su modelo. /compact siempre funciona.",
+        "Resume los mensajes más antiguos cuando una conversación alcanza el punto indicado abajo. /compact siempre funciona.",
+    "drift.settings.compactAt.title": "Compactar al llegar a",
+    "drift.settings.compactAt.description":
+        "Cada paso envía toda la conversación de nuevo, por lo que compactar antes cuesta menos y mantiene centrado al modelo. Compactar después conserva más texto palabra por palabra.",
+    "drift.settings.compactAt.auto": "Automático (400k como máximo)",
+    "drift.settings.compactAt.window": "Cuando la ventana esté casi llena",
+    "drift.settings.compactAt.tokens": "{{count}}k tokens",
     "drift.settings.summaries.collapsed.description": "Empieza con los resúmenes de compactación plegados.",
     "drift.settings.summaries.collapsed.title": "Contraer resúmenes de forma predeterminada",
     "drift.settings.summaries.collapsible.description":

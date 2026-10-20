@@ -1748,6 +1748,8 @@ export interface components {
             dropStaleThinking?: boolean;
             /** @description Engine reminders as `role: "system"` messages in the conversation (Opus 4.8, every Claude 5 or later). */
             systemMessages?: boolean;
+            /** @description MCP tools sent with `defer_loading` and loaded by `tool_reference` results (Claude 4.5 or later). */
+            toolReferences?: boolean;
         };
         Command: {
             agent?: string | null;
@@ -1771,6 +1773,19 @@ export interface components {
             arguments?: string;
             model?: components["schemas"]["ModelRef"] | null;
             name: string;
+        };
+        /** @description Where a conversation compacts, as the user chose it in Settings. */
+        CompactAt: {
+            /** @enum {string} */
+            mode: "auto";
+        } | {
+            /** @enum {string} */
+            mode: "window";
+        } | {
+            /** @enum {string} */
+            mode: "tokens";
+            /** Format: int64 */
+            tokens: number;
         };
         /** @description Everything resolved for one workspace: home config first, project config over it. */
         Config: {
@@ -1908,6 +1923,7 @@ export interface components {
             /** @description Let `task` run subagents in the background. Left out of a PUT, it stays as it is. */
             backgroundTasks?: boolean | null;
             browser?: components["schemas"]["BrowserSettings"] | null;
+            compactAt?: components["schemas"]["CompactAt"] | null;
             promptCache?: components["schemas"]["PromptCache"] | null;
             /** @description Registries besides the built-in ones, for a team's own plugins, skills and MCP servers. Left out of a PUT, they stay as they are. */
             registrySources?: components["schemas"]["RegistrySource"][] | null;
@@ -1918,6 +1934,11 @@ export interface components {
              *     background processes are on. Left out of a PUT, it stays as it is.
              */
             shellHandoff?: boolean | null;
+            /**
+             * @description Load the tools of large MCP servers on request with `tool_search`, on Claude models that take it. Left out of a
+             *     PUT, it stays as it is.
+             */
+            toolSearch?: boolean | null;
         };
         /** @description The same settings, with each source's token to store or clear, for a PUT. */
         EngineSettingsInput: {
@@ -1927,10 +1948,12 @@ export interface components {
             backgroundTaskLimit?: number | null;
             backgroundTasks?: boolean | null;
             browser?: components["schemas"]["BrowserSettings"] | null;
+            compactAt?: components["schemas"]["CompactAt"] | null;
             promptCache?: components["schemas"]["PromptCache"] | null;
             registrySources?: components["schemas"]["SourceInput"][] | null;
             resumeTurns?: boolean | null;
             shellHandoff?: boolean | null;
+            toolSearch?: boolean | null;
         };
         /** @description Whether an engine can run here, and what it would take if not. */
         EngineStatus: {
@@ -2307,6 +2330,11 @@ export interface components {
             modifiers?: number;
         };
         Limit: {
+            /**
+             * Format: int64
+             * @description Where the user's compaction setting compacts, when that is below the window's own point; 0 for no such cap.
+             */
+            compact?: number;
             /** Format: int64 */
             context: number;
             /**
@@ -2319,6 +2347,8 @@ export interface components {
         };
         Limits: {
             fiveHour?: components["schemas"]["Window"] | null;
+            /** @description A Claude subscription past its limits is drawing on paid extra usage, where its cache keeps five minutes. */
+            overage?: boolean;
             /**
              * Format: int64
              * @description The plan's usage is spent until then, in ms; requests before it are refused or paid for with credits.
@@ -2391,6 +2421,8 @@ export interface components {
             account?: string | null;
             /** @description The agent the session ran as when this was written. */
             agent?: string | null;
+            /** @description Why the request read much less of the prompt cache than the one before it left, when it did. */
+            cacheMiss?: string | null;
             /** Format: double */
             cost: number;
             /** Format: int64 */
@@ -2778,7 +2810,8 @@ export interface components {
         /** @description Settings > Execution > Prompt cache, kept by the engine. */
         PromptCache: {
             /**
-             * @description Anthropic API-key requests cache for an hour instead of five minutes, at twice the write price.
+             * @description Anthropic API-key requests cache for an hour instead of five minutes, at twice the write price. A Claude
+             *     subscription caches for an hour whatever this says, except while it draws on extra usage.
              * @default false
              */
             hourCache: boolean;
@@ -3296,6 +3329,7 @@ export interface components {
             checkChanged?: string[] | null;
             checkObserved?: string[] | null;
             checks?: components["schemas"]["ToolCheck"][] | null;
+            cleared?: boolean | null;
             commandModel?: string | null;
             contentType?: string | null;
             /** Format: double */
@@ -3329,6 +3363,7 @@ export interface components {
             provider?: string | null;
             reason?: string | null;
             redirect?: string | null;
+            references?: string[] | null;
             replacements?: number | null;
             requestId?: string | null;
             restricted?: number | null;

@@ -408,14 +408,14 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
     const tokens = last.info.usage;
     const count = tokenCount(tokens);
     const model = modelInfo(state, modelRef ?? null) ?? modelInfo(state, messageModel(last.info));
-    const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number };
+    const limits = (model?.limit ?? {}) as { context?: number; output?: number; input?: number; compact?: number };
     const context = limits.context ?? 0;
     if (!context || !count) return null;
 
     const maxOutput = replyRoom(limits.output ?? 0, context);
     const reserved = Math.min(compactionReserveTokens, maxOutput);
     // Mirrors `Model::compaction_point`: an input cap counts only when it is below the window.
-    const usable = usableContext(limits.input, context, reserved, maxOutput);
+    const usable = usableContext(limits, context, reserved, maxOutput);
 
     return {
         count,
@@ -424,13 +424,24 @@ export function contextStats(state: EngineState, sessionId: string, modelRef?: M
         untilCompaction: Math.max(0, usable - count),
         // The engine keeps cost per message (replies and compaction summaries), not per session.
         cost: entries.reduce((sum, entry) => sum + ((entry.info as { cost?: number }).cost ?? 0), 0),
+        cacheMiss: sinceSummary.find((entry) => entry.info.role === "assistant" && entry.info.cacheMiss)?.info
+            .cacheMiss,
     };
 }
 
-function usableContext(input: number | undefined, context: number, reserved: number, maxOutput: number) {
-    if (input && input < context) return Math.max(0, input - reserved);
+function usableContext(
+    limits: { input?: number; compact?: number },
+    context: number,
+    reserved: number,
+    maxOutput: number,
+) {
+    const own =
+        limits.input && limits.input < context
+            ? Math.max(0, limits.input - reserved)
+            : Math.max(0, context - maxOutput);
+    if (!limits.compact) return own;
 
-    return Math.max(0, context - maxOutput);
+    return Math.min(own, limits.compact);
 }
 
 export function spawnLink(part: Part): { child: string; parent: string } | undefined {

@@ -141,6 +141,8 @@ metadata_fields! {
     process_id: String => "processId",
     provider: String => "provider",
     cost: f64 => "cost",
+    cleared: bool => "cleared",
+    references: Vec<String> => "references",
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

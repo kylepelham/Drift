@@ -533,7 +533,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "何もせず、ツールも使わず、OKと返答",
     "drift.settings.promptCache.hour.title": "Anthropicで1時間キャッシュ",
     "drift.settings.promptCache.hour.description":
-        "AnthropicのAPIキーでは、キャッシュを5分ではなく1時間保持します。書き込みは入力価格の1.25倍ではなく2倍になります。",
+        "Anthropic API キーを使用している場合、キャッシュを5分ではなく1時間保持します。キャッシュへの書き込みは入力価格の1.25倍ではなく2倍の費用がかかります。Claude のサブスクリプションでは、追加使用量を使用している場合を除き、Claude Code と同様に常に1時間キャッシュされます。",
+    "drift.settings.toolSearch.title": "大規模な MCP サーバーのツールをリクエスト時に読み込む",
+    "drift.settings.toolSearch.description":
+        "Claude では、ツールが10個以上ある MCP サーバーのツールは名前のみ一覧表示され、毎リクエストですべて送信される代わりにモデルが必要とした際に tool_search で読み込まれます。",
     "drift.settings.execution.shell": "シェル",
     "drift.settings.execution.subagents": "サブエージェント",
     "drift.settings.backgroundLimit.title": "同時に実行するバックグラウンドサブエージェント",
@@ -651,6 +654,7 @@ export const drift = {
     "drift.context.compacting": "コンテキストを圧縮中",
     "drift.context.pending": "使用量は最初の応答後に表示されます。",
     "drift.context.untilCompaction": "圧縮まで",
+    "drift.context.cacheMiss": "前回のキャッシュミス",
     "drift.context.window": "コンテキストウィンドウ",
     "drift.context.systemAndTools": "システムとツール",
     "drift.context.user": "あなたのメッセージ",
@@ -1229,7 +1233,13 @@ export const drift = {
     "drift.storage.table.output.hint": "1 週間保持",
     "drift.settings.autoCompact.title": "自動で圧縮",
     "drift.settings.autoCompact.description":
-        "会話がモデルのコンテキストウィンドウに近づくと古いメッセージを要約します。/compact はいつでも使えます。",
+        "会話が以下のポイントに達したときに古いメッセージを要約します。/compact はいつでも使えます。",
+    "drift.settings.compactAt.title": "圧縮するタイミング",
+    "drift.settings.compactAt.description":
+        "各ステップで会話全体が再送信されるため、早めに圧縮するとコストを抑えモデルの集中力を維持できます。遅くすると会話内容をそのまま長く保持します。",
+    "drift.settings.compactAt.auto": "自動 (最大 400k)",
+    "drift.settings.compactAt.window": "ウィンドウがほぼいっぱいになったとき",
+    "drift.settings.compactAt.tokens": "{{count}}k トークン",
     "drift.settings.summaries.collapsed.description": "圧縮要約を折りたたんだ状態で表示します。",
     "drift.settings.summaries.collapsed.title": "要約をデフォルトで折りたたむ",
     "drift.settings.summaries.collapsible.description": "エンジンの圧縮要約を、展開できる区切り線の下にまとめます。",

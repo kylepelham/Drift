@@ -28,6 +28,7 @@ pub(crate) mod stage;
 pub mod task;
 mod text;
 pub mod todo;
+pub mod tool_search;
 pub mod webfetch;
 pub mod websearch;
 pub mod worktree;

@@ -537,7 +537,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "Ничего не делай, не используй инструменты, ответь OK",
     "drift.settings.promptCache.hour.title": "Кэш на час у Anthropic",
     "drift.settings.promptCache.hour.description":
-        "С ключом API Anthropic кэш хранится час вместо пяти минут. Запись в него стоит вдвое дороже ввода вместо 1,25 раза.",
+        "С ключом API Anthropic хранить кэш час вместо пяти минут. Запись в него стоит вдвое дороже входных токенов вместо 1,25 раза. Подписка Claude всегда кэширует на час, как и Claude Code, если только не расходуется дополнительное использование.",
+    "drift.settings.toolSearch.title": "Загружать инструменты больших серверов MCP по запросу",
+    "drift.settings.toolSearch.description":
+        "В Claude инструменты сервера MCP с 10 или более инструментами перечисляются по именам и загружаются через tool_search, когда они нужны модели, а не отправляются целиком с каждым запросом.",
     "drift.settings.execution.shell": "Оболочка",
     "drift.settings.execution.subagents": "Субагенты",
     "drift.settings.backgroundLimit.title": "Фоновых субагентов одновременно",
@@ -654,6 +657,7 @@ export const drift = {
     "drift.context.compacting": "Сжатие контекста",
     "drift.context.pending": "Данные об использовании появятся после первого ответа.",
     "drift.context.untilCompaction": "До сжатия",
+    "drift.context.cacheMiss": "Последний промах кэша",
     "drift.context.window": "Окно контекста",
     "drift.context.systemAndTools": "Система и инструменты",
     "drift.context.user": "Ваши сообщения",
@@ -1231,7 +1235,13 @@ export const drift = {
     "drift.storage.table.output.hint": "хранится неделю",
     "drift.settings.autoCompact.title": "Сжимать автоматически",
     "drift.settings.autoCompact.description":
-        "Кратко пересказывать старые сообщения, когда разговор приближается к окну контекста модели. /compact работает всегда.",
+        "Обобщать старые сообщения, когда беседа достигает порога ниже. Команда /compact работает всегда.",
+    "drift.settings.compactAt.title": "Сжимать при",
+    "drift.settings.compactAt.description":
+        "На каждом шаге вся беседа отправляется заново, поэтому более раннее сжатие обходится дешевле и помогает модели сохранять фокус. Более позднее сохраняет большую часть дословно.",
+    "drift.settings.compactAt.auto": "Автоматически (не более 400k)",
+    "drift.settings.compactAt.window": "Когда окно почти заполнено",
+    "drift.settings.compactAt.tokens": "{{count}}k токенов",
     "drift.settings.summaries.collapsed.description": "Изначально показывать сводки сжатия свернутыми.",
     "drift.settings.summaries.collapsed.title": "Сворачивать сводки по умолчанию",
     "drift.settings.summaries.collapsible.description": "Скрывать сводки сжатия движка за раскрывающимся разделителем.",

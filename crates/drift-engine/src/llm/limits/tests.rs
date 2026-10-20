@@ -108,6 +108,14 @@ fn anthropic_headers_report_fractions_and_a_rejection() {
     assert_eq!(limits.five_hour.unwrap().used_percent, 100.0);
     assert!((limits.weekly.unwrap().used_percent - 42.0).abs() < 1e-9);
     assert_eq!(limits.spent_until, Some(1_791_700_000_000));
+    assert!(!limits.overage);
+
+    let extra = Limits::from_headers(&headers(&[
+        ("anthropic-ratelimit-unified-5h-utilization", "1.0"),
+        ("anthropic-ratelimit-unified-overage-in-use", "true"),
+    ]))
+    .unwrap();
+    assert!(extra.overage, "a subscription drawing on extra usage says so");
 }
 
 #[test]

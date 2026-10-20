@@ -25,6 +25,9 @@ pub struct Limits {
     /// The plan's usage is spent until then, in ms; requests before it are refused or paid for with credits.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub spent_until: Option<i64>,
+    /// A Claude subscription past its limits is drawing on paid extra usage, where its cache keeps five minutes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub overage: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -151,11 +154,15 @@ fn anthropic_headers(headers: &HeaderMap) -> Option<Limits> {
     };
     let rejected = header(headers, "anthropic-ratelimit-unified-status") == Some("rejected");
     let refused = rejected.then(|| seconds_at(number("reset"), None));
+    let overage = header(headers, "anthropic-ratelimit-unified-overage-in-use") == Some("true");
 
-    Limits::of(
+    let mut limits = Limits::of(
         [window("5h", 300.0), window("7d", 10080.0)].into_iter().flatten(),
         refused,
-    )
+    )?;
+    limits.overage = overage;
+
+    Some(limits)
 }
 
 fn header<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {

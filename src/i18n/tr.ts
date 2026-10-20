@@ -534,7 +534,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "Hiçbir iş yapma, araç kullanma, OK yanıtla",
     "drift.settings.promptCache.hour.title": "Anthropic'te bir saatlik önbellek",
     "drift.settings.promptCache.hour.description":
-        "Anthropic API anahtarıyla önbellek beş dakika yerine bir saat tutulur. Yazmak giriş fiyatının 1,25 katı yerine 2 katıdır.",
+        "Anthropic API anahtarı kullanıldığında önbelleği beş dakika yerine bir saat tutar. Önbelleğe yazma, 1,25 kat yerine girdi fiyatının iki katına mal olur. Claude aboneliği, Claude Code gibi, ek kullanım harcamadığı sürece her zaman bir saat önbelleğe alır.",
+    "drift.settings.toolSearch.title": "Büyük MCP sunucularının araçlarını istek üzerine yükle",
+    "drift.settings.toolSearch.description":
+        "Claude üzerinde, on veya daha fazla aracı olan bir MCP sunucusunun araçları her istekte tam olarak gönderilmek yerine ada göre listelenir ve model ihtiyaç duyduğunda tool_search ile yüklenir.",
     "drift.settings.execution.shell": "Kabuk",
     "drift.settings.execution.subagents": "Alt ajanlar",
     "drift.settings.backgroundLimit.title": "Aynı anda arka plan alt ajanları",
@@ -651,6 +654,7 @@ export const drift = {
     "drift.context.compacting": "Bağlam sıkıştırılıyor",
     "drift.context.pending": "Kullanım ilk yanıttan sonra görünür.",
     "drift.context.untilCompaction": "Sıkıştırmaya kadar",
+    "drift.context.cacheMiss": "Son önbellek kaçırma",
     "drift.context.window": "Bağlam penceresi",
     "drift.context.systemAndTools": "Sistem ve araçlar",
     "drift.context.user": "Mesajlarınız",
@@ -1227,7 +1231,13 @@ export const drift = {
     "drift.storage.table.output.hint": "bir hafta saklanır",
     "drift.settings.autoCompact.title": "Otomatik sıkıştır",
     "drift.settings.autoCompact.description":
-        "Bir konuşma modelin bağlam penceresine yaklaştığında eski mesajları özetle. /compact her zaman çalışır.",
+        "Bir konuşma aşağıdaki noktaya ulaştığında eski mesajları özetler. /compact her zaman çalışır.",
+    "drift.settings.compactAt.title": "Sıkıştırma eşiği",
+    "drift.settings.compactAt.description":
+        "Her adım tüm konuşmayı tekrar gönderir; bu nedenle daha erken sıkıştırmak maliyeti düşürür ve modelin odaklanmasını sağlar. Daha geç sıkıştırmak konuşmanın daha fazlasını kelimesi kelimesine korur.",
+    "drift.settings.compactAt.auto": "Otomatik (en fazla 400 bin)",
+    "drift.settings.compactAt.window": "Pencere neredeyse dolduğunda",
+    "drift.settings.compactAt.tokens": "{{count}} bin belirteç",
     "drift.settings.summaries.collapsed.description": "Sıkıştırma özetlerini daraltılmış olarak başlatın.",
     "drift.settings.summaries.collapsed.title": "Özetleri varsayılan olarak daralt",
     "drift.settings.summaries.collapsible.description":

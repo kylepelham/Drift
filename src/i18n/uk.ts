@@ -535,7 +535,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "Нічого не роби, не використовуй інструменти, відповідай OK",
     "drift.settings.promptCache.hour.title": "Кеш на годину в Anthropic",
     "drift.settings.promptCache.hour.description":
-        "З ключем API Anthropic кеш зберігається годину замість п'яти хвилин. Запис коштує вдвічі більше за ціну введення замість 1,25 раза.",
+        "З ключем API Anthropic зберігати кеш протягом години замість п'яти хвилин. Запис до нього коштує вдвічі більше за ціну вхідних токенів замість 1,25 раза. Підписка на Claude завжди кешує на годину, як і Claude Code, за винятком випадків використання додаткового ліміту.",
+    "drift.settings.toolSearch.title": "Завантажувати інструменти великих серверів MCP за запитом",
+    "drift.settings.toolSearch.description":
+        "У Claude інструменти MCP-сервера з десятьма або більше інструментами перелічуються за назвою і завантажуються через tool_search, коли вони потрібні моделі, замість надсилання повністю з кожним запитом.",
     "drift.settings.execution.shell": "Оболонка",
     "drift.settings.execution.subagents": "Субагенти",
     "drift.settings.backgroundLimit.title": "Фонових субагентів одночасно",
@@ -652,6 +655,7 @@ export const drift = {
     "drift.context.compacting": "Стиснення контексту",
     "drift.context.pending": "Дані про використання з'являться після першої відповіді.",
     "drift.context.untilCompaction": "До стиснення",
+    "drift.context.cacheMiss": "Останній промах кешу",
     "drift.context.window": "Вікно контексту",
     "drift.context.systemAndTools": "Система та інструменти",
     "drift.context.user": "Ваші повідомлення",
@@ -1228,7 +1232,13 @@ export const drift = {
     "drift.storage.table.output.hint": "зберігається тиждень",
     "drift.settings.autoCompact.title": "Стискати автоматично",
     "drift.settings.autoCompact.description":
-        "Підсумовувати старі повідомлення, коли розмова наближається до вікна контексту моделі. /compact працює завжди.",
+        "Підсумовувати старіші повідомлення, коли розмова досягає зазначеного нижче порогу. /compact працює завжди.",
+    "drift.settings.compactAt.title": "Стискати при",
+    "drift.settings.compactAt.description":
+        "Кожен крок надсилає всю розмову знову, тому раніше стиснення коштує менше й тримає модель сфокусованою. Пізніше стиснення зберігає більше тексту дослівно.",
+    "drift.settings.compactAt.auto": "Автоматично (щонайбільше 400k)",
+    "drift.settings.compactAt.window": "Коли вікно майже заповнене",
+    "drift.settings.compactAt.tokens": "{{count}}k токенів",
     "drift.settings.summaries.collapsed.description": "Спочатку показувати підсумки стиснення згорнутими.",
     "drift.settings.summaries.collapsed.title": "Згортати підсумки за замовчуванням",
     "drift.settings.summaries.collapsible.description": "Ховати підсумки стиснення рушія за розгортаним роздільником.",

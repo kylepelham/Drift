@@ -94,9 +94,12 @@ impl Engine {
             }
             self.follow_account(plan).await;
 
-            let Some(transcript) = self.transcript_for_step(plan, abort).await else {
+            let Some(mut transcript) = self.transcript_for_step(plan, abort).await else {
                 break;
             };
+            if self.cache_cold(plan) {
+                self.clear_old_results(&mut transcript);
+            }
 
             let wrap_up = wrapping.map(WrapUp::instruction);
             let request;
@@ -184,13 +187,17 @@ impl Engine {
         }
     }
 
-    /// Compacts an overflowing request and discards an empty refused reply once recovery succeeds.
+    /// Compacts an overflowing request and discards an empty refused reply once recovery succeeds. After three
+    /// automatic compactions in a row failed, the refusal stands instead of sending the whole conversation again.
     async fn recover_from_overflow(
         self: &Arc<Self>,
         session_id: &str,
         reply: String,
         abort: &CancellationToken,
     ) -> bool {
+        if self.compaction_keeps_failing(session_id) {
+            return false;
+        }
         if self.compact(session_id, Trigger::Overflow, abort).await.is_err() {
             return false;
         }
@@ -247,7 +254,7 @@ impl Engine {
         request: &Request,
         abort: &CancellationToken,
     ) -> Step {
-        let streamed = match self.stream(&message, plan, request, abort).await {
+        let mut streamed = match self.stream(&message, plan, request, abort).await {
             Ok(streamed) => streamed,
             Err(StreamError::Provider(error)) if self.leave_refused_account(plan, &error) => {
                 self.failed_step(&mut message, StreamError::Provider(error));
@@ -261,11 +268,7 @@ impl Engine {
             return Step::Switch;
         }
 
-        message.usage = streamed.usage;
-        message.generation_ms = streamed.generation_ms;
-        message.account = plan.account.clone();
-        message.cost = cost(&plan.model, streamed.usage);
-        message.status = MessageStatus::Done;
+        record_usage(plan, &mut message, &mut streamed);
 
         // An incomplete reply cannot supply trustworthy tool arguments.
         let ending = match streamed.stop {
@@ -442,8 +445,9 @@ impl Engine {
         }
 
         let _ = assembler.stop_block();
-        if let Some(line) = self.turns.cache_watch.observe(&plan.session.id, sent, assembler.usage) {
-            eprintln!("{line}");
+        let cache_miss = self.turns.cache_watch.observe(&plan.session.id, sent, assembler.usage);
+        if let Some(why) = &cache_miss {
+            eprintln!("drift: session {} {why}", plan.session.id);
         }
         self.warm_after(scope.plan);
         let Some(stop) = assembler.stop else {
@@ -454,6 +458,7 @@ impl Engine {
 
         Ok(Streamed {
             usage: assembler.usage,
+            cache_miss,
             generation_ms: assembler.generation_ms(),
             stop,
             refusal: assembler.refusal,
@@ -461,4 +466,14 @@ impl Engine {
             early,
         })
     }
+}
+
+/// The reply's usage, cost, account and timing, as its stream reported them.
+fn record_usage(plan: &Plan, message: &mut Message, streamed: &mut Streamed) {
+    message.usage = streamed.usage;
+    message.cache_miss = streamed.cache_miss.take();
+    message.generation_ms = streamed.generation_ms;
+    message.account = plan.account.clone();
+    message.cost = cost(&plan.model, streamed.usage);
+    message.status = MessageStatus::Done;
 }

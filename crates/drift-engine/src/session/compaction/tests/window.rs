@@ -11,6 +11,7 @@ fn model(context: u64, output: u64) -> Model {
         context,
         output,
         input: 0,
+        compact: 0,
     };
 
     model
@@ -38,9 +39,39 @@ fn used(input: u64) -> Vec<MessageWithParts> {
             summary: false,
             ending: None,
             refusal: None,
+            cache_miss: None,
         },
         parts: Vec::new(),
     }]
+}
+
+#[test]
+fn the_compaction_setting_caps_a_large_window_and_never_raises_a_small_one() {
+    let mut large = model(1_000_000, 128_000);
+    let point = |setting: CompactAt, model: &mut Model| {
+        model.limit.compact = setting.cap(model);
+        model.compaction_point()
+    };
+
+    assert_eq!(point(CompactAt::Auto, &mut large), 400_000);
+    assert_eq!(point(CompactAt::Window, &mut large), 968_000);
+    assert_eq!(point(CompactAt::Tokens { tokens: 250_000 }, &mut large), 250_000);
+    assert_eq!(
+        point(CompactAt::Tokens { tokens: 5_000 }, &mut large),
+        MIN_COMPACT_TOKENS,
+        "a point too early to pay for itself is raised"
+    );
+    assert_eq!(point(CompactAt::Auto, &mut model(200_000, 64_000)), 168_000);
+
+    // A provider that charges more past 272k gets compacted before it.
+    large.cost.tiers = vec![crate::llm::catalog::CostTier {
+        above: 272_000,
+        input: 0.0,
+        output: 0.0,
+        cache_read: 0.0,
+        cache_write: 0.0,
+    }];
+    assert_eq!(point(CompactAt::Auto, &mut large), 252_000);
 }
 
 #[test]

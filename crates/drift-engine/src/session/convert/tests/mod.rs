@@ -39,6 +39,7 @@ fn message_with(role: Role, status: MessageStatus, parts: Vec<Part>) -> MessageW
             summary: false,
             ending: None,
             refusal: None,
+            cache_miss: None,
         },
         parts: parts
             .into_iter()

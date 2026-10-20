@@ -34,6 +34,47 @@ const TRIM_ATTEMPTS: usize = 3;
 /// Automatic compaction stops for a session after this many failures in a row.
 pub(super) const MAX_AUTO_FAILURES: u32 = 3;
 pub const AUTO_COMPACT_KEY: &str = "autoCompact";
+pub const COMPACT_AT_KEY: &str = "compactAt";
+/// Where `Auto` compacts a model with a larger window: past it, every step rereads far more than the work needs.
+const AUTO_COMPACT_TOKENS: u64 = 400_000;
+/// The earliest point the user may set; below it, compaction comes too often to pay for itself.
+pub const MIN_COMPACT_TOKENS: u64 = 100_000;
+
+/// Where a conversation compacts, as the user chose it in Settings.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
+#[serde(tag = "mode", rename_all = "camelCase")]
+pub enum CompactAt {
+    /// At most 400k tokens, and below the first context length a provider charges more past.
+    #[default]
+    Auto,
+    /// Only when the model's window is nearly full.
+    Window,
+    /// At most this many tokens.
+    Tokens { tokens: u64 },
+}
+
+impl CompactAt {
+    /// The point this setting compacts `model` at, when that is below the window's own; 0 for none.
+    pub fn cap(self, model: &Model) -> u64 {
+        match self {
+            Self::Auto => auto_cap(model),
+            Self::Window => 0,
+            Self::Tokens { tokens } => tokens.max(MIN_COMPACT_TOKENS),
+        }
+    }
+}
+
+fn auto_cap(model: &Model) -> u64 {
+    let reprices_at = model
+        .cost
+        .tiers
+        .iter()
+        .map(|tier| tier.above.saturating_sub(crate::llm::catalog::INPUT_RESERVE))
+        .filter(|point| *point >= MIN_COMPACT_TOKENS)
+        .min();
+
+    reprices_at.map_or(AUTO_COMPACT_TOKENS, |point| point.min(AUTO_COMPACT_TOKENS))
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Trigger {
@@ -184,6 +225,10 @@ impl Engine {
         self.store.setting(AUTO_COMPACT_KEY).ok().flatten().unwrap_or(true)
     }
 
+    pub fn compact_at(&self) -> CompactAt {
+        self.store.setting(COMPACT_AT_KEY).ok().flatten().unwrap_or_default()
+    }
+
     /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it.
     /// An undo still pending is committed first, as sending a prompt would: the rolled-back messages go
     /// and the summary covers what is visible.
@@ -235,6 +280,12 @@ impl Engine {
 
     /// Whether the turn should compact before its next request; three automatic failures in a row stop it.
     pub(super) fn wants_compaction(&self, session_id: &str, model: &Model, transcript: &[MessageWithParts]) -> bool {
+        self.auto_compact() && !self.compaction_keeps_failing(session_id) && overflowing(model, transcript)
+    }
+
+    /// Three automatic compactions in a row failed; each one sends the whole conversation, so no more are tried
+    /// until one the user asks for succeeds.
+    pub(super) fn compaction_keeps_failing(&self, session_id: &str) -> bool {
         let failures = self
             .turns
             .compaction_failures
@@ -244,7 +295,7 @@ impl Engine {
             .copied()
             .unwrap_or(0);
 
-        self.auto_compact() && failures < MAX_AUTO_FAILURES && overflowing(model, transcript)
+        failures >= MAX_AUTO_FAILURES
     }
 
     /// Writes a boundary and a summary of everything before the recent turns.
@@ -264,14 +315,13 @@ impl Engine {
             let _ = self.store.clear_instructions(session_id);
         }
 
-        if trigger != Trigger::Manual {
-            let mut failures = self.turns.compaction_failures.lock().unwrap();
-            match &result {
-                Ok(()) => {
-                    failures.remove(session_id);
-                }
-                Err(_) => *failures.entry(session_id.into()).or_default() += 1,
+        let mut failures = self.turns.compaction_failures.lock().unwrap();
+        match (&result, trigger) {
+            (Ok(()), _) => {
+                failures.remove(session_id);
             }
+            (Err(_), Trigger::Manual) => {}
+            (Err(_), _) => *failures.entry(session_id.into()).or_default() += 1,
         }
 
         result

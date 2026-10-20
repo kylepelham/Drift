@@ -10,7 +10,7 @@ use super::error::ApiError;
 use crate::Engine;
 use crate::background::{HANDOFF_KEY, PROCESSES_KEY};
 use crate::browser::BrowserSettings;
-use crate::session::compaction::AUTO_COMPACT_KEY;
+use crate::session::compaction::{AUTO_COMPACT_KEY, COMPACT_AT_KEY, CompactAt};
 use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
 use crate::session::turn::resume::RESUME_KEY;
 use crate::session::turn::warming::{PROMPT_CACHE_KEY, PromptCache};
@@ -22,6 +22,13 @@ pub(super) struct EngineSettings {
     /// Compact a conversation automatically when it nears its model's context window. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_compact: Option<bool>,
+    /// Where a conversation compacts: at most 400k tokens, near the window, or a chosen size. Left out of a PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_at: Option<CompactAt>,
+    /// Load the tools of large MCP servers on request with `tool_search`, on Claude models that take it. Left out of a
+    /// PUT, it stays as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_search: Option<bool>,
     /// Let `task` run subagents in the background. Left out of a PUT, it stays as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub background_tasks: Option<bool>,
@@ -61,6 +68,10 @@ pub(super) struct EngineSettingsInput {
     #[serde(default)]
     pub auto_compact: Option<bool>,
     #[serde(default)]
+    pub compact_at: Option<CompactAt>,
+    #[serde(default)]
+    pub tool_search: Option<bool>,
+    #[serde(default)]
     pub background_tasks: Option<bool>,
     #[serde(default)]
     pub background_task_limit: Option<usize>,
@@ -83,6 +94,8 @@ pub(super) struct EngineSettingsInput {
 fn current(engine: &Engine) -> EngineSettings {
     EngineSettings {
         auto_compact: Some(engine.auto_compact()),
+        compact_at: Some(engine.compact_at()),
+        tool_search: Some(engine.tool_search()),
         background_tasks: Some(engine.background_enabled()),
         background_task_limit: Some(engine.background_limit()),
         background_processes: Some(engine.background_processes()),
@@ -108,6 +121,14 @@ pub(super) async fn put(
 ) -> Result<Json<EngineSettings>, ApiError> {
     if let Some(enabled) = body.auto_compact {
         engine.store.set_setting(AUTO_COMPACT_KEY, &enabled)?;
+    }
+    if let Some(compact_at) = body.compact_at {
+        engine.store.set_setting(COMPACT_AT_KEY, &compact_at)?;
+        // Every model in the catalog carries the point, so the context meters move with it.
+        engine.hub.publish(crate::event::Event::CatalogUpdated {});
+    }
+    if let Some(on) = body.tool_search {
+        engine.store.set_setting(crate::tool::tool_search::SETTINGS_KEY, &on)?;
     }
     if let Some(enabled) = body.background_tasks {
         engine.store.set_setting(BACKGROUND_TASKS_KEY, &enabled)?;

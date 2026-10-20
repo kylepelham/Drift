@@ -527,7 +527,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "아무 작업도 하지 말고 도구도 쓰지 말고 OK라고 답하세요",
     "drift.settings.promptCache.hour.title": "Anthropic에서 1시간 캐시",
     "drift.settings.promptCache.hour.description":
-        "Anthropic API 키로 캐시를 5분 대신 1시간 유지합니다. 쓰기 비용은 입력 가격의 1.25배 대신 2배입니다.",
+        "Anthropic API 키를 사용할 때 캐시를 5분 대신 1시간 동안 유지합니다. 캐시 쓰기 비용은 입력 가격의 1.25배 대신 2배입니다. Claude 구독은 Claude Code처럼 항상 1시간 동안 캐시되지만, 추가 사용량을 소진하는 동안은 제외됩니다.",
+    "drift.settings.toolSearch.title": "대규모 MCP 서버 도구를 요청 시 로드",
+    "drift.settings.toolSearch.description":
+        "Claude에서는 도구가 10개 이상인 MCP 서버의 경우 도구를 매 요청마다 모두 전송하는 대신, 이름만 나열하고 모델에 필요할 때 tool_search로 로드합니다.",
     "drift.settings.execution.shell": "셸",
     "drift.settings.execution.subagents": "하위 에이전트",
     "drift.settings.backgroundLimit.title": "동시에 실행할 백그라운드 하위 에이전트",
@@ -644,6 +647,7 @@ export const drift = {
     "drift.context.compacting": "컨텍스트 압축 중",
     "drift.context.pending": "사용량은 첫 응답 후 표시됩니다.",
     "drift.context.untilCompaction": "압축까지",
+    "drift.context.cacheMiss": "마지막 캐시 미스",
     "drift.context.window": "컨텍스트 창",
     "drift.context.systemAndTools": "시스템 및 도구",
     "drift.context.user": "내 메시지",
@@ -1212,7 +1216,13 @@ export const drift = {
     "drift.storage.table.output.hint": "일주일 보관",
     "drift.settings.autoCompact.title": "자동 압축",
     "drift.settings.autoCompact.description":
-        "대화가 모델의 컨텍스트 창에 가까워지면 오래된 메시지를 요약합니다. /compact는 언제든 사용할 수 있습니다.",
+        "대화가 아래 기준에 도달하면 이전 메시지를 요약합니다. /compact는 언제든 작동합니다.",
+    "drift.settings.compactAt.title": "압축 기준",
+    "drift.settings.compactAt.description":
+        "모든 단계에서 전체 대화가 다시 전송되므로, 더 일찍 압축하면 비용이 줄어들고 모델의 집중도를 유지할 수 있습니다. 늦게 압축하면 대화 내용이 있는 그대로 더 많이 유지됩니다.",
+    "drift.settings.compactAt.auto": "자동(최대 400k)",
+    "drift.settings.compactAt.window": "창이 거의 찼을 때",
+    "drift.settings.compactAt.tokens": "{{count}}k 토큰",
     "drift.settings.summaries.collapsed.description": "압축 요약을 접힌 상태로 시작합니다.",
     "drift.settings.summaries.collapsed.title": "기본적으로 요약 접기",
     "drift.settings.summaries.collapsible.description": "엔진의 압축 요약을 펼칠 수 있는 구분선 아래에 접어 둡니다.",

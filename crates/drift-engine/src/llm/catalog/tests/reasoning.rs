@@ -195,3 +195,14 @@ fn newer_claude_features_follow_opencode_v2s_model_rule() {
         Default::default()
     );
 }
+
+#[test]
+fn deferred_tools_go_to_claude_4_5_and_later_on_anthropics_own_route() {
+    use crate::llm::catalog::claude_features_for;
+    let defers = |id: &str| claude_features_for("anthropic", id).tool_references;
+    assert!(defers("claude-sonnet-4-5-20250929"));
+    assert!(defers("claude-opus-5-5"));
+    assert!(!defers("claude-opus-4-1"));
+    assert!(!defers("claude-3-5-sonnet-20241022"));
+    assert!(!claude_features_for("amazon-bedrock", "claude-opus-5").tool_references);
+}

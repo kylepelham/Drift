@@ -82,10 +82,51 @@ impl Engine {
         self.codex_offers.fit(&mut plan.model, &plan.credential);
     }
 
+    /// A new turn goes back to the account the conversation's last reply used while that account suits it and the
+    /// cache there is still warm; the user's order decides once it has gone cold.
+    pub(super) async fn stay_where_warm(&self, plan: &mut Plan) {
+        let Ok(Some(last)) = self.store.last_cached_reply(&plan.session.id) else {
+            return;
+        };
+        let Some(account) = last.account.filter(|account| plan.account.as_ref() != Some(account)) else {
+            return;
+        };
+        if last.model.as_ref() != Some(&plan.model_ref) || !self.account_suits(&account, &plan.session.id, &plan.model)
+        {
+            return;
+        }
+        let Some(stored) = self.credentials.account(&account) else {
+            return;
+        };
+        let Ok(credential) = self
+            .fresh_credential(&plan.model_ref.provider, Some(&account), stored)
+            .await
+        else {
+            return;
+        };
+
+        let chosen = (
+            std::mem::replace(&mut plan.credential, credential),
+            plan.account.replace(account),
+        );
+        if self.cache_cold(plan) {
+            (plan.credential, plan.account) = chosen;
+            return;
+        }
+
+        self.codex_offers.fit(&mut plan.model, &plan.credential);
+    }
+
+    /// Moves to the first suitable account in the user's order. While the current one still suits and the conversation's
+    /// cache on it is warm, the turn stays: moving would write the whole prompt into the other account's cache again.
     async fn switch_to_preferred(&self, plan: &mut Plan) {
         let Some(current) = plan.account.clone() else {
             return;
         };
+        if self.account_suits(&current, &plan.session.id, &plan.model) && !self.cache_cold(plan) {
+            return;
+        }
+
         let provider = plan.model_ref.provider.clone();
         let Some(preferred) = self
             .preferred_account(&provider, &plan.session.id, &plan.model)

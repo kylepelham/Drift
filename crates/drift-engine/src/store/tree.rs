@@ -194,8 +194,8 @@ fn copy_message(
     let message_id = id::new("msg");
     let copied = conn
         .prepare_cached(
-            "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json)
-             SELECT ?1, ?2, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json FROM message WHERE id = ?3",
+            "INSERT INTO message(id, session_id, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json, cache_miss)
+             SELECT ?1, ?2, role, status, model_provider, model_id, usage_json, cost, error, created_at, finished_at, summary, agent, ending, generation_ms, account, refusal_json, cache_miss FROM message WHERE id = ?3",
         )?
         .execute(params![message_id, session_id, source])?;
     if copied == 0 {

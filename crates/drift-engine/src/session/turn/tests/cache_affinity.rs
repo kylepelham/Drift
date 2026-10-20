@@ -78,3 +78,36 @@ async fn an_agents_md_edit_mid_session_leaves_the_system_prompt_and_arrives_as_a
         "{sent}"
     );
 }
+
+/// A reply whose request had `input` uncached and `cache_read` cached prompt tokens.
+fn answered(input: u64, cache_read: u64, reply: &str) -> Vec<Chunk> {
+    let mut chunks = vec![Chunk::Usage(Usage {
+        input,
+        cache_read,
+        ..Usage::default()
+    })];
+    chunks.extend(text(reply).into_iter().skip(1));
+    chunks
+}
+
+#[tokio::test]
+async fn a_reply_whose_request_missed_the_cache_keeps_why() {
+    let h = harness().await;
+    h.provider
+        .push(answered(6_000, 0, "first"))
+        .push(answered(200, 6_000, "second"))
+        .push(answered(6_500, 0, "third"));
+    for ask in ["one", "two", "three"] {
+        h.engine.submit(&h.session.id, prompt(ask)).await.await_ok();
+        until_idle(&h).await;
+    }
+
+    let misses: Vec<Option<String>> = transcript(&h)
+        .into_iter()
+        .filter(|message| message.info.role == Role::Assistant)
+        .map(|message| message.info.cache_miss)
+        .collect();
+    assert_eq!(misses[..2], [None, None]);
+    let why = misses[2].clone().unwrap();
+    assert!(why.starts_with("read 0 cached tokens of about 6200 expected"), "{why}");
+}

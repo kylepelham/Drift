@@ -145,6 +145,9 @@ pub struct Message {
     /// What the provider said about a safety refusal, when it said anything.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refusal: Option<Refusal>,
+    /// Why the request read much less of the prompt cache than the one before it left, when it did.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_miss: Option<String>,
 }
 
 /// The provider's account of a safety refusal. None of it names the text that triggered it.

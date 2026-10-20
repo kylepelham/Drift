@@ -39,6 +39,7 @@ mod approval;
 mod cache_watch;
 mod calls;
 mod checks;
+mod clearing;
 mod effort;
 mod history;
 mod hooks;
@@ -350,6 +351,8 @@ struct Switch {
 #[derive(Default)]
 struct Offer {
     tools: Vec<(llm::ToolSpec, Arc<dyn crate::tool::Tool>)>,
+    /// Offered tools kept out of the model's context until `tool_search` loads them.
+    deferred: std::collections::BTreeSet<String>,
     /// What the system prompt is made of now; a session sends its frozen baseline of them (`instructions`).
     sources: Vec<crate::session::prompt::Source>,
 }
@@ -376,6 +379,8 @@ struct StepWrites {
 
 struct Streamed {
     usage: Usage,
+    /// Why the request read much less of the prompt cache than expected, when it did.
+    cache_miss: Option<String>,
     generation_ms: Option<u64>,
     stop: StopReason,
     refusal: Option<types::Refusal>,

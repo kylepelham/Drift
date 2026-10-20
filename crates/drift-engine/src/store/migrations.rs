@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 /// Each entry runs once, in order, inside a transaction; `user_version` records how far we got.
-pub(super) const MIGRATIONS: [&str; 46] = [
+pub(super) const MIGRATIONS: [&str; 47] = [
     "CREATE TABLE IF NOT EXISTS workspace(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL UNIQUE,
@@ -222,6 +222,8 @@ pub(super) const MIGRATIONS: [&str; 46] = [
     "ALTER TABLE session ADD COLUMN worktree TEXT;",
     // How often a background worker was started again after Drift stopped while it ran.
     "ALTER TABLE task ADD COLUMN restarts INTEGER NOT NULL DEFAULT 0;",
+    // Why a reply's request read much less of the prompt cache than the one before it left.
+    "ALTER TABLE message ADD COLUMN cache_miss TEXT;",
 ];
 
 #[cfg(test)]

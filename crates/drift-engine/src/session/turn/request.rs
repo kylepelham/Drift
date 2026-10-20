@@ -6,6 +6,9 @@ pub(super) const MAX_OUTPUT_TOKENS: u32 = 32_000;
 pub(super) const MIN_ANSWER_TOKENS: u32 = 1024;
 /// The smallest thinking budget providers accept.
 pub(super) const MIN_THINKING_TOKENS: u32 = 1024;
+/// How long a provider keeps a prompt cache it was last asked for: five minutes, or an hour when asked for that.
+const CACHE_MS: i64 = 5 * 60 * 1000;
+const HOUR_CACHE_MS: i64 = 60 * 60 * 1000;
 
 impl Engine {
     /// Builds the same request as a turn step, including its cached prefix and newest prompt id.
@@ -44,6 +47,12 @@ impl Engine {
         if let Some(text) = closing {
             convert::push(&mut messages, llm::Role::User, vec![llm::Block::Text(text)]);
         }
+        let deferred_tools = plan.offer.deferred_specs();
+        let tool_references = if deferred_tools.is_empty() {
+            Default::default()
+        } else {
+            crate::tool::tool_search::references(&transcript)
+        };
 
         let request = Request {
             model: plan.model.wire(&plan.model_ref.model).to_string(),
@@ -61,7 +70,10 @@ impl Engine {
             connection: Some(plan.session.id.clone()),
             effort_marks,
             claude: plan.model.claude,
-            cache_hour: self.prompt_cache().hour_cache,
+            cache_hour: self.hour_cache(plan),
+            cache_conversation: true,
+            deferred_tools,
+            tool_references,
             no_tool_calls,
             verbosity: catalog::verbosity(provider, &plan.model),
             show_thinking: catalog::shows_thinking(provider, &plan.model),
@@ -72,6 +84,44 @@ impl Engine {
         };
 
         (request, answered)
+    }
+
+    /// Whether a request keeps its prompt cache for an hour, as Claude Code does: a conversation (never a worker) on
+    /// a Claude subscription within its limits, or on an API key with Settings' one-hour cache on.
+    pub(in crate::session) fn hour_cache(&self, plan: &Plan) -> bool {
+        if plan.session.visibility == crate::session::types::Visibility::Hidden {
+            return false;
+        }
+
+        match &plan.credential {
+            Credential::ApiKey { .. } => self.prompt_cache().hour_cache,
+            Credential::OAuth { .. } => !self.in_overage(plan.account.as_deref()),
+            Credential::Ambient { .. } => false,
+        }
+    }
+
+    /// Whether the account's last response said it is drawing on paid extra usage.
+    fn in_overage(&self, account: Option<&str>) -> bool {
+        account
+            .and_then(|account| self.limits.get(account))
+            .is_some_and(|limits| limits.overage)
+    }
+
+    /// Whether the next request will find nothing of this conversation in the provider's prompt cache: nothing was
+    /// sent yet, or the last reply came from another model or account, or finished longer ago than the cache lives.
+    /// Only then is changing the request's start, or its account, free.
+    pub(in crate::session) fn cache_cold(&self, plan: &Plan) -> bool {
+        let Ok(Some(last)) = self.store.last_cached_reply(&plan.session.id) else {
+            return true;
+        };
+        let lifetime = if self.hour_cache(plan) { HOUR_CACHE_MS } else { CACHE_MS };
+
+        let elsewhere = last.model.as_ref() != Some(&plan.model_ref) || last.account != plan.account;
+        let expired = last
+            .finished_at
+            .is_none_or(|finished| id::now_ms() - finished > lifetime);
+
+        elsewhere || expired
     }
 
     /// The request history starts at the latest summary's kept tail, or at the conversation's beginning.

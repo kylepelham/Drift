@@ -11,6 +11,7 @@ import type {
     BrowserCredentialInput,
     BrowserSettings,
     BundlePartKind,
+    CompactAt,
     InstallBundle,
     PermissionGrant,
     PermissionRule,
@@ -29,6 +30,11 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
 
     async function setAutoCompact(autoCompact: boolean) {
         return requireClient().putSettings({ autoCompact });
+    }
+
+    /** Where conversations compact; the engine sends every model's new point with the catalog. */
+    async function setCompactAt(compactAt: CompactAt) {
+        return requireClient().putSettings({ compactAt });
     }
 
     /** How many background subagents run at once; the engine starts or holds queued ones to match. */
@@ -281,6 +287,7 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         transcribeSpeech: async (body: VoiceTranscription) => (await requireClient().transcribeSpeech(body)).text,
         speakText: (body: VoiceSpeech) => requireClient().speakText(body),
         setAutoCompact,
+        setCompactAt,
         setAutoAccept,
         setAutoAcceptAll,
         refreshEngineSettings,

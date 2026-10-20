@@ -41,6 +41,7 @@ export type GitSource = operations["reviewWorkspace"]["parameters"]["query"]["so
 export type VoiceTranscription = components["schemas"]["Transcription"];
 export type VoiceSpeech = components["schemas"]["Speech"];
 export type BrowserSettings = components["schemas"]["BrowserSettings"];
+export type CompactAt = components["schemas"]["CompactAt"];
 export type ViewInput = components["schemas"]["ViewInput"];
 export type BrowserKind = components["schemas"]["BrowserKind"];
 export type EngineStatus = components["schemas"]["EngineStatus"];

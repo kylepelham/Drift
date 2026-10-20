@@ -97,6 +97,9 @@ pub struct Limit {
     /// The most prompt the provider takes, when it is less than the window (gpt-5.4: 922k of 1.05M); 0 when not given.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub input: u64,
+    /// Where the user's compaction setting compacts, when that is below the window's own point; 0 for no such cap.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub compact: u64,
 }
 
 fn is_zero(value: &u64) -> bool {
@@ -104,7 +107,7 @@ fn is_zero(value: &u64) -> bool {
 }
 
 /// Of the reply room, what is kept below an input cap; the UI's meter uses the same (`compactionReserveTokens`).
-const INPUT_RESERVE: u64 = 20_000;
+pub(crate) const INPUT_RESERVE: u64 = 20_000;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
 pub struct Model {
@@ -155,6 +158,9 @@ pub struct ClaudeFeatures {
     /// A thinking block the API no longer accepts is dropped instead of failing the request (Claude 5.1 or later).
     #[serde(default)]
     pub drop_stale_thinking: bool,
+    /// MCP tools sent with `defer_loading` and loaded by `tool_reference` results (Claude 4.5 or later).
+    #[serde(default)]
+    pub tool_references: bool,
 }
 
 /// A faster, cheaper or deeper way to run a model (models.dev `experimental.modes`), listed as its own
@@ -201,12 +207,18 @@ impl Model {
     }
 
     /// How many tokens a conversation may use before it compacts: under the input cap when the provider
-    /// sets one below the window (keeping a margin for the next step), else the window less the reply room.
+    /// sets one below the window (keeping a margin for the next step), else the window less the reply room,
+    /// and never past the user's compaction setting.
     pub fn compaction_point(&self) -> u64 {
         let room = self.reply_room();
-        match self.limit.input {
+        let own = match self.limit.input {
             input if input > 0 && input < self.limit.context => input.saturating_sub(room.min(INPUT_RESERVE)),
             _ => self.limit.context.saturating_sub(room),
+        };
+
+        match self.limit.compact {
+            0 => own,
+            compact => own.min(compact),
         }
     }
 }
@@ -484,6 +496,7 @@ fn user_model(id: &str, listed: &ProviderModel) -> Model {
             context: listed.context,
             output: listed.output,
             input: 0,
+            compact: 0,
         },
         cost: Cost::default(),
         profile: ToolProfile::Edit,
@@ -648,6 +661,8 @@ pub(crate) fn claude_features_for(provider: &str, id: &str) -> ClaudeFeatures {
     ClaudeFeatures {
         system_messages: major >= 5 || (family == "opus" && major == 4 && minor >= 8),
         drop_stale_thinking: major > 5 || (major == 5 && minor >= 1),
+        tool_references: family.bytes().all(|byte| byte.is_ascii_alphabetic())
+            && (major > 4 || (major == 4 && minor >= 5)),
     }
 }
 

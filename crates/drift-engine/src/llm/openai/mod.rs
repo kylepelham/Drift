@@ -287,6 +287,9 @@ mod tests {
                 effort_marks: Vec::new(),
                 claude: Default::default(),
                 cache_hour: false,
+                cache_conversation: true,
+                deferred_tools: Vec::new(),
+                tool_references: Default::default(),
                 ..request()
             };
 
@@ -417,6 +420,9 @@ mod tests {
                 effort_marks: Vec::new(),
                 claude: Default::default(),
                 cache_hour: false,
+                cache_conversation: true,
+                deferred_tools: Vec::new(),
+                tool_references: Default::default(),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,

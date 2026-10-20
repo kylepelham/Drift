@@ -532,7 +532,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "Ne radi ništa, ne koristi alate, odgovori OK",
     "drift.settings.promptCache.hour.title": "Keš na sat kod Anthropica",
     "drift.settings.promptCache.hour.description":
-        "S Anthropic API ključem keš traje sat umjesto pet minuta. Upis u njega košta dvostruku cijenu ulaza umjesto 1,25 puta.",
+        "Uz Anthropic API ključ, zadržite keš sat vremena umjesto pet minuta. Pisanje u njega košta dvostruko više od ulazne cijene umjesto 1,25 puta. Claude pretplata uvijek kešira na sat vremena, kao što to radi Claude Code, osim dok koristi dodatnu potrošnju.",
+    "drift.settings.toolSearch.title": "Učitaj alate velikih MCP servera na zahtjev",
+    "drift.settings.toolSearch.description":
+        "Na modelu Claude, alati MCP servera s deset ili više alata navode se po nazivu i učitavaju pomoću tool_search kada su modelu potrebni, umjesto da se šalju u cijelosti sa svakim zahtjevom.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Podagenti",
     "drift.settings.backgroundLimit.title": "Pozadinski podagenti istovremeno",
@@ -649,6 +652,7 @@ export const drift = {
     "drift.context.compacting": "Sažimanje konteksta",
     "drift.context.pending": "Korištenje se prikazuje nakon prvog odgovora.",
     "drift.context.untilCompaction": "Do sažimanja",
+    "drift.context.cacheMiss": "Posljednji cache miss",
     "drift.context.window": "Kontekstni prozor",
     "drift.context.systemAndTools": "Sistem i alati",
     "drift.context.user": "Vaše poruke",
@@ -1223,7 +1227,13 @@ export const drift = {
     "drift.storage.table.output.hint": "čuva se sedmicu",
     "drift.settings.autoCompact.title": "Automatski sažmi",
     "drift.settings.autoCompact.description":
-        "Sažmi starije poruke kad se razgovor približi kontekstnom prozoru modela. /compact uvijek radi.",
+        "Sažmi starije poruke kada razgovor dostigne tačku ispod. /compact uvijek radi.",
+    "drift.settings.compactAt.title": "Sažmi na",
+    "drift.settings.compactAt.description":
+        "Svaki korak ponovo šalje cijeli razgovor, pa ranije sažimanje košta manje i održava model fokusiranim. Kasnije sažimanje čuva veći dio razgovora od riječi do riječi.",
+    "drift.settings.compactAt.auto": "Automatski (najviše 400k)",
+    "drift.settings.compactAt.window": "Kada je prozor skoro pun",
+    "drift.settings.compactAt.tokens": "{{count}}k tokena",
     "drift.settings.summaries.collapsed.description": "Prikaži sažetke sažimanja početno sklopljene.",
     "drift.settings.summaries.collapsed.title": "Sklopi sažetke prema zadanim postavkama",
     "drift.settings.summaries.collapsible.description":

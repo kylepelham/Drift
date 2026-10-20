@@ -324,6 +324,13 @@ fn replayed_input(input: &serde_json::Value, status: ToolStatus, output: Option<
     }
 }
 
+/// What a cleared tool result sends instead of its output.
+pub(super) const CLEARED_RESULT: &str = "[Old tool result content cleared; run the call again if you need it]";
+
+fn is_cleared(metadata: Option<&crate::session::types::ToolMetadata>) -> bool {
+    metadata.is_some_and(|metadata| metadata.cleared == Some(true))
+}
+
 /// Every replayed call needs a result or the provider rejects the transcript; unfinished ones say so.
 /// Calls with malformed arguments that were not replayed get no result either.
 /// Returned images follow all results, because providers require results first in the user turn.
@@ -349,6 +356,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
         }
 
         let (content, is_error) = match (status, output) {
+            _ if is_cleared(metadata.as_deref()) => (CLEARED_RESULT.into(), false),
             (ToolStatus::Done, Some(output)) => (output.clone(), false),
             (ToolStatus::Error | ToolStatus::Denied, Some(output)) => (output.clone(), true),
             (ToolStatus::Denied, None) => ("The user denied permission for this call.".into(), true),
@@ -375,7 +383,7 @@ fn result_blocks(message: &MessageWithParts) -> Vec<Block> {
         }
 
         let returned = crate::tool::image::stored(metadata.as_deref());
-        if !returned.is_empty() {
+        if !returned.is_empty() && !is_cleared(metadata.as_deref()) {
             images.push(Block::Text(format!("The {name} call ({call_id}) returned this:")));
             images.extend(returned.into_iter().map(|image| Block::Stored {
                 mime: image.mime,

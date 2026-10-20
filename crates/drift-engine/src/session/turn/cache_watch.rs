@@ -1,7 +1,7 @@
 //! Why a request's cache read fell short. Each request is hashed segment by segment as it was sent:
 //! the tool definitions, each section of the system prompt and each message. When a reply reads far
 //! less from the cache than the previous request of its session held in all, the first segment that
-//! changed is logged in one line. Nothing is stored and nothing is shown.
+//! changed is logged in one line and kept on the reply, where the context meter shows it.
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -13,33 +13,43 @@ use crate::session::types::Usage;
 /// A previous request this small is not worth reporting on: a cache never starts below it.
 const MIN_PROMPT_TOKENS: u64 = 1024;
 
-/// What a request was made of, as hashes by segment, and how many prompt tokens it came to.
+/// A provider keeps a cache at least this long; a miss after a longer pause is most likely its expiry.
+const SHORTEST_CACHE_MS: i64 = 5 * 60 * 1000;
+
+/// What a request was made of, as hashes by segment, how many prompt tokens it came to, and when it was answered.
 struct Sent {
     segments: Vec<(String, u64)>,
     prompt_tokens: u64,
+    at: i64,
 }
 
 #[derive(Default)]
 pub(in crate::session) struct CacheWatch(Mutex<HashMap<String, Sent>>);
 
 impl CacheWatch {
-    /// Records the request `usage` answered, by its `segments`, and returns the line to log when its cache read
-    /// fell short.
+    /// Records the request `usage` answered, by its `segments`, and says why when its cache read fell short.
     pub(super) fn observe(&self, session_id: &str, segments: Vec<(String, u64)>, usage: Usage) -> Option<String> {
         let sent = Sent {
             segments,
             prompt_tokens: usage.input + usage.cache_read + usage.cache_write,
+            at: crate::id::now_ms(),
         };
         let previous = self.0.lock().unwrap().insert(session_id.to_string(), sent)?;
         if previous.prompt_tokens < MIN_PROMPT_TOKENS || usage.cache_read * 2 >= previous.prompt_tokens {
             return None;
         }
 
-        let now = &self.0.lock().unwrap()[session_id].segments;
-        let changed =
-            first_change(&previous.segments, now).unwrap_or_else(|| "nothing (the provider dropped the cache)".into());
+        let now = &self.0.lock().unwrap()[session_id];
+        let idle_minutes = (now.at - previous.at) / 60_000;
+        let changed = first_change(&previous.segments, &now.segments).unwrap_or_else(|| {
+            if now.at - previous.at >= SHORTEST_CACHE_MS {
+                format!("nothing; the cache expired over {idle_minutes} idle minutes")
+            } else {
+                "nothing (the provider dropped the cache)".into()
+            }
+        });
         Some(format!(
-            "drift: session {session_id} read {} cached tokens of about {} expected; the first change was {changed}",
+            "read {} cached tokens of about {} expected; the first change was {changed}",
             usage.cache_read, previous.prompt_tokens
         ))
     }
@@ -122,6 +132,9 @@ mod tests {
             effort_marks: Vec::new(),
             claude: Default::default(),
             cache_hour: false,
+            cache_conversation: true,
+            deferred_tools: Vec::new(),
+            tool_references: Default::default(),
             no_tool_calls: false,
             verbosity: None,
             show_thinking: false,

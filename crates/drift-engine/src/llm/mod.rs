@@ -77,7 +77,11 @@ impl Credential {
 
 /// Images a request carries at most, newest first. Providers cap the count (Anthropic at 100, and
 /// shrink limits past 20), and a long screenshot session must never grow past what they accept.
-pub const MAX_IMAGES_SENT: usize = 10;
+pub const MAX_IMAGES_SENT: usize = 20;
+
+/// Older images leave a request this many at a time: dropping one changes the history before it, so the prompt
+/// cache is written again from there, and in batches that happens once per this many new images, not each one.
+pub const FILES_DROPPED_TOGETHER: usize = 5;
 
 /// Image data a request carries at most, as base64: providers cap the whole request (Anthropic at
 /// 32 MB), and ten images of 5 MB each would pass the count yet fail the size.
@@ -217,8 +221,16 @@ pub struct Request {
     pub effort_marks: Vec<EffortMark>,
     /// The newer Claude features the model takes; only the Anthropic wire reads them.
     pub claude: catalog::ClaudeFeatures,
-    /// Ask for an hour-long prompt cache where the route takes one (Anthropic with an API key).
+    /// Ask for an hour-long prompt cache where the route takes one (Anthropic's own API, by key or subscription).
     pub cache_hour: bool,
+    /// Mark the conversation for the prompt cache; off for a one-off request no later one starts the same way,
+    /// where writing the cache costs more than reading the prompt plainly.
+    pub cache_conversation: bool,
+    /// Tools defined but kept out of the model's context until a `tool_search` result names them; only routes
+    /// whose model takes `tool_reference` (`ClaudeFeatures::tool_references`) are given any.
+    pub deferred_tools: Vec<ToolSpec>,
+    /// The deferred tools each `tool_search` call loaded, by call id.
+    pub tool_references: std::collections::BTreeMap<String, Vec<String>>,
     /// Tools stay defined so history with calls is valid, but the model may not call one.
     pub no_tool_calls: bool,
     /// OpenAI `text.verbosity`, from `catalog::verbosity`.

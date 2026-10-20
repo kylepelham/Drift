@@ -1,0 +1,5 @@
+Loads tools that are listed by name in the system prompt but not yet loaded. A loaded tool is called like any other, for the rest of the conversation.
+
+- Search with a few words describing what you need: the tool's purpose, its server, or its parameters.
+- Load tools you already know by name with `select:name,name`.
+- Load what you need before calling it; a tool that is not loaded cannot be called.

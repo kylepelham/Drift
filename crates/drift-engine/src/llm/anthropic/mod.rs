@@ -75,8 +75,11 @@ impl Anthropic {
             Credential::Ambient { .. } => return Err(Error::Unauthenticated(String::new())),
         };
         betas.extend(request::betas(&body));
-        if request.cache_hour && matches!(credential, Credential::ApiKey { .. }) {
+        if request.cache_hour && !matches!(credential, Credential::Ambient { .. }) {
             request::cache_for_an_hour(&mut body);
+            if subscription {
+                betas.push(EXTENDED_CACHE_TTL);
+            }
         }
 
         stream_from(
@@ -96,6 +99,12 @@ pub(super) const THINKING_BINDING: &str = "thinking-binding-controls-2026-08-01"
 
 /// Lets a model with a thinking budget think again between tool calls, not only before the first.
 pub(super) const INTERLEAVED_THINKING: &str = "interleaved-thinking-2025-05-14";
+
+/// The one-hour cache lifetime, which Claude Code names on a subscription's requests.
+const EXTENDED_CACHE_TTL: &str = "extended-cache-ttl-2025-04-11";
+
+/// Tools sent with `defer_loading` and loaded by `tool_reference` results, which Claude Code names the same way.
+pub(super) const TOOL_SEARCH: &str = "tool-search-tool-2025-10-19";
 
 /// Only a budget needs the beta: adaptive thinking interleaves already, and without tools there is nothing between.
 pub(super) fn interleaves(request: &Request) -> bool {
@@ -389,6 +398,9 @@ mod tests {
                 effort_marks: Vec::new(),
                 claude: Default::default(),
                 cache_hour: false,
+                cache_conversation: true,
+                deferred_tools: Vec::new(),
+                tool_references: Default::default(),
                 no_tool_calls: false,
                 verbosity: None,
                 show_thinking: false,
@@ -435,6 +447,7 @@ mod tests {
             sent.claude = ClaudeFeatures {
                 system_messages: true,
                 drop_stale_thinking: true,
+                tool_references: false,
             };
             let native = body(&sent);
             let messages = native["messages"].as_array().unwrap();
@@ -523,6 +536,42 @@ mod tests {
 
         fn breakpoints(body: &Value) -> usize {
             body.to_string().matches("\"cache_control\"").count()
+        }
+
+        #[test]
+        fn deferred_tools_follow_the_cached_ones_and_a_search_result_loads_them_by_reference() {
+            let deferred = |name: &str| ToolSpec {
+                name: name.into(),
+                description: "From a large server".into(),
+                input_schema: json!({ "type": "object" }),
+            };
+            let mut sent = request();
+            sent.deferred_tools = vec![deferred("apophis_get_case"), deferred("apophis_search_emails")];
+            sent.tool_references
+                .insert("toolu_1".into(), vec!["apophis_get_case".into(), "gone_tool".into()]);
+
+            let built = body(&sent);
+            let tools = built["tools"].as_array().unwrap();
+            assert_eq!(tools.len(), 3);
+            assert_eq!(tools[0]["cache_control"]["type"], "ephemeral");
+            assert!(tools[1].get("cache_control").is_none() && tools[1]["defer_loading"] == true);
+            assert_eq!(
+                built["messages"][2]["content"][0]["content"],
+                json!([{ "type": "tool_reference", "tool_name": "apophis_get_case" }]),
+                "a name no longer sent deferred is left out"
+            );
+            assert_eq!(super::request::betas(&built), [super::TOOL_SEARCH]);
+
+            sent.tool_references.insert("toolu_1".into(), vec!["gone_tool".into()]);
+            assert_eq!(body(&sent)["messages"][2]["content"][0]["content"], "ok");
+        }
+
+        #[test]
+        fn a_one_off_request_marks_only_its_system_prompt_and_tools() {
+            let mut once = request();
+            once.cache_conversation = false;
+            assert_eq!(breakpoints(&body(&request())), 4);
+            assert_eq!(breakpoints(&body(&once)), 2);
         }
 
         fn marked(body: &Value, index: usize) -> bool {

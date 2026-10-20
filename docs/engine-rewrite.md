@@ -393,20 +393,34 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
     every step). A request's `max_tokens` is held to the same half. When models.dev gives an input
     cap below the window (`limit.input`; gpt-5.4 takes 922k of its 1.05M), that cap less
     `min(reply room, 20k)` is the point instead (`Model::compaction_point`), so a long Codex session
-    compacts before the provider refuses it. The UI's context meter uses the same
-    sum (`contextStats` in `src/engine/store.ts`), so "until compaction" is where it happens. One
-    attempt per step; a failure still lets the request go.
+    compacts before the provider refuses it. The user's compaction point (`compactAt`, Settings >
+    General) lowers that further and never raises it: `auto` (the default) stops at 400k, and below
+    the first price tier a provider charges more past, less 20k; `window` keeps the window's own
+    point; `tokens` takes a size of at least 100k. Every request rereads the whole conversation, so
+    a 1M window filled to the brim costs several times what a 400k one does per step (Kyle's Opus
+    sessions averaged 480k-token prompts), and Claude Code tunes the same per model
+    (`autoCompactWindow: "auto"`). The engine sets the cap on every model of the catalog it serves
+    (`Limit::compact`, `Engine::catalog_view`) and publishes `catalog.updated` when it changes, so
+    the UI's context meter uses the same sum (`contextStats` in `src/engine/store.ts`) and "until
+    compaction" is where it happens. One attempt per step; a failure still lets the request go.
   - Overflow: a provider error recognised as too long (`llm::Error::is_context_overflow`, status
     400 or 413 plus each provider's wording), or a reply that stops because it filled the window
     (Anthropic `model_context_window_exceeded`, kept as an `error` message so it is never
     replayed), compacts and retries once per turn; a second overflow fails the turn. Once the
     compaction succeeds, a refused reply with no parts is deleted (`message.removed`), so a
-    recovered overflow leaves no error in the transcript; a cut-off reply keeps its text.
+    recovered overflow leaves no error in the transcript; a cut-off reply keeps its text. After
+    three automatic compactions failed in a row the overflow is not summarised again: each try
+    sends the whole conversation (five refused summaries once wrote 915k tokens each), so the
+    refusal stands until a compaction succeeds.
   - Manual: `POST /sessions/{id}/compact` (`/compact`) runs as the session's job, 409 while a turn
     runs, cancelled by Stop.
 - **Off switch**: `GET`/`PUT /settings { autoCompact }`, stored in the engine's `setting` table,
   default on, shown in Settings > General. Three automatic failures in a row also stop it for that
-  session until one succeeds; manual compaction always runs.
+  session until one succeeds, a manual one included; manual compaction always runs.
+- **One-off requests are not cached**: a one-shot request (`OneShot`: lean summaries, titles) sets
+  `Request::cache_conversation` off, so Anthropic and OpenRouter get no breakpoints in its
+  messages. No later request starts the way it does, and writing the cache costs 1.25 times (or
+  twice, for an hour) what reading the prompt plainly does.
 
 #### Retries
 
@@ -1354,10 +1368,11 @@ goal retires them.
 - `/watch-pr` on one PR: Drift polls it through `gh` about once a minute, wakes the thread when CI
   fails or a review comment arrives, and stops at merge, close or the fifth wake. Pushing still asks.
 
-**Not doing.** Side replies while busy (steering and async questions cover them), trimming old
-tool results in the request (it breaks the prompt cache), and moving Explore to a cheaper model
-(its model can already be pinned in Settings). Deferred tool schemas wait until a workspace still
-sends more than about 30 KB of MCP schemas with per-workspace MCP in place.
+**Not doing.** Side replies while busy (steering and async questions cover them) and moving
+Explore to a cheaper model (its model can already be pinned in Settings). Trimming old tool
+results while the cache is warm stays out (it breaks the prompt cache); a request that misses it
+anyway clears them (see "Prompt cache"). Deferred tool schemas came in 2.4 for Claude, once
+Kyle's workspaces still sent 131 KB of MCP schemas across 185 tools.
 
 ### After the opencode v2 review
 
@@ -2045,8 +2060,10 @@ code until he picks.
   prompt, each message. The last request's hashes are kept per session in memory. When a reply
   reads less than half as much from the cache as the previous request held in all (from 1,024
   prompt tokens), one `drift:` line names the session, the cached and expected tokens and the first
-  segment that changed, or says the provider dropped the cache when none did. A compaction starts
-  the session over. Nothing is stored or shown.
+  segment that changed, or says the cache expired when none did and five minutes or more passed,
+  or that the provider dropped it. A compaction starts the session over. The reason is kept on the
+  reply (`message.cacheMiss`, migration 47) and the context meter shows the newest since the last
+  summary as "Last cache miss".
 - Prompt cache warming (`session::turn::warming`, engine setting `promptCache`, Settings >
   Execution > Prompt cache, off by default, after opencode v2's warming plugin). After each real
   request of a conversation (never a worker), its loop restarts: every interval (default 4
@@ -2056,11 +2073,44 @@ code until he picks.
   tools off (`no_tool_calls`), on the same account. It skips an interval while a turn runs or the
   session is archived; a failure is logged and the next interval tries again. Nothing is saved;
   its cost is added to the conversation's last reply, the one whose cache it kept warm.
-- The same group's one-hour cache asks Anthropic for `cache_control.ttl: "1h"` on every
-  breakpoint, on the API-key route only: the subscription, Bedrock and Vertex routes are not
-  confirmed to take it and keep five minutes. Writes then cost twice the input price instead of
-  1.25 times; the meter still prices them at the five-minute rate, since usage does not say
-  which was written.
+- One-hour cache (`Engine::hour_cache`): `cache_control.ttl: "1h"` on every breakpoint. On a
+  Claude subscription it is on for every conversation, as Claude Code 2.1 does it, with its
+  `extended-cache-ttl-2025-04-11` beta, until the account's last response says it draws on extra
+  usage (`anthropic-ratelimit-unified-overage-in-use: true`, `Limits::overage`), where Claude
+  Code drops to five minutes too. On an API key it follows the Prompt cache group's switch, since
+  writes then cost twice the input price instead of 1.25 times. Never for workers, nor on Bedrock or
+  Vertex. Idle gaps over five minutes were 21% of Kyle's spend in ten days; the meter still prices
+  writes at the five-minute rate, since usage does not say which was written.
+- Whether the cache is still warm (`Engine::cache_cold`) comes from the conversation's newest reply
+  that reached the cache (`Store::last_cached_reply`): it is cold when there is none, when it came
+  from another model or account, or when it finished longer ago than the cache lives (five minutes,
+  or an hour as above). Two things act only on a cold cache, when changing the prompt's start costs
+  nothing more:
+  - Accounts stay where the cache is. A new turn goes back to the account the last reply used while
+    that account suits the model and conversation and its cache is warm (`stay_where_warm`), and a
+    step moves to an earlier account in the user's order only once its own cache has gone cold
+    (`switch_to_preferred`). Usage running out, a refusal or a plan without the model still move it
+    at once. Switching mid-conversation rewrote the whole prompt on the other account.
+  - Old tool results are cleared (`session::turn::clearing`, after Claude Code's microcompact): a
+    step whose cache is cold marks older results `metadata.cleared` and the request sends
+    "[Old tool result content cleared; run the call again if you need it]" in their place, without
+    their images. The newest 10 results, results of 2,000 characters or less, and `skill`, `task`,
+    `task_output`, `question`, `todowrite` and `read_thread` stay, and nothing is cleared unless
+    at least 80,000 characters go. The parts are saved without an event: the transcript still shows
+    the output, and the next requests start the same way, so the cache holds again.
+- Tool search on Claude (`tool::tool_search`, engine setting `toolSearch`, on by default, Settings
+  > Execution > Prompt cache): on a Claude 4.5 or later model on Anthropic's own route
+  (`ClaudeFeatures::tool_references`), every tool of an MCP server with 10 or more tools or 10 KB
+  of definitions is sent with `defer_loading: true` after the others (`Request::deferred_tools`),
+  so it stays out of the model's context, and the cache breakpoint sits on the last tool sent
+  normally, since a deferred one cannot carry it. A system prompt section ("Tools loaded on
+  request", key `deferred`) lists their names by server, and the engine's `tool_search` tool loads
+  them by a few words (ranked on name, server, parameter names and description, five by default,
+  at most 20) or by `select:name,name`. Its result names them in `metadata.references`; the
+  Anthropic wire sends that result as `tool_reference` blocks (`Request::tool_references`, only
+  for names still deferred, else the text), with the `tool-search-tool-2025-10-19` beta, and the
+  subscription route renames them as it renames tools. This is Claude Code's client-side shape.
+  Other wires get every tool as before.
 - Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
@@ -2574,9 +2624,13 @@ Settled after the first external review of M1; each has a regression test.
   references for images stored before `blob_ref` existed, from the hashes in tool-call metadata. The request replays them after all of that
   turn's call results ("The <tool> call (<id>) returned this:" then the image), since providers
   want results first. `llm::prepare_images` loads them when a request is built and, newest first,
-  keeps them until 10 (`MAX_IMAGES_SENT`) or 20 MB of image data (`MAX_IMAGE_DATA_SENT`) is
+  keeps them until 20 (`MAX_IMAGES_SENT`) or 20 MB of image data (`MAX_IMAGE_DATA_SENT`) is
   reached, since providers cap both a request's images and its size (Anthropic: 100 images, 32 MB)
-  and a rejected request would replay the same images forever; older ones become a line. A model
+  and a rejected request would replay the same images forever; older ones become a line. The
+  boundary moves five files at a time (`FILES_DROPPED_TOGETHER`), on a grid counted from the
+  oldest, so the request's start stays the same while new images arrive instead of changing with
+  each one; past 10 images in view, 38 of 41 requests had rewritten the whole cache. Only when the
+  grid would leave nothing does it cut exactly at the fit. A model
   whose catalog entry does not take images gets a line for each, on turns and engine requests alike.
 - A provider that still cannot read an image (`llm::Error::is_unreadable_image`: a 400 saying
   "could not process image", Anthropic's wording) would refuse every later request too, since the

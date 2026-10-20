@@ -533,7 +533,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "Lav intet, brug ingen værktøjer, svar OK",
     "drift.settings.promptCache.hour.title": "Cache i en time hos Anthropic",
     "drift.settings.promptCache.hour.description":
-        "Med en Anthropic API-nøgle holdes cachen en time i stedet for fem minutter. At skrive til den koster dobbelt inputpris i stedet for 1,25 gange.",
+        "Med en Anthropic API-nøgle bevares cachen i en time i stedet for fem minutter. Skrivning til den koster det dobbelte af inputprisen i stedet for 1,25 gange. Et Claude-abonnement cacher altid i en time, ligesom Claude Code gør, undtagen når det trækker på ekstra forbrug.",
+    "drift.settings.toolSearch.title": "Indlæs store MCP-serveres værktøjer efter anmodning",
+    "drift.settings.toolSearch.description":
+        "På Claude vises værktøjerne fra en MCP-server med ti eller flere værktøjer efter navn og indlæses med tool_search, når modellen har brug for dem, i stedet for at blive sendt fuldt ud med hver anmodning.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Underagenter",
     "drift.settings.backgroundLimit.title": "Baggrundsunderagenter ad gangen",
@@ -651,6 +654,7 @@ export const drift = {
     "drift.context.compacting": "Komprimerer kontekst",
     "drift.context.pending": "Forbrug vises efter det første svar.",
     "drift.context.untilCompaction": "Indtil komprimering",
+    "drift.context.cacheMiss": "Sidste cache-gliper",
     "drift.context.window": "Kontekstvindue",
     "drift.context.systemAndTools": "System og værktøjer",
     "drift.context.user": "Dine beskeder",
@@ -1227,7 +1231,13 @@ export const drift = {
     "drift.storage.table.output.hint": "gemmes en uge",
     "drift.settings.autoCompact.title": "Komprimer automatisk",
     "drift.settings.autoCompact.description":
-        "Opsummer ældre beskeder, når en samtale nærmer sig modellens kontekstvindue. /compact virker altid.",
+        "Opsummer ældre beskeder, når en samtale når punktet nedenfor. /compact virker altid.",
+    "drift.settings.compactAt.title": "Komprimer ved",
+    "drift.settings.compactAt.description":
+        "Hvert trin sender hele samtalen igen, så tidligere komprimering koster mindre og holder modellen fokuseret. Senere komprimering bevarer mere af den ordret.",
+    "drift.settings.compactAt.auto": "Automatisk (højst 400k)",
+    "drift.settings.compactAt.window": "Når vinduet næsten er fuldt",
+    "drift.settings.compactAt.tokens": "{{count}}k tokens",
     "drift.settings.summaries.collapsed.description": "Start med komprimeringsresuméerne foldet sammen.",
     "drift.settings.summaries.collapsed.title": "Fold resuméer sammen som standard",
     "drift.settings.summaries.collapsible.description":

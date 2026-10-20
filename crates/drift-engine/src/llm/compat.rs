@@ -70,7 +70,7 @@ impl Compat {
         if self.keep_thinking {
             body["thinking"] = json!({ "type": "enabled", "clear_thinking": false });
         }
-        if self.claude_breakpoints && is_claude(&request.model) {
+        if self.claude_breakpoints && request.cache_conversation && is_claude(&request.model) {
             mark_breakpoints(&mut body);
         }
         if request.model.contains("claude") {

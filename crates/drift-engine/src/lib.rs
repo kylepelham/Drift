@@ -395,7 +395,7 @@ impl Engine {
     }
 
     /// The catalog as the current credentials see it: ChatGPT sign-ins offer only what the Codex backend takes,
-    /// and what any of their accounts' model lists offers.
+    /// and what any of their accounts' model lists offers. Every model carries the user's compaction point.
     pub fn catalog_view(&self) -> Catalog {
         let mut catalog = self.catalog.read().unwrap().clone();
         let sign_ins = self.codex_sign_ins();
@@ -404,6 +404,15 @@ impl Engine {
         {
             llm::openai::codex::shape(openai);
             self.codex_offers.apply(openai, &sign_ins);
+        }
+
+        let compact_at = self.compact_at();
+        for model in catalog
+            .providers
+            .values_mut()
+            .flat_map(|provider| provider.models.values_mut())
+        {
+            model.limit.compact = compact_at.cap(model);
         }
 
         catalog

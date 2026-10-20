@@ -27,6 +27,7 @@ pub fn shape(provider: &mut ProviderInfo) {
                 context: 400_000,
                 output: 128_000,
                 input: 272_000,
+                compact: 0,
             };
         }
     }
@@ -113,7 +114,8 @@ mod tests {
                 Limit {
                     context: 400_000,
                     output: 128_000,
-                    input: 272_000
+                    input: 272_000,
+                    compact: 0
                 }
             );
         }

@@ -384,6 +384,20 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 - [ ] Phone extras: dictation, share target, camera and gallery, cues, Wake-on-LAN
 - [ ] Background notification service, CI signing, release APKs, update prompt
 
+## 2.4: token efficiency
+
+Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1.299; the facts are under
+"Prompt cache" and "Compaction" in `docs/engine-rewrite.md`.
+
+- [x] Images leave the request five at a time, up to 20, so new screenshots no longer rewrite the cache
+- [x] One-hour cache on Claude subscriptions until extra usage, as Claude Code does
+- [x] A conversation stays on the account whose cache is warm; it returns to the user's order once cold
+- [x] Compaction point setting (`compactAt`): automatic at 400k or below a price tier, the window, or a size
+- [x] A request that misses the cache anyway clears old large tool results
+- [x] One-off requests (lean summaries, titles) write no conversation cache; three failed compactions stop the overflow path too
+- [x] Large MCP servers' tools deferred behind `tool_search` on Claude 4.5 and later (`tool_reference`)
+- [x] Why a request missed the cache is kept on its reply and shown in the context meter
+
 ## Parity with Claude Code, Codex and opencode
 
 - [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API (the configured API landed in 2.4.0; native search is still open)

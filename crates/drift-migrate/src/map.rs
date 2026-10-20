@@ -163,6 +163,7 @@ fn info(data: &Value, id: String, session_id: &str, created: i64) -> Message {
         account: None,
         ending,
         refusal: None,
+        cache_miss: None,
     }
 }
 

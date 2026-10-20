@@ -73,6 +73,7 @@ fn base(session_id: &str, role: Role, created: i64) -> Message {
         summary: false,
         ending: None,
         refusal: None,
+        cache_miss: None,
     }
 }
 

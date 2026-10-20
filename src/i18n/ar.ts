@@ -525,7 +525,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "لا تعمل شيئًا ولا تستخدم أدوات، ورد بـ OK",
     "drift.settings.promptCache.hour.title": "ذاكرة لمدة ساعة على Anthropic",
     "drift.settings.promptCache.hour.description":
-        "مع مفتاح Anthropic API تبقى الذاكرة المؤقتة ساعة بدلًا من خمس دقائق. الكتابة إليها تكلف ضعف سعر الإدخال بدلًا من 1.25 ضعفًا.",
+        "مع مفتاح Anthropic API، احتفظ بالذاكرة المؤقتة لمدة ساعة بدلًا من خمس دقائق. تكلف الكتابة فيها ضعفي سعر الإدخال بدلًا من 1.25 مرة. يحتفظ اشتراك Claude بالذاكرة المؤقتة لمدة ساعة دائمًا، كما يفعل Claude Code، إلا عند السحب من الاستخدام الإضافي.",
+    "drift.settings.toolSearch.title": "تحميل أدوات خوادم MCP الكبيرة عند الطلب",
+    "drift.settings.toolSearch.description":
+        "في Claude، تُسرد أدوات خادم MCP الذي يحتوي على عشر أدوات أو أكثر بالاسم وتُحمّل عبر tool_search عندما يحتاجها النموذج، بدلًا من إرسالها كاملةً مع كل طلب.",
     "drift.settings.execution.shell": "الصدفة",
     "drift.settings.execution.subagents": "الوكلاء الفرعيون",
     "drift.settings.backgroundLimit.title": "الوكلاء الفرعيون في الخلفية في وقت واحد",
@@ -641,6 +644,7 @@ export const drift = {
     "drift.context.compacting": "جارٍ ضغط السياق",
     "drift.context.pending": "يظهر الاستخدام بعد الاستجابة الأولى.",
     "drift.context.untilCompaction": "حتى الضغط",
+    "drift.context.cacheMiss": "آخر إخفاق في الذاكرة المؤقتة",
     "drift.context.window": "نافذة السياق",
     "drift.context.systemAndTools": "النظام والأدوات",
     "drift.context.user": "رسائلك",
@@ -1201,7 +1205,13 @@ export const drift = {
     "drift.storage.table.output.hint": "تُحفظ أسبوعًا",
     "drift.settings.autoCompact.title": "الضغط تلقائيًا",
     "drift.settings.autoCompact.description":
-        "لخّص الرسائل الأقدم عندما تقترب المحادثة من نافذة سياق النموذج. يعمل /compact دائمًا.",
+        "تلخيص الرسائل القديمة عندما تصل المحادثة إلى النقطة أدناه. يعمل الأمر /compact دائمًا.",
+    "drift.settings.compactAt.title": "الضغط عند",
+    "drift.settings.compactAt.description":
+        "تُرسل كل خطوة المحادثة بأكملها مجددًا، لذا فإن الضغط في وقت أبكر يقلل التكلفة ويحافظ على تركيز النموذج. بينما يؤدي الضغط لاحقًا إلى الاحتفاظ بالمزيد منها نصيًا كما هي.",
+    "drift.settings.compactAt.auto": "تلقائي (400 ألف بحد أقصى)",
+    "drift.settings.compactAt.window": "عندما تقترب النافذة من الامتلاء",
+    "drift.settings.compactAt.tokens": "{{count}} ألف رمز",
     "drift.settings.summaries.collapsed.description": "ابدأ وملخصات الضغط مطوية.",
     "drift.settings.summaries.collapsed.title": "طي الملخصات افتراضيًا",
     "drift.settings.summaries.collapsible.description": "اطوِ ملخصات ضغط المحرك خلف فاصل قابل للتوسيع.",

@@ -524,7 +524,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "ไม่ต้องทำงาน ไม่ใช้เครื่องมือ ตอบ OK",
     "drift.settings.promptCache.hour.title": "แคชหนึ่งชั่วโมงบน Anthropic",
     "drift.settings.promptCache.hour.description":
-        "เมื่อใช้คีย์ API ของ Anthropic จะเก็บแคชหนึ่งชั่วโมงแทนห้านาที การเขียนแคชมีราคาสองเท่าของราคาอินพุตแทน 1.25 เท่า",
+        "เมื่อใช้คีย์ API ของ Anthropic จะเก็บแคชไว้หนึ่งชั่วโมงแทนที่จะเป็นห้านาที การเขียนลงแคชมีค่าใช้จ่าย 2 เท่าของราคาอินพุตแทนที่จะเป็น 1.25 เท่า สำหรับการสมัครสมาชิก Claude จะแคชไว้หนึ่งชั่วโมงเสมอเหมือนกับ Claude Code ยกเว้นเมื่อมีการใช้โควตาเพิ่มเติม",
+    "drift.settings.toolSearch.title": "โหลดเครื่องมือของเซิร์ฟเวอร์ MCP ขนาดใหญ่ตามคำขอ",
+    "drift.settings.toolSearch.description":
+        "บน Claude เครื่องมือของเซิร์ฟเวอร์ MCP ที่มีเครื่องมือตั้งแต่สิบชิ้นขึ้นไปจะแสดงเป็นรายชื่อและโหลดด้วย tool_search เมื่อโมเดลต้องการ แทนที่จะส่งไปทั้งหมดในทุกคำขอ",
     "drift.settings.execution.shell": "เชลล์",
     "drift.settings.execution.subagents": "เอเจนต์ย่อย",
     "drift.settings.backgroundLimit.title": "เอเจนต์ย่อยเบื้องหลังพร้อมกัน",
@@ -641,6 +644,7 @@ export const drift = {
     "drift.context.compacting": "กำลังย่อบริบท",
     "drift.context.pending": "ข้อมูลการใช้งานจะปรากฏหลังการตอบครั้งแรก",
     "drift.context.untilCompaction": "จนกว่าจะย่อบริบท",
+    "drift.context.cacheMiss": "แคชมิสล่าสุด",
     "drift.context.window": "หน้าต่างบริบท",
     "drift.context.systemAndTools": "ระบบและเครื่องมือ",
     "drift.context.user": "ข้อความของคุณ",
@@ -1204,8 +1208,13 @@ export const drift = {
     "drift.storage.table.output": "เอาต์พุตเชลล์",
     "drift.storage.table.output.hint": "เก็บไว้หนึ่งสัปดาห์",
     "drift.settings.autoCompact.title": "บีบอัดอัตโนมัติ",
-    "drift.settings.autoCompact.description":
-        "สรุปข้อความเก่าเมื่อการสนทนาใกล้ถึงหน้าต่างบริบทของโมเดล /compact ใช้ได้เสมอ",
+    "drift.settings.autoCompact.description": "สรุปข้อความเก่าเมื่อบทสนทนาถึงจุดด้านล่าง /compact ใช้งานได้เสมอ",
+    "drift.settings.compactAt.title": "ย่อบริบทที่",
+    "drift.settings.compactAt.description":
+        "ทุกขั้นตอนจะส่งการสนทนาทั้งหมดอีกครั้ง ดังนั้นการย่อบริบทเร็วขึ้นจะช่วยลดค่าใช้จ่ายและทำให้โมเดลมุ่งเน้นได้ดีขึ้น ส่วนการย่อช้าลงจะเก็บเนื้อหาตามคำเดิมไว้ได้มากกว่า",
+    "drift.settings.compactAt.auto": "อัตโนมัติ (ไม่เกิน 400k)",
+    "drift.settings.compactAt.window": "เมื่อหน้าต่างบริบทเกือบเต็ม",
+    "drift.settings.compactAt.tokens": "{{count}}k โทเค็น",
     "drift.settings.summaries.collapsed.description": "เริ่มต้นโดยพับสรุปการย่อบริบทไว้",
     "drift.settings.summaries.collapsed.title": "พับสรุปโดยค่าเริ่มต้น",
     "drift.settings.summaries.collapsible.description": "ซ่อนสรุปการย่อบริบทของเอนจินไว้หลังตัวแบ่งที่ขยายได้",

@@ -78,6 +78,8 @@ pub struct Setting<'a> {
     pub references: &'a [crate::session::references::Listed],
     /// The workspace's plans folder, which the environment names.
     pub plans: Option<&'a Path>,
+    /// The MCP tools `tool_search` loads on request, by server.
+    pub deferred: &'a [(String, Vec<String>)],
 }
 
 /// One part of the system prompt, keyed so a session can tell which part changed.
@@ -101,6 +103,19 @@ impl Source {
     }
 }
 
+/// The deferred tools by server, with how to load them.
+fn deferred_text(deferred: &[(String, Vec<String>)]) -> String {
+    let lines: Vec<String> = deferred
+        .iter()
+        .map(|(server, names)| format!("- {server}: {}", names.join(", ")))
+        .collect();
+
+    format!(
+        "# Tools loaded on request\n\nThese MCP tools are offered but not loaded yet. Load the ones you need with `tool_search`, by a few words or by `select:name,name`, before you call them.\n\n{}",
+        lines.join("\n")
+    )
+}
+
 /// The parts of the system prompt, most shared first: what every session of a model family has, then
 /// what this workspace and agent add, the date last.
 pub fn sources(setting: &Setting) -> Vec<Source> {
@@ -114,6 +129,7 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
         servers,
         references,
         plans,
+        deferred,
         ..
     } = *setting;
     let mut found = vec![Source::new(
@@ -137,6 +153,13 @@ pub fn sources(setting: &Setting) -> Vec<Source> {
             format!("mcp:{server}"),
             format!("the {server} MCP server"),
             heading,
+        ));
+    }
+    if !deferred.is_empty() {
+        found.push(Source::new(
+            "deferred",
+            "the tools loaded on request",
+            deferred_text(deferred),
         ));
     }
     for instruction in &config.instructions {
@@ -397,6 +420,7 @@ mod tests {
             servers: &servers,
             references: &[],
             plans: None,
+            deferred: &[],
         };
 
         let prompt = system(&setting("plan", false));
@@ -478,6 +502,7 @@ mod tests {
                 servers: &[],
                 references: &[],
                 plans: None,
+                deferred: &[],
             })
         };
 
@@ -517,6 +542,7 @@ mod tests {
                 servers: &[],
                 references: &[],
                 plans: None,
+                deferred: &[],
             })
         };
         let prompts: Vec<String> = PromptFamily::ALL.into_iter().map(built).collect();
@@ -556,6 +582,7 @@ mod tests {
             servers: &[],
             references: &[],
             plans: None,
+            deferred: &[],
         });
         assert!(
             replaced.starts_with("You are my agent.\n\n# Tools") && replaced.contains("`<system-reminder>` blocks"),
@@ -725,6 +752,7 @@ mod tests {
                 summary: false,
                 ending: None,
                 refusal: None,
+                cache_miss: None,
             },
             parts: Vec::new(),
         }

@@ -538,7 +538,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "Do no work, use no tools, reply OK",
     "drift.settings.promptCache.hour.title": "Cache for an hour on Anthropic",
     "drift.settings.promptCache.hour.description":
-        "With an Anthropic API key, keep the cache for an hour instead of five minutes. Writing to it costs twice the input price instead of 1.25 times.",
+        "With an Anthropic API key, keep the cache for an hour instead of five minutes. Writing to it costs twice the input price instead of 1.25 times. A Claude subscription always caches for an hour, as Claude Code does, except while it draws on extra usage.",
+    "drift.settings.toolSearch.title": "Load large MCP servers' tools on request",
+    "drift.settings.toolSearch.description":
+        "On Claude, the tools of an MCP server with ten or more tools are listed by name and loaded with tool_search when the model needs them, instead of being sent in full with every request.",
     "drift.settings.execution.shell": "Shell",
     "drift.settings.execution.subagents": "Subagents",
     "drift.settings.backgroundLimit.title": "Background subagents at once",
@@ -658,6 +661,7 @@ export const drift = {
     "drift.context.compacting": "Compacting context",
     "drift.context.pending": "Usage appears after the first response.",
     "drift.context.untilCompaction": "Until compaction",
+    "drift.context.cacheMiss": "Last cache miss",
     "drift.context.window": "Context window",
     "drift.context.systemAndTools": "System and tools",
     "drift.context.user": "Your messages",
@@ -1238,7 +1242,13 @@ export const drift = {
     "drift.storage.table.output.hint": "kept a week",
     "drift.settings.autoCompact.title": "Compact automatically",
     "drift.settings.autoCompact.description":
-        "Summarise older messages when a conversation nears its model's context window. /compact always works.",
+        "Summarise older messages when a conversation reaches the point below. /compact always works.",
+    "drift.settings.compactAt.title": "Compact at",
+    "drift.settings.compactAt.description":
+        "Every step sends the whole conversation again, so compacting sooner costs less and keeps the model focused. Later keeps more of it word for word.",
+    "drift.settings.compactAt.auto": "Automatic (400k at most)",
+    "drift.settings.compactAt.window": "When the window is nearly full",
+    "drift.settings.compactAt.tokens": "{{count}}k tokens",
     "drift.settings.summaries.collapsed.description": "Start compaction summaries folded.",
     "drift.settings.summaries.collapsed.title": "Collapse summaries by default",
     "drift.settings.summaries.collapsible.description":

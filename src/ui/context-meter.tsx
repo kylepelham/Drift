@@ -134,6 +134,14 @@ export function ContextSection(props: { sessionId: string }) {
                             <span class="text-ink tabular-nums">${usage().cost.toFixed(2)}</span>
                         </div>
                     </Show>
+                    <Show when={usage().cacheMiss}>
+                        {(why) => (
+                            <div class="space-y-0.5 text-ink-muted">
+                                <div>{t("drift.context.cacheMiss")}</div>
+                                <div class="text-ink-faint">{why()}</div>
+                            </div>
+                        )}
+                    </Show>
                 </div>
             )}
         </Show>

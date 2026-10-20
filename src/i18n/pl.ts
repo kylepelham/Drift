@@ -536,7 +536,10 @@ export const drift = {
     "drift.settings.promptCache.prompt.placeholder": "Nic nie rób, nie używaj narzędzi, odpowiedz OK",
     "drift.settings.promptCache.hour.title": "Pamięć na godzinę w Anthropic",
     "drift.settings.promptCache.hour.description":
-        "Z kluczem API Anthropic pamięć trwa godzinę zamiast pięciu minut. Zapis kosztuje dwukrotność ceny wejścia zamiast 1,25 raza.",
+        "Z kluczem API Anthropic utrzymuj pamięć podręczną przez godzinę zamiast pięciu minut. Zapis do niej kosztuje dwukrotność ceny wejściowej zamiast 1,25 raza. Subskrypcja Claude zawsze przechowuje w pamięci podręcznej przez godzinę, tak jak Claude Code, z wyjątkiem sytuacji, gdy korzysta z dodatkowego użycia.",
+    "drift.settings.toolSearch.title": "Ładuj narzędzia dużych serwerów MCP na żądanie",
+    "drift.settings.toolSearch.description":
+        "W przypadku Claude narzędzia serwera MCP z co najmniej dziesięcioma narzędziami są wymieniane z nazwy i ładowane za pomocą tool_search, gdy model ich potrzebuje, zamiast przesyłania ich w całości z każdym żądaniem.",
     "drift.settings.execution.shell": "Powłoka",
     "drift.settings.execution.subagents": "Podagenci",
     "drift.settings.backgroundLimit.title": "Podagenci w tle jednocześnie",
@@ -655,6 +658,7 @@ export const drift = {
     "drift.context.compacting": "Kompaktowanie kontekstu",
     "drift.context.pending": "Użycie pojawi się po pierwszej odpowiedzi.",
     "drift.context.untilCompaction": "Do kompaktowania",
+    "drift.context.cacheMiss": "Ostatnie pominięcie pamięci podręcznej",
     "drift.context.window": "Okno kontekstu",
     "drift.context.systemAndTools": "System i narzędzia",
     "drift.context.user": "Twoje wiadomości",
@@ -1231,7 +1235,13 @@ export const drift = {
     "drift.storage.table.output.hint": "przechowywane tydzień",
     "drift.settings.autoCompact.title": "Kompaktuj automatycznie",
     "drift.settings.autoCompact.description":
-        "Streszczaj starsze wiadomości, gdy rozmowa zbliża się do okna kontekstu modelu. /compact działa zawsze.",
+        "Podsumowuj starsze wiadomości, gdy rozmowa osiągnie poniższy punkt. Polecenie /compact działa zawsze.",
+    "drift.settings.compactAt.title": "Kompaktuj przy",
+    "drift.settings.compactAt.description":
+        "Każdy krok wysyła całą konwersację ponownie, więc wcześniejsze kompaktowanie kosztuje mniej i pomaga modelowi zachować skupienie. Późniejsze zachowuje większą jej część dosłownie.",
+    "drift.settings.compactAt.auto": "Automatycznie (maksymalnie 400k)",
+    "drift.settings.compactAt.window": "Gdy okno jest prawie pełne",
+    "drift.settings.compactAt.tokens": "{{count}}k tokenów",
     "drift.settings.summaries.collapsed.description": "Podsumowania kompresji są początkowo zwinięte.",
     "drift.settings.summaries.collapsed.title": "Domyślnie zwijaj podsumowania",
     "drift.settings.summaries.collapsible.description":

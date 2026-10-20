@@ -103,9 +103,16 @@ const late = {
 };
 const listed = () => {
     const all = process.env.LATE_TOOL && lists++ > 0 ? [...tools, late] : tools;
+    // MANY_TOOLS: this many more tools, `note_0` on, each echoing its text.
+    const many = Array.from({ length: Number(process.env.MANY_TOOLS ?? 0) }, (_, index) => ({
+        name: `note_${index}`,
+        description: `Files note ${index} and echoes it`,
+        inputSchema: { type: "object", properties: { text: { type: "string" } } },
+    }));
+    const offered = [...all, ...many];
     return process.env.TOOLS_TTL_MS
-        ? { tools: all, ttlMs: Number(process.env.TOOLS_TTL_MS), cacheScope: "public" }
-        : { tools: all };
+        ? { tools: offered, ttlMs: Number(process.env.TOOLS_TTL_MS), cacheScope: "public" }
+        : { tools: offered };
 };
 // METHOD_LOG: every method received, one per line.
 const handle = (line) => {

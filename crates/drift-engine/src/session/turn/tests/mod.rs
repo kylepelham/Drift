@@ -17,6 +17,7 @@ mod auto_accept;
 mod cache_affinity;
 mod check_history;
 mod check_reports;
+mod clearing;
 mod conversation;
 mod credentials;
 mod effort_marks;

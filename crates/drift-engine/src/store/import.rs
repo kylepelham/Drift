@@ -266,6 +266,7 @@ mod tests {
             summary: false,
             ending: None,
             refusal: None,
+            cache_miss: None,
         };
         let part = PartRow {
             id: format!("prt_{n:016x}aaaaaaaa"),

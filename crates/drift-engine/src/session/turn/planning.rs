@@ -1,4 +1,6 @@
 use super::*;
+use crate::tool::tool_search::ToolSearch;
+use std::collections::{BTreeMap, BTreeSet};
 
 impl Steering {
     pub(super) fn of(plan: &Plan) -> Self {
@@ -110,6 +112,7 @@ impl Engine {
             bootstrap: Vec::new(),
             turn_only,
         };
+        self.stay_where_warm(&mut plan).await;
         self.load_plan_tools(&mut plan).await;
         plan.offer = self.offer(&plan);
 
@@ -361,7 +364,7 @@ impl Engine {
             .permissions
             .compiled(&plan.config.policy(), &plan.config.agent_policy(&plan.session.agent));
         let repository = crate::config::in_repository(&plan.root);
-        let tools: Vec<_> = self
+        let mut tools: Vec<_> = self
             .tools
             .offered(plan.model.profile)
             .into_iter()
@@ -372,6 +375,12 @@ impl Engine {
             .filter(|(spec, _)| !(subagent && crate::tool::task::DELEGATION.contains(&spec.name.as_str())))
             .filter(|(_, tool)| !tool.denied_outright(&rules))
             .collect();
+        let deferred = self.deferred_tools(plan, &tools);
+        let listed = deferred_listing(&tools, &deferred);
+        if !deferred.is_empty() {
+            let search: Arc<dyn crate::tool::Tool> = Arc::new(ToolSearch::new(searchable(&tools, &deferred)));
+            tools.push((search.spec(), search));
+        }
 
         // Server instructions are included only when this turn offers one of that server's tools.
         let servers: Vec<_> = plan
@@ -399,16 +408,88 @@ impl Engine {
             servers: &servers,
             references: &references,
             plans: Some(&plans),
+            deferred: &listed,
         };
         let sources = prompt::sources(&setting);
 
-        Offer { tools, sources }
+        Offer {
+            tools,
+            deferred,
+            sources,
+        }
+    }
+
+    /// The MCP tools sent for `tool_search` to load instead of up front: every tool of a server large enough that
+    /// its definitions would weigh on every request, on a model that takes `tool_reference` with the setting on.
+    fn deferred_tools(&self, plan: &Plan, tools: &[OfferedTool]) -> BTreeSet<String> {
+        if !plan.model.claude.tool_references || !self.tool_search() {
+            return BTreeSet::new();
+        }
+
+        let mut servers: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+        for (spec, tool) in tools {
+            if let Some(server) = tool.server() {
+                let (count, bytes) = servers.entry(server).or_default();
+                *count += 1;
+                *bytes += spec.name.len() + spec.description.len() + spec.parameters().to_string().len();
+            }
+        }
+        let large = |server: &str| {
+            servers
+                .get(server)
+                .is_some_and(|(count, bytes)| *count >= DEFER_TOOLS || *bytes >= DEFER_BYTES)
+        };
+
+        tools
+            .iter()
+            .filter(|(_, tool)| tool.server().is_some_and(large))
+            .map(|(spec, _)| spec.name.clone())
+            .collect()
     }
 }
 
+type OfferedTool = (llm::ToolSpec, Arc<dyn crate::tool::Tool>);
+
+/// MCP servers with this many tools, or this many bytes of definitions, are loaded on request.
+const DEFER_TOOLS: usize = 10;
+const DEFER_BYTES: usize = 10 * 1024;
+
+fn searchable(tools: &[OfferedTool], deferred: &BTreeSet<String>) -> Vec<(llm::ToolSpec, String)> {
+    tools
+        .iter()
+        .filter(|(spec, _)| deferred.contains(&spec.name))
+        .map(|(spec, tool)| (spec.clone(), tool.server().unwrap_or_default().to_string()))
+        .collect()
+}
+
+/// The deferred tools' names by server, for the system prompt.
+fn deferred_listing(tools: &[OfferedTool], deferred: &BTreeSet<String>) -> Vec<(String, Vec<String>)> {
+    let mut listed: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (spec, tool) in tools.iter().filter(|(spec, _)| deferred.contains(&spec.name)) {
+        let server = tool.server().unwrap_or_default().to_string();
+        listed.entry(server).or_default().push(spec.name.clone());
+    }
+
+    listed.into_iter().collect()
+}
+
 impl Offer {
+    /// The tools in the model's context from the start.
     pub(super) fn specs(&self) -> Vec<llm::ToolSpec> {
-        self.tools.iter().map(|(spec, _)| spec.clone()).collect()
+        self.tools
+            .iter()
+            .filter(|(spec, _)| !self.deferred.contains(&spec.name))
+            .map(|(spec, _)| spec.clone())
+            .collect()
+    }
+
+    /// The tools sent for `tool_search` to load.
+    pub(super) fn deferred_specs(&self) -> Vec<llm::ToolSpec> {
+        self.tools
+            .iter()
+            .filter(|(spec, _)| self.deferred.contains(&spec.name))
+            .map(|(spec, _)| spec.clone())
+            .collect()
     }
 
     pub(super) fn tool(&self, name: &str) -> Option<Arc<dyn crate::tool::Tool>> {

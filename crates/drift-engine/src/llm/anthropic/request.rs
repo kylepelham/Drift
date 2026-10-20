@@ -1,6 +1,7 @@
 use crate::llm::catalog::Reasoning;
 use crate::llm::{Block, ChatMessage, Request, Role};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 
 /// Anthropic allows four breakpoints: tools, system, and these two in the conversation.
 const CONVERSATION_BREAKPOINTS: usize = 2;
@@ -22,7 +23,10 @@ pub(super) fn body(request: &Request) -> Value {
             messages.push(json!({ "role": "system", "content": [], "output_config": { "effort": mark.effort } }));
         }
     }
-    mark_conversation(&mut messages);
+    load_references(&mut messages, request);
+    if request.cache_conversation {
+        mark_conversation(&mut messages);
+    }
     let mut body = json!({
         "model": request.model,
         "max_tokens": request.max_tokens,
@@ -35,9 +39,15 @@ pub(super) fn body(request: &Request) -> Value {
     }
     if !request.tools.is_empty() {
         let mut tools: Vec<Value> = request.tools.iter().map(tool_definition).collect();
+        // A deferred tool cannot carry the breakpoint, so they follow the last one that does.
         if let Some(last) = tools.last_mut() {
             last["cache_control"] = ephemeral();
         }
+        tools.extend(request.deferred_tools.iter().map(|tool| {
+            let mut definition = tool_definition(tool);
+            definition["defer_loading"] = json!(true);
+            definition
+        }));
 
         body["tools"] = Value::Array(tools);
         if request.no_tool_calls {
@@ -70,6 +80,39 @@ pub(super) fn body(request: &Request) -> Value {
 
 fn tool_definition(tool: &crate::llm::ToolSpec) -> Value {
     json!({ "name": tool.name, "description": tool.description, "input_schema": tool.parameters() })
+}
+
+/// A `tool_search` result loads its tools as `tool_reference` blocks. A name no longer deferred is left out, since
+/// the API refuses a reference to a tool it was not sent deferred, and a result with none left stays text.
+fn load_references(messages: &mut [Value], request: &Request) {
+    if request.deferred_tools.is_empty() {
+        return;
+    }
+
+    let deferred = |name: &String| request.deferred_tools.iter().any(|tool| &tool.name == name);
+    let references: HashMap<String, Vec<Value>> = request
+        .tool_references
+        .iter()
+        .filter_map(|(call_id, names)| {
+            let loaded: Vec<Value> = names
+                .iter()
+                .filter(|name| deferred(name))
+                .map(|name| json!({ "type": "tool_reference", "tool_name": name }))
+                .collect();
+            (!loaded.is_empty()).then(|| (wire_id(call_id), loaded))
+        })
+        .collect();
+
+    for block in messages
+        .iter_mut()
+        .filter_map(|message| message["content"].as_array_mut())
+        .flatten()
+    {
+        let loaded = block["tool_use_id"].as_str().and_then(|id| references.get(id));
+        if let Some(loaded) = loaded.filter(|_| block["type"] == "tool_result") {
+            block["content"] = Value::Array(loaded.clone());
+        }
+    }
 }
 
 fn ephemeral() -> Value {
@@ -166,6 +209,14 @@ pub(super) fn betas(body: &Value) -> Vec<&'static str> {
     }
     if body["thinking"].get("block_binding").is_some() {
         betas.push(super::THINKING_BINDING);
+    }
+    if body["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|tool| tool["defer_loading"] == true)
+    {
+        betas.push(super::TOOL_SEARCH);
     }
 
     betas

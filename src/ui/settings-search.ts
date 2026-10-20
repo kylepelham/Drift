@@ -82,6 +82,7 @@ const settingsSearchDefinitions = {
         { title: "drift.settings.groupTools.title", description: "drift.settings.groupTools.description" },
         { title: "drift.settings.editedFiles.title", description: "drift.settings.editedFiles.description" },
         { title: "drift.settings.autoCompact.title", description: "drift.settings.autoCompact.description" },
+        { title: "drift.settings.compactAt.title", description: "drift.settings.compactAt.description" },
         {
             title: "drift.settings.summaries.collapsible.title",
             description: "drift.settings.summaries.collapsible.description",
@@ -155,6 +156,7 @@ const settingsSearchDefinitions = {
             title: "drift.settings.shellTimeout.customMinutes",
             description: "drift.settings.shellTimeout.customDescription",
         },
+        { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
     ],
     Browser: [
         { title: "drift.settings.browser.enabled.title", description: "drift.settings.browser.enabled.description" },

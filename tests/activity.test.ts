@@ -906,6 +906,37 @@ test("GPT-6 context meter retains catalog input headroom past the old OAuth thre
     }
 });
 
+test("the context meter counts down to the compaction point the user's setting gives the model", async () => {
+    const { contextStats } = await import("../src/engine/store");
+    const [state, set] = createEngineState();
+    set("providers", [
+        {
+            id: "anthropic",
+            name: "Anthropic",
+            models: {
+                "claude-opus-5-5": {
+                    id: "claude-opus-5-5",
+                    limit: { context: 1_000_000, output: 128_000, compact: 400_000 },
+                },
+            },
+        },
+    ] as never);
+    set("transcripts", "s1", [
+        {
+            info: {
+                id: "a1",
+                sessionId: "s1",
+                role: "assistant",
+                model: { provider: "anthropic", model: "claude-opus-5-5" },
+                usage: { input: 150_000, output: 0, cacheRead: 0, cacheWrite: 0 },
+            },
+            parts: [],
+        },
+    ] as never);
+
+    expect(contextStats(state, "s1")).toMatchObject({ percent: 15, untilCompaction: 250_000 });
+});
+
 test("the meter keeps a quarter of a small window for the reply when the output limit is unknown", async () => {
     const { replyRoom } = await import("../src/engine/store");
     const { modelDetail } = await import("../src/ui/composer-models");
