@@ -50,16 +50,24 @@ impl Engine {
     }
 
     /// Sends a queued prompt now: into the running turn as a steer, or as a new turn when none runs.
+    /// One that cannot be sent keeps its place with the reason, as a drained one does.
     pub async fn send_queued_now(self: &Arc<Self>, id: &str) -> Result<Option<Receipt>, TurnError> {
         let Some(queued) = self.store.queued_prompt(id)? else {
             return Ok(None);
         };
-        if !self.store.unqueue_prompt(id)? {
-            return Ok(None);
+        let mut prompt = queued.prompt;
+        prompt.submission_id = Some(format!("queue:{id}"));
+
+        let sent = self.submit(&queued.session_id, prompt).await;
+        match &sent {
+            Ok(_) => {
+                self.store.unqueue_prompt(id)?;
+            }
+            Err(error) => self.store.fail_queued_prompt(id, &error.to_string())?,
         }
         self.publish_queue(&queued.session_id);
 
-        self.submit(&queued.session_id, queued.prompt).await.map(Some)
+        sent.map(Some)
     }
 
     /// Starts the first queued prompt's turn when the session is idle and its queue not held by Stop.

@@ -85,6 +85,22 @@ async fn a_real_prompt_starts_the_timers_again_and_a_switched_off_setting_sends_
 }
 
 #[tokio::test]
+async fn switching_warming_off_stops_a_conversation_already_being_kept_warm() {
+    let h = harness().await;
+    warm(&h, 3);
+    h.provider.push(text("one"));
+    for _ in 0..3 {
+        h.provider.push(text("OK"));
+    }
+    h.engine.submit(&h.session.id, prompt("first")).await.await_ok();
+    until_idle(&h).await;
+    h.engine.set_prompt_cache(&PromptCache::default()).unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    assert!(keep_alives(&h).is_empty(), "no keep-alive after it was switched off");
+}
+
+#[tokio::test]
 async fn a_worker_is_never_kept_warm() {
     let h = harness().await;
     warm(&h, 2);

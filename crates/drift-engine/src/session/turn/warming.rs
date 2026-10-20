@@ -86,11 +86,27 @@ impl Warmers {
             old.abort();
         }
     }
+
+    fn stop_all(&self) {
+        for (_, warmer) in self.0.lock().unwrap().drain() {
+            warmer.abort();
+        }
+    }
 }
 
 impl Engine {
     pub fn prompt_cache(&self) -> PromptCache {
         self.store.setting(PROMPT_CACHE_KEY).ok().flatten().unwrap_or_default()
+    }
+
+    /// Keeps the settings; switching warming off stops every conversation's warming at once.
+    pub fn set_prompt_cache(&self, cache: &PromptCache) -> rusqlite::Result<()> {
+        self.store.set_setting(PROMPT_CACHE_KEY, cache)?;
+        if !cache.warming {
+            self.turns.warmers.stop_all();
+        }
+
+        Ok(())
     }
 
     /// Starts the session's timers again after a real request; workers and a switched-off setting never warm.

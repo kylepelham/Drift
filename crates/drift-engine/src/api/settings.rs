@@ -15,7 +15,7 @@ use crate::session::compaction::{AUTO_COMPACT_KEY, COMPACT_AT_KEY, CompactAt, MO
 use crate::session::tasks::{BACKGROUND_TASKS_KEY, LimitError};
 use crate::session::turn::provider_options::ProviderOptions;
 use crate::session::turn::resume::RESUME_KEY;
-use crate::session::turn::warming::{PROMPT_CACHE_KEY, PromptCache};
+use crate::session::turn::warming::PromptCache;
 
 /// Engine-wide preferences the user changes in Settings.
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -169,7 +169,7 @@ pub(super) async fn put(
         if let Some(problem) = cache.problem() {
             return Err(ApiError::new(StatusCode::BAD_REQUEST, "prompt_cache", problem));
         }
-        engine.store.set_setting(PROMPT_CACHE_KEY, &cache)?;
+        engine.set_prompt_cache(&cache)?;
     }
     if let Some(options) = body.provider_options {
         engine.set_provider_options(options)?;

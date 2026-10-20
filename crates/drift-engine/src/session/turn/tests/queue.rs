@@ -111,3 +111,24 @@ async fn a_queued_prompt_starts_at_once_when_nothing_runs_and_can_be_edited_disc
     );
     assert_eq!(last_prompt(&requests[2]), "edited");
 }
+
+#[tokio::test]
+async fn a_queued_prompt_that_cannot_be_sent_now_keeps_its_place_with_the_reason() {
+    let h = harness().await;
+    h.provider.push_stall();
+    h.engine.submit(&h.session.id, prompt("one")).await.await_ok();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let queued = h.engine.queue_prompt(&h.session.id, prompt("later")).unwrap();
+    assert!(h.engine.abort(&h.session.id));
+    until_idle(&h).await;
+    h.engine.credentials.remove("anthropic").unwrap();
+
+    assert_eq!(
+        h.engine.send_queued_now(&queued.id).await.err(),
+        Some(TurnError::NoCredentials)
+    );
+    let left = h.engine.queued_prompts(&h.session.id).unwrap();
+    assert_eq!(left.len(), 1, "the prompt is still queued");
+    assert_eq!(left[0].prompt, prompt("later"));
+    assert!(left[0].error.is_some());
+}
