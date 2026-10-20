@@ -66,7 +66,8 @@
     --danger: #f07e7e;
 }
 
-/* The default: Charcoal's neutral greys with the orange accent. Drift Dark (before 2.4.0) is the same base. */
+/* The default Drift base (id drift-charcoal, named Charcoal before): neutral greys with the orange accent.
+   Drift Dark (before 2.4.0) is the same base. */
 :root,
 :root[data-theme="drift-charcoal"],
 :root[data-theme="drift-dark"],

@@ -1222,7 +1222,6 @@ export const drift = {
     "drift.sound.group.mechanical": "Mehanički",
     "drift.sound.group.success": "Uspjeh",
     "drift.status.waitingForPermission": "Čekanje na dozvolu",
-    "drift.theme.charcoal": "Drift Ugljen",
     "drift.theme.black": "Drift Crna",
     "drift.theme.dim": "Drift Zatamnjena",
     "drift.theme.mocha": "Drift Mocha",

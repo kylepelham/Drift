@@ -1236,7 +1236,7 @@ export const drift = {
     "drift.sound.group.success": "Success",
     "drift.status.waitingForPermission": "Waiting for permission",
     "drift.theme.claude": "Claude",
-    "drift.theme.charcoal": "Charcoal",
+    "drift.theme.charcoal": "Drift",
     "drift.theme.black": "Black",
     "drift.theme.dim": "Dim",
     "drift.theme.mocha": "Mocha",

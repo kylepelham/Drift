@@ -1229,7 +1229,6 @@ export const drift = {
     "drift.sound.group.mechanical": "Mechaniczne",
     "drift.sound.group.success": "Sukces",
     "drift.status.waitingForPermission": "Oczekiwanie na uprawnienie",
-    "drift.theme.charcoal": "Węgiel drzewny",
     "drift.theme.black": "Drift Czarny",
     "drift.theme.dim": "Przyciemniony",
     "drift.theme.mocha": "Mocha",

@@ -1200,7 +1200,6 @@ export const drift = {
     "drift.sound.group.mechanical": "กลไก",
     "drift.sound.group.success": "สำเร็จ",
     "drift.status.waitingForPermission": "กำลังรอสิทธิ์",
-    "drift.theme.charcoal": "Drift ชาร์โคล",
     "drift.theme.black": "Drift ดำ",
     "drift.theme.dim": "Drift สลัว",
     "drift.theme.mocha": "Drift มอคค่า",

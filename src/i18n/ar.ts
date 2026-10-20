@@ -1196,7 +1196,6 @@ export const drift = {
     "drift.sound.group.mechanical": "ميكانيكية",
     "drift.sound.group.success": "نجاح",
     "drift.status.waitingForPermission": "في انتظار الإذن",
-    "drift.theme.charcoal": "Drift فحم",
     "drift.theme.black": "Drift أسود",
     "drift.theme.dim": "Drift داكن",
     "drift.theme.mocha": "Drift موكا",

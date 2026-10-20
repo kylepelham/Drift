@@ -1225,7 +1225,6 @@ export const drift = {
     "drift.sound.group.mechanical": "Mekanik",
     "drift.sound.group.success": "Başarı",
     "drift.status.waitingForPermission": "İzin bekleniyor",
-    "drift.theme.charcoal": "Kömür",
     "drift.theme.black": "Siyah",
     "drift.theme.dim": "Loş",
     "drift.theme.mocha": "Mocha",
