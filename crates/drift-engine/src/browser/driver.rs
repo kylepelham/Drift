@@ -45,6 +45,81 @@ pub(crate) struct Shot {
     pub(crate) height: u32,
 }
 
+/// The most pixels an agent's screenshot has: a 1280x800 viewport's worth, Anthropic's suggested size for web
+/// apps, so a page laid out to fill a big pane costs no more tokens to look at.
+const SHOT_PIXELS: f64 = 1280.0 * 800.0;
+/// The most a zoom enlarges the region it shows.
+const ZOOM_MAX: f64 = 4.0;
+const SHOT_QUALITY: u8 = 80;
+
+/// How much a page picture this size shrinks to become a screenshot; 1 when it fits `SHOT_PIXELS`.
+pub(crate) fn shot_factor(width: u32, height: u32) -> f64 {
+    let pixels = f64::from(width) * f64::from(height);
+
+    (SHOT_PIXELS / pixels.max(1.0)).sqrt().min(1.0)
+}
+
+impl Shot {
+    /// The agent's screenshot of a page picture: the picture scaled down in its own shape to fit `SHOT_PIXELS`.
+    pub(crate) fn fitted(jpeg: Vec<u8>) -> Result<Self, String> {
+        let picture = decode(&jpeg)?;
+        let (width, height) = (picture.width(), picture.height());
+        let factor = shot_factor(width, height);
+        if factor >= 1.0 {
+            return Ok(Self { jpeg, width, height });
+        }
+
+        resized(&picture, scaled(width, factor), scaled(height, factor))
+    }
+
+    /// A region of a page picture, given as `[x0, y0, x1, y1]` in the pixels of the screenshot `fitted` makes of
+    /// it, cut from the full picture and enlarged up to `ZOOM_MAX` times within `SHOT_PIXELS`.
+    pub(crate) fn zoomed(jpeg: &[u8], region: [f64; 4]) -> Result<Self, String> {
+        let picture = decode(jpeg)?;
+        let (width, height) = (picture.width(), picture.height());
+        let factor = shot_factor(width, height);
+        let screenshot = (f64::from(width) * factor, f64::from(height) * factor);
+
+        let [x0, y0, x1, y1] = region;
+        if !region.iter().all(|value| value.is_finite()) || x1 <= x0 || y1 <= y0 {
+            return Err("`region` is [x0, y0, x1, y1] with x1 above x0 and y1 above y0".into());
+        }
+        let left = x0.clamp(0.0, screenshot.0) / factor;
+        let top = y0.clamp(0.0, screenshot.1) / factor;
+        let right = x1.clamp(0.0, screenshot.0) / factor;
+        let bottom = y1.clamp(0.0, screenshot.1) / factor;
+        let (cut_width, cut_height) = ((right - left).round(), (bottom - top).round());
+        if cut_width < 1.0 || cut_height < 1.0 {
+            let (shot_width, shot_height) = (screenshot.0.round(), screenshot.1.round());
+            return Err(format!("`region` is outside the {shot_width}x{shot_height} screenshot"));
+        }
+
+        let cut = picture.crop_imm(left as u32, top as u32, cut_width as u32, cut_height as u32);
+        let enlarge = (SHOT_PIXELS / (cut_width * cut_height)).sqrt().min(ZOOM_MAX);
+        resized(&cut, scaled(cut.width(), enlarge), scaled(cut.height(), enlarge))
+    }
+}
+
+fn decode(jpeg: &[u8]) -> Result<image::DynamicImage, String> {
+    image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg).map_err(|error| error.to_string())
+}
+
+fn scaled(side: u32, factor: f64) -> u32 {
+    ((f64::from(side) * factor).round() as u32).max(1)
+}
+
+fn resized(picture: &image::DynamicImage, width: u32, height: u32) -> Result<Shot, String> {
+    let resized = picture.resize_exact(width, height, image::imageops::FilterType::Triangle);
+    let mut jpeg = Vec::new();
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, SHOT_QUALITY);
+    resized
+        .to_rgb8()
+        .write_with_encoder(encoder)
+        .map_err(|error| error.to_string())?;
+
+    Ok(Shot { jpeg, width, height })
+}
+
 /// A layout size the agent asked for; `None` in its place means the browser's own.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Size {
@@ -102,6 +177,9 @@ pub(crate) trait Tab: Send + Sync {
     async fn settle(&self, url_before: &str) -> Settled;
 
     async fn screenshot(&self) -> Result<Shot, String>;
+
+    /// A region of what `screenshot` shows now, `[x0, y0, x1, y1]` in its pixels, enlarged for a closer look.
+    async fn zoom(&self, region: [f64; 4]) -> Result<Shot, String>;
 
     async fn evaluate(&self, script: &str, language: Language) -> Result<Value, String>;
 
@@ -350,5 +428,63 @@ impl Common {
             cursor.clone_into(current);
             true
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A white 1280x2048 page picture with a red box at 600,1500 sized 200x100.
+    fn tall_page() -> Vec<u8> {
+        let mut page = image::RgbImage::from_pixel(1280, 2048, image::Rgb([255, 255, 255]));
+        for x in 600..800 {
+            for y in 1500..1600 {
+                page.put_pixel(x, y, image::Rgb([220, 0, 0]));
+            }
+        }
+        let mut jpeg = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95);
+        page.write_with_encoder(encoder).unwrap();
+        jpeg
+    }
+
+    #[test]
+    fn a_tall_page_is_seen_at_a_desktop_screenshots_cost_in_its_own_shape() {
+        let shot = Shot::fitted(tall_page()).unwrap();
+        assert_eq!((shot.width, shot.height), (800, 1280));
+
+        let mut desktop = Vec::new();
+        let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut desktop, 80);
+        image::RgbImage::new(1280, 800).write_with_encoder(encoder).unwrap();
+        let kept = Shot::fitted(desktop.clone()).unwrap();
+        assert_eq!(
+            (kept.width, kept.height, kept.jpeg),
+            (1280, 800, desktop),
+            "a desktop page is sent as taken"
+        );
+    }
+
+    #[test]
+    fn a_zoom_cuts_the_full_picture_where_the_screenshot_shows_it_and_enlarges_it() {
+        // The box is at 375,937.5 to 500,1000 in the 800x1280 screenshot.
+        let zoomed = Shot::zoomed(&tall_page(), [375.0, 937.5, 500.0, 1000.0]).unwrap();
+        assert_eq!(
+            (zoomed.width, zoomed.height),
+            (800, 400),
+            "200x100 of the page, 4x at most"
+        );
+
+        let picture = decode(&zoomed.jpeg).unwrap().to_rgb8();
+        let middle = picture.get_pixel(400, 200);
+        assert!(middle[0] > 180 && middle[1] < 60, "the box fills it: {middle:?}");
+    }
+
+    #[test]
+    fn a_zoom_outside_the_screenshot_or_backwards_is_refused() {
+        let outside = Shot::zoomed(&tall_page(), [900.0, 0.0, 1000.0, 10.0]).err().unwrap();
+        assert!(outside.contains("800x1280"), "{outside}");
+        assert!(Shot::zoomed(&tall_page(), [10.0, 10.0, 5.0, 20.0]).is_err());
+        assert!(Shot::zoomed(&tall_page(), [0.0, 0.0, f64::NAN, 20.0]).is_err());
     }
 }

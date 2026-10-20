@@ -129,9 +129,11 @@ impl Tab for Page {
     }
 
     async fn screenshot(&self) -> Result<Shot, String> {
-        let (jpeg, width, height) = self.capture().await?;
+        self.capture().await
+    }
 
-        Ok(Shot { jpeg, width, height })
+    async fn zoom(&self, region: [f64; 4]) -> Result<Shot, String> {
+        self.zoom_into(region).await
     }
 
     async fn evaluate(&self, script: &str, language: Language) -> Result<Value, String> {

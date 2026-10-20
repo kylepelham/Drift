@@ -144,7 +144,8 @@ the active page unless `page` names another.
 | `type`, `press` | Text into the focused element; a key or chord such as `Enter`, `Control+A`. |
 | `scroll` | By `ref` into view, or `dy` pixels. |
 | `wait` | Until `text` appears or `ms` pass, at most 30 s. |
-| `screenshot` | A JPEG of the viewport for the model to look at. |
+| `screenshot` | A JPEG of the viewport for the model to look at, scaled down in its own shape to at most 1280x800's worth of pixels. |
+| `zoom` | `region` `[x0, y0, x1, y1]` of what a screenshot shows now, cut from the full-resolution picture and enlarged up to 4x within the same budget. Coordinates stay the screenshot's. |
 | `eval` | JavaScript in the page (VBScript in IE mode with `language: vbscript`); the result as JSON. |
 | `logs` | Console messages or network requests, optionally matching `search`; `request` with an id returns its body (Chrome and Edge). |
 | `dialog` | Accepts or dismisses an open alert, confirm or prompt, with optional `text`. |
@@ -158,6 +159,13 @@ the active page unless `page` names another.
 
 Results say what changed (the page's title and address after an action that navigated, a dialog that
 opened, a popup that appeared) so the model does not need to snapshot after every click.
+
+Screenshots have a fixed pixel budget because newer Claude models bill an image by its size (about
+`width / 28 x height / 28` tokens) instead of shrinking it, and a page laid out to fill a tall pane would
+otherwise cost two or three times a desktop screenshot. 1280x800 is the size Anthropic suggests for web apps,
+so every screenshot costs about what one of those does, about 1,330 tokens. Clicks at screenshot points are
+scaled back to CSS pixels by the last screenshot or zoom. Small text that the scaling makes hard to read is
+what `zoom` is for, as in Anthropic's own browser and computer toolsets. The pane's stream is not affected.
 
 Permission: acting on a page asks once per host (`browser` permission, the host as its pattern). Loopback,
 private addresses and intranet names (one label, `.local`, `.internal`, `.lan`, `.test`, `.home.arpa`) are

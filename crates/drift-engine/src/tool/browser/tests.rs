@@ -11,7 +11,7 @@ async fn call(sandbox: &Sandbox, input: Value) -> Result<Output, ToolError> {
 
 #[test]
 fn looking_is_a_read_and_acting_is_not() {
-    for action in ["snapshot", "screenshot", "logs", "pages", "wait"] {
+    for action in ["snapshot", "screenshot", "zoom", "logs", "pages", "wait"] {
         assert!(!Browser.call_mutates(&json!({ "action": action })), "{action}");
     }
     for action in ["open", "click", "fill", "eval", "stop"] {
@@ -133,6 +133,8 @@ async fn a_real_browser_fills_a_form_and_reports_what_changed() {
     assert_eq!(value.output, "Grace");
     drop(viewer);
 
+    sees_a_tall_page_small_clicks_where_seen_and_zooms(&sandbox).await;
+
     call(&sandbox, json!({ "action": "stop" })).await.unwrap();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(20);
     while sandbox.ctx.engine.browsers.record("ses_test").is_some() {
@@ -141,6 +143,48 @@ async fn a_real_browser_fills_a_form_and_reports_what_changed() {
     }
     let profile = sandbox.ctx.engine.data_dir.join("browsers/sessions/ses_test");
     assert!(!profile.exists(), "an isolated profile goes with its browser");
+}
+
+/// A tall page's screenshot costs a desktop one's, a click at its points lands, and zoom enlarges a region of it.
+async fn sees_a_tall_page_small_clicks_where_seen_and_zooms(sandbox: &Sandbox) {
+    let page = "data:text/html,<body style='margin:0'><button style='position:absolute;left:600px;top:1500px;\
+        width:200px;height:100px' onclick=\"document.title='Booked'\">Book</button>";
+    call(sandbox, json!({ "action": "navigate", "url": page }))
+        .await
+        .unwrap();
+    call(sandbox, json!({ "action": "viewport", "width": 1280, "height": 2048 }))
+        .await
+        .unwrap();
+
+    let shot = call(sandbox, json!({ "action": "screenshot" })).await.unwrap();
+    assert_eq!(size_in(&shot.output), (800, 1280), "{}", shot.output);
+
+    // The button's middle, 700,1550 on the page, is 437.5,968.75 in the screenshot.
+    call(sandbox, json!({ "action": "click", "x": 437.5, "y": 968.75 }))
+        .await
+        .unwrap();
+    let title = call(sandbox, json!({ "action": "eval", "expression": "document.title" }))
+        .await
+        .unwrap();
+    assert_eq!(title.output, "Booked");
+
+    let zoomed = call(sandbox, json!({ "action": "zoom", "region": [375, 937.5, 500, 1000] }))
+        .await
+        .unwrap();
+    assert_eq!(size_in(&zoomed.output), (800, 400), "{}", zoomed.output);
+    assert_eq!(zoomed.metadata.images.map(|images| images.len()), Some(1));
+}
+
+/// The last `WxH` size a result names.
+fn size_in(text: &str) -> (u32, u32) {
+    let size = text
+        .split([' ', ','])
+        .map(|word| word.trim_end_matches('.'))
+        .filter_map(|word| word.split_once('x'))
+        .filter_map(|(width, height)| Some((width.parse().ok()?, height.parse().ok()?)))
+        .next_back();
+
+    size.unwrap_or_else(|| panic!("no size in: {text}"))
 }
 
 /// The ref of the first line in a snapshot with this role.

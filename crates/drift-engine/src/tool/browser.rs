@@ -14,7 +14,7 @@ use super::{Ask, Context, Output, RunFuture, Tool, ToolError, ToolMetadata, requ
 use crate::llm::ToolSpec;
 
 /// Actions that only look, so a read-only agent may make them and they may run beside other reads.
-const READS: &[&str] = &["snapshot", "screenshot", "logs", "pages", "wait"];
+const READS: &[&str] = &["snapshot", "screenshot", "zoom", "logs", "pages", "wait"];
 /// The most actions one batch runs.
 const MAX_BATCH: usize = 30;
 
@@ -181,10 +181,10 @@ fn schema() -> Value {
                 "type": "string",
                 "enum": [
                     "open", "navigate", "snapshot", "click", "hover", "fill", "type", "press", "scroll", "wait",
-                    "screenshot", "eval", "logs", "dialog", "viewport", "trace", "audit", "pages", "select", "close", "login",
+                    "screenshot", "zoom", "eval", "logs", "dialog", "viewport", "trace", "audit", "pages", "select", "close", "login",
                     "batch", "stop"
                 ],
-                "description": "open: start the browser if needed and open `url` in a new tab (a path opens on the project's baseUrl); `engine` picks another browser, replacing this conversation's. navigate: load `url` (or back, forward, reload) in the page. snapshot: the page's elements with refs. click, hover: by `ref`, or `x`/`y` in the last screenshot's pixels. fill: set a field by `ref` to `text` (a select takes an option's value or label; a checkbox takes `checked`). type: text into the focused element. press: a key or chord such as Enter or Control+A. scroll: `ref` into view, or by `dy` pixels. wait: until `text` shows, or `ms` pass (at most 30000). screenshot: an image of the page. eval: run `expression` in the page. logs: console (default) or network. dialog: answer an alert, confirm or prompt. viewport: desktop, tablet, mobile, or `width`/`height`. trace: record a performance trace (Chrome and Edge) and read its Web Vitals, long tasks, network and interactions. audit: a Lighthouse audit (Chrome and Edge) of accessibility, best practices and SEO. pages: list tabs. select, close: a tab by `page`. login: sign in as the project's drift.json sets up, with a credential the user stored. batch: run `actions` in order. stop: end the browser."
+                "description": "open: start the browser if needed and open `url` in a new tab (a path opens on the project's baseUrl); `engine` picks another browser, replacing this conversation's. navigate: load `url` (or back, forward, reload) in the page. snapshot: the page's elements with refs. click, hover: by `ref`, or `x`/`y` in the last screenshot's pixels. fill: set a field by `ref` to `text` (a select takes an option's value or label; a checkbox takes `checked`). type: text into the focused element. press: a key or chord such as Enter or Control+A. scroll: `ref` into view, or by `dy` pixels. wait: until `text` shows, or `ms` pass (at most 30000). screenshot: an image of the page, at most 1280x800's worth of pixels. zoom: `region` of what a screenshot shows now, enlarged to read small text or check fine detail. eval: run `expression` in the page. logs: console (default) or network. dialog: answer an alert, confirm or prompt. viewport: desktop, tablet, mobile, or `width`/`height`. trace: record a performance trace (Chrome and Edge) and read its Web Vitals, long tasks, network and interactions. audit: a Lighthouse audit (Chrome and Edge) of accessibility, best practices and SEO. pages: list tabs. select, close: a tab by `page`. login: sign in as the project's drift.json sets up, with a credential the user stored. batch: run `actions` in order. stop: end the browser."
             },
             "url": { "type": "string", "description": "For open and navigate. A bare host gets https://, localhost gets http://; a path is taken from the project's baseUrl." },
             "engine": { "type": "string", "enum": ["chrome", "edge", "firefox", "camoufox", "ie"], "description": "For open: the browser to use. Leave it out to use the project's or the user's choice. ie is Edge's Internet Explorer mode; camoufox is a hardened Firefox for sites that block automation." },
@@ -195,6 +195,7 @@ fn schema() -> Value {
             "x": { "type": "number" },
             "y": { "type": "number" },
             "double": { "type": "boolean", "description": "For click: a double click." },
+            "region": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4, "description": "For zoom: [x0, y0, x1, y1] in a screenshot's pixels." },
             "text": { "type": "string", "description": "For fill and type: the text. For wait: text to wait for. For dialog: a prompt's answer." },
             "checked": { "type": "boolean", "description": "For fill on a checkbox or radio button." },
             "key": { "type": "string", "description": "For press: Enter, Tab, Escape, ArrowDown, F5, a character, or a chord such as Control+Shift+K." },

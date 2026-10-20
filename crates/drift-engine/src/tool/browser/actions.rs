@@ -72,6 +72,7 @@ async fn on_page(
     match action {
         "snapshot" => snapshot(tab, input).await,
         "screenshot" => screenshot(tab).await,
+        "zoom" => zoom(tab, input).await,
         "logs" => logs(tab, input).await,
         "eval" => eval(tab, input).await,
         "wait" => wait(context, tab, input).await,
@@ -332,6 +333,28 @@ async fn screenshot(tab: &Arc<dyn Tab>) -> Result<Step, String> {
     let shot = tab.screenshot().await?;
     let text = format!(
         "Screenshot of {}, {}x{}. Click or hover at `x`/`y` in this image's pixels.",
+        describe(tab.as_ref()),
+        shot.width,
+        shot.height
+    );
+
+    Ok(Step {
+        text,
+        images: vec![Image::from_bytes("image/jpeg", &shot.jpeg)],
+    })
+}
+
+async fn zoom(tab: &Arc<dyn Tab>, input: &Value) -> Result<Step, String> {
+    let region = input["region"]
+        .as_array()
+        .and_then(|values| values.iter().map(Value::as_f64).collect::<Option<Vec<_>>>())
+        .and_then(|values| <[f64; 4]>::try_from(values).ok())
+        .ok_or("`region` is required: [x0, y0, x1, y1] in a screenshot's pixels")?;
+
+    let shot = tab.zoom(region).await?;
+    let [x0, y0, x1, y1] = region;
+    let text = format!(
+        "{x0},{y0} to {x1},{y1} of the screenshot of {}, shown at {}x{}. Coordinates stay the full screenshot's.",
         describe(tab.as_ref()),
         shot.width,
         shot.height

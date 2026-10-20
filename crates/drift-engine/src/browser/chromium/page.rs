@@ -10,7 +10,7 @@ use tokio::sync::{oneshot, watch};
 
 use super::agent::Agents;
 use super::cdp::{CdpError, Connection};
-use crate::browser::driver::Settled;
+use crate::browser::driver::{Settled, Shot, shot_factor};
 use crate::browser::input::Key;
 use crate::browser::{DialogRecord, PageRecord, with_scheme};
 
@@ -505,33 +505,53 @@ impl Page {
         }
     }
 
-    /// A JPEG of what the page shows now, with its size.
-    pub(crate) async fn capture(&self) -> Result<(Vec<u8>, u32, u32), String> {
-        use base64::Engine as _;
+    /// The agent's screenshot of the page, within the pixel budget clicks are then scaled from.
+    pub(crate) async fn capture(&self) -> Result<Shot, String> {
+        let shot = Shot::fitted(self.full_picture().await?)?;
+        self.note_shot_width(f64::from(shot.width)).await?;
 
-        let shot = self
-            .call("Page.captureScreenshot", json!({ "format": "jpeg", "quality": 80 }))
-            .await
-            .map_err(|error| error.to_string())?;
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(shot["data"].as_str().unwrap_or_default())
-            .map_err(|error| error.to_string())?;
-        let (width, height) = image::ImageReader::new(std::io::Cursor::new(&bytes))
+        Ok(shot)
+    }
+
+    /// A region of what a screenshot shows now, enlarged; its coordinates stay the screenshot's.
+    pub(crate) async fn zoom_into(&self, region: [f64; 4]) -> Result<Shot, String> {
+        let picture = self.full_picture().await?;
+        let (width, height) = image::ImageReader::new(std::io::Cursor::new(&picture))
             .with_guessed_format()
             .map_err(|error| error.to_string())?
             .into_dimensions()
             .map_err(|error| error.to_string())?;
+        self.note_shot_width(f64::from(width) * shot_factor(width, height))
+            .await?;
 
+        Shot::zoomed(&picture, region)
+    }
+
+    async fn full_picture(&self) -> Result<Vec<u8>, String> {
+        use base64::Engine as _;
+
+        let shot = self
+            .call("Page.captureScreenshot", json!({ "format": "jpeg", "quality": 90 }))
+            .await
+            .map_err(|error| error.to_string())?;
+
+        base64::engine::general_purpose::STANDARD
+            .decode(shot["data"].as_str().unwrap_or_default())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Clicks at screenshot points land where they were seen: screenshot pixels per CSS pixel.
+    async fn note_shot_width(&self, shot_width: f64) -> Result<(), String> {
         let metrics = self
             .call("Page.getLayoutMetrics", json!({}))
             .await
             .map_err(|error| error.to_string())?;
         let css_width = metrics["cssVisualViewport"]["clientWidth"]
             .as_f64()
-            .unwrap_or(f64::from(width));
-        self.state.lock().unwrap().shot_scale = Some(f64::from(width) / css_width.max(1.0));
+            .unwrap_or(shot_width);
+        self.state.lock().unwrap().shot_scale = Some(shot_width / css_width.max(1.0));
 
-        Ok((bytes, width, height))
+        Ok(())
     }
 
     /// A picture for the pane, with the page's size in CSS pixels; unlike `screenshot` it leaves click scaling alone.

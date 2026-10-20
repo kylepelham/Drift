@@ -361,6 +361,7 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
   - [x] `browser` tool: open, navigate, snapshot with refs, click, fill, type, press, scroll, wait, screenshot, eval, logs, dialog, viewport, pages, batch, stop; host asks with loopback and private hosts allowed
   - [x] Pane: screencast over `/sessions/{id}/browser/view`, page tabs, address bar, input, auto-open, collapse keeps testing, Stop ends it; idle browsers end after 30 minutes
   - [x] Pane: opened by hand from the header's globe button, page laid out to fill it (Chrome and Edge), the page's cursor shown over the picture; a click that opens a dialog reports it instead of timing out
+  - [x] Screenshots capped at 1280x800's worth of pixels in the page's shape, clicks scaled back; `zoom` enlarges a region of one
   - [x] Project browser config in `drift.json` (engine, base address, engine by address, profile, window, integrated sign-in, `login`, notes), keychain credentials the model never sees, passwords hidden from every result
   - [x] IE mode through IEDriverServer (downloaded when missing): frames walked by one snapshot, VBScript `eval`, popups as tabs; web-test's per-app helpers replaced by project notes
   - [x] Firefox and Camoufox over WebDriver BiDi (Camoufox needed only its BiDi preference, so no Playwright driver); Camoufox downloaded from Settings

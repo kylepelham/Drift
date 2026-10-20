@@ -14,7 +14,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{mpsc, watch};
 
 use super::bidi::{Bidi, Event, plain};
-use super::driver::{Common, Driver, Language, Settled, Shot, Size, Spec, Tab, Target};
+use super::driver::{Common, Driver, Language, Settled, Shot, Size, Spec, Tab, Target, shot_factor};
 use super::input::{Key, parse_chord};
 use super::view::{Frame, ViewInput};
 use super::{DialogRecord, PageRecord, with_scheme};
@@ -384,6 +384,25 @@ fn push<T>(list: &mut VecDeque<T>, item: T) {
 }
 
 impl FoxTab {
+    async fn full_picture(&self) -> Result<Vec<u8>, String> {
+        use base64::Engine as _;
+
+        let params = json!({ "context": self.context, "format": { "type": "image/jpeg", "quality": 0.9 } });
+        let shot = self.bidi.call("browsingContext.captureScreenshot", params).await?;
+
+        base64::engine::general_purpose::STANDARD
+            .decode(shot["data"].as_str().unwrap_or_default())
+            .map_err(|error| error.to_string())
+    }
+
+    /// Clicks at screenshot points land where they were seen: screenshot pixels per CSS pixel.
+    async fn note_shot_width(&self, shot_width: f64) {
+        let inner = self.sandboxed("innerWidth").await.ok().and_then(|width| width.as_f64());
+        if let Some(inner) = inner {
+            self.state.lock().unwrap().scale = Some(shot_width / inner.max(1.0));
+        }
+    }
+
     /// Takes in one of the page's events; true when what the pane shows of it changed.
     fn handle(&self, method: &str, params: &Value) -> bool {
         let mut state = self.state.lock().unwrap();
@@ -745,25 +764,23 @@ impl Tab for FoxTab {
     }
 
     async fn screenshot(&self) -> Result<Shot, String> {
-        use base64::Engine as _;
+        let shot = Shot::fitted(self.full_picture().await?)?;
+        self.note_shot_width(f64::from(shot.width)).await;
 
-        let params = json!({ "context": self.context, "format": { "type": "image/jpeg", "quality": 0.8 } });
-        let shot = self.bidi.call("browsingContext.captureScreenshot", params).await?;
-        let jpeg = base64::engine::general_purpose::STANDARD
-            .decode(shot["data"].as_str().unwrap_or_default())
-            .map_err(|error| error.to_string())?;
-        let (width, height) = image::ImageReader::new(std::io::Cursor::new(&jpeg))
+        Ok(shot)
+    }
+
+    async fn zoom(&self, region: [f64; 4]) -> Result<Shot, String> {
+        let picture = self.full_picture().await?;
+        let (width, height) = image::ImageReader::new(std::io::Cursor::new(&picture))
             .with_guessed_format()
             .map_err(|error| error.to_string())?
             .into_dimensions()
             .map_err(|error| error.to_string())?;
+        self.note_shot_width(f64::from(width) * shot_factor(width, height))
+            .await;
 
-        let inner = self.sandboxed("innerWidth").await.ok().and_then(|width| width.as_f64());
-        if let Some(inner) = inner {
-            self.state.lock().unwrap().scale = Some(f64::from(width) / inner.max(1.0));
-        }
-
-        Ok(Shot { jpeg, width, height })
+        Shot::zoomed(&picture, region)
     }
 
     async fn evaluate(&self, script: &str, language: Language) -> Result<Value, String> {
