@@ -3,7 +3,7 @@ import { createSignal } from "solid-js";
 /** What a plugin's indicator is drawn with, and given again whenever it changes; Drift shows the heading beside it. */
 export type ThinkingContext = {
     sessionId: string | null;
-    /** The translated word for thinking, for indicators that show one. */
+    /** The text the user set, else the translated word for thinking; Drift draws it after the indicator. */
     label: string;
     tint: "neutral" | "accent" | "spectrum";
     /** Multiplies animation durations: above 1 is slower. */

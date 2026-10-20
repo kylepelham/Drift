@@ -1215,11 +1215,11 @@ textarea {
     background: var(--thinking-color);
 }
 
-.thinking-indicator[data-style="orbs"] .thinking-figure {
+.thinking-figure[data-look="orbs"] {
     animation: thinking-spin calc(1.8s * var(--thinking-speed)) linear infinite;
 }
 
-.thinking-indicator[data-style="orbs"] .thinking-piece {
+.thinking-figure[data-look="orbs"] .thinking-piece {
     top: calc(50% - 0.16rem);
     left: calc(50% - 0.16rem);
     width: 0.32rem;
@@ -1230,7 +1230,7 @@ textarea {
     animation-delay: calc(var(--i) * -0.4s * var(--thinking-speed));
 }
 
-.thinking-indicator[data-style="float"] .thinking-piece {
+.thinking-figure[data-look="float"] .thinking-piece {
     bottom: 0;
     left: calc(var(--i) * 0.2rem);
     width: 0.2rem;
@@ -1241,14 +1241,14 @@ textarea {
     animation-delay: calc(var(--i) * -0.44s * var(--thinking-speed));
 }
 
-.thinking-indicator[data-style="dots"] .thinking-figure {
+.thinking-figure[data-look="dots"] {
     display: inline-flex;
     align-items: center;
     gap: 0.16rem;
     width: auto;
 }
 
-.thinking-indicator[data-style="dots"] .thinking-piece {
+.thinking-figure[data-look="dots"] .thinking-piece {
     position: static;
     width: 0.26rem;
     height: 0.26rem;
@@ -1256,7 +1256,7 @@ textarea {
     animation-delay: calc(var(--i) * 0.15s * var(--thinking-speed));
 }
 
-.thinking-indicator[data-style="pulse"] .thinking-piece {
+.thinking-figure[data-look="pulse"] .thinking-piece {
     top: calc(50% - 0.22rem);
     left: calc(50% - 0.22rem);
     width: 0.44rem;
@@ -1324,7 +1324,7 @@ textarea {
         animation: none !important;
     }
 
-    .thinking-indicator[data-style="float"] .thinking-piece {
+    .thinking-figure[data-look="float"] .thinking-piece {
         opacity: 0.7;
         bottom: calc(var(--i) * 0.15rem);
     }

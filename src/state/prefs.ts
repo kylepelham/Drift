@@ -158,17 +158,28 @@ export function setToolGroup(kind: ToolGroupKind, on: boolean) {
 /** The card at the end of a turn listing the files it changed. */
 export const [editedFilesCard, setEditedFilesCard] = persisted<boolean>("drift.transcript.editedFiles", true);
 /** Built-in looks for the thinking indicator; a plugin's is stored as `plugin:<id>`. */
-export const thinkingStyles = ["shimmer", "orbs", "float", "dots", "pulse", "still"] as const;
+export const thinkingStyles = ["orbs", "float", "dots", "pulse"] as const;
 export const thinkingTints = ["neutral", "accent", "spectrum"] as const;
 export const thinkingSpeeds = ["slow", "normal", "fast"] as const;
 export type ThinkingPrefs = {
     style: string;
     tint: (typeof thinkingTints)[number];
     speed: (typeof thinkingSpeeds)[number];
-    /** The word beside the animation; Shimmer and Still are the word, so they always show it. */
+    /** The text after the animation, whatever the style. */
     label: boolean;
+    /** A sweep of light across that text. */
+    shimmer: boolean;
+    /** The text itself; empty shows the translated word Thinking. */
+    text: string;
 };
-const thinkingDefaults: ThinkingPrefs = { style: "shimmer", tint: "neutral", speed: "normal", label: true };
+const thinkingDefaults: ThinkingPrefs = {
+    style: "orbs",
+    tint: "neutral",
+    speed: "normal",
+    label: false,
+    shimmer: true,
+    text: "",
+};
 export const pluginThinkingPrefix = "plugin:";
 function oneOf<T extends string>(options: readonly T[], value: unknown, fallback: T): T {
     return options.find((option) => option === value) ?? fallback;
@@ -180,11 +191,16 @@ export function thinkingPrefsFrom(value: unknown): ThinkingPrefs {
         typeof style === "string" &&
         ((thinkingStyles as readonly string[]).includes(style) ||
             (style.startsWith(pluginThinkingPrefix) && style.length > pluginThinkingPrefix.length));
+    // Prefs saved before the text had settings of its own showed it by default; they start from the orbs alone.
+    const legacy = typeof stored.shimmer !== "boolean";
+
     return {
         style: known ? style : thinkingDefaults.style,
         tint: oneOf(thinkingTints, stored.tint, thinkingDefaults.tint),
         speed: oneOf(thinkingSpeeds, stored.speed, thinkingDefaults.speed),
-        label: typeof stored.label === "boolean" ? stored.label : thinkingDefaults.label,
+        label: !legacy && typeof stored.label === "boolean" ? stored.label : thinkingDefaults.label,
+        shimmer: typeof stored.shimmer === "boolean" ? stored.shimmer : thinkingDefaults.shimmer,
+        text: typeof stored.text === "string" ? stored.text : thinkingDefaults.text,
     };
 }
 const [thinkingPrefs, setThinkingPrefs] = persisted<ThinkingPrefs>(

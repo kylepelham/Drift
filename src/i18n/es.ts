@@ -1453,13 +1453,11 @@ export const drift = {
     "drift.settings.thinking.preview.description": "Cómo se ve en la conversación un turno en curso.",
     "drift.settings.thinking.style.title": "Estilo",
     "drift.settings.thinking.style.description":
-        "La animación junto a la palabra. Los plugins pueden añadir las suyas.",
-    "drift.settings.thinking.style.shimmer": "Destello",
+        "La animación que precede al texto. Los plugins pueden añadir las suyas.",
     "drift.settings.thinking.style.orbs": "Orbes",
     "drift.settings.thinking.style.float": "Partículas flotantes",
     "drift.settings.thinking.style.dots": "Puntos",
     "drift.settings.thinking.style.pulse": "Pulso",
-    "drift.settings.thinking.style.still": "Quieto",
     "drift.settings.thinking.style.plugin": "{{name}} (plugin)",
     "drift.settings.thinking.tint.title": "Color",
     "drift.settings.thinking.tint.description":
@@ -1472,9 +1470,12 @@ export const drift = {
     "drift.settings.thinking.speed.slow": "Lenta",
     "drift.settings.thinking.speed.normal": "Normal",
     "drift.settings.thinking.speed.fast": "Rápida",
-    "drift.settings.thinking.label.title": "Mostrar la palabra",
+    "drift.settings.thinking.label.title": "Mostrar texto",
     "drift.settings.thinking.label.description":
-        "La palabra Pensando junto a la animación. Destello y Quieto son la propia palabra, así que siempre la muestran.",
+        "Texto después de la animación, con cualquier estilo. Escribe el tuyo propio o déjalo vacío para Pensando.",
+    "drift.settings.thinking.text.label": "Texto del indicador",
+    "drift.settings.thinking.shimmer.title": "Brillo en el texto",
+    "drift.settings.thinking.shimmer.description": "Un destello de luz recorre el texto mientras el turno trabaja.",
     "drift.settings.editedFiles.title": "Tarjeta de archivos editados",
     "drift.settings.editedFiles.description":
         "Tras un turno que cambió archivos, lista cada uno con sus cambios y Deshacer para el turno.",

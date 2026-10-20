@@ -334,13 +334,14 @@ through tool renderers, never part renderers.
 Thinking indicators: `api.registerThinkingIndicator(id, { name, render })` adds a look for the
 indicator a working turn shows. It is listed in Settings > Appearance > Thinking indicator as
 "name (plugin)" and is used only once the user picks it; while its plugin is not loaded, or if
-`render` throws, Shimmer is drawn in its place and the error is logged. `render(host, context)`
+`render` throws, Orbs are drawn in its place and the error is logged. `render(host, context)`
 draws into `host`, an empty inline element, and may return a cleanup function or
 `{ update(context), dispose() }`; `update` is called whenever the context changes. The context
-is `{ sessionId, label, tint, speed, preview }`: `label` is the translated word for thinking,
-`tint` is `neutral`, `accent` or `spectrum`, `speed` multiplies animation durations (1.6 slow,
-1 normal, 0.6 fast), and `preview` is true in Settings. Drift shows the reasoning heading
-beside every indicator, so a plugin's need not.
+is `{ sessionId, label, tint, speed, preview }`: `label` is the text the user set (Thinking,
+translated, when they set none), `tint` is `neutral`, `accent` or `spectrum`, `speed` multiplies
+animation durations (1.6 slow, 1 normal, 0.6 fast), and `preview` is true in Settings. Drift puts
+the text after every indicator when the user turns it on, and the reasoning heading beside it, so
+a plugin draws only its animation.
 
 ```js
 export default function (api) {
@@ -353,7 +354,7 @@ export default function (api) {
                 duration: 1200 * context.speed,
                 iterations: Infinity,
             });
-            host.append(star, ` ${context.label}`);
+            host.append(star);
             return {
                 update: (next) => spin.effect.updateTiming({ duration: 1200 * next.speed }),
                 dispose: () => spin.cancel(),
