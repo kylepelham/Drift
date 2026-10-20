@@ -397,7 +397,8 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
     General) lowers that further and never raises it: `auto` (the default) stops at 400k, and below
     the first price tier a provider charges more past, less 20k; `later` keeps the window's own
     point; `earlier` takes half of `auto`'s point, at least 100k. A model's details sheet (from the
-    model manager) can set a size for that one model (`modelCompact`, by `provider/model`), offered
+    model manager's sliders button, left of the visibility toggle) can set a size for that one
+    model (`modelCompact`, by `provider/model`), offered
     only below its own point and kept at 100k or more (`compaction::chosen_cap`); a size it cannot
     take falls back to the policy. Every request rereads the whole conversation, so
     a 1M window filled to the brim costs several times what a 400k one does per step (Kyle's Opus
@@ -2106,7 +2107,7 @@ code until he picks.
     `task_output`, `question`, `todowrite` and `read_thread` stay, and nothing is cleared unless
     at least 80,000 characters go. The parts are saved without an event: the transcript still shows
     the output, and the next requests start the same way, so the cache holds again.
-- Tool search (`tool::tool_search`, engine setting `toolSearch`, on by default, Settings > MCP): on
+- Tool search (`tool::tool_search`, engine setting `toolSearch`, on by default, Settings > Execution): on
   a model whose wire takes deferred tools (`Model::tool_search`, `catalog::tool_search_for`: Claude
   4.5 or later on Anthropic, Bedrock and Vertex; GPT-5.4 or later on OpenAI; on a ChatGPT sign-in
   the Codex model list's `supports_search_tool` decides), every tool of an MCP server with 10 or more tools or 10 KB

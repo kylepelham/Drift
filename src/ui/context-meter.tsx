@@ -136,9 +136,9 @@ export function ContextSection(props: { sessionId: string }) {
                     </Show>
                     <Show when={usage().cacheMiss}>
                         {(why) => (
-                            <div class="space-y-0.5 text-ink-muted">
-                                <div>{t("drift.context.cacheMiss")}</div>
-                                <div class="text-ink-faint">{why()}</div>
+                            <div class="flex justify-between gap-4 text-ink-muted">
+                                <span class="shrink-0">{t("drift.context.cacheMiss")}</span>
+                                <span class="text-right text-ink-faint">{why()}</span>
                             </div>
                         )}
                     </Show>

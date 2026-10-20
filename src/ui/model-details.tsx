@@ -2,11 +2,11 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
 import { ownCompactionPoint } from "../engine/store";
 import { pickerWidth } from "./settings-controls";
+import { IconCheck, IconX } from "./icons";
 import { Portal } from "solid-js/web";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
-import { IconX } from "./icons";
 
 import type { EngineState } from "../engine/store";
 import type { ModelInfo } from "../engine/catalog";
@@ -106,13 +106,15 @@ export function ModelDetails(props: { providerID: string; modelID: string; onClo
                     aria-modal="true"
                     aria-label={model()?.name ?? props.modelID}
                     tabIndex={-1}
-                    class="fade-up flex max-h-[calc(100dvh-1rem)] w-[min(30rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-edge bg-overlay shadow-2xl shadow-black/40"
+                    class="fade-up flex max-h-[calc(100dvh-1rem)] w-[min(32rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-edge bg-overlay shadow-2xl shadow-black/40"
                     onClick={(event) => event.stopPropagation()}
                 >
-                    <div class="flex items-center justify-between border-b border-edge px-5 py-4">
+                    <div class="flex items-start justify-between gap-4 px-6 pt-6 pb-4">
                         <div class="min-w-0">
-                            <div class="truncate text-sm font-semibold text-ink">{model()?.name ?? props.modelID}</div>
-                            <div class="truncate text-xs text-ink-faint">{key()}</div>
+                            <div class="truncate text-lg font-semibold text-ink">{model()?.name ?? props.modelID}</div>
+                            <div class="mt-1 text-xs text-ink-faint">
+                                {engine.state.providers.find((provider) => provider.id === props.providerID)?.name}
+                            </div>
                         </div>
                         <button
                             title={t("common.close")}
@@ -124,7 +126,7 @@ export function ModelDetails(props: { providerID: string; modelID: string; onClo
                     </div>
                     <Show when={model()}>
                         {(info) => (
-                            <div class="min-h-0 flex-1 overflow-y-auto px-5 py-3">
+                            <div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6">
                                 <Facts model={info()} />
                                 <CompactRow
                                     model={info()}
@@ -144,30 +146,51 @@ export function ModelDetails(props: { providerID: string; modelID: string; onClo
     );
 }
 
-function Fact(props: { label: string; value: string }) {
+function Limit(props: { label: string; value: number }) {
     return (
-        <div class="flex items-center justify-between gap-4 border-b border-edge/70 py-2 text-sm">
-            <span class="text-ink-muted">{props.label}</span>
-            <span class="text-right text-ink tabular-nums">{props.value}</span>
+        <div class="min-w-0">
+            <div class="text-2xl font-medium text-ink tabular-nums">{formatTokens(props.value)}</div>
+            <div class="mt-1 text-xs text-ink-faint">{props.label}</div>
         </div>
     );
 }
 
 function Facts(props: { model: ModelInfo }) {
-    const yes = (value: boolean | undefined) => t(value ? "drift.model.details.yes" : "drift.model.details.no");
     const limit = () => props.model.limit ?? noLimit;
 
     return (
         <>
-            <Fact label={t("drift.model.details.window")} value={formatTokens(limit().context)} />
-            <Show when={limit().output}>
-                <Fact label={t("drift.model.details.output")} value={formatTokens(limit().output)} />
-            </Show>
-            <Fact label={t("drift.model.details.images")} value={yes(props.model.attachment)} />
-            <Fact label={t("drift.model.details.pdfs")} value={yes(props.model.pdf)} />
-            <Fact label={t("drift.model.details.reasoning")} value={yes(props.model.reasoning)} />
-            <Fact label={t("drift.model.details.toolSearch")} value={yes(props.model.tool_search)} />
+            <div class="flex flex-wrap gap-2">
+                <Capability label={t("drift.model.details.images")} supported={props.model.attachment} />
+                <Capability label={t("drift.model.details.pdfs")} supported={props.model.pdf} />
+                <Capability label={t("drift.model.details.reasoning")} supported={props.model.reasoning} />
+                <Capability label={t("drift.model.details.toolSearch")} supported={props.model.tool_search} />
+            </div>
+            <div class="grid grid-cols-2 gap-4 rounded-xl bg-surface/60 px-4 py-4">
+                <Limit label={t("drift.model.details.window")} value={limit().context} />
+                <Show when={limit().output}>
+                    <Limit label={t("drift.model.details.output")} value={limit().output} />
+                </Show>
+            </div>
         </>
+    );
+}
+
+function Capability(props: { label: string; supported?: boolean }) {
+    const status = () => t(props.supported ? "drift.model.details.supported" : "drift.model.details.unsupported");
+
+    return (
+        <span
+            aria-label={`${props.label}: ${status()}`}
+            title={status()}
+            class="inline-flex items-center gap-1.5 rounded-md border border-edge/70 px-2 py-1 text-xs"
+            classList={{ "text-ink-muted": !!props.supported, "text-ink-faint": !props.supported }}
+        >
+            <Show when={props.supported} fallback={<IconX class="size-3" />}>
+                <IconCheck class="size-3" />
+            </Show>
+            {props.label}
+        </span>
     );
 }
 
@@ -189,10 +212,10 @@ function CompactRow(props: { model: ModelInfo; chosen: number | undefined; onPic
     };
 
     return (
-        <div class="flex items-center justify-between gap-4 border-b border-edge/70 py-2">
+        <div class="flex flex-wrap items-center justify-between gap-3 border-y border-edge/70 py-4">
             <div class="min-w-0">
-                <div class="text-sm text-ink-muted">{t("drift.model.details.compactsAt")}</div>
-                <div class="text-xs text-ink-faint">{t("drift.model.details.compactsAt.description")}</div>
+                <div class="text-sm font-medium text-ink">{t("drift.model.details.compactsAt")}</div>
+                <div class="mt-1 text-xs text-ink-faint">{t("drift.model.details.compactsAt.description")}</div>
             </div>
             <Show
                 when={own() > compactSizes[0]}
@@ -217,31 +240,60 @@ function CompactRow(props: { model: ModelInfo; chosen: number | undefined; onPic
 function Prices(props: { model: ModelInfo }) {
     const cost = () => props.model.cost ?? noCost;
     const free = () => !cost().input && !cost().output;
-    const price = (value: number | undefined) => `$${Number((value ?? 0).toFixed(4))}`;
-    const line = (tier: { input: number; output: number; cache_read?: number; cache_write?: number }) =>
-        t("drift.model.details.price.line", {
-            input: price(tier.input),
-            output: price(tier.output),
-            read: price(tier.cache_read),
-            write: price(tier.cache_write),
-        });
 
     return (
-        <div class="py-2 text-sm">
-            <div class="text-ink-muted">{t("drift.model.details.price")}</div>
-            <Show when={!free()} fallback={<div class="text-ink">{t("drift.model.details.free")}</div>}>
-                <div class="mt-1 text-xs text-ink tabular-nums">{line(cost())}</div>
-                <For each={props.model.cost?.tiers ?? []}>
-                    {(tier) => (
-                        <div class="mt-1 text-xs text-ink-faint tabular-nums">
-                            {t("drift.model.details.price.above", {
-                                tokens: formatTokens(tier.above),
-                                line: line(tier),
-                            })}
-                        </div>
-                    )}
-                </For>
+        <section>
+            <h3 class="text-sm font-medium text-ink">{t("drift.model.details.price")}</h3>
+            <Show
+                when={!free()}
+                fallback={<div class="mt-2 text-sm text-ink-muted">{t("drift.model.details.free")}</div>}
+            >
+                <div class="mt-3 overflow-x-auto">
+                    <table class="w-full min-w-[24rem] text-right text-xs tabular-nums">
+                        <thead>
+                            <tr class="border-b border-edge/70 text-ink-faint">
+                                <th scope="col" class="pr-3 pb-2 text-left font-normal">
+                                    {t("drift.model.details.price.context")}
+                                </th>
+                                <For each={["input", "output", "read", "write"] as const}>
+                                    {(column) => (
+                                        <th scope="col" class="pb-2 pl-3 font-normal">
+                                            {t(`drift.model.details.price.${column}`)}
+                                        </th>
+                                    )}
+                                </For>
+                            </tr>
+                        </thead>
+                        <tbody class="text-ink-muted">
+                            <PriceRow label={t("drift.model.details.price.base")} cost={cost()} />
+                            <For each={props.model.cost?.tiers ?? []}>
+                                {(tier) => (
+                                    <PriceRow
+                                        label={t("drift.model.details.price.above", {
+                                            tokens: formatTokens(tier.above),
+                                        })}
+                                        cost={tier}
+                                    />
+                                )}
+                            </For>
+                        </tbody>
+                    </table>
+                </div>
             </Show>
-        </div>
+        </section>
+    );
+}
+
+function PriceRow(props: { label: string; cost: NonNullable<ModelInfo["cost"]> }) {
+    const values = () => [props.cost.input, props.cost.output, props.cost.cache_read, props.cost.cache_write];
+    const price = (value: number) => `$${Number(value.toFixed(4))}`;
+
+    return (
+        <tr class="border-b border-edge/40 last:border-0">
+            <th scope="row" class="py-2.5 pr-3 text-left font-normal text-ink-faint">
+                {props.label}
+            </th>
+            <For each={values()}>{(value) => <td class="py-2.5 pl-3">{price(value)}</td>}</For>
+        </tr>
     );
 }

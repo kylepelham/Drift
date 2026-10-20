@@ -41,16 +41,17 @@ impl CacheWatch {
 
         let now = &self.0.lock().unwrap()[session_id];
         let idle_minutes = (now.at - previous.at) / 60_000;
-        let changed = first_change(&previous.segments, &now.segments).unwrap_or_else(|| {
+        let reason = first_change(&previous.segments, &now.segments).unwrap_or_else(|| {
             if now.at - previous.at >= SHORTEST_CACHE_MS {
-                format!("nothing; the cache expired over {idle_minutes} idle minutes")
+                format!("Expired after {idle_minutes} idle minutes")
             } else {
-                "nothing (the provider dropped the cache)".into()
+                "Dropped by the provider".into()
             }
         });
         Some(format!(
-            "read {} cached tokens of about {} expected; the first change was {changed}",
-            usage.cache_read, previous.prompt_tokens
+            "{reason} ({} of {} cached)",
+            tokens(usage.cache_read),
+            tokens(previous.prompt_tokens)
         ))
     }
 
@@ -65,14 +66,23 @@ fn hash(value: impl Hash) -> u64 {
     hasher.finish()
 }
 
+/// `950`, `6.2k`, `106k`.
+fn tokens(count: u64) -> String {
+    match count {
+        0..1_000 => count.to_string(),
+        1_000..10_000 => format!("{:.1}k", count as f64 / 1_000.0),
+        _ => format!("{}k", (count + 500) / 1_000),
+    }
+}
+
 /// The request in the order a provider caches it: tools, the system prompt by section, then messages.
 pub(super) fn segments(request: &Request) -> Vec<(String, u64)> {
     let tools = serde_json::to_string(&request.tools).unwrap_or_default();
-    let mut found = vec![("the tool definitions".to_string(), hash(tools))];
+    let mut found = vec![("Tool definitions".to_string(), hash(tools))];
     found.extend(system_sections(&request.system));
     found.extend(request.messages.iter().enumerate().map(|(index, message)| {
         // Debug output is stable within a run, which is as long as these hashes live.
-        (format!("message {}", index + 1), hash(format!("{message:?}")))
+        (format!("Message {}", index + 1), hash(format!("{message:?}")))
     }));
 
     found
@@ -81,12 +91,12 @@ pub(super) fn segments(request: &Request) -> Vec<(String, u64)> {
 /// The system prompt cut at its `# ` headings, each section named by its heading.
 fn system_sections(system: &str) -> Vec<(String, u64)> {
     let mut sections = Vec::new();
-    let mut name = "the base prompt".to_string();
+    let mut name = "System prompt".to_string();
     let mut text = String::new();
     for line in system.lines() {
         if let Some(heading) = line.strip_prefix("# ") {
             sections.push((std::mem::take(&mut name), hash(&text)));
-            name = format!("the system prompt's \"{heading}\" section");
+            name = heading.to_string();
             text.clear();
         }
         text.push_str(line);
@@ -97,14 +107,14 @@ fn system_sections(system: &str) -> Vec<(String, u64)> {
     sections
 }
 
-/// The first segment that differs, in order; one present before and gone now counts as changed.
+/// The first segment that differs, in order, as "<segment> changed" or "<segment> removed".
 pub(super) fn first_change(before: &[(String, u64)], now: &[(String, u64)]) -> Option<String> {
     before
         .iter()
         .zip(now)
         .find(|(old, new)| old != new)
-        .map(|(_, new)| new.0.clone())
-        .or_else(|| before.get(now.len()).map(|gone| format!("{} (removed)", gone.0)))
+        .map(|(_, new)| format!("{} changed", new.0))
+        .or_else(|| before.get(now.len()).map(|gone| format!("{} removed", gone.0)))
 }
 
 #[cfg(test)]
@@ -171,11 +181,7 @@ mod tests {
 
         let edited = base.replace("Be brief.", "Be thorough.");
         let report = seen(&watch, "s", &edited, &["one", "two"], usage(5200, 100)).unwrap();
-        assert!(
-            report.contains("\"Instructions from AGENTS.md\" section")
-                && report.contains("read 100 cached tokens of about 5000"),
-            "{report}"
-        );
+        assert_eq!(report, "Instructions from AGENTS.md changed (100 of 5.0k cached)");
 
         assert_eq!(
             seen(&watch, "s", &edited, &["one", "two", "three"], usage(300, 5000)),
@@ -183,7 +189,7 @@ mod tests {
             "a cache read close to the previous prompt is fine"
         );
         let dropped = seen(&watch, "s", &edited, &["one", "two", "three", "four"], usage(5500, 0)).unwrap();
-        assert!(dropped.contains("the provider dropped the cache"), "{dropped}");
+        assert!(dropped.starts_with("Dropped by the provider"), "{dropped}");
     }
 
     #[test]

@@ -156,6 +156,7 @@ const settingsSearchDefinitions = {
             title: "drift.settings.shellTimeout.customMinutes",
             description: "drift.settings.shellTimeout.customDescription",
         },
+        { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
     ],
     Browser: [
         { title: "drift.settings.browser.enabled.title", description: "drift.settings.browser.enabled.description" },
@@ -192,7 +193,6 @@ const settingsSearchDefinitions = {
         { title: "drift.mcp.form.url" },
         { title: "drift.mcp.form.headers" },
         { title: "drift.registry.sources", description: "drift.registry.sources.mcpDescription" },
-        { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
     ],
     Prompts: [
         { title: "drift.settings.prompts.group.base", description: "drift.settings.prompts.familyDescription" },
