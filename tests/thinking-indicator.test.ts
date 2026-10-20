@@ -69,6 +69,13 @@ test("a missing plugin indicator or a retired style draws as Orbs, and the text 
     expect(css).not.toContain("data-style=");
 });
 
+test("Spectrum's hue turn is a number, since a relative colour's `h` plus an angle is invalid and paints nothing", async () => {
+    const css = await Bun.file("src/styles/app.css").text();
+    expect(css).toContain("calc(h + var(--thinking-hue))");
+    expect(css).toMatch(/@property --thinking-hue \{\s*syntax: "<number>";/);
+    expect(css).toMatch(/--thinking-hue: 360;/);
+});
+
 test("Settings offers every built-in style, then each plugin's, and plugins can register one", async () => {
     const { thinkingStyleItems } = await import("../src/ui/settings-thinking");
     const items = thinkingStyleItems([{ id: "aurora", name: "Aurora" }]);

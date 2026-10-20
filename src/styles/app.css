@@ -1319,16 +1319,16 @@ textarea {
     }
 }
 
-/* Registered so the hue interpolates as an angle instead of flipping at the end of the animation. */
+/* Registered so the hue interpolates instead of flipping at the end; a number, since `h + 1deg` is invalid. */
 @property --thinking-hue {
-    syntax: "<angle>";
+    syntax: "<number>";
     inherits: true;
-    initial-value: 0deg;
+    initial-value: 0;
 }
 
 @keyframes thinking-hue {
     to {
-        --thinking-hue: 360deg;
+        --thinking-hue: 360;
     }
 }
 
