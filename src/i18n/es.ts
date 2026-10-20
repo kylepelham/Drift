@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "Mostrar pantalla de inicio",
     "startup.settings.show.description": "Muestra el progreso de carga mientras Drift prepara tu espacio de trabajo.",
     "startup.settings.mascot.title": "Animación de la mascota",
-    "startup.settings.mascot.description": "Elige cómo se mueve la medusa mientras Drift carga.",
+    "startup.settings.mascot.description": "Elige cómo se mueve la medusa mientras Drift carga y en un nuevo chat.",
     "startup.settings.mascot.bounce": "Rebote",
     "startup.settings.mascot.float": "Flotar",
     "startup.settings.mascot.pulse": "Pulso",

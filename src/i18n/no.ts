@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "Vis oppstartsskjerm",
     "startup.settings.show.description": "Viser innlastingen mens Drift gjør arbeidsområdet ditt klart.",
     "startup.settings.mascot.title": "Maskotanimasjon",
-    "startup.settings.mascot.description": "Velg hvordan maneten beveger seg mens Drift laster inn.",
+    "startup.settings.mascot.description": "Velg hvordan maneten beveger seg mens Drift laster og i en ny chat.",
     "startup.settings.mascot.bounce": "Hopp",
     "startup.settings.mascot.float": "Sveve",
     "startup.settings.mascot.pulse": "Puls",

@@ -43,7 +43,8 @@ export const dict = {
     "startup.settings.show.description":
         "Mostra o progresso do carregamento enquanto o Drift prepara seu espaço de trabalho.",
     "startup.settings.mascot.title": "Animação do mascote",
-    "startup.settings.mascot.description": "Escolha como a água-viva se move enquanto o Drift carrega.",
+    "startup.settings.mascot.description":
+        "Escolha como a água-viva se move enquanto o Drift carrega e em um novo chat.",
     "startup.settings.mascot.bounce": "Pular",
     "startup.settings.mascot.float": "Flutuar",
     "startup.settings.mascot.pulse": "Pulsar",

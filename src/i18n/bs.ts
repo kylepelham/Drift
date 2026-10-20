@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "Prikaži uvodni ekran",
     "startup.settings.show.description": "Prikazuje napredak učitavanja dok Drift priprema vaš radni prostor.",
     "startup.settings.mascot.title": "Animacija maskote",
-    "startup.settings.mascot.description": "Odaberite kako se meduza kreće dok se Drift učitava.",
+    "startup.settings.mascot.description": "Odaberite kako se meduza kreće dok se Drift učitava i na novom chatu.",
     "startup.settings.mascot.bounce": "Poskakivanje",
     "startup.settings.mascot.float": "Lebdenje",
     "startup.settings.mascot.pulse": "Pulsiranje",

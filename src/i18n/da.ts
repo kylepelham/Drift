@@ -42,7 +42,8 @@ export const dict = {
     "startup.settings.show.title": "Vis startskærm",
     "startup.settings.show.description": "Viser indlæsningsforløbet, mens Drift gør dit arbejdsområde klar.",
     "startup.settings.mascot.title": "Maskotanimation",
-    "startup.settings.mascot.description": "Vælg, hvordan vandmanden bevæger sig, mens Drift indlæser.",
+    "startup.settings.mascot.description":
+        "Vælg, hvordan vandmanden bevæger sig, mens Drift indlæser, og ved en ny chat.",
     "startup.settings.mascot.bounce": "Hop",
     "startup.settings.mascot.float": "Svæv",
     "startup.settings.mascot.pulse": "Puls",

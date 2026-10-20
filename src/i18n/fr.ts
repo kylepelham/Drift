@@ -43,7 +43,8 @@ export const dict = {
     "startup.settings.show.description":
         "Affiche la progression du chargement pendant que Drift prépare votre espace de travail.",
     "startup.settings.mascot.title": "Animation de la mascotte",
-    "startup.settings.mascot.description": "Choisissez comment la méduse bouge pendant le chargement de Drift.",
+    "startup.settings.mascot.description":
+        "Choisissez la façon dont la méduse bouge pendant le chargement de Drift et lors d'un nouveau chat.",
     "startup.settings.mascot.bounce": "Rebond",
     "startup.settings.mascot.float": "Flottement",
     "startup.settings.mascot.pulse": "Pulsation",

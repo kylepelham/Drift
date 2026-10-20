@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "顯示啟動畫面",
     "startup.settings.show.description": "在 Drift 準備工作區時顯示載入進度。",
     "startup.settings.mascot.title": "吉祥物動畫",
-    "startup.settings.mascot.description": "選擇 Drift 載入時水母的動作。",
+    "startup.settings.mascot.description": "選擇在 Drift 載入時以及開啟新聊天時水母的移動方式。",
     "startup.settings.mascot.bounce": "彈跳",
     "startup.settings.mascot.float": "漂浮",
     "startup.settings.mascot.pulse": "脈動",

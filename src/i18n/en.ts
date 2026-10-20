@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "Show startup splash",
     "startup.settings.show.description": "Show loading progress while Drift prepares your workspace.",
     "startup.settings.mascot.title": "Mascot animation",
-    "startup.settings.mascot.description": "Choose how the jellyfish moves while Drift loads.",
+    "startup.settings.mascot.description": "Choose how the jellyfish moves while Drift loads and on a new chat.",
     "startup.settings.mascot.bounce": "Bounce",
     "startup.settings.mascot.float": "Float",
     "startup.settings.mascot.pulse": "Pulse",

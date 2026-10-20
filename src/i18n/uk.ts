@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "Показувати заставку під час запуску",
     "startup.settings.show.description": "Показує перебіг завантаження, поки Drift готує робочу область.",
     "startup.settings.mascot.title": "Анімація талісмана",
-    "startup.settings.mascot.description": "Виберіть, як рухається медуза, поки Drift завантажується.",
+    "startup.settings.mascot.description": "Виберіть, як рухається медуза під час завантаження Drift і в новому чаті.",
     "startup.settings.mascot.bounce": "Підскок",
     "startup.settings.mascot.float": "Ширяння",
     "startup.settings.mascot.pulse": "Пульсація",

@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "แสดงหน้าจอเริ่มต้น",
     "startup.settings.show.description": "แสดงความคืบหน้าการโหลดขณะที่ Drift เตรียมพื้นที่ทำงานของคุณ",
     "startup.settings.mascot.title": "ภาพเคลื่อนไหวของมาสคอต",
-    "startup.settings.mascot.description": "เลือกว่าแมงกะพรุนจะเคลื่อนไหวอย่างไรขณะที่ Drift กำลังโหลด",
+    "startup.settings.mascot.description": "เลือกวิธีที่แมงกะพรุนเคลื่อนไหวขณะที่ Drift กำลังโหลดและในการแชทใหม่",
     "startup.settings.mascot.bounce": "เด้ง",
     "startup.settings.mascot.float": "ลอย",
     "startup.settings.mascot.pulse": "เต้นเป็นจังหวะ",

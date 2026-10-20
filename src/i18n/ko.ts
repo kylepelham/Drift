@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "시작 화면 표시",
     "startup.settings.show.description": "Drift가 작업 공간을 준비하는 동안 로딩 진행 상황을 표시합니다.",
     "startup.settings.mascot.title": "마스코트 애니메이션",
-    "startup.settings.mascot.description": "Drift가 로딩되는 동안 해파리가 움직이는 방식을 선택합니다.",
+    "startup.settings.mascot.description": "Drift가 로드되는 동안 및 새 채팅에서 해파리가 움직이는 방식을 선택합니다.",
     "startup.settings.mascot.bounce": "통통 튀기",
     "startup.settings.mascot.float": "떠다니기",
     "startup.settings.mascot.pulse": "맥박",

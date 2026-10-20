@@ -42,7 +42,8 @@ export const dict = {
     "startup.settings.show.title": "Açılış ekranını göster",
     "startup.settings.show.description": "Drift çalışma alanınızı hazırlarken yükleme ilerlemesini gösterir.",
     "startup.settings.mascot.title": "Maskot animasyonu",
-    "startup.settings.mascot.description": "Drift yüklenirken denizanasının nasıl hareket edeceğini seçin.",
+    "startup.settings.mascot.description":
+        "Drift yüklenirken ve yeni bir sohbette denizanasının nasıl hareket edeceğini seçin.",
     "startup.settings.mascot.bounce": "Zıplama",
     "startup.settings.mascot.float": "Süzülme",
     "startup.settings.mascot.pulse": "Nabız",

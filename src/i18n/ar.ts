@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "إظهار شاشة البدء",
     "startup.settings.show.description": "تعرض تقدم التحميل بينما يجهز Drift مساحة عملك.",
     "startup.settings.mascot.title": "حركة التميمة",
-    "startup.settings.mascot.description": "اختر كيف يتحرك قنديل البحر أثناء تحميل Drift.",
+    "startup.settings.mascot.description": "اختر طريقة حركة قنديل البحر أثناء تحميل Drift وعند بدء دردشة جديدة.",
     "startup.settings.mascot.bounce": "ارتداد",
     "startup.settings.mascot.float": "طفو",
     "startup.settings.mascot.pulse": "نبض",

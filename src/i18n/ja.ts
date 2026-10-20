@@ -42,7 +42,7 @@ export const dict = {
     "startup.settings.show.title": "起動画面を表示",
     "startup.settings.show.description": "Drift がワークスペースを準備する間、読み込みの進行状況を表示します。",
     "startup.settings.mascot.title": "マスコットのアニメーション",
-    "startup.settings.mascot.description": "Drift の読み込み中にクラゲがどう動くかを選びます。",
+    "startup.settings.mascot.description": "Drift の読み込み中や新しいチャットでのクラゲの動きを選択します。",
     "startup.settings.mascot.bounce": "弾む",
     "startup.settings.mascot.float": "漂う",
     "startup.settings.mascot.pulse": "脈打つ",

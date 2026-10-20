@@ -42,7 +42,8 @@ export const dict = {
     "startup.settings.show.title": "Startbildschirm anzeigen",
     "startup.settings.show.description": "Zeigt den Ladefortschritt, während Drift deinen Arbeitsbereich vorbereitet.",
     "startup.settings.mascot.title": "Maskottchen-Animation",
-    "startup.settings.mascot.description": "Wähle, wie sich die Qualle bewegt, während Drift lädt.",
+    "startup.settings.mascot.description":
+        "Wähle, wie sich die Qualle bewegt, während Drift lädt und bei einem neuen Chat.",
     "startup.settings.mascot.bounce": "Hüpfen",
     "startup.settings.mascot.float": "Schweben",
     "startup.settings.mascot.pulse": "Pulsieren",
