@@ -42,6 +42,11 @@ export type VoiceTranscription = components["schemas"]["Transcription"];
 export type VoiceSpeech = components["schemas"]["Speech"];
 export type BrowserSettings = components["schemas"]["BrowserSettings"];
 export type ViewInput = components["schemas"]["ViewInput"];
+export type BrowserKind = components["schemas"]["BrowserKind"];
+export type EngineStatus = components["schemas"]["EngineStatus"];
+export type WorkspaceBrowser = components["schemas"]["WorkspaceBrowser"];
+export type BrowserCredential = components["schemas"]["Credential"];
+export type BrowserCredentialInput = components["schemas"]["CredentialInput"];
 
 type Json<Op extends keyof operations, Status extends number> =
     operations[Op]["responses"] extends Record<Status, { content: { "application/json": infer Body } }> ? Body : never;
@@ -279,6 +284,23 @@ export function createClient(target: Target) {
         stopProcess: (id: string) => request<Json<"stopProcess", 200>>("POST", `/processes/${id}/stop`),
         browser: (id: string) => request<Json<"getBrowser", 200>>("GET", `/sessions/${id}/browser`),
         stopBrowser: (id: string) => request<Json<"stopBrowser", 200>>("POST", `/sessions/${id}/browser/stop`),
+        browserEngines: () => request<Json<"browserEngines", 200>>("GET", "/browser/engines"),
+        downloadBrowserEngine: (engine: string) => request<undefined>("POST", `/browser/engines/${engine}/download`),
+        setBrowserEnginePath: (engine: string, path: string | null) =>
+            request<Json<"setBrowserEnginePath", 200>>("PUT", `/browser/engines/${engine}/path`, { path }),
+        workspaceBrowser: (workspaceId: string) =>
+            request<Json<"workspaceBrowser", 200>>("GET", `/workspaces/${workspaceId}/browser`),
+        saveBrowserCredential: (workspaceId: string, name: string, body: components["schemas"]["CredentialInput"]) =>
+            request<Json<"saveBrowserCredential", 200>>(
+                "PUT",
+                `/workspaces/${workspaceId}/browser/credentials/${encodeURIComponent(name)}`,
+                body,
+            ),
+        removeBrowserCredential: (workspaceId: string, name: string) =>
+            request<Json<"removeBrowserCredential", 200>>(
+                "DELETE",
+                `/workspaces/${workspaceId}/browser/credentials/${encodeURIComponent(name)}`,
+            ),
         /** The view socket's address: frames of the browser's active page out, the user's input in. */
         browserViewUrl: (id: string) =>
             `${target.url.replace(/^http/, "ws")}/sessions/${id}/browser/view?token=${target.token}`,

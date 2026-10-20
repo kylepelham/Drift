@@ -1,4 +1,4 @@
-Drives this conversation's own browser (Chrome or Edge), which the user watches in the browser pane beside the chat. Use it to test web apps you build or change: load the page, act on it as a user would, and check the result.
+Drives this conversation's own browser, which the user watches in the browser pane beside the chat. Use it to test web apps you build or change: load the page, act on it as a user would, and check the result.
 
 - Start with `open` and a `url`. The browser keeps running between calls and after your turn ends; `stop` it when you are finished testing.
 - `snapshot` lists the page's elements; those you can act on carry `[ref=N]`. Pass that number as `ref` to click, hover, fill or scroll. Refs last until the page changes; take a new snapshot after a navigation. Prefer snapshots to screenshots for reading text and structure; take a `screenshot` to check layout and looks, and click by `x`/`y` in that image's pixels only when an element has no ref.
@@ -8,3 +8,21 @@ Drives this conversation's own browser (Chrome or Edge), which the user watches 
 - While a page shows an alert, confirm or prompt, nothing else runs on it: answer it with `dialog`.
 - `eval` runs JavaScript in the page for inspection and debugging. Change the app's source to fix things, not the page.
 - A page that asks the user to sign in, solve a check or approve something: ask the user to do it in the pane, then carry on.
+
+Engines: the browser opens in the engine the project or the user chose. Pass `engine` to `open` for another: `chrome`, `edge`, `firefox`, `camoufox` (a hardened Firefox for sites that block automated browsers; use it only when one does), or `ie` (Edge's Internet Explorer mode, for apps that need it: frames, VBScript and old document modes; it has no console or network logs, and `eval` takes `language: vbscript`). Opening another engine closes the current one.
+
+A project can describe its app in the `browser` section of its drift.json, which you may set up when the user asks or the app plainly needs it (editing drift.json asks the user first):
+
+```json
+"browser": {
+  "engine": "ie",
+  "baseUrl": "https://app.example.local",
+  "engines": { "edge": ["*/Mvc/*"] },
+  "storage": "shared",
+  "integratedAuth": ["*.example.local"],
+  "login": { "credential": "admin", "path": "login.asp", "fields": { "#User": "{user}", "#Pass": "{password}" }, "submit": "#SignIn" },
+  "notes": "Menus live in the top frame; search results load into the Result frame."
+}
+```
+
+`login` signs in with the named credential, which the user stores in Settings > Browser; you never see its password, and never ask the user for one. Instead of `fields` and `submit`, `login` may give a `url` that signs in by itself, with `{user}`, `{password}` and `{domain}` in it. To type a stored value into one field yourself, `fill` with `secret: "password"` (or `user`, `domain`). `notes` is shown to you when the browser opens: keep what you learn about the app there.

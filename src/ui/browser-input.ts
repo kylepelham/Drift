@@ -1,3 +1,20 @@
+import { t } from "../state/i18n";
+
+import type { BrowserKind } from "../engine/native/client";
+
+/** An engine's name as people say it; only IE mode is a description rather than a product. */
+export function engineLabel(kind: BrowserKind) {
+    const names: Record<BrowserKind, string> = {
+        chrome: "Chrome",
+        edge: "Edge",
+        firefox: "Firefox",
+        camoufox: "Camoufox",
+        ie: t("drift.settings.browser.engine.ie"),
+    };
+
+    return names[kind];
+}
+
 /** The DevTools Protocol's modifier bits for the keys held during an event. */
 export function modifierBits(event: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) {
     let bits = 0;

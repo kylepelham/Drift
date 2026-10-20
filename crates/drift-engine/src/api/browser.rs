@@ -101,17 +101,18 @@ fn parse_kind(text: &str) -> Result<Kind, ApiError> {
     Kind::parse(text).ok_or_else(|| ApiError::not_found("engine"))
 }
 
-/// A workspace's drift.json `browser` section and its stored sign-ins, without passwords.
-#[utoipa::path(get, path = "/workspaces/{id}/browser", operation_id = "workspaceBrowser", responses((status = 200, body = WorkspaceBrowser), (status = 404)))]
+/// A workspace's drift.json `browser` section and its stored sign-ins, without passwords. A workspace with no folder
+/// on record has no section, but its sign-ins are still listed.
+#[utoipa::path(get, path = "/workspaces/{id}/browser", operation_id = "workspaceBrowser", responses((status = 200, body = WorkspaceBrowser)))]
 pub(super) async fn workspace(
     State(engine): State<Arc<Engine>>,
     Path(id): Path<String>,
 ) -> Result<Json<WorkspaceBrowser>, ApiError> {
-    let workspace = engine
+    let project = engine
         .store
         .workspace(&id)?
-        .ok_or_else(|| ApiError::not_found("workspace"))?;
-    let project = engine.workspace_config(std::path::Path::new(&workspace.path)).browser;
+        .map(|workspace| engine.workspace_config(std::path::Path::new(&workspace.path)).browser)
+        .unwrap_or_default();
 
     Ok(Json(WorkspaceBrowser {
         project,

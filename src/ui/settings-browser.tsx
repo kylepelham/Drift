@@ -1,19 +1,33 @@
 import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { BrowserWorkspaceGroup } from "./settings-browser-workspace";
+import { engineLabel } from "./browser-input";
 import { useEngine } from "../engine";
 import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 import { Picker } from "./picker";
 
-import type { BrowserSettings } from "../engine/native/client";
+import type { BrowserKind, BrowserSettings, EngineStatus } from "../engine/native/client";
 
-/** Settings > Browser: the `browser` tool and how its browsers start. */
+const downloadPollMs = 1000;
+const button =
+    "rounded-md border border-edge px-2.5 py-1 text-xs text-ink-muted transition-colors hover:bg-raised hover:text-ink disabled:opacity-40";
+
+const kinds: BrowserKind[] = ["chrome", "edge", "firefox", "camoufox", "ie"];
+
+/** Settings > Browser: the `browser` tool, the engines it can use, and the current workspace's setup. */
 export function BrowserSection() {
     return (
         <div class="space-y-5">
             <BrowserGroup />
+            <EnginesGroup />
+            <BrowserWorkspaceGroup />
         </div>
     );
+}
+
+function errorText(cause: unknown) {
+    return cause instanceof Error ? cause.message : String(cause);
 }
 
 /** The `browser` tool and how its browsers start; the engine owns the values. */
@@ -41,7 +55,7 @@ function BrowserGroup() {
         setError("");
         await engine.actions.setBrowserSettings(next).catch((cause) => {
             setSettings(previous);
-            setError(cause instanceof Error ? cause.message : String(cause));
+            setError(errorText(cause));
         });
     }
 
@@ -65,7 +79,7 @@ function BrowserGroup() {
     );
 
     return (
-        <SettingsGroup title={t("drift.settings.browser.title")}>
+        <SettingsGroup title={t("drift.settings.browser.tool")}>
             <Show when={settings()}>
                 {(current) => (
                     <>
@@ -87,12 +101,9 @@ function BrowserGroup() {
                         >
                             {picker({
                                 label: t("drift.settings.browser.engine.title"),
-                                items: [
-                                    { id: "chrome", label: "Chrome" },
-                                    { id: "edge", label: "Edge" },
-                                ],
+                                items: kinds.map((kind) => ({ id: kind, label: engineLabel(kind) })),
                                 selected: current().engine,
-                                onPick: (id) => void change({ engine: id as BrowserSettings["engine"] }),
+                                onPick: (id) => void change({ engine: id as BrowserKind }),
                             })}
                         </SettingsRow>
                         <SettingsRow
@@ -132,5 +143,133 @@ function BrowserGroup() {
                 <div class="text-xs text-danger">{error()}</div>
             </Show>
         </SettingsGroup>
+    );
+}
+
+/** Each engine: whether it can run here, where its program is, and fetching the ones Drift can. */
+function EnginesGroup() {
+    const engine = useEngine();
+    const [engines, setEngines] = createSignal<EngineStatus[]>([]);
+    const [error, setError] = createSignal("");
+
+    const load = () =>
+        engine.actions
+            .browserEngines()
+            .then(setEngines)
+            .catch((cause) => setError(errorText(cause)));
+    onMount(() => void load());
+
+    // A download reports its progress only when asked, so the list is read again while one runs.
+    const timer = setInterval(() => {
+        if (engines().some((status) => status.download && !status.download.error)) void load();
+    }, downloadPollMs);
+    onCleanup(() => clearInterval(timer));
+
+    async function download(kind: BrowserKind) {
+        setError("");
+        await engine.actions
+            .downloadBrowserEngine(kind)
+            .then(load)
+            .catch((cause) => setError(errorText(cause)));
+    }
+
+    async function setPath(kind: BrowserKind, path: string | null) {
+        setError("");
+        await engine.actions
+            .setBrowserEnginePath(kind, path)
+            .then(setEngines)
+            .catch((cause) => setError(errorText(cause)));
+    }
+
+    return (
+        <SettingsGroup title={t("drift.settings.browser.engines")}>
+            <For each={engines()}>
+                {(status) => (
+                    <EngineRow status={status} onDownload={() => void download(status.engine)} onPath={setPath} />
+                )}
+            </For>
+            <Show when={error()}>
+                <div class="py-2 text-xs text-danger">{error()}</div>
+            </Show>
+        </SettingsGroup>
+    );
+}
+
+function engineDescription(status: EngineStatus) {
+    const download = status.download;
+    if (download?.error) return t("drift.settings.browser.downloadFailed", { error: download.error });
+    if (download) {
+        const percent = download.total ? Math.floor((download.done / download.total) * 100) : 0;
+        return t("drift.settings.browser.downloading", { percent });
+    }
+    if (status.available) return status.path ?? t("drift.settings.browser.ready");
+
+    return status.missing ?? t("drift.settings.browser.unavailable");
+}
+
+function EngineRow(props: {
+    status: EngineStatus;
+    onDownload: () => void;
+    onPath: (kind: BrowserKind, path: string | null) => Promise<void>;
+}) {
+    const [editing, setEditing] = createSignal(false);
+    const [draft, setDraft] = createSignal("");
+    const busy = () => !!props.status.download && !props.status.download.error;
+    const pathLabel = () =>
+        props.status.engine === "ie" ? t("drift.settings.browser.driverPath") : t("drift.settings.browser.path");
+
+    async function save(path: string | null) {
+        await props.onPath(props.status.engine, path);
+        setEditing(false);
+    }
+
+    return (
+        <>
+            <SettingsRow title={engineLabel(props.status.engine)} description={engineDescription(props.status)}>
+                <div class="flex items-center gap-2">
+                    <span
+                        class="text-xs"
+                        classList={{ "text-ok": props.status.available, "text-ink-faint": !props.status.available }}
+                    >
+                        {props.status.available
+                            ? t("drift.settings.browser.ready")
+                            : t("drift.settings.browser.missing")}
+                    </span>
+                    <Show when={props.status.downloadable && !props.status.available}>
+                        <button class={button} disabled={busy()} onClick={() => props.onDownload()}>
+                            {t("drift.settings.browser.download")}
+                        </button>
+                    </Show>
+                    <button
+                        class={button}
+                        onClick={() => {
+                            setDraft(props.status.custom ? (props.status.path ?? "") : "");
+                            setEditing(!editing());
+                        }}
+                    >
+                        {pathLabel()}
+                    </button>
+                </div>
+            </SettingsRow>
+            <Show when={editing()}>
+                <div class="flex items-center gap-2 border-b border-edge/70 px-1 py-2.5">
+                    <input
+                        class="min-w-0 flex-1 rounded-md border border-edge bg-surface px-2.5 py-1.5 font-mono text-xs text-ink outline-none focus:border-edge-strong"
+                        aria-label={pathLabel()}
+                        placeholder={t("drift.settings.browser.pathPlaceholder")}
+                        value={draft()}
+                        onInput={(event) => setDraft(event.currentTarget.value)}
+                    />
+                    <button class={button} onClick={() => void save(draft().trim() || null)}>
+                        {t("common.save")}
+                    </button>
+                    <Show when={props.status.custom}>
+                        <button class={button} onClick={() => void save(null)}>
+                            {t("drift.settings.browser.findItself")}
+                        </button>
+                    </Show>
+                </div>
+            </Show>
+        </>
     );
 }

@@ -8,6 +8,7 @@ import { t } from "../state/i18n";
 import type { AgentInfo, CommandInfo, McpServerConfig, McpServerStatus } from "./store";
 import type { ActionContext } from "./actions-context";
 import type {
+    BrowserCredentialInput,
     BrowserSettings,
     BundlePartKind,
     InstallBundle,
@@ -43,6 +44,30 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
     /** Whether agents get the `browser` tool, and which browser, profile and window it starts with. */
     async function setBrowserSettings(browser: BrowserSettings) {
         return requireClient().putSettings({ browser });
+    }
+
+    /** The current workspace's id as the engine knows it, or nothing without a workspace. */
+    function currentWorkspace() {
+        return workspaces().id(state.directory);
+    }
+
+    /** The current workspace's drift.json browser section and stored sign-ins, or nothing without a workspace. */
+    async function workspaceBrowser() {
+        const workspace = currentWorkspace();
+        return workspace ? requireClient().workspaceBrowser(workspace) : undefined;
+    }
+
+    /** Stores a sign-in for the current workspace's browser; a password left out keeps the stored one. */
+    async function saveBrowserCredential(name: string, body: BrowserCredentialInput) {
+        const workspace = currentWorkspace();
+        if (!workspace) throw new Error(t("drift.settings.browser.noWorkspace"));
+        return requireClient().saveBrowserCredential(workspace, name, body);
+    }
+
+    async function removeBrowserCredential(name: string) {
+        const workspace = currentWorkspace();
+        if (!workspace) throw new Error(t("drift.settings.browser.noWorkspace"));
+        return requireClient().removeBrowserCredential(workspace, name);
     }
 
     /** Whether a command still running at its time limit moves to the background rather than being stopped. */
@@ -229,6 +254,13 @@ export function createConfigActions({ requireClient, state, set, workspaces, not
         setBackgroundProcesses,
         setShellHandoff,
         setBrowserSettings,
+        browserEngines: () => requireClient().browserEngines(),
+        downloadBrowserEngine: (engine: string) => requireClient().downloadBrowserEngine(engine),
+        setBrowserEnginePath: (engine: string, path: string | null) =>
+            requireClient().setBrowserEnginePath(engine, path),
+        workspaceBrowser,
+        saveBrowserCredential,
+        removeBrowserCredential,
         putEngineSettings: (body: Parameters<Client["putSettings"]>[0]) => requireClient().putSettings(body),
         fetchRegistry: (source: string) => requireClient().fetchRegistry(source),
         webSearch: () => requireClient().webSearch(),

@@ -1364,7 +1364,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A workspace's drift.json `browser` section and its stored sign-ins, without passwords. */
+        /**
+         * A workspace's drift.json `browser` section and its stored sign-ins, without passwords. A workspace with no folder
+         *     on record has no section, but its sign-ins are still listed.
+         */
         get: operations["workspaceBrowser"];
         put?: never;
         post?: never;
@@ -6282,12 +6285,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WorkspaceBrowser"];
                 };
-            };
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

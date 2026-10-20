@@ -368,3 +368,33 @@ async fn unzip(archive: PathBuf, target: PathBuf, only: Option<&'static str>) ->
     .await
     .map_err(|error| error.to_string())?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn a_downloaded_archive_unpacks_its_folders_or_just_one_file() {
+        use std::io::Write as _;
+
+        let root = std::env::temp_dir().join(format!("drift-unzip-{}", crate::random_hex(4)));
+        std::fs::create_dir_all(&root).unwrap();
+        let archive = root.join("engine.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&archive).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        zip.add_directory("fonts/", options).unwrap();
+        zip.start_file("fonts/serif.ttf", options).unwrap();
+        zip.write_all(b"font").unwrap();
+        zip.start_file("camoufox.exe", options).unwrap();
+        zip.write_all(b"program").unwrap();
+        zip.finish().unwrap();
+
+        unzip(archive.clone(), root.join("all"), None).await.unwrap();
+        unzip(archive, root.join("one"), Some("camoufox.exe")).await.unwrap();
+
+        assert_eq!(std::fs::read(root.join("all/fonts/serif.ttf")).unwrap(), b"font");
+        assert_eq!(std::fs::read(root.join("one/camoufox.exe")).unwrap(), b"program");
+        assert!(!root.join("one/fonts").exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}

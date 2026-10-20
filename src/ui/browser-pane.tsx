@@ -1,11 +1,11 @@
 import { IconChevronLeft, IconChevronRight, IconGlobe, IconPlus, IconRestore, IconStop, IconX } from "./icons";
 import { createEffect, createSignal, For, Show, untrack } from "solid-js";
 import { createMediaQuery, smallScreenQuery } from "../state/screen";
+import { engineLabel, tabLabel } from "./browser-input";
 import { selectedSession } from "../state/selection";
 import { rightPanelOpen } from "../state/panels";
 import { activePage } from "../engine/browsers";
 import { BrowserView } from "./browser-view";
-import { tabLabel } from "./browser-input";
 import { SidePanel } from "./side-panel";
 import { useEngine } from "../engine";
 import { t } from "../state/i18n";
@@ -17,6 +17,7 @@ import {
 } from "../state/browser-pane";
 
 import type { BrowserView as ViewSocket } from "../engine/browser-view";
+import type { BrowserKind } from "../engine/native/client";
 import type { BrowserPage } from "../engine/browsers";
 
 const iconButton =
@@ -61,7 +62,7 @@ function BrowserPane(props: { sessionId: string }) {
             defaultWidth={760}
             windowControls={!rightPanelOpen()}
             onClose={() => collapseBrowserPane(props.sessionId)}
-            title={<Tabs pages={record()?.pages ?? []} onSend={send} />}
+            title={<Tabs engine={record()?.engine} pages={record()?.pages ?? []} onSend={send} />}
             actions={
                 <>
                     <button
@@ -88,10 +89,13 @@ function BrowserPane(props: { sessionId: string }) {
     );
 }
 
-function Tabs(props: { pages: BrowserPage[]; onSend: ViewSocket["send"] }) {
+function Tabs(props: { engine?: BrowserKind; pages: BrowserPage[]; onSend: ViewSocket["send"] }) {
     return (
         <div class="browser-tabs flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-            <IconGlobe class="size-3.5 shrink-0 text-ink-faint" />
+            <span class="flex shrink-0 items-center gap-1 pr-1 text-xs text-ink-faint">
+                <IconGlobe class="size-3.5" />
+                <Show when={props.engine}>{(engine) => engineLabel(engine())}</Show>
+            </span>
             <For each={props.pages}>
                 {(page) => (
                     <div

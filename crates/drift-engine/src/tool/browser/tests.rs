@@ -278,3 +278,99 @@ async fn ie_mode_fills_a_form_through_iedriver() {
         drives("ie").await;
     }
 }
+
+const SIGN_IN: &str = "<!doctype html><html><head><title>Sign in</title></head><body>\
+<form onsubmit=\"document.title='Welcome '+document.getElementById('user').value+' '+document.getElementById('pass').value.length;return false\">\
+<input id=user><input id=pass type=password><button id=go>Sign in</button></form></body></html>";
+
+/// The project's sign-in fills the form from a stored credential, and the password never reaches the model.
+#[tokio::test(flavor = "multi_thread")]
+async fn login_signs_in_with_a_stored_credential_the_model_never_sees() {
+    if crate::browser::installed().is_none() {
+        return;
+    }
+    let sandbox = Sandbox::new("browser-login");
+    let url = serve(SIGN_IN).await;
+    let workspace = sandbox
+        .ctx
+        .engine
+        .store
+        .add_workspace(&sandbox.ctx.workspace.to_string_lossy(), "Harbour Kitchen", "")
+        .unwrap();
+    let session = sandbox
+        .ctx
+        .engine
+        .store
+        .create_session(crate::store::NewSession {
+            workspace_id: &workspace.id,
+            parent_id: None,
+            visibility: crate::session::types::Visibility::Sibling,
+            title: "Sign-in check",
+            agent: "build",
+            model: None,
+        })
+        .unwrap();
+    let mut ctx = sandbox.ctx_clone();
+    ctx.session_id = session.id.clone();
+    let config = format!(
+        r##"{{ "browser": {{ "baseUrl": "{url}", "login": {{ "credential": "front", "fields": {{ "#user": "{{user}}", "#pass": "{{password}}" }}, "submit": "#go" }} }} }}"##
+    );
+    std::fs::write(sandbox.ctx.workspace.join("drift.json"), config).unwrap();
+    let credential = crate::browser::project::Credential {
+        name: "front".into(),
+        user: "front.desk".into(),
+        domain: String::new(),
+        has_password: false,
+    };
+    sandbox
+        .ctx
+        .engine
+        .save_browser_credential(&workspace.id, &credential, Some("Quay-Side-7"))
+        .unwrap();
+
+    let opened = Browser.run(&ctx, json!({ "action": "open" })).await.unwrap();
+    assert!(opened.output.contains("`login`"), "{}", opened.output);
+    let signed = Browser.run(&ctx, json!({ "action": "login" })).await.unwrap();
+    let echoed = Browser
+        .run(
+            &ctx,
+            json!({ "action": "eval", "expression": "document.title + ' ' + document.getElementById('pass').value" }),
+        )
+        .await
+        .unwrap();
+
+    assert!(signed.output.contains("front.desk"), "{}", signed.output);
+    assert!(echoed.output.starts_with("Welcome front.desk 11"), "{}", echoed.output);
+    assert!(
+        !echoed.output.contains("Quay-Side-7"),
+        "a password the page shows is hidden: {}",
+        echoed.output
+    );
+    assert!(echoed.output.contains("[password]"), "{}", echoed.output);
+    sandbox.ctx.engine.browsers.stop_all();
+}
+
+/// Fetches IEDriverServer from Selenium's releases into Drift's engines folder; runs when `DRIFT_TEST_DOWNLOADS` is set.
+#[tokio::test(flavor = "multi_thread")]
+async fn iedriver_downloads_into_the_engines_folder() {
+    if std::env::var_os("DRIFT_TEST_DOWNLOADS").is_none() {
+        return;
+    }
+    let sandbox = Sandbox::new("browser-download");
+    let engine = sandbox.ctx.engine.clone();
+
+    engine.download_browser_engine(crate::browser::Kind::Ie).unwrap();
+    let target = engine.data_dir.join("browsers/engines/IEDriverServer.exe");
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !target.is_file() || engine.browser_engines().iter().any(|status| status.download.is_some()) {
+        let failed = engine
+            .browser_engines()
+            .iter()
+            .find_map(|status| status.download.clone()?.error);
+        assert!(failed.is_none(), "{failed:?}");
+        assert!(tokio::time::Instant::now() < deadline, "downloaded within 60 s");
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+
+    assert!(std::fs::metadata(&target).unwrap().len() > 100_000);
+}
