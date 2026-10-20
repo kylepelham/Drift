@@ -60,9 +60,14 @@ impl Engine {
         self.renew(provider, Some(account), stored).await.ok()
     }
 
-    /// [`Engine::account_serves`], and the account has not refused this conversation under its safety filter.
+    /// [`Engine::account_serves`], and the account has not refused this conversation under its safety filter. Once one
+    /// has, only an account the user marked cyber verified suits it: another's filter would refuse it the same way.
     pub(in crate::session) fn account_suits(&self, account: &str, session: &str, model: &Model) -> bool {
-        self.account_serves(account, model) && !self.unserved.refused_conversation(account, session)
+        if !self.account_serves(account, model) || self.unserved.refused_conversation(account, session) {
+            return false;
+        }
+
+        !self.unserved.refused_anywhere(session) || self.credentials.cyber_verified(account)
     }
 
     /// The account this conversation's requests for `model` should go to now: the first in order that suits it.
@@ -170,13 +175,18 @@ impl Engine {
         self.another_account(plan, account)
     }
 
-    /// After the safety filter refused the reply, passes the account over for this conversation when another
-    /// account may judge it differently ([`accounts_differ`]); `true` when one can take the request.
-    pub(super) fn leave_refusing_account(&self, plan: &Plan, refusal: Option<&Refusal>) -> bool {
+    /// After the safety filter refused the reply, passes the account over for this conversation when an account the
+    /// user marked cyber verified may judge it differently ([`accounts_differ`]); `true` when one can take the request.
+    /// With none, the refusal stands where it was made, and the conversation keeps its account and cache.
+    pub(super) async fn leave_refusing_account(&self, plan: &Plan, refusal: Option<&Refusal>) -> bool {
         let Some(account) = &plan.account else {
             return false;
         };
         if !accounts_differ(refusal) {
+            return false;
+        }
+        self.learn_verified_usage(&plan.model_ref.provider).await;
+        if !self.cleared_account_for(&plan.model_ref.provider, &plan.session.id, &plan.model, account) {
             return false;
         }
 
@@ -198,12 +208,16 @@ impl Engine {
             return None;
         };
         let account = resolved.account.as_deref()?;
+        let provider = &resolved.model_ref.provider;
         if !accounts_differ(refusal.as_ref()) {
+            return None;
+        }
+        self.learn_verified_usage(provider).await;
+        if !self.cleared_account_for(provider, session, &resolved.model, account) {
             return None;
         }
         self.unserved.refuse_conversation(account, session);
 
-        let provider = &resolved.model_ref.provider;
         let next = self
             .preferred_account(provider, session, &resolved.model)
             .filter(|next| next != account)?;
@@ -225,6 +239,41 @@ impl Engine {
     fn another_account(&self, plan: &Plan, account: &str) -> bool {
         self.preferred_account(&plan.model_ref.provider, &plan.session.id, &plan.model)
             .is_some_and(|preferred| preferred != account)
+    }
+
+    /// Whether an account other than `refusing`, marked cyber verified and not yet refused the conversation, can serve
+    /// `model` now: the only kind worth sending a refused conversation to. One with its usage spent is not.
+    fn cleared_account_for(&self, provider: &str, session: &str, model: &Model, refusing: &str) -> bool {
+        self.credentials.accounts(provider).iter().any(|account| {
+            account.key != refusing
+                && account.cyber_verified
+                && self.account_serves(&account.key, model)
+                && !self.unserved.refused_conversation(&account.key, session)
+        })
+    }
+
+    /// Asks Claude how much usage each verified account has left when none of its responses has said since the engine
+    /// started, so a refused conversation is never sent to an account that would only answer that its usage is spent.
+    async fn learn_verified_usage(&self, provider: &str) {
+        let unknown = self
+            .credentials
+            .accounts(provider)
+            .into_iter()
+            .filter(|account| account.cyber_verified && self.limits.get(&account.key).is_none());
+
+        for account in unknown {
+            let Some(Credential::OAuth { access, .. }) = self.account_credential(provider, &account.key).await else {
+                continue;
+            };
+            let Some(body) = llm::anthropic::oauth::usage(&llm::http::client(), &access).await else {
+                continue;
+            };
+            if let Some(limits) = Limits::from_anthropic_usage(&body)
+                && self.limits.record(&account.key, limits.clone())
+            {
+                self.publish_limits(provider, &account.key, limits);
+            }
+        }
     }
 
     /// Why the turn is leaving `from`: whatever now keeps it from suiting the turn, else an earlier account's reset.
@@ -266,8 +315,9 @@ impl Engine {
     }
 }
 
-/// Accounts differ on cybersecurity (Anthropic's Cyber Verification, OpenAI's Daybreak), so a cyber refusal, or one
-/// naming no policy area, may not be made by another account; a refusal in any other area stands.
+/// Anthropic's Cyber Verification lets an account through what others refuse on cybersecurity, so a cyber refusal, or
+/// one naming no policy area, may not be made by a verified account; a refusal in any other area stands. OpenAI's
+/// Daybreak is a model, not an account, so its accounts are never marked and its refusals stand.
 fn accounts_differ(refusal: Option<&Refusal>) -> bool {
     let category = refusal.and_then(|refusal| refusal.category.as_deref());
 

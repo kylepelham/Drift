@@ -1109,7 +1109,11 @@ export const drift = {
     "drift.provider.accounts.switched": "某个账户已达到使用限额，继续使用 {{account}}。",
     "drift.provider.accounts.returned": "{{account}} 的使用限额已重置，已切换回该账户。",
     "drift.provider.accounts.switchedForModel": "该账户的套餐不包含此模型。改用 {{account}} 继续。",
-    "drift.provider.accounts.switchedForRefusal": "该账户的安全过滤器拒绝了请求。正在尝试 {{account}}。",
+    "drift.provider.accounts.switchedForRefusal":
+        "该账户的安全过滤器拒绝了此请求。正在尝试已获得网络安全认证的 {{account}}。",
+    "drift.provider.accounts.cyberVerified": "网络安全认证",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "此账户所属组织加入了 Anthropic 的网络安全认证计划（Cyber Verification Program）。遇到网络安全相关的拒绝后，Drift 仅会切换到此处标记的账户。",
     "drift.question.custom": "输入自定义答案",
     "drift.question.answered": "已回答",
     "drift.question.unanswered": "无回答",

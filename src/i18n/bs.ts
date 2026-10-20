@@ -1155,7 +1155,10 @@ export const drift = {
     "drift.provider.accounts.returned": "Ponovo na {{account}} jer je njegovo ograničenje korištenja resetovano.",
     "drift.provider.accounts.switchedForModel": "Plan tog računa ne uključuje ovaj model. Nastavlja se na {{account}}.",
     "drift.provider.accounts.switchedForRefusal":
-        "Sigurnosni filter tog računa odbio je zahtjev. Pokušava se {{account}}.",
+        "Sigurnosni filter tog računa odbio je zahtjev. Pokušava se {{account}}, koji ima kibernetičku verifikaciju.",
+    "drift.provider.accounts.cyberVerified": "Kibernetička verifikacija",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "Organizacija ovog računa je u Anthropicovom programu kibernetičke verifikacije (Cyber Verification Program). Nakon odbijanja zbog kibernetičke sigurnosti, Drift prelazi samo na račune označene ovdje.",
     "drift.question.custom": "Unesite vlastiti odgovor",
     "drift.question.answered": "Odgovoreno",
     "drift.question.unanswered": "Nema odgovora",

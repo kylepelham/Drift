@@ -175,12 +175,16 @@ fn the_first_usable_account_is_resolved_else_the_first() {
 #[test]
 fn the_lists_survive_reopening() {
     let (store, path) = store();
-    store.add_account("openai", &signed_in("a"), &person("ann")).unwrap();
-    store.add_account("openai", &signed_in("b"), &person("bob")).unwrap();
+    store.add_account("anthropic", &signed_in("a"), &person("ann")).unwrap();
+    let bob = store.add_account("anthropic", &signed_in("b"), &person("bob")).unwrap();
+    assert!(store.set_cyber_verified("anthropic", &bob, true).unwrap());
+    assert!(store.rename_account("anthropic", &bob, "Research").unwrap());
 
     let reopened = Credentials::in_file(path.clone());
 
-    assert_eq!(reopened.accounts("openai"), store.accounts("openai"));
+    assert_eq!(reopened.accounts("anthropic"), store.accounts("anthropic"));
+    assert!(reopened.cyber_verified(&bob), "renaming keeps the mark");
+    assert!(!reopened.cyber_verified("anthropic"));
 
     std::fs::remove_file(path).ok();
 }

@@ -19,6 +19,10 @@ pub struct Account {
     /// Who signed in, so signing in as them again replaces this account rather than adding one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<String>,
+    /// The user says its organisation is in a provider's cyber program (Anthropic's Cyber Verification), whose
+    /// filter lets through what others refuse. No provider reports this, so only the user can say it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cyber_verified: bool,
 }
 
 /// Who a sign-in belongs to, as far as the provider says.
@@ -34,6 +38,7 @@ impl Account {
             key: key.into(),
             label: None,
             identity: None,
+            cyber_verified: false,
         }
     }
 
@@ -42,6 +47,7 @@ impl Account {
             key,
             label: profile.email.clone(),
             identity: profile.identity.clone(),
+            cyber_verified: false,
         }
     }
 }
@@ -178,14 +184,41 @@ impl Credentials {
 
     /// Names an account; an empty label clears the name.
     pub fn rename_account(&self, provider: &str, key: &str, label: &str) -> Result<bool, CredentialError> {
+        let label = label.trim();
+
+        self.change_account(provider, key, |account| {
+            account.label = (!label.is_empty()).then(|| label.to_string());
+        })
+    }
+
+    /// Records whether the user says an account is in its provider's cyber program.
+    pub fn set_cyber_verified(&self, provider: &str, key: &str, verified: bool) -> Result<bool, CredentialError> {
+        self.change_account(provider, key, |account| account.cyber_verified = verified)
+    }
+
+    /// Whether the user said the account with `key` is in its provider's cyber program.
+    pub fn cyber_verified(&self, key: &str) -> bool {
+        self.accounts
+            .lock()
+            .unwrap()
+            .values()
+            .flatten()
+            .any(|account| account.key == key && account.cyber_verified)
+    }
+
+    fn change_account(
+        &self,
+        provider: &str,
+        key: &str,
+        change: impl FnOnce(&mut Account),
+    ) -> Result<bool, CredentialError> {
         let _held = self.write_lock.lock().unwrap();
         let mut accounts = self.accounts(provider);
         let Some(account) = accounts.iter_mut().find(|account| account.key == key) else {
             return Ok(false);
         };
 
-        let label = label.trim();
-        account.label = (!label.is_empty()).then(|| label.to_string());
+        change(account);
         self.save_accounts(provider, accounts)?;
 
         Ok(true)

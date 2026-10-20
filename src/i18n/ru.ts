@@ -1164,7 +1164,10 @@ export const drift = {
     "drift.provider.accounts.switchedForModel":
         "Тариф этого аккаунта не включает эту модель. Продолжаем на {{account}}.",
     "drift.provider.accounts.switchedForRefusal":
-        "Фильтр безопасности этого аккаунта отклонил запрос. Пробуем {{account}}.",
+        "Фильтр безопасности этого аккаунта отклонил запрос. Пробуем {{account}} с Cyber Verification.",
+    "drift.provider.accounts.cyberVerified": "Cyber Verification",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "Организация этого аккаунта участвует в Cyber Verification Program от Anthropic. После отказа из-за кибербезопасности Drift переключается только на аккаунты, отмеченные здесь.",
     "drift.question.custom": "Введите свой ответ",
     "drift.question.answered": "Ответ дан",
     "drift.question.unanswered": "Нет ответа",

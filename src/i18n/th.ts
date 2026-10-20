@@ -1138,7 +1138,11 @@ export const drift = {
     "drift.provider.accounts.switched": "บัญชีหนึ่งถึงขีดจำกัดการใช้งานแล้ว ดำเนินการต่อด้วย {{account}}",
     "drift.provider.accounts.returned": "กลับมาใช้ {{account}} เนื่องจากขีดจำกัดการใช้งานรีเซ็ตแล้ว",
     "drift.provider.accounts.switchedForModel": "แผนของบัญชีนั้นไม่รวมโมเดลนี้ ดำเนินการต่อบน {{account}}",
-    "drift.provider.accounts.switchedForRefusal": "ตัวกรองความปลอดภัยของบัญชีนั้นปฏิเสธคำขอ กำลังลอง {{account}}",
+    "drift.provider.accounts.switchedForRefusal":
+        "ตัวกรองความปลอดภัยของบัญชีนั้นปฏิเสธคำขอ กำลังลองใช้ {{account}} ซึ่งมี Cyber Verification",
+    "drift.provider.accounts.cyberVerified": "Cyber Verification",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "องค์กรของบัญชีนี้อยู่ใน Cyber Verification Program ของ Anthropic หลังจากถูกปฏิเสธเนื่องจากความปลอดภัยไซเบอร์ Drift จะเปลี่ยนไปใช้เฉพาะบัญชีที่ทำเครื่องหมายไว้ที่นี่เท่านั้น",
     "drift.question.custom": "พิมพ์คำตอบของคุณเอง",
     "drift.question.answered": "ตอบแล้ว",
     "drift.question.unanswered": "ไม่มีคำตอบ",

@@ -1181,7 +1181,10 @@ export const drift = {
     "drift.provider.accounts.switchedForModel":
         "L'abonnement de ce compte n'inclut pas ce modèle. Suite sur {{account}}.",
     "drift.provider.accounts.switchedForRefusal":
-        "Le filtre de sécurité de ce compte a refusé la demande. Essai avec {{account}}.",
+        "Le filtre de sécurité de ce compte a refusé la requête. Essai sur {{account}}, qui dispose de la Cyber Verification.",
+    "drift.provider.accounts.cyberVerified": "Cyber Verification",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "L'organisation de ce compte fait partie du Cyber Verification Program d'Anthropic. Après un refus lié à la cybersécurité, Drift bascule uniquement vers les comptes cochés ici.",
     "drift.question.custom": "Saisissez votre propre réponse",
     "drift.question.answered": "Répondu",
     "drift.question.unanswered": "Aucune réponse",

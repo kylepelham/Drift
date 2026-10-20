@@ -1164,7 +1164,10 @@ export const drift = {
     "drift.provider.accounts.returned": "Powrót do {{account}}, ponieważ jego limit użycia został zresetowany.",
     "drift.provider.accounts.switchedForModel": "Plan tego konta nie obejmuje tego modelu. Kontynuacja na {{account}}.",
     "drift.provider.accounts.switchedForRefusal":
-        "Filtr bezpieczeństwa tego konta odrzucił prośbę. Próba na {{account}}.",
+        "Filtr bezpieczeństwa tego konta odrzucił żądanie. Próba użycia konta {{account}}, które ma Cyber Verification.",
+    "drift.provider.accounts.cyberVerified": "Cyber Verification",
+    "drift.provider.accounts.cyberVerifiedHint":
+        "Organizacja tego konta bierze udział w programie Anthropic Cyber Verification Program. Po odmowie z powodu cyberbezpieczeństwa Drift przełącza się wyłącznie na konta zaznaczone w tym miejscu.",
     "drift.question.custom": "Wpisz własną odpowiedź",
     "drift.question.answered": "Odpowiedziano",
     "drift.question.unanswered": "Brak odpowiedzi",

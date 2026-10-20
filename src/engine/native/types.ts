@@ -539,7 +539,7 @@ export interface paths {
         delete: operations["removeProviderAccount"];
         options?: never;
         head?: never;
-        patch: operations["renameProviderAccount"];
+        patch: operations["changeProviderAccount"];
         trace?: never;
     };
     "/providers/{id}/credentials": {
@@ -1526,9 +1526,11 @@ export interface components {
         Aborted: {
             aborted: boolean;
         };
-        AccountLabelBody: {
-            /** @description Empty clears the name. */
-            label: string;
+        AccountChangeBody: {
+            /** @description Whether it is in its provider's cyber program. Left out, it stays as it is. */
+            cyberVerified?: boolean | null;
+            /** @description A new name; empty clears it. Left out, the name stays. */
+            label?: string | null;
         };
         AccountOrderBody: {
             /** @description Every account id, first used first. */
@@ -2857,6 +2859,8 @@ export interface components {
         PromptFamily: "codex" | "claude" | "gemini" | "default";
         /** @description One stored credential of a provider, in the order the engine uses them. */
         ProviderAccount: {
+            /** @description The user says it is in its provider's cyber program; after a cyber refusal only such accounts are tried. */
+            cyberVerified: boolean;
             id: string;
             /** @description What the user named it, else the email it signed in with. */
             label?: string | null;
@@ -4652,7 +4656,7 @@ export interface operations {
             };
         };
     };
-    renameProviderAccount: {
+    changeProviderAccount: {
         parameters: {
             query?: never;
             header?: never;
@@ -4664,11 +4668,17 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AccountLabelBody"];
+                "application/json": components["schemas"]["AccountChangeBody"];
             };
         };
         responses: {
             204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };
