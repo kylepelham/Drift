@@ -10,7 +10,6 @@ import { RemoteAccessSection } from "./settings-remote-access";
 import { IconChevronLeft, IconSearch, IconX } from "./icons";
 import { PermissionsSection } from "./settings-permissions";
 import { AppearanceSection } from "./settings-appearance";
-import { ToolSearchGroup } from "./settings-tool-search";
 import { ToolExecutionSection } from "./settings-tools";
 import { ProvidersSection } from "./settings-providers";
 import { KeybindsSection } from "./settings-shortcuts";
@@ -267,10 +266,7 @@ function SettingsModal(props: { onClose: () => void }) {
                                         <UsageLimitsSection />
                                     </Match>
                                     <Match when={section() === "MCP"}>
-                                        <div class="space-y-5">
-                                            <McpManagement embedded onBundle={showBundle} />
-                                            <ToolSearchGroup />
-                                        </div>
+                                        <McpManagement embedded onBundle={showBundle} />
                                     </Match>
                                     <Match when={section() === "Skills"}>
                                         <SkillsSection onBundle={showBundle} />

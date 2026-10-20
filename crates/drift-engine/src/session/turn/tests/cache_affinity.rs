@@ -109,5 +109,5 @@ async fn a_reply_whose_request_missed_the_cache_keeps_why() {
         .collect();
     assert_eq!(misses[..2], [None, None]);
     let why = misses[2].clone().unwrap();
-    assert!(why.starts_with("read 0 cached tokens of about 6200 expected"), "{why}");
+    assert!(why.ends_with("(0 of 6.2k cached)"), "{why}");
 }

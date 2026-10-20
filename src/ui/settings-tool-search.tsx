@@ -4,7 +4,7 @@ import { useEngine } from "../engine";
 import { Toggle } from "./controls";
 import { t } from "../state/i18n";
 
-/** Settings > MCP: whether large servers' tools load on request with `tool_search`, kept by the engine. */
+/** Settings > Execution: whether large servers' tools load on request with `tool_search`, kept by the engine. */
 export function ToolSearchGroup() {
     const engine = useEngine();
     // Null until the engine answers, so the toggle never shows a guess.

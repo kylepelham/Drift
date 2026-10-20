@@ -1,10 +1,10 @@
 import { modelVisible, moveModelProvider, setModelsVisible, setModelVisible } from "../state/prefs";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { activateModal, closeOnBackdropPointerDown } from "./modal";
-import { Chevron, Toggle, ToggleTrack } from "./controls";
 import { ModelDetails } from "./model-details";
+import { Chevron, Toggle } from "./controls";
+import { IconSliders, IconX } from "./icons";
 import { dragReorder } from "./drag-reorder";
-import { IconInfo, IconX } from "./icons";
 import { Portal } from "solid-js/web";
 import { t } from "../state/i18n";
 
@@ -140,11 +140,9 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                                             <div class="border-t border-edge bg-overlay/30 p-1.5">
                                                 <For each={visibleItems()}>
                                                     {(item) => (
-                                                        <div class="flex items-center gap-1 rounded-lg hover:bg-raised/60">
-                                                            <button
-                                                                role="switch"
-                                                                aria-checked={enabled(item)}
-                                                                class="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-2 text-left"
+                                                        <div class="flex items-center gap-2 rounded-lg pr-2 hover:bg-raised/60">
+                                                            <div
+                                                                class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-left"
                                                                 onClick={() => setModelVisible(item.id, !enabled(item))}
                                                             >
                                                                 <span class="min-w-0 flex-1">
@@ -157,16 +155,22 @@ export function ModelManager(props: { items: PickerItem[]; onClose: () => void }
                                                                         </span>
                                                                     </Show>
                                                                 </span>
-                                                                <ToggleTrack checked={enabled(item)} />
-                                                            </button>
+                                                            </div>
                                                             <button
                                                                 title={t("drift.model.details")}
                                                                 aria-label={t("drift.model.details")}
-                                                                class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
+                                                                class="flex size-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition-colors hover:bg-raised hover:text-ink"
                                                                 onClick={() => setDetails(item)}
                                                             >
-                                                                <IconInfo />
+                                                                <IconSliders />
                                                             </button>
+                                                            <Toggle
+                                                                label={item.label}
+                                                                checked={enabled(item)}
+                                                                onChange={() =>
+                                                                    setModelVisible(item.id, !enabled(item))
+                                                                }
+                                                            />
                                                         </div>
                                                     )}
                                                 </For>

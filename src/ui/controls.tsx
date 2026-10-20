@@ -60,7 +60,7 @@ export function Toggle(props: {
  * The visual track and knob on their own, for rows that already act as the switch and only need
  * the indicator rather than a nested button.
  */
-export function ToggleTrack(props: { checked: boolean }) {
+function ToggleTrack(props: { checked: boolean }) {
     return (
         <span
             class="relative block h-4 w-7 shrink-0 rounded-full border transition-colors"

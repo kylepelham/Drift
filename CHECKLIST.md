@@ -402,7 +402,8 @@ Measured on 2026-10-20 against ten days of Kyle's `drift.db` and Claude Code 2.1
 - [x] GPT-5.6+ cache writes read and priced; one-off requests there ask the provider to write none
 - [x] xAI and OpenRouter keep a conversation on one cache (`x-grok-conv-id`, `session_id`); OpenRouter caches Qwen at breakpoints
 - [x] Compaction as a policy (automatic, earlier, later) with each model's point shown, and a size per model in its details sheet
-- [x] Provider options in Settings > Providers: an hour-long Claude cache on Anthropic keys, Bedrock, Vertex and OpenRouter; tool search moved to Settings > MCP
+- [x] Model settings beside visibility toggles: capability chips, token limits and a price table; short settings descriptions
+- [x] Provider options in Settings > Providers: an hour-long Claude cache on Anthropic keys, Bedrock, Vertex and OpenRouter; tool search moved to Settings > Execution
 
 ## Parity with Claude Code, Codex and opencode
 
