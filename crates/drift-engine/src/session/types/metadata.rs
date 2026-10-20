@@ -141,6 +141,47 @@ metadata_fields! {
     process_id: String => "processId",
     provider: String => "provider",
     cost: f64 => "cost",
+    findings: Vec<ReviewFinding> => "findings",
+    level: String => "level",
+}
+
+/// One code review finding as `report_findings` recorded it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFinding {
+    /// Relative to the workspace with `/` separators, as the review panel names files.
+    pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    pub summary: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_summary: Option<String>,
+    pub failure_scenario: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<FindingVerdict>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<FindingOutcome>,
+    /// The line as it read when reported, so the review panel can tell a line that moved from one that changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FindingVerdict {
+    Confirmed,
+    Plausible,
+}
+
+/// What became of a finding once fixes were applied.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FindingOutcome {
+    Fixed,
+    Skipped,
+    NoChangeNeeded,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]

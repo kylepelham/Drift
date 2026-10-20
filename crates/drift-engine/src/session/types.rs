@@ -7,7 +7,8 @@ use utoipa::ToSchema;
 mod metadata;
 
 pub use metadata::{
-    CheckStatus, HistoryChange, MetadataFile, ToolCheck, ToolDiagnostic, ToolFileChange, ToolImage, ToolMetadata,
+    CheckStatus, FindingOutcome, FindingVerdict, HistoryChange, MetadataFile, ReviewFinding, ToolCheck, ToolDiagnostic,
+    ToolFileChange, ToolImage, ToolMetadata,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, ToSchema)]

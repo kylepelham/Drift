@@ -58,6 +58,16 @@ pub struct Skill {
     /// Front matter `argument-hint`.
     #[serde(skip)]
     pub argument_hint: Option<String>,
+    /// Set for a skill the engine ships, whose instructions it renders per call rather than reading a folder.
+    #[serde(skip)]
+    pub builtin: Option<Builtin>,
+}
+
+/// The engine's own skills.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Builtin {
+    /// `/review`, rendered by [`crate::code_review`].
+    Review,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -179,10 +189,21 @@ impl Config {
         for bundle in bundles {
             config.add_bundle_skills(bundle);
         }
+        config.add_builtin_skills();
         config.add_skill_commands();
         config.add_instructions(workspace, home);
 
         config
+    }
+
+    /// The engine's skills, each unless a skill or command of the user's, the project's or a bundle's has its name.
+    fn add_builtin_skills(&mut self) {
+        let review = crate::code_review::skill();
+        let taken = self.skills.iter().any(|skill| skill.name == review.name)
+            || self.commands.iter().any(|command| command.name == review.name);
+        if !taken {
+            self.skills.push(review);
+        }
     }
 
     /// Each skill is a command unless one already has its name. A command that calls exactly one skill
@@ -416,6 +437,7 @@ impl Config {
                 path: item.path.to_string_lossy().into_owned(),
                 instructions: body(&text),
                 argument_hint,
+                builtin: None,
             });
         }
     }
@@ -493,6 +515,7 @@ impl Config {
                 path: folder.to_string_lossy().into_owned(),
                 instructions,
                 argument_hint,
+                builtin: None,
             });
         }
     }
@@ -603,6 +626,7 @@ fn builtin_agents() -> Vec<Agent> {
                 "websearch",
                 "todowrite",
                 "skill",
+                "report_findings",
                 "question",
                 "task",
                 "task_output",

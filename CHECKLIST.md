@@ -387,8 +387,14 @@ evidence `docs/research/opencode-v2-comparison.md`. Work in this order.
 
 - [ ] `websearch` tool: the model searches without knowing a URL (Claude WebSearch, Codex `web_search`, opencode `websearch`); provider-native search where the wire has it, else a configured search API (the configured API landed in 2.4.0; native search is still open)
 - [ ] Plugins add tools: a WIT export declaring tools (name, description, input schema) and a call entry, offered and permission-checked like built-in tools
-- [ ] `/review`: diff against a chosen ref (default the merge-base with the default branch) reviewed by a read-only agent
+- [x] Code review (`docs/code-review.md`, evidence in `docs/research/claude-desktop-2.42304.md`):
+  - [x] `report_findings` tool: typed findings (file, line, summary, failure scenario, category, verdict, outcome) in the call's metadata, with each finding's line text recorded for anchoring
+  - [x] `/review [low|medium|high|max] [target] [--fix] [--comment]` as a built-in skill: branch work plus uncommitted changes by default, finders grouped by diff size, a batched verify pass, a sweep at max, `REVIEW.md` and `AGENTS.md` conventions, `--fix` re-reports outcomes, `--comment` posts inline through `gh`
+  - [x] Findings card in the transcript: grouped by file, outcomes, Walk through in diff, Apply fixes, Re-run review
+  - [x] Findings layer in the review panel: annotations under their lines, a stepper, Dismiss, and findings whose line moved or changed marked as such
 - [ ] `/security-review`: the same flow with a security-focused prompt
+- [ ] `/verify`: drive a change end to end (browser pane, dev server) after a review of a diff that runs
+- [ ] PR bar: CI status and open review threads for the branch, with `/watch-pr`
 - [x] Review panel beside the chat: a turn's changes, uncommitted changes, against a branch or one commit, as unified diffs with foldable unchanged lines; the edited files card opens it
 - [ ] Headless one-shot mode: run one prompt against a workspace from the command line and exit (as `claude -p`, `codex exec`, `opencode run`), with plain text or JSON event output for scripts and CI
 - [ ] `/init` that interviews instead of generating: asks the user for build and test commands, conventions and no-go areas, and writes only their answers to `AGENTS.md`, about 30 lines at most, with no summary of the codebase (generated instruction files tend to be long and make results worse)

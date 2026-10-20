@@ -302,12 +302,12 @@ mod tests {
     fn a_workspaces_own_skills_list_beside_the_users_and_a_switch_never_touches_their_files() {
         let root = std::env::temp_dir().join(format!("drift-skill-list-{}", crate::random_hex(4)));
         let ws = root.join("ws");
-        std::fs::create_dir_all(ws.join(".drift/skills/review")).unwrap();
+        std::fs::create_dir_all(ws.join(".drift/skills/triage")).unwrap();
         std::fs::write(
-            ws.join(".drift/skills/review/SKILL.md"),
+            ws.join(".drift/skills/triage/SKILL.md"),
             "---
-name: review
-description: Reviews a diff.
+name: triage
+description: Sorts new issues.
 ---
 body",
         )
@@ -321,10 +321,10 @@ body",
             .collect();
         assert_eq!(
             names,
-            vec![("plain", true, true), ("review", true, true)],
+            vec![("plain", true, true), ("triage", true, true)],
             "both layouts, the folder name standing in for a missing one"
         );
-        assert_eq!(listed[1].description, "Reviews a diff.");
+        assert_eq!(listed[1].description, "Sorts new issues.");
         let off = skill_folder(&listed[1].path, Some(&ws)).unwrap();
         assert_eq!(
             list_skills(Some(&ws), std::slice::from_ref(&off))
@@ -334,12 +334,12 @@ body",
             vec![true, false]
         );
         assert!(
-            ws.join(".drift/skills/review/SKILL.md").is_file(),
+            ws.join(".drift/skills/triage/SKILL.md").is_file(),
             "the skill's own file is left as it is"
         );
         let config = crate::config::Config::load_skipping(&ws, std::slice::from_ref(&off));
         assert!(
-            config.skill("review").is_none() && config.commands.iter().all(|command| command.name != "review"),
+            config.skill("triage").is_none() && config.commands.iter().all(|command| command.name != "triage"),
             "off, the model and the slash menu never see it"
         );
         assert!(config.skill("plain").is_some());

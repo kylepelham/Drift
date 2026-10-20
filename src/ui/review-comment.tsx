@@ -5,7 +5,7 @@ import { t } from "../state/i18n";
 import type { ReviewComment } from "../state/composer";
 
 /** Where a note sits: under its line, as wide as the diff's view however far the lines scroll sideways. */
-const boxClass = "sticky left-0 w-[100cqw] px-3 py-1.5 font-sans";
+export const noteBoxClass = "sticky left-0 w-[100cqw] px-3 py-1.5 font-sans";
 
 function lineLabel(side: ReviewComment["side"], line: number) {
     return t(side === "del" ? "drift.review.comment.removedLine" : "drift.review.comment.line", { line });
@@ -35,7 +35,7 @@ export function CommentEditor(props: {
     });
 
     return (
-        <div class={boxClass}>
+        <div class={noteBoxClass}>
             <div class="rounded-lg border border-accent/70 bg-surface px-3 py-2">
                 <div class="text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint">
                     {lineLabel(props.side, props.line)}
@@ -81,7 +81,7 @@ export function CommentEditor(props: {
 /** A saved note: what was written, with Edit and Delete; deleting it here removes it from the composer too. */
 export function SavedComment(props: { comment: ReviewComment; onEdit: () => void; onRemove: () => void }) {
     return (
-        <div class={boxClass}>
+        <div class={noteBoxClass}>
             <div class="group/note flex items-start gap-2 rounded-lg border border-edge bg-surface px-3 py-2">
                 <div class="min-w-0 flex-1">
                     <div class="text-[length:calc(0.7rem*var(--ui-text-scale,1))] text-ink-faint">

@@ -205,9 +205,11 @@ impl Context {
 
     /// Inside the folder of a skill this session's config offers, as opencode allows skill directories.
     fn in_skill(&self, path: &Path) -> bool {
+        // A built-in skill has no folder, and an empty path would hold every path.
         self.config
             .skills
             .iter()
+            .filter(|skill| !skill.path.is_empty())
             .any(|skill| path.starts_with(canonical(Path::new(&skill.path))))
     }
 

@@ -3,10 +3,12 @@ import { splitOrchestratorStatus, type OrchestratorStatus } from "../state/orche
 import { InstructionUpdateRow, type InstructionUpdatePart } from "./instruction-update";
 import { createMemo, createSignal, Match, Show, Switch, type JSX } from "solid-js";
 import { IconArrowUpRight, IconCheck, IconInfo, IconPlug } from "./icons";
+import { isOutcomeReport } from "../state/review-findings";
 import { openToolContextMenu } from "./tool-context-menu";
 import { citationFileGroups } from "./citation-files";
 import { promptPartText } from "../engine/parts";
 import { showReasoning } from "../state/prefs";
+import { FindingsCard } from "./findings-card";
 import { TextShimmer } from "./text-shimmer";
 import { FilePartView } from "./file-part";
 import { Dynamic } from "solid-js/web";
@@ -86,6 +88,13 @@ export function PartView(props: {
                     </ToolContextTarget>
                 )}
             </Match>
+            <Match when={findingsCall(props.part)}>
+                {(part) => (
+                    <ToolContextTarget part={part()}>
+                        <FindingsCard part={part()} />
+                    </ToolContextTarget>
+                )}
+            </Match>
             <Match
                 when={
                     props.part.type === "tool_call" &&
@@ -117,6 +126,13 @@ export function PartView(props: {
             </Match>
         </Switch>
     );
+}
+
+/** A finished code review report gets a card; one that only records outcomes stays a plain row. */
+function findingsCall(part: Part) {
+    if (part.type !== "tool_call" || part.name !== "report_findings" || part.status !== "done") return undefined;
+
+    return isOutcomeReport(part.metadata?.findings ?? []) ? undefined : part;
 }
 
 function ToolContextTarget(props: { part: ToolPart; children: JSX.Element }) {

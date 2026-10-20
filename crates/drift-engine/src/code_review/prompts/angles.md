@@ -1,0 +1,8 @@
+- Line by line: every hunk read for wrong conditions, off-by-one errors, unhandled errors, empty or missing values, and leaked resources.
+- Removed behaviour: for each deleted or replaced line, what it guaranteed, and whether anything still relies on that.
+- Callers and callees: changed signatures, return values and side effects followed to every caller, and the changed code's assumptions about what it calls checked.
+- Reuse: new code that repeats a helper, type or pattern the repository already has.
+- Simplification: code that could be shorter or plainer with the same behaviour, dead branches, needless state or abstraction.
+- Efficiency: work repeated in loops, needless allocation or I/O, blocking calls on async or hot paths, growth without a bound.
+- Altitude: a fix made at the wrong depth, such as a symptom patched in one caller when the cause is shared.
+- Conventions: breaks of `REVIEW.md`, `AGENTS.md` or `CLAUDE.md`.

@@ -103,6 +103,7 @@ fn registry_exposes_every_builtin_with_a_schema() {
             "todowrite",
             "question",
             "skill",
+            "report_findings",
             "task",
             "task_output",
             "task_stop",
@@ -135,6 +136,7 @@ fn registry_exposes_every_builtin_with_a_schema() {
             "todowrite",
             "question",
             "skill",
+            "report_findings",
             "task",
             "task_output",
             "task_stop",
@@ -229,6 +231,7 @@ fn an_offered_skills_files_read_without_asking_and_its_secrets_still_ask() {
         path: skill_dir.to_string_lossy().into_owned(),
         instructions: String::new(),
         argument_hint: None,
+        builtin: None,
     });
     sandbox.ctx.config = Arc::new(config);
 

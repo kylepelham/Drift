@@ -2105,6 +2105,13 @@ export interface components {
         };
         /** @enum {string} */
         FileStatus: "added" | "deleted" | "modified";
+        /**
+         * @description What became of a finding once fixes were applied.
+         * @enum {string}
+         */
+        FindingOutcome: "fixed" | "skipped" | "no_change_needed";
+        /** @enum {string} */
+        FindingVerdict: "confirmed" | "plausible";
         ForkBody: {
             /** @description Copy through this message; default is the last finished one, leaving out a turn in flight. */
             atMessage?: string | null;
@@ -2982,6 +2989,21 @@ export interface components {
             preview: components["schemas"]["Preview"];
             status: components["schemas"]["FileStatus"];
         };
+        /** @description One code review finding as `report_findings` recorded it. */
+        ReviewFinding: {
+            category?: string | null;
+            /** @description The line as it read when reported, so the review panel can tell a line that moved from one that changed. */
+            code?: string | null;
+            failureScenario: string;
+            /** @description Relative to the workspace with `/` separators, as the review panel names files. */
+            file: string;
+            /** Format: int32 */
+            line?: number | null;
+            outcome?: components["schemas"]["FindingOutcome"] | null;
+            shortSummary?: string | null;
+            summary: string;
+            verdict?: components["schemas"]["FindingVerdict"] | null;
+        };
         ReviewRefs: {
             /** @description The checked-out branch; none when detached. */
             branch?: string | null;
@@ -3310,10 +3332,12 @@ export interface components {
             exit?: number | null;
             fileChanges?: components["schemas"]["ToolFileChange"][] | null;
             files?: components["schemas"]["MetadataFile"][] | null;
+            findings?: components["schemas"]["ReviewFinding"][] | null;
             formatted?: string[] | null;
             historyError?: string | null;
             images?: components["schemas"]["ToolImage"][] | null;
             large?: boolean | null;
+            level?: string | null;
             lines?: number | null;
             mode?: string | null;
             notes?: string[] | null;
