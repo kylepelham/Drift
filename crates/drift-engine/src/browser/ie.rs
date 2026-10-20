@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use reqwest::Method;
 use serde_json::{Value, json};
 
-use super::driver::{Common, Driver, Language, Settled, Shot, Size, Spec, Tab, Target, shot_factor};
+use super::driver::{Common, Driver, Language, Settled, Shot, Size, Spec, Tab, Target, off_runtime, shot_factor};
 use super::input::Key;
 use super::view::{Frame, ViewInput};
 use super::webdriver::{Session, WdError, wait_ready};
@@ -295,7 +295,8 @@ impl Ie {
         let _held = self.lock.lock().await;
         self.focus(handle).await?;
         let data = self.session.get("/screenshot").await.map_err(String::from)?;
-        let shot = to_jpeg(data.as_str().unwrap_or_default())?;
+        let png = data.as_str().unwrap_or_default().to_string();
+        let shot = off_runtime(move || to_jpeg(&png)).await?;
 
         Ok((shot, (css_width, css_height)))
     }
@@ -595,7 +596,7 @@ impl Tab for IeTab {
 
     async fn screenshot(&self) -> Result<Shot, String> {
         let (picture, (css_width, _)) = self.owner()?.picture(&self.handle).await?;
-        let shot = Shot::fitted(picture.jpeg)?;
+        let shot = Shot::fit(picture.jpeg).await?;
         self.state.lock().unwrap().scale = Some(f64::from(shot.width) / css_width.max(1.0));
 
         Ok(shot)
@@ -606,7 +607,7 @@ impl Tab for IeTab {
         let shot_width = f64::from(picture.width) * shot_factor(picture.width, picture.height);
         self.state.lock().unwrap().scale = Some(shot_width / css_width.max(1.0));
 
-        Shot::zoomed(&picture.jpeg, region)
+        Shot::zoom(picture.jpeg, region).await
     }
 
     async fn evaluate(&self, script: &str, language: Language) -> Result<Value, String> {

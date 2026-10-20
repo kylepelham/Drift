@@ -27,7 +27,8 @@ runs beside the browsers but IEDriverServer for IE mode.
 Which engine opens, first match wins: the `engine` the agent passes to `open`; the project's `engines`
 patterns for the address; the project's `engine`; Settings. Chrome and Edge stand in for each other when
 one is missing, and the result says so. A conversation has one browser: opening another engine closes the
-first.
+first, whether the agent named it or an `engines` pattern chose it (a pattern naming Chrome or Edge keeps
+whichever of the two is running). The project's `engine` and Settings choose only for a browser not yet open.
 
 Where each program comes from is in Settings > Browser > Engines:
 
@@ -241,7 +242,9 @@ wins. Agents may write it through the normal edit path, which always asks for `d
 ```
 
 - `integratedAuth` becomes Chrome's `--auth-server-allowlist` and `--auth-negotiate-delegate-allowlist`, and
-  Firefox's trusted-URI preferences. IE mode follows Windows' own zones.
+  Firefox's trusted-URI preferences. IE mode follows Windows' own zones. Each entry is a host or `*.` and a
+  domain of two labels or more; `*`, `*.local` and anything else are ignored with a note, so a cloned repo cannot
+  hand the user's Windows sign-in to every site.
 - `notes` is told to the agent when the browser starts: the place to keep what it learns about an app, as
   web-test's project notes were.
 
@@ -251,7 +254,9 @@ Settings > Browser lists the current workspace's stored sign-ins: a name, a user
 password is stored. Names, users and domains are a setting per workspace; passwords are keychain secrets
 (`browser:<workspace>:<name>`). The engine fills them in itself, through `login` or `fill` with `secret`, so a
 password never reaches the model. Every tool result has the workspace's passwords replaced with
-`[password]`, since a sign-in address or a page can echo one back.
+`[password]`, since a sign-in address or a page can echo one back. A `login` call asks for the hosts of
+`login.url` and `login.path` as well as the base and current page, and a `login.url` whose host would come from
+the credential is refused.
 
 ## API
 

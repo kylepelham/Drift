@@ -16,6 +16,13 @@ pub(super) fn of_call(context: &Context, input: &Value) -> Vec<String> {
         .map(|tab| tab.url());
     let (_, project) = context.engine.browser_project(&context.session_id);
     let base = project.base_url.as_deref().map(|base| project.resolve(base));
+    let sign_in: Vec<String> = project
+        .login
+        .iter()
+        .flat_map(|login| [login.url.as_deref(), login.path.as_deref()])
+        .flatten()
+        .filter_map(|address| host(&project.resolve(address)))
+        .collect();
     let resolve = |url: &str| project.resolve(url);
     let mut hosts = Vec::new();
 
@@ -27,6 +34,7 @@ pub(super) fn of_call(context: &Context, input: &Value) -> Vec<String> {
         let known = Known {
             current: current.as_deref(),
             base: base.as_deref(),
+            sign_in: &sign_in,
             resolve: &resolve,
         };
         for host in of_step(step, &known) {
@@ -39,10 +47,12 @@ pub(super) fn of_call(context: &Context, input: &Value) -> Vec<String> {
     hosts
 }
 
-/// The addresses a step can be judged by: the page now, the project's base, and how paths resolve.
+/// The addresses a step can be judged by: the page now, the project's base, its sign-in addresses' hosts, and
+/// how paths resolve.
 struct Known<'a> {
     current: Option<&'a str>,
     base: Option<&'a str>,
+    sign_in: &'a [String],
     resolve: &'a dyn Fn(&str) -> String,
 }
 
@@ -50,10 +60,12 @@ fn of_step(step: &Value, known: &Known) -> Vec<String> {
     let action = step["action"].as_str().unwrap_or_default();
     let url = step["url"].as_str();
     let current = || known.current.and_then(host).into_iter().collect::<Vec<_>>();
+    let base = || known.base.and_then(host).into_iter().chain(current());
 
     match (action, url) {
         ("pages" | "stop" | "select" | "close", _) => Vec::new(),
-        ("open", None) | ("login", _) => known.base.and_then(host).into_iter().chain(current()).collect(),
+        ("open", None) => base().collect(),
+        ("login", _) => base().chain(known.sign_in.iter().cloned()).collect(),
         ("open" | "navigate", Some(url)) if !matches!(url, "back" | "forward" | "reload") => {
             host(&(known.resolve)(url)).into_iter().collect()
         }
@@ -133,6 +145,7 @@ mod tests {
                 let known = Known {
                     current: Some("http://localhost:3000/"),
                     base: None,
+                    sign_in: &[],
                     resolve: &crate::browser::with_scheme,
                 };
                 of_step(step, &known)
@@ -140,5 +153,20 @@ mod tests {
             .collect();
 
         assert_eq!(steps, [vec!["example.com"], vec!["localhost"], vec!["localhost"]]);
+    }
+
+    #[test]
+    fn a_sign_in_asks_for_the_host_its_address_goes_to() {
+        let known = Known {
+            current: Some("http://localhost:3000/"),
+            base: Some("https://app.local"),
+            sign_in: &["sso.example.com".to_string()],
+            resolve: &crate::browser::with_scheme,
+        };
+
+        assert_eq!(
+            of_step(&serde_json::json!({ "action": "login" }), &known),
+            ["app.local", "localhost", "sso.example.com"]
+        );
     }
 }

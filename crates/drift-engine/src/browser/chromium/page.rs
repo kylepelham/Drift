@@ -507,7 +507,7 @@ impl Page {
 
     /// The agent's screenshot of the page, within the pixel budget clicks are then scaled from.
     pub(crate) async fn capture(&self) -> Result<Shot, String> {
-        let shot = Shot::fitted(self.full_picture().await?)?;
+        let shot = Shot::fit(self.full_picture().await?).await?;
         self.note_shot_width(f64::from(shot.width)).await?;
 
         Ok(shot)
@@ -524,7 +524,7 @@ impl Page {
         self.note_shot_width(f64::from(width) * shot_factor(width, height))
             .await?;
 
-        Shot::zoomed(&picture, region)
+        Shot::zoom(picture, region).await
     }
 
     async fn full_picture(&self) -> Result<Vec<u8>, String> {

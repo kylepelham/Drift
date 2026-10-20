@@ -4,6 +4,7 @@
 use serde_json::{Value, json};
 
 use super::super::Context;
+use super::hosts::host;
 use crate::browser::driver::{Language, Tab};
 use crate::browser::project::{Secret, fill_in};
 
@@ -45,7 +46,11 @@ pub(super) async fn run(context: &Context, tab: &dyn Tab, input: &Value) -> Resu
     let secret = secret(context, input["credential"].as_str())?;
 
     if let Some(url) = &login.url {
-        tab.go(&project.resolve(&fill_in(url, &secret))).await?;
+        let address = project.resolve(&fill_in(url, &secret));
+        if host(&address) != host(&project.resolve(url)) {
+            return Err("browser.login.url must name its host itself, not take it from the credential".into());
+        }
+        tab.go(&address).await?;
         return Ok(format!("Signed in as {} through the sign-in address.", secret.user));
     }
 

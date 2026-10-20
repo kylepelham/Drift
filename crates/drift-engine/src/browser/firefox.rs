@@ -764,7 +764,7 @@ impl Tab for FoxTab {
     }
 
     async fn screenshot(&self) -> Result<Shot, String> {
-        let shot = Shot::fitted(self.full_picture().await?)?;
+        let shot = Shot::fit(self.full_picture().await?).await?;
         self.note_shot_width(f64::from(shot.width)).await;
 
         Ok(shot)
@@ -780,7 +780,7 @@ impl Tab for FoxTab {
         self.note_shot_width(f64::from(width) * shot_factor(width, height))
             .await;
 
-        Shot::zoomed(&picture, region)
+        Shot::zoom(picture, region).await
     }
 
     async fn evaluate(&self, script: &str, language: Language) -> Result<Value, String> {

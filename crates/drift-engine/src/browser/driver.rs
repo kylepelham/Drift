@@ -120,6 +120,25 @@ fn resized(picture: &image::DynamicImage, width: u32, height: u32) -> Result<Sho
     Ok(Shot { jpeg, width, height })
 }
 
+/// Decoding, scaling and encoding a picture takes milliseconds of CPU, so it runs beside the async workers.
+pub(crate) async fn off_runtime<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+impl Shot {
+    pub(crate) async fn fit(jpeg: Vec<u8>) -> Result<Self, String> {
+        off_runtime(move || Self::fitted(jpeg)).await
+    }
+
+    pub(crate) async fn zoom(jpeg: Vec<u8>, region: [f64; 4]) -> Result<Self, String> {
+        off_runtime(move || Self::zoomed(&jpeg, region)).await
+    }
+}
+
 /// A layout size the agent asked for; `None` in its place means the browser's own.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Size {

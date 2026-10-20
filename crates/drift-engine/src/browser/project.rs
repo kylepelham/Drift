@@ -79,6 +79,14 @@ impl BrowserProject {
             .map(|(kind, _)| *kind)
     }
 
+    /// Host patterns for Windows sign-in: a host, or `*.` and a domain of two labels or more; any other is refused.
+    pub(crate) fn integrated_auth_hosts(&self) -> (Vec<String>, Vec<String>) {
+        self.integrated_auth
+            .iter()
+            .map(|pattern| pattern.trim().to_lowercase())
+            .partition(|pattern| host_pattern(pattern))
+    }
+
     /// An address as the agent wrote it: a path is taken from `baseUrl`, a bare host gets a scheme.
     pub(crate) fn resolve(&self, url: &str) -> String {
         match &self.base_url {
@@ -86,6 +94,16 @@ impl BrowserProject {
             _ => super::with_scheme(url),
         }
     }
+}
+
+fn host_pattern(pattern: &str) -> bool {
+    let host = pattern.strip_prefix("*.").unwrap_or(pattern);
+    let labels: Vec<&str> = host.split('.').collect();
+    let plain = labels
+        .iter()
+        .all(|label| !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+
+    plain && (host.len() == pattern.len() || labels.len() >= 2)
 }
 
 /// `/a`, `main.asp?x=1` and `Home/Index` are paths; `example.com/a`, `localhost:3000` and `https://x` are not.
@@ -277,6 +295,27 @@ mod tests {
         assert_eq!(project.resolve("example.com"), "https://example.com");
         assert_eq!(project.engine_for("/main.asp?Site=go"), Some(Kind::Ie));
         assert_eq!(project.engine_for("/Home/Index"), None);
+    }
+
+    #[test]
+    fn windows_sign_in_takes_only_host_patterns() {
+        let project = BrowserProject {
+            integrated_auth: [
+                "*.corp.local",
+                "Intranet",
+                "*",
+                "*.local",
+                "a.corp.local,*",
+                "x\");pref(\"y",
+            ]
+            .map(String::from)
+            .to_vec(),
+            ..BrowserProject::default()
+        };
+        let (allowed, refused) = project.integrated_auth_hosts();
+
+        assert_eq!(allowed, ["*.corp.local", "intranet"]);
+        assert_eq!(refused.len(), 4);
     }
 
     #[test]

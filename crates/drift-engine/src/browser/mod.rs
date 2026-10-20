@@ -303,13 +303,14 @@ impl Engine {
         let mut notes = Vec::new();
 
         if let Some(running) = self.running_browser(session_id).await {
-            if wanted.kind.is_none_or(|kind| kind == running.common().kind) {
+            let running_kind = running.common().kind;
+            let Some(asked) = self.asked_kind(session_id, &wanted, running_kind) else {
                 return Ok((running, notes));
-            }
+            };
             notes.push(format!(
                 "The {} browser was closed to open {}.",
-                running.common().kind.label(),
-                wanted.kind.map_or("", Kind::label)
+                running_kind.label(),
+                asked.label()
             ));
             running.stop();
             running.common().stopped().await;
@@ -335,15 +336,32 @@ impl Engine {
         Ok((driver, notes))
     }
 
+    /// The engine to close the running browser for: the one named, or the one the project's address patterns
+    /// give the address. Chrome and Edge stand in for each other when only a pattern chose one.
+    fn asked_kind(&self, session_id: &str, wanted: &Wanted, running: Kind) -> Option<Kind> {
+        if let Some(kind) = wanted.kind {
+            return (kind != running).then_some(kind);
+        }
+        let (_, project) = self.browser_project(session_id);
+        let mapped = wanted.url.and_then(|url| project.engine_for(url))?;
+        let stand_in = mapped.family() == Family::Chromium && running.family() == Family::Chromium;
+
+        (mapped != running && !stand_in).then_some(mapped)
+    }
+
     /// Starts the conversation's browser for the user, at the project's base address when it has one; a running
     /// browser is left as it is.
     pub async fn start_browser(&self, session_id: &str) -> Result<BrowserRecord, String> {
-        let (_, project) = self.browser_project(session_id);
-        let base = project.base_url.as_deref().map(|base| project.resolve(base));
-        let running = self
+        if let Some(driver) = self
             .browsers
             .get(session_id)
-            .is_some_and(|driver| !driver.common().is_ended());
+            .filter(|driver| !driver.common().is_ended())
+        {
+            driver.common().touch();
+            return Ok(driver.record());
+        }
+        let (_, project) = self.browser_project(session_id);
+        let base = project.base_url.as_deref().map(|base| project.resolve(base));
 
         let wanted = Wanted {
             kind: None,
@@ -353,7 +371,7 @@ impl Engine {
         driver.common().touch();
 
         // The pane opens on the new browser at once and watches the page load.
-        if let Some(base) = base.filter(|_| !running) {
+        if let Some(base) = base {
             let tab = driver.tab(None)?;
             tokio::spawn(async move {
                 let _ = tab.go(&base).await;
@@ -418,6 +436,13 @@ impl Engine {
             storage: project.storage.unwrap_or(settings.storage),
         };
         let (storage, profile) = self.profile_for(&wanted_profile, &mut notes);
+        let (integrated_auth, refused) = project.integrated_auth_hosts();
+        if !refused.is_empty() {
+            notes.push(format!(
+                "drift.json integratedAuth entries {} were ignored: Windows sign-in takes a host or `*.` and a domain such as `*.corp.local`.",
+                refused.join(", ")
+            ));
+        }
 
         let program = self
             .browser_program(kind)
@@ -430,7 +455,7 @@ impl Engine {
             storage,
             window: project.window.unwrap_or(settings.window),
             profile,
-            integrated_auth: project.integrated_auth.clone(),
+            integrated_auth,
         };
 
         Ok(Plan { spec, notes })
@@ -567,5 +592,32 @@ mod tests {
         }
         assert_eq!(Kind::Ie.family(), Family::Ie);
         assert_eq!(Kind::Camoufox.family(), Family::Gecko);
+    }
+
+    #[test]
+    fn an_address_the_project_maps_to_another_engine_closes_the_running_one() {
+        let sandbox = crate::tool::tests::Sandbox::new("browser-switch");
+        let engine = &sandbox.ctx.engine;
+        let path = sandbox.ctx.workspace.to_string_lossy();
+        let workspace = engine.store.add_workspace(&path, "Ledger", "").unwrap();
+        let session = engine
+            .store
+            .create_session(crate::store::NewSession {
+                workspace_id: &workspace.id,
+                parent_id: None,
+                visibility: crate::session::types::Visibility::Sibling,
+                title: "Switch",
+                agent: "build",
+                model: None,
+            })
+            .unwrap();
+        let config = r#"{ "browser": { "baseUrl": "https://app.local", "engines": { "ie": ["*/Legacy/*"], "edge": ["*/Mvc/*"] } } }"#;
+        std::fs::write(sandbox.ctx.workspace.join("drift.json"), config).unwrap();
+        let asked = |kind, url| engine.asked_kind(&session.id, &Wanted { kind, url: Some(url) }, Kind::Chrome);
+
+        assert_eq!(asked(None, "/Legacy/main.asp"), Some(Kind::Ie));
+        assert_eq!(asked(None, "/Mvc/Home"), None, "Edge stands in for Chrome");
+        assert_eq!(asked(None, "/Other"), None);
+        assert_eq!(asked(Some(Kind::Firefox), "/Other"), Some(Kind::Firefox));
     }
 }

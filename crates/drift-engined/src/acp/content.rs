@@ -15,7 +15,8 @@ pub(super) fn parts(blocks: &[Value]) -> Result<Vec<Part>, RpcError> {
     Ok(parts)
 }
 
-/// Images become data URLs, linked files mentions the engine reads, embedded resources the text the editor sent.
+/// Images become data URLs, linked files mentions the engine reads, embedded resources the text or file the editor
+/// sent; the engine judges whether the model can read a file.
 fn part(block: &Value) -> Result<Part, RpcError> {
     let text = |field: &str| block[field].as_str().unwrap_or_default().to_string();
     match block["type"].as_str() {
@@ -68,10 +69,10 @@ fn resource(resource: &Value) -> Result<Part, RpcError> {
         });
     }
 
-    let mime = resource["mimeType"].as_str().unwrap_or_default();
+    let mime = resource["mimeType"].as_str().unwrap_or("application/octet-stream");
     match resource["blob"].as_str() {
-        Some(blob) => image(mime, blob, Some(uri)),
-        None => Err(RpcError::invalid_params("a resource needs text or a blob")),
+        Some(blob) if !blob.is_empty() => Ok(file(mime, &name_of(uri), format!("data:{mime};base64,{blob}"))),
+        _ => Err(RpcError::invalid_params("a resource needs text or a blob")),
     }
 }
 
@@ -92,4 +93,25 @@ fn name_of(uri: &str) -> String {
         .find(|segment| !segment.is_empty())
         .unwrap_or(path)
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn an_embedded_pdf_becomes_a_file_and_an_image_block_still_needs_an_image() {
+        let pdf = json!({ "type": "resource", "resource": {
+            "uri": "file:///C:/docs/spec.pdf", "mimeType": "application/pdf", "blob": "JVBERi0=" } });
+        let Ok(Part::File { mime, name, url, .. }) = part(&pdf) else {
+            panic!("{:?}", part(&pdf));
+        };
+
+        assert_eq!((mime.as_str(), name.as_str()), ("application/pdf", "spec.pdf"));
+        assert_eq!(url, "data:application/pdf;base64,JVBERi0=");
+        assert!(part(&json!({ "type": "image", "mimeType": "application/pdf", "data": "JVBERi0=" })).is_err());
+        assert!(part(&json!({ "type": "resource", "resource": { "uri": "x" } })).is_err());
+    }
 }
