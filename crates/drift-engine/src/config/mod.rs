@@ -91,6 +91,9 @@ pub struct Config {
     /// Named folders and repositories outside the workspace, the user's before the project's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<references::Reference>,
+    /// `browser`: the project's engine, address, sign-in and notes for the browser tool.
+    #[serde(default)]
+    pub browser: crate::browser::BrowserProject,
     /// `worktree.setup`: commands run in a new worktree, each asking like `bash`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub worktree_setup: Vec<String>,
@@ -296,6 +299,9 @@ impl Config {
         self.timeouts.extend(file.timeouts);
         if let Some(setup) = file.worktree.setup {
             self.worktree_setup = setup;
+        }
+        if let Some(browser) = file.browser {
+            self.browser = browser;
         }
         self.limits.repeats = file.limits.repeats.unwrap_or(self.limits.repeats).max(2);
         self.limits.polls = file.limits.polls.unwrap_or(self.limits.polls).max(2);

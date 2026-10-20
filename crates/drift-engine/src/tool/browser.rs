@@ -2,6 +2,7 @@
 
 mod actions;
 mod hosts;
+mod login;
 
 use std::fmt::Write as _;
 
@@ -92,7 +93,7 @@ impl Tool for Browser {
                 actions::run(context, action, &input).await.map_err(ToolError)?
             };
 
-            Ok(output(action, &input, step))
+            Ok(output(action, &input, hide_passwords(context, step)))
         })
     }
 }
@@ -140,6 +141,20 @@ async fn batch(context: &Context, input: &Value) -> Result<Step, ToolError> {
     Ok(done)
 }
 
+/// A password the engine typed can show up in an address afterwards; the model never sees one.
+fn hide_passwords(context: &Context, mut step: Step) -> Step {
+    let (workspace, _) = context.engine.browser_project(&context.session_id);
+    let Some(workspace) = workspace else {
+        return step;
+    };
+
+    for password in context.engine.browser_passwords(&workspace.id) {
+        step.text = step.text.replace(&password, "[password]");
+    }
+
+    step
+}
+
 fn output(action: &str, input: &Value, step: Step) -> Output {
     let title = match input["url"].as_str() {
         Some(url) => format!("Browser: {action} {url}"),
@@ -165,11 +180,16 @@ fn schema() -> Value {
                 "type": "string",
                 "enum": [
                     "open", "navigate", "snapshot", "click", "hover", "fill", "type", "press", "scroll", "wait",
-                    "screenshot", "eval", "logs", "dialog", "viewport", "pages", "select", "close", "batch", "stop"
+                    "screenshot", "eval", "logs", "dialog", "viewport", "pages", "select", "close", "login", "batch",
+                    "stop"
                 ],
-                "description": "open: start the browser if needed and open `url` in a new tab. navigate: load `url` (or back, forward, reload) in the page. snapshot: the page's elements with refs. click, hover: by `ref`, or `x`/`y` in the last screenshot's pixels. fill: set a field by `ref` to `text` (a select takes an option's value or label; a checkbox takes `checked`). type: text into the focused element. press: a key or chord such as Enter or Control+A. scroll: `ref` into view, or by `dy` pixels. wait: until `text` shows, or `ms` pass (at most 30000). screenshot: an image of the page. eval: run `expression` in the page. logs: console (default) or network. dialog: answer an alert, confirm or prompt. viewport: desktop, tablet, mobile, or `width`/`height`. pages: list tabs. select, close: a tab by `page`. batch: run `actions` in order. stop: end the browser."
+                "description": "open: start the browser if needed and open `url` in a new tab (a path opens on the project's baseUrl); `engine` picks another browser, replacing this conversation's. navigate: load `url` (or back, forward, reload) in the page. snapshot: the page's elements with refs. click, hover: by `ref`, or `x`/`y` in the last screenshot's pixels. fill: set a field by `ref` to `text` (a select takes an option's value or label; a checkbox takes `checked`). type: text into the focused element. press: a key or chord such as Enter or Control+A. scroll: `ref` into view, or by `dy` pixels. wait: until `text` shows, or `ms` pass (at most 30000). screenshot: an image of the page. eval: run `expression` in the page. logs: console (default) or network. dialog: answer an alert, confirm or prompt. viewport: desktop, tablet, mobile, or `width`/`height`. pages: list tabs. select, close: a tab by `page`. login: sign in as the project's drift.json sets up, with a credential the user stored. batch: run `actions` in order. stop: end the browser."
             },
-            "url": { "type": "string", "description": "For open and navigate. A bare host gets https://, localhost gets http://." },
+            "url": { "type": "string", "description": "For open and navigate. A bare host gets https://, localhost gets http://; a path is taken from the project's baseUrl." },
+            "engine": { "type": "string", "enum": ["chrome", "edge", "firefox", "camoufox", "ie"], "description": "For open: the browser to use. Leave it out to use the project's or the user's choice. ie is Edge's Internet Explorer mode; camoufox is a hardened Firefox for sites that block automation." },
+            "secret": { "type": "string", "enum": ["user", "password", "domain"], "description": "For fill: type a part of a stored credential instead of `text`; you never see it." },
+            "credential": { "type": "string", "description": "For fill with `secret` and for login: the stored credential's name, if not the project's sign-in one." },
+            "language": { "type": "string", "enum": ["javascript", "vbscript"], "description": "For eval: vbscript runs only in IE mode." },
             "ref": { "type": "integer", "description": "An element's ref from the last snapshot." },
             "x": { "type": "number" },
             "y": { "type": "number" },

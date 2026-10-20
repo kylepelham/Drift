@@ -16,6 +16,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/browser/engines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every engine: whether it can run here, where its program is, and any download in progress. */
+        get: operations["browserEngines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/browser/engines/{engine}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Starts fetching an engine Drift can download (Camoufox, IEDriverServer); `browserEngines` shows progress. */
+        post: operations["downloadBrowserEngine"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/browser/engines/{engine}/path": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Sets or clears the program an engine runs (for IE mode, IEDriverServer). */
+        put: operations["setBrowserEnginePath"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/bundles": {
         parameters: {
             query?: never;
@@ -1306,6 +1357,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{id}/browser": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A workspace's drift.json `browser` section and its stored sign-ins, without passwords. */
+        get: operations["workspaceBrowser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{id}/browser/credentials/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Stores a sign-in for a workspace's browser; its password goes to the keychain. */
+        put: operations["saveBrowserCredential"];
+        post?: never;
+        delete: operations["removeBrowserCredential"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspaces/{id}/config": {
         parameters: {
             query?: never;
@@ -1534,7 +1619,40 @@ export interface components {
             mime: string;
         };
         /** @enum {string} */
-        BrowserKind: "chrome" | "edge";
+        BrowserKind: "chrome" | "edge" | "firefox" | "camoufox" | "ie";
+        /** @description `browser` in drift.json. */
+        BrowserProject: {
+            /**
+             * @description Where the app lives; `open` with a path, or with no address, starts here.
+             * @default null
+             */
+            baseUrl: string | null;
+            /** @default null */
+            engine: components["schemas"]["BrowserKind"] | null;
+            /**
+             * @description Address patterns (`*` matches anything) that choose an engine when the browser opens on one.
+             * @default {}
+             */
+            engines: {
+                [key: string]: string[];
+            };
+            /**
+             * @description Hosts the browser may sign in to with the user's Windows account (patterns such as `*.corp.local`).
+             * @default []
+             */
+            integratedAuth: string[];
+            /** @default null */
+            login: components["schemas"]["Login"] | null;
+            /**
+             * @description What the agent should know about the app: its layout, menus, frames, quirks.
+             * @default null
+             */
+            notes: string | null;
+            /** @default null */
+            storage: components["schemas"]["BrowserStorage"] | null;
+            /** @default null */
+            window: components["schemas"]["BrowserWindow"] | null;
+        };
         /** @description A conversation's browser as the pane and the API show it. */
         BrowserRecord: {
             engine: components["schemas"]["BrowserKind"];
@@ -1654,6 +1772,8 @@ export interface components {
         /** @description Everything resolved for one workspace: home config first, project config over it. */
         Config: {
             agents: components["schemas"]["Agent"][];
+            /** @description `browser`: the project's engine, address, sign-in and notes for the browser tool. */
+            browser?: components["schemas"]["BrowserProject"];
             checks: {
                 [key: string]: components["schemas"]["CheckConfig"];
             };
@@ -1732,6 +1852,19 @@ export interface components {
             /** Format: double */
             output: number;
         };
+        /** @description A credential as Settings shows it: never its password. */
+        Credential: {
+            domain?: string;
+            hasPassword?: boolean;
+            name: string;
+            user: string;
+        };
+        /** @description A sign-in to store; a password left out keeps the stored one. */
+        CredentialInput: {
+            domain?: string;
+            password?: string | null;
+            user: string;
+        };
         /** @enum {string} */
         Decision: "allow" | "deny" | "ask";
         /** @description An alert, confirm or prompt waiting on a page; nothing else runs on it until it is answered. */
@@ -1739,6 +1872,13 @@ export interface components {
             defaultPrompt?: string | null;
             kind: string;
             message: string;
+        };
+        Download: {
+            /** Format: int64 */
+            done: number;
+            error?: string | null;
+            /** Format: int64 */
+            total: number;
         };
         EnabledBody: {
             enabled: boolean;
@@ -1748,6 +1888,10 @@ export interface components {
          * @enum {string}
          */
         Ending: "length" | "refused" | "limit";
+        /** @description Where an engine's program is, set by hand; empty goes back to finding it. */
+        EnginePath: {
+            path?: string | null;
+        };
         /** @description Engine-wide preferences the user changes in Settings. */
         EngineSettings: {
             /** @description Every session answers its own asks; only a deny rule still refuses. Left out of a PUT, it stays as it is. */
@@ -1784,6 +1928,20 @@ export interface components {
             registrySources?: components["schemas"]["SourceInput"][] | null;
             resumeTurns?: boolean | null;
             shellHandoff?: boolean | null;
+        };
+        /** @description Whether an engine can run here, and what it would take if not. */
+        EngineStatus: {
+            available: boolean;
+            /** @description Set by the user in Settings rather than found. */
+            custom: boolean;
+            download?: components["schemas"]["Download"] | null;
+            /** @description Drift can download it. */
+            downloadable: boolean;
+            engine: components["schemas"]["BrowserKind"];
+            /** @description What is missing, when it is not available. */
+            missing?: string | null;
+            /** @description The program it runs, or for IE mode, IEDriverServer. */
+            path?: string | null;
         };
         Envelope: components["schemas"]["Event"] & {
             /** Format: int64 */
@@ -2185,6 +2343,36 @@ export interface components {
              * @description Absent or 0 for each model's full window.
              */
             contextLimit?: number | null;
+        };
+        /** @description How `login` signs in. Values may hold `{user}`, `{password}` and `{domain}` from the named credential. */
+        Login: {
+            /**
+             * @description The credential to sign in with, stored in Settings > Browser for this workspace.
+             * @default
+             */
+            credential: string;
+            /**
+             * @description Form fields to fill: a selector (`#id`, `name`, or CSS) and its value.
+             * @default {}
+             */
+            fields: {
+                [key: string]: string;
+            };
+            /**
+             * @description Where the sign-in form is, relative to `baseUrl` or absolute; the current page when left out.
+             * @default null
+             */
+            path: string | null;
+            /**
+             * @description The selector of the button that sends the form.
+             * @default null
+             */
+            submit: string | null;
+            /**
+             * @description An address that signs in by itself, relative to `baseUrl` or absolute.
+             * @default null
+             */
+            url: string | null;
         };
         /**
          * @description A language server Drift starts to hear the errors an edit left: `false` turns a built-in off; a
@@ -3312,6 +3500,11 @@ export interface components {
             name: string;
             path: string;
         };
+        /** @description A workspace's browser setup as Settings shows it: its drift.json section and its stored sign-ins. */
+        WorkspaceBrowser: {
+            credentials: components["schemas"]["Credential"][];
+            project: components["schemas"]["BrowserProject"];
+        };
         /** @description A workspace's own choice for a server: on there though off elsewhere, or the reverse. */
         WorkspaceChoice: {
             enabled: boolean;
@@ -3350,6 +3543,75 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    browserEngines: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineStatus"][];
+                };
+            };
+        };
+    };
+    downloadBrowserEngine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setBrowserEnginePath: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                engine: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnginePath"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineStatus"][];
+                };
             };
         };
     };
@@ -5998,6 +6260,81 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Workspace"];
+                };
+            };
+        };
+    };
+    workspaceBrowser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceBrowser"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    saveBrowserCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CredentialInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Credential"][];
+                };
+            };
+        };
+    };
+    removeBrowserCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Credential"][];
                 };
             };
         };

@@ -5,7 +5,6 @@ use std::net::IpAddr;
 use serde_json::Value;
 
 use super::super::Context;
-use crate::browser::instance_url;
 
 /// The hosts a call would act on: the addresses it loads and the page it acts on now.
 pub(super) fn of_call(context: &Context, input: &Value) -> Vec<String> {
@@ -13,7 +12,11 @@ pub(super) fn of_call(context: &Context, input: &Value) -> Vec<String> {
         .engine
         .browsers
         .get(&context.session_id)
-        .and_then(|instance| instance_url(&instance, input["page"].as_str()));
+        .and_then(|driver| driver.tab(input["page"].as_str()).ok())
+        .map(|tab| tab.url());
+    let (_, project) = context.engine.browser_project(&context.session_id);
+    let base = project.base_url.as_deref().map(|base| project.resolve(base));
+    let resolve = |url: &str| project.resolve(url);
     let mut hosts = Vec::new();
 
     let steps: Vec<&Value> = match input["action"].as_str() {
@@ -21,7 +24,12 @@ pub(super) fn of_call(context: &Context, input: &Value) -> Vec<String> {
         _ => vec![input],
     };
     for step in steps {
-        for host in of_step(step, current.as_deref()) {
+        let known = Known {
+            current: current.as_deref(),
+            base: base.as_deref(),
+            resolve: &resolve,
+        };
+        for host in of_step(step, &known) {
             if !hosts.contains(&host) {
                 hosts.push(host);
             }
@@ -31,17 +39,25 @@ pub(super) fn of_call(context: &Context, input: &Value) -> Vec<String> {
     hosts
 }
 
-fn of_step(step: &Value, current: Option<&str>) -> Vec<String> {
+/// The addresses a step can be judged by: the page now, the project's base, and how paths resolve.
+struct Known<'a> {
+    current: Option<&'a str>,
+    base: Option<&'a str>,
+    resolve: &'a dyn Fn(&str) -> String,
+}
+
+fn of_step(step: &Value, known: &Known) -> Vec<String> {
     let action = step["action"].as_str().unwrap_or_default();
     let url = step["url"].as_str();
+    let current = || known.current.and_then(host).into_iter().collect::<Vec<_>>();
 
     match (action, url) {
         ("pages" | "stop" | "select" | "close", _) => Vec::new(),
+        ("open", None) | ("login", _) => known.base.and_then(host).into_iter().chain(current()).collect(),
         ("open" | "navigate", Some(url)) if !matches!(url, "back" | "forward" | "reload") => {
-            host(&crate::browser::with_scheme(url)).into_iter().collect()
+            host(&(known.resolve)(url)).into_iter().collect()
         }
-        ("open", None) => Vec::new(),
-        _ => current.and_then(host).into_iter().collect(),
+        _ => current(),
     }
 }
 
@@ -113,7 +129,14 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .map(|step| of_step(step, Some("http://localhost:3000/")))
+            .map(|step| {
+                let known = Known {
+                    current: Some("http://localhost:3000/"),
+                    base: None,
+                    resolve: &crate::browser::with_scheme,
+                };
+                of_step(step, &known)
+            })
             .collect();
 
         assert_eq!(steps, [vec!["example.com"], vec!["localhost"], vec!["localhost"]]);

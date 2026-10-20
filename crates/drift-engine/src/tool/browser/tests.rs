@@ -110,7 +110,7 @@ async fn a_real_browser_fills_a_form_and_reports_what_changed() {
 
     // The pane: a watcher gets frames of the page, and what the user types reaches it.
     let instance = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
-    let mut viewer = instance.watch();
+    let mut viewer = crate::browser::driver::watch(instance.clone());
     let frame = tokio::time::timeout(std::time::Duration::from_secs(10), viewer.frames.recv())
         .await
         .expect("a frame within 10 s")
@@ -151,4 +151,130 @@ fn reference(snapshot: &str, role: &str) -> u64 {
     let digits: String = line[start..].chars().take_while(char::is_ascii_digit).collect();
 
     digits.parse().unwrap()
+}
+
+/// A small booking form, written so IE's oldest modes run it too.
+const FORM: &str = "<!doctype html><html><head><title>Book a table</title></head><body>\
+<label for=guest>Name</label> <input id=guest name=guest>\
+<select id=time><option>18:30</option><option>19:00</option></select>\
+<button type=button id=reserve onclick=\"document.title='Hello '+document.getElementById('guest').value\">Reserve</button>\
+</body></html>";
+
+/// Serves `html` on loopback for as long as the test runs; IE mode cannot open a `data:` address.
+async fn serve(html: &'static str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut request = [0u8; 4096];
+                let _ = stream.read(&mut request).await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{html}",
+                    html.len()
+                );
+                let _ = stream.write_all(response.as_bytes()).await;
+            });
+        }
+    });
+
+    format!("http://127.0.0.1:{port}/")
+}
+
+/// Opens the form in `engine`, fills and sends it, takes a picture, watches it, and stops.
+async fn drives(engine: &str) {
+    let sandbox = Sandbox::new(&format!("browser-{engine}"));
+    let named = std::env::var_os(format!("DRIFT_TEST_{}", engine.to_uppercase()));
+    if let Some(path) = named.filter(|path| std::path::Path::new(path).is_file()) {
+        let kind = crate::browser::Kind::parse(engine).unwrap();
+        sandbox.ctx.engine.set_browser_path(kind, path.to_str()).unwrap();
+    }
+    let url = serve(FORM).await;
+
+    let opened = call(&sandbox, json!({ "action": "open", "url": url, "engine": engine }))
+        .await
+        .unwrap();
+    assert!(opened.output.contains("Started"), "{}", opened.output);
+
+    fills_the_form(&sandbox, engine).await;
+    watches_and_stops(&sandbox).await;
+}
+
+async fn fills_the_form(sandbox: &Sandbox, engine: &str) {
+    let snapshot = call(sandbox, json!({ "action": "snapshot", "interactive": true }))
+        .await
+        .unwrap();
+    let textbox = reference(&snapshot.output, "textbox");
+    let button = reference(&snapshot.output, "button");
+    let combobox = reference(&snapshot.output, "combobox");
+    call(
+        sandbox,
+        json!({ "action": "batch", "actions": [
+            { "action": "fill", "ref": textbox, "text": "Ada" },
+            { "action": "fill", "ref": combobox, "text": "19:00" },
+            { "action": "click", "ref": button }
+        ]}),
+    )
+    .await
+    .unwrap();
+
+    let title = call(sandbox, json!({ "action": "eval", "expression": "document.title" }))
+        .await
+        .unwrap();
+    assert_eq!(title.output, "Hello Ada", "{engine}");
+    let chosen = call(
+        sandbox,
+        json!({ "action": "eval", "expression": "document.getElementById('time').value" }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(chosen.output, "19:00", "{engine}");
+}
+
+async fn watches_and_stops(sandbox: &Sandbox) {
+    let shot = call(sandbox, json!({ "action": "screenshot" })).await.unwrap();
+    assert_eq!(shot.metadata.images.map(|images| images.len()), Some(1));
+
+    let driver = sandbox.ctx.engine.browsers.get("ses_test").unwrap();
+    let mut viewer = crate::browser::driver::watch(driver.clone());
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(20), viewer.frames.recv())
+        .await
+        .expect("a frame within 20 s")
+        .unwrap();
+    assert!(frame.jpeg.starts_with(&[0xFF, 0xD8]));
+    drop(viewer);
+
+    call(sandbox, json!({ "action": "stop" })).await.unwrap();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    while sandbox.ctx.engine.browsers.record("ses_test").is_some() {
+        assert!(tokio::time::Instant::now() < deadline, "the browser ended");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
+/// Needs Firefox installed, or `DRIFT_TEST_FIREFOX` naming its program.
+#[tokio::test(flavor = "multi_thread")]
+async fn firefox_fills_a_form_over_bidi() {
+    let installed = crate::browser::engines::executable(crate::browser::Kind::Firefox).is_some();
+    if installed || std::env::var_os("DRIFT_TEST_FIREFOX").is_some() {
+        drives("firefox").await;
+    }
+}
+
+/// Needs `DRIFT_TEST_CAMOUFOX` naming Camoufox's program.
+#[tokio::test(flavor = "multi_thread")]
+async fn camoufox_fills_a_form_over_bidi() {
+    if std::env::var_os("DRIFT_TEST_CAMOUFOX").is_some() {
+        drives("camoufox").await;
+    }
+}
+
+/// Opens a real Edge window in IE mode, so it runs only when `DRIFT_TEST_IE` is set.
+#[tokio::test(flavor = "multi_thread")]
+async fn ie_mode_fills_a_form_through_iedriver() {
+    if std::env::var_os("DRIFT_TEST_IE").is_some() {
+        drives("ie").await;
+    }
 }

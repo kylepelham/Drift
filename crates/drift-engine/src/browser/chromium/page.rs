@@ -7,10 +7,11 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::sync::watch;
 
-use super::DialogRecord;
-use super::PageRecord;
+use super::agent::Agents;
 use super::cdp::{CdpError, Connection};
-use super::input::Key;
+use crate::browser::driver::Settled;
+use crate::browser::input::Key;
+use crate::browser::{DialogRecord, PageRecord, with_scheme};
 
 /// The helpers `page.js` installs in the isolated world.
 const PAGE_JS: &str = include_str!("page.js");
@@ -49,33 +50,24 @@ pub(crate) struct Page {
     pub(crate) target: String,
     pub(crate) session: String,
     pub(crate) popup: bool,
+    pub(super) agents: Arc<Agents>,
     cdp: Arc<Connection>,
     state: Mutex<State>,
     /// Counts the documents that finished loading.
     loads: watch::Sender<u64>,
 }
 
-/// What an action changed, for its result to say.
-pub(crate) struct Settled {
-    pub(crate) url: String,
-    pub(crate) title: String,
-    pub(crate) navigated: bool,
-    pub(crate) dialog: Option<DialogRecord>,
-}
-
 impl Page {
-    pub(crate) fn new(target: String, session: String, popup: bool, cdp: Arc<Connection>, url: String) -> Arc<Self> {
-        Arc::new(Self {
+    pub(crate) fn new(target: String, session: String, popup: bool, cdp: Arc<Connection>, agents: Arc<Agents>) -> Self {
+        Self {
             target,
             session,
             popup,
+            agents,
             cdp,
-            state: Mutex::new(State {
-                url,
-                ..State::default()
-            }),
+            state: Mutex::default(),
             loads: watch::channel(0).0,
-        })
+        }
     }
 
     /// Turns on the events a test needs and lets the page run; `user_agent` replaces a headless one first.
@@ -111,7 +103,7 @@ impl Page {
         self.cdp.send(method, params, Some(&self.session));
     }
 
-    pub(crate) fn record(&self, active: bool) -> PageRecord {
+    pub(super) fn page_record(&self, active: bool) -> PageRecord {
         let state = self.state.lock().unwrap();
 
         PageRecord {
@@ -124,11 +116,11 @@ impl Page {
         }
     }
 
-    pub(crate) fn url(&self) -> String {
+    pub(super) fn current_url(&self) -> String {
         self.state.lock().unwrap().url.clone()
     }
 
-    pub(crate) fn dialog(&self) -> Option<DialogRecord> {
+    pub(super) fn current_dialog(&self) -> Option<DialogRecord> {
         self.state.lock().unwrap().dialog.clone()
     }
 
@@ -301,7 +293,7 @@ impl Page {
     }
 
     /// Runs `expression` as the page's own script would, for debugging what it holds.
-    pub(crate) async fn evaluate(&self, expression: &str) -> Result<Value, String> {
+    pub(crate) async fn evaluate_page(&self, expression: &str) -> Result<Value, String> {
         let params = json!({
             "expression": expression,
             "returnByValue": true,
@@ -325,7 +317,7 @@ impl Page {
         Ok(())
     }
 
-    pub(crate) async fn click(&self, x: f64, y: f64, double: bool) -> Result<(), CdpError> {
+    pub(crate) async fn click_at(&self, x: f64, y: f64, double: bool) -> Result<(), CdpError> {
         self.mouse("mouseMoved", x, y, 0).await?;
         let presses = if double { 2 } else { 1 };
         for count in 1..=presses {
@@ -343,7 +335,7 @@ impl Page {
         Ok(())
     }
 
-    pub(crate) async fn press(&self, key: &Key, modifiers: u8) -> Result<(), CdpError> {
+    pub(crate) async fn press_key(&self, key: &Key, modifiers: u8) -> Result<(), CdpError> {
         for event in key.events(modifiers) {
             self.call("Input.dispatchKeyEvent", event).await?;
         }
@@ -357,8 +349,18 @@ impl Page {
         Ok(())
     }
 
+    /// An address, or `back`, `forward` or `reload`; a bare host gets `https://`.
+    pub(super) async fn go_to(&self, url: &str) -> Result<(), String> {
+        match url {
+            "back" => self.history(-1).await,
+            "forward" => self.history(1).await,
+            "reload" => self.reload().await,
+            _ => self.navigate(&with_scheme(url)).await,
+        }
+    }
+
     /// Loads `url` and waits for it, at most 15 s; a page that cannot load is an error naming why.
-    pub(crate) async fn navigate(&self, url: &str) -> Result<(), String> {
+    async fn navigate(&self, url: &str) -> Result<(), String> {
         let before = *self.loads.borrow();
         let result = self
             .call("Page.navigate", json!({ "url": url }))
@@ -412,7 +414,7 @@ impl Page {
         let mut loads = self.loads.subscribe();
         let deadline = tokio::time::Instant::now() + limit;
 
-        while *loads.borrow_and_update() <= before && self.dialog().is_none() {
+        while *loads.borrow_and_update() <= before && self.current_dialog().is_none() {
             let waited = tokio::time::timeout_at(deadline, loads.changed()).await;
             if !matches!(waited, Ok(Ok(()))) {
                 return;
@@ -421,7 +423,7 @@ impl Page {
     }
 
     /// Lets a navigation an action started finish, then says where the page is.
-    pub(crate) async fn settle(&self, url_before: &str) -> Settled {
+    pub(crate) async fn settle_after(&self, url_before: &str) -> Settled {
         let before = *self.loads.borrow();
         tokio::time::sleep(SETTLE).await;
         if self.state.lock().unwrap().loading {
@@ -438,7 +440,7 @@ impl Page {
     }
 
     /// A JPEG of what the page shows now, with its size.
-    pub(crate) async fn screenshot(&self) -> Result<(Vec<u8>, u32, u32), String> {
+    pub(crate) async fn capture(&self) -> Result<(Vec<u8>, u32, u32), String> {
         use base64::Engine as _;
 
         let shot = self
@@ -498,7 +500,7 @@ impl Page {
     }
 
     /// Console lines or requests, newest last, those `matches` accepts; at most `limit`.
-    pub(crate) fn logs(&self, network: bool, matches: &dyn Fn(&str) -> bool, limit: usize) -> Vec<String> {
+    pub(crate) fn log_lines(&self, network: bool, matches: &dyn Fn(&str) -> bool, limit: usize) -> Vec<String> {
         let state = self.state.lock().unwrap();
         let lines: Vec<String> = if network {
             state.requests.iter().map(request_line).collect()
@@ -511,7 +513,7 @@ impl Page {
         kept.into_iter().skip(skip).collect()
     }
 
-    pub(crate) async fn response_body(&self, request_id: &str) -> Result<String, String> {
+    pub(crate) async fn body_of(&self, request_id: &str) -> Result<String, String> {
         let body = self
             .call("Network.getResponseBody", json!({ "requestId": request_id }))
             .await
@@ -524,7 +526,7 @@ impl Page {
         Ok(body["body"].as_str().unwrap_or_default().to_string())
     }
 
-    pub(crate) async fn answer_dialog(&self, accept: bool, text: Option<&str>) -> Result<(), String> {
+    pub(crate) async fn answer(&self, accept: bool, text: Option<&str>) -> Result<(), String> {
         let mut params = json!({ "accept": accept });
         if let Some(text) = text {
             params["promptText"] = json!(text);

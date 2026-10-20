@@ -81,7 +81,7 @@ test("base prompts and agents are one Server setting, with inherited values styl
     const navigation = await Bun.file("src/ui/settings-search.ts").text();
     const editor = await Bun.file("src/ui/settings-prompts.tsx").text();
     expect(navigation).toContainCode(
-        'items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]',
+        'items: ["Tools", "Browser", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"]',
     );
     expect(source).toContainCode("<PromptsSection />");
     expect(await Bun.file("src/ui/settings-base-prompts.tsx").exists()).toBeFalse();

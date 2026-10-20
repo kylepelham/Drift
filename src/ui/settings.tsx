@@ -14,6 +14,7 @@ import { ToolExecutionSection } from "./settings-tools";
 import { ProvidersSection } from "./settings-providers";
 import { KeybindsSection } from "./settings-shortcuts";
 import { UsageLimitsSection } from "./settings-usage";
+import { BrowserSection } from "./settings-browser";
 import { StorageSection } from "./settings-storage";
 import { PluginsSection } from "./settings-plugins";
 import { PromptsSection } from "./settings-prompts";
@@ -254,6 +255,9 @@ function SettingsModal(props: { onClose: () => void }) {
                                     </Match>
                                     <Match when={section() === "Tools"}>
                                         <ToolExecutionSection />
+                                    </Match>
+                                    <Match when={section() === "Browser"}>
+                                        <BrowserSection />
                                     </Match>
                                     <Match when={section() === "Providers"}>
                                         <ProvidersSection />

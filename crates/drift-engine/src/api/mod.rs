@@ -57,6 +57,7 @@ fn documented() -> OpenApiRouter<Arc<Engine>> {
         .merge(permission_routes())
         .merge(question_routes())
         .merge(task_routes())
+        .merge(browser_routes())
         .merge(mcp_routes())
         .merge(review_routes())
         .routes(routes!(events::get))
@@ -187,9 +188,19 @@ fn task_routes() -> OpenApiRouter<Arc<Engine>> {
         .routes(routes!(sessions::abort_task))
         .routes(routes!(processes::list))
         .routes(routes!(processes::stop))
+}
+
+/// A conversation's browser and its view socket, and what Settings > Browser manages.
+fn browser_routes() -> OpenApiRouter<Arc<Engine>> {
+    OpenApiRouter::new()
         .routes(routes!(browser::get))
         .routes(routes!(browser::stop))
         .routes(routes!(browser::view))
+        .routes(routes!(browser::engines))
+        .routes(routes!(browser::download))
+        .routes(routes!(browser::set_path))
+        .routes(routes!(browser::workspace))
+        .routes(routes!(browser::save_credential, browser::remove_credential))
 }
 
 fn mcp_routes() -> OpenApiRouter<Arc<Engine>> {

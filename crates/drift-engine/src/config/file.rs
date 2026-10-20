@@ -35,6 +35,8 @@ pub struct File {
     pub references: BTreeMap<String, super::references::ReferenceEntry>,
     /// What a new worktree gets before anyone works in it.
     pub worktree: WorktreeFile,
+    /// How this project's pages are tested in the browser; the nearest file that sets it wins.
+    pub browser: Option<crate::browser::BrowserProject>,
 }
 
 /// `worktree` in drift.json.

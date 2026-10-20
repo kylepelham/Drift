@@ -7,8 +7,17 @@ import { Picker } from "./picker";
 
 import type { BrowserSettings } from "../engine/native/client";
 
+/** Settings > Browser: the `browser` tool and how its browsers start. */
+export function BrowserSection() {
+    return (
+        <div class="space-y-5">
+            <BrowserGroup />
+        </div>
+    );
+}
+
 /** The `browser` tool and how its browsers start; the engine owns the values. */
-export function BrowserGroup() {
+function BrowserGroup() {
     const engine = useEngine();
     // Null until the engine answers, so no control shows a guess.
     const [settings, setSettings] = createSignal<BrowserSettings | null>(null);

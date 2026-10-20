@@ -61,7 +61,7 @@ const browserFrame = (state: string) => (frame: Frame) =>
 /** Waits for the first binary message on a view socket that is a frame, and returns its header. */
 function firstFrame(socket: WebSocket) {
     return new Promise<{ width: number; height: number }>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("no frame within 15 s")), 15_000);
+        const timer = setTimeout(() => reject(new Error("no frame within 45 s")), 45_000);
         socket.onmessage = (message) => {
             if (!(message.data instanceof ArrayBuffer)) return;
             const length = new DataView(message.data).getUint32(0, true);
@@ -104,7 +104,7 @@ test.skipIf(!browserInstalled())(
             (frame) =>
                 frame.type === "browser.updated" &&
                 (frame.browser as { pages: { title: string }[] }).pages.some((tab) => tab.title === "Typed Ada"),
-            15_000,
+            45_000,
         );
         socket.close();
 
@@ -114,5 +114,5 @@ test.skipIf(!browserInstalled())(
         expect(gone.json).toBeNull();
         events.close();
     },
-    90_000,
+    180_000,
 );

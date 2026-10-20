@@ -10,6 +10,7 @@ export const sections = [
     "Voice",
     "Shortcuts",
     "Tools",
+    "Browser",
     "Providers",
     "Usage",
     "Skills",
@@ -34,6 +35,7 @@ export const sectionLabels: Record<Section, string> = {
     Voice: "drift.voice",
     Shortcuts: "settings.tab.shortcuts",
     Tools: "drift.settings.execution",
+    Browser: "drift.settings.browser.title",
     Providers: "settings.providers.title",
     Usage: "drift.usage.title",
     Skills: "drift.settings.skills",
@@ -52,7 +54,7 @@ export const sectionGroups: { label: string; items: Section[] }[] = [
     },
     {
         label: "settings.section.server",
-        items: ["Tools", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"],
+        items: ["Tools", "Browser", "Providers", "Usage", "Skills", "MCP", "Plugins", "Prompts", "Permissions"],
     },
     { label: "drift.settings.section", items: ["Storage", "Remote Access", "About"] },
 ];
@@ -153,6 +155,8 @@ const settingsSearchDefinitions = {
             title: "drift.settings.shellTimeout.customMinutes",
             description: "drift.settings.shellTimeout.customDescription",
         },
+    ],
+    Browser: [
         { title: "drift.settings.browser.enabled.title", description: "drift.settings.browser.enabled.description" },
         { title: "drift.settings.browser.engine.title", description: "drift.settings.browser.engine.description" },
         { title: "drift.settings.browser.storage.title", description: "drift.settings.browser.storage.description" },

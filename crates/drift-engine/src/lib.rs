@@ -101,6 +101,8 @@ pub struct Engine {
     pub processes: background::Processes,
     /// Each conversation's browser, started by the `browser` tool.
     pub browsers: browser::Browsers,
+    /// Engines Drift is downloading for the browser tool.
+    pub(crate) browser_downloads: browser::engines::Downloads,
     /// Language servers per project root, started when a file one handles is read or written.
     pub lsp: lsp::Servers,
     /// The user's plugins, loaded at start and on request.
@@ -180,6 +182,7 @@ impl Engine {
             unserved: Default::default(),
             processes: Default::default(),
             browsers: Default::default(),
+            browser_downloads: Default::default(),
             lsp: Default::default(),
             hooks: Default::default(),
             search_routing: Default::default(),

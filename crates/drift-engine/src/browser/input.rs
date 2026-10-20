@@ -73,6 +73,42 @@ const NAMED: &[(&str, &str, u32, Option<&str>)] = &[
     ("Space", "Space", 32, Some(" ")),
 ];
 
+/// The code points WebDriver reserves for keys that type nothing.
+const WEBDRIVER_KEYS: &[(&str, &str)] = &[
+    ("Enter", "\u{E007}"),
+    ("Tab", "\u{E004}"),
+    ("Backspace", "\u{E003}"),
+    ("Delete", "\u{E017}"),
+    ("Escape", "\u{E00C}"),
+    ("ArrowLeft", "\u{E012}"),
+    ("ArrowUp", "\u{E013}"),
+    ("ArrowRight", "\u{E014}"),
+    ("ArrowDown", "\u{E015}"),
+    ("Home", "\u{E011}"),
+    ("End", "\u{E010}"),
+    ("PageUp", "\u{E00E}"),
+    ("PageDown", "\u{E00F}"),
+    ("Insert", "\u{E016}"),
+    ("Shift", "\u{E008}"),
+    ("Control", "\u{E009}"),
+    ("Alt", "\u{E00A}"),
+    ("Meta", "\u{E03D}"),
+];
+
+/// The WebDriver keys to hold for `modifiers`, in the order they go down.
+pub(crate) fn webdriver_modifiers(modifiers: u8) -> Vec<&'static str> {
+    [
+        (CONTROL, "\u{E009}"),
+        (SHIFT, "\u{E008}"),
+        (ALT, "\u{E00A}"),
+        (META, "\u{E03D}"),
+    ]
+    .into_iter()
+    .filter(|(bit, _)| modifiers & bit != 0)
+    .map(|(_, key)| key)
+    .collect()
+}
+
 /// `Control+Shift+K`, `Enter`, `a`: the key and the modifiers held with it.
 pub(crate) fn parse_chord(chord: &str) -> Result<(Key, u8), String> {
     let parts: Vec<&str> = chord.split('+').filter(|part| !part.is_empty()).collect();
@@ -157,6 +193,25 @@ impl Key {
         }
     }
 
+    /// The key's name and the virtual key code Windows gives it, as an IE page's script sees a key.
+    pub(crate) fn name_and_code(&self) -> (String, u32) {
+        (self.key.clone(), self.key_code)
+    }
+
+    /// The key as WebDriver input names it: the character, or the code point WebDriver reserves for it.
+    pub(crate) fn webdriver_value(&self) -> String {
+        if let Some((_, code)) = WEBDRIVER_KEYS.iter().find(|(name, _)| *name == self.key) {
+            return (*code).to_string();
+        }
+        if let Some(number) = self.key.strip_prefix('F').and_then(|number| number.parse::<u32>().ok())
+            && (1..=12).contains(&number)
+        {
+            return char::from_u32(0xE030 + number).map(String::from).unwrap_or_default();
+        }
+
+        self.key.clone()
+    }
+
     /// The down and up events for this key with `modifiers` held.
     pub(crate) fn events(&self, modifiers: u8) -> [Value; 2] {
         [self.event("down", modifiers), self.event("up", modifiers)]
@@ -232,6 +287,14 @@ mod tests {
         assert_eq!(parse_chord("F5").unwrap().0.key_code, 116);
         assert!(parse_chord("Hyper+a").is_err());
         assert!(parse_chord("Banana").is_err());
+    }
+
+    #[test]
+    fn webdriver_names_keys_by_their_reserved_code_points() {
+        assert_eq!(parse_chord("Enter").unwrap().0.webdriver_value(), "\u{E007}");
+        assert_eq!(parse_chord("F5").unwrap().0.webdriver_value(), "\u{E035}");
+        assert_eq!(parse_chord("q").unwrap().0.webdriver_value(), "q");
+        assert_eq!(webdriver_modifiers(CONTROL | SHIFT), ["\u{E009}", "\u{E008}"]);
     }
 
     #[test]

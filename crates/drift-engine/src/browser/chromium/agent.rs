@@ -3,8 +3,8 @@
 
 use serde_json::{Value, json};
 
-use super::Kind;
 use super::cdp::Connection;
+use crate::browser::Kind;
 
 /// The desktop override (none with a real window, which reports itself truthfully) and the mobile one.
 pub(crate) struct Agents {
@@ -27,8 +27,8 @@ pub(crate) async fn agents(cdp: &Connection, kind: Kind, headless: bool) -> Agen
     let chromium_full = after(&user_agent, "Chrome/").unwrap_or("0.0.0.0").to_string();
     let chromium_full = after(product, "Chrome/").map_or(chromium_full, str::to_string);
     let brand_full = match kind {
-        Kind::Chrome => chromium_full.clone(),
         Kind::Edge => after(&user_agent, "Edg/").unwrap_or(&chromium_full).to_string(),
+        _ => chromium_full.clone(),
     };
     let versions = Versions {
         kind,
@@ -125,9 +125,10 @@ fn default_hints() -> Value {
 
 fn metadata(versions: &Versions, hints: &Value, mobile: bool) -> Value {
     let seed = major(&versions.chromium_full);
-    let brand = match versions.kind {
-        Kind::Chrome => "Google Chrome",
-        Kind::Edge => "Microsoft Edge",
+    let brand = if versions.kind == Kind::Edge {
+        "Microsoft Edge"
+    } else {
+        "Google Chrome"
     };
 
     json!({

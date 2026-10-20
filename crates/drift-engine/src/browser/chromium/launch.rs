@@ -1,11 +1,11 @@
 //! Starting Chrome or Edge: which program, which profile folder, which switches, and the debugging address it opens.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
-use super::{Kind, Window};
-use crate::platform::process::{Tree, spawn_owned, which};
+use crate::browser::{Kind, Window};
+use crate::platform::process::{Tree, spawn_owned};
 
 /// How long a browser may take to open its debugging port.
 const START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -21,6 +21,13 @@ const DISABLED_FEATURES: &str = "Translate,OptimizationHints,OptimizationHintsFe
 OptimizationGuideModelDownloading,OptimizationGuideOnDeviceModel,MediaRouter,CalculateNativeWinOcclusion,\
 AutofillServerCommunication,InterestFeedContentSuggestions,PrivacySandboxSettings4";
 
+/// How a browser starts, beyond its engine and profile.
+pub(crate) struct Options<'a> {
+    pub(crate) window: Window,
+    /// Hosts Windows may sign in to with the user's own account, as an intranet expects.
+    pub(crate) integrated_auth: &'a [String],
+}
+
 /// A started browser: its process, the job holding everything it started, and where to connect.
 pub(crate) struct Launched {
     pub(crate) child: tokio::process::Child,
@@ -31,8 +38,6 @@ pub(crate) struct Launched {
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum LaunchError {
-    #[error("{0} is not installed (looked in the usual install folders and on PATH)")]
-    Missing(&'static str),
     #[error("{0} could not start: {1}")]
     Spawn(&'static str, std::io::Error),
     #[error("its profile is already open in another {0} window")]
@@ -41,42 +46,8 @@ pub(crate) enum LaunchError {
     NoPort(&'static str),
 }
 
-/// The installed program for `kind`, the user's own rather than a testing build.
-pub(crate) fn executable(kind: Kind) -> Option<PathBuf> {
-    candidates(kind).into_iter().find(|path| path.is_file()).or_else(|| {
-        let names: &[&str] = match kind {
-            Kind::Chrome => &["chrome", "google-chrome", "google-chrome-stable"],
-            Kind::Edge => &["msedge", "microsoft-edge", "microsoft-edge-stable"],
-        };
-        names.iter().find_map(|name| which(name))
-    })
-}
-
-fn candidates(kind: Kind) -> Vec<PathBuf> {
-    let env = |name: &str| std::env::var_os(name).map(PathBuf::from);
-    let mut found = Vec::new();
-
-    if cfg!(windows) {
-        let roots = [env("ProgramFiles"), env("ProgramFiles(x86)"), env("LOCALAPPDATA")];
-        let relative = match kind {
-            Kind::Chrome => r"Google\Chrome\Application\chrome.exe",
-            Kind::Edge => r"Microsoft\Edge\Application\msedge.exe",
-        };
-        found.extend(roots.into_iter().flatten().map(|root| root.join(relative)));
-    }
-    if cfg!(target_os = "macos") {
-        let app = match kind {
-            Kind::Chrome => "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-            Kind::Edge => "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        };
-        found.push(PathBuf::from(app));
-    }
-
-    found
-}
-
 /// The switches every browser gets: a private debugging port, a quiet profile, and nothing that marks it automated.
-fn arguments(profile: &Path, window: Window) -> Vec<String> {
+fn arguments(profile: &Path, options: &Options) -> Vec<String> {
     let mut arguments = vec![
         "--remote-debugging-port=0".to_string(),
         format!("--user-data-dir={}", profile.display()),
@@ -94,7 +65,12 @@ fn arguments(profile: &Path, window: Window) -> Vec<String> {
         format!("--window-size={WIDTH},{HEIGHT}"),
     ];
 
-    match window {
+    if !options.integrated_auth.is_empty() {
+        let hosts = options.integrated_auth.join(",");
+        arguments.push(format!("--auth-server-allowlist={hosts}"));
+        arguments.push(format!("--auth-negotiate-delegate-allowlist={hosts}"));
+    }
+    match options.window {
         Window::Hidden => {
             arguments.push("--headless=new".into());
             arguments.push("--mute-audio".into());
@@ -113,9 +89,13 @@ fn arguments(profile: &Path, window: Window) -> Vec<String> {
 }
 
 /// Starts `kind` on `profile` inside a job and waits for the debugging address it writes there.
-pub(crate) async fn launch(kind: Kind, profile: &Path, window: Window) -> Result<Launched, LaunchError> {
+pub(crate) async fn launch(
+    kind: Kind,
+    program: &Path,
+    profile: &Path,
+    options: &Options<'_>,
+) -> Result<Launched, LaunchError> {
     let name = kind.label();
-    let program = executable(kind).ok_or(LaunchError::Missing(name))?;
     std::fs::create_dir_all(profile).map_err(|error| LaunchError::Spawn(name, error))?;
 
     // A file left by an earlier run would name a port nothing listens on.
@@ -124,7 +104,7 @@ pub(crate) async fn launch(kind: Kind, profile: &Path, window: Window) -> Result
 
     let mut command = tokio::process::Command::new(program);
     command
-        .args(arguments(profile, window))
+        .args(arguments(profile, options))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
@@ -183,13 +163,17 @@ mod tests {
 
     #[test]
     fn nothing_marks_the_browser_as_automated() {
-        let hidden = arguments(Path::new("profile"), Window::Hidden);
+        let options = |window| Options {
+            window,
+            integrated_auth: &[],
+        };
+        let hidden = arguments(Path::new("profile"), &options(Window::Hidden));
 
         assert!(!hidden.iter().any(|argument| argument.contains("enable-automation")));
         assert!(hidden.contains(&"--disable-blink-features=AutomationControlled".to_string()));
         assert!(hidden.contains(&"--headless=new".to_string()));
         assert!(
-            !arguments(Path::new("p"), Window::Offscreen)
+            !arguments(Path::new("p"), &options(Window::Offscreen))
                 .iter()
                 .any(|a| a.starts_with("--headless"))
         );
