@@ -14,7 +14,7 @@ export const shellTimeoutMinMs = 60_000;
 export const shellTimeoutMaxMs = 86_400_000;
 export const responseAnimationSpeedMin = 60;
 export const responseAnimationSpeedMax = 600;
-export const responseAnimationSpeedDefault = 144;
+export const responseAnimationSpeedDefault = 300;
 
 export function normalizeResponseAnimationSpeed(value: unknown) {
     if (typeof value !== "number" || !Number.isFinite(value)) return responseAnimationSpeedDefault;
@@ -43,7 +43,7 @@ const [shownModelIds, setShownModelIds] = persisted<string[]>("drift.models.show
 const [modelProviderOrder, setModelProviderOrder] = persisted<string[]>("drift.models.providerOrder", []);
 export const [showReasoning, setShowReasoning] = persisted<boolean>("drift.reasoning", false);
 export const [toolErrorsExpanded, setToolErrorsExpanded] = persisted<boolean>("drift.toolErrors.expanded", false);
-export const [animateResponses, setAnimateResponses] = persisted<boolean>("drift.responses.animate", false);
+export const [animateResponses, setAnimateResponses] = persisted<boolean>("drift.responses.animate", true);
 export const [responseAnimationSpeed, setResponseAnimationSpeed] = persisted<number>(
     "drift.responses.speed",
     responseAnimationSpeedDefault,

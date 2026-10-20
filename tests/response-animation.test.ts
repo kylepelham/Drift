@@ -143,12 +143,12 @@ test("response animation speed is bounded and defaults safely", () => {
     expect(normalizeResponseAnimationSpeed(211.6)).toBe(212);
 });
 
-test("response animation preference defaults off", async () => {
+test("response animation preference defaults on at 300 characters a second", async () => {
     if (!("localStorage" in globalThis))
         Object.defineProperty(globalThis, "localStorage", {
             value: { getItem: () => null, setItem: () => undefined },
         });
     const { animateResponses, responseAnimationSpeed } = await import("../src/state/prefs");
-    expect(animateResponses()).toBeFalse();
-    expect(responseAnimationSpeed()).toBe(responseAnimationSpeedDefault);
+    expect(animateResponses()).toBeTrue();
+    expect(responseAnimationSpeed()).toBe(300);
 });
