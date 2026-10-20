@@ -396,7 +396,8 @@ impl Engine {
     }
 
     /// The catalog as the current credentials see it: ChatGPT sign-ins offer only what the Codex backend takes,
-    /// and what any of their accounts' model lists offers. Every model carries the user's compaction point.
+    /// and what any of their accounts' model lists offers. Every model carries its compaction point: the user's own
+    /// size for it, else the compaction setting's.
     pub fn catalog_view(&self) -> Catalog {
         let mut catalog = self.catalog.read().unwrap().clone();
         let sign_ins = self.codex_sign_ins();
@@ -408,12 +409,16 @@ impl Engine {
         }
 
         let compact_at = self.compact_at();
-        for model in catalog
-            .providers
-            .values_mut()
-            .flat_map(|provider| provider.models.values_mut())
-        {
-            model.limit.compact = compact_at.cap(model);
+        let chosen = self.model_compact();
+        for (provider, info) in &mut catalog.providers {
+            for (key, model) in &mut info.models {
+                let own = chosen
+                    .get(&format!("{provider}/{key}"))
+                    .and_then(|tokens| session::compaction::chosen_cap(model, *tokens));
+                model.limit.compact = own.unwrap_or_else(|| compact_at.cap(model));
+                // Resolved here so every reader, the UI's meters included, sees the point itself.
+                model.limit.compact = model.compaction_point();
+            }
         }
 
         catalog

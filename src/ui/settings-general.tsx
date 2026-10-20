@@ -3,6 +3,7 @@ import { SettingsGroup, SettingsRow, pickerWidth } from "./settings-controls";
 import { language, languages, setLanguage } from "../state/language";
 import { createSignal, For, onMount, Show } from "solid-js";
 import { filePreviewTypes } from "../file-preview-types";
+import { compactionExamples } from "./model-details";
 import { Segmented, Toggle } from "./controls";
 import { isRemoteRuntime } from "../runtime";
 import { useEngine } from "../engine";
@@ -41,25 +42,7 @@ import {
 import type { CompactAt } from "../engine/native/client";
 import type { LanguageId } from "../state/language";
 
-/** The compaction points offered besides automatic and the full window, in thousands of tokens. */
-const compactSizes = [200, 300, 600];
-
-/** The picker id for a compaction setting: its mode, or its size in thousands for a chosen one. */
-function compactId(setting: CompactAt) {
-    return setting.mode === "tokens" ? String(Math.round(setting.tokens / 1000)) : setting.mode;
-}
-
-function compactFrom(id: string): CompactAt {
-    if (id === "auto" || id === "window") return { mode: id };
-
-    return { mode: "tokens", tokens: Number(id) * 1000 };
-}
-
-function compactLabel(id: string) {
-    if (id === "auto" || id === "window") return t(`drift.settings.compactAt.${id}`);
-
-    return t("drift.settings.compactAt.tokens", { count: id });
-}
+const compactPolicies: CompactAt[] = ["earlier", "auto", "later"];
 
 /** The grouping control's label: none, all, or the chosen kinds by name. */
 function groupedSummary() {
@@ -82,7 +65,7 @@ export function GeneralSection() {
                 .engineSettings()
                 .then((settings) => {
                     setAutoCompactShown(settings.autoCompact ?? true);
-                    setCompactAtShown(settings.compactAt ?? { mode: "auto" });
+                    setCompactAtShown(settings.compactAt ?? "auto");
                 })
                 .catch(() => undefined),
     );
@@ -99,7 +82,7 @@ export function GeneralSection() {
 
     function pickCompactAt(id: string) {
         const previous = compactAt();
-        const next = compactFrom(id);
+        const next = id as CompactAt;
         setCompactAtShown(next);
 
         void engine.actions
@@ -108,12 +91,13 @@ export function GeneralSection() {
             .catch(() => setCompactAtShown(previous));
     }
 
-    function compactChoices() {
-        const ids = ["auto", ...compactSizes.map(String), "window"];
-        const current = compactAt();
-        if (current && !ids.includes(compactId(current))) ids.splice(1, 0, compactId(current));
+    /** The compaction description, with where the chosen policy puts the models in use. */
+    function compactDescription() {
+        const examples = compactionExamples(engine.state);
+        const description = t("drift.settings.compactAt.description");
+        if (!examples.length) return description;
 
-        return ids.map((id) => ({ id, label: compactLabel(id) }));
+        return `${description} ${t("drift.settings.compactAt.examples", { examples: examples.join(", ") })}`;
     }
 
     return (
@@ -333,13 +317,13 @@ export function GeneralSection() {
                 </SettingsRow>
                 <SettingsRow
                     title={t("drift.settings.compactAt.title")}
-                    description={t("drift.settings.compactAt.description")}
+                    description={compactDescription()}
                     disabled={compactAt() === null}
                 >
                     <Picker
                         label={t("drift.settings.compactAt.title")}
-                        items={compactChoices()}
-                        selected={compactId(compactAt() ?? { mode: "auto" })}
+                        items={compactPolicies.map((id) => ({ id, label: t(`drift.settings.compactAt.${id}`) }))}
+                        selected={compactAt() ?? "auto"}
                         floating
                         bordered
                         chevronAtEnd

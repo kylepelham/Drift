@@ -129,6 +129,7 @@ fn comparable(item: &Value) -> Value {
                 .unwrap_or_else(|| item["arguments"].clone());
             json!({ "type": kind, "call_id": item["call_id"], "name": item["name"], "arguments": arguments })
         }
+        "tool_search_call" => json!({ "type": kind, "call_id": item["call_id"], "arguments": item["arguments"] }),
         "reasoning" => {
             let summary: Vec<_> = item["summary"]
                 .as_array()

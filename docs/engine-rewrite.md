@@ -393,13 +393,16 @@ summary. The UI draws them as its existing collapsible "Context compacted" divid
     every step). A request's `max_tokens` is held to the same half. When models.dev gives an input
     cap below the window (`limit.input`; gpt-5.4 takes 922k of its 1.05M), that cap less
     `min(reply room, 20k)` is the point instead (`Model::compaction_point`), so a long Codex session
-    compacts before the provider refuses it. The user's compaction point (`compactAt`, Settings >
+    compacts before the provider refuses it. The user's compaction policy (`compactAt`, Settings >
     General) lowers that further and never raises it: `auto` (the default) stops at 400k, and below
-    the first price tier a provider charges more past, less 20k; `window` keeps the window's own
-    point; `tokens` takes a size of at least 100k. Every request rereads the whole conversation, so
+    the first price tier a provider charges more past, less 20k; `later` keeps the window's own
+    point; `earlier` takes half of `auto`'s point, at least 100k. A model's details sheet (from the
+    model manager) can set a size for that one model (`modelCompact`, by `provider/model`), offered
+    only below its own point and kept at 100k or more (`compaction::chosen_cap`); a size it cannot
+    take falls back to the policy. Every request rereads the whole conversation, so
     a 1M window filled to the brim costs several times what a 400k one does per step (Kyle's Opus
     sessions averaged 480k-token prompts), and Claude Code tunes the same per model
-    (`autoCompactWindow: "auto"`). The engine sets the cap on every model of the catalog it serves
+    (`autoCompactWindow: "auto"`). The engine resolves each model's point into the catalog it serves
     (`Limit::compact`, `Engine::catalog_view`) and publishes `catalog.updated` when it changes, so
     the UI's context meter uses the same sum (`contextStats` in `src/engine/store.ts`) and "until
     compaction" is where it happens. One attempt per step; a failure still lets the request go.
@@ -1371,7 +1374,7 @@ goal retires them.
 **Not doing.** Side replies while busy (steering and async questions cover them) and moving
 Explore to a cheaper model (its model can already be pinned in Settings). Trimming old tool
 results while the cache is warm stays out (it breaks the prompt cache); a request that misses it
-anyway clears them (see "Prompt cache"). Deferred tool schemas came in 2.4 for Claude, once
+anyway clears them (see "Prompt cache"). Deferred tool schemas came in 2.4 for Claude and OpenAI, once
 Kyle's workspaces still sent 131 KB of MCP schemas across 185 tools.
 
 ### After the opencode v2 review
@@ -1493,8 +1496,8 @@ measured.
     logged and the next interval tries again.
   - Interval, window and prompt are editable under the switch.
   - A one-hour cache option for Anthropic routes that accept `ttl: "1h"`, with the doubled write
-    price shown beside it. Check which routes accept it (API key, subscription OAuth, Bedrock,
-    Vertex) before offering it on each.
+    price shown beside it. Shipped as a per-provider option for API key, Bedrock, Vertex and
+    OpenRouter; the subscription always has it.
   - Tests: a keep-alive goes out after the interval and stops at the window; a real prompt resets
     both; none for a worker.
 
@@ -2077,14 +2080,19 @@ code until he picks.
   Claude subscription it is on for every conversation, as Claude Code 2.1 does it, with its
   `extended-cache-ttl-2025-04-11` beta, until the account's last response says it draws on extra
   usage (`anthropic-ratelimit-unified-overage-in-use: true`, `Limits::overage`), where Claude
-  Code drops to five minutes too. On an API key it follows the Prompt cache group's switch, since
-  writes then cost twice the input price instead of 1.25 times. Never for workers, nor on Bedrock or
-  Vertex. Idle gaps over five minutes were 21% of Kyle's spend in ten days; the meter still prices
+  Code drops to five minutes too. Elsewhere it follows the provider's "Cache for an hour" option
+  (engine setting `providerOptions`, Settings > Providers > the provider,
+  `session::turn::provider_options`) on the routes that take it for Claude: Anthropic by API key,
+  Bedrock (`ttl` on `cache_control`, Claude 4.5 and later per the AWS prompt caching guide), Vertex
+  (same field, Google's Claude prompt caching page) and OpenRouter (passed to Claude upstreams),
+  since writes then cost twice the input price instead of 1.25 times. Never for workers, nor for a
+  ChatGPT sign-in. Idle gaps over five minutes were 21% of Kyle's spend in ten days; the meter still prices
   writes at the five-minute rate, since usage does not say which was written.
 - Whether the cache is still warm (`Engine::cache_cold`) comes from the conversation's newest reply
   that reached the cache (`Store::last_cached_reply`): it is cold when there is none, when it came
   from another model or account, or when it finished longer ago than the cache lives (five minutes,
-  or an hour as above). Two things act only on a cold cache, when changing the prompt's start costs
+  30 minutes on OpenAI models that bill cache writes, whose cache lives at least that long, or an
+  hour as above). Two things act only on a cold cache, when changing the prompt's start costs
   nothing more:
   - Accounts stay where the cache is. A new turn goes back to the account the last reply used while
     that account suits the model and conversation and its cache is warm (`stay_where_warm`), and a
@@ -2098,9 +2106,10 @@ code until he picks.
     `task_output`, `question`, `todowrite` and `read_thread` stay, and nothing is cleared unless
     at least 80,000 characters go. The parts are saved without an event: the transcript still shows
     the output, and the next requests start the same way, so the cache holds again.
-- Tool search on Claude (`tool::tool_search`, engine setting `toolSearch`, on by default, Settings
-  > Execution > Prompt cache): on a Claude 4.5 or later model on Anthropic's own route
-  (`ClaudeFeatures::tool_references`), every tool of an MCP server with 10 or more tools or 10 KB
+- Tool search (`tool::tool_search`, engine setting `toolSearch`, on by default, Settings > MCP): on
+  a model whose wire takes deferred tools (`Model::tool_search`, `catalog::tool_search_for`: Claude
+  4.5 or later on Anthropic, Bedrock and Vertex; GPT-5.4 or later on OpenAI; on a ChatGPT sign-in
+  the Codex model list's `supports_search_tool` decides), every tool of an MCP server with 10 or more tools or 10 KB
   of definitions is sent with `defer_loading: true` after the others (`Request::deferred_tools`),
   so it stays out of the model's context, and the cache breakpoint sits on the last tool sent
   normally, since a deferred one cannot carry it. A system prompt section ("Tools loaded on
@@ -2110,7 +2119,16 @@ code until he picks.
   Anthropic wire sends that result as `tool_reference` blocks (`Request::tool_references`, only
   for names still deferred, else the text), with the `tool-search-tool-2025-10-19` beta, and the
   subscription route renames them as it renames tools. This is Claude Code's client-side shape.
-  Other wires get every tool as before.
+  Bedrock takes the beta in the body (`anthropic_beta`) and Vertex in the header.
+  - The OpenAI wire (API key and Codex) uses the Responses API's client-executed tool search, as
+    Codex CLI does: `tool_search` goes as `{"type": "tool_search", "execution": "client"}` with
+    Drift's description and schema, deferred tools are not sent at all, the model's
+    `tool_search_call` item becomes a call of the `tool_search` tool, and its result goes back as a
+    `tool_search_output` item whose `tools` are the loaded definitions (`defer_loading: true`, none
+    when nothing matched). The API adds them at the end of the context, so the cached prefix holds.
+    Loaded tools go as plain functions, not namespaces, so a replayed call needs no `namespace`. Not
+    yet verified against a live account.
+  - Other wires get every tool as before. Gemini has no equivalent (googleapis/python-genai#2185).
 - Chat Completions routes (xAI, Z.ai, OpenRouter, LM Studio) stream text and reasoning as
   they come, but gather tool calls whole by `index`, since gateways interleave calls' deltas, and
   hand them on after the stream ends, in index order, one start each. A stream that ends (`[DONE]`)
@@ -2179,9 +2197,22 @@ code until he picks.
   three breakpoints. A user turn there is the run of `tool` and `user` messages between replies,
   so in a tool loop the breakpoint lands on the newest tool result (its content sent as one text
   part to carry it), not back on the prompt that started the loop. It applies only to `anthropic/...` (and `~anthropic/...` alias) models on that
-  route (`Compat::caching_claude`); every other model and gateway is sent unchanged. Usage reads
+  route, and to `qwen/...`, which Alibaba caches only at the same breakpoints (`takes_breakpoints`);
+  every other model is sent unchanged, since OpenAI, DeepSeek, Grok, Z.ai and Gemini 2.5+ upstreams
+  cache on their own. With the provider's hour option on, the breakpoints carry `ttl: "1h"`. Each
+  request names the conversation's cache key as `session_id`, which pins it to one upstream
+  provider from the first request instead of after the first cache hit. Usage reads
   `prompt_tokens_details.cached_tokens` and `cache_write_tokens`. Verified with a recorded exchange
   against a local stand-in, not a live account.
+- xAI caches per server, so its route sends the cache key as `x-grok-conv-id` (xAI's guide to cache
+  hits). Z.ai, DeepSeek and LM Studio cache with nothing asked of the request; Ollama reports no
+  cache use, so none is shown.
+- GPT-5.6 and later bill cache writes at 1.25 times input. The Responses route reads
+  `cache_write_tokens` out of the input, so the cost and the cache-miss check see them, and a
+  one-off request (`cache_conversation: false`) on a model whose catalog prices cache writes above
+  input (`Request::cache_writes_billed`) asks for `prompt_cache_options: { mode: "explicit" }` with
+  no breakpoints, which writes nothing; OpenRouter does the same for `openai/` models. Not on a
+  ChatGPT sign-in, which pays nothing per token.
 - Tool calls keep the order the model issued them in, but not one at a time: a run of consecutive
   read-only calls executes together, a mutating call waits for everything before it, and reads
   after it wait for it (see the M1 guarantees). Foreground `task` workers run within their parent's

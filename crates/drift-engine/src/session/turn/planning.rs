@@ -420,9 +420,9 @@ impl Engine {
     }
 
     /// The MCP tools sent for `tool_search` to load instead of up front: every tool of a server large enough that
-    /// its definitions would weigh on every request, on a model that takes `tool_reference` with the setting on.
+    /// its definitions would weigh on every request, on a model whose wire takes deferred tools with the setting on.
     fn deferred_tools(&self, plan: &Plan, tools: &[OfferedTool]) -> BTreeSet<String> {
-        if !plan.model.claude.tool_references || !self.tool_search() {
+        if !plan.model.tool_search || !self.tool_search() {
             return BTreeSet::new();
         }
 

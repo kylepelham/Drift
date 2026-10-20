@@ -156,7 +156,6 @@ const settingsSearchDefinitions = {
             title: "drift.settings.shellTimeout.customMinutes",
             description: "drift.settings.shellTimeout.customDescription",
         },
-        { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
     ],
     Browser: [
         { title: "drift.settings.browser.enabled.title", description: "drift.settings.browser.enabled.description" },
@@ -173,6 +172,10 @@ const settingsSearchDefinitions = {
         { title: "provider.connect.oauth.code.placeholder" },
         { title: "drift.lmStudio.apiToken", description: "drift.lmStudio.description" },
         { title: "drift.lmStudio.refresh" },
+        {
+            title: "drift.providers.options.hourCache.title",
+            description: "drift.providers.options.hourCache.description",
+        },
     ],
     Usage: [
         { title: "drift.usage.title", description: "drift.usage.settingsDescription" },
@@ -189,6 +192,7 @@ const settingsSearchDefinitions = {
         { title: "drift.mcp.form.url" },
         { title: "drift.mcp.form.headers" },
         { title: "drift.registry.sources", description: "drift.registry.sources.mcpDescription" },
+        { title: "drift.settings.toolSearch.title", description: "drift.settings.toolSearch.description" },
     ],
     Prompts: [
         { title: "drift.settings.prompts.group.base", description: "drift.settings.prompts.familyDescription" },

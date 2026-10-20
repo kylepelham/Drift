@@ -27,6 +27,16 @@ pub(super) fn drop_unoffered_speeds(provider: &mut ProviderInfo, offers: &BTreeM
     });
 }
 
+/// Takes the list's word on which models load deferred tools through `tool_search`; models it does not name keep
+/// the catalog's.
+pub(super) fn mark_tool_search(provider: &mut ProviderInfo, offers: &BTreeMap<String, Offer>) {
+    for model in provider.models.values_mut() {
+        if let Some(offer) = offers.get(model.wire(&model.id)) {
+            model.tool_search = offer.tool_search;
+        }
+    }
+}
+
 /// Adds `<id>-daybreak`, named `<Name> Daybreak`, for every entry whose model the account offers a program for.
 pub(super) fn add_daybreak(provider: &mut ProviderInfo, offers: &BTreeMap<String, Offer>) {
     let additions: Vec<_> = provider

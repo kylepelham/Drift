@@ -1,6 +1,7 @@
 //! Compaction: when a conversation outgrows its context, a summary stands in for its older history.
 //! Nothing is deleted; the transcript keeps every message and the request view skips what was summarised.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -35,22 +36,25 @@ const TRIM_ATTEMPTS: usize = 3;
 pub(super) const MAX_AUTO_FAILURES: u32 = 3;
 pub const AUTO_COMPACT_KEY: &str = "autoCompact";
 pub const COMPACT_AT_KEY: &str = "compactAt";
+/// Per-model compaction points the user set, by `provider/model`, in tokens.
+pub const MODEL_COMPACT_KEY: &str = "modelCompact";
 /// Where `Auto` compacts a model with a larger window: past it, every step rereads far more than the work needs.
 const AUTO_COMPACT_TOKENS: u64 = 400_000;
 /// The earliest point the user may set; below it, compaction comes too often to pay for itself.
 pub const MIN_COMPACT_TOKENS: u64 = 100_000;
 
-/// Where a conversation compacts, as the user chose it in Settings.
+/// Where conversations compact, as the user chose it in Settings; each model's point follows from its window and
+/// prices.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-#[serde(tag = "mode", rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum CompactAt {
     /// At most 400k tokens, and below the first context length a provider charges more past.
     #[default]
     Auto,
     /// Only when the model's window is nearly full.
-    Window,
-    /// At most this many tokens.
-    Tokens { tokens: u64 },
+    Later,
+    /// At half the automatic point, and never below 100k tokens.
+    Earlier,
 }
 
 impl CompactAt {
@@ -58,10 +62,17 @@ impl CompactAt {
     pub fn cap(self, model: &Model) -> u64 {
         match self {
             Self::Auto => auto_cap(model),
-            Self::Window => 0,
-            Self::Tokens { tokens } => tokens.max(MIN_COMPACT_TOKENS),
+            Self::Later => 0,
+            Self::Earlier => (auto_cap(model).min(model.own_compaction_point()) / 2).max(MIN_COMPACT_TOKENS),
         }
     }
+}
+
+/// The point a model compacts at with the user's own size for it, kept between [`MIN_COMPACT_TOKENS`] and the
+/// window's own point; `None` when the size cannot apply.
+pub fn chosen_cap(model: &Model, tokens: u64) -> Option<u64> {
+    let own = model.own_compaction_point();
+    (own > MIN_COMPACT_TOKENS).then(|| tokens.clamp(MIN_COMPACT_TOKENS, own))
 }
 
 fn auto_cap(model: &Model) -> u64 {
@@ -227,6 +238,11 @@ impl Engine {
 
     pub fn compact_at(&self) -> CompactAt {
         self.store.setting(COMPACT_AT_KEY).ok().flatten().unwrap_or_default()
+    }
+
+    /// The compaction points the user set for single models, by `provider/model`.
+    pub fn model_compact(&self) -> BTreeMap<String, u64> {
+        self.store.setting(MODEL_COMPACT_KEY).ok().flatten().unwrap_or_default()
     }
 
     /// Compacts an idle session as its own job, so prompts wait for it and Stop cancels it.

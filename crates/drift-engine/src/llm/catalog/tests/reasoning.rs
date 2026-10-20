@@ -197,12 +197,28 @@ fn newer_claude_features_follow_opencode_v2s_model_rule() {
 }
 
 #[test]
-fn deferred_tools_go_to_claude_4_5_and_later_on_anthropics_own_route() {
-    use crate::llm::catalog::claude_features_for;
-    let defers = |id: &str| claude_features_for("anthropic", id).tool_references;
+fn deferred_tools_go_to_claude_4_5_and_gpt_5_4_and_later_where_their_wire_carries_them() {
+    use crate::llm::catalog::tool_search_for;
+    let defers = |id: &str| tool_search_for("anthropic", id);
     assert!(defers("claude-sonnet-4-5-20250929"));
     assert!(defers("claude-opus-5-5"));
     assert!(!defers("claude-opus-4-1"));
     assert!(!defers("claude-3-5-sonnet-20241022"));
-    assert!(!claude_features_for("amazon-bedrock", "claude-opus-5").tool_references);
+
+    assert!(tool_search_for(
+        "amazon-bedrock",
+        "us.anthropic.claude-opus-4-5-20251101-v1:0"
+    ));
+    assert!(tool_search_for("amazon-bedrock", "anthropic.claude-haiku-5-5"));
+    assert!(!tool_search_for(
+        "amazon-bedrock",
+        "anthropic.claude-3-7-sonnet-20250219-v1:0"
+    ));
+    assert!(tool_search_for("google-vertex-anthropic", "claude-opus-4-5@20251101"));
+    assert!(tool_search_for("google-vertex", "claude-sonnet-5@default"));
+    assert!(!tool_search_for("google-vertex", "gemini-3.6-flash"));
+    assert!(!tool_search_for("openrouter", "anthropic/claude-opus-5"));
+
+    assert!(tool_search_for("openai", "gpt-5.4-mini") && tool_search_for("openai", "gpt-6.1-sol"));
+    assert!(!tool_search_for("openai", "gpt-5.3-codex") && !tool_search_for("openai", "o4-mini"));
 }

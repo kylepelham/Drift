@@ -14,6 +14,7 @@ fn conversation(model: &str) -> Request {
     Request {
         model: model.into(),
         messages: vec![user("one"), assistant.clone(), user("two"), assistant, user("three")],
+        cache_key: Some("ses_1".into()),
         ..request()
     }
 }
@@ -39,9 +40,15 @@ fn marked(body: &Value) -> Vec<String> {
 #[test]
 fn claude_through_a_caching_gateway_gets_the_anthropic_breakpoints_and_nothing_else_does() {
     let mut body = body(&conversation("anthropic/claude-sonnet-4.5"));
-    mark_breakpoints(&mut body);
+    mark_breakpoints(&mut body, false);
     assert_eq!(marked(&body), ["system:sys", "user:two", "user:three"]);
-    assert!(is_claude("~anthropic/claude-sonnet-latest") && !is_claude("openai/gpt-6"));
+    assert!(body["messages"][0]["content"][0]["cache_control"].get("ttl").is_none());
+    assert!(takes_breakpoints("~anthropic/claude-sonnet-latest") && takes_breakpoints("qwen/qwen3-coder-plus"));
+    assert!(!takes_breakpoints("openai/gpt-6"));
+
+    let mut hour = super::request::body(&conversation("anthropic/claude-sonnet-4.5"));
+    mark_breakpoints(&mut hour, true);
+    assert_eq!(hour["messages"][0]["content"][0]["cache_control"]["ttl"], "1h");
 
     let usage = usage_from(&json!({
         "prompt_tokens": 10_339, "completion_tokens": 60,
@@ -190,7 +197,7 @@ fn a_tool_loop_caches_past_the_prompt_that_started_it() {
         ..request()
     });
 
-    mark_breakpoints(&mut body);
+    mark_breakpoints(&mut body, false);
     assert_eq!(
         marked(&body),
         ["system:sys", "tool:x second", "tool:y second"],
@@ -251,5 +258,28 @@ async fn an_openrouter_exchange_sends_breakpoints_for_claude_only_and_reads_cach
     assert!(
         marked(&seen[1]).is_empty(),
         "other vendors' models are sent as they were"
+    );
+    assert_eq!(
+        seen[0]["session_id"], "ses_1",
+        "the session keeps to one upstream provider"
+    );
+}
+
+#[test]
+fn a_one_off_request_to_a_model_that_bills_cache_writes_asks_for_none() {
+    let mut one_off = conversation("openai/gpt-6");
+    one_off.cache_conversation = false;
+    one_off.cache_writes_billed = true;
+    let gateway = Compat::openrouter("https://openrouter.example");
+    assert_eq!(gateway.shaped(&one_off)["prompt_cache_options"]["mode"], "explicit");
+
+    one_off.cache_conversation = true;
+    assert!(gateway.shaped(&one_off).get("prompt_cache_options").is_none());
+    assert!(
+        Compat::xai("https://x.example")
+            .shaped(&one_off)
+            .get("session_id")
+            .is_none(),
+        "xAI takes the key as a header"
     );
 }

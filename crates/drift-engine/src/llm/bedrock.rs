@@ -45,10 +45,10 @@ impl Bedrock {
             .unwrap_or_else(|| format!("https://bedrock-runtime.{region}.amazonaws.com"));
         let path = format!("/model/{}/invoke-with-response-stream", aws::encode(&request.model));
 
-        let mut body = anthropic::cloud_body(request, VERSION, false);
+        let (mut body, betas) = anthropic::cloud_body(request, VERSION, false);
         // Bedrock takes Anthropic betas in the body.
-        if anthropic::interleaves(request) {
-            body["anthropic_beta"] = serde_json::json!([anthropic::INTERLEAVED_THINKING]);
+        if !betas.is_empty() {
+            body["anthropic_beta"] = serde_json::json!(betas);
         }
         let body = serde_json::to_vec(&body).map_err(|e| Error::Malformed(e.to_string()))?;
 
@@ -443,7 +443,7 @@ mod tests {
     #[test]
     fn the_body_has_no_model_or_stream_and_names_bedrocks_version() {
         let request = crate::llm::tests::request();
-        let body = anthropic::cloud_body(&request, VERSION, false);
+        let (body, _) = anthropic::cloud_body(&request, VERSION, false);
         assert_eq!(body["anthropic_version"], VERSION);
         assert!(body.get("model").is_none() && body.get("stream").is_none());
         assert!(body["messages"].is_array());

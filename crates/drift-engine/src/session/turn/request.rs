@@ -6,8 +6,10 @@ pub(super) const MAX_OUTPUT_TOKENS: u32 = 32_000;
 pub(super) const MIN_ANSWER_TOKENS: u32 = 1024;
 /// The smallest thinking budget providers accept.
 pub(super) const MIN_THINKING_TOKENS: u32 = 1024;
-/// How long a provider keeps a prompt cache it was last asked for: five minutes, or an hour when asked for that.
+/// How long a provider keeps a prompt cache it was last asked for: five minutes, half an hour on OpenAI models that
+/// bill cache writes (GPT-5.6 and later), or an hour when asked for that.
 const CACHE_MS: i64 = 5 * 60 * 1000;
+const BILLED_WRITES_CACHE_MS: i64 = 30 * 60 * 1000;
 const HOUR_CACHE_MS: i64 = 60 * 60 * 1000;
 
 impl Engine {
@@ -72,6 +74,7 @@ impl Engine {
             claude: plan.model.claude,
             cache_hour: self.hour_cache(plan),
             cache_conversation: true,
+            cache_writes_billed: plan.model.cost.cache_write > plan.model.cost.input,
             deferred_tools,
             tool_references,
             no_tool_calls,
@@ -87,16 +90,32 @@ impl Engine {
     }
 
     /// Whether a request keeps its prompt cache for an hour, as Claude Code does: a conversation (never a worker) on
-    /// a Claude subscription within its limits, or on an API key with Settings' one-hour cache on.
+    /// a Claude subscription within its limits, or on a route whose one-hour cache option is on.
     pub(in crate::session) fn hour_cache(&self, plan: &Plan) -> bool {
-        if plan.session.visibility == crate::session::types::Visibility::Hidden {
+        let provider = plan.model_ref.provider.as_str();
+        if plan.session.visibility == crate::session::types::Visibility::Hidden
+            || !provider_options::HOUR_CACHE_PROVIDERS.contains(&provider)
+        {
             return false;
         }
 
         match &plan.credential {
-            Credential::ApiKey { .. } => self.prompt_cache().hour_cache,
-            Credential::OAuth { .. } => !self.in_overage(plan.account.as_deref()),
-            Credential::Ambient { .. } => false,
+            Credential::OAuth { .. } if provider == "anthropic" => !self.in_overage(plan.account.as_deref()),
+            Credential::OAuth { .. } => false,
+            Credential::ApiKey { .. } | Credential::Ambient { .. } => self.options_for(provider).hour_cache,
+        }
+    }
+
+    /// How long the provider keeps what this plan's requests cache.
+    fn cache_lifetime(&self, plan: &Plan) -> i64 {
+        if self.hour_cache(plan) {
+            return HOUR_CACHE_MS;
+        }
+
+        let billed_writes = plan.model.cost.cache_write > plan.model.cost.input;
+        match plan.model_ref.provider.as_str() {
+            "openai" if billed_writes => BILLED_WRITES_CACHE_MS,
+            _ => CACHE_MS,
         }
     }
 
@@ -114,7 +133,7 @@ impl Engine {
         let Ok(Some(last)) = self.store.last_cached_reply(&plan.session.id) else {
             return true;
         };
-        let lifetime = if self.hour_cache(plan) { HOUR_CACHE_MS } else { CACHE_MS };
+        let lifetime = self.cache_lifetime(plan);
 
         let elsewhere = last.model.as_ref() != Some(&plan.model_ref) || last.account != plan.account;
         let expired = last

@@ -1,5 +1,6 @@
 //! `tool_search`: loads deferred MCP tools into the model's context by name or by a search of their definitions.
-//! The result names them as `references`; the Anthropic wire sends those as `tool_reference` blocks.
+//! The result names them as `references`; the Anthropic wire sends those as `tool_reference` blocks and the OpenAI
+//! wire as a `tool_search_output` of their definitions.
 
 use std::collections::BTreeMap;
 
@@ -9,7 +10,7 @@ use super::{Ask, Context, Output, RunFuture, Tool, ToolError, ToolMetadata};
 use crate::llm::ToolSpec;
 use crate::session::types::{MessageWithParts, Part};
 
-pub const NAME: &str = "tool_search";
+pub const NAME: &str = crate::llm::TOOL_SEARCH;
 /// The setting that defers large MCP servers' tools on models that take it; on unless turned off.
 pub const SETTINGS_KEY: &str = "toolSearch";
 const DEFAULT_LIMIT: usize = 5;

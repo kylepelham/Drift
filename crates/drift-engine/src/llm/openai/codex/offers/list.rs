@@ -25,6 +25,8 @@ struct Entry {
     available_access_programs: Programs,
     #[serde(default)]
     service_tiers: Vec<Tier>,
+    #[serde(default)]
+    supports_search_tool: bool,
 }
 
 #[derive(Default, Deserialize)]
@@ -80,7 +82,13 @@ fn offer(entry: Entry) -> (String, Offer) {
         .map(String::from);
     let tiers = entry.service_tiers.into_iter().map(|tier| tier.id).collect();
 
-    (entry.slug, Offer { program, tiers })
+    let offer = Offer {
+        program,
+        tiers,
+        tool_search: entry.supports_search_tool,
+    };
+
+    (entry.slug, offer)
 }
 
 #[cfg(test)]

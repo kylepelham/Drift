@@ -142,8 +142,9 @@ pub(super) async fn stream_from(
     Ok(Box::pin(futures_util::stream::iter(limits).chain(chunks)))
 }
 
-/// The Messages body for a cloud route: the model goes in the URL and the API version in the body.
-pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> Value {
+/// The Messages body for a cloud route and the betas it needs: the model goes in the URL and the API version in the
+/// body. Bedrock and Vertex take the hour-long cache without a beta.
+pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> (Value, Vec<&'static str>) {
     let mut body = body(request);
     if let Some(fields) = body.as_object_mut() {
         fields.remove("model");
@@ -153,7 +154,15 @@ pub(super) fn cloud_body(request: &Request, version: &str, stream: bool) -> Valu
         fields.insert("anthropic_version".into(), json!(version));
     }
 
-    body
+    let mut betas = request::betas(&body);
+    if interleaves(request) {
+        betas.insert(0, INTERLEAVED_THINKING);
+    }
+    if request.cache_hour {
+        request::cache_for_an_hour(&mut body);
+    }
+
+    (body, betas)
 }
 
 fn unprefix(chunk: Chunk, subscription: bool) -> Chunk {
@@ -399,6 +408,7 @@ mod tests {
                 claude: Default::default(),
                 cache_hour: false,
                 cache_conversation: true,
+                cache_writes_billed: false,
                 deferred_tools: Vec::new(),
                 tool_references: Default::default(),
                 no_tool_calls: false,
@@ -447,7 +457,6 @@ mod tests {
             sent.claude = ClaudeFeatures {
                 system_messages: true,
                 drop_stale_thinking: true,
-                tool_references: false,
             };
             let native = body(&sent);
             let messages = native["messages"].as_array().unwrap();

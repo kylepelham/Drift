@@ -11,25 +11,18 @@ type PromptCache = components["schemas"]["PromptCache"];
 const input =
     "rounded-md border border-edge bg-surface px-2.5 py-1.5 text-xs text-ink outline-none focus:border-edge-strong";
 
-/**
- * Settings > Execution > Prompt cache: warming, the hour-long cache on an Anthropic key and loading large MCP servers'
- * tools on request, kept by the engine.
- */
+/** Settings > Execution > Prompt cache: warming, kept by the engine. */
 export function PromptCacheGroup() {
     const engine = useEngine();
     // Null until the engine answers, so a toggle never shows a guess.
     const [cache, setCache] = createSignal<PromptCache | null>(null);
-    const [toolSearch, setToolSearch] = createSignal(true);
     const [error, setError] = createSignal("");
 
     onMount(
         () =>
             void engine.actions
                 .engineSettings()
-                .then((settings) => {
-                    setCache(settings.promptCache ?? null);
-                    setToolSearch(settings.toolSearch ?? true);
-                })
+                .then((settings) => setCache(settings.promptCache ?? null))
                 .catch(() => undefined),
     );
 
@@ -45,19 +38,6 @@ export function PromptCacheGroup() {
             setCache(saved.promptCache ?? next);
         } catch (cause) {
             setCache(before);
-            setError(cause instanceof Error ? cause.message : String(cause));
-        }
-    }
-
-    async function switchToolSearch() {
-        const next = !toolSearch();
-        setToolSearch(next);
-        setError("");
-        try {
-            const saved = await engine.actions.putEngineSettings({ toolSearch: next });
-            setToolSearch(saved.toolSearch ?? next);
-        } catch (cause) {
-            setToolSearch(!next);
             setError(cause instanceof Error ? cause.message : String(cause));
         }
     }
@@ -116,28 +96,6 @@ export function PromptCacheGroup() {
                             />
                         </SettingsRow>
                     </Show>
-                    <SettingsRow
-                        title={t("drift.settings.promptCache.hour.title")}
-                        description={t("drift.settings.promptCache.hour.description")}
-                        onClick={() => void change({ hourCache: !current().hourCache })}
-                    >
-                        <Toggle
-                            label={t("drift.settings.promptCache.hour.title")}
-                            checked={current().hourCache}
-                            onChange={() => void change({ hourCache: !current().hourCache })}
-                        />
-                    </SettingsRow>
-                    <SettingsRow
-                        title={t("drift.settings.toolSearch.title")}
-                        description={t("drift.settings.toolSearch.description")}
-                        onClick={() => void switchToolSearch()}
-                    >
-                        <Toggle
-                            label={t("drift.settings.toolSearch.title")}
-                            checked={toolSearch()}
-                            onChange={() => void switchToolSearch()}
-                        />
-                    </SettingsRow>
                     <Show when={error()}>
                         <div class="text-xs text-danger">{error()}</div>
                     </Show>

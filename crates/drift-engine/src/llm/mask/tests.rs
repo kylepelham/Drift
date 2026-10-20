@@ -71,6 +71,7 @@ fn a_request_carries_no_secret_anywhere_and_keeps_signatures_and_file_data() {
         claude: Default::default(),
         cache_hour: false,
         cache_conversation: true,
+        cache_writes_billed: false,
         deferred_tools: Vec::new(),
         tool_references: Default::default(),
         no_tool_calls: false,

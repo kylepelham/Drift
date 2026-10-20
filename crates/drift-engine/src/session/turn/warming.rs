@@ -38,9 +38,6 @@ pub struct PromptCache {
     pub window_minutes: u32,
     /// What a keep-alive request asks; empty takes the default.
     pub prompt: String,
-    /// Anthropic API-key requests cache for an hour instead of five minutes, at twice the write price. A Claude
-    /// subscription caches for an hour whatever this says, except while it draws on extra usage.
-    pub hour_cache: bool,
 }
 
 impl Default for PromptCache {
@@ -50,7 +47,6 @@ impl Default for PromptCache {
             interval_minutes: 4,
             window_minutes: 30,
             prompt: String::new(),
-            hour_cache: false,
         }
     }
 }
