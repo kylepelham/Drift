@@ -1632,6 +1632,8 @@ export const drift = {
     "drift.instructions.source.environment": "Ortam",
     "drift.instructions.source.model": "Model",
     "drift.instructions.source.date": "Tarih",
+    "drift.instructions.source.deferred": "İstek üzerine yüklenen araçlar",
+    "drift.instructions.source.references": "Başvurular",
     "drift.review.open": "Değişiklikleri incele",
     "drift.review.source": "Karşılaştır",
     "drift.review.source.turn": "Bu tur",

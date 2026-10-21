@@ -1624,6 +1624,8 @@ export const drift = {
     "drift.instructions.source.environment": "Miljø",
     "drift.instructions.source.model": "Model",
     "drift.instructions.source.date": "Dato",
+    "drift.instructions.source.deferred": "Værktøjer indlæst efter behov",
+    "drift.instructions.source.references": "Referencer",
     "drift.review.open": "Gennemse ændringer",
     "drift.review.source": "Sammenlign",
     "drift.review.source.turn": "Denne tur",

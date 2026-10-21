@@ -1634,6 +1634,8 @@ export const drift = {
     "drift.instructions.source.environment": "Окружение",
     "drift.instructions.source.model": "Модель",
     "drift.instructions.source.date": "Дата",
+    "drift.instructions.source.deferred": "Инструменты, загружаемые по запросу",
+    "drift.instructions.source.references": "Ссылки",
     "drift.review.open": "Просмотреть изменения",
     "drift.review.source": "Сравнить",
     "drift.review.source.turn": "Этот ход",

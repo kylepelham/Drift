@@ -1627,6 +1627,8 @@ export const drift = {
     "drift.instructions.source.environment": "Середовище",
     "drift.instructions.source.model": "Модель",
     "drift.instructions.source.date": "Дата",
+    "drift.instructions.source.deferred": "Інструменти, що завантажуються на запит",
+    "drift.instructions.source.references": "Посилання",
     "drift.review.open": "Переглянути зміни",
     "drift.review.source": "Порівняти",
     "drift.review.source.turn": "Цей хід",

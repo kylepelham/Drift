@@ -1627,6 +1627,8 @@ export const drift = {
     "drift.instructions.source.environment": "環境",
     "drift.instructions.source.model": "モデル",
     "drift.instructions.source.date": "日付",
+    "drift.instructions.source.deferred": "必要に応じて読み込むツール",
+    "drift.instructions.source.references": "参照",
     "drift.review.open": "変更を確認",
     "drift.review.source": "比較",
     "drift.review.source.turn": "このターン",

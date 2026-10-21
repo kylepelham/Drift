@@ -1604,6 +1604,8 @@ export const drift = {
     "drift.instructions.source.environment": "환경",
     "drift.instructions.source.model": "모델",
     "drift.instructions.source.date": "날짜",
+    "drift.instructions.source.deferred": "요청 시 로드되는 도구",
+    "drift.instructions.source.references": "참조",
     "drift.review.open": "변경 사항 검토",
     "drift.review.source": "비교",
     "drift.review.source.turn": "이번 턴",

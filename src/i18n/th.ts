@@ -1593,6 +1593,8 @@ export const drift = {
     "drift.instructions.source.environment": "สภาพแวดล้อม",
     "drift.instructions.source.model": "โมเดล",
     "drift.instructions.source.date": "วันที่",
+    "drift.instructions.source.deferred": "เครื่องมือที่โหลดเมื่อขอ",
+    "drift.instructions.source.references": "ข้อมูลอ้างอิง",
     "drift.review.open": "ตรวจทานการเปลี่ยนแปลง",
     "drift.review.source": "เปรียบเทียบ",
     "drift.review.source.turn": "รอบนี้",

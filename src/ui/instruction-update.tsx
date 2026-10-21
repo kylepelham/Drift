@@ -7,7 +7,7 @@ import type { Part } from "../engine/parts";
 
 export type InstructionUpdatePart = Extract<Part, { type: "instruction_update" }>;
 
-const named = ["agent", "skills", "subagents", "environment", "model", "date"];
+const named = ["agent", "skills", "subagents", "deferred", "references", "environment", "model", "date"];
 
 /** A source by its key, in the user's language: an MCP server or instruction file by its own name. */
 export function instructionSource(key: string) {

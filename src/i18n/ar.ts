@@ -1588,6 +1588,8 @@ export const drift = {
     "drift.instructions.source.environment": "البيئة",
     "drift.instructions.source.model": "النموذج",
     "drift.instructions.source.date": "التاريخ",
+    "drift.instructions.source.deferred": "الأدوات المحمّلة عند الطلب",
+    "drift.instructions.source.references": "المراجع",
     "drift.review.open": "مراجعة التغييرات",
     "drift.review.source": "مقارنة",
     "drift.review.source.turn": "هذه الجولة",

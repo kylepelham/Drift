@@ -1653,6 +1653,8 @@ export const drift = {
     "drift.instructions.source.environment": "Umgebung",
     "drift.instructions.source.model": "Modell",
     "drift.instructions.source.date": "Datum",
+    "drift.instructions.source.deferred": "Bei Bedarf geladene Werkzeuge",
+    "drift.instructions.source.references": "Verweise",
     "drift.review.open": "Änderungen prüfen",
     "drift.review.source": "Vergleichen",
     "drift.review.source.turn": "Dieser Durchgang",

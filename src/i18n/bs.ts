@@ -1620,6 +1620,8 @@ export const drift = {
     "drift.instructions.source.environment": "Okruženje",
     "drift.instructions.source.model": "Model",
     "drift.instructions.source.date": "Datum",
+    "drift.instructions.source.deferred": "Alati učitani na zahtjev",
+    "drift.instructions.source.references": "Reference",
     "drift.review.open": "Pregledaj izmjene",
     "drift.review.source": "Uporedi",
     "drift.review.source.turn": "Ovaj krug",

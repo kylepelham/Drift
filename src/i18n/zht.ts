@@ -1554,6 +1554,8 @@ export const drift = {
     "drift.instructions.source.environment": "環境",
     "drift.instructions.source.model": "模型",
     "drift.instructions.source.date": "日期",
+    "drift.instructions.source.deferred": "按需載入的工具",
+    "drift.instructions.source.references": "參考",
     "drift.review.open": "審查變更",
     "drift.review.source": "比較",
     "drift.review.source.turn": "本回合",

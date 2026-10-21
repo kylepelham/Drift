@@ -1229,6 +1229,7 @@ test("an instruction update names its sources in the user's language, an MCP ser
     const { instructionSource } = await import("../src/ui/instruction-update");
     expect(instructionSource("base:claude")).toBe("Base prompt");
     expect(instructionSource("skills")).toBe("Skills");
+    expect(instructionSource("deferred")).toBe("Tools loaded on request");
     expect(instructionSource("mcp:context7")).toBe("context7");
     expect(instructionSource("file:docs/AGENTS.md")).toBe("docs/AGENTS.md");
     expect(instructionSource("odd")).toBe("odd");
