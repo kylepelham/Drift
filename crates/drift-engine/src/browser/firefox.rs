@@ -128,8 +128,13 @@ async fn launch(spec: &Spec) -> Result<(tokio::process::Child, Tree, u16), Strin
     std::fs::write(profile.join("user.js"), preferences(&spec.integrated_auth)).map_err(|error| error.to_string())?;
 
     let mut command = tokio::process::Command::new(&spec.program);
+    command.args(["--headless", "--remote-debugging-port", "0", "--no-remote"]);
+    // Firefox's Windows launcher can hand off and exit, taking the BiDi line with it; Camoufox has none.
+    if spec.kind == super::Kind::Firefox {
+        command.arg("--wait-for-browser");
+    }
     command
-        .args(["--headless", "--remote-debugging-port", "0", "--no-remote", "--profile"])
+        .arg("--profile")
         .arg(&profile)
         .arg("about:blank")
         .stdin(Stdio::null())
