@@ -15,6 +15,10 @@ extend-exclude = [
 # Fragments in tests: the stem of "cafe" in Unicode cases and a streamed "hel|lo".
 caf = "caf"
 hel = "hel"
+# A split "compo|ser", the stemmed "queu", and test workspace ids "wrk_".
+ser = "ser"
+queu = "queu"
+wrk = "wrk"
 # Base64 test vectors, and Clojure's edn file extension.
 iy = "iy"
 fo = "fo"

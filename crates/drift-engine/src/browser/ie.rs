@@ -475,7 +475,7 @@ fn parse_size(text: &str) -> (f64, f64) {
     (parts.next().unwrap_or(0.0), parts.next().unwrap_or(0.0))
 }
 
-/// IEDriverServer gives PNGs; the pane and the model take smaller JPEGs.
+/// IEDriverServer gives PNG pictures; the pane and the model take smaller JPEG ones.
 pub(crate) fn to_jpeg(base64_png: &str) -> Result<Shot, String> {
     use base64::Engine as _;
 

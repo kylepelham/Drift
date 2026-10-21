@@ -65,3 +65,7 @@ windows-sys = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper"
 # DirectWrite lists the installed fonts for Settings' font pickers.
 windows = { version = "0.61", features = ["Win32_Graphics_DirectWrite"] }
 webview2-com = "0.38.2"
+
+# rustls-webpki is imported by its library name, webpki, which machete does not map back.
+[package.metadata.cargo-machete]
+ignored = ["rustls-webpki"]
